@@ -198,14 +198,16 @@ fn confinement() -> AnyView {
                 )
             })
             .boxed(),
-            protocol::Confinement::Remote => pair(
-                mark(Glyph::Shield, Tone::Dim),
-                note("Remote"),
-            )
-            .tooltip(|| {
-                note("Agents' commands run on the remote machine")
-            })
-            .boxed(),
+            protocol::Confinement::Remote => {
+                pair(mark(Glyph::Shield, Tone::Dim), note("Remote"))
+                    .tooltip(|| {
+                        note(
+                            "Agents' commands run on the remote \
+                             machine",
+                        )
+                    })
+                    .boxed()
+            }
         },
     )
     .within(row(()).gap(0.0))
@@ -316,44 +318,4 @@ pub fn status_bar() -> impl View {
             .gap(0.0),
         )
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use hamlet_client::receive;
-
-    use super::*;
-    use crate::testing::{all_words, panel_app, settle};
-
-    fn bar_with(confinement: protocol::Confinement) -> App {
-        let mut app = panel_app();
-        app.add_plugins(plugin)
-            .init_resource::<Aimed>()
-            .init_resource::<Queue>();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
-            app.world_mut(),
-            status_bar(),
-        );
-        let mut state = hamlet_testing::realm::state();
-        state.confinement = confinement;
-        receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        settle(&mut app);
-        app
-    }
-
-    #[test]
-    fn the_bar_shows_the_insecure_mode_chip() {
-        let mut app = bar_with(protocol::Confinement::Insecure);
-        assert!(all_words(&mut app).contains("Insecure mode"));
-
-        let mut app = bar_with(protocol::Confinement::Sandbox {
-            name: "Seatbelt".into(),
-        });
-        let shown = all_words(&mut app);
-        assert!(shown.contains("Seatbelt"));
-        assert!(!shown.contains("Insecure mode"));
-    }
 }

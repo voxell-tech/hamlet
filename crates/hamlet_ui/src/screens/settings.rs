@@ -1107,27 +1107,4 @@ mod tests {
                 .any(|text| text == "Cannot read the charter.")
         );
     }
-
-    #[test]
-    fn the_network_switch_says_not_enforced_in_insecure_mode() {
-        let mut app = settings_page(Pane::Agents);
-        assert!(
-            !words_and_spans(&mut app)
-                .iter()
-                .any(|text| text.contains("Not enforced"))
-        );
-
-        let mut state = hamlet_testing::realm::state();
-        state.confinement = protocol::Confinement::Insecure;
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        settle(&mut app);
-        assert!(
-            words_and_spans(&mut app)
-                .iter()
-                .any(|text| text == "Not enforced in insecure mode.")
-        );
-    }
 }

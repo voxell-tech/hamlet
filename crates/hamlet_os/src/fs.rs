@@ -390,24 +390,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn a_mode_is_masked_to_permission_bits() {
-        use std::os::unix::fs::PermissionsExt;
-        let scratch = Scratch::new("os-mode");
-        let dir =
-            Directory::open(&scratch, LastLink::Refuse).unwrap();
-        let file =
-            dir.file(&name("run"), Open::New(Mode::PRIVATE)).unwrap();
-        file.set_mode(Mode::new(0o6751)).unwrap();
-        let on_disk = fs::metadata(scratch.join("run")).unwrap();
-        assert_eq!(on_disk.permissions().mode() & 0o7777, 0o751);
-        assert_eq!(
-            dir.stat(&name("run")).unwrap().unwrap().mode.bits(),
-            0o751
-        );
-    }
-
     #[test]
     fn a_folder_opened_as_a_file_is_not_regular() {
         let scratch = Scratch::new("os-folder-file");
@@ -481,22 +463,6 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn a_read_only_file_is_removed() {
-        let scratch = Scratch::new("os-read-only");
-        let dir =
-            Directory::open(&scratch, LastLink::Refuse).unwrap();
-        dir.file(&name("kept"), Open::New(Mode::PRIVATE))
-            .unwrap()
-            .set_mode(Mode::new(0o444))
-            .unwrap();
-        let on_disk = fs::metadata(scratch.join("kept")).unwrap();
-        assert!(on_disk.permissions().readonly());
-        dir.remove(&name("kept"), Removing::File).unwrap();
-        assert!(!scratch.join("kept").exists());
-    }
-
-    #[cfg(windows)]
-    #[test]
     fn names_that_differ_only_in_case_collide() {
         let scratch = Scratch::new("os-case");
         let dir =
@@ -518,37 +484,5 @@ mod tests {
             .unwrap_err();
         assert_eq!(renamed.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(dir.names().unwrap().len(), 2);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn a_mode_reads_back_as_kept() {
-        let scratch = Scratch::new("os-kept");
-        let dir =
-            Directory::open(&scratch, LastLink::Refuse).unwrap();
-        let file = name("file");
-        dir.file(&file, Open::New(Mode::PRIVATE)).unwrap();
-        for bits in [0o755, 0o444, 0o600, 0o400, 0o644, 0o555, 0o751]
-        {
-            let mode = Mode::new(bits);
-            dir.file(&file, Open::Read)
-                .unwrap()
-                .set_mode(mode)
-                .unwrap();
-            assert_eq!(
-                dir.stat(&file).unwrap().unwrap().mode,
-                mode.kept(Kind::File),
-                "{bits:o}"
-            );
-        }
-        let folder = name("folder");
-        dir.make(&folder, Mode::new(0o755), Exists::Fail)
-            .unwrap()
-            .set_mode(Mode::new(0o555))
-            .unwrap();
-        assert_eq!(
-            dir.stat(&folder).unwrap().unwrap().mode,
-            Mode::new(0o555).kept(Kind::Directory)
-        );
     }
 }

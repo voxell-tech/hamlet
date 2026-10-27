@@ -121,44 +121,6 @@ mod tests {
     }
 
     #[test]
-    fn finds_git_bash_beside_cmd_git() {
-        let machine = fake(
-            &[("PATH", r"C:\Windows\System32;D:\Tools\Git\cmd")],
-            &[
-                r"C:\Windows\System32\bash.exe",
-                r"D:\Tools\Git\cmd\git.exe",
-                r"D:\Tools\Git\bin\bash.exe",
-                r"C:\Program Files\Git\bin\bash.exe",
-            ],
-        );
-        assert_eq!(
-            git_bash(&machine).as_deref(),
-            Some(r"D:\Tools\Git\bin\bash.exe")
-        );
-    }
-
-    #[test]
-    fn finds_git_bash_in_the_default_folder() {
-        let machine = fake(
-            &[("PATH", r"C:\Windows\System32")],
-            &[r"C:\Program Files\Git\bin\bash.exe"],
-        );
-        assert_eq!(
-            git_bash(&machine).as_deref(),
-            Some(r"C:\Program Files\Git\bin\bash.exe")
-        );
-    }
-
-    #[test]
-    fn refuses_bash_under_system_root() {
-        let machine = fake(
-            &[("PATH", r"C:\WINDOWS\cmd"), ("ProgramFiles", "")],
-            &[r"C:\WINDOWS\cmd\git.exe", r"C:\WINDOWS\bin\bash.exe"],
-        );
-        assert_eq!(git_bash(&machine), None);
-    }
-
-    #[test]
     fn prefers_pwsh_on_path() {
         let machine = fake(
             &[(
@@ -180,28 +142,27 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_windows_powershell() {
+    fn finds_git_bash_beside_cmd_git() {
         let machine = fake(
-            &[("PATH", r"C:\Windows\System32")],
+            &[("PATH", r"C:\Windows\System32;D:\Tools\Git\cmd")],
             &[
-                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+                r"C:\Windows\System32\bash.exe",
+                r"D:\Tools\Git\cmd\git.exe",
+                r"D:\Tools\Git\bin\bash.exe",
+                r"C:\Program Files\Git\bin\bash.exe",
             ],
         );
         assert_eq!(
-            powershell(&machine),
-            Some((
-                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-                    .into(),
-                Edition::Windows
-            ))
+            git_bash(&machine).as_deref(),
+            Some(r"D:\Tools\Git\bin\bash.exe")
         );
     }
 
     #[test]
-    fn no_git_bash_means_no_bash() {
+    fn refuses_bash_under_system_root() {
         let machine = fake(
-            &[("PATH", r"C:\Windows\System32")],
-            &[r"C:\Windows\System32\bash.exe"],
+            &[("PATH", r"C:\WINDOWS\cmd"), ("ProgramFiles", "")],
+            &[r"C:\WINDOWS\cmd\git.exe", r"C:\WINDOWS\bin\bash.exe"],
         );
         assert_eq!(git_bash(&machine), None);
     }

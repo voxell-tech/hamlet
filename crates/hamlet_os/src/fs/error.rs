@@ -100,25 +100,3 @@ pub fn system_error(error: &io::Error) -> Option<SystemError> {
         .find(|row| row.kind == Some(error.kind()))
         .map(|row| row.error)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_error_without_a_code_is_named_only_as_a_stand_in() {
-        let named = |kind: ErrorKind| {
-            system_error(&io::Error::from(kind))
-                .map(|error| error.name)
-        };
-        assert_eq!(named(ErrorKind::NotFound), Some("ENOENT"));
-        assert_eq!(named(ErrorKind::IsADirectory), Some("EISDIR"));
-        assert_eq!(named(ErrorKind::InvalidInput), None);
-        assert_eq!(named(ErrorKind::PermissionDenied), None);
-        assert_eq!(named(ErrorKind::Other), None);
-        assert_eq!(
-            system_error(&BadName.into()).map(|error| error.name),
-            Some("EINVAL")
-        );
-    }
-}

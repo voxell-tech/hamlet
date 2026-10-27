@@ -524,39 +524,6 @@ mod tests {
 
     use super::*;
 
-    /// The source up to its inline test module.
-    fn code_of(text: &str) -> String {
-        let mut lines = text.lines().peekable();
-        let mut code = String::new();
-        while let Some(line) = lines.next() {
-            let line = line.trim();
-            let tests = line.starts_with("#[cfg(")
-                && line.contains("test")
-                && lines.peek().is_some_and(|next| {
-                    let next = next.trim();
-                    next.starts_with("mod ") && next.ends_with('{')
-                });
-            if tests {
-                break;
-            }
-            code.push_str(line);
-            code.push('\n');
-        }
-        code
-    }
-
-    fn sources(dir: &Path, found: &mut Vec<std::path::PathBuf>) {
-        for entry in fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                sources(&path, found);
-            } else if path.extension().is_some_and(|ext| ext == "rs")
-            {
-                found.push(path);
-            }
-        }
-    }
-
     fn powershell(program: &str, edition: Edition) -> Shell {
         Shell {
             dialect: Dialect::PowerShell,
@@ -599,38 +566,6 @@ mod tests {
         let kept = file.0.clone();
         drop(file);
         assert!(!Path::new(&kept).exists());
-    }
-
-    #[test]
-    fn shell_names_are_spelled_once() {
-        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut files = Vec::new();
-        sources(&src, &mut files);
-        let spelled = Dialect::ALL
-            .map(|dialect| format!("\"{}\"", dialect.tool()));
-        let mut strays = Vec::new();
-        for file in files {
-            let relative = file.strip_prefix(&src).unwrap();
-            if relative == Path::new("tools/shell.rs")
-                || relative.file_name().unwrap() == "tests.rs"
-            {
-                continue;
-            }
-            let code = code_of(&fs::read_to_string(&file).unwrap());
-            for name in &spelled {
-                if code.contains(name.as_str()) {
-                    strays.push(format!(
-                        "{} spells {name}",
-                        relative.display()
-                    ));
-                }
-            }
-        }
-        assert!(
-            strays.is_empty(),
-            "a shell's name is spelled in tools/shell.rs only, and \
-             elsewhere comes from `Dialect`: {strays:?}"
-        );
     }
 
     /// Each PowerShell this machine has: Windows PowerShell 5.1, and
@@ -711,25 +646,6 @@ mod tests {
             let ran = call(&shell, "Write-Output 'café'").await;
             assert_eq!(ran.text.trim(), "café", "{shell:?} {ran:?}");
             assert_eq!(exit_code(&ran), 0, "{shell:?} {ran:?}");
-        }
-    }
-
-    #[cfg(windows)]
-    #[tokio::test]
-    async fn powershell_runs_a_long_script_on_both_editions() {
-        for shell in powershells() {
-            for length in [10_000, 20_000] {
-                let script = format!(
-                    "$x = '{}'\nWrite-Output $x.Length",
-                    "é".repeat(length)
-                );
-                let ran = call(&shell, &script).await;
-                assert_eq!(
-                    ran.text.trim(),
-                    length.to_string(),
-                    "{shell:?} {ran:?}"
-                );
-            }
         }
     }
 

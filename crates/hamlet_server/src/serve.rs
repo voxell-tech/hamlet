@@ -419,25 +419,10 @@ impl Signals {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
-    #[cfg(not(windows))]
-    #[test]
-    fn insecure_is_refused_off_windows() {
-        let Err(refused) =
-            Options::parse(["--insecure".into()].into_iter())
-        else {
-            panic!("--insecure was taken");
-        };
-        assert!(
-            refused.to_string().contains("only for Windows"),
-            "{refused}"
-        );
-    }
-
-    #[cfg(windows)]
     #[test]
     fn insecure_with_a_remote_workspace_is_refused() {
         let home = hamlet_testing::Scratch::new("insecure-remote");

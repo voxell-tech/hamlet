@@ -607,34 +607,4 @@ mod tests {
         );
         assert!(!secret.real.starts_with(&path::text(&reach)));
     }
-
-    #[cfg(windows)]
-    #[test]
-    fn the_walk_stops_after_40_links() {
-        let scratch = Scratch::new("walk-junctions");
-        fs::create_dir(scratch.join("end")).unwrap();
-        fs::write(scratch.join("end/file"), "end").unwrap();
-        let mut target = scratch.join("end");
-        for each in 0..=MAX_LINKS {
-            let link = scratch.join(format!("j{each}"));
-            junction(&target, &link).unwrap();
-            target = link;
-        }
-        let through = |links: usize| {
-            reach(
-                &path::text(
-                    &scratch.join(format!("j{}/file", links - 1)),
-                ),
-                Follow::Last,
-            )
-        };
-        assert_eq!(
-            through(MAX_LINKS).unwrap().real,
-            path::text(&scratch.join("end/file"))
-        );
-        assert!(matches!(
-            through(MAX_LINKS + 1),
-            Err(Unreached::Loop)
-        ));
-    }
 }

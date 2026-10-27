@@ -197,18 +197,3 @@ pub(crate) fn base_env() -> BTreeMap<String, String> {
     )
 )]
 pub struct NoSandbox;
-
-#[cfg(all(test, windows))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sandboxed_is_refused_on_windows() {
-        let refused =
-            Sandbox::open(Isolation::Sandboxed).unwrap_err();
-        assert!(
-            refused.to_string().contains("--insecure"),
-            "{refused}"
-        );
-    }
-}

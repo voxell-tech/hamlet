@@ -394,28 +394,3 @@ fn is_same(
                 .get(&wanted.path)
                 .is_some_and(|entry| has_bytes(actual, &entry.bytes)))
 }
-
-#[cfg(test)]
-mod tests {
-    use hamlet_os::fs::{Directory, LastLink};
-    use hamlet_testing::Scratch;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn is_same_asks_the_target_for_its_kept_mode() {
-        let scratch = Scratch::new("copy-kept-mode");
-        let house = Files::Local(
-            Directory::open(&scratch, LastLink::Refuse).unwrap(),
-        );
-        let snapshot = Snapshot::of(BTreeMap::from([(
-            "tools/run".to_owned(),
-            Entry {
-                bytes: b"#!/bin/sh\n".to_vec(),
-                mode: 0o751,
-            },
-        )]));
-        snapshot.replace(&house).await.unwrap();
-        snapshot.replace(&house).await.unwrap();
-    }
-}

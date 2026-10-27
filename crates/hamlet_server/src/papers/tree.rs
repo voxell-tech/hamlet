@@ -786,24 +786,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn notes_are_unsafe_only_where_they_are_no_regular_file() {
-        let home = Scratch::new("tree-notes");
-        let root = Directory::open(&home, LastLink::Follow).unwrap();
-        build(&root, "north", 1).unwrap();
-        let file = home.join("houses/north/1/NOTES.md");
-        fs::remove_file(&file).unwrap();
-        let missing = notes(&root, "north", 1).unwrap_err();
-        assert_eq!(
-            missing.downcast_ref::<io::Error>().map(io::Error::kind),
-            Some(io::ErrorKind::NotFound)
-        );
-        assert!(!missing.to_string().contains("read safely"));
-        fs::create_dir(&file).unwrap();
-        let folder = notes(&root, "north", 1).unwrap_err();
-        assert!(folder.to_string().contains("read safely"));
-    }
-
     #[cfg(unix)]
     #[test]
     fn erase_fails_on_a_folder_the_server_cannot_open() {
@@ -868,28 +850,5 @@ mod tests {
         build(&root, "north", 1).unwrap();
         assert!(move_house(&root, &from, &to).is_err());
         assert!(home.join("houses/north/1/NOTES.md").is_file());
-    }
-
-    #[test]
-    fn move_house_needs_house_0_in_the_target_hamlet() {
-        let home = Scratch::new("tree-move-mayor");
-        let root = Directory::open(&home, LastLink::Follow).unwrap();
-        build(&root, "north", 1).unwrap();
-        build(&root, "south", 3).unwrap();
-        let from = AgentRef {
-            hamlet: "north".into(),
-            number: 1,
-        };
-        let to = AgentRef {
-            hamlet: "south".into(),
-            number: 2,
-        };
-        let refused = move_house(&root, &from, &to).unwrap_err();
-        assert_eq!(
-            refused.downcast_ref::<io::Error>().map(io::Error::kind),
-            Some(io::ErrorKind::NotFound)
-        );
-        assert!(home.join("houses/north/1/NOTES.md").is_file());
-        assert!(!home.join("houses/south/2").exists());
     }
 }

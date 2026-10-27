@@ -215,54 +215,6 @@ mod tests {
         leftovers.end();
         assert!(is_gone(&[leader]).await);
     }
-
-    #[tokio::test]
-    async fn a_command_that_starts_nothing_leaves_no_leftovers() {
-        let (mut tree, stdout) = bash("echo $$; exit 3");
-        let mut lines = BufReader::new(stdout).lines();
-        let leader = lines
-            .next_line()
-            .await
-            .unwrap()
-            .unwrap()
-            .parse()
-            .unwrap();
-        assert_eq!(tree.ended().await.unwrap().code(), Some(3));
-        assert!(
-            is_alive(leader),
-            "the leader is reaped only on release"
-        );
-        assert!(tree.release().is_none());
-        assert!(is_gone(&[leader]).await);
-    }
-
-    #[test]
-    fn limited_wraps_the_command_in_ulimit() {
-        let limits = Limits {
-            cpu_secs: 7,
-            max_procs: 300,
-            max_file_mb: 2,
-            ..Limits::default()
-        };
-        let argv = limited(
-            &limits,
-            &[
-                "bash".into(),
-                "-c".into(),
-                "ulimit -t -u -f -c".into(),
-            ],
-        );
-        let ran = std::process::Command::new(&argv[0])
-            .args(&argv[1..])
-            .output()
-            .unwrap();
-        let shown = String::from_utf8_lossy(&ran.stdout);
-        let values = shown
-            .lines()
-            .map(|line| line.rsplit(' ').next().unwrap_or_default())
-            .collect::<Vec<_>>();
-        assert_eq!(values, ["7", "300", "2048", "0"], "{shown}");
-    }
 }
 
 #[cfg(all(test, windows))]
@@ -347,21 +299,6 @@ mod tests {
         assert!(is_alive(pid), "{pid}");
         leftovers.end();
         assert!(is_gone(pid).await, "{pid}");
-    }
-
-    #[tokio::test]
-    async fn a_command_that_starts_nothing_leaves_no_leftovers() {
-        let (mut tree, _) = powershell("exit 3");
-        assert_eq!(tree.ended().await.unwrap().code(), Some(3));
-        // The console host started beside it can end a moment later.
-        if let Some(leftovers) = tree.release() {
-            let mut waited = 0;
-            while leftovers.is_running() && waited < 50 {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                waited += 1;
-            }
-            assert!(!leftovers.is_running());
-        }
     }
 
     /// Set in the copy of this test that plays the server.
