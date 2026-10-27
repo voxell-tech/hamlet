@@ -109,6 +109,11 @@ impl Process {
         sender: UnboundedSender<Received>,
     ) -> Result<Self> {
         let pi = launch.pi;
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "pi is the server's own runtime, not an \
+                      agent's command"
+        )]
         let mut command = Command::new(&pi.node);
         command
             .env_remove("HAMLET_API_KEY")
@@ -125,6 +130,11 @@ impl Process {
         if let Some(faux) = &pi.faux {
             command.arg("--faux").arg(faux);
         }
+        // CREATE_NO_WINDOW: a server `hamlet` starts in the
+        // background has no console, and Windows would open one for
+        // pi.
+        #[cfg(windows)]
+        command.creation_flags(0x0800_0000);
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -28,6 +28,7 @@ faults = []
 harness = ["faults"]
 
 [dependencies]
+hamlet_os.workspace = true
 hamlet_protocol.workspace = true
 hamlet_workspace_wire.workspace = true
 anyhow.workspace = true
@@ -50,9 +51,6 @@ tokio-tungstenite.workspace = true
 unicode-normalization = "0.1"
 url = "2"
 uuid.workspace = true
-
-[target.'cfg(unix)'.dependencies]
-rustix = { workspace = true, features = ["fs", "process"] }
 
 [dev-dependencies]
 hamlet_testing.workspace = true

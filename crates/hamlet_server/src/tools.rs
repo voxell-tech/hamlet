@@ -1,13 +1,13 @@
 //! The tools every agent works with, whether or not its hamlet works
-//! on a folder (C16): `read`, `write`, `edit`, `bash`, `search` and
+//! on a folder (C16): `read`, `write`, `edit`, a shell, `search` and
 //! `find`.
 
-mod bash;
 mod diff;
 mod environment;
 mod files;
 mod find;
 mod search;
+mod shell;
 mod truncate;
 mod walk;
 
@@ -17,17 +17,22 @@ mod tests;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use hamlet_os::fs::path::{self, text};
 use hamlet_protocol::runtime::{
     Diagnostic, DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::sandbox::path::{self, text};
+pub(crate) use self::shell::{Dialect, Shells, runs_once};
 use crate::sandbox::{
-    Env, FileError, Sandbox, SetupError, closed_policy, open_policy,
+    AgentLeftovers, Env, FileError, Sandbox, SetupError,
+    closed_policy, open_policy,
 };
 use crate::scrub::scrub_value;
+
+const FILE_TOOLS: [&str; 5] =
+    ["read", "write", "edit", "search", "find"];
 
 /// The preview of a file the agent may not read as text.
 pub(crate) const UNREADABLE: &str =
@@ -105,8 +110,16 @@ pub(crate) fn diagnostic(
     }
 }
 
-/// The tools a model is offered.
-pub fn specs() -> Vec<ToolSpec> {
+/// The names a hand tool may not take.
+pub(crate) fn reserved_names() -> impl Iterator<Item = String> {
+    specs(&Shells::local())
+        .into_iter()
+        .map(|tool| tool.name)
+        .chain(Dialect::ALL.map(|dialect| dialect.tool().to_owned()))
+}
+
+/// The tools a model is offered, with `shells` among them.
+pub fn specs(shells: &Shells) -> Vec<ToolSpec> {
     let spec =
         |name: &str, description: String, parameters, replay| {
             ToolSpec {
@@ -114,11 +127,12 @@ pub fn specs() -> Vec<ToolSpec> {
                 description,
                 parameters: object(parameters),
                 replay,
+                retain: None,
             }
         };
     let string = |description: &str| json!({"type": "string", "description": description});
     let number = |description: &str| json!({"type": "number", "description": description});
-    vec![
+    let mut specs = vec![
         spec(
             "read",
             "Read the contents of a file. Supports text files and \
@@ -211,27 +225,9 @@ pub fn specs() -> Vec<ToolSpec> {
             }),
             ToolSpecReplay::Unsafe,
         ),
-        spec(
-            "bash",
-            bash::description(),
-            json!({
-                "type": "object",
-                "required": ["command"],
-                "properties": {
-                    "command": string("Bash command to execute"),
-                    "timeout": number(&format!(
-                        "Timeout in seconds, at most {}",
-                        bash::WALL_SECS
-                    )),
-                    "network": {
-                        "type": "boolean",
-                        "description":
-                            "True when the command needs the network.",
-                    },
-                },
-            }),
-            ToolSpecReplay::Unsafe,
-        ),
+    ];
+    specs.extend(shells.specs());
+    specs.extend([
         spec(
             "search",
             search::DESCRIPTION.into(),
@@ -274,7 +270,8 @@ pub fn specs() -> Vec<ToolSpec> {
             }),
             ToolSpecReplay::Safe,
         ),
-    ]
+    ]);
+    specs
 }
 
 fn object(value: Value) -> BTreeMap<String, Value> {
@@ -293,27 +290,43 @@ pub(crate) enum ToolSession {
         /// Whether commands reach the network.
         net: bool,
         sandbox: Sandbox,
+        shells: Shells,
+        leftovers: AgentLeftovers,
     },
     Remote {
         place: Place,
         session: crate::workspace::WorkspaceSession,
+        shells: Shells,
     },
 }
 
 impl ToolSession {
-    pub fn local(place: Place, net: bool, sandbox: Sandbox) -> Self {
+    pub fn local(
+        place: Place,
+        net: bool,
+        sandbox: Sandbox,
+        shells: Shells,
+        leftovers: AgentLeftovers,
+    ) -> Self {
         Self::Local {
             place,
             net,
             sandbox,
+            shells,
+            leftovers,
         }
     }
 
     pub fn remote(
         place: Place,
         session: crate::workspace::WorkspaceSession,
+        shells: Shells,
     ) -> Self {
-        Self::Remote { place, session }
+        Self::Remote {
+            place,
+            session,
+            shells,
+        }
     }
 
     /// The text of the file a `write` to `path` would replace, as its
@@ -325,9 +338,19 @@ impl ToolSession {
         path: &str,
     ) -> Result<Option<String>, FileError> {
         match self {
-            Self::Local { place, sandbox, .. } => {
-                let Ok(mut env) =
-                    environment::Local::open(*sandbox, place).await
+            Self::Local {
+                place,
+                sandbox,
+                leftovers,
+                ..
+            } => {
+                let Ok(mut env) = environment::Local::open(
+                    *sandbox,
+                    place,
+                    false,
+                    leftovers.clone(),
+                )
+                .await
                 else {
                     return Ok(Some(UNREADABLE.into()));
                 };
@@ -376,39 +399,54 @@ impl ToolSession {
                 place,
                 net,
                 sandbox,
-            } => match tool {
-                "bash" => {
-                    bash::run(
-                        sandbox, place, *net, secrets, arguments,
-                    )
-                    .await
-                }
-                "read" | "write" | "edit" | "search" | "find" => {
-                    match environment::Local::open(*sandbox, place)
+                shells,
+                leftovers,
+            } if is_built_in(shells, tool) => {
+                let net = *net && shells.named(tool).is_some();
+                match environment::Local::open(
+                    *sandbox,
+                    place,
+                    net,
+                    leftovers.clone(),
+                )
+                .await
+                {
+                    Ok(mut env) => {
+                        reach_run(
+                            &mut env, shells, place, secrets, tool,
+                            arguments,
+                        )
                         .await
-                    {
-                        Ok(mut env) => {
-                            file_run(&mut env, tool, arguments).await
-                        }
-                        Err(unopened) => Outcome::thrown(
-                            "tool_error",
-                            unopened.to_string(),
-                        ),
                     }
+                    Err(unopened) => Outcome::thrown(
+                        "tool_error",
+                        unopened.to_string(),
+                    ),
                 }
-                _ => {
-                    crate::hand::run(
-                        sandbox,
-                        &place.home,
-                        *net,
-                        secrets,
-                        tool,
-                        arguments,
-                    )
-                    .await
-                }
-            },
-            Self::Remote { place, session } => {
+            }
+            Self::Local {
+                place,
+                net,
+                sandbox,
+                leftovers,
+                ..
+            } => {
+                crate::hand::run(
+                    sandbox,
+                    &place.home,
+                    *net,
+                    leftovers,
+                    secrets,
+                    tool,
+                    arguments,
+                )
+                .await
+            }
+            Self::Remote {
+                place,
+                session,
+                shells,
+            } => {
                 // The library is read once for all the call's
                 // requests.
                 let library = place.home.join("library");
@@ -416,32 +454,21 @@ impl ToolSession {
                     Err(failure) => {
                         Outcome::thrown("tool_error", failure.message)
                     }
-                    Ok(session) => {
+                    Ok(session) if is_built_in(shells, tool) => {
                         let mut env =
                             environment::Remote::new(session);
-                        match tool {
-                            "bash" => {
-                                bash::remote(
-                                    &mut env, place, secrets,
-                                    arguments,
-                                )
-                                .await
-                            }
-                            "read" | "write" | "edit" | "search"
-                            | "find" => {
-                                file_run(&mut env, tool, arguments)
-                                    .await
-                            }
-                            // Hand tools run on the host, which a
-                            // remote
-                            // workspace never falls back to.
-                            _ => Outcome::failed(format!(
-                                "The tool {tool} was added by hand \
-                                 and does not run in a remote \
-                                 workspace."
-                            )),
-                        }
+                        reach_run(
+                            &mut env, shells, place, secrets, tool,
+                            arguments,
+                        )
+                        .await
                     }
+                    // Hand tools run on the host, which a remote
+                    // workspace never falls back to.
+                    Ok(_) => Outcome::failed(format!(
+                        "The tool {tool} was added by hand and does \
+                         not run in a remote workspace."
+                    )),
                 }
             }
         };
@@ -450,13 +477,25 @@ impl ToolSession {
     }
 }
 
-async fn file_run(
+fn is_built_in(shells: &Shells, tool: &str) -> bool {
+    shells.named(tool).is_some() || FILE_TOOLS.contains(&tool)
+}
+
+/// The built-in tool `tool` on `env`.
+async fn reach_run(
     env: &mut impl environment::Reach,
+    shells: &Shells,
+    place: &Place,
+    secrets: &[String],
     tool: &str,
     arguments: &Map<String, Value>,
 ) -> Outcome {
+    if let Some(shell) = shells.named(tool) {
+        return shell::run(shell, env, place, secrets, arguments)
+            .await;
+    }
     match tool {
-        "read" => files::read(env, arguments).await,
+        "read" => files::read(env, arguments, shells.dialect()).await,
         "write" => files::write(env, arguments).await,
         "edit" => files::edit(env, arguments).await,
         "search" => search::run(env, arguments).await,

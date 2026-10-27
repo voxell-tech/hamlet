@@ -94,7 +94,7 @@ struct Preparing {
     kept: record::Agent,
     gone: record::Agent,
     args: Merge,
-    root: std::fs::File,
+    root: hamlet_os::fs::Directory,
     mine: Files,
     theirs: Files,
 }
@@ -644,7 +644,7 @@ pub(super) async fn operation(
 /// back.
 pub(super) struct Applying {
     merge: Applied,
-    root: std::fs::File,
+    root: hamlet_os::fs::Directory,
     house: Files,
 }
 

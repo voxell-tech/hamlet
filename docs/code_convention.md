@@ -67,9 +67,13 @@ on the module, with `expect(unsafe_code, reason = "...")`; when the
 module builds on every OS but only one OS's build has unsafe code, the
 attribute is a `cfg_attr` for that OS. Every unsafe block carries a
 `// SAFETY:` comment. Those modules are the CLI's `process.rs` and
-Windows console in `terminal.rs`, `hamlet_desktop`'s `app_icon.rs` and
-the workspace's `supervise.rs`. Elsewhere, system calls go through
-rustix.
+Windows console in `terminal.rs`, `hamlet_desktop`'s `app_icon.rs`,
+the workspace's `supervise.rs` and `hamlet_os`'s `fs/sys/windows.rs`
+and `process/sys/windows.rs`.
+The server's system calls go through `hamlet_os`
+([ADR 0009](adr/0009-system-calls-that-differ-by-os-go-through-hamlet-os.md)),
+and `crates/hamlet_server/clippy.toml` refuses `Command::new`
+there. Elsewhere, system calls go through rustix.
 
 ## Test our own code, and only what can break
 

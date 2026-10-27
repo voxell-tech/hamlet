@@ -5,13 +5,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use hamlet_os::fs::path::{resolve, text};
 use hamlet_protocol::runtime::{
     DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
 use serde_json::{Map, Value, json};
 
-use crate::sandbox::path::{resolve, text};
-use crate::sandbox::{Env, ExecError, LimitError, Policy, Sandbox};
+use crate::sandbox::{
+    AgentLeftovers, Env, ExecError, Launch, LimitError, Policy,
+    Sandbox,
+};
 use crate::tools::{Outcome, diagnostic};
 
 /// A loaded manifest and the program its tool runs.
@@ -80,11 +83,12 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
     let mut entries =
         entries.filter_map(Result::ok).collect::<Vec<_>>();
     entries.sort_by_key(std::fs::DirEntry::file_name);
-    let reserved = crate::tools::specs()
-        .into_iter()
-        .chain(crate::harness::tools::specs())
-        .map(|tool| tool.name)
-        .chain(["powershell".into()])
+    let reserved = crate::tools::reserved_names()
+        .chain(
+            crate::harness::tools::specs()
+                .into_iter()
+                .map(|tool| tool.name),
+        )
         .chain(crate::society::SocietyTool::names().map(String::from))
         .collect::<BTreeSet<_>>();
     let mut names = BTreeSet::new();
@@ -171,7 +175,7 @@ fn parse(
             .map(|path| PathBuf::from(resolve(&text(dir), path)))
             .collect::<Vec<_>>()
     };
-    let mut env = Sandbox::platform().base_env();
+    let mut env = crate::sandbox::base_env();
     env.extend(sandbox["env"].as_object().into_iter().flatten().map(
         |(key, value)| {
             (
@@ -215,6 +219,7 @@ fn parse(
                 .into_iter()
                 .collect::<BTreeMap<_, _>>(),
             replay: ToolSpecReplay::Unsafe,
+            retain: None,
         },
         dir: dir.to_owned(),
         exec,
@@ -228,6 +233,7 @@ pub(crate) async fn run(
     sandbox: &Sandbox,
     root: &Path,
     net: bool,
+    leftovers: &AgentLeftovers,
     secrets: &[String],
     name: &str,
     args: &Map<String, Value>,
@@ -272,24 +278,16 @@ pub(crate) async fn run(
             return Outcome::thrown("tool_error", error.message);
         }
     };
-    let quote =
-        |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
-    let command = format!(
-        "exec {} < {}",
-        manifest
-            .exec
-            .iter()
-            .map(|arg| quote(arg))
-            .collect::<Vec<_>>()
-            .join(" "),
-        quote(&file)
-    );
     let mut output = String::new();
     let ran = env
         .exec(
-            &command,
+            Launch::Program {
+                argv: &manifest.exec,
+                input: &file,
+            },
             Duration::from_secs(wall),
             secrets,
+            leftovers,
             &mut |part| {
                 if output.len() < 64 * 1024 {
                     let mut end =
@@ -332,7 +330,7 @@ pub(crate) async fn run(
         details: Some(Map::from_iter([
             ("exitCode".into(), json!(exit)),
             ("policy".into(), json!(env.policy_hash())),
-            ("degraded".into(), json!(false)),
+            ("degraded".into(), env.degraded()),
         ])),
         diagnostics,
     }

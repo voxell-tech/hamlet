@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Result, bail, ensure};
+use hamlet_os::fs::TreePath;
 use hamlet_workspace_wire::{
     Bytes, Code, Info, InitHouse, Kind, List, MAX_FILE, Mkdir, Read,
     Remove, SetMode, TreeEntry, TreeKind, TreeList, TreeWrite, Write,
@@ -144,7 +145,7 @@ impl Folder {
         for entry in &entries {
             ensure!(
                 (entry.path == "."
-                    || super::files::is_valid(&entry.path))
+                    || TreePath::parse(&entry.path).is_ok())
                     && kinds
                         .insert(entry.path.as_str(), entry.kind)
                         .is_none(),
@@ -327,7 +328,7 @@ pub(super) async fn skills(session: &WorkspaceSession) -> Vec<Skill> {
     let mut found = Vec::new();
     for entry in entries {
         if entry.kind != Kind::Directory
-            || !super::files::is_valid(&entry.name)
+            || TreePath::parse(&entry.name).is_err()
         {
             continue;
         }

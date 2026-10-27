@@ -1,9 +1,10 @@
 //! Shelves of skills: an agent's own and the library every agent
 //! shares (C8, H33).
 
-use std::fs::File;
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::Path;
+
+use hamlet_os::fs::{Directory, Kind, LastLink, Name, Open};
 
 /// A skill as the front matter of its `SKILL.md` tells of it.
 pub(crate) struct Skill {
@@ -13,14 +14,12 @@ pub(crate) struct Skill {
     pub folder: String,
 }
 
-/// The skills of the house at `house` on this machine, none where it
-/// is not a folder.
-pub(crate) fn house_skills(house: &Path) -> Vec<Skill> {
-    if is_real_dir(house) {
-        shelf(&house.join("skills"))
-    } else {
-        Vec::new()
-    }
+pub(crate) fn house_skills(house: &Directory) -> Vec<Skill> {
+    Name::new("skills")
+        .ok()
+        .and_then(|name| house.child(&name).ok())
+        .map(|shelf| listed(&shelf))
+        .unwrap_or_default()
 }
 
 pub(super) fn skills_text(house: &Path, found: &[Skill]) -> String {
@@ -50,7 +49,7 @@ pub(super) fn skills_text(house: &Path, found: &[Skill]) -> String {
 }
 
 /// The folders of the house's skills.
-pub(super) fn names(house: &Path) -> Vec<String> {
+pub(super) fn names(house: &Directory) -> Vec<String> {
     house_skills(house)
         .into_iter()
         .map(|skill| skill.folder)
@@ -107,23 +106,27 @@ fn is_real_dir(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
 }
 
-/// The skills of `dir`, one folder each whose `SKILL.md` is a
-/// regular file, in the folders' order.
 pub(crate) fn shelf(dir: &Path) -> Vec<Skill> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut found = entries
-        .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-        .filter_map(|e| {
-            let folder = e.file_name().into_string().ok()?;
-            let path = e.path().join("SKILL.md");
-            std::fs::symlink_metadata(&path)
-                .is_ok_and(|m| m.is_file())
-                .then(|| {
-                    skill(folder, &paper(&path).unwrap_or_default())
-                })
+    Directory::open(dir, LastLink::Follow)
+        .map(|shelf| listed(&shelf))
+        .unwrap_or_default()
+}
+
+/// The skills of `shelf`, one folder each whose `SKILL.md` is a
+/// regular file, in the folders' order.
+fn listed(shelf: &Directory) -> Vec<Skill> {
+    let mut found = shelf
+        .names()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|name| {
+            let text = name.to_str()?.to_owned();
+            let folder = shelf.child(&name).ok()?;
+            let paper =
+                folder.stat(&Name::new(PAPER).ok()?).ok()??;
+            (paper.kind == Kind::File).then(|| {
+                skill(text, &read_paper(&folder).unwrap_or_default())
+            })
         })
         .collect::<Vec<_>>();
     found.sort_by(|a, b| a.folder.cmp(&b.folder));
@@ -160,33 +163,72 @@ pub(crate) fn skill(folder: String, text: &str) -> Skill {
     }
 }
 
-/// The first 64 KiB of a regular file, opened without following a
-/// final link.
-fn paper(path: &Path) -> std::io::Result<String> {
-    let file = open(path)?;
-    if !file.metadata()?.is_file() {
-        return Ok(String::new());
-    }
+const PAPER: &str = "SKILL.md";
+
+fn read_paper(folder: &Directory) -> io::Result<String> {
+    let file = folder.file(&Name::new(PAPER)?, Open::Read)?;
     let mut bytes = Vec::new();
-    file.take(64 * 1024).read_to_end(&mut bytes)?;
+    file.into_file().take(64 * 1024).read_to_end(&mut bytes)?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-#[cfg(unix)]
-fn open(path: &Path) -> std::io::Result<File> {
-    use rustix::fs::{Mode, OFlags};
-    Ok(rustix::fs::open(
-        path,
-        OFlags::RDONLY
-            | OFlags::NOFOLLOW
-            | OFlags::NONBLOCK
-            | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?
-    .into())
-}
+#[cfg(test)]
+mod tests {
+    use hamlet_testing::Scratch;
 
-#[cfg(not(unix))]
-fn open(path: &Path) -> std::io::Result<File> {
-    File::open(path)
+    use crate::prompt::{Subject, prepare};
+    use crate::service::Service;
+    use crate::{Home, Overrides};
+
+    #[tokio::test]
+    async fn lists_no_skills_through_a_linked_shelf() {
+        let dir = Scratch::new("prompt-linked-shelf");
+        let mut service = Service::new(
+            Home::open(&dir).unwrap(),
+            Overrides::none(true),
+        )
+        .unwrap();
+        let house =
+            service.home.layout().root().join("houses/home/0");
+        std::fs::remove_dir(house.join("skills")).unwrap();
+        let elsewhere = dir.join("elsewhere");
+        std::fs::create_dir_all(elsewhere.join("forecast")).unwrap();
+        std::fs::write(
+            elsewhere.join("forecast/SKILL.md"),
+            "---\nname: forecast\ndescription: Get the \
+             forecast\n---\n",
+        )
+        .unwrap();
+        hamlet_testing::links::symlink(
+            &elsewhere,
+            house.join("skills"),
+        )
+        .unwrap();
+
+        let subject = Subject {
+            hamlet: "home",
+            number: 0,
+            model: Some("faux::faux-1"),
+            instructions: &[],
+            task: None,
+            conversation: None,
+        };
+        let sections = prepare(&mut service, &subject)
+            .unwrap()
+            .render()
+            .await
+            .unwrap();
+        let skills = sections.iter().find(|s| s.name == "skills");
+        assert_eq!(
+            skills.map(|s| s.text.as_str()),
+            Some("# Skills\n(none yet)")
+        );
+        let state = crate::state::state(&mut service, 0, 0).unwrap();
+        let listed = state
+            .agents
+            .iter()
+            .map(|agent| agent.skills.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(listed, [Vec::<String>::new()]);
+    }
 }

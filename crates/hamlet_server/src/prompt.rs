@@ -7,6 +7,8 @@ pub(crate) mod shelf;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use hamlet_os::fs::Directory;
+use hamlet_protocol::client::Confinement;
 use hamlet_protocol::runtime::Section;
 use serde_json::Value;
 
@@ -20,6 +22,9 @@ use crate::spend::{books, money};
 const SYSTEM: &str = if cfg!(target_os = "macos") {
     "System: macOS, whose shell tools are the BSD ones. Flags that \
      only GNU has, such as `grep -P`, `cat -A` and `sed -r`, fail."
+} else if cfg!(windows) {
+    "System: Windows. `powershell` runs PowerShell. `bash`, where it \
+     is offered, is Git Bash, which writes C:\\Users as /c/Users."
 } else {
     "System: Linux."
 };
@@ -56,8 +61,6 @@ pub(crate) struct Subject<'a> {
     /// The model the conversation runs, as the chief's limits name
     /// it, if any.
     pub model: Option<&'a str>,
-    /// The platform sandbox's name, e.g. "bubblewrap".
-    pub sandbox: &'a str,
     /// The instructions of the hamlet's agents, in the record's
     /// order of agents and each agent's oldest first.
     pub instructions: &'a [Instruction],
@@ -85,8 +88,6 @@ pub(crate) struct Prepared {
     pub sections: Vec<Section>,
     /// The house as the agent's tools see it.
     house: PathBuf,
-    /// The house on this machine, where it is here.
-    local: PathBuf,
     work: crate::documents::Work,
     /// Whether the hamlet's folder is a remote one its agents share.
     shared: bool,
@@ -100,7 +101,6 @@ impl Prepared {
         Self {
             sections,
             house: Default::default(),
-            local: Default::default(),
             work: Default::default(),
             shared: false,
             reader: None,
@@ -125,7 +125,7 @@ impl Prepared {
                     "skills" => {
                         section.text = shelf::skills_text(
                             &self.house,
-                            &reader.skills(&self.local).await,
+                            &reader.skills().await,
                         );
                     }
                     "notes" => {
@@ -205,7 +205,6 @@ pub(crate) fn prepare(
     Ok(Prepared {
         sections,
         house,
-        local,
         work,
         shared: service.houses.machine().is_some(),
         reader: Some(reader),
@@ -355,12 +354,12 @@ pub(crate) fn budget(
     ))
 }
 
-/// The whole prompt as the model reads it.
 /// The folders of the skills in `house`, as a client lists them.
-pub(crate) fn skill_names(house: &Path) -> Vec<String> {
+pub(crate) fn skill_names(house: &Directory) -> Vec<String> {
     shelf::names(house)
 }
 
+/// The whole prompt as the model reads it.
 pub(crate) fn text(sections: &[Section]) -> String {
     sections
         .iter()
@@ -388,15 +387,34 @@ fn machine(
     subject: &Subject,
     house: &Path,
 ) -> Result<String> {
-    if let Some(machine) = service.houses.machine() {
-        return Ok(machine.into());
-    }
-    let net = if service.settings()?.allow_net {
-        "on"
+    let confinement = service.houses.confinement();
+    let sandbox = match &confinement {
+        Confinement::Remote => {
+            return Ok(service
+                .houses
+                .machine()
+                .unwrap_or_default()
+                .into());
+        }
+        Confinement::Insecure => {
+            "none. Commands are not confined: they reach whatever \
+             the chief's account can"
+        }
+        Confinement::Sandbox { name } => name,
+    };
+    let enforced = if confinement.enforces_network() {
+        ""
     } else {
-        "off unless a chief allows it; a command that needs it is \
-         held until the chief answers, so set `network` to true on \
-         it and carry on"
+        ", and nothing enforces it"
+    };
+    let net = if service.settings()?.allow_net {
+        "on".to_owned()
+    } else {
+        format!(
+            "off unless a chief allows it{enforced}; a command that \
+             needs it is held until the chief answers, so set \
+             `network` to true on it and carry on"
+        )
     };
     let model = subject
         .model
@@ -409,9 +427,8 @@ fn machine(
         format!("\nTools that failed to load:\n{}", faults.join("\n"))
     };
     Ok(format!(
-        "# Environment\nSandbox: {}. Network for tools: \
+        "# Environment\nSandbox: {sandbox}. Network for tools: \
          {net}.{model}{failed}\n{SYSTEM}\nWorkspace: {}",
-        subject.sandbox,
         house.display()
     ))
 }
@@ -438,12 +455,12 @@ async fn project(
                 .into()
         } else {
             format!(
-                "- `bash` runs with {folder} as its working \
-                 directory. A command may write there and in your \
-                 own workspace, and nowhere else. It can read the \
-                 rest of the machine, so the project's own tools \
-                 (cargo, npm, make and the like) run as they do for \
-                 the chief."
+                "- A command runs with {folder} as its working \
+                 directory. It may write there and in your own \
+                 workspace, and nowhere else. It can read the rest \
+                 of the machine, so the project's own tools (cargo, \
+                 npm, make and the like) run as they do for the \
+                 chief."
             )
         },
         "- `read`, `write` and `edit` take a path relative to the \

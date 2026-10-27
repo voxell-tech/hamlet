@@ -66,11 +66,15 @@ struct Driver {
 )]
 async fn drive(dir: PathBuf, faux: Option<PathBuf>) -> Result<()> {
     let mut credentials = Credentials::open(&dir)?;
-    let overrides = Overrides::from_env(faux.is_some())?;
+    let overrides = Overrides::from_env(
+        faux.is_some(),
+        crate::sandbox::Isolation::Sandboxed,
+    )?;
     let mut service =
         Service::new(Home::open(&dir)?, overrides.clone())?;
     let layout = service.home.layout().clone();
-    let mut config = Config::from_env(faux, overrides)?;
+    let mut config =
+        Config::from_env(faux, overrides, &service.houses.shells())?;
     for tool in &mut config.tools {
         if is_listed("HAMLET_UNSAFE_TOOLS", &tool.name) {
             tool.replay = ToolSpecReplay::Unsafe;

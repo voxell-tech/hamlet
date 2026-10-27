@@ -18,7 +18,7 @@ use hamlet_client::Connection;
 use hamlet_client::chats::{Status, Usage};
 use hamlet_client::connection::Contact;
 use hamlet_client::realm::{
-    HOME, HamletId, Sandbox, Settings, Treasury,
+    Confinement, HOME, HamletId, Settings, Treasury,
 };
 use hamlet_protocol::client as protocol;
 
@@ -175,6 +175,45 @@ fn fact(
     .boxed()
 }
 
+/// What confines the agents' commands. In insecure mode nothing
+/// does, and the bar says so in the critical tone.
+fn confinement() -> AnyView {
+    keyed(
+        resource::<Confinement, _>(|c| c.0.clone()),
+        |confinement| match confinement {
+            protocol::Confinement::Sandbox { name } => pair(
+                mark(Glyph::Shield, Tone::Dim),
+                note(name.clone()),
+            )
+            .tooltip(|| note("The sandbox agents' commands run in"))
+            .boxed(),
+            protocol::Confinement::Insecure => pair(
+                mark(Glyph::Shield, Tone::Critical),
+                told("Insecure mode", Tone::Critical),
+            )
+            .tooltip(|| {
+                note(
+                    "Agents' commands run without a sandbox, with \
+                     this account's full reach.",
+                )
+            })
+            .boxed(),
+            protocol::Confinement::Remote => {
+                pair(mark(Glyph::Shield, Tone::Dim), note("Remote"))
+                    .tooltip(|| {
+                        note(
+                            "Agents' commands run on the remote \
+                             machine",
+                        )
+                    })
+                    .boxed()
+            }
+        },
+    )
+    .within(row(()).gap(0.0))
+    .boxed()
+}
+
 /// The number that wait for the chief, behind a bell. Nothing while
 /// none does.
 fn waiting() -> impl View {
@@ -210,13 +249,7 @@ pub fn status_bar() -> impl View {
             column((
                 hairline(palette.seam),
                 row((
-                    pair(
-                        mark(Glyph::Shield, Tone::Dim),
-                        note(resource::<Sandbox, _>(|s| s.0.clone())),
-                    )
-                    .tooltip(|| {
-                        note("The sandbox agents' commands run in")
-                    }),
+                    confinement(),
                     fact(
                         Glyph::Chip,
                         |bar| bar.model.clone(),

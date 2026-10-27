@@ -5,41 +5,13 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use hamlet_os::fs::path::{self, text};
+use hamlet_os::fs::{MAX_LINKS, cased};
+use hamlet_os::process::Limits;
 use sha2::{Digest, Sha256};
-
-use super::path::{self, text};
-
-/// The resources one command may use.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Limits {
-    /// Seconds of CPU time.
-    pub cpu_secs: u64,
-    /// Seconds of wall time.
-    pub wall_secs: u64,
-    /// Processes of the user at once.
-    pub max_procs: u64,
-    /// The largest file written, in MiB.
-    pub max_file_mb: u64,
-}
-
-impl Default for Limits {
-    /// A command also never dumps core.
-    fn default() -> Self {
-        Self {
-            cpu_secs: 60,
-            wall_secs: 120,
-            max_procs: 4096,
-            max_file_mb: 512,
-        }
-    }
-}
 
 /// The longest wall time in seconds that a command's timer takes.
 const MAX_WALL_SECS: u64 = 2_147_483;
-
-/// The most symbolic links Linux follows in one path, more than macOS
-/// does.
-pub(super) const MAX_LINKS: usize = 40;
 
 /// The reads, writes and reach of a sandboxed command.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -156,13 +128,36 @@ pub fn policy_hash(policy: &Policy, sandbox: &str) -> String {
 /// The host variables a normal process needs.
 pub(crate) fn host_env() -> BTreeMap<String, String> {
     let mut env = BTreeMap::from([("LANG".into(), "C.UTF-8".into())]);
-    for name in ["PATH", "HOME", "LANG"] {
+    // Git Bash would rewrite an argument that looks like a POSIX path
+    // for a Windows program.
+    #[cfg(windows)]
+    env.insert("MSYS_NO_PATHCONV".into(), "1".into());
+    for name in ["PATH", "HOME", "LANG"]
+        .into_iter()
+        .chain(WINDOWS.iter().copied())
+    {
         if let Ok(value) = std::env::var(name) {
             env.insert(name.into(), value);
         }
     }
     env
 }
+
+/// The variables Windows programs read, each where it is set.
+const WINDOWS: &[&str] = if cfg!(windows) {
+    &[
+        "SystemRoot",
+        "PATHEXT",
+        "ComSpec",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "APPDATA",
+        "PSModulePath",
+    ]
+} else {
+    &[]
+};
 
 /// True when `path` is `parent` or lies inside it.
 pub fn is_within(path: &Path, parent: &Path) -> bool {
@@ -229,14 +224,6 @@ pub(crate) fn canon_text(path: &str) -> String {
         }
     }
     cased(&real)
-}
-
-/// `real`, a path without symbolic links, with each name in the case
-/// its volume keeps.
-pub(super) fn cased(real: &str) -> String {
-    fs::canonicalize(real)
-        .map(|path| text(&path))
-        .unwrap_or_else(|_| real.to_owned())
 }
 
 /// A directory root's canonical spelling. Links and special files are

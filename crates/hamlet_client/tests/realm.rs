@@ -35,7 +35,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     let protocol::ServerMessage::State(state) = &recorded[0] else {
         panic!("hello receives a whole state");
     };
-    let sandbox = state.sandbox.clone();
+    let confinement = state.confinement.clone();
     for message in recorded {
         receive(world, message);
     }
@@ -69,7 +69,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     assert_eq!(activity.doing, Doing::Unknown);
     assert_eq!(world.get::<Lived>(agent).unwrap().until, None);
     assert_eq!(world.resource::<Chief>().0, "chief");
-    assert_eq!(world.resource::<Sandbox>().0, sandbox);
+    assert_eq!(world.resource::<Confinement>().0, confinement);
     assert_eq!(world.resource::<Settings>().0.model, "faux::faux-1");
     assert_eq!(world.resource::<Providers>().0[0].name, "faux");
     assert!(world.resource::<Grants>().0.is_empty());

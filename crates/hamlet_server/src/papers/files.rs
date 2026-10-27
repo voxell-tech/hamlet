@@ -2,9 +2,9 @@
 //! the server owns. Local work runs off the async runtime.
 
 use std::collections::BTreeMap;
-use std::fs::File;
 
 use anyhow::{Result, ensure};
+use hamlet_os::fs::{Directory, Kind, Missing, Mode, Name, TreePath};
 use hamlet_workspace_wire::{TreeEntry, TreeKind};
 use sha2::{Digest, Sha256};
 
@@ -12,25 +12,13 @@ use super::remote::Folder;
 use super::tree::{self, Entry};
 
 pub(crate) enum Files {
-    Local(File),
+    Local(Directory),
     Remote(Folder),
 }
 
-/// Whether `path` is relative, with ordinary names only.
-pub(super) fn is_valid(path: &str) -> bool {
-    !path.is_empty()
-        && path.split('/').all(|part| {
-            !part.is_empty()
-                && ![".", ".."].contains(&part)
-                && !part.contains(['\\', '\0'])
-        })
-}
-
-/// Runs `work` on a copy of the descriptor `dir` on a blocking
-/// thread.
 async fn blocking<T: Send + 'static>(
-    dir: &File,
-    work: impl FnOnce(&File) -> Result<T> + Send + 'static,
+    dir: &Directory,
+    work: impl FnOnce(&Directory) -> Result<T> + Send + 'static,
 ) -> Result<T> {
     let dir = dir.try_clone()?;
     tokio::task::spawn_blocking(move || work(&dir)).await?
@@ -43,13 +31,18 @@ impl Files {
         create: bool,
     ) -> Result<Self> {
         ensure!(
-            is_valid(name) && !name.contains('/'),
+            Name::in_tree(name).is_ok(),
             "invalid tree directory"
         );
         let name = name.to_owned();
+        let missing = if create {
+            Missing::Make(Mode::FOLDER)
+        } else {
+            Missing::Fail
+        };
         match self {
             Self::Local(root) => blocking(root, move |root| {
-                tree::directory(root, &name, create)
+                Ok(tree::directory(root, &name, missing)?)
             })
             .await
             .map(Self::Local),
@@ -63,14 +56,15 @@ impl Files {
     /// What `path` names, a link itself rather than what it names,
     /// or `None` where nothing is.
     pub async fn kind(&self, path: &str) -> Result<Option<TreeKind>> {
-        ensure!(is_valid(path), "invalid tree path");
-        let path = path.to_owned();
+        let tree_path = TreePath::parse(path)?;
         match self {
             Self::Local(root) => {
-                blocking(root, move |root| tree::kind(root, &path))
-                    .await
+                blocking(root, move |root| {
+                    tree::kind(root, &tree_path)
+                })
+                .await
             }
-            Self::Remote(folder) => folder.kind(&path).await,
+            Self::Remote(folder) => folder.kind(path).await,
         }
     }
 
@@ -98,30 +92,27 @@ impl Files {
         path: &str,
         cap: u64,
     ) -> Result<Vec<u8>> {
-        ensure!(is_valid(path), "invalid tree path");
-        let path = path.to_owned();
+        let tree_path = TreePath::parse(path)?;
         match self {
             Self::Local(root) => {
                 blocking(root, move |root| {
-                    tree::read_file(root, &path, cap)
+                    tree::read_file(root, &tree_path, cap)
                 })
                 .await
             }
-            Self::Remote(folder) => {
-                folder.read_file(&path, cap).await
-            }
+            Self::Remote(folder) => folder.read_file(path, cap).await,
         }
     }
 
     /// Writes a new file with its mode, making missing folders. A
     /// file already there must hold the same bytes.
     pub async fn put(&self, path: &str, entry: &Entry) -> Result<()> {
-        ensure!(is_valid(path), "invalid tree path");
+        let tree_path = TreePath::parse(path)?;
         match self {
             Self::Local(root) => {
-                let (path, entry) = (path.to_owned(), entry.clone());
+                let entry = entry.clone();
                 blocking(root, move |root| {
-                    tree::put(root, &path, &entry)
+                    tree::put(root, &tree_path, &entry)
                 })
                 .await
             }
@@ -131,14 +122,15 @@ impl Files {
 
     /// Makes the new folder `path` in an existing one.
     pub async fn mkdir(&self, path: &str) -> Result<()> {
-        ensure!(is_valid(path), "invalid tree path");
-        let path = path.to_owned();
+        let tree_path = TreePath::parse(path)?;
         match self {
             Self::Local(root) => {
-                blocking(root, move |root| tree::mkdir(root, &path))
-                    .await
+                blocking(root, move |root| {
+                    tree::mkdir(root, &tree_path)
+                })
+                .await
             }
-            Self::Remote(folder) => folder.mkdir(&path).await,
+            Self::Remote(folder) => folder.mkdir(path).await,
         }
     }
 
@@ -148,18 +140,19 @@ impl Files {
         path: &str,
         mode: u32,
     ) -> Result<()> {
-        ensure!(path == "." || is_valid(path), "invalid tree path");
-        let path = path.to_owned();
+        let tree_path = match path {
+            "." => None,
+            path => Some(TreePath::parse(path)?),
+        };
         match self {
             Self::Local(root) => {
-                blocking(root, move |root| {
-                    tree::set_mode(root, &path, mode)
+                blocking(root, move |root| match &tree_path {
+                    Some(path) => tree::set_mode(root, path, mode),
+                    None => Ok(root.set_mode(Mode::new(mode))?),
                 })
                 .await
             }
-            Self::Remote(folder) => {
-                folder.set_mode(&path, mode).await
-            }
+            Self::Remote(folder) => folder.set_mode(path, mode).await,
         }
     }
 
@@ -170,12 +163,12 @@ impl Files {
         path: &str,
         bytes: &[u8],
     ) -> Result<()> {
-        ensure!(is_valid(path), "invalid tree path");
+        let tree_path = TreePath::parse(path)?;
         match self {
             Self::Local(root) => {
-                let (path, bytes) = (path.to_owned(), bytes.to_vec());
+                let bytes = bytes.to_vec();
                 blocking(root, move |root| {
-                    tree::replace(root, &path, &bytes)
+                    tree::replace(root, &tree_path, &bytes)
                 })
                 .await
             }
@@ -190,21 +183,20 @@ impl Files {
         path: &str,
         recursive: bool,
     ) -> Result<()> {
-        ensure!(is_valid(path), "invalid tree path");
-        let path = path.to_owned();
+        let tree_path = TreePath::parse(path)?;
         match self {
             Self::Local(root) => {
                 blocking(root, move |root| {
                     if recursive {
-                        tree::erase_path(root, &path)
+                        tree::erase_path(root, &tree_path)
                     } else {
-                        tree::remove(root, &path)
+                        tree::remove(root, &tree_path)
                     }
                 })
                 .await
             }
             Self::Remote(folder) => {
-                folder.remove(&path, recursive).await
+                folder.remove(path, recursive).await
             }
         }
     }
@@ -242,6 +234,24 @@ impl Files {
             }
         }
         Ok(files)
+    }
+
+    /// What `mode`, set on a `kind`, reads back as in this tree: what
+    /// this machine keeps for a local tree, and every bit for a
+    /// remote one, whose worker runs on Linux.
+    pub fn keeps(&self, kind: TreeKind, mode: u32) -> u32 {
+        match self {
+            Self::Local(_) => {
+                let kind = match kind {
+                    TreeKind::File => Kind::File,
+                    TreeKind::Directory => Kind::Directory,
+                    TreeKind::Link => Kind::Link,
+                    TreeKind::Special => Kind::Special,
+                };
+                Mode::new(mode).kept(kind).bits()
+            }
+            Self::Remote(_) => mode & 0o777,
+        }
     }
 }
 

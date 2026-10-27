@@ -27,7 +27,7 @@ to loopback. Keep the token private; plain WebSocket supplies no encryption.
 Send `Hello` first, within 10 seconds:
 
 ```json
-{"type":"hello","v":1,"token":"<home token>"}
+{"type":"hello","v":2,"token":"<home token>"}
 ```
 
 A successful hello receives a full `state` before live changes. The
@@ -102,7 +102,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
-| `hello` (`Hello`) | `v: 1`, `token: string`; no `id` | Authenticate; full `state`. |
+| `hello` (`Hello`) | `v: 2`, `token: string`; no `id` | Authenticate; full `state`. |
 | `say` (`Say`) | `to: Address`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
 | `give` (`Give`) | `to: Address`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
 | `give` (`Give`) | `to: Address`, `skill: {starter: string}` | Give an installed starter skill; `reply`. |
@@ -193,7 +193,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 
 | Type (schema) | Fields | Meaning | Who receives it |
 |---|---|---|---|
-| `state` (`State`) | `epoch`, `revision`, `chief: string`, `sandbox: string`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
+| `state` (`State`) | `epoch`, `revision`, `chief: string`, `confinement: Confinement`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
 | `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
 | `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: TranscriptOperation[]` | Live transcript operations, in order. | Only clients watching that chat. |
@@ -207,6 +207,12 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 `wait-closed` (`id`, `how`), `grants` (`grants`), `settings` (`settings`) or
 `providers` (`providers`). Library and closed-hamlet list changes, and hamlet
 removal, send a whole `state` instead.
+
+`Confinement` says what keeps the agents' commands from the rest of
+the machine. It is discriminated by `kind`: `sandbox` with the sandbox's
+`name`, `insecure` when they run without one, with the server account's
+full reach and no enforced network switch, or `remote` when the workspace
+is another machine.
 
 `Agent` is a summary: identity, name, purpose, model, mayor flag, busy and
 fault flags, activity, short saying, spend, skills, consultation and peer

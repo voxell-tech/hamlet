@@ -67,10 +67,12 @@ in `Cargo.toml` (`rustup update stable` if cargo says it is too old). Formatting
 `vendor/fynix`, a git submodule: clone with `--recurse-submodules` or
 run `git submodule update --init vendor/fynix` once; `cargo xtask`
 fetches it itself. Nothing inside it changes. `cargo xtask check` runs
-every check a commit needs, as eight steps in this order, each of which
+every check a commit needs, as nine steps in this order, each of which
 `cargo xtask <step>` runs alone and CI calls by name: `format`
 (rustfmt's check on the workspace and on xtask), `clippy` (with
-`-D warnings` on both), `deny` (`cargo deny check`), `test`
+`-D warnings` on both), `cross` (clippy on `hamlet_os` for
+`x86_64-pc-windows-gnu`, the target `rust-toolchain.toml` installs, with
+no C compiler), `deny` (`cargo deny check`), `test`
 (`cargo build --all-targets`, then `cargo test`, doc tests included),
 `acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
 with `-D warnings`) and `node` (pi's checks). `deny` needs cargo-deny:
@@ -156,4 +158,6 @@ See `docs/protocol.md` for their recording workflow.
 On Linux, tools run under bubblewrap rather than Seatbelt. After changing
 `crates/hamlet_server/src/sandbox/`, run the real sandbox acceptance tests
 on Linux with working bubblewrap, git, curl and Python 3. Linux checks do
-not prove macOS Seatbelt behavior. Windows has no server sandbox.
+not prove macOS Seatbelt behavior. Windows has no server sandbox, so a
+Windows server runs only with `--insecure`, and Linux and macOS refuse
+the flag.

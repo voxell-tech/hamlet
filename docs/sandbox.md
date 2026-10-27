@@ -4,9 +4,10 @@
 
 `crates/hamlet_server/src/sandbox.rs` and `sandbox/` own tool confinement:
 bubblewrap on Linux, Seatbelt on macOS. Startup probes the sandbox and
-refuses to serve if it cannot run. There is no `--insecure` mode and no
-Windows server sandbox. Linux needs `bwrap` and a kernel/host policy that
-allows its namespaces; installing the executable alone is not sufficient.
+refuses to serve if it cannot run. Windows has no sandbox yet, so a
+Windows server runs only in insecure mode, below. Linux needs `bwrap` and
+a kernel/host policy that allows its namespaces; installing the
+executable alone is not sufficient.
 
 `tools::environment` builds the policy from the server-owned `Place`:
 the house, optional project folder, shared library and hand tools.
@@ -52,8 +53,23 @@ sandbox, with bounded output, time and resources; cancellation kills their
 process group. A command interrupted around an effect is not automatically
 replayed as a safe transaction.
 
-Server-owned house operations use `papers::Houses`, `papers/tree.rs` and
-`gifts/tree.rs`. They open relative to a retained home or house descriptor
+What a command leaves running in its process group when it ends, its
+leftovers, keeps running under Seatbelt. `papers::Houses` keeps them per
+agent and kills that group when the server stops and before that agent's
+house, or its whole hamlet, is erased or moved. A process that calls
+`setsid` or joins another group is not among them. The kill reaches only
+that group: the server leaves the command's own process unreaped until it
+drops the record, and an id stays taken while its process is unreaped, so
+no other group can take the group's id first. On Linux the server reads
+`/proc` to tell whether the group still has a live process. On macOS it
+asks `killpg`, which skips the unreaped leader. Records of ended groups are
+dropped each time a command ends, which reaps their leaders.
+Under bubblewrap, `--die-with-parent` ends them with their command, since
+the sandbox's init dies with it. A server that crashes, or exits on a
+second signal, leaves Seatbelt's leftovers running.
+
+Server-owned house operations use `papers::Houses` and `papers/tree.rs`.
+They open relative to a retained home or house descriptor
 with no-follow checks, reject special files where regular files are
 required, and bound tree sizes. Notes, prompt shelves and gift delivery do
 not use a persistent Node file-helper process. The skill shelf reads
@@ -84,6 +100,32 @@ embedded starters. The checked copy preserves file modes. The resolved
 giver's name is recorded; typed `/give` and structured requests use the
 same owner. Gift transport and the agent's subsequent model work are
 separate: a complete delivered file is not undone by stopping its turn.
+
+## Insecure mode on Windows
+
+A Windows server starts only with `--insecure` (ADR 0008).
+`Sandbox::open` turns that `Isolation` into the `Kind::Insecure` that only
+a Windows build declares, and refuses `Isolation::Sandboxed` with words
+that name the flag. Linux and macOS refuse the flag before the server
+opens its home, and so does a server whose workspace is remote, where
+commands do not run on this machine. The server prints a warning banner
+before it serves.
+
+In insecure mode, commands and hand tools run with the server account's
+full reach, in the house as their working folder. The built-in file tools
+keep their reach, because they walk the policy themselves. Nothing
+enforces the network switch: it decides only which commands wait for a
+chief. The prompt says commands are not confined, and the policy hash
+names `insecure`. Each command runs in a Job Object that holds its CPU
+time and process count, so a timeout or a leftover's end reaches every
+process it started. No job limit bounds a file's size, so each result
+names `max_file_mb` in `details.degraded`.
+
+The `bash` tool runs Git Bash: the `bin\bash.exe` beside the `cmd\git.exe`
+on `PATH`, or in the folders Git for Windows installs to. A search by name
+would start `System32\bash.exe`, the WSL launcher, so the server never
+searches by name and refuses anything under `%SystemRoot%`. Without Git
+Bash the server offers no shell tool.
 
 ## Remote workspaces
 

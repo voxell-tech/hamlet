@@ -2,7 +2,6 @@
 
 mod bwrap;
 mod env;
-pub(crate) mod path;
 mod policy;
 mod reach;
 mod seatbelt;
@@ -10,12 +9,14 @@ mod seatbelt;
 use std::collections::BTreeMap;
 
 use anyhow::bail;
+use hamlet_protocol::client::Confinement;
 
 pub(crate) use self::env::{
-    Env, ExecError, FileError, FileInfo, FileKind,
+    AgentLeftovers, AllLeftovers, Env, ExecError, FileError,
+    FileInfo, FileKind, Launch, Ran,
 };
 pub(crate) use self::policy::{LimitError, SetupError};
-pub use self::policy::{Limits, Policy, is_within};
+pub use self::policy::{Policy, is_within};
 pub use self::reach::{closed_policy, open_policy};
 
 /// A command confined to a policy: the program to run and its whole
@@ -26,6 +27,25 @@ pub(crate) struct Confined {
     pub(crate) env: BTreeMap<String, String>,
 }
 
+/// What the chief asked for when the server started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Isolation {
+    Sandboxed,
+    /// Commands run without a sandbox. Only a Windows build has it,
+    /// so no Linux or macOS server can run unconfined (C18).
+    #[cfg(windows)]
+    Insecure,
+}
+
+impl Isolation {
+    /// The isolation tests run their commands in: insecure mode on
+    /// Windows.
+    #[cfg(all(test, windows))]
+    pub(crate) const TESTING: Self = Self::Insecure;
+    #[cfg(all(test, not(windows)))]
+    pub(crate) const TESTING: Self = Self::Sandboxed;
+}
+
 /// A way to confine a command on one platform.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sandbox(Kind);
@@ -34,20 +54,31 @@ pub struct Sandbox(Kind);
 enum Kind {
     Bwrap,
     Seatbelt,
-    /// A platform without one, where tools cannot run.
-    Missing,
+    /// Insecure mode: commands run as the server's account does.
+    #[cfg(windows)]
+    Insecure,
 }
 
 impl Sandbox {
-    /// The sandbox of this machine's platform (C18).
-    pub fn platform() -> Self {
-        Self(if cfg!(target_os = "macos") {
-            Kind::Seatbelt
-        } else if cfg!(target_os = "linux") {
-            Kind::Bwrap
-        } else {
-            Kind::Missing
-        })
+    /// The sandbox `isolation` asks for on this platform, refused on
+    /// a platform without one (C18).
+    pub fn open(isolation: Isolation) -> Result<Self, NoSandbox> {
+        match isolation {
+            Isolation::Sandboxed if cfg!(target_os = "macos") => {
+                Ok(Self(Kind::Seatbelt))
+            }
+            Isolation::Sandboxed if cfg!(target_os = "linux") => {
+                Ok(Self(Kind::Bwrap))
+            }
+            Isolation::Sandboxed => Err(NoSandbox),
+            #[cfg(windows)]
+            Isolation::Insecure => Ok(Self(Kind::Insecure)),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn testing() -> Self {
+        Self::open(Isolation::TESTING).expect("a sandbox for tests")
     }
 
     /// The name a policy is hashed with.
@@ -55,7 +86,19 @@ impl Sandbox {
         match self.0 {
             Kind::Bwrap => "bwrap",
             Kind::Seatbelt => "seatbelt",
-            Kind::Missing => std::env::consts::OS,
+            #[cfg(windows)]
+            Kind::Insecure => "insecure",
+        }
+    }
+
+    /// How it confines commands, as a client is told (C18).
+    pub fn confinement(&self) -> Confinement {
+        match self.0 {
+            Kind::Bwrap | Kind::Seatbelt => Confinement::Sandbox {
+                name: self.name().into(),
+            },
+            #[cfg(windows)]
+            Kind::Insecure => Confinement::Insecure,
         }
     }
 
@@ -65,8 +108,14 @@ impl Sandbox {
         let (argv, hint) = match self.0 {
             Kind::Bwrap => (&bwrap::PROBE[..], bwrap::HINT),
             Kind::Seatbelt => (&seatbelt::PROBE[..], seatbelt::HINT),
-            Kind::Missing => bail!(NoSandbox),
+            #[cfg(windows)]
+            Kind::Insecure => return Ok(()),
         };
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the probe runs the sandbox itself, outside \
+                      any tree"
+        )]
         let ran = std::process::Command::new(argv[0])
             .args(&argv[1..])
             .stdin(std::process::Stdio::null())
@@ -90,21 +139,6 @@ impl Sandbox {
         Ok(())
     }
 
-    /// The environment tools start from.
-    pub(crate) fn base_env(&self) -> BTreeMap<String, String> {
-        match self.0 {
-            Kind::Bwrap => BTreeMap::from([
-                (
-                    "PATH".into(),
-                    "/usr/local/bin:/usr/bin:/bin".into(),
-                ),
-                ("HOME".into(), "/tmp".into()),
-                ("LANG".into(), "C.UTF-8".into()),
-            ]),
-            Kind::Seatbelt | Kind::Missing => policy::host_env(),
-        }
-    }
-
     /// `argv`, run from `cwd`, confined to `policy`, with `tmp` as
     /// its temp folder.
     pub(crate) fn command(
@@ -113,54 +147,53 @@ impl Sandbox {
         argv: &[String],
         cwd: &str,
         tmp: &str,
-    ) -> Result<Confined, NoSandbox> {
+    ) -> Confined {
         match self.0 {
-            Kind::Bwrap => Ok(bwrap::command(policy, argv, cwd, tmp)),
-            Kind::Seatbelt => {
-                Ok(seatbelt::command(policy, argv, tmp))
+            Kind::Bwrap => bwrap::command(policy, argv, cwd, tmp),
+            Kind::Seatbelt => seatbelt::command(policy, argv, tmp),
+            #[cfg(windows)]
+            Kind::Insecure => {
+                let mut env = policy.env.clone();
+                for name in ["TEMP", "TMP"] {
+                    env.insert(name.into(), tmp.to_owned());
+                }
+                Confined {
+                    argv: argv.to_vec(),
+                    env,
+                }
             }
-            Kind::Missing => Err(NoSandbox),
         }
+    }
+}
+
+/// The environment tools start from on this platform.
+pub(crate) fn base_env() -> BTreeMap<String, String> {
+    if cfg!(target_os = "linux") {
+        BTreeMap::from([
+            ("PATH".into(), "/usr/local/bin:/usr/bin:/bin".into()),
+            ("HOME".into(), "/tmp".into()),
+            ("LANG".into(), "C.UTF-8".into()),
+        ])
+    } else {
+        policy::host_env()
     }
 }
 
 /// This platform has no sandbox.
 #[derive(Debug, thiserror::Error)]
-#[error(
-    "There is no sandbox for {os}, so tools cannot run here.",
-    os = std::env::consts::OS
+#[cfg_attr(
+    windows,
+    error(
+        "Windows has no sandbox for agents' commands yet. Start the \
+         server with --insecure to run them without one, with this \
+         account's full reach."
+    )
 )]
-pub(crate) struct NoSandbox;
-
-/// `argv`, run by bash once `limits` hold for it and for every
-/// process it starts.
-pub(crate) fn limited(
-    limits: &Limits,
-    argv: &[String],
-) -> Vec<String> {
-    // bash counts file sizes in KiB. A lower machine limit stays in
-    // force.
-    let script = [
-        ("t", limits.cpu_secs),
-        ("u", limits.max_procs),
-        ("f", limits.max_file_mb * 1024),
-        ("c", 0),
-    ]
-    .iter()
-    .map(|(flag, value)| {
-        format!(
-            "ulimit -{flag} {value} 2>/dev/null || ulimit -{flag} \
-             hard"
-        )
-    })
-    .collect::<Vec<_>>()
-    .join("\n");
-    let mut out = vec![
-        "bash".to_owned(),
-        "-c".into(),
-        format!("{script}\nexec \"$@\""),
-        "bash".into(),
-    ];
-    out.extend(argv.iter().cloned());
-    out
-}
+#[cfg_attr(
+    not(windows),
+    error(
+        "There is no sandbox for {os}, so tools cannot run here.",
+        os = std::env::consts::OS
+    )
+)]
+pub struct NoSandbox;

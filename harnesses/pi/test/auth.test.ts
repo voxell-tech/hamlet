@@ -2,6 +2,7 @@ import { PassThrough } from "node:stream";
 import { expect, test } from "vitest";
 import { Channel, type Outgoing } from "../src/channel.ts";
 import { serverCredentials } from "../src/credentials.ts";
+import { PROTOCOL_VERSION } from "../src/protocol.ts";
 import { signIn } from "../src/sign-in.ts";
 
 test("a cancelled callback prompt cannot answer its replacement or cancel the login", async () => {
@@ -38,7 +39,7 @@ test("a cancelled callback prompt cannot answer its replacement or cancel the lo
         secret: false,
     });
     session.control({
-        v: 1,
+        v: PROTOCOL_VERSION,
         id: "late",
         type: "provider_control",
         scope: "login",
@@ -47,7 +48,7 @@ test("a cancelled callback prompt cannot answer its replacement or cancel the lo
         cancel: false,
     });
     session.control({
-        v: 1,
+        v: PROTOCOL_VERSION,
         id: "current",
         type: "provider_control",
         scope: "login",
@@ -82,7 +83,7 @@ test("cancellation skips a queued credential callback but a started rotation wai
     );
     const respond = (fields: object) => {
         input.write(
-            `${JSON.stringify({ v: 1, id: "host", type: "credential_result", re: requests.at(-1)?.id, ...fields })}\n`,
+            `${JSON.stringify({ v: PROTOCOL_VERSION, id: "host", type: "credential_result", re: requests.at(-1)?.id, ...fields })}\n`,
         );
     };
     const queued = new AbortController();

@@ -82,12 +82,13 @@ impl Config {
     pub fn from_env(
         faux: Option<PathBuf>,
         overrides: Overrides,
+        shells: &crate::tools::Shells,
     ) -> Result<Self> {
         let pi = Pi::from_env(faux)?;
         Ok(Self {
             pi,
             overrides,
-            tools: crate::tools::specs()
+            tools: crate::tools::specs(shells)
                 .into_iter()
                 .chain(crate::chats::specs())
                 .chain(tools::specs())

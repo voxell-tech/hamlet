@@ -2,9 +2,11 @@
 //! values, faux scripts, a loopback OpenAI endpoint and a server
 //! process on a scratch home.
 
+pub mod links;
 pub mod openai;
 pub mod realm;
 mod script;
+pub mod signals;
 // It stops a server with Unix signals.
 #[cfg(unix)]
 mod server;
@@ -80,4 +82,11 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+/// A FIFO at `path`.
+#[cfg(unix)]
+pub fn fifo(path: &Path) {
+    let made = Command::new("mkfifo").arg(path).status().unwrap();
+    assert!(made.success(), "mkfifo {}", path.display());
 }

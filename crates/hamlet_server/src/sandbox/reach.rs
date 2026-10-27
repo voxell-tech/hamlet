@@ -2,14 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
-use super::Sandbox;
-use super::path::text;
+use hamlet_os::fs::path::text;
+
 use super::policy::{Policy, host_env};
 
 /// An agent's policy while its hamlet works on no folder: its house,
 /// which is its home, and the shared skills to read (C18).
 pub fn closed_policy(house: &Path, shared: &[PathBuf]) -> Policy {
-    let mut env = Sandbox::platform().base_env();
+    let mut env = super::base_env();
     env.insert("HOME".into(), text(house));
     Policy {
         ro: shared.to_vec(),

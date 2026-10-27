@@ -36,6 +36,12 @@ pub struct ToolSpec {
     /// Whether a call cut off before its result was kept may run
     /// again; one that may not answers that it was cut off.
     pub replay: ToolSpecReplay,
+    /// Which end of a result past the runtime's output limits it
+    /// keeps; without it, the head.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::runtime::present")]
+    #[schemars(with = "ToolSpecRetain")]
+    pub retain: Option<ToolSpecRetain>,
 }
 
 #[derive(
@@ -46,6 +52,16 @@ pub enum ToolSpecReplay {
     Safe,
     #[serde(rename = "unsafe")]
     Unsafe,
+}
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+pub enum ToolSpecRetain {
+    #[serde(rename = "head")]
+    Head,
+    #[serde(rename = "tail")]
+    Tail,
 }
 
 /// Asks early whether a tool call may run, so a wait shows before the

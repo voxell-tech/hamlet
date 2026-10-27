@@ -131,6 +131,10 @@ pub struct Running {
     pub pid: u32,
     /// When it started, in the server's words.
     pub started: String,
+    /// What keeps its agents' commands from the rest of the machine;
+    /// a server older than the field does not say.
+    #[serde(default)]
+    pub confinement: Option<crate::client::Confinement>,
 }
 
 impl Running {

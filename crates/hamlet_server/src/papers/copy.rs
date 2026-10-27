@@ -239,6 +239,7 @@ impl Snapshot {
                             actual.iter().any(|actual| {
                                 actual.path == relative
                                     && is_same(
+                                        shelf,
                                         actual,
                                         entry,
                                         &self.files,
@@ -326,7 +327,7 @@ impl Snapshot {
             }
             if self.entries.iter().any(|wanted| {
                 wanted.path == entry.path
-                    && (is_same(&entry, wanted, &self.files)
+                    && (is_same(house, &entry, wanted, &self.files)
                         || wanted.kind == TreeKind::Directory
                             && entry.kind == TreeKind::Directory)
             }) {
@@ -353,7 +354,12 @@ impl Snapshot {
                     |actual| actual.path == entry.path
                         && (entry.path == "."
                             && actual.kind == TreeKind::Directory
-                            || is_same(actual, entry, &self.files))
+                            || is_same(
+                                house,
+                                actual,
+                                entry,
+                                &self.files,
+                            ))
                 )),
             "The copy did not match it afterwards."
         );
@@ -371,15 +377,18 @@ fn folder(path: &str) -> TreeEntry {
     }
 }
 
-/// Whether the listed `actual` is the snapshot's `wanted`, whose
-/// bytes are in `files`.
+/// Whether the listed `actual` in `target` is the snapshot's
+/// `wanted`, whose bytes are in `files`. The mode is the one `target`
+/// keeps of `wanted`'s.
 fn is_same(
+    target: &Files,
     actual: &TreeEntry,
     wanted: &TreeEntry,
     files: &BTreeMap<String, Entry>,
 ) -> bool {
     actual.kind == wanted.kind
-        && actual.mode & 0o777 == wanted.mode & 0o777
+        && actual.mode & 0o777
+            == target.keeps(wanted.kind, wanted.mode)
         && (actual.kind != TreeKind::File
             || files
                 .get(&wanted.path)

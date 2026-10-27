@@ -18,6 +18,7 @@ use crate::credentials::write_whole;
 use crate::harness::{self, Harnesses, InputStatus, Notice};
 use crate::protocol::Protocol;
 use crate::runtime::{Serving, flush_models};
+use crate::sandbox::Isolation;
 use crate::service::Service;
 use crate::{Home, Overrides, chats};
 
@@ -32,7 +33,11 @@ pub struct Options {
     pub home: PathBuf,
     pub port: u16,
     pub faux: Option<PathBuf>,
+    pub isolation: Isolation,
 }
+
+const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
+                     <n>] [--faux <file>] [--insecure]";
 
 impl Options {
     pub fn parse(
@@ -43,25 +48,21 @@ impl Options {
             .map(PathBuf::from);
         let mut port = 7313;
         let mut faux = None;
+        let mut isolation = Isolation::Sandboxed;
         while let Some(flag) = args.next() {
-            let value = args.next().context(
-                "usage: hamlet_server [--home <dir>] [--port <n>] \
-                 [--faux <file>]",
-            )?;
+            let mut value = || args.next().context(USAGE);
             match flag.to_str() {
-                Some("--home") => home = Some(value.into()),
+                Some("--insecure") => isolation = insecure()?,
+                Some("--home") => home = Some(value()?.into()),
                 Some("--port") => {
-                    port = value
+                    port = value()?
                         .to_str()
                         .context("port must be a number")?
                         .parse()
                         .context("port must be 0 to 65535")?;
                 }
-                Some("--faux") => faux = Some(value.into()),
-                _ => bail!(
-                    "usage: hamlet_server [--home <dir>] [--port \
-                     <n>] [--faux <file>]"
-                ),
+                Some("--faux") => faux = Some(value()?.into()),
+                _ => bail!(USAGE),
             }
         }
         let home = home
@@ -70,8 +71,28 @@ impl Options {
                     .map(|p| PathBuf::from(p).join(".hamlet"))
             })
             .context("set --home or HAMLET_HOME")?;
-        Ok(Self { home, port, faux })
+        Ok(Self {
+            home,
+            port,
+            faux,
+            isolation,
+        })
     }
+}
+
+/// `--insecure`, which only a Windows build takes (C18).
+#[cfg(windows)]
+fn insecure() -> Result<Isolation> {
+    Ok(Isolation::Insecure)
+}
+
+/// `--insecure`, which only a Windows build takes (C18).
+#[cfg(not(windows))]
+fn insecure() -> Result<Isolation> {
+    bail!(
+        "Insecure mode is only for Windows. This platform has a \
+         sandbox."
+    )
 }
 
 struct Published(PathBuf);
@@ -96,11 +117,15 @@ struct Fatal(anyhow::Error);
 )]
 pub async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
-    let overrides = Overrides::from_env(options.faux.is_some())?;
+    hamlet_os::process::reap_with_server()?;
+    let overrides = Overrides::from_env(
+        options.faux.is_some(),
+        options.isolation,
+    )?;
     let home = Home::open(&options.home).map_err(Fatal)?;
     let mut service =
         Service::new(home, overrides.clone()).map_err(Fatal)?;
-    service.houses.probe(service.chats.sandbox)?;
+    service.houses.probe()?;
     tokio::select! {
         _ = signals.next() => return service.home.close(),
         initialized = service.initialize_houses() => initialized?,
@@ -111,7 +136,11 @@ pub async fn serve(options: Options) -> Result<()> {
     let (mut harnesses, notices) = Harnesses::start(
         &layout,
         service.home.store(),
-        harness::Config::from_env(options.faux.clone(), overrides)?,
+        harness::Config::from_env(
+            options.faux.clone(),
+            overrides,
+            &service.houses.shells(),
+        )?,
     )?;
     for notice in notices {
         tokio::select! {
@@ -191,12 +220,21 @@ pub async fn serve(options: Options) -> Result<()> {
         "url": url,
         "pid": std::process::id(),
         "started": started,
+        "confinement": service.houses.confinement(),
     });
     write_whole(&published, &serde_json::to_vec(&address)?)?;
     let published = Published(published);
+    #[cfg(windows)]
+    if options.isolation == Isolation::Insecure {
+        eprintln!(
+            "WARNING: --insecure. Agents' commands run without a \
+             sandbox, with this account's full reach, and the \
+             network switch is not enforced."
+        );
+    }
     eprintln!(
         "hamlet_server: holding {}; serving at {url}; Ctrl-C stops",
-        service.home.layout().root().display()
+        hamlet_os::fs::path::text(service.home.layout().root())
     );
     let (events, mut incoming) = mpsc::channel(128);
     let (shutdown, closing) = watch::channel(false);
@@ -237,6 +275,7 @@ pub async fn serve(options: Options) -> Result<()> {
     }
     serving.tasks.abort_all();
     while serving.tasks.join_next().await.is_some() {}
+    serving.service.houses.end_leftovers();
     serving.harnesses.close().await;
     drop(published);
     serving.service.home.close()?;
@@ -338,6 +377,10 @@ pub(crate) struct Signals {
     terminate: tokio::signal::unix::Signal,
     #[cfg(windows)]
     interrupt: tokio::signal::windows::CtrlC,
+    /// What `hamlet dev` sends the server it keeps in a process
+    /// group of its own.
+    #[cfg(windows)]
+    brk: tokio::signal::windows::CtrlBreak,
 }
 
 impl Signals {
@@ -354,6 +397,7 @@ impl Signals {
         {
             Ok(Self {
                 interrupt: tokio::signal::windows::ctrl_c()?,
+                brk: tokio::signal::windows::ctrl_break()?,
             })
         }
     }
@@ -367,7 +411,35 @@ impl Signals {
         }
         #[cfg(windows)]
         {
-            self.interrupt.recv().await;
+            tokio::select! {
+                _ = self.interrupt.recv() => {}
+                _ = self.brk.recv() => {}
+            }
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insecure_with_a_remote_workspace_is_refused() {
+        let home = hamlet_testing::Scratch::new("insecure-remote");
+        let mut overrides = Overrides::none(true);
+        overrides.workspace =
+            Some(crate::credentials::WorkspaceAddress {
+                url: "https://workspace.example".into(),
+                token: "a-token-of-sixteen".into(),
+            });
+        let Err(refused) =
+            Service::new(Home::open(&home).unwrap(), overrides)
+        else {
+            panic!("the server opened");
+        };
+        assert!(
+            refused.to_string().contains("--insecure"),
+            "{refused}"
+        );
     }
 }

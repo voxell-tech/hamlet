@@ -76,11 +76,13 @@ test server. The suite then sets:
 Stdin is closed. Stdout and stderr go to a log the suite shows on failure.
 
 The server is ready when `<home>/server.json` holds
-`{"url": ..., "pid": ..., "started": ...}` with `pid` the process the suite
-started:
+`{"url": ..., "pid": ..., "started": ..., "confinement": ...}` with `pid`
+the process the suite started:
 
 - `url` is the WebSocket address to connect to.
 - `started` is the start time in UTC, as an ISO time to the millisecond.
+- `confinement` is what keeps the agents' commands from the rest of the
+  machine, as the client protocol's `State.confinement` gives it.
 - It holds no token.
 
 The token is `connection.token` in `<home>/credentials.json`, a file only

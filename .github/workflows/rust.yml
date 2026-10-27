@@ -47,6 +47,11 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - run: cargo xtask clippy
+      - run: cargo xtask cross
+      # The server and the CLI compile C, so their cross-check needs
+      # mingw-w64.
+      - run: sudo apt-get install --no-install-recommends gcc-mingw-w64-x86-64
+      - run: cargo clippy --locked -p hamlet_server -p hamlet_cli --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 
   # The clippy job on macOS, which compiles the code only macOS builds.
   clippy-macos:
@@ -147,7 +152,7 @@ jobs:
       - run: cargo xtask harness
       - run: cargo xtask node
 
-  # Windows runs only the window, as a remote client.
+  # The window on Windows.
   clippy-windows:
     runs-on: windows-latest
     steps:
@@ -162,3 +167,69 @@ jobs:
           shared-key: ci
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --locked -p hamlet_app --all-targets -- -D warnings
+
+  # hamlet_os on NTFS (links, junctions and Job Objects), and the
+  # server in insecure mode with Git Bash. The binaries it builds are
+  # the ones the Windows VM installs.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # vendor/fynix is a submodule.
+          submodules: recursive
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: harnesses/pi/.nvmrc
+      - run: npm ci --prefix harnesses/pi
+      - run: cargo test --locked -p hamlet_os -p hamlet_server
+      - run: cargo build --locked -p hamlet_cli -p hamlet_server -p hamlet_app
+      # The CLI starts a server in insecure mode in the foreground and
+      # in the background, reports it and stops it. The window is a
+      # program that exits at once, and the background server's model
+      # is a loopback address nothing answers.
+      - name: Start, report and stop a server
+        shell: bash
+        env:
+          HAMLET_USER: chief
+        run: |
+          set -eu
+          hamlet=target/debug/hamlet.exe
+          echo '{"responses": ["hi"]}' > "$RUNNER_TEMP/faux.json"
+          ready() {
+            for _ in $(seq 60); do
+              "$hamlet" status && return 0
+              sleep 1
+            done
+            cat "$HAMLET_HOME/server.log" || true
+            return 1
+          }
+          stopped() {
+            "$hamlet" stop
+            if "$hamlet" status; then return 1; fi
+            test ! -e "$HAMLET_HOME/server.json"
+          }
+          export HAMLET_HOME="$RUNNER_TEMP/foreground"
+          "$hamlet" server --insecure --port 0 --faux "$RUNNER_TEMP/faux.json" &
+          ready
+          stopped
+          export HAMLET_HOME="$RUNNER_TEMP/background"
+          export HAMLET_APP="$SYSTEMROOT/System32/whoami.exe"
+          export HAMLET_MODEL=local::org/large
+          export HAMLET_BASE_URL=http://127.0.0.1:9/v1
+          "$hamlet" --insecure
+          "$hamlet" status
+          stopped
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hamlet-windows
+          path: |
+            target/debug/hamlet.exe
+            target/debug/hamlet_server.exe
+            target/debug/hamlet_app.exe

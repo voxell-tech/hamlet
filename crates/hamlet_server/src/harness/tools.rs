@@ -33,6 +33,7 @@ pub fn specs() -> Vec<ToolSpec> {
             "additionalProperties": false,
         })),
         replay: ToolSpecReplay::Safe,
+        retain: None,
     }]
 }
 

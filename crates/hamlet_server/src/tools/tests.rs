@@ -3,11 +3,14 @@
 use std::fs;
 use std::time::{Duration, Instant};
 
+use hamlet_os::fs::path::text;
 use hamlet_testing::Scratch;
+use hamlet_testing::links::symlink;
 use serde_json::{Value, json};
 
-use super::{Outcome, Place, ToolSession};
-use crate::sandbox::Sandbox;
+use super::{Outcome, Place, Shells, ToolSession};
+use crate::record::AgentRef;
+use crate::sandbox::{AllLeftovers, Sandbox};
 
 /// A house of its own in `scratch`, with no folder.
 fn house(scratch: &Scratch) -> Place {
@@ -31,11 +34,23 @@ async fn call(
     let Value::Object(args) = args else {
         panic!("arguments are an object");
     };
-    ToolSession::local(place.clone(), net, Sandbox::platform())
-        .run(&secrets, tool, &args)
-        .await
+    ToolSession::local(
+        place.clone(),
+        net,
+        Sandbox::testing(),
+        Shells::local(),
+        AllLeftovers::default().of(&AgentRef {
+            hamlet: "home".into(),
+            number: 0,
+        }),
+    )
+    .run(&secrets, tool, &args)
+    .await
 }
 
+// It asserts confinement, or a hand tool started as `bash`, which
+// only a sandbox gives.
+#[cfg(unix)]
 #[tokio::test]
 async fn hand_tools_keep_declared_limits_environment_and_private_scratch()
  {
@@ -81,6 +96,38 @@ async fn hand_tools_keep_declared_limits_environment_and_private_scratch()
     assert_eq!(timed.text, "\n[timed out after 1s]");
 }
 
+// It asserts confinement, or a hand tool started as `bash`, which
+// only a sandbox gives.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_hand_tool_gets_its_argv_as_written_and_its_arguments_on_stdin()
+ {
+    let scratch = Scratch::new("hand-argv");
+    let place = house(&scratch);
+    let dir = scratch.join("tools/echo");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("manifest.json"),
+        json!({
+            "name":"echo",
+            "exec":["bash", "-c", "printf '%s\\n' \"$1\"; cat", "bash", "it's \"quoted\" $HOME"],
+            "parameters":{"type":"object","properties":{"say":{"type":"string"}}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let said =
+        call(&place, false, "echo", json!({"say": "it's"})).await;
+    assert!(!said.error, "{said:?}");
+    assert_eq!(
+        said.text,
+        "it's \"quoted\" $HOME\n{\"say\":\"it's\"}"
+    );
+}
+
+// It asserts confinement, or a hand tool started as `bash`, which
+// only a sandbox gives.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_leave()
  {
@@ -282,8 +329,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
     let elsewhere = scratch.join("elsewhere");
     fs::create_dir_all(&elsewhere).unwrap();
     fs::create_dir_all(scratch.join("houses/home/1")).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, place.house.join("out"))
-        .unwrap();
+    symlink(&elsewhere, place.house.join("out")).unwrap();
     let write = |path: String| {
         call(
             &place,
@@ -294,7 +340,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
     };
 
     let up = write("../1/NOTES.md".into()).await;
-    let full = write(elsewhere.join("x").display().to_string()).await;
+    let full = write(format!("{}/x", text(&elsewhere))).await;
     let linked = write("out/sub/x".into()).await;
 
     for refused in [&up, &full, &linked] {
@@ -304,7 +350,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
         full.diagnostics[0].message,
         format!(
             "{}/x is out of this agent's reach to read",
-            elsewhere.display()
+            text(&elsewhere)
         )
     );
     assert!(!scratch.join("houses/home/1/NOTES.md").exists());
@@ -331,7 +377,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
         edited.text,
         format!(
             "Successfully replaced 1 block(s) in {}.",
-            notes.display()
+            text(&notes)
         )
     );
     assert_eq!(
@@ -342,7 +388,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
         raw.diagnostics[0].message,
         format!(
             "Could not edit file: {}. Error code: invalid.",
-            place.house.join("raw.txt").display()
+            text(&place.house.join("raw.txt"))
         )
     );
     assert_eq!(

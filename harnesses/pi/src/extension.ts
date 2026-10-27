@@ -87,10 +87,9 @@ export function hamletExtension(host: Host, tools: readonly ToolSpec[]) {
                     spec.parameters,
                 ),
                 replay: spec.replay,
-                // The server bounds a command's output to its end; pi keeps it as given.
-                ...(spec.name === "bash"
-                    ? { outputLimits: { retain: "tail" as const } }
-                    : {}),
+                ...(spec.retain === undefined
+                    ? {}
+                    : { outputLimits: { retain: spec.retain } }),
                 execute: async (args, api, context) => {
                     await fault("before_operation");
                     const input = await host.input(api.conversationId);

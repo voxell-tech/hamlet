@@ -320,7 +320,7 @@ pub(crate) fn build(
         epoch,
         revision,
         chief: service.chief.clone(),
-        sandbox: service.chats.sandbox.name().into(),
+        confinement: service.houses.confinement(),
         houses: root
             .join("houses")
             .to_str()
@@ -406,14 +406,7 @@ fn skills(
     hamlet: &str,
     number: u64,
 ) -> Result<Vec<String>> {
-    let house = service
-        .home
-        .layout()
-        .root()
-        .join("houses")
-        .join(hamlet)
-        .join(number.to_string());
-    service.houses.skill_names(hamlet, number, &house)
+    service.houses.skill_names(hamlet, number)
 }
 
 /// Whether the skills in the library or in a living agent's house

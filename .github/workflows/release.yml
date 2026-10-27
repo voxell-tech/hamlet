@@ -1,4 +1,4 @@
-# Complete installations for macOS/Linux and the Windows remote-client window.
+# Complete installations for macOS, Linux and Windows.
 #
 # Runs when a version tag is pushed (v0.1.0) and when started by hand
 # from the Actions tab, and at no other time. A tag publishes a GitHub
@@ -35,9 +35,12 @@ jobs:
           - name: Linux (x64)
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - name: Windows (x64, window only)
+          - name: Windows (x64)
             os: windows-latest
             target: x86_64-pc-windows-msvc
+            # The C runtime is linked in, so the binaries run on a
+            # Windows that lacks the Visual C++ runtime.
+            rustflags: -C target-feature=+crt-static
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,7 +68,6 @@ jobs:
           rustup target add "${{ matrix.target }}"
 
       - uses: actions/setup-node@v4
-        if: runner.os != 'Windows'
         with:
           node-version-file: harnesses/pi/.nvmrc
 
@@ -85,9 +87,11 @@ jobs:
         if: runner.os != 'Windows'
         run: cargo xtask build --target ${{ matrix.target }}
 
-      - name: Build the Windows window
+      - name: Build on Windows
         if: runner.os == 'Windows'
-        run: cargo build --release --locked -p hamlet_app --bin hamlet_app --target ${{ matrix.target }}
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo build --release --locked -p hamlet_cli --bin hamlet -p hamlet_server --bin hamlet_server -p hamlet_app --bin hamlet_app --target ${{ matrix.target }}
 
       - name: Package
         shell: bash

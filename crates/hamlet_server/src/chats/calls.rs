@@ -59,8 +59,6 @@ const NO_SUMMARY: &str = "the conversation is longer than the model \
                           can hold, and the model could not \
                           summarise it. Start a new session, or \
                           choose a model that holds more";
-/// The tools whose call may change the world, run once.
-const UNSAFE: &[&str] = &["bash", "write", "edit"];
 
 /// What a call's preparation read.
 pub(crate) enum Preparation {
@@ -214,6 +212,7 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
             _ => BTreeMap::new(),
         },
         replay: ToolSpecReplay::Safe,
+        retain: None,
     }]
 }
 
@@ -585,7 +584,7 @@ fn run(
     let db = service.db();
     let change = crate::oversight::held::decision(db, &call.id)?
         .and_then(|kept| kept.change);
-    if UNSAFE.contains(&call.tool) || call.hand.is_some() {
+    if tools::runs_once(call.tool) || call.hand.is_some() {
         operation::begin(db, &call.id, request)?;
     }
     let place = decide::places(service, &call.bound.agent)?;
@@ -671,12 +670,10 @@ fn prompt(
     );
     let instructions =
         records::instructions(service.db(), &agent.hamlet)?;
-    let sandbox = service.chats.sandbox.name().to_owned();
     let subject = crate::prompt::Subject {
         hamlet: &agent.hamlet,
         number: i64::try_from(agent.number)?,
         model: (!model.is_empty()).then_some(model.as_str()),
-        sandbox: &sandbox,
         instructions: &instructions,
         task: task.as_deref(),
         conversation: Some(binding),

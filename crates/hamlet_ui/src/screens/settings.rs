@@ -14,13 +14,15 @@ use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, dropdown, label,
-    number_field, row, scroll, slider,
+    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
+    label, number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::messages::{ChiefMessage, Reconnected, Response};
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{Grants, HOME, MAYOR, Settings};
+use hamlet_client::realm::{
+    Confinement, Grants, HOME, MAYOR, Settings,
+};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::client as protocol;
@@ -33,7 +35,7 @@ use crate::icons::Glyph;
 use crate::looks::{
     Fills, ICON, action, bad_action, bare, buttons, close,
     description, doors, hairline, list, note, page_head, parts,
-    section, well,
+    section, small_rules, well,
 };
 use crate::switch::switch;
 use crate::world_menu::{self, Deed};
@@ -182,6 +184,27 @@ fn told(control: impl View, words: impl View) -> impl View {
     })
 }
 
+/// A warning under the network switch while the confinement does not
+/// enforce it. Nothing otherwise.
+fn not_enforced() -> AnyView {
+    keyed(
+        resource::<Confinement, _>(|c| c.0.enforces_network()),
+        |enforced| {
+            if *enforced {
+                frame().boxed()
+            } else {
+                label("Not enforced in insecure mode.")
+                    .bold(true)
+                    .tone(Tone::Critical)
+                    .rules(small_rules)
+                    .boxed()
+            }
+        },
+    )
+    .within(row(()).gap(0.0))
+    .boxed()
+}
+
 /// The settings of agents. Each applies when changed.
 fn agents() -> impl View {
     parts((
@@ -211,15 +234,20 @@ fn agents() -> impl View {
                         save(world, |set| set.allow_net = Some(on));
                     },
                 ),
-                description(resource::<Settings, _>(|s| {
-                    if s.0.allow_net {
-                        "Agents' commands can reach the internet."
-                            .to_string()
-                    } else {
-                        "Agents' commands cannot reach the internet."
-                            .to_string()
-                    }
-                })),
+                column((
+                    description(resource::<Settings, _>(|s| {
+                        if s.0.allow_net {
+                            "Agents' commands can reach the internet."
+                                .to_string()
+                        } else {
+                            "Agents' commands cannot reach the \
+                             internet."
+                                .to_string()
+                        }
+                    })),
+                    not_enforced(),
+                ))
+                .gap(2.0),
             ),
         ),
         field(

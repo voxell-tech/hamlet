@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, expect, test } from "vitest";
-import { isRuntimeMessage } from "../src/protocol.ts";
+import { isRuntimeMessage, PROTOCOL_VERSION } from "../src/protocol.ts";
 
 const MAIN = join(import.meta.dirname, "..", "src", "main.ts");
 const folders: string[] = [];
@@ -21,11 +21,17 @@ function field(value: unknown, name: string): unknown {
         : undefined;
 }
 
-test("a runtime speaks only the protocol's messages from hello to an answer, and exits when the server goes", async () => {
+/** Runs a fresh runtime on `script`, answering for the server with `tools` and the results of `answer`, until `done` holds for an item; returns every message heard and the exit code. */
+async function converse(
+    script: unknown,
+    tools: unknown[],
+    answer: (operation: unknown) => string,
+    done: (item: unknown) => boolean,
+) {
     const folder = mkdtempSync(join(tmpdir(), "hamlet-pi-protocol-"));
     folders.push(folder);
     const faux = join(folder, "faux.json");
-    writeFileSync(faux, JSON.stringify({ agents: { "home:0": ["hi"] } }));
+    writeFileSync(faux, JSON.stringify(script));
     const child = spawn(
         process.execPath,
         [
@@ -43,7 +49,7 @@ test("a runtime speaks only the protocol's messages from hello to an answer, and
     const send = (message: Record<string, unknown>) => {
         sent += 1;
         child.stdin.write(
-            `${JSON.stringify({ v: 1, id: `s${sent}`, ...message })}\n`,
+            `${JSON.stringify({ v: PROTOCOL_VERSION, id: `s${sent}`, ...message })}\n`,
         );
     };
     const heard: unknown[] = [];
@@ -53,7 +59,7 @@ test("a runtime speaks only the protocol's messages from hello to an answer, and
         const re = field(message, "id");
         switch (field(message, "type")) {
             case "hello":
-                send({ type: "welcome", re, tools: [], windows: {} });
+                send({ type: "welcome", re, tools, windows: {} });
                 send({
                     type: "create",
                     key: "b1",
@@ -98,15 +104,65 @@ test("a runtime speaks only the protocol's messages from hello to an answer, and
             case "yield":
                 send({ type: "verdict", re });
                 break;
+            case "allow":
+                send({ type: "allowed", re });
+                break;
+            case "operation":
+                send({
+                    type: "result",
+                    re,
+                    text: answer(message),
+                    error: false,
+                });
+                break;
         }
-        const item = field(message, "item");
-        if (field(item, "kind") === "assistant" && field(item, "text") === "hi")
-            break;
+        if (done(field(message, "item"))) break;
     }
     child.stdin.end();
-    expect(await exited).toBe(0);
+    return { heard, exited: await exited };
+}
+
+/** Whether `item` is the assistant's answer `text`. */
+const answered = (text: string) => (item: unknown) =>
+    field(item, "kind") === "assistant" && field(item, "text") === text;
+
+test("a runtime speaks only the protocol's messages from hello to an answer, and exits when the server goes", async () => {
+    const { heard, exited } = await converse(
+        { agents: { "home:0": ["hi"] } },
+        [],
+        () => "",
+        answered("hi"),
+    );
+    expect(exited).toBe(0);
     expect(heard.filter((message) => !isRuntimeMessage(message))).toEqual([]);
     expect(heard.map((message) => field(message, "type"))).toContain(
         "admitted",
     );
+});
+
+test("a tool that retains the tail keeps the end of a long result, and one without keeps the start", async () => {
+    const lines = Array.from({ length: 3000 }, (_, n) => `line ${n + 1}`);
+    const tool = (name: string) => ({
+        name,
+        description: `Says ${name}.`,
+        parameters: { type: "object", properties: {} },
+        replay: "safe",
+    });
+    const calls = ["tail", "head"].map((name) => ({ name, arguments: {} }));
+    const { heard } = await converse(
+        { agents: { "home:0": [{ calls }, "done"] } },
+        [{ ...tool("tail"), retain: "tail" }, tool("head")],
+        () => lines.join("\n"),
+        answered("done"),
+    );
+    const kept = new Map(
+        heard
+            .map((message) => field(message, "item"))
+            .filter((item) => field(item, "kind") === "tool_result")
+            .map((item) => [field(item, "tool"), String(field(item, "text"))]),
+    );
+    expect(kept.get("tail")).toContain("line 3000");
+    expect(kept.get("tail")).not.toContain("line 1\n");
+    expect(kept.get("head")).toContain("line 1\n");
+    expect(kept.get("head")).not.toContain("line 3000");
 });

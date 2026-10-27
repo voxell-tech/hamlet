@@ -1,18 +1,18 @@
-//! Bounded regular files reached through opened directories.
-
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{Read, Write};
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::io::{self, Read, Write};
 
-use anyhow::{Result, ensure};
-use hamlet_workspace_wire::{Code, TreeEntry, TreeKind};
-use rustix::fs::{
-    AtFlags, Dir, FileType, Mode, OFlags, mkdirat, openat, statat,
-    unlinkat,
+use anyhow::{Context, Result, bail, ensure};
+use hamlet_os::fs::{
+    Directory, Exists, Kind, Missing, Mode, Name, NotRegular, Open,
+    Regular, Removing, Replace, Stat, TreePath,
 };
+use hamlet_workspace_wire::{Code, TreeEntry, TreeKind};
 use sha2::{Digest, Sha256};
 
+use super::NOTES;
+use crate::diagnostic::{Secrets, tell};
+use crate::record::AgentRef;
 use crate::workspace::Failure;
 
 #[derive(
@@ -23,38 +23,184 @@ pub(crate) struct Entry {
     pub mode: u32,
 }
 
-pub(crate) fn directory(
-    parent: &File,
-    name: &str,
-    create: bool,
-) -> Result<File> {
-    ensure!(
-        !name.is_empty()
-            && ![".", ".."].contains(&name)
-            && !name.contains(['/', '\\', '\0']),
-        "invalid tree path"
-    );
-    if create
-        && let Err(error) =
-            mkdirat(parent, name, Mode::from_raw_mode(0o700))
-        && error != rustix::io::Errno::EXIST
+pub(crate) fn house(
+    root: &Directory,
+    hamlet: &str,
+    number: u64,
+    missing: Missing,
+) -> io::Result<Directory> {
+    directory(
+        &hamlet_folder(root, hamlet, missing)?,
+        &number.to_string(),
+        missing,
+    )
+}
+
+fn hamlet_folder(
+    root: &Directory,
+    hamlet: &str,
+    missing: Missing,
+) -> io::Result<Directory> {
+    if hamlet.is_empty()
+        || !hamlet.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'
+        })
     {
-        return Err(error.into());
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid house address",
+        ));
     }
-    Ok(openat(
-        parent,
-        name,
-        OFlags::RDONLY
-            | OFlags::DIRECTORY
-            | OFlags::NOFOLLOW
-            | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?
-    .into())
+    directory(&directory(root, "houses", missing)?, hamlet, missing)
+}
+
+pub(crate) fn build(
+    root: &Directory,
+    hamlet: &str,
+    number: u64,
+) -> Result<()> {
+    let dir =
+        house(root, hamlet, number, Missing::Make(Mode::FOLDER))?;
+    for part in ["skills", "inbox"] {
+        directory(&dir, part, Missing::Make(Mode::FOLDER))?;
+    }
+    match dir.file(&Name::new(NOTES)?, Open::New(Mode::PRIVATE)) {
+        Ok(notes) => notes.file().write_all(b"# Notes\n")?,
+        Err(error)
+            if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+pub(crate) fn notes(
+    root: &Directory,
+    hamlet: &str,
+    number: u64,
+) -> Result<File> {
+    let dir = house(root, hamlet, number, Missing::Fail)?;
+    match dir.file(&Name::new(NOTES)?, Open::Read) {
+        Ok(notes) => Ok(notes.into_file()),
+        Err(error) if NotRegular::of(&error).is_some() => bail!(
+            "The agent's NOTES.md could not be read safely. Inspect \
+             its house before trying again."
+        ),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(crate) fn move_house(
+    root: &Directory,
+    from: &AgentRef,
+    to: &AgentRef,
+) -> Result<()> {
+    match house(root, &from.hamlet, from.number, Missing::Fail) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            house(root, &to.hamlet, to.number, Missing::Fail)?;
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    }
+    house(root, &to.hamlet, 0, Missing::Fail)?;
+    hamlet_folder(root, &from.hamlet, Missing::Fail)?.rename(
+        &Name::new(&from.number.to_string())?,
+        &hamlet_folder(root, &to.hamlet, Missing::Fail)?,
+        &Name::new(&to.number.to_string())?,
+        Replace::Never,
+    )?;
+    Ok(())
+}
+
+pub(crate) fn erase_house(
+    root: &Directory,
+    hamlet: &str,
+    number: u64,
+) -> Result<()> {
+    match hamlet_folder(root, hamlet, Missing::Fail) {
+        Ok(houses) => {
+            remove_tree(&houses, &Name::new(&number.to_string())?)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(crate) fn erase_hamlet(
+    root: &Directory,
+    hamlet: &str,
+) -> Result<()> {
+    erase(&directory(root, "houses", Missing::Fail)?, hamlet)
+}
+
+/// Puts the stage `name` in place of agent `number`'s house in
+/// `hamlet`, erasing the house it replaces.
+pub(crate) fn swap(
+    root: &Directory,
+    stages: &Directory,
+    name: &str,
+    hamlet: &str,
+    number: u64,
+) -> Result<()> {
+    let parent =
+        hamlet_folder(root, hamlet, Missing::Make(Mode::FOLDER))?;
+    let name = Name::in_tree(name)?;
+    let number = Name::new(&number.to_string())?;
+    let old = format!("old-{}", uuid::Uuid::new_v4());
+    let backup = Name::new(&old)?;
+    let detached = match parent.rename(
+        &number,
+        stages,
+        &backup,
+        Replace::Always,
+    ) {
+        Ok(()) => true,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            false
+        }
+        Err(error) => return Err(error.into()),
+    };
+    if let Err(error) =
+        stages.rename(&name, &parent, &number, Replace::Always)
+    {
+        let error = anyhow::Error::from(error);
+        if detached
+            && let Err(rollback) = stages.rename(
+                &backup,
+                &parent,
+                &number,
+                Replace::Always,
+            )
+        {
+            return Err(error.context(format!(
+                "The replaced house could not be put back, and is \
+                 kept beside the stage as {old}: {rollback}"
+            )));
+        }
+        return Err(error);
+    }
+    if detached {
+        remove_any(stages, &backup)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn directory(
+    parent: &Directory,
+    name: &str,
+    missing: Missing,
+) -> io::Result<Directory> {
+    let name = Name::in_tree(name)?;
+    match missing {
+        Missing::Fail => parent.child(&name),
+        Missing::Make(mode) => parent.make(&name, mode, Exists::Open),
+    }
 }
 
 pub(crate) fn read(
-    root: &File,
+    root: &Directory,
     cap: u64,
     entries: usize,
 ) -> Result<BTreeMap<String, Entry>> {
@@ -68,7 +214,7 @@ pub(crate) fn read(
 /// The library's files, without its hidden ones, within `cap` bytes
 /// and `count` entries.
 pub(crate) fn library(
-    root: &File,
+    root: &Directory,
     cap: u64,
     count: usize,
 ) -> Result<BTreeMap<String, Entry>> {
@@ -80,61 +226,39 @@ pub(crate) fn library(
 /// What `path` names, a link itself rather than what it names, or
 /// `None` where nothing is.
 pub(crate) fn kind(
-    root: &File,
-    path: &str,
+    root: &Directory,
+    path: &TreePath,
 ) -> Result<Option<TreeKind>> {
-    let (dir, name) = parent(root, path, false)?;
-    match statat(&dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW) {
-        Ok(info) => {
-            Ok(Some(match FileType::from_raw_mode(info.st_mode) {
-                FileType::Directory => TreeKind::Directory,
-                FileType::RegularFile => TreeKind::File,
-                FileType::Symlink => TreeKind::Link,
-                _ => TreeKind::Special,
-            }))
-        }
-        Err(rustix::io::Errno::NOENT) => Ok(None),
-        Err(error) => Err(error.into()),
-    }
+    let (dir, name) = root.parent(path, Missing::Fail)?;
+    Ok(dir.stat(name)?.map(|stat| match stat.kind {
+        Kind::Directory => TreeKind::Directory,
+        Kind::File => TreeKind::File,
+        Kind::Link => TreeKind::Link,
+        Kind::Special => TreeKind::Special,
+    }))
 }
 
 /// Makes the folder `path`, which must be new.
-pub(crate) fn mkdir(root: &File, path: &str) -> Result<()> {
-    let (dir, name) = parent(root, path, false)?;
-    mkdirat(&dir, name.as_str(), Mode::from_raw_mode(0o700))?;
+pub(crate) fn mkdir(root: &Directory, path: &TreePath) -> Result<()> {
+    let (dir, name) = root.parent(path, Missing::Fail)?;
+    dir.make(name, Mode::FOLDER, Exists::Fail)?;
     Ok(())
 }
 
-/// Sets the permission bits of the file or folder `path`, or of
-/// `root` itself for `.`.
 pub(crate) fn set_mode(
-    root: &File,
-    path: &str,
+    root: &Directory,
+    path: &TreePath,
     mode: u32,
 ) -> Result<()> {
-    let permissions = std::fs::Permissions::from_mode(mode & 0o777);
-    if path == "." {
-        return Ok(root.set_permissions(permissions)?);
-    }
-    let (dir, name) = parent(root, path, false)?;
-    let info =
-        statat(&dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW)?;
-    let target = match FileType::from_raw_mode(info.st_mode) {
-        FileType::Directory => directory(&dir, &name, false)?,
-        FileType::RegularFile => File::from(openat(
-            &dir,
-            name.as_str(),
-            OFlags::RDONLY
-                | OFlags::NOFOLLOW
-                | OFlags::NONBLOCK
-                | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?),
-        _ => {
+    let mode = Mode::new(mode);
+    let (dir, name) = root.parent(path, Missing::Fail)?;
+    match present(&dir, name)?.kind {
+        Kind::Directory => dir.child(name)?.set_mode(mode)?,
+        Kind::File => dir.file(name, Open::Read)?.set_mode(mode)?,
+        Kind::Link | Kind::Special => {
             anyhow::bail!("Links and special files cannot be copied.")
         }
-    };
-    target.set_permissions(permissions)?;
+    }
     Ok(())
 }
 
@@ -142,7 +266,7 @@ pub(crate) fn set_mode(
 /// SHA-256, within `cap` bytes and `count` entries. A file with
 /// other names is special.
 pub(crate) fn entries(
-    root: &File,
+    root: &Directory,
     cap: u64,
     count: usize,
 ) -> Result<Vec<TreeEntry>> {
@@ -150,7 +274,7 @@ pub(crate) fn entries(
         path: ".".into(),
         kind: TreeKind::Directory,
         size: 0,
-        mode: root.metadata()?.mode() & 0o777,
+        mode: root.status()?.mode.bits(),
         sha256: None,
     }];
     listed(root, "", &mut entries, &mut { cap }, count)?;
@@ -160,18 +284,14 @@ pub(crate) fn entries(
 /// The entries under `dir`, each folder's listed while it alone is
 /// open, so a wide tree holds few descriptors.
 fn listed(
-    dir: &File,
+    dir: &Directory,
     prefix: &str,
     entries: &mut Vec<TreeEntry>,
     left: &mut u64,
     count: usize,
 ) -> Result<()> {
-    for item in Dir::read_from(dir)? {
-        let item = item?;
-        let name = item.file_name().to_str()?.to_owned();
-        if [".", ".."].contains(&name.as_str()) {
-            continue;
-        }
+    for name in dir.listing()? {
+        let name = name?;
         if entries.len() >= count {
             return Err(Failure::refused(
                 Code::TooMany,
@@ -179,19 +299,16 @@ fn listed(
             )
             .into());
         }
-        let path = format!("{prefix}{name}");
-        let info =
-            statat(dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW)?;
-        let kind = match FileType::from_raw_mode(info.st_mode) {
-            FileType::Directory => TreeKind::Directory,
-            FileType::RegularFile if info.st_nlink == 1 => {
-                TreeKind::File
-            }
-            FileType::Symlink => TreeKind::Link,
-            _ => TreeKind::Special,
+        let path = format!("{prefix}{}", text(&name)?);
+        let stat = present(dir, &name)?;
+        let kind = match stat.kind {
+            Kind::Directory => TreeKind::Directory,
+            Kind::File if stat.links == 1 => TreeKind::File,
+            Kind::Link => TreeKind::Link,
+            Kind::File | Kind::Special => TreeKind::Special,
         };
         let (size, sha256) = if kind == TreeKind::File {
-            let bytes = read_file(dir, &name, *left)?;
+            let bytes = read_lone(dir, &name, *left)?;
             *left -= bytes.len() as u64;
             (
                 bytes.len() as u64,
@@ -200,18 +317,16 @@ fn listed(
         } else {
             (0, None)
         };
-        let mode = permission_bits(info.st_mode);
         entries.push(TreeEntry {
             path: path.clone(),
             kind,
             size,
-            mode,
+            mode: stat.mode.bits(),
             sha256,
         });
         if kind == TreeKind::Directory {
-            let child = directory(dir, &name, false)?;
             listed(
-                &child,
+                &dir.child(&name)?,
                 &format!("{path}/"),
                 entries,
                 left,
@@ -223,27 +338,24 @@ fn listed(
 }
 
 pub(crate) fn read_file(
-    root: &File,
-    path: &str,
+    root: &Directory,
+    path: &TreePath,
     cap: u64,
 ) -> Result<Vec<u8>> {
-    let (dir, name) = parent(root, path, false)?;
-    let file = File::from(openat(
-        &dir,
-        name.as_str(),
-        OFlags::RDONLY
-            | OFlags::NOFOLLOW
-            | OFlags::NONBLOCK
-            | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?);
-    let metadata = file.metadata()?;
-    ensure!(
-        metadata.is_file() && metadata.nlink() == 1,
-        "Not a regular unlinked file."
-    );
+    let (dir, name) = root.parent(path, Missing::Fail)?;
+    read_lone(&dir, name, cap)
+}
+
+fn read_lone(
+    dir: &Directory,
+    name: &Name,
+    cap: u64,
+) -> Result<Vec<u8>> {
+    let file = lone(dir, name, "Not a regular unlinked file.")?;
     let mut bytes = Vec::new();
-    file.take(cap.saturating_add(1)).read_to_end(&mut bytes)?;
+    file.into_file()
+        .take(cap.saturating_add(1))
+        .read_to_end(&mut bytes)?;
     if bytes.len() as u64 > cap {
         return Err(Failure::refused(
             Code::TooLarge,
@@ -254,86 +366,95 @@ pub(crate) fn read_file(
     Ok(bytes)
 }
 
+fn lone(
+    dir: &Directory,
+    name: &Name,
+    refusal: &'static str,
+) -> Result<Regular> {
+    match dir.file(name, Open::Read) {
+        Ok(file) if file.is_lone() => Ok(file),
+        Err(error) if NotRegular::of(&error).is_none() => {
+            Err(error.into())
+        }
+        _ => bail!(refusal),
+    }
+}
+
 /// The folder of society snapshots under the houses' root.
 const SNAPSHOTS: &str = ".society-files";
 
 /// The files of the snapshot `name`, read as [`read`] reads a tree.
 pub(crate) fn read_snapshot(
-    root: &File,
+    root: &Directory,
     name: &str,
     cap: u64,
     count: usize,
 ) -> Result<BTreeMap<String, Entry>> {
     read(
-        &directory(&directory(root, SNAPSHOTS, false)?, name, false)?,
+        &directory(
+            &directory(root, SNAPSHOTS, Missing::Fail)?,
+            name,
+            Missing::Fail,
+        )?,
         cap,
         count,
     )
 }
 
 /// Erases the snapshot `name`.
-pub(crate) fn erase_snapshot(root: &File, name: &str) -> Result<()> {
-    erase(&directory(root, SNAPSHOTS, false)?, name)
+pub(crate) fn erase_snapshot(
+    root: &Directory,
+    name: &str,
+) -> Result<()> {
+    erase(&directory(root, SNAPSHOTS, Missing::Fail)?, name)
 }
 
 pub(crate) fn sweep_snapshots(
-    root: &File,
+    root: &Directory,
     kept: &[String],
 ) -> Result<()> {
-    let snapshots = directory(root, SNAPSHOTS, true)?;
-    for entry in Dir::read_from(&snapshots)? {
-        let entry = entry?;
-        let name = entry.file_name().to_str()?;
-        if [".", ".."].contains(&name)
-            || kept.iter().any(|kept| kept == name)
-        {
-            continue;
-        }
-        let info =
-            statat(&snapshots, name, AtFlags::SYMLINK_NOFOLLOW)?;
-        if FileType::from_raw_mode(info.st_mode)
-            == FileType::Directory
-        {
-            erase(&snapshots, name)?;
-        } else {
-            unlinkat(&snapshots, name, AtFlags::empty())?;
+    let snapshots =
+        directory(root, SNAPSHOTS, Missing::Make(Mode::FOLDER))?;
+    for name in snapshots.names()? {
+        let text = text(&name)?;
+        if !kept.iter().any(|kept| kept == text) {
+            remove_any(&snapshots, &name)?;
         }
     }
     Ok(())
 }
 
 pub(crate) fn snapshot(
-    root: &File,
+    root: &Directory,
     files: &BTreeMap<String, Entry>,
 ) -> Result<String> {
-    let snapshots = directory(root, SNAPSHOTS, true)?;
+    let snapshots =
+        directory(root, SNAPSHOTS, Missing::Make(Mode::FOLDER))?;
     let name = uuid::Uuid::new_v4().to_string();
-    let snapshot = directory(&snapshots, &name, true)?;
+    let snapshot =
+        directory(&snapshots, &name, Missing::Make(Mode::FOLDER))?;
     for (path, file) in files {
-        put(&snapshot, path, file)?;
+        put(&snapshot, &TreePath::parse(path)?, file)?;
     }
-    snapshot.sync_all()?;
-    snapshots.sync_all()?;
-    root.sync_all()?;
+    snapshot.sync()?;
+    snapshots.sync()?;
+    root.sync()?;
     crate::fault::point("after_society_snapshot");
     Ok(name)
 }
 
 fn scan(
-    dir: &File,
+    dir: &Directory,
     prefix: &str,
     files: &mut BTreeMap<String, Entry>,
     left: &mut u64,
     remaining: &mut usize,
     hidden: bool,
 ) -> Result<()> {
-    for entry in Dir::read_from(dir)? {
-        let entry = entry?;
-        let name = entry.file_name().to_str()?;
-        if name == "."
-            || name == ".."
-            || hidden && name.starts_with('.')
-        {
+    for name in dir.listing()? {
+        let name = name?;
+        let text = text(&name)?;
+        if hidden && text.starts_with('.') {
             continue;
         }
         ensure!(
@@ -341,34 +462,26 @@ fn scan(
             "The house has too many files; remove the agent instead."
         );
         *remaining -= 1;
-        let path = format!("{prefix}{name}");
-        let info = statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)?;
-        match FileType::from_raw_mode(info.st_mode) {
-            FileType::Directory => scan(
-                &directory(dir, name, false)?,
+        let path = format!("{prefix}{text}");
+        match present(dir, &name)?.kind {
+            Kind::Directory => scan(
+                &dir.child(&name)?,
                 &format!("{path}/"),
                 files,
                 left,
                 remaining,
                 false,
             )?,
-            FileType::RegularFile => {
-                let file = File::from(openat(
+            Kind::File => {
+                let file = lone(
                     dir,
-                    name,
-                    OFlags::RDONLY
-                        | OFlags::NOFOLLOW
-                        | OFlags::NONBLOCK
-                        | OFlags::CLOEXEC,
-                    Mode::empty(),
-                )?);
-                let metadata = file.metadata()?;
-                ensure!(
-                    metadata.is_file() && metadata.nlink() == 1,
-                    "Links and special files cannot be merged."
-                );
+                    &name,
+                    "Links and special files cannot be merged.",
+                )?;
+                let mode = file.stat().mode.bits();
                 let mut bytes = Vec::new();
-                file.take(left.saturating_add(1))
+                file.into_file()
+                    .take(left.saturating_add(1))
                     .read_to_end(&mut bytes)?;
                 ensure!(
                     bytes.len() as u64 <= *left,
@@ -376,15 +489,9 @@ fn scan(
                      instead."
                 );
                 *left -= bytes.len() as u64;
-                files.insert(
-                    path,
-                    Entry {
-                        bytes,
-                        mode: metadata.mode() & 0o777,
-                    },
-                );
+                files.insert(path, Entry { bytes, mode });
             }
-            _ => anyhow::bail!(
+            Kind::Link | Kind::Special => anyhow::bail!(
                 "Links and special files cannot be merged."
             ),
         }
@@ -392,81 +499,40 @@ fn scan(
     Ok(())
 }
 
-fn parent(
-    root: &File,
-    path: &str,
-    create: bool,
-) -> Result<(File, String)> {
-    let parts = path.split('/').collect::<Vec<_>>();
-    ensure!(
-        parts.iter().all(|p| !p.is_empty()
-            && ![".", ".."].contains(p)
-            && !p.contains(['\\', '\0'])),
-        "invalid tree path"
-    );
-    let mut dir = root.try_clone()?;
-    for part in &parts[..parts.len() - 1] {
-        dir = directory(&dir, part, create)?;
-    }
-    Ok((dir, parts[parts.len() - 1].into()))
-}
-
 pub(crate) fn put(
-    root: &File,
-    path: &str,
+    root: &Directory,
+    path: &TreePath,
     entry: &Entry,
 ) -> Result<()> {
-    use rustix::fs::{RenameFlags, renameat_with};
-    let bytes = &entry.bytes;
-    let (dir, name) = parent(root, path, true)?;
-    let temporary = format!(".incoming-{}", uuid::Uuid::new_v4());
-    let mut file = File::from(openat(
-        &dir,
-        temporary.as_str(),
-        OFlags::WRONLY
-            | OFlags::CREATE
-            | OFlags::EXCL
-            | OFlags::NOFOLLOW
-            | OFlags::CLOEXEC,
-        Mode::from_raw_mode(0o600),
-    )?);
-    file.write_all(bytes)?;
-    file.set_permissions(std::fs::Permissions::from_mode(
-        entry.mode & 0o777,
-    ))?;
-    file.sync_all()?;
-    let renamed = renameat_with(
-        &dir,
-        temporary.as_str(),
-        &dir,
-        name.as_str(),
-        RenameFlags::NOREPLACE,
-    );
+    let (dir, name) =
+        root.parent(path, Missing::Make(Mode::FOLDER))?;
+    let temporary =
+        Name::new(&format!(".incoming-{}", uuid::Uuid::new_v4()))?;
+    let file = dir.file(&temporary, Open::New(Mode::PRIVATE))?;
+    file.file().write_all(&entry.bytes)?;
+    file.set_mode(Mode::new(entry.mode))?;
+    file.file().sync_all()?;
+    let renamed = dir.rename(&temporary, &dir, name, Replace::Never);
     if renamed.is_err() {
-        unlinkat(&dir, temporary.as_str(), AtFlags::empty())?;
+        dir.remove(&temporary, Removing::File)?;
     }
     match renamed {
-        Ok(()) => dir.sync_all()?,
-        Err(error) if error == rustix::io::Errno::EXIST => {
-            let file = File::from(openat(
+        Ok(()) => dir.sync()?,
+        Err(error)
+            if error.kind() == io::ErrorKind::AlreadyExists =>
+        {
+            let present = lone(
                 &dir,
-                name.as_str(),
-                OFlags::RDONLY
-                    | OFlags::NOFOLLOW
-                    | OFlags::NONBLOCK
-                    | OFlags::CLOEXEC,
-                Mode::empty(),
-            )?);
-            let metadata = file.metadata()?;
+                name,
+                "The merge target is not a regular file.",
+            )?;
+            let mut bytes = Vec::new();
+            present
+                .into_file()
+                .take(entry.bytes.len() as u64 + 1)
+                .read_to_end(&mut bytes)?;
             ensure!(
-                metadata.is_file() && metadata.nlink() == 1,
-                "The merge target is not a regular file."
-            );
-            let mut present = Vec::new();
-            file.take(bytes.len() as u64 + 1)
-                .read_to_end(&mut present)?;
-            ensure!(
-                &present == bytes,
+                bytes == entry.bytes,
                 "The merge target changed; inspect the houses \
                  before retrying."
             );
@@ -476,84 +542,72 @@ pub(crate) fn put(
     Ok(())
 }
 
-pub(crate) fn remove(root: &File, path: &str) -> Result<()> {
-    let (dir, name) = parent(root, path, false)?;
-    unlinkat(&dir, name.as_str(), AtFlags::empty())?;
+pub(crate) fn remove(
+    root: &Directory,
+    path: &TreePath,
+) -> Result<()> {
+    let (dir, name) = root.parent(path, Missing::Fail)?;
+    dir.remove(name, Removing::File)?;
     Ok(())
 }
 
 pub(crate) fn replace(
-    root: &File,
-    path: &str,
+    root: &Directory,
+    path: &TreePath,
     bytes: &[u8],
 ) -> Result<()> {
-    let (dir, name) = parent(root, path, false)?;
-    match statat(&dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW) {
-        Ok(info) => ensure!(
-            FileType::from_raw_mode(info.st_mode)
-                == FileType::RegularFile,
+    let (dir, name) = root.parent(path, Missing::Fail)?;
+    if let Some(stat) = dir.stat(name)? {
+        ensure!(
+            stat.kind == Kind::File,
             "The file to replace is not a regular file."
-        ),
-        Err(rustix::io::Errno::NOENT) => {}
-        Err(error) => return Err(error.into()),
+        );
     }
-    let temporary = format!(".incoming-{}", uuid::Uuid::new_v4());
-    let mut file = File::from(openat(
-        &dir,
-        temporary.as_str(),
-        OFlags::WRONLY
-            | OFlags::CREATE
-            | OFlags::EXCL
-            | OFlags::NOFOLLOW
-            | OFlags::CLOEXEC,
-        Mode::from_raw_mode(0o600),
-    )?);
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    rustix::fs::renameat(
-        &dir,
-        temporary.as_str(),
-        &dir,
-        name.as_str(),
-    )?;
-    dir.sync_all()?;
+    let temporary =
+        Name::new(&format!(".incoming-{}", uuid::Uuid::new_v4()))?;
+    let file = dir.file(&temporary, Open::New(Mode::PRIVATE))?;
+    file.file().write_all(bytes)?;
+    file.file().sync_all()?;
+    dir.rename(&temporary, &dir, name, Replace::Always)?;
+    dir.sync()?;
     Ok(())
 }
 
 pub(crate) fn publish(
-    staging: &File,
-    target: &File,
+    staging: &Directory,
+    target: &Directory,
     name: &str,
     files: &BTreeMap<String, Entry>,
 ) -> Result<()> {
-    let stage = directory(staging, name, true)?;
+    let stage =
+        directory(staging, name, Missing::Make(Mode::FOLDER))?;
     for (path, entry) in files {
-        put(&stage, path, entry)?;
+        put(&stage, &TreePath::parse(path)?, entry)?;
     }
-    stage.sync_all()?;
-    match rustix::fs::renameat_with(
-        staging,
-        name,
-        target,
-        name,
-        rustix::fs::RenameFlags::NOREPLACE,
-    ) {
+    stage.sync()?;
+    let skill = Name::in_tree(name)?;
+    match staging.rename(&skill, target, &skill, Replace::Never) {
         Ok(()) => {
-            staging.sync_all()?;
-            target.sync_all()?;
+            staging.sync()?;
+            target.sync()?;
         }
-        Err(rustix::io::Errno::EXIST) => {
+        Err(error)
+            if error.kind() == io::ErrorKind::AlreadyExists =>
+        {
             let cap = files
                 .values()
                 .map(|entry| entry.bytes.len() as u64)
                 .sum();
             ensure!(
-                read(&directory(target, name, false)?, cap, 4096)?
-                    == *files,
+                read(
+                    &directory(target, name, Missing::Fail)?,
+                    cap,
+                    4096
+                )? == *files,
                 "The published skill changed; inspect the library \
                  before retrying."
             );
-            erase(staging, name)?;
+            remove_tree(staging, &skill)?;
         }
         Err(error) => return Err(error.into()),
     }
@@ -561,35 +615,240 @@ pub(crate) fn publish(
 }
 
 /// Erases the file or folder `path`.
-pub(crate) fn erase_path(root: &File, path: &str) -> Result<()> {
-    let (dir, name) = parent(root, path, false)?;
-    let info =
-        statat(&dir, name.as_str(), AtFlags::SYMLINK_NOFOLLOW)?;
-    if FileType::from_raw_mode(info.st_mode) == FileType::Directory {
-        erase(&dir, &name)
-    } else {
-        Ok(unlinkat(&dir, name.as_str(), AtFlags::empty())?)
-    }
+pub(crate) fn erase_path(
+    root: &Directory,
+    path: &TreePath,
+) -> Result<()> {
+    let (dir, name) = root.parent(path, Missing::Fail)?;
+    remove_any(&dir, name)
 }
 
-pub(crate) fn erase(root: &File, name: &str) -> Result<()> {
-    let dir = match directory(root, name, false) {
+pub(crate) fn erase(root: &Directory, name: &str) -> Result<()> {
+    remove_tree(root, &Name::in_tree(name)?)
+}
+
+fn remove_tree(root: &Directory, name: &Name) -> Result<()> {
+    let dir = match root.child(name) {
         Ok(dir) => dir,
-        Err(error)
-            if error.downcast_ref::<rustix::io::Errno>()
-                == Some(&rustix::io::Errno::NOENT) =>
-        {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(());
         }
-        Err(error) => return Err(error),
+        Err(error) => return Err(error.into()),
     };
-    super::clear(&dir)?;
-    unlinkat(root, name, AtFlags::REMOVEDIR)?;
+    clear(&dir)?;
+    drop(dir);
+    root.remove(name, Removing::Directory)?;
     Ok(())
 }
 
-/// The permission bits of `mode`, a `u16` on macOS and a `u32` on
-/// Linux.
-fn permission_bits(mode: impl Into<u32>) -> u32 {
-    mode.into() & 0o777
+fn clear(dir: &Directory) -> Result<()> {
+    // Only the owner can change the mode. Another folder is emptied
+    // as it is.
+    let _ = dir.set_mode(Mode::FOLDER);
+    for name in dir.names()? {
+        remove_any(dir, &name)?;
+    }
+    Ok(())
+}
+
+fn remove_any(dir: &Directory, name: &Name) -> Result<()> {
+    if present(dir, name)?.kind == Kind::Directory {
+        remove_tree(dir, name)
+    } else {
+        Ok(dir.remove(name, Removing::File)?)
+    }
+}
+
+fn present(dir: &Directory, name: &Name) -> io::Result<Stat> {
+    dir.stat(name)?
+        .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
+}
+
+fn text(name: &Name) -> Result<&str> {
+    name.to_str().context("A name in the tree is not UTF-8.")
+}
+
+pub(crate) fn sweep(root: &Directory) -> Result<()> {
+    clear(&directory(root, ".gifts", Missing::Make(Mode::FOLDER))?)
+}
+
+pub(crate) struct Stage {
+    parent: Directory,
+    name: Name,
+}
+
+impl Stage {
+    pub fn new(root: &Directory) -> Result<Self> {
+        let parent =
+            directory(root, ".gifts", Missing::Make(Mode::FOLDER))?;
+        let name =
+            Name::new(&format!("gift-{}", uuid::Uuid::new_v4()))?;
+        parent.make(&name, Mode::FOLDER, Exists::Fail)?;
+        Ok(Self { parent, name })
+    }
+
+    pub fn dir(&self) -> io::Result<Directory> {
+        self.parent.child(&self.name)
+    }
+
+    pub fn file(&self, path: &str, missing: Missing) -> Result<File> {
+        ensure!(
+            path.len() < 4096,
+            "gift path exceeds the file system limit"
+        );
+        let path = TreePath::parse(path)?;
+        let how = match missing {
+            Missing::Make(_) => Open::New(Mode::SHARED),
+            Missing::Fail => Open::Append,
+        };
+        let (dir, name) = self.dir()?.parent(&path, missing)?;
+        Ok(dir.file(name, how)?.into_file())
+    }
+}
+
+impl Drop for Stage {
+    fn drop(&mut self) {
+        if remove_tree(&self.parent, &self.name).is_err() {
+            tell(Secrets::Fixed, "could not discard a gift.");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use hamlet_os::fs::LastLink;
+    use hamlet_testing::Scratch;
+    use hamlet_testing::links::hard_link;
+
+    use super::*;
+
+    fn path(text: &str) -> TreePath {
+        TreePath::parse(text).unwrap()
+    }
+
+    #[test]
+    fn put_refuses_a_merge_target_that_is_no_regular_file() {
+        let home = Scratch::new("tree-merge-target");
+        fs::create_dir(home.join("folder")).unwrap();
+        #[cfg_attr(
+            windows,
+            expect(unused_mut, reason = "Windows has no FIFO")
+        )]
+        let mut targets = vec!["folder"];
+        #[cfg(unix)]
+        {
+            hamlet_testing::fifo(&home.join("pipe"));
+            targets.push("pipe");
+        }
+        let root = Directory::open(&home, LastLink::Follow).unwrap();
+        let entry = Entry {
+            bytes: b"merged".to_vec(),
+            mode: 0o600,
+        };
+        for target in targets {
+            let refused =
+                put(&root, &path(target), &entry).unwrap_err();
+            assert_eq!(
+                refused.to_string(),
+                "The merge target is not a regular file.",
+                "{target}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_file_refuses_what_is_no_lone_regular_file() {
+        let home = Scratch::new("tree-read-lone");
+        fs::create_dir(home.join("folder")).unwrap();
+        fs::write(home.join("file"), "shared").unwrap();
+        hard_link(home.join("file"), home.join("second")).unwrap();
+        #[cfg_attr(
+            windows,
+            expect(unused_mut, reason = "Windows has no FIFO")
+        )]
+        let mut names = vec!["folder", "second"];
+        #[cfg(unix)]
+        {
+            hamlet_testing::fifo(&home.join("pipe"));
+            names.push("pipe");
+        }
+        let root = Directory::open(&home, LastLink::Follow).unwrap();
+        for name in names {
+            let refused =
+                read_file(&root, &path(name), 64).unwrap_err();
+            assert_eq!(
+                refused.to_string(),
+                "Not a regular unlinked file.",
+                "{name}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn erase_fails_on_a_folder_the_server_cannot_open() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = Scratch::new("tree-unopened");
+        let locked = home.join("stage/locked");
+        fs::create_dir_all(&locked).unwrap();
+        fs::set_permissions(
+            &locked,
+            fs::Permissions::from_mode(0o000),
+        )
+        .unwrap();
+        let root = Directory::open(&home, LastLink::Follow).unwrap();
+        let refused = erase(&root, "stage").unwrap_err();
+        fs::set_permissions(
+            &locked,
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        assert_eq!(
+            refused.downcast_ref::<io::Error>().map(io::Error::kind),
+            Some(io::ErrorKind::PermissionDenied)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clear_empties_a_read_only_folder() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = Scratch::new("tree-clear");
+        let locked = home.join("stage/locked");
+        fs::create_dir_all(&locked).unwrap();
+        fs::write(locked.join("kept"), "kept").unwrap();
+        fs::set_permissions(
+            &locked,
+            fs::Permissions::from_mode(0o500),
+        )
+        .unwrap();
+        let root = Directory::open(&home, LastLink::Follow).unwrap();
+        erase(&root, "stage").unwrap();
+        assert!(!home.join("stage").exists());
+    }
+
+    #[test]
+    fn move_house_reaches_the_parent_by_name() {
+        let home = Scratch::new("tree-move");
+        let root = Directory::open(&home, LastLink::Follow).unwrap();
+        build(&root, "north", 1).unwrap();
+        build(&root, "south", 0).unwrap();
+        let from = AgentRef {
+            hamlet: "north".into(),
+            number: 1,
+        };
+        let to = AgentRef {
+            hamlet: "south".into(),
+            number: 2,
+        };
+        move_house(&root, &from, &to).unwrap();
+        assert!(home.join("houses/south/2/NOTES.md").is_file());
+        assert!(!home.join("houses/north/1").exists());
+        move_house(&root, &from, &to).unwrap();
+        build(&root, "north", 1).unwrap();
+        assert!(move_house(&root, &from, &to).is_err());
+        assert!(home.join("houses/north/1/NOTES.md").is_file());
+    }
 }

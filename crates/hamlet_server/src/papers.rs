@@ -7,20 +7,18 @@ pub(crate) mod moving;
 pub(crate) mod remote;
 pub(crate) mod tree;
 
-use std::fs::File;
-use std::io::{Read as _, Write as _};
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, ensure};
+use hamlet_os::fs::{Directory, LastLink, Missing, Mode};
+use hamlet_protocol::client::Confinement;
 use hamlet_workspace_wire::MAX_FILE;
-use rustix::fs::{
-    AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, mkdirat,
-    openat, renameat_with, statat, unlinkat,
-};
 
 use self::files::Files;
 use crate::protocol::{Cause, Refusable, Refusal};
 use crate::record::AgentRef;
+use crate::sandbox::{AllLeftovers, Isolation, Sandbox};
 use crate::workspace::{Policy, Transport, WorkspaceSession};
 
 pub(crate) const CHARTER: &str = include_str!("../assets/charter.md");
@@ -55,17 +53,22 @@ impl Capability {
     }
 }
 
-/// Where houses live and tools run.
+/// Where houses live and tools run. The sandbox and the shells
+/// belong to this machine, so a remote workspace holds neither.
 enum Workspace {
-    Local,
+    Local {
+        sandbox: Sandbox,
+        shells: crate::tools::Shells,
+    },
     Remote(Transport),
 }
 
 /// The houses of the home's agents on the workspace chosen at
 /// startup. The opened home directory anchors every local house.
 pub(crate) struct Houses {
-    root: File,
+    root: Directory,
     workspace: Workspace,
+    leftovers: AllLeftovers,
     skills: std::collections::BTreeMap<
         (String, u64),
         (std::time::Instant, Vec<String>),
@@ -75,26 +78,32 @@ pub(crate) struct Houses {
 }
 
 impl Houses {
-    /// The houses under `root`, or in the remote `workspace`.
+    /// The houses under `root`, with tools run as `isolation` asks,
+    /// or in the remote `workspace`.
     pub fn open(
         root: &Path,
         workspace: Option<crate::credentials::WorkspaceAddress>,
+        isolation: Isolation,
     ) -> Result<Self> {
         Ok(Self {
-            root: File::open(root)?,
+            root: Directory::open(root, LastLink::Follow)?,
             workspace: match workspace {
                 Some(connection) => {
                     Workspace::Remote(Transport::new(connection)?)
                 }
-                None => Workspace::Local,
+                None => Workspace::Local {
+                    sandbox: Sandbox::open(isolation)?,
+                    shells: crate::tools::Shells::local(),
+                },
             },
+            leftovers: AllLeftovers::default(),
             skills: Default::default(),
             reading: Default::default(),
             readers: tokio::task::JoinSet::new(),
         })
     }
 
-    pub(crate) fn root(&self) -> &File {
+    pub(crate) fn root(&self) -> &Directory {
         &self.root
     }
 
@@ -103,7 +112,7 @@ impl Houses {
         &self,
     ) -> Option<&crate::credentials::WorkspaceAddress> {
         match &self.workspace {
-            Workspace::Local => None,
+            Workspace::Local { .. } => None,
             Workspace::Remote(transport) => {
                 Some(transport.connection())
             }
@@ -113,7 +122,7 @@ impl Houses {
     /// Refuses `capability` when the workspace cannot do it.
     pub fn allows(&self, capability: Capability) -> Refusable<()> {
         match &self.workspace {
-            Workspace::Local => Ok(()),
+            Workspace::Local { .. } => Ok(()),
             Workspace::Remote(_) => Err(Refusal::Cannot {
                 operation: capability.operation().into(),
                 cause: Cause::Remote,
@@ -135,24 +144,29 @@ impl Houses {
     /// Whether every house change has happened or not once it
     /// returns, so work a crash cut short may be done again.
     pub fn can_confirm(&self) -> bool {
-        matches!(self.workspace, Workspace::Local)
+        matches!(self.workspace, Workspace::Local { .. })
     }
 
     /// Checks before serving that tools can run.
-    pub fn probe(
-        &self,
-        sandbox: crate::sandbox::Sandbox,
-    ) -> Result<()> {
-        match self.workspace {
-            Workspace::Local => sandbox.probe(),
+    pub fn probe(&self) -> Result<()> {
+        match &self.workspace {
+            Workspace::Local { sandbox, .. } => sandbox.probe(),
             Workspace::Remote(_) => Ok(()),
+        }
+    }
+
+    /// How the workspace's tools are confined.
+    pub fn confinement(&self) -> Confinement {
+        match &self.workspace {
+            Workspace::Local { sandbox, .. } => sandbox.confinement(),
+            Workspace::Remote(_) => Confinement::Remote,
         }
     }
 
     /// The machine tools run on, where it is not this one.
     pub fn machine(&self) -> Option<&'static str> {
         match self.workspace {
-            Workspace::Local => None,
+            Workspace::Local { .. } => None,
             Workspace::Remote(_) => Some(remote::MACHINE),
         }
     }
@@ -161,7 +175,7 @@ impl Houses {
     /// fixes it.
     pub fn fixed_folder(&self) -> Option<&'static str> {
         match self.workspace {
-            Workspace::Local => None,
+            Workspace::Local { .. } => None,
             Workspace::Remote(_) => Some(remote::PROJECT),
         }
     }
@@ -184,8 +198,11 @@ impl Houses {
     /// The house of agent `number` of `hamlet`.
     pub fn house(&self, hamlet: &str, number: u64) -> Result<Files> {
         Ok(match &self.workspace {
-            Workspace::Local => Files::Local(house(
-                &self.root, hamlet, number, false,
+            Workspace::Local { .. } => Files::Local(tree::house(
+                &self.root,
+                hamlet,
+                number,
+                Missing::Fail,
             )?),
             Workspace::Remote(transport) => {
                 Files::Remote(remote::Folder::house(Self::session(
@@ -207,7 +224,7 @@ impl Houses {
         project: bool,
     ) -> Result<Reader> {
         Ok(match &self.workspace {
-            Workspace::Local => Reader::Local {
+            Workspace::Local { .. } => Reader::Local {
                 root: self.root.try_clone()?,
                 hamlet: hamlet.into(),
                 number,
@@ -227,6 +244,14 @@ impl Houses {
         })
     }
 
+    /// The shells the workspace offers.
+    pub fn shells(&self) -> crate::tools::Shells {
+        match &self.workspace {
+            Workspace::Local { shells, .. } => shells.clone(),
+            Workspace::Remote(_) => crate::tools::Shells::remote(),
+        }
+    }
+
     /// The tools of `agent` working at `place`, reaching the network
     /// only with `net`.
     pub fn tools(
@@ -234,11 +259,16 @@ impl Houses {
         agent: &AgentRef,
         place: crate::tools::Place,
         net: bool,
-        sandbox: crate::sandbox::Sandbox,
     ) -> Result<crate::tools::ToolSession> {
         Ok(match &self.workspace {
-            Workspace::Local => {
-                crate::tools::ToolSession::local(place, net, sandbox)
+            Workspace::Local { sandbox, shells } => {
+                crate::tools::ToolSession::local(
+                    place,
+                    net,
+                    *sandbox,
+                    shells.clone(),
+                    self.leftovers.of(agent),
+                )
             }
             Workspace::Remote(transport) => {
                 let policy = Policy {
@@ -248,7 +278,11 @@ impl Houses {
                 };
                 let session =
                     transport.session(agent.clone(), policy)?;
-                crate::tools::ToolSession::remote(place, session)
+                crate::tools::ToolSession::remote(
+                    place,
+                    session,
+                    crate::tools::Shells::remote(),
+                )
             }
         })
     }
@@ -261,11 +295,11 @@ impl Houses {
         number: u64,
     ) -> impl Future<Output = Result<()>> + Send + 'static {
         enum Making {
-            Local(File, String),
+            Local(Directory, String),
             Remote(remote::Folder),
         }
         let making = match &self.workspace {
-            Workspace::Local => self
+            Workspace::Local { .. } => self
                 .root
                 .try_clone()
                 .map(|root| Making::Local(root, hamlet.into()))
@@ -284,7 +318,7 @@ impl Houses {
             match making? {
                 Making::Local(root, hamlet) => {
                     tokio::task::spawn_blocking(move || {
-                        build(&root, &hamlet, number)
+                        tree::build(&root, &hamlet, number)
                     })
                     .await?
                 }
@@ -297,7 +331,9 @@ impl Houses {
     /// [`Houses::initialize`], which waits for the workspace.
     pub fn build(&self, hamlet: &str, number: u64) -> Result<()> {
         match self.workspace {
-            Workspace::Local => build(&self.root, hamlet, number),
+            Workspace::Local { .. } => {
+                tree::build(&self.root, hamlet, number)
+            }
             Workspace::Remote(_) => Ok(()),
         }
     }
@@ -321,17 +357,23 @@ impl Houses {
             .await
     }
 
-    /// The folders of the skills in the house at `local`, as a client
-    /// lists them. A remote house's are read apart and shown once
-    /// read.
+    /// The folders of the skills in agent `number`'s house, as a
+    /// client lists them. A remote house's are read apart and shown
+    /// once read.
     pub fn skill_names(
         &mut self,
         hamlet: &str,
         number: u64,
-        local: &Path,
     ) -> Result<Vec<String>> {
-        if let Workspace::Local = self.workspace {
-            return Ok(crate::prompt::skill_names(local));
+        if let Workspace::Local { .. } = self.workspace {
+            return Ok(tree::house(
+                &self.root,
+                hamlet,
+                number,
+                Missing::Fail,
+            )
+            .map(|house| crate::prompt::skill_names(&house))
+            .unwrap_or_default());
         }
         while let Some(Ok((hamlet, number, names))) =
             self.readers.try_join_next()
@@ -348,10 +390,9 @@ impl Houses {
             && self.reading.insert(key.clone())
         {
             let reader = self.reader(hamlet, number, false)?;
-            let local = local.to_owned();
             self.readers.spawn(async move {
                 let names = reader
-                    .skills(&local)
+                    .skills()
                     .await
                     .into_iter()
                     .map(|skill| skill.folder)
@@ -369,32 +410,8 @@ impl Houses {
         to: &AgentRef,
     ) -> Result<()> {
         self.allows(Capability::MoveHouse)?;
-        let source =
-            match house(&self.root, &from.hamlet, from.number, false)
-            {
-                Ok(source) => source,
-                Err(error)
-                    if error.downcast_ref::<rustix::io::Errno>()
-                        == Some(&rustix::io::Errno::NOENT) =>
-                {
-                    house(&self.root, &to.hamlet, to.number, false)?;
-                    return Ok(());
-                }
-                Err(error) => return Err(error),
-            };
-        let flags =
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
-        let parent = openat(&source, "..", flags, Mode::empty())?;
-        let mayor = house(&self.root, &to.hamlet, 0, false)?;
-        let target = openat(&mayor, "..", flags, Mode::empty())?;
-        renameat_with(
-            parent,
-            from.number.to_string(),
-            target,
-            to.number.to_string(),
-            RenameFlags::NOREPLACE,
-        )?;
-        Ok(())
+        self.leftovers.end(|agent| agent == from);
+        tree::move_house(&self.root, from, to)
     }
 
     pub fn erase_hamlet(&self, hamlet: &str) -> Result<()> {
@@ -403,48 +420,21 @@ impl Houses {
             crate::record::check_name(hamlet).is_none(),
             "invalid hamlet name"
         );
-        let flags = OFlags::RDONLY
-            | OFlags::DIRECTORY
-            | OFlags::NOFOLLOW
-            | OFlags::CLOEXEC;
-        let parent = File::from(openat(
-            &self.root,
-            "houses",
-            flags,
-            Mode::empty(),
-        )?);
-        let dir = match openat(&parent, hamlet, flags, Mode::empty())
-        {
-            Ok(dir) => File::from(dir),
-            Err(rustix::io::Errno::NOENT) => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
-        clear(&dir)?;
-        unlinkat(&parent, hamlet, AtFlags::REMOVEDIR)?;
-        Ok(())
+        self.leftovers.end(|agent| agent.hamlet == hamlet);
+        tree::erase_hamlet(&self.root, hamlet)
     }
 
     pub fn erase(&self, hamlet: &str, number: u64) -> Result<()> {
         self.allows(Capability::EraseHouse)?;
-        let house = match house(&self.root, hamlet, number, false) {
-            Ok(house) => house,
-            Err(error)
-                if error.downcast_ref::<rustix::io::Errno>()
-                    == Some(&rustix::io::Errno::NOENT) =>
-            {
-                return Ok(());
-            }
-            Err(error) => return Err(error),
-        };
-        clear(&house)?;
-        let parent = openat(
-            &house,
-            "..",
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?;
-        unlinkat(parent, number.to_string(), AtFlags::REMOVEDIR)?;
-        Ok(())
+        self.leftovers.end(|agent| {
+            agent.hamlet == hamlet && agent.number == number
+        });
+        tree::erase_house(&self.root, hamlet, number)
+    }
+
+    /// Ends what every agent's commands left running.
+    pub fn end_leftovers(&self) {
+        self.leftovers.end(|_| true);
     }
 
     /// Makes agent `number`'s house hold `snapshot`. A local house is
@@ -455,15 +445,23 @@ impl Houses {
         number: u64,
         snapshot: &copy::Snapshot,
     ) -> Result<()> {
-        let Workspace::Local = self.workspace else {
+        let Workspace::Local { .. } = self.workspace else {
             self.initialize(hamlet, number).await?;
             return snapshot
                 .replace(&self.house(hamlet, number)?)
                 .await;
         };
-        let stages = tree::directory(&self.root, ".gifts", true)?;
+        let stages = tree::directory(
+            &self.root,
+            ".gifts",
+            Missing::Make(Mode::FOLDER),
+        )?;
         let name = format!("move-{}", uuid::Uuid::new_v4());
-        let stage = tree::directory(&stages, &name, true)?;
+        let stage = tree::directory(
+            &stages,
+            &name,
+            Missing::Make(Mode::FOLDER),
+        )?;
         let mapped = snapshot
             .entries
             .iter()
@@ -479,12 +477,8 @@ impl Houses {
             let stages = stages.try_clone()?;
             let mode = snapshot.entries[0].mode;
             result = tokio::task::spawn_blocking(move || {
-                stage.set_permissions(
-                    std::os::unix::fs::PermissionsExt::from_mode(
-                        mode & 0o777,
-                    ),
-                )?;
-                swap(&root, &stages, &name, &hamlet, number)
+                stage.set_mode(Mode::new(mode))?;
+                tree::swap(&root, &stages, &name, &hamlet, number)
             })
             .await?;
         }
@@ -495,58 +489,10 @@ impl Houses {
     }
 }
 
-/// Puts the stage `name` in place of agent `number`'s house in
-/// `hamlet`, erasing the house it replaces.
-fn swap(
-    root: &File,
-    stages: &File,
-    name: &str,
-    hamlet: &str,
-    number: u64,
-) -> Result<()> {
-    use rustix::fs::renameat;
-    let houses = tree::directory(root, "houses", true)?;
-    let parent = tree::directory(&houses, hamlet, true)?;
-    let number = number.to_string();
-    let backup = format!("old-{}", uuid::Uuid::new_v4());
-    let detached = match renameat(
-        &parent,
-        number.as_str(),
-        stages,
-        backup.as_str(),
-    ) {
-        Ok(()) => true,
-        Err(rustix::io::Errno::NOENT) => false,
-        Err(error) => return Err(error.into()),
-    };
-    if let Err(error) =
-        renameat(stages, name, &parent, number.as_str())
-    {
-        if detached {
-            renameat(
-                stages,
-                backup.as_str(),
-                &parent,
-                number.as_str(),
-            )?;
-        }
-        return Err(error.into());
-    }
-    if detached {
-        match tree::directory(stages, &backup, false) {
-            Ok(_) => tree::erase(stages, &backup)?,
-            Err(_) => {
-                unlinkat(stages, backup.as_str(), AtFlags::empty())?;
-            }
-        }
-    }
-    Ok(())
-}
-
 /// A read-only view of one agent's house and its hamlet's folder.
 pub(crate) enum Reader {
     Local {
-        root: File,
+        root: Directory,
         hamlet: String,
         number: u64,
     },
@@ -589,7 +535,7 @@ impl Reader {
                     (root.try_clone()?, hamlet.clone(), *number);
                 tokio::task::spawn_blocking(move || {
                     let mut text = String::new();
-                    notes(&root, &hamlet, number)?
+                    tree::notes(&root, &hamlet, number)?
                         .read_to_string(&mut text)?;
                     Ok(text)
                 })
@@ -599,16 +545,23 @@ impl Reader {
         }
     }
 
-    /// The house's skills; a local house's are those at `local`.
-    pub async fn skills(
-        &self,
-        local: &Path,
-    ) -> Vec<crate::prompt::shelf::Skill> {
+    pub async fn skills(&self) -> Vec<crate::prompt::shelf::Skill> {
         match self {
-            Self::Local { .. } => {
-                let shelf = local.join("skills");
+            Self::Local {
+                root,
+                hamlet,
+                number,
+            } => {
+                let Ok(root) = root.try_clone() else {
+                    return Vec::new();
+                };
+                let (hamlet, number) = (hamlet.clone(), *number);
                 tokio::task::spawn_blocking(move || {
-                    crate::prompt::shelf::shelf(&shelf)
+                    tree::house(&root, &hamlet, number, Missing::Fail)
+                        .map(|house| {
+                            crate::prompt::shelf::house_skills(&house)
+                        })
+                        .unwrap_or_default()
                 })
                 .await
                 .unwrap_or_default()
@@ -659,113 +612,6 @@ impl Reader {
     }
 }
 
-/// The local house of agent `number` of `hamlet`, made with its
-/// parents when `create` is set.
-fn house(
-    root: &File,
-    hamlet: &str,
-    number: u64,
-    create: bool,
-) -> Result<File> {
-    ensure!(
-        !hamlet.is_empty()
-            && hamlet.bytes().all(|b| b.is_ascii_lowercase()
-                || b.is_ascii_digit()
-                || b == b'-'),
-        "invalid house address"
-    );
-    let mut dir = root.try_clone()?;
-    for part in ["houses", hamlet, &number.to_string()] {
-        if create
-            && let Err(error) =
-                mkdirat(&dir, part, Mode::from_raw_mode(0o700))
-            && error != rustix::io::Errno::EXIST
-        {
-            return Err(error.into());
-        }
-        dir = openat(
-            &dir,
-            part,
-            OFlags::RDONLY
-                | OFlags::DIRECTORY
-                | OFlags::NOFOLLOW
-                | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?
-        .into();
-    }
-    Ok(dir)
-}
-
-fn build(root: &File, hamlet: &str, number: u64) -> Result<()> {
-    let dir = house(root, hamlet, number, true)?;
-    for part in ["skills", "inbox"] {
-        tree::directory(&dir, part, true)?;
-    }
-    match openat(
-        &dir,
-        NOTES,
-        OFlags::WRONLY
-            | OFlags::CREATE
-            | OFlags::EXCL
-            | OFlags::NOFOLLOW,
-        Mode::from_raw_mode(0o600),
-    ) {
-        Ok(fd) => File::from(fd).write_all(b"# Notes\n")?,
-        Err(rustix::io::Errno::EXIST) => {}
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
-}
-
-fn notes(root: &File, hamlet: &str, number: u64) -> Result<File> {
-    let dir = house(root, hamlet, number, false)?;
-    let file = File::from(openat(
-        &dir,
-        NOTES,
-        OFlags::RDONLY
-            | OFlags::NOFOLLOW
-            | OFlags::NONBLOCK
-            | OFlags::CLOEXEC,
-        Mode::from_raw_mode(0o600),
-    )?);
-    ensure!(
-        file.metadata()?.is_file(),
-        "The agent's NOTES.md could not be read safely. Inspect its \
-         house before trying again."
-    );
-    Ok(file)
-}
-
-pub(crate) fn clear(dir: &File) -> Result<()> {
-    for entry in Dir::read_from(dir)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name.to_bytes() == b"." || name.to_bytes() == b".." {
-            continue;
-        }
-        let info = statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)?;
-        if FileType::from_raw_mode(info.st_mode)
-            == FileType::Directory
-        {
-            let child = File::from(openat(
-                dir,
-                name,
-                OFlags::RDONLY
-                    | OFlags::DIRECTORY
-                    | OFlags::NOFOLLOW
-                    | OFlags::CLOEXEC,
-                Mode::empty(),
-            )?);
-            clear(&child)?;
-            unlinkat(dir, name, AtFlags::REMOVEDIR)?;
-        } else {
-            unlinkat(dir, name, AtFlags::empty())?;
-        }
-    }
-    Ok(())
-}
-
 pub(crate) fn cut(text: &str, most: usize, note: &str) -> String {
     let mut chars = text.chars();
     let mut result = chars.by_ref().take(most).collect::<String>();
@@ -773,4 +619,190 @@ pub(crate) fn cut(text: &str, most: usize, note: &str) -> String {
         result.push_str(note);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::time::Duration;
+
+    use hamlet_os::process::{Command, Limits, Tree};
+    use hamlet_testing::Scratch;
+    use hamlet_testing::signals::is_alive;
+    use serde_json::json;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    use super::*;
+    use crate::tools::Place;
+
+    fn agent(number: u64) -> AgentRef {
+        AgentRef {
+            hamlet: "home".into(),
+            number,
+        }
+    }
+
+    /// The pid of a `sleep` that `agent`'s command left in `cwd`.
+    #[cfg(unix)]
+    async fn leftover(
+        houses: &Houses,
+        agent: &AgentRef,
+        cwd: &Path,
+    ) -> u32 {
+        let argv = [
+            "bash".to_owned(),
+            "-c".into(),
+            "sleep 300 & echo $!".into(),
+        ];
+        let env = BTreeMap::from([(
+            "PATH".to_owned(),
+            std::env::var("PATH").unwrap_or_default(),
+        )]);
+        kept(houses, agent, cwd, &argv, &env).await
+    }
+
+    /// The pid of a `ping` that waits as `sleep` does, which
+    /// `agent`'s command left in `cwd`. Git Bash's `$!` is not a
+    /// Windows pid.
+    #[cfg(windows)]
+    async fn leftover(
+        houses: &Houses,
+        agent: &AgentRef,
+        cwd: &Path,
+    ) -> u32 {
+        let argv = [
+            format!(
+                r"{}\System32\WindowsPowerShell\v1.0\powershell.exe",
+                std::env::var("SystemRoot").unwrap()
+            ),
+            "-NoProfile".into(),
+            "-Command".into(),
+            "(Start-Process ping -ArgumentList \
+             '-n','300','127.0.0.1' -NoNewWindow -PassThru).Id"
+                .into(),
+        ];
+        let env = std::env::vars().collect();
+        kept(houses, agent, cwd, &argv, &env).await
+    }
+
+    /// The pid `argv` prints of what it leaves running in `cwd`, kept
+    /// as `agent`'s leftovers.
+    async fn kept(
+        houses: &Houses,
+        agent: &AgentRef,
+        cwd: &Path,
+        argv: &[String],
+        env: &BTreeMap<String, String>,
+    ) -> u32 {
+        let (mut tree, stdout, _) = Tree::spawn(
+            Command {
+                argv,
+                env,
+                cwd: &cwd.to_string_lossy(),
+                stdin: std::process::Stdio::null(),
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+        let mut lines = BufReader::new(stdout).lines();
+        // The first number, past what `ping` prints.
+        let pid = loop {
+            let line = lines.next_line().await.unwrap().unwrap();
+            if let Ok(pid) = line.trim().parse() {
+                break pid;
+            }
+        };
+        tree.ended().await.unwrap();
+        houses
+            .leftovers
+            .of(agent)
+            .keep(tree.release().expect("the sleep runs on"));
+        pid
+    }
+
+    async fn is_gone(pid: u32) -> bool {
+        for _ in 0..500 {
+            if !is_alive(pid) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn erase_ends_the_agent_s_leftovers_first() {
+        let home = Scratch::new("erase-leftovers");
+        let houses =
+            Houses::open(&home, None, Isolation::TESTING).unwrap();
+        houses.initialize("home", 1).await.unwrap();
+        let house = home.join("houses/home/1");
+        let erased = leftover(&houses, &agent(1), &house).await;
+        let kept = leftover(&houses, &agent(2), &home).await;
+        houses.erase("home", 1).unwrap();
+        assert!(!house.exists());
+        assert!(is_gone(erased).await);
+        assert!(is_alive(kept));
+        houses.end_leftovers();
+    }
+
+    #[tokio::test]
+    async fn move_house_ends_the_agent_s_leftovers_first() {
+        let home = Scratch::new("move-leftovers");
+        let houses =
+            Houses::open(&home, None, Isolation::TESTING).unwrap();
+        houses.initialize("home", 1).await.unwrap();
+        let house = home.join("houses/home/1");
+        houses.initialize("away", 0).await.unwrap();
+        let moved = leftover(&houses, &agent(1), &house).await;
+        let to = AgentRef {
+            hamlet: "away".into(),
+            number: 1,
+        };
+        houses.move_house(&agent(1), &to).unwrap();
+        assert!(home.join("houses/away/1").exists());
+        assert!(is_gone(moved).await);
+    }
+
+    #[tokio::test]
+    async fn stopping_the_server_ends_every_agent_s_leftovers() {
+        let home = Scratch::new("stop-leftovers");
+        let houses =
+            Houses::open(&home, None, Isolation::TESTING).unwrap();
+        let first = leftover(&houses, &agent(1), &home).await;
+        let house = home.join("houses/home/2");
+        std::fs::create_dir_all(&house).unwrap();
+        let place = Place {
+            house: house.clone(),
+            folder: None,
+            home: home.to_path_buf(),
+            shared: Vec::new(),
+        };
+        let tools = houses.tools(&agent(2), place, false).unwrap();
+        let command = "(while :; do echo . >> beat; sleep 0.05; \
+                       done) > /dev/null 2>&1 &";
+        let arguments = json!({"command": command});
+        let arguments = arguments.as_object().cloned().unwrap();
+        let ran = tools.run(&[], "bash", &arguments).await;
+        assert!(!ran.error, "{}", ran.text);
+        let beats = || {
+            std::fs::metadata(house.join("beat"))
+                .map_or(0, |m| m.len())
+        };
+        let pause = || tokio::time::sleep(Duration::from_millis(300));
+        // Under Seatbelt and in insecure mode the loop outlives its
+        // call. Under bubblewrap it ends with it.
+        #[cfg(not(target_os = "linux"))]
+        {
+            let before = beats();
+            pause().await;
+            assert!(beats() > before);
+        }
+        houses.end_leftovers();
+        assert!(is_gone(first).await);
+        pause().await;
+        let after = beats();
+        pause().await;
+        assert_eq!(beats(), after);
+    }
 }

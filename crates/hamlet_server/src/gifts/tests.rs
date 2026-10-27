@@ -2,9 +2,11 @@
 //! files.
 
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use hamlet_testing::Scratch;
+use hamlet_testing::links::{self, hard_link, symlink};
 
 use super::*;
 use crate::record::{
@@ -173,6 +175,8 @@ async fn copies_whole_skills_records_the_giver_and_keeps_modes_across_restart()
     )
     .unwrap();
     fs::write(source.join("scripts/run"), [0, 255, 128]).unwrap();
+    // Windows keeps no mode bits.
+    #[cfg(unix)]
     fs::set_permissions(
         source.join("scripts/run"),
         fs::Permissions::from_mode(0o6751),
@@ -191,6 +195,7 @@ async fn copies_whole_skills_records_the_giver_and_keeps_modes_across_restart()
         fs::read(target.join("scripts/run")).unwrap(),
         [0, 255, 128]
     );
+    #[cfg(unix)]
     assert_eq!(
         fs::metadata(target.join("scripts/run"))
             .unwrap()
@@ -298,7 +303,7 @@ async fn refuses_linked_receivers_and_cleans_abandoned_and_expired_uploads()
             .unwrap()
             .is_err()
     );
-    fs::remove_file(&inbox).unwrap();
+    links::remove(&inbox).unwrap();
     fs::create_dir(&inbox).unwrap();
     let upload = begin(&mut service, &mayor()).await;
     service.gifts.pending.get_mut(&upload).unwrap().touched =
@@ -337,7 +342,7 @@ async fn refuses_unsafe_or_overfull_skills_without_partial_delivery()
             .to_string(),
         "A skill gift cannot include links or special files."
     );
-    fs::remove_file(source.join("link")).unwrap();
+    links::remove(source.join("link")).unwrap();
     let big = fs::File::create(source.join("large")).unwrap();
     big.set_len(MAX_BYTES + 1).unwrap();
     assert_eq!(
@@ -386,6 +391,41 @@ async fn refuses_unsafe_or_overfull_skills_without_partial_delivery()
         .await
         .unwrap()
         .unwrap();
+}
+
+#[tokio::test]
+async fn refuses_a_hard_linked_file_and_lists_it_as_special() {
+    let (dir, mut service) = setup();
+    let source = dir.join("houses/home/1/skills/maps");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("SKILL.md"), "maps").unwrap();
+    let outside = Scratch::new("gift-hard-link");
+    fs::write(outside.join("secret"), "secret").unwrap();
+    hard_link(outside.join("secret"), source.join("secret")).unwrap();
+    assert_eq!(
+        service
+            .give(&mayor(), "maps", Some(&scout()))
+            .await
+            .unwrap()
+            .unwrap_err()
+            .to_string(),
+        "A skill gift cannot include links or special files."
+    );
+    let listing = service
+        .houses
+        .house("home", 1)
+        .unwrap()
+        .entries(MAX_BYTES, SKILL_ENTRIES)
+        .await
+        .unwrap();
+    assert_eq!(
+        listing
+            .iter()
+            .find(|entry| entry.path == "skills/maps/secret")
+            .map(|entry| entry.kind),
+        Some(TreeKind::Special)
+    );
+    assert!(!dir.join("houses/home/0/skills/maps").exists());
 }
 
 #[tokio::test]

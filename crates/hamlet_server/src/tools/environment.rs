@@ -3,17 +3,24 @@
 
 use std::time::Duration;
 
+use hamlet_os::fs::path;
 use hamlet_workspace_wire::{
     Bytes, Canonical, Code, Exec, Info, Kind, LIST_ENTRIES, List,
-    Listed, MAX_FILE, Ran, Read, Walk, Walked, Write,
+    Listed, MAX_FILE, Read, Walk, Walked, Write,
 };
 
+use super::truncate::{MAX_BYTES, MAX_LINES};
 use super::walk::{SKIPPED, VISITED};
 use crate::papers::remote::{HOUSE, PROJECT, TooLarge};
 use crate::sandbox::{
-    Env, FileError, FileInfo, FileKind, Sandbox, SetupError, path,
+    AgentLeftovers, Env, ExecError, FileError, FileInfo, FileKind,
+    Launch, Ran, Sandbox, SetupError,
 };
+use crate::scrub::scrub_text;
 use crate::workspace::WorkspaceSession;
+
+/// Said where a call lost the environment it works in.
+const LOST: &str = "The tool's environment was lost. Tell the chief.";
 
 /// File operations on the paths an agent's tools see.
 pub(super) trait Reach {
@@ -63,6 +70,27 @@ pub(super) trait Reach {
     /// them, at most [`VISITED`].
     async fn walk(&mut self, root: &str) -> Walked;
 
+    /// Runs `argv` in [`Reach::cwd`] for at most `timeout`. Its
+    /// output, with `secrets` taken out, goes to `output`, and past
+    /// the spill limits all of it is kept in a file.
+    async fn exec(
+        &mut self,
+        argv: &[String],
+        timeout: Duration,
+        secrets: &[String],
+        output: &mut (impl FnMut(&str) + Send),
+    ) -> Result<Ran, ExecError>;
+
+    /// The private temp folder commands get here, where there is
+    /// one.
+    fn tmp(&self) -> Option<&str>;
+
+    /// The policy commands run under, as a result names it.
+    fn policy(&self) -> String;
+
+    /// The limits commands run without, as a result names them.
+    fn degraded(&self) -> serde_json::Value;
+
     /// The full path a tool's `path` names, as [`super::footing`]
     /// tells.
     async fn footing(
@@ -96,6 +124,9 @@ pub(super) enum Unopened {
 /// async runtime.
 pub(super) struct Local {
     env: Option<Env>,
+    leftovers: AgentLeftovers,
+    policy: String,
+    degraded: serde_json::Value,
     cwd: String,
     house: String,
     folder: Option<String>,
@@ -103,19 +134,25 @@ pub(super) struct Local {
 
 impl Local {
     /// The environment of the tools at `place`, made off the async
-    /// runtime.
+    /// runtime, whose commands reach the network only with `net` and
+    /// leave what they started to `leftovers`.
     pub async fn open(
         sandbox: Sandbox,
         place: &super::Place,
+        net: bool,
+        leftovers: AgentLeftovers,
     ) -> Result<Self, Unopened> {
         let at = place.clone();
         let env = tokio::task::spawn_blocking(move || {
-            super::environment(&sandbox, &at, false)
+            super::environment(&sandbox, &at, net)
         })
         .await??;
         Ok(Self {
+            policy: env.policy_hash().to_owned(),
+            degraded: env.degraded(),
             cwd: env.cwd().to_owned(),
             env: Some(env),
+            leftovers,
             house: path::text(&place.house),
             folder: place.folder.as_deref().map(path::text),
         })
@@ -128,9 +165,7 @@ impl Local {
     ) -> Result<T, FileError> {
         let lost = || FileError {
             code: Code::Unknown,
-            message: "The tool's environment was lost. Tell the \
-                      chief."
-                .into(),
+            message: LOST.into(),
         };
         let env = self.env.take().ok_or_else(lost)?;
         let (env, result) = tokio::task::spawn_blocking(move || {
@@ -256,6 +291,38 @@ impl Reach for Local {
         .await
         .unwrap_or_default()
     }
+
+    async fn exec(
+        &mut self,
+        argv: &[String],
+        timeout: Duration,
+        secrets: &[String],
+        output: &mut (impl FnMut(&str) + Send),
+    ) -> Result<Ran, ExecError> {
+        let Some(env) = &self.env else {
+            return Err(ExecError::Spawn(LOST.into()));
+        };
+        env.exec(
+            Launch::Shell(argv),
+            timeout,
+            secrets,
+            &self.leftovers,
+            output,
+        )
+        .await
+    }
+
+    fn tmp(&self) -> Option<&str> {
+        self.env.as_ref().map(Env::tmp)
+    }
+
+    fn policy(&self) -> String {
+        self.policy.clone()
+    }
+
+    fn degraded(&self) -> serde_json::Value {
+        self.degraded.clone()
+    }
 }
 
 /// A remote workspace's `/house` and `/project`.
@@ -266,48 +333,6 @@ pub(super) struct Remote {
 impl Remote {
     pub fn new(session: WorkspaceSession) -> Self {
         Self { session }
-    }
-
-    /// The policy commands run under, as a result names it.
-    pub fn policy(&self) -> String {
-        let policy = self.session.policy();
-        format!(
-            "workspace-v1:{}:{}:{}",
-            if policy.project { "project" } else { "house" },
-            if policy.network {
-                "public-http-proxy"
-            } else {
-                "netless"
-            },
-            if policy.read_only {
-                "read-only"
-            } else {
-                "writable"
-            }
-        )
-    }
-
-    /// Runs `command` with bash in [`Reach::cwd`] for at most
-    /// `timeout`, in whole milliseconds rounded up.
-    pub async fn exec(
-        &self,
-        command: &str,
-        timeout: Duration,
-    ) -> Result<Ran, crate::workspace::Failure> {
-        let timeout_ms =
-            u64::try_from(timeout.as_nanos().div_ceil(1_000_000))
-                .unwrap_or(u64::MAX);
-        self.session
-            .call(Exec {
-                argv: vec![
-                    "/bin/bash".into(),
-                    "-c".into(),
-                    command.into(),
-                ],
-                cwd: self.cwd().into(),
-                timeout_ms,
-            })
-            .await
     }
 
     async fn contents(
@@ -475,5 +500,90 @@ impl Reach for Remote {
             files: VISITED as u64,
         };
         self.session.call(walk).await.unwrap_or_default()
+    }
+
+    /// The workspace gives the output whole, so it reaches `output`
+    /// once, and what is spilled is written to the house.
+    async fn exec(
+        &mut self,
+        argv: &[String],
+        timeout: Duration,
+        secrets: &[String],
+        output: &mut (impl FnMut(&str) + Send),
+    ) -> Result<Ran, ExecError> {
+        let timeout_ms =
+            u64::try_from(timeout.as_nanos().div_ceil(1_000_000))
+                .unwrap_or(u64::MAX);
+        let ran = self
+            .session
+            .call(Exec {
+                argv: argv.to_vec(),
+                cwd: self.cwd().into(),
+                timeout_ms,
+            })
+            .await
+            .map_err(|failure| {
+                if failure.code == Code::Timeout {
+                    ExecError::Timeout { spill: None }
+                } else {
+                    ExecError::Spawn(failure.to_string())
+                }
+            })?;
+        let text = scrub_text(
+            secrets,
+            &format!("{}{}", ran.stdout, ran.stderr),
+        );
+        let spill = if text.len() > MAX_BYTES
+            || text.lines().count() > MAX_LINES
+        {
+            let path = format!(
+                "{HOUSE}/.tmp/bash-{}/output.txt",
+                uuid::Uuid::new_v4()
+            );
+            self.write_file(&path, &text).await.map_err(|error| {
+                ExecError::Spill(format!(
+                    "The command ran but its full output could not \
+                     be saved: {}. Inspect its files before \
+                     repeating it.",
+                    error.message
+                ))
+            })?;
+            Some(path)
+        } else {
+            None
+        };
+        output(&text);
+        Ok(Ran {
+            exit_code: ran.exit_code,
+            spill,
+        })
+    }
+
+    /// The workspace's own sandbox holds every limit.
+    fn degraded(&self) -> serde_json::Value {
+        serde_json::Value::Bool(false)
+    }
+
+    fn tmp(&self) -> Option<&str> {
+        None
+    }
+
+    /// The policy commands run under, as a result names it.
+    fn policy(&self) -> String {
+        let policy = self.session.policy();
+        format!(
+            "workspace-v1:{}:{}:{}",
+            if policy.project { "project" } else { "house" },
+            if policy.network {
+                "public-http-proxy"
+            } else {
+                "netless"
+            },
+            if policy.read_only {
+                "read-only"
+            } else {
+                "writable"
+            }
+        )
     }
 }

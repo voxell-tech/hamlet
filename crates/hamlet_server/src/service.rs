@@ -49,13 +49,21 @@ impl Service {
         if let Some(connection) = &workspace {
             crate::settings::check_workspace(connection)
                 .map_err(anyhow::Error::msg)?;
+            #[cfg(windows)]
+            ensure!(
+                overrides.isolation
+                    != crate::sandbox::Isolation::Insecure,
+                "--insecure runs commands on this machine, but they \
+                 run in the remote workspace. Start the server \
+                 without it."
+            );
         }
         let founded = home.store().record("home")?;
         let chief = match &founded {
             Some(record) => record.chiefs.first().cloned().context(
                 "The home hamlet's record names no chief.",
             )?,
-            None => ["HAMLET_USER", "USER"]
+            None => ["HAMLET_USER", "USER", "USERNAME"]
                 .into_iter()
                 .find_map(|key| {
                     std::env::var(key)
@@ -86,7 +94,8 @@ impl Service {
                 "the first hamlet could not be founded"
             );
         }
-        let houses = Houses::open(&root, workspace)?;
+        let houses =
+            Houses::open(&root, workspace, overrides.isolation)?;
         let mut realm = crate::realm::read(home.connection())?;
         for place in realm.hamlets.iter().filter(|place| place.erased)
         {
@@ -134,9 +143,7 @@ impl Service {
                 overrides.faux,
             )?,
             overrides,
-            chats: crate::chats::Chats::new(
-                crate::sandbox::Sandbox::platform(),
-            ),
+            chats: crate::chats::Chats::new(),
             gifts: crate::gifts::Uploads::default(),
             moving: crate::papers::moving::Moving::default(),
             house_work: crate::society::work::Work::default(),
@@ -248,7 +255,7 @@ impl Service {
         place: crate::tools::Place,
         net: bool,
     ) -> Result<crate::tools::ToolSession> {
-        self.houses.tools(agent, place, net, self.chats.sandbox)
+        self.houses.tools(agent, place, net)
     }
 
     /// Makes the live agents' houses where they are missing. A
