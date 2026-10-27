@@ -21,8 +21,8 @@ pub(crate) use self::agent::show_prompt;
 pub use self::agent::{Briefing, Section};
 pub(crate) use self::gone::{of_agent, skills_screen};
 pub use self::papers::{Papers, keep_papers};
-use crate::convo::{Convo, talk_to};
-use crate::dock::{PanelAppExt, lit_panel, panel, show_tab};
+use crate::convo::{Convo, seat};
+use crate::dock::{PanelAppExt, lit_panel, panel};
 use crate::feel::Lit;
 use crate::icons::Glyph;
 use crate::looks::{ICON, filling};
@@ -132,7 +132,9 @@ pub fn screen() -> impl View {
     .within(filling())
 }
 
-/// A click on a robot or a house selects its agent.
+/// A click on a robot or a house selects its agent. The panel is not
+/// brought to the front: it flashes, and its tab with it, when it is
+/// behind another.
 pub(crate) fn follow_selection(world: &mut World) {
     let selected = world.resource_ref::<Selected>();
     if !selected.is_changed() {
@@ -147,10 +149,9 @@ pub(crate) fn follow_selection(world: &mut World) {
         }
         Some(Thing::Agent(agent) | Thing::House(agent)) => agent,
         // A hamlet, one that is gone, or nothing at all.
-        _ => return show_tab(world, "agent"),
+        _ => return,
     };
     if world.resource::<Convo>().agent != agent {
-        talk_to(world, agent);
+        seat(world, agent);
     }
-    show_tab(world, "agent");
 }
