@@ -1,40 +1,45 @@
 //! The preview: what the graph puts down, as boxes in the world's
-//! colours, drawn by a camera of its own into the panel and turned by
-//! dragging.
+//! colours, drawn by a camera of its own into the panel. The camera,
+//! its post processing, the hour's lights and the orbit by hand are
+//! the realm's, on a render layer of their own.
 
 use bevy::app::{App, Startup, Update};
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{
-    Camera, Camera3d, ClearColorConfig, ImageRenderTarget,
-    RenderTarget,
-};
-use bevy::color::Color;
-use bevy::ecs::change_detection::DetectChanges;
+use bevy::camera::{Camera, ImageRenderTarget, RenderTarget};
+use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::event::EntityEvent;
+use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::image::Image;
+use bevy::input::ButtonInput;
+use bevy::input::mouse::MouseButton;
 use bevy::light::DirectionalLight;
-use bevy::math::{Quat, Vec3};
+use bevy::math::{Quat, Vec2, Vec3};
 use bevy::mesh::{Mesh, Mesh3d};
-use bevy::pbr::{MeshMaterial3d, StandardMaterial};
-use bevy::picking::events::PointerDrag;
+use bevy::pbr::{DistanceFog, MeshMaterial3d, StandardMaterial};
+use bevy::picking::events::{PointerDrag, PointerScroll};
+use bevy::picking::pointer::PointerButton;
 use bevy::render::render_resource::{
     TextureDimension, TextureFormat, TextureUsages,
 };
+use bevy::time::Time;
 use bevy::transform::components::Transform;
 use bevy::ui::widget::ViewportNode;
-use bevy::ui::{Overflow, percent};
-use bevy::window::{PrimaryWindow, Window};
+use bevy::ui::{ComputedNode, Overflow, percent};
+use bevy::window::{PrimaryWindow, RequestRedraw, Window};
 use bevy_fynix::views::{BehaviorExt, frame};
-use hamlet_graph::Instance;
+use hamlet_proc::Instance;
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
+use hamlet_realm::pick::{Orbit, Steer, scrolled_lines};
+use hamlet_realm::sky::{self, CameraSettings, Hourly};
 
 use super::Editor;
 use crate::looks::Fills;
@@ -43,14 +48,20 @@ use crate::{AnyView, Cx, View};
 /// The asset name a placement is shown as when nothing is put there.
 pub(super) const MARKER: &str = "marker";
 
-/// The render layer only the preview's camera and pieces are on.
-const LAYER: usize = 7;
+/// The render layer only the preview's camera, lights and pieces are
+/// on. Not 7, which the realm's debug overlay puts its camera on.
+const LAYER: usize = 8;
+
+/// The way the camera looks from before a hand has turned it, in
+/// radians.
+const YAW: f32 = 0.8;
+const PITCH: f32 = 0.55;
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Turn>()
+    app.init_resource::<Seat>()
         .init_resource::<Framing>()
         .add_systems(Startup, spawn)
-        .add_systems(Update, (open, rebuild, aim).chain());
+        .add_systems(Update, (open, rebuild, glide, aim).chain());
 }
 
 /// Marks the frame the preview is drawn in.
@@ -65,23 +76,19 @@ struct Piece;
 #[derive(Resource)]
 struct Preview {
     camera: Entity,
+    key: Entity,
     material: Handle<StandardMaterial>,
 }
 
-/// Which way the camera looks from, in radians.
-#[derive(Resource)]
-struct Turn {
-    yaw: f32,
-    pitch: f32,
-}
-
-impl Default for Turn {
-    fn default() -> Self {
-        Self {
-            yaw: 0.8,
-            pitch: 0.55,
-        }
-    }
+/// The camera's orbit as a hand asked for it, and as it is shown,
+/// easing there.
+#[derive(Resource, Default)]
+struct Seat {
+    want: Orbit,
+    shown: Orbit,
+    /// The camera's distance from what it looks at and its angle
+    /// below the horizon, as last aimed.
+    stance: (f32, f32),
 }
 
 /// The middle and the reach of what is drawn.
@@ -98,7 +105,6 @@ pub(super) fn view() -> impl View {
             .width(percent(100.0))
             .fills_height()
             .overflow(Overflow::clip())
-            .radius(theme.space.round)
             .fill(theme.palette.well)
             .tagged(Shown);
         match cx
@@ -119,6 +125,7 @@ fn spawn(
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     window: Query<&Window, With<PrimaryWindow>>,
+    settings: Option<Res<CameraSettings>>,
 ) {
     let mut image = Image::new_uninit(
         Default::default(),
@@ -132,16 +139,14 @@ fn spawn(
     let handle = images.add(image);
     let scale =
         window.iter().next().map_or(1.0, Window::scale_factor);
+    let settings = settings.as_deref().cloned().unwrap_or_default();
     let camera = commands
         .spawn((
-            Camera3d::default(),
+            sky::view(&settings),
             Camera {
                 // Before the world's camera and the window's.
                 order: -2,
                 is_active: false,
-                clear_color: ClearColorConfig::Custom(Color::srgb(
-                    0.07, 0.06, 0.05,
-                )),
                 ..Camera::default()
             },
             RenderTarget::Image(ImageRenderTarget {
@@ -153,22 +158,23 @@ fn spawn(
                 .looking_at(Vec3::ZERO, Vec3::Y),
         ))
         .id();
+    // The hour's lights, which the realm sets for the world's and
+    // for these alike.
+    let key = commands
+        .spawn((
+            Hourly::Key,
+            DirectionalLight {
+                shadow_maps_enabled: true,
+                ..DirectionalLight::default()
+            },
+            Transform::default(),
+            RenderLayers::layer(LAYER),
+        ))
+        .id();
     commands.spawn((
-        DirectionalLight {
-            illuminance: 9_000.0,
-            ..DirectionalLight::default()
-        },
-        Transform::from_xyz(3.0, 8.0, 5.0)
-            .looking_at(Vec3::ZERO, Vec3::Y),
-        RenderLayers::layer(LAYER),
-    ));
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 2_500.0,
-            ..DirectionalLight::default()
-        },
-        Transform::from_xyz(-4.0, 3.0, -6.0)
-            .looking_at(Vec3::ZERO, Vec3::Y),
+        Hourly::Fill,
+        DirectionalLight::default(),
+        Transform::default(),
         RenderLayers::layer(LAYER),
     ));
     let material = materials.add(StandardMaterial {
@@ -176,7 +182,11 @@ fn spawn(
         reflectance: 0.2,
         ..StandardMaterial::default()
     });
-    commands.insert_resource(Preview { camera, material });
+    commands.insert_resource(Preview {
+        camera,
+        key,
+        material,
+    });
 }
 
 /// Draws the preview while its frame is in the panel, and lets it be
@@ -195,7 +205,7 @@ fn open(
     if let Some(frame) = frame
         && *watched != Some(frame)
     {
-        commands.entity(frame).observe(turn);
+        commands.entity(frame).observe(turn).observe(zoom);
         *watched = Some(frame);
     }
     if let Ok(mut camera) = cameras.get_mut(preview.camera)
@@ -205,9 +215,81 @@ fn open(
     }
 }
 
-fn turn(drag: On<PointerDrag>, mut turn: ResMut<Turn>) {
-    turn.yaw -= drag.delta.x * 0.01;
-    turn.pitch = (turn.pitch + drag.delta.y * 0.01).clamp(0.1, 1.45);
+/// The left button slides the ground, the right button turns and
+/// tilts, as in the world.
+fn turn(
+    drag: On<PointerDrag>,
+    frames: Query<&ComputedNode, With<Shown>>,
+    set: Res<CameraSettings>,
+    framing: Res<Framing>,
+    mut steer: ResMut<Steer>,
+    mut seat: ResMut<Seat>,
+) {
+    let Ok(node) = frames.get(drag.event_target()) else {
+        return;
+    };
+    match drag.button {
+        PointerButton::Primary => {
+            steer.set_if_neq(Steer::Slide);
+            let height = (node.size().y
+                * node.inverse_scale_factor())
+            .max(1.0);
+            let (across, along) = seat.want.slide_scale(
+                height,
+                Some(seat.stance),
+                &set,
+            );
+            let (right, forward) = ground(seat.shown);
+            let pan = seat.want.pan
+                + right * (-drag.delta.x * across)
+                + forward * (drag.delta.y * along);
+            seat.want.pan =
+                pan.clamp_length_max(framing.reach * 1.5 + 4.0);
+        }
+        PointerButton::Secondary => {
+            steer.set_if_neq(Steer::Turn);
+            seat.want = seat.want.turned(drag.delta, &set);
+        }
+        PointerButton::Middle => {}
+    }
+}
+
+/// Across the view and away from the camera, along the ground, for
+/// the orbit shown.
+fn ground(shown: Orbit) -> (Vec2, Vec2) {
+    let yaw = YAW + shown.yaw;
+    let forward = Vec2::new(-yaw.cos(), -yaw.sin());
+    (Vec2::new(-forward.y, forward.x), forward)
+}
+
+fn zoom(
+    scroll: On<PointerScroll>,
+    set: Res<CameraSettings>,
+    mut seat: ResMut<Seat>,
+) {
+    let lines = scrolled_lines(scroll.unit, scroll.y, &set);
+    seat.want = seat.want.zoomed(lines, &set, set.zoom);
+}
+
+/// Eases the orbit that is shown toward the one asked for, as the
+/// realm's camera does.
+fn glide(
+    time: Res<Time>,
+    set: Res<CameraSettings>,
+    buttons: Option<Res<ButtonInput<MouseButton>>>,
+    mut seat: ResMut<Seat>,
+    mut redraw: MessageWriter<RequestRedraw>,
+) {
+    if seat.shown == seat.want {
+        return;
+    }
+    // A hand on the ground is followed closely, but not in steps.
+    let held = buttons
+        .as_deref()
+        .is_some_and(|buttons| buttons.pressed(MouseButton::Left));
+    seat.shown =
+        seat.shown.eased(seat.want, time.delta_secs(), &set, held);
+    redraw.write(RequestRedraw);
 }
 
 /// Draws what the graph put down again when it changes.
@@ -326,30 +408,43 @@ fn colour(colours: Option<&Colours>, instance: &Instance) -> Vec3 {
     others[hash % others.len()]
 }
 
-/// Points the camera at what is drawn, from the way it is turned.
+/// Points the camera at what is drawn, from the way it is turned,
+/// with the world's fog and shadows fitted to its distance.
 fn aim(
+    mut commands: Commands,
     preview: Option<Res<Preview>>,
-    turn: Res<Turn>,
+    mut seat: ResMut<Seat>,
     framing: Res<Framing>,
-    mut cameras: Query<&mut Transform, With<Camera3d>>,
+    set: Res<CameraSettings>,
+    mut cameras: Query<(&mut Transform, &mut DistanceFog)>,
 ) {
     let Some(preview) = preview else {
         return;
     };
-    if !turn.is_changed() && !framing.is_changed() {
+    if !seat.is_changed() && !framing.is_changed() {
         return;
     }
-    let Ok(mut transform) = cameras.get_mut(preview.camera) else {
+    let Ok((mut transform, mut fog)) =
+        cameras.get_mut(preview.camera)
+    else {
         return;
     };
+    let yaw = YAW + seat.shown.yaw;
+    let pitch = (PITCH + seat.shown.pitch).clamp(0.1, 1.45);
     let toward = Vec3::new(
-        turn.yaw.cos() * turn.pitch.cos(),
-        turn.pitch.sin(),
-        turn.yaw.sin() * turn.pitch.cos(),
+        yaw.cos() * pitch.cos(),
+        pitch.sin(),
+        yaw.sin() * pitch.cos(),
     );
-    let distance = framing.reach * 2.2 + 2.0;
-    *transform = Transform::from_translation(
-        framing.middle + toward * distance,
-    )
-    .looking_at(framing.middle, Vec3::Y);
+    let distance = (framing.reach * 2.2 + 2.0) * seat.shown.zoom;
+    let slid = seat.shown.pan;
+    let focus = framing.middle + Vec3::new(slid.x, 0.0, slid.y);
+    *transform =
+        Transform::from_translation(focus + toward * distance)
+            .looking_at(focus, Vec3::Y);
+    seat.stance = (distance, pitch);
+    fog.falloff = sky::fog_for(&set, distance);
+    commands
+        .entity(preview.key)
+        .try_insert(sky::shadows_for(&set, distance));
 }

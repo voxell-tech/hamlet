@@ -26,6 +26,7 @@ use bevy::window::PrimaryWindow;
 
 pub use self::camera::{
     Centre, Following, Glide, Leash, Orbit, Stance, Steer, focus_on,
+    scrolled_lines,
 };
 pub use self::reach::Reach;
 use self::reach::aim;

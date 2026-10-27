@@ -21,7 +21,7 @@ use bevy_fynix::views::{
     menu_item, overlay, popup, row,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_graph::{Does, NodeId};
+use hamlet_proc::{Does, NodeId};
 
 use super::{Editor, canvas, files};
 use crate::looks::{note, section};
@@ -286,7 +286,7 @@ pub(super) fn open_graph(world: &mut World, node: NodeId) {
         Some(Does::Graph(name)) => name.clone(),
         _ => return,
     };
-    editor.enter(&name);
+    editor.go_to(&name);
     canvas::fit(world);
 }
 

@@ -52,6 +52,107 @@ impl Default for Orbit {
     }
 }
 
+impl Orbit {
+    /// This orbit turned and tilted by a drag of `delta` pixels, as
+    /// a hand on the world turns it.
+    pub fn turned(
+        self,
+        delta: Vec2,
+        camera: &CameraSettings,
+    ) -> Self {
+        Orbit {
+            yaw: self.yaw - delta.x * camera.turn_rate,
+            pitch: (self.pitch + delta.y * camera.tilt_rate)
+                .clamp(camera.tilt.0, camera.tilt.1),
+            ..self
+        }
+    }
+
+    /// How much of the ground one pixel of a drag slides, across the
+    /// view and along it, for a view `height` pixels tall. `stance`
+    /// is the camera's distance from what it looks at and its angle
+    /// below the horizon, where known.
+    pub fn slide_scale(
+        self,
+        height: f32,
+        stance: Option<(f32, f32)>,
+        camera: &CameraSettings,
+    ) -> (f32, f32) {
+        // The ground under the middle of the view moves as far as the
+        // pointer does. A pixel is this much of the ground across the
+        // view, and more along it, where the ground lies tilted away.
+        let half = (camera.fov.to_radians() * 0.5).tan();
+        match stance {
+            Some((far, down)) => {
+                let pixel = 2.0 * far * half / height;
+                (pixel, pixel / down.sin().max(0.2))
+            }
+            None => {
+                let pixel = camera.span() * self.zoom / height;
+                (pixel, pixel * camera.slide_tilt)
+            }
+        }
+    }
+
+    /// This orbit zoomed by `lines` scrolled lines, kept between
+    /// `range`.
+    pub fn zoomed(
+        self,
+        lines: f32,
+        camera: &CameraSettings,
+        range: (f32, f32),
+    ) -> Self {
+        Orbit {
+            zoom: (self.zoom * (-lines * camera.scroll_rate).exp())
+                .clamp(range.0, range.1.max(range.0)),
+            ..self
+        }
+    }
+
+    /// This orbit eased `dt` seconds toward `to`, and `to` itself
+    /// once it is near. A hand `held` on the ground is followed
+    /// closely.
+    pub fn eased(
+        self,
+        to: Orbit,
+        dt: f32,
+        camera: &CameraSettings,
+        held: bool,
+    ) -> Self {
+        let k = 1.0 - (-camera.glide * dt).exp();
+        let rate = if held { camera.slide } else { camera.glide };
+        let slid = 1.0 - (-rate * dt).exp();
+        // Zoom is eased by its ratio, so it feels the same far and
+        // near.
+        let zoom = (self.zoom.ln()
+            + (to.zoom.ln() - self.zoom.ln()) * k)
+            .exp();
+        let next = Orbit {
+            pan: self.pan.lerp(to.pan, slid),
+            zoom,
+            yaw: self.yaw + (to.yaw - self.yaw) * k,
+            pitch: self.pitch + (to.pitch - self.pitch) * k,
+        };
+        let near = next.pan.distance(to.pan) < 0.01
+            && (next.zoom / to.zoom - 1.0).abs() < 0.001
+            && (next.yaw - to.yaw).abs() < 0.0005
+            && (next.pitch - to.pitch).abs() < 0.0005;
+        if near { to } else { next }
+    }
+}
+
+/// Scrolled `lines` of a scroll of `y` in `unit`.
+pub fn scrolled_lines(
+    unit: MouseScrollUnit,
+    y: f32,
+    camera: &CameraSettings,
+) -> f32 {
+    match unit {
+        MouseScrollUnit::Line => y,
+        MouseScrollUnit::Pixel => y / camera.scroll_line,
+    }
+}
+
 /// The orbit as the camera shows it, which follows [`Orbit`]
 /// smoothly.
 #[derive(Resource, Clone, Copy, PartialEq, Default)]
@@ -239,27 +340,9 @@ fn glide(
     if shown.0 == *orbit {
         return;
     }
-    let k = 1.0 - (-camera.glide * time.delta_secs()).exp();
     // A hand on the ground is followed closely, but not in steps.
     let held = buttons.pressed(MouseButton::Left);
-    let rate = if held { camera.slide } else { camera.glide };
-    let slid = 1.0 - (-rate * time.delta_secs()).exp();
-    let from = shown.0;
-    // Zoom is eased by its ratio, so it feels the same far and near.
-    let zoom = (from.zoom.ln()
-        + (orbit.zoom.ln() - from.zoom.ln()) * k)
-        .exp();
-    let next = Orbit {
-        pan: from.pan.lerp(orbit.pan, slid),
-        zoom,
-        yaw: from.yaw + (orbit.yaw - from.yaw) * k,
-        pitch: from.pitch + (orbit.pitch - from.pitch) * k,
-    };
-    let near = next.pan.distance(orbit.pan) < 0.01
-        && (next.zoom / orbit.zoom - 1.0).abs() < 0.001
-        && (next.yaw - orbit.yaw).abs() < 0.0005
-        && (next.pitch - orbit.pitch).abs() < 0.0005;
-    shown.0 = if near { *orbit } else { next };
+    shown.0 = shown.0.eased(*orbit, time.delta_secs(), &camera, held);
     redraw.write(bevy::window::RequestRedraw);
 }
 
@@ -305,21 +388,8 @@ pub(super) fn drag(
             let height = (node.size().y
                 * node.inverse_scale_factor())
             .max(1.0);
-            // The ground under the middle of the view moves as far
-            // as the pointer does. A pixel is this much of the
-            // ground across the view, and more along it, where the
-            // ground lies tilted away.
-            let half = (camera.fov.to_radians() * 0.5).tan();
-            let (across, along) = match stance.0 {
-                Some((far, down)) => {
-                    let pixel = 2.0 * far * half / height;
-                    (pixel, pixel / down.sin().max(0.2))
-                }
-                None => {
-                    let pixel = camera.span() * orbit.zoom / height;
-                    (pixel, pixel * camera.slide_tilt)
-                }
-            };
+            let (across, along) =
+                orbit.slide_scale(height, stance.0, &camera);
             let slide = Vec2::new(
                 -drag.delta.x * across,
                 -drag.delta.y * along,
@@ -330,10 +400,7 @@ pub(super) fn drag(
         }
         PointerButton::Secondary => {
             steer.set_if_neq(Steer::Turn);
-            orbit.yaw -= drag.delta.x * camera.turn_rate;
-            orbit.pitch = (orbit.pitch
-                + drag.delta.y * camera.tilt_rate)
-                .clamp(camera.tilt.0, camera.tilt.1);
+            *orbit = orbit.turned(drag.delta, &camera);
         }
         PointerButton::Middle => {}
     }
@@ -354,10 +421,6 @@ fn scroll(
         return;
     }
     let (least, most) = leash.zoom(&camera);
-    let lines = match scroll.unit {
-        MouseScrollUnit::Line => scroll.y,
-        MouseScrollUnit::Pixel => scroll.y / camera.scroll_line,
-    };
-    orbit.zoom = (orbit.zoom * (-lines * camera.scroll_rate).exp())
-        .clamp(least, most.max(least));
+    let lines = scrolled_lines(scroll.unit, scroll.y, &camera);
+    *orbit = orbit.zoomed(lines, &camera, (least, most));
 }

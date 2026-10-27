@@ -8,26 +8,24 @@ use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::{Changed, With};
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{If, Query, Res, ResMut};
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::math::Vec2;
 use bevy::picking::events::{
     PointerDrag, PointerDragEnd, PointerDragStart,
 };
-use bevy::picking::hover::Hovered;
 use bevy::time::Time;
-use bevy::ui::{BackgroundColor, ComputedNode, UiRect, Val, px};
+use bevy::ui::{ComputedNode, UiRect, Val, px};
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::views::{BehaviorExt, frame};
-use bevy_fynix::{EntityCursor, OverrideCursor, Theme};
+use bevy_fynix::OverrideCursor;
+use bevy_fynix::views::{self, Axis, BehaviorExt};
 
 use super::canvas::Canvas;
-use crate::theme::HamletTheme;
-use crate::{View, with_cx};
+use crate::View;
 
-/// How thick the divider is.
-const THICK: f32 = 6.0;
+/// The least and the most the preview is wide, in logical pixels.
+const PREVIEW: std::ops::RangeInclusive<f32> = 200.0..=480.0;
 
 /// How far the properties sit from the canvas's edges.
 const MARGIN: f32 = 8.0;
@@ -40,7 +38,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(grab)
         .add_observer(drag)
         .add_observer(drop)
-        .add_systems(Update, (glide, paint));
+        .add_systems(Update, glide);
 }
 
 /// A corner of the canvas.
@@ -132,17 +130,9 @@ pub(super) struct Floating;
 #[derive(Component)]
 pub(super) struct Handle;
 
+/// The line the dock's panels are parted by, grabbed the same way.
 pub(super) fn divider() -> impl View {
-    with_cx(|cx| {
-        frame()
-            .fill(cx.theme().palette.seam)
-            .radius(2.0)
-            .shrink(0.0)
-            .width(px(THICK))
-            .tagged(Divider)
-            .tagged(Hovered::default())
-            .tagged(EntityCursor(SystemCursorIcon::ColResize))
-    })
+    views::divider(Axis::Vertical).tagged(Divider)
 }
 
 fn logical(node: &ComputedNode) -> Vec2 {
@@ -202,7 +192,7 @@ fn grab(
     mut cursor: ResMut<OverrideCursor>,
 ) {
     if dividers.contains(start.entity) {
-        cursor.0 = Some(SystemCursorIcon::ColResize);
+        cursor.0 = Some(SystemCursorIcon::EwResize);
     } else if handles.contains(start.entity) {
         layout.held = Some(layout.shown);
         cursor.0 = Some(SystemCursorIcon::Grabbing);
@@ -216,8 +206,8 @@ fn drag(
     mut layout: ResMut<Layout>,
 ) {
     if dividers.contains(drag.entity) {
-        layout.preview =
-            (layout.preview - drag.delta.x).clamp(200.0, 1200.0);
+        layout.preview = (layout.preview - drag.delta.x)
+            .clamp(*PREVIEW.start(), *PREVIEW.end());
     } else if handles.contains(drag.entity)
         && let Some(at) = &mut layout.held
     {
@@ -245,23 +235,5 @@ fn drop(
     }
     if dividers.contains(end.entity) || handles.contains(end.entity) {
         cursor.0 = None;
-    }
-}
-
-/// Lights the divider under the pointer.
-fn paint(
-    If(theme): If<Res<Theme<HamletTheme>>>,
-    mut dividers: Query<
-        (&Hovered, &mut BackgroundColor),
-        (Changed<Hovered>, With<Divider>),
-    >,
-) {
-    let palette = &theme.0.palette;
-    for (hovered, mut fill) in &mut dividers {
-        fill.0 = if hovered.get() {
-            palette.brass_5
-        } else {
-            palette.seam
-        };
     }
 }

@@ -24,25 +24,29 @@ use bevy::ui::{
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::dock::DockWindowKind;
+use bevy_fynix::tokens::Motion;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
     frame, icon_button, row,
 };
-use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
-use hamlet_graph::{
+use bevy_fynix::{
+    Bevy, EntityCursor, ScopedExt, ViewExt, ViewSeq, keyed, resource,
+};
+use hamlet_proc::{
     Book, Constant, Does, Edit, Frame, GraphInput, GraphOutput,
     Instance, Node, NodeId, Port, Registry, Ruleset, Seed, Seeds,
     Setting, Sheet, Value, ValueType, evaluate,
 };
 
 use self::split::{Floating, Handle, Layout, divider, inset_at};
-use crate::dock::{PanelAppExt, panel};
+use crate::dock::{PanelAppExt, flush_panel};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
-    CONTROL, Fills, ICON, brass, description, note, raised, section,
-    well,
+    CONTROL, Fills, ICON, brass, description, hairline, note, raised,
+    section,
 };
+use crate::theme::HamletTheme;
 use crate::{View, with_cx};
 
 /// The book the editor opens with.
@@ -64,7 +68,7 @@ fn example(text: &str) -> Option<Book> {
 pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
         "graphs",
-        DockWindowKind::new("GRAPH", || panel(screen()))
+        DockWindowKind::new("GRAPH", || flush_panel(screen()))
             .icon(Glyph::Signpost.image(ICON)),
     )
     .insert_resource(Editor::new())
@@ -94,8 +98,6 @@ pub(crate) struct Editor {
     /// Its name in the book.
     pub name: String,
     others: BTreeMap<String, Kept>,
-    /// The graphs entered to reach the open one, outermost first.
-    trail: Vec<String>,
     /// Every graph of the book, for the ports of nodes that run one.
     pub rules: Ruleset,
     pub selected: Option<NodeId>,
@@ -119,7 +121,6 @@ impl Editor {
             sheet: Sheet::default(),
             name: String::new(),
             others: BTreeMap::new(),
-            trail: Vec::new(),
             rules: Ruleset::default(),
             selected: None,
             registry: Registry::builtin(),
@@ -162,26 +163,8 @@ impl Editor {
         })
     }
 
-    /// Opens the graph a node runs, to come back from with
-    /// [`back`](Self::back).
-    pub fn enter(&mut self, name: &str) {
-        let from = self.name.clone();
-        self.open(name);
-        if self.name != from {
-            self.trail.push(from);
-        }
-    }
-
-    /// Opens the graph the open one was entered from.
-    pub fn back(&mut self) {
-        if let Some(name) = self.trail.pop() {
-            self.open(&name);
-        }
-    }
-
     /// Opens the sheet `name`, chosen directly.
     pub fn go_to(&mut self, name: &str) {
-        self.trail.clear();
         self.open(name);
     }
 
@@ -255,7 +238,6 @@ impl Editor {
             .collect();
         self.sheet = entry;
         self.name = book.entry;
-        self.trail.clear();
         self.selected = None;
         self.undo.clear();
         self.redo.clear();
@@ -357,11 +339,9 @@ impl Editor {
     fn run(&mut self) {
         let mut graph = self.sheet.graph.clone();
         for node in &self.sheet.graph.nodes {
-            let Ok((_, outputs)) = hamlet_graph::ports(
-                &self.registry,
-                &self.rules,
-                node,
-            ) else {
+            let Ok((_, outputs)) =
+                hamlet_proc::ports(&self.registry, &self.rules, node)
+            else {
                 continue;
             };
             for output in outputs {
@@ -430,7 +410,7 @@ impl Editor {
             return;
         };
         let Ok((_, outputs)) =
-            hamlet_graph::ports(&self.registry, &self.rules, found)
+            hamlet_proc::ports(&self.registry, &self.rules, found)
         else {
             return;
         };
@@ -511,7 +491,7 @@ impl Editor {
     fn free_name(
         &self,
         wanted: &str,
-        taken: impl Fn(&hamlet_graph::Graph) -> Vec<String>,
+        taken: impl Fn(&hamlet_proc::Graph) -> Vec<String>,
     ) -> String {
         let taken = taken(&self.sheet.graph);
         std::iter::once(wanted.to_owned())
@@ -556,12 +536,6 @@ impl Editor {
             .collect::<Vec<_>>();
         if !wires.is_empty() {
             self.apply(Edit::Batch(wires));
-        }
-    }
-
-    fn remove_selected(&mut self) {
-        if let Some(node) = self.selected.take() {
-            self.remove(node);
         }
     }
 }
@@ -626,60 +600,38 @@ fn shown(value: Value) -> Vec<Instance> {
 /// The width of the properties floating over the canvas.
 const FLOATING: f32 = 300.0;
 
-/// The Graph panel: its tools over the canvas, the properties
-/// floating over the canvas's corner, and the preview beside it,
-/// sized by dragging the line between them.
+/// The Graph panel: its toolbar over the canvas, with the
+/// properties floating over the canvas's corner, and the preview
+/// beside it, sized by dragging the line between them. The canvas and
+/// the preview fill their sides edge to edge.
 fn screen() -> impl View {
-    with_cx(|cx| {
-        let gap = cx.theme().space.gap;
-        let preview =
-            inner(Glyph::Hamlet, "PREVIEW", preview::view())
-                .width(resource::<Layout, _>(|layout| {
-                    px(layout.preview)
-                }))
-                .shrink(0.0);
+    let preview = column((preview::view(),))
+        .gap(0.0)
+        .fills_height()
+        .width(resource::<Layout, _>(|layout| px(layout.preview)))
+        .shrink(0.0);
+    column((
+        tools(),
+        with_cx(|cx| hairline(cx.theme().palette.seam)),
         row((
-            column((
-                tools(),
-                // The properties are placed over the canvas, in its
-                // frame.
-                column((
-                    canvas::view(),
-                    dock_outline(),
-                    properties(),
-                ))
+            // The properties are placed over the canvas, in its
+            // frame.
+            column((canvas::view(), dock_outline(), properties()))
                 .fills_width()
                 .fills_height()
+                .min_width(px(0.0))
                 .gap(0.0),
-                menu::view(),
-            ))
-            .fills_width()
-            .gap(gap),
             divider(),
             preview,
         ))
-        .fills_width()
+        .width(percent(100.0))
         .fills_height()
-        .gap(gap / 2.0)
-    })
-}
-
-/// A header over `content` in a card, for a part of the Graph panel.
-fn inner(
-    which: Glyph,
-    title: &'static str,
-    content: impl View,
-) -> impl View + FrameProps {
-    let gap = 8.0;
-    column((
-        row((glyph(which, ICON), section(title)))
-            .gap(gap / 2.0)
-            .align(AlignItems::Center),
-        content,
+        .gap(0.0),
+        menu::view(),
     ))
-    .min_height(px(0.0))
-    .padding(UiRect::all(px(gap)))
-    .gap(gap)
+    .fills_width()
+    .fills_height()
+    .gap(0.0)
 }
 
 /// A lit outline of the corner dragged properties will settle in.
@@ -713,24 +665,21 @@ fn properties() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let gap = theme.space.gap;
-        // Open, the chevron points up to fold; folded, it points on.
-        let fold = keyed(
-            resource::<Layout, _>(|layout| layout.properties),
-            |open| {
-                let which =
-                    if *open { Glyph::Chevron } else { Glyph::Into };
-                button(glyph(which, ICON))
-                    .rules(icon_button)
-                    .tooltip(|| note("Fold or open the properties"))
-                    .on_activate(|world| {
-                        let mut layout =
-                            world.resource_mut::<Layout>();
-                        layout.properties = !layout.properties;
-                    })
-                    .boxed()
-            },
+        // Open, the chevron points up to fold; folded, it turns to
+        // point on.
+        let fold = button(
+            glyph(Glyph::Chevron, ICON)
+                .rotation(resource::<Layout, _>(|layout| {
+                    if layout.properties { 0.0 } else { 90.0 }
+                }))
+                .transition(Motion::Interact),
         )
-        .within(row(()).gap(0.0));
+        .rules(icon_button)
+        .tooltip(|| note("Fold or open the properties"))
+        .on_activate(|world| {
+            let mut layout = world.resource_mut::<Layout>();
+            layout.properties = !layout.properties;
+        });
         let header = row((
             glyph(Glyph::Sliders, ICON),
             section("PROPERTIES"),
@@ -785,74 +734,79 @@ fn tool(
         .on_activate(act)
 }
 
+/// Tools side by side on one plate, apart from the next plate.
+fn cluster(
+    tools: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        row(tools)
+            .gap(2.0)
+            .padding(UiRect::all(px(3.0)))
+            .align(AlignItems::Center)
+            .fill(theme.palette.well)
+            .radius(theme.space.round)
+    })
+}
+
+/// The bar over the canvas: plates of tools for editing, for the
+/// graphs of the book and for its file, and what is known of both
+/// at the end.
 fn tools() -> impl View {
     with_cx(|cx| {
-        let gap = cx.theme().space.gap;
+        let theme = cx.theme();
+        let gap = theme.space.gap;
         row((
-            tool(
-                Glyph::Plus,
-                "Add a node (Space)",
-                menu::create_at_pointer,
-            ),
-            tool(Glyph::Undo, "Undo (Cmd+Z)", |world| {
-                world.resource_mut::<Editor>().undo();
-            }),
-            tool(Glyph::Redo, "Redo (Shift+Cmd+Z)", |world| {
-                world.resource_mut::<Editor>().redo();
-            }),
-            tool(
-                Glyph::Delete,
-                "Delete the selected node (Delete)",
-                |world| {
-                    world.resource_mut::<Editor>().remove_selected();
-                },
-            ),
-            tool(
-                Glyph::Aim,
-                "Fit every node in sight (F)",
-                canvas::fit,
-            ),
-            tool(
-                Glyph::Dice,
-                "Roll the house's random values again",
-                |world| {
-                    world.resource_mut::<Editor>().reroll();
-                },
-            ),
-            tool(
-                Glyph::Back,
-                "Back to the graph this one was opened from",
-                |world| {
-                    world.resource_mut::<Editor>().back();
-                    canvas::fit(world);
-                },
-            ),
-            switcher(),
-            tool(
-                Glyph::Folder,
-                "Open a graph book (Cmd+O)",
-                files::open,
-            ),
-            tool(
-                Glyph::Save,
-                "Save the graph book (Cmd+S; Shift for Save as)",
-                files::save,
-            ),
-            dropdown(
-                EXAMPLES.map(|(name, _)| name),
-                usize::MAX,
-                Glyph::Chevron.image(ICON),
-                |world: &mut World, at| {
-                    let Some(book) = example(EXAMPLES[at].1) else {
-                        return;
-                    };
-                    world.resource_mut::<Editor>().load(book);
-                    canvas::fit(world);
-                },
-            )
-            .placeholder("Open an example")
-            .width(px(190.0))
-            .rules(well),
+            cluster((
+                tool(Glyph::Undo, "Undo (Cmd+Z)", |world| {
+                    world.resource_mut::<Editor>().undo();
+                }),
+                tool(Glyph::Redo, "Redo (Shift+Cmd+Z)", |world| {
+                    world.resource_mut::<Editor>().redo();
+                }),
+            )),
+            cluster((
+                tool(
+                    Glyph::Aim,
+                    "Fit every node in sight (F)",
+                    canvas::fit,
+                ),
+                tool(
+                    Glyph::Dice,
+                    "Roll the house's random values again",
+                    |world| {
+                        world.resource_mut::<Editor>().reroll();
+                    },
+                ),
+            )),
+            cluster((switcher(),)),
+            cluster((
+                tool(
+                    Glyph::Folder,
+                    "Open a graph book (Cmd+O)",
+                    files::open,
+                ),
+                tool(
+                    Glyph::Save,
+                    "Save the graph book (Cmd+S; Shift for Save as)",
+                    files::save,
+                ),
+                dropdown(
+                    EXAMPLES.map(|(name, _)| name),
+                    usize::MAX,
+                    Glyph::Chevron.image(ICON),
+                    |world: &mut World, at| {
+                        let Some(book) = example(EXAMPLES[at].1)
+                        else {
+                            return;
+                        };
+                        world.resource_mut::<Editor>().load(book);
+                        canvas::fit(world);
+                    },
+                )
+                .placeholder("Open an example")
+                .width(px(190.0)),
+            )),
             frame().grow(1.0),
             description(resource::<files::Files, _>(|files| {
                 if files.note.is_empty() {
@@ -870,8 +824,13 @@ fn tools() -> impl View {
                 },
             )),
         ))
-        .gap(gap / 2.0)
+        .width(percent(100.0))
+        .min_width(px(0.0))
+        .overflow(Overflow::clip())
+        .padding(UiRect::all(px(gap)))
+        .gap(gap)
         .align(AlignItems::Center)
+        .fill(theme.palette.card)
     })
 }
 
@@ -904,7 +863,6 @@ fn switcher() -> impl View {
                 },
             )
             .width(px(150.0))
-            .rules(well)
             .boxed()
         },
     )

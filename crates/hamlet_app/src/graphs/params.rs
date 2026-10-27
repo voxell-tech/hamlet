@@ -11,7 +11,7 @@ use bevy_fynix::views::{
     icon_button, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, resource};
-use hamlet_graph::{
+use hamlet_proc::{
     Constant, Edit, GraphInput, Scope, ValueType, Vary,
 };
 
@@ -182,8 +182,7 @@ fn head(name: String, value_type: ValueType) -> AnyView {
                 },
             )
             .width(px(96.0))
-            .shrink(0.0)
-            .rules(well),
+            .shrink(0.0),
             button(glyph(Glyph::Cross, ICON))
                 .rules(icon_button)
                 .tooltip(|| note("Take this input away"))
@@ -338,7 +337,6 @@ fn varies(name: String) -> AnyView {
         },
     )
     .width(percent(100.0))
-    .rules(well)
     .boxed()
 }
 

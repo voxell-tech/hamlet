@@ -16,7 +16,7 @@ use bevy::ecs::world::World;
 use bevy::time::Time;
 use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
-use hamlet_graph::Book;
+use hamlet_proc::Book;
 
 use super::{Editor, canvas, example};
 
@@ -47,12 +47,12 @@ pub(super) struct Files {
 }
 
 impl Files {
-    /// The file's name, or a word that there is none.
+    /// The file's name, empty when there is none.
     pub fn name(&self) -> String {
         self.path
             .as_deref()
             .and_then(Path::file_name)
-            .map_or("Not saved to a file".to_owned(), |name| {
+            .map_or(String::new(), |name| {
                 name.to_string_lossy().into_owned()
             })
     }

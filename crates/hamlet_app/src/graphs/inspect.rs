@@ -9,7 +9,7 @@ use bevy_fynix::views::{
     icon_button, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
-use hamlet_graph::{
+use hamlet_proc::{
     Constant, Does, Edit, Initial, NodeId, PortSpec, Roll, Scope,
     Setting, Spread, ValueType,
 };
@@ -309,7 +309,6 @@ fn mode(node: NodeId, spec: PortSpec, wired: bool) -> impl View {
     .placeholder("Random")
     .width(px(CONTROL))
     .shrink(0.0)
-    .rules(well)
 }
 
 /// The controls for the value of an input set as it is now.
@@ -383,8 +382,7 @@ fn value(
                     },
                 )
                 .width(percent(100.0))
-                .min_width(px(0.0))
-                .rules(well),
+                .min_width(px(0.0)),
             )
         }
         Setting::Fixed(Constant::Choice(_)) => boxed(
@@ -593,5 +591,4 @@ fn scope(node: NodeId, name: &'static str) -> impl View {
     )
     .width(percent(100.0))
     .min_width(px(0.0))
-    .rules(well)
 }
