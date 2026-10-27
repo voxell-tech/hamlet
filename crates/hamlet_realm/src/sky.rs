@@ -776,12 +776,18 @@ pub(crate) fn sky_dome(
 /// Lets the key light throw shafts through the volumetric fog, as
 /// many steps through it as the quality allows, or takes the fog
 /// away.
+///
+/// The fill light is put out meanwhile. The engine orders the
+/// directional lights with the volumetric ones last, though its fog
+/// looks for them first, so with the fill light drawn the sun's
+/// shafts never show.
 pub(crate) fn raise_fog(
     mut commands: Commands,
     set: Res<FogSettings>,
     quality: Res<Quality>,
     camera: Single<Entity, With<WorldCamera>>,
     sun: Single<Entity, With<Sun>>,
+    fill: Single<Entity, With<FillLight>>,
     fog: Query<Entity, With<WorldFog>>,
 ) {
     let steps = (set.steps as f32 * quality.shafts()).round() as u32;
@@ -791,6 +797,7 @@ pub(crate) fn raise_fog(
         }
         commands.entity(*camera).try_remove::<VolumetricFog>();
         commands.entity(*sun).try_remove::<VolumetricLight>();
+        commands.entity(*fill).try_insert(Visibility::Inherited);
         return;
     }
     commands.entity(*camera).try_insert(VolumetricFog {
@@ -798,6 +805,7 @@ pub(crate) fn raise_fog(
         ..default()
     });
     commands.entity(*sun).try_insert(VolumetricLight);
+    commands.entity(*fill).try_insert(Visibility::Hidden);
     if fog.is_empty() {
         commands.spawn((WorldFog::default(), FogVolume::default()));
     }
@@ -836,10 +844,13 @@ pub(crate) fn fit_fog(
     }
 }
 
-/// Keeps the volumetric fog over the ground the camera looks at, and
-/// lit as strongly however wide it is.
+/// Keeps the volumetric fog about the camera as far as the sun's
+/// shadows reach, and lit as strongly however wide it is. Past the
+/// shadows the engine would light all of it, a bright wall with a
+/// hard edge.
 pub(crate) fn lay_fog(
     set: Res<FogSettings>,
+    view: Res<CameraSettings>,
     camera: Single<
         &Transform,
         (With<WorldCamera>, Without<WorldFog>),
@@ -852,13 +863,19 @@ pub(crate) fn lay_fog(
     } else {
         2000.0
     };
-    let centre = camera.translation + forward * reach;
+    // The shadows end this far from the camera; see
+    // `generator::view`.
+    let across = reach * view.shadow_range.2 * 2.0;
     // The volume is a unit cube about its middle, so it reaches as
     // far below sea level as above.
-    let size = Vec3::new(reach * 8.0, set.height * 2.0, reach * 8.0);
+    let size = Vec3::new(across, set.height * 2.0, across);
     for (fog, mut at, mut volume) in &mut fog {
-        *at = Transform::from_xyz(centre.x, 0.0, centre.z)
-            .with_scale(size);
+        *at = Transform::from_xyz(
+            camera.translation.x,
+            0.0,
+            camera.translation.z,
+        )
+        .with_scale(size);
         // The engine dims the light in a volume as if it crossed the
         // whole of it, the radius of a ball about it, and this one is
         // as wide as the view. Making up for that lights it as a thin
