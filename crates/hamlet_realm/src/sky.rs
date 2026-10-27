@@ -413,9 +413,12 @@ pub struct Sun;
 #[derive(Component)]
 pub(crate) struct FillLight;
 
-/// The volume of fog that shafts of light show in.
-#[derive(Component)]
-pub(crate) struct WorldFog;
+/// The volume of fog that shafts of light show in, and how strongly
+/// it takes the key light before its width is made up for.
+#[derive(Component, Default)]
+pub(crate) struct WorldFog {
+    light: f32,
+}
 
 /// The part of the day.
 #[derive(
@@ -796,7 +799,7 @@ pub(crate) fn raise_fog(
     });
     commands.entity(*sun).try_insert(VolumetricLight);
     if fog.is_empty() {
-        commands.spawn((WorldFog, FogVolume::default()));
+        commands.spawn((WorldFog::default(), FogVolume::default()));
     }
 }
 
@@ -807,7 +810,7 @@ pub(crate) fn fit_fog(
     set: Res<FogSettings>,
     sky_set: Res<SkySettings>,
     mut fog: Query<&mut VolumetricFog, With<WorldCamera>>,
-    mut volumes: Query<&mut FogVolume, With<WorldFog>>,
+    mut volumes: Query<(&mut WorldFog, &mut FogVolume)>,
 ) {
     let look = &sky.look;
     let height = -look.sun_dir.normalize_or(Vec3::NEG_Y).y;
@@ -819,26 +822,29 @@ pub(crate) fn fit_fog(
         fog.ambient_color = look.ambient;
         fog.ambient_intensity = set.ambient;
     }
-    for mut volume in &mut volumes {
+    for (mut fog, mut volume) in &mut volumes {
+        fog.light = set.strength * share;
+        // `lay_fog` sets its light, once it knows how wide it is.
         *volume = FogVolume {
             density_factor: set.density,
             absorption: set.absorption,
             scattering: set.scattering,
             scattering_asymmetry: set.glow,
-            light_intensity: set.strength * share,
+            light_intensity: volume.light_intensity,
             ..default()
         };
     }
 }
 
-/// Keeps the volumetric fog over the ground the camera looks at.
+/// Keeps the volumetric fog over the ground the camera looks at, and
+/// lit as strongly however wide it is.
 pub(crate) fn lay_fog(
     set: Res<FogSettings>,
     camera: Single<
         &Transform,
         (With<WorldCamera>, Without<WorldFog>),
     >,
-    mut fog: Query<&mut Transform, With<WorldFog>>,
+    mut fog: Query<(&WorldFog, &mut Transform, &mut FogVolume)>,
 ) {
     let forward = camera.forward();
     let reach = if forward.y < -0.05 {
@@ -847,13 +853,24 @@ pub(crate) fn lay_fog(
         2000.0
     };
     let centre = camera.translation + forward * reach;
-    for mut at in &mut fog {
-        // The volume is a unit cube about its middle, so it reaches
-        // as far below sea level as above.
-        *at =
-            Transform::from_xyz(centre.x, 0.0, centre.z).with_scale(
-                Vec3::new(reach * 8.0, set.height * 2.0, reach * 8.0),
-            );
+    // The volume is a unit cube about its middle, so it reaches as
+    // far below sea level as above.
+    let size = Vec3::new(reach * 8.0, set.height * 2.0, reach * 8.0);
+    for (fog, mut at, mut volume) in &mut fog {
+        *at = Transform::from_xyz(centre.x, 0.0, centre.z)
+            .with_scale(size);
+        // The engine dims the light in a volume as if it crossed the
+        // whole of it, the radius of a ball about it, and this one is
+        // as wide as the view. Making up for that lights it as a thin
+        // layer of fog is lit.
+        let crossed = volume.density_factor
+            * size.length()
+            * 0.5
+            * (volume.absorption + volume.scattering);
+        let light = fog.light * crossed.min(80.0).exp();
+        if volume.light_intensity != light {
+            volume.light_intensity = light;
+        }
     }
 }
 
