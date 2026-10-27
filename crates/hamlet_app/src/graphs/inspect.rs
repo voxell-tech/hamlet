@@ -47,16 +47,26 @@ pub(super) fn view() -> impl View {
     .within(column(()).gap(0.0))
 }
 
-/// The open graph's own inputs and outputs, each with a way to take
-/// it away, under a word on selecting a node.
+/// The open graph's parameters, the inputs the graph above sets, each
+/// with how it varies, and its outputs, under a word on selecting a
+/// node.
 fn graph_view() -> AnyView {
     with_cx(|cx| {
         let editor = cx.world.resource::<Editor>();
         let gap = cx.theme().space.gap;
         let mut parts: Vec<AnyView> = vec![
             note("Select a node to set its inputs.").boxed(),
-            section("Graph inputs").boxed(),
+            section("Parameters").boxed(),
+            description(
+                "What the graph above sets. Left unset, each takes \
+                 its default, or varies.",
+            )
+            .boxed(),
         ];
+        for input in &editor.sheet.graph.inputs {
+            parts.push(super::params::input(input.name.clone()));
+        }
+        parts.push(super::params::add().boxed());
         let port = |name: String,
                     value_type: ValueType,
                     edit: Edit| {
@@ -77,24 +87,7 @@ fn graph_view() -> AnyView {
             .align(AlignItems::Center)
             .boxed()
         };
-        for input in &editor.sheet.graph.inputs {
-            let edit = Edit::RemoveInput(input.name.clone());
-            parts.push(port(
-                input.name.clone(),
-                input.value_type,
-                edit,
-            ));
-        }
-        if editor.sheet.graph.inputs.is_empty() {
-            parts.push(
-                description(
-                    "None. Set a node's input From parent to add \
-                     one.",
-                )
-                .boxed(),
-            );
-        }
-        parts.push(section("Graph outputs").boxed());
+        parts.push(section("Outputs").boxed());
         for output in &editor.sheet.graph.outputs {
             let edit = Edit::RemoveOutput(output.name.clone());
             parts.push(port(

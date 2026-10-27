@@ -33,6 +33,12 @@ pub enum Edit {
     /// Gives the graph an input, set by the graph above.
     AddInput(GraphInput),
     RemoveInput(String),
+    /// Puts `input` in place of the input named `name`. A new name is
+    /// carried to every node set from it.
+    ChangeInput {
+        name: String,
+        input: GraphInput,
+    },
     /// Gives the graph an output, from a node's port.
     AddOutput(GraphOutput),
     RemoveOutput(String),
@@ -164,6 +170,47 @@ impl Sheet {
                     .position(|input| input.name == name)
                     .ok_or(EditRefusal::NoName(name))?;
                 Ok(Edit::AddInput(graph.inputs.remove(index)))
+            }
+            Edit::ChangeInput { name, input } => {
+                let index = graph
+                    .inputs
+                    .iter()
+                    .position(|other| other.name == name)
+                    .ok_or_else(|| {
+                        EditRefusal::NoName(name.clone())
+                    })?;
+                if input.name != name
+                    && graph
+                        .inputs
+                        .iter()
+                        .any(|other| other.name == input.name)
+                {
+                    return Err(EditRefusal::NameTaken(input.name));
+                }
+                if input.name != name {
+                    for setting in graph
+                        .nodes
+                        .iter_mut()
+                        .flat_map(|node| node.settings.values_mut())
+                    {
+                        if *setting
+                            == Setting::FromParent(name.clone())
+                        {
+                            *setting = Setting::FromParent(
+                                input.name.clone(),
+                            );
+                        }
+                    }
+                }
+                let new_name = input.name.clone();
+                let old = std::mem::replace(
+                    &mut graph.inputs[index],
+                    input,
+                );
+                Ok(Edit::ChangeInput {
+                    name: new_name,
+                    input: old,
+                })
             }
             Edit::AddOutput(output) => {
                 if graph

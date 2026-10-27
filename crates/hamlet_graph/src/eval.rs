@@ -430,6 +430,31 @@ impl Runner<'_> {
             self.ruleset.graphs.get(name).ok_or_else(|| {
                 fail(Problem::UnknownGraph(name.to_owned()))
             })?;
+        // An input the graph above left unset varies, or takes its
+        // default.
+        let mut given = given.clone();
+        for input in &graph.inputs {
+            if given.contains_key(&input.name) {
+                continue;
+            }
+            let value = match (input.vary, &input.default) {
+                (Some(vary), _) => {
+                    let key = self
+                        .seeds
+                        .of(vary.per)
+                        .mix(path.0)
+                        .mix_str(&input.name);
+                    Value::Number(
+                        vary.low
+                            + (vary.high - vary.low) * key.unit(),
+                    )
+                }
+                (None, Some(default)) => default.clone().into(),
+                (None, None) => continue,
+            };
+            given.insert(input.name.clone(), value);
+        }
+        let given = &given;
         let mut made: BTreeMap<(NodeId, String), Value> =
             BTreeMap::new();
         for index in order(graph).map_err(fail)? {
@@ -555,17 +580,10 @@ fn bind(
             Some(Binding::Roll(roll.clone()))
         }
         Some(Setting::FromParent(name)) => {
-            let value = match given.get(name) {
-                Some(value) => value.clone(),
-                None => graph
-                    .inputs
-                    .iter()
-                    .find(|input| &input.name == name)
-                    .and_then(|input| input.default.clone())
-                    .ok_or_else(|| Problem::NotGiven(name.clone()))?
-                    .into(),
-            };
-            Some(Binding::Value(value))
+            let value = given
+                .get(name)
+                .ok_or_else(|| Problem::NotGiven(name.clone()))?;
+            Some(Binding::Value(value.clone()))
         }
         None => None,
     })

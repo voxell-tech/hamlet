@@ -1,7 +1,8 @@
 // A timber-framed house built from three graphs of its own. "wall" is a
 // plaster panel framed by posts evenly spaced along it, each leaning a
 // little, and a rail at its foot and head. "roof" is two tiled slopes
-// and a ridge beam, worked out from a width, a depth and a rise.
+// and a ridge beam, worked out from a width, a depth and a rise; left
+// unset, the rise varies from house to house.
 // "window" is a pane in a frame over a stone sill. "house" puts four
 // walls on each storey, the roof on top, windows along the front and a
 // flower box under some upper windows, by chance.
@@ -89,7 +90,8 @@
                 inputs: [
                     (name: "width", value_type: Number, default: Some(Number(7.0))),
                     (name: "depth", value_type: Number, default: Some(Number(4.4))),
-                    (name: "rise", value_type: Number, default: Some(Number(2.2))),
+                    (name: "rise", value_type: Number, default: Some(Number(2.2)),
+                     vary: Some((low: 1.8, high: 2.8, per: House))),
                 ],
                 outputs: [(name: "geometry", value_type: Geometry, from: (node: 24, name: "geometry"))],
                 nodes: [
@@ -242,10 +244,12 @@
                     (id: 30, does: Kind("place")),
 
                     (id: 31, does: Kind("box"), settings: {"at": Fixed(Point((0.0, 4.8, 0.0)))}),
-                    (id: 32, does: Graph("roof"), settings: {"width": Fixed(Number(7.0)), "depth": Fixed(Number(4.4)), "rise": Fixed(Number(2.2))}),
+                    // Its rise is left to vary, so each house's roof is
+                    // as steep as it rolls.
+                    (id: 32, does: Graph("roof"), settings: {"width": Fixed(Number(7.0)), "depth": Fixed(Number(4.4))}),
                     (id: 33, does: Kind("place")),
 
-                    (id: 34, does: Kind("box"), settings: {"at": Fixed(Point((2.2, 3.8, -1.3))), "size": Fixed(Point((0.7, 3.6, 0.7)))}),
+                    (id: 34, does: Kind("box"), settings: {"at": Fixed(Point((2.2, 3.8, -1.3))), "size": Fixed(Point((0.7, 4.1, 0.7)))}),
                     (id: 35, does: Kind("instance"), settings: {"asset": Fixed(Choice("stone_chimney"))}),
                     (id: 36, does: Kind("box"), settings: {"at": Fixed(Point((0.0, 0.35, 1.9))), "size": Fixed(Point((1.0, 1.9, 0.12)))}),
                     (id: 37, does: Kind("instance"), settings: {"asset": Fixed(Choice("door"))}),

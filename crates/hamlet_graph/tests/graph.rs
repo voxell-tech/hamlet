@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bevy_math::{Vec2, Vec3};
 use hamlet_graph::{
     Does, Edit, Instance, Node, NodeId, Problem, Registry, Ruleset,
-    Seed, Seeds, Sheet, Value, evaluate, validate,
+    Seed, Seeds, Setting, Sheet, Value, evaluate, validate,
 };
 
 /// Posts along a line, each lifted and turned at random, per
@@ -221,6 +221,84 @@ fn math_on_a_random_field_is_worked_out_at_each_placement() {
     };
     // Rolled once for all, all 100 would stay or go together.
     assert!((25..75).contains(&kept.len()), "{} kept", kept.len());
+}
+
+/// One box whose height is the graph's input `rise`, which varies
+/// between 1 and 2 for each house when nothing sets it.
+const RISE: &str = r#"(
+    entry: "tower",
+    graphs: {"tower": (
+        inputs: [(name: "rise", value_type: Number, default: Some(Number(5.0)),
+                  vary: Some((low: 1.0, high: 2.0, per: House)))],
+        outputs: [(name: "geometry", value_type: Geometry, from: (node: 3, name: "geometry"))],
+        nodes: [
+            (id: 1, does: Kind("point"), settings: {"x": Fixed(Number(1.0)), "y": FromParent("rise"), "z": Fixed(Number(1.0))}),
+            (id: 2, does: Kind("box")),
+            (id: 3, does: Kind("instance")),
+        ],
+        wires: [
+            (from: (node: 1, name: "point"), to: (node: 2, name: "size")),
+            (from: (node: 2, name: "placements"), to: (node: 3, name: "placements")),
+        ],
+    )},
+)"#;
+
+#[test]
+fn an_unset_input_varies_within_its_range_once_per_house() {
+    let ruleset =
+        Ruleset::from_ron(RISE).expect("the fixture parses");
+    let height = |house| {
+        geometry(&run(&ruleset, house, &BTreeMap::new()), "geometry")
+            [0]
+        .size
+        .y
+    };
+    let heights = (1..20).map(height).collect::<Vec<_>>();
+    assert!(
+        heights.iter().all(|h| (1.0..2.0).contains(h)),
+        "{heights:?}"
+    );
+    assert!(heights.windows(2).any(|pair| pair[0] != pair[1]));
+    assert_eq!(height(7), height(7));
+    // Set from above, it is what it is set to.
+    let given =
+        BTreeMap::from([("rise".to_owned(), Value::Number(3.0))]);
+    assert_eq!(
+        geometry(&run(&ruleset, 7, &given), "geometry")[0].size.y,
+        3.0
+    );
+}
+
+#[test]
+fn renaming_an_input_carries_to_the_nodes_set_from_it_and_undoes() {
+    let ruleset =
+        Ruleset::from_ron(RISE).expect("the fixture parses");
+    let mut sheet = Sheet {
+        graph: ruleset.graphs["tower"].clone(),
+        layout: BTreeMap::new(),
+    };
+    let mut renamed = sheet.graph.inputs[0].clone();
+    renamed.name = "height".to_owned();
+    let undo = sheet
+        .apply(Edit::ChangeInput {
+            name: "rise".to_owned(),
+            input: renamed,
+        })
+        .expect("the input is there");
+    let read_by = |sheet: &Sheet| {
+        sheet.graph.node(NodeId(1)).expect("node 1").settings["y"]
+            .clone()
+    };
+    assert_eq!(
+        read_by(&sheet),
+        Setting::FromParent("height".to_owned())
+    );
+    sheet.apply(undo).expect("the undo applies");
+    assert_eq!(
+        read_by(&sheet),
+        Setting::FromParent("rise".to_owned())
+    );
+    assert_eq!(sheet.graph.inputs[0].name, "rise");
 }
 
 #[test]

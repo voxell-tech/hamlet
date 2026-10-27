@@ -7,6 +7,7 @@ mod canvas;
 mod files;
 mod inspect;
 mod menu;
+mod params;
 mod preview;
 mod split;
 
@@ -272,6 +273,12 @@ impl Editor {
                 Edit::Set { node, input, .. },
                 Some(Edit::Set { node: last, input: last_input, .. }),
             ) if node == last && input == last_input
+        ) || matches!(
+            (&inverse, self.undo.last()),
+            (
+                Edit::ChangeInput { name, .. },
+                Some(Edit::ChangeInput { name: last, .. }),
+            ) if name == last
         );
         if !merges {
             self.undo.push(inverse);
@@ -485,6 +492,7 @@ impl Editor {
                     name: name.clone(),
                     value_type,
                     default,
+                    vary: None,
                 }));
                 name
             }
@@ -577,6 +585,18 @@ fn reshapes(sheet: &Sheet, edit: &Edit) -> bool {
             }
         }
         Edit::Move { .. } => false,
+        // A new value is drawn where it is; a new name, type or way
+        // of varying changes what is drawn.
+        Edit::ChangeInput { name, input } => sheet
+            .graph
+            .inputs
+            .iter()
+            .find(|old| old.name == *name)
+            .is_none_or(|old| {
+                old.name != input.name
+                    || old.value_type != input.value_type
+                    || old.vary.is_some() != input.vary.is_some()
+            }),
         _ => true,
     }
 }

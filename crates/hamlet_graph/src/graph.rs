@@ -118,8 +118,23 @@ pub struct Wire {
 pub struct GraphInput {
     pub name: String,
     pub value_type: ValueType,
+    /// What it is when the graph above does not set it, unless it
+    /// varies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<Constant>,
+    /// How a number input is picked when the graph above does not
+    /// set it. It takes its default when it does not vary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vary: Option<Vary>,
+}
+
+/// A number picked between `low` and `high`, again for each house,
+/// hamlet or realm.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+pub struct Vary {
+    pub low: f32,
+    pub high: f32,
+    pub per: Scope,
 }
 
 /// An output of a graph: what a node's port gives.
