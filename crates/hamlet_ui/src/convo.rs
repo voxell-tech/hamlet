@@ -33,7 +33,7 @@ pub(crate) fn plugin(app: &mut App) {
         .unwrap_or_default();
     let mayor =
         agents::mayor(app.world_mut()).unwrap_or(Entity::PLACEHOLDER);
-    app.insert_resource(Me {
+    app.insert_resource(Convo {
         session,
         to,
         name,
@@ -45,18 +45,18 @@ pub(crate) fn plugin(app: &mut App) {
 
 pub(crate) fn chief_name(
     chief: Option<Res<Chief>>,
-    mut me: ResMut<Me>,
+    mut convo: ResMut<Convo>,
 ) {
     if let Some(chief) = chief
-        && me.name != chief.0
+        && convo.name != chief.0
     {
-        me.name.clone_from(&chief.0);
+        convo.name.clone_from(&chief.0);
     }
 }
 
 /// The chat session this window shows and sends to.
 #[derive(Resource)]
-pub struct Me {
+pub struct Convo {
     pub session: Entity,
     pub to: protocol::Address,
     /// The name the chief signs in with.
@@ -125,11 +125,11 @@ fn seat_as(
     with: Option<String>,
 ) {
     let session = watch(world, to.clone());
-    let mut me = world.resource_mut::<Me>();
-    me.session = session;
-    me.to = to;
-    me.agent = agent;
-    me.with = with;
+    let mut convo = world.resource_mut::<Convo>();
+    convo.session = session;
+    convo.to = to;
+    convo.agent = agent;
+    convo.with = with;
 }
 
 /// Points the chat at one of the hamlet's agents, and selects it in
@@ -212,11 +212,11 @@ pub(crate) fn roster_moved(
     removed > 0 || !named.is_empty()
 }
 
-/// Keeps [`Me`] true to the agent the chat is with, and to the first
-/// mayor once that agent is gone.
+/// Keeps [`Convo`] true to the agent the chat is with, and to the
+/// first mayor once that agent is gone.
 pub(crate) fn reseat(world: &mut World) {
-    let me = world.resource::<Me>();
-    let (agent, to) = (me.agent, me.to.clone());
+    let convo = world.resource::<Convo>();
+    let (agent, to) = (convo.agent, convo.to.clone());
     if to.agent == MAYOR {
         if let Some(mayor) = agents::mayor_of(world, &to.hamlet)
             && mayor != agent
@@ -226,8 +226,8 @@ pub(crate) fn reseat(world: &mut World) {
     } else {
         match address(world, agent) {
             Some((to, with)) => {
-                let me = world.resource::<Me>();
-                if me.to != to || me.with != with {
+                let convo = world.resource::<Convo>();
+                if convo.to != to || convo.with != with {
                     seat_as(world, agent, to, with);
                 }
             }
@@ -261,14 +261,14 @@ pub(crate) fn reseat(world: &mut World) {
 }
 
 #[cfg(test)]
-impl Me {
+impl Convo {
     pub(crate) fn of(
         session: Entity,
         agent: Entity,
         name: &str,
         with: Option<&str>,
-    ) -> Me {
-        Me {
+    ) -> Convo {
+        Convo {
             session,
             to: protocol::Address {
                 hamlet: HOME.into(),
@@ -300,11 +300,11 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.add_plugins(plugin);
-        let me = app.world().resource::<Me>();
-        assert_eq!(me.name, "alice");
+        let convo = app.world().resource::<Convo>();
+        assert_eq!(convo.name, "alice");
         let chat = app
             .world()
-            .get::<Chat>(me.session)
+            .get::<Chat>(convo.session)
             .expect("a watched chat");
         assert_eq!(chat.0.with.hamlet, "home");
         assert_eq!(chat.0.with.agent, "mayor");
@@ -328,7 +328,7 @@ mod tests {
         let mut app = panel_app();
         app.init_resource::<crate::world_menu::Open>();
         let founder = agents::mayor(app.world_mut()).unwrap();
-        let first = app.world().resource::<Me>().session;
+        let first = app.world().resource::<Convo>().session;
         *app.world_mut().resource_mut::<crate::world_menu::Open>() =
             crate::world_menu::Open::Menu(
                 Thing::Agent(founder),
@@ -340,19 +340,19 @@ mod tests {
         );
         app.update();
         press(&mut app, "Talk to founder");
-        let me = app.world().resource::<Me>();
-        assert_eq!(me.to.agent, MAYOR);
-        assert_eq!(me.to.hamlet, HOME);
-        assert_eq!(me.with, None);
-        assert_eq!(me.session, first);
+        let convo = app.world().resource::<Convo>();
+        assert_eq!(convo.to.agent, MAYOR);
+        assert_eq!(convo.to.hamlet, HOME);
+        assert_eq!(convo.with, None);
+        assert_eq!(convo.session, first);
         assert_eq!(
-            app.world().get::<Chat>(me.session).unwrap().0.with,
-            me.to
+            app.world().get::<Chat>(convo.session).unwrap().0.with,
+            convo.to
         );
-        let chat = me.session;
+        let chat = convo.session;
         talk_to_mayor(app.world_mut());
         talk_to(app.world_mut(), founder);
-        assert_eq!(app.world().resource::<Me>().session, chat);
+        assert_eq!(app.world().resource::<Convo>().session, chat);
     }
     #[test]
     fn the_chat_stays_true_as_offices_change_and_agents_go() {
@@ -375,9 +375,9 @@ mod tests {
         app.update();
         let scout = agents::named(app.world_mut(), "scout").unwrap();
         talk_to(app.world_mut(), scout);
-        let named_chat = app.world().resource::<Me>().session;
+        let named_chat = app.world().resource::<Convo>().session;
         assert_eq!(
-            app.world().resource::<Me>().with.as_deref(),
+            app.world().resource::<Convo>().with.as_deref(),
             Some("scout")
         );
 
@@ -398,22 +398,25 @@ mod tests {
             }),
         );
         app.update();
-        let me = app.world().resource::<Me>();
-        assert_eq!(me.agent, scout);
+        let convo = app.world().resource::<Convo>();
+        assert_eq!(convo.agent, scout);
         assert_eq!(
-            me.to,
+            convo.to,
             protocol::Address {
                 hamlet: HOME.into(),
                 agent: MAYOR.into()
             }
         );
-        assert_eq!(me.with, None);
-        assert_ne!(me.session, named_chat);
+        assert_eq!(convo.with, None);
+        assert_ne!(convo.session, named_chat);
 
         let founder =
             agents::named(app.world_mut(), "founder").unwrap();
         talk_to(app.world_mut(), founder);
-        assert_eq!(app.world().resource::<Me>().to.agent, "founder");
+        assert_eq!(
+            app.world().resource::<Convo>().to.agent,
+            "founder"
+        );
         receive(
             app.world_mut(),
             protocol::ServerMessage::Change(protocol::Changes {
@@ -425,10 +428,10 @@ mod tests {
             }),
         );
         app.update();
-        let me = app.world().resource::<Me>();
-        assert_eq!(me.agent, scout);
-        assert_eq!(me.to.agent, MAYOR);
-        assert_eq!(me.with, None);
+        let convo = app.world().resource::<Convo>();
+        assert_eq!(convo.agent, scout);
+        assert_eq!(convo.to.agent, MAYOR);
+        assert_eq!(convo.with, None);
     }
 
     #[test]
@@ -489,7 +492,7 @@ mod tests {
         );
         app.update();
         assert_eq!(
-            app.world().resource::<Me>().name,
+            app.world().resource::<Convo>().name,
             "renamed-chief"
         );
     }

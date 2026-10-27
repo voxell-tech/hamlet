@@ -24,8 +24,8 @@ use super::quote;
 use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
 use super::timeline::{Kind, Line, Who};
+use crate::convo::Convo;
 use crate::looks::{Fills, bare, hairline};
-use crate::me::Me;
 use crate::platform::DisplayText;
 use crate::select::{self, Area, Quotable};
 use crate::theme::{Palette, contrast};
@@ -202,7 +202,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             && mine
             && matches!(entry, Some(Entry::Chief { .. }))
             && words == Words::Plain
-            && session == cx.world.resource::<Me>().session;
+            && session == cx.world.resource::<Convo>().session;
         let palette = &cx.theme().palette;
         let fill: fn(&Palette) -> Color =
             if mine { |p| p.brass_6 } else { |p| p.card };

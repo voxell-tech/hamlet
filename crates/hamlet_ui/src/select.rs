@@ -52,10 +52,10 @@ use bevy_fynix::views::{
 use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
 use parley::{Affinity, AlignmentOptions, Cursor, Layout, Selection};
 
+use crate::convo::Convo;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{brass, marked};
-use crate::me::Me;
 use crate::theme::Themed;
 use crate::{View, chat};
 
@@ -679,19 +679,19 @@ fn keys(
 /// Lets go of words selected in the chat once it is with another
 /// agent.
 fn forget(
-    me: Option<Res<Me>>,
+    convo: Option<Res<Convo>>,
     mut with: Local<Option<Entity>>,
     mut selecting: ResMut<Selecting>,
 ) {
-    let Some(me) = me else {
+    let Some(convo) = convo else {
         return;
     };
-    if with.is_some_and(|was| was != me.agent)
+    if with.is_some_and(|was| was != convo.agent)
         && selecting.quote.is_some()
     {
         selecting.clear();
     }
-    *with = Some(me.agent);
+    *with = Some(convo.agent);
 }
 
 /// Lights what is selected, keeps its words for a copy or a quote,

@@ -12,8 +12,8 @@ use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
 
 use super::change::change_view;
+use crate::convo::Convo;
 use crate::looks::{Fills, note};
-use crate::me::Me;
 use crate::platform::{DisplayText, MonoText};
 use crate::{AnyView, Cx, View, markdown};
 
@@ -88,7 +88,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .get::<Transcript>(session)
             .and_then(|t| t.item(&id).map(|item| &item.entry))
             .cloned();
-        let speaker = match &cx.world.resource::<Me>().with {
+        let speaker = match &cx.world.resource::<Convo>().with {
             Some(name) => name.to_uppercase(),
             None => "MAYOR".to_string(),
         };

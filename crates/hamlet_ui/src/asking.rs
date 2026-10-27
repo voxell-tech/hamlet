@@ -30,13 +30,13 @@ use hamlet_client::waits::{
 };
 use hamlet_protocol::client::{Offer, Pick, Questions};
 
+use crate::convo::Convo;
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
     Fills, bare, brass, lamp, marked, note, note_rules, retrace,
     small_rules, well,
 };
-use crate::me::Me;
 use crate::theme::HamletTheme;
 use crate::{AnyView, Cx, PanelSystems, View, with_cx};
 
@@ -94,7 +94,7 @@ pub struct OpenQuestion(Option<(Entity, Questions)>);
 /// Keeps [`OpenQuestion`] as the oldest card raised by the agent the
 /// chat is with, or by a turn of the chat's own session.
 fn follow(
-    me: Res<Me>,
+    convo: Res<Convo>,
     chats: Query<&Chat>,
     waiting: Query<(Entity, &Waiting, &Asks, Option<&RaisedBy>)>,
     mut open: ResMut<OpenQuestion>,
@@ -104,9 +104,9 @@ fn follow(
         .filter(|(_, waits, _, by)| {
             waits.chat.as_ref().is_some_and(|reference| {
                 chats
-                    .get(me.session)
+                    .get(convo.session)
                     .is_ok_and(|chat| &chat.0 == reference)
-            }) || by.is_some_and(|by| by.0 == me.agent)
+            }) || by.is_some_and(|by| by.0 == convo.agent)
         })
         .min_by_key(|(_, waits, ..)| (waits.since, waits.id.as_str()))
         .map(|(card, _, asks, _)| (card, asks));
@@ -537,7 +537,7 @@ mod tests {
     fn received_questions_share_answers_between_chat_and_petition() {
         let mut app = panel_app();
         app.add_plugins(crate::petition::plugin);
-        let session = app.world().resource::<Me>().session;
+        let session = app.world().resource::<Convo>().session;
         let chat =
             app.world().get::<Chat>(session).unwrap().0.clone();
         let question = |id: &str, since, chat: &protocol::ChatRef| {

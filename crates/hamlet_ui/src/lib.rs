@@ -4,6 +4,7 @@
 pub mod asking;
 mod chief;
 pub mod chrome;
+mod convo;
 pub mod cursor;
 mod dock;
 pub mod fields;
@@ -14,7 +15,6 @@ pub mod limits;
 pub mod lists;
 mod looks;
 mod markdown;
-mod me;
 pub mod menu;
 pub mod models;
 mod remember;
@@ -48,11 +48,11 @@ use bevy_fynix::{Bevy, FynixPlugin};
 use hamlet_client::connection::ClientSystems;
 use hamlet_realm::pick::Selected;
 
+pub use self::convo::Convo;
 pub use self::dock::{lit_panel, panel};
 pub use self::looks::{
     ICON, brass, grim, lamp, marked, retrace, well,
 };
-pub use self::me::Me;
 pub use self::remember::Remembered;
 pub use self::roll::Roll;
 pub use self::root::toolbar;
@@ -151,7 +151,7 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             panel_sets,
-            me::plugin,
+            convo::plugin,
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
             (
@@ -199,7 +199,7 @@ impl Plugin for UiPlugin {
         .add_systems(
             PreUpdate,
             (
-                me::reseat.run_if(me::roster_moved),
+                convo::reseat.run_if(convo::roster_moved),
                 inspector::follow_selection
                     .run_if(resource_changed::<Selected>),
                 chief::accompany,

@@ -23,6 +23,7 @@ use super::record::record_of;
 use super::rows::{
     AgentRow, agent_rows, hamlet_rows, pressable, stale,
 };
+use crate::convo::talk_to;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
@@ -30,7 +31,6 @@ use crate::looks::{
     group, lamp, lettered, note, scroll_area, stated_large, title,
     well,
 };
-use crate::me::talk_to;
 use crate::roll::{either, moved};
 use crate::world_menu::Deed;
 use crate::{AnyView, View, chat, tabs, with_cx, world_menu};

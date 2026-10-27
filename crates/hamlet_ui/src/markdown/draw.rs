@@ -765,7 +765,7 @@ mod tests {
             protocol::ServerMessage::State(state.clone()),
         );
         app.add_plugins((
-            crate::me::plugin,
+            crate::convo::plugin,
             crate::roll::plugin,
             crate::links::plugin,
         ));

@@ -23,10 +23,10 @@ use hamlet_client::messages::Rewound;
 
 use super::Draft;
 use super::reply::{Replying, unreplied};
+use crate::convo::Convo;
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{ICON, note, retrace};
-use crate::me::Me;
 use crate::world_menu::{self, Deed};
 use crate::{View, built};
 
@@ -122,17 +122,17 @@ fn reveal(
 /// replied to over the field.
 fn retype(
     rewound: On<Rewound>,
-    me: Res<Me>,
+    convo: Res<Convo>,
     mut draft: ResMut<Draft>,
     mut replying: ResMut<Replying>,
 ) {
-    if rewound.event().chat != me.session {
+    if rewound.event().chat != convo.session {
         return;
     }
     let text = &rewound.event().text;
     let (answers, words) = match unreplied(text) {
         Some((answers, words)) => {
-            (Some((me.session, answers)), words)
+            (Some((convo.session, answers)), words)
         }
         None => (None, text.as_str()),
     };

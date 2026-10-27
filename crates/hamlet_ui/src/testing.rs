@@ -41,7 +41,7 @@ pub(crate) fn panel_app() -> App {
         protocol::ServerMessage::State(hamlet_testing::realm::state()),
     );
     app.add_plugins((
-        crate::me::plugin,
+        crate::convo::plugin,
         crate::roll::plugin,
         crate::asking::plugin,
     ));

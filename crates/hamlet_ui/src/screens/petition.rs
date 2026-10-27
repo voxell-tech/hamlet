@@ -26,6 +26,7 @@ use hamlet_protocol::client::{
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 
+use crate::convo::talk_at;
 use crate::dock::{PanelAppExt, lit_panel, show_tab};
 use crate::feel::{Lit, Mood};
 use crate::icons::Glyph;
@@ -34,7 +35,6 @@ use crate::looks::{
     description, framed, grim, lamp, marked, note, scroll_area,
     title,
 };
-use crate::me::talk_at;
 use crate::platform::MonoText;
 use crate::{AnyView, Cx, PanelSystems, View, asking, chat, with_cx};
 

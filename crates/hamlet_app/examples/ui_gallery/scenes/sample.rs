@@ -16,7 +16,7 @@ use hamlet_client::chats::{Chat, Status, Usage};
 use hamlet_client::{ViewFolder, realm};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Also, Selected, Thing};
-use hamlet_ui::Me;
+use hamlet_ui::Convo;
 pub(super) use welcome::first_run;
 
 use super::Scene;
@@ -65,7 +65,7 @@ pub(super) fn setup(world: &mut World) {
             Usage(usage),
         ))
         .id();
-    world.insert_resource(Me {
+    world.insert_resource(Convo {
         session,
         to,
         name: "chief".into(),
