@@ -194,7 +194,7 @@ fn menus() -> AnyView {
                     cx.build(menu(at, items))
                 })
             }
-            Open::Question(deed, at) => question(deed, at),
+            Open::Question(deed, at) => question(deed, at).boxed(),
             Open::Ground(at) => AnyView::new(move |cx: &mut Cx| {
                 if !Deeds::is_allowed(cx.world, "found") {
                     return cx.build(frame());
@@ -208,7 +208,7 @@ fn menus() -> AnyView {
                         .boxed();
                 cx.build(menu(at, vec![found]))
             }),
-            Open::Founding(at) => founding::founding(at),
+            Open::Founding(at) => founding::founding(at).boxed(),
             Open::Skills(agent, at) => {
                 AnyView::new(move |cx: &mut Cx| {
                     let items = items::skills(cx.world, agent);
@@ -268,6 +268,7 @@ fn gift_reports() -> AnyView {
                     space.overlay_padding,
                 )))
             })
+            .boxed()
         },
     )
     .boxed()

@@ -541,7 +541,9 @@ pub fn panel(hamlet: Entity) -> AnyView {
             }
             let body = match part {
                 Part::Budget => budget(hamlet).boxed(),
-                Part::Models => crate::models::of_hamlet(hamlet),
+                Part::Models => {
+                    crate::models::of_hamlet(hamlet).boxed()
+                }
                 Part::Votes => votes().boxed(),
                 Part::Realm => realm_limits().boxed(),
                 Part::Front | Part::Mayor => mayor().boxed(),

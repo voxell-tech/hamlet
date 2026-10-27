@@ -18,7 +18,7 @@ use crate::looks::{
     small_rules, well,
 };
 use crate::models::narrowed;
-use crate::{AnyView, Cx, View, with_cx};
+use crate::{AnyView, Cx, View, built, with_cx};
 
 fn title(which: Glyph, text: &'static str) -> impl View {
     headed(which, crate::looks::title(text))
@@ -191,8 +191,8 @@ fn local() -> AnyView {
     .boxed()
 }
 
-pub fn view() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+pub fn view() -> impl View {
+    built(|cx| {
         cx.world.init_resource::<super::providers::Login>();
         cx.world.init_resource::<super::Browser>();
         cx.world.init_resource::<super::Committing>();
@@ -233,7 +233,7 @@ fn screen() -> AnyView {
                     Step::Models => models(),
                 }
             };
-            with_cx(move |cx| over(cx, page))
+            with_cx(move |cx| over(cx, page)).boxed()
         },
     )
     .within(overlay(()))

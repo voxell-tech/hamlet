@@ -23,7 +23,7 @@ use crate::feel::Mood;
 use crate::looks::{brass, description, grim, lettered};
 use crate::me::Me;
 use crate::platform::DisplayText;
-use crate::{AnyView, Cx, chat};
+use crate::{View, built, chat};
 
 /// Something that ends an agent or a hamlet, or changes who runs
 /// one.
@@ -267,8 +267,8 @@ impl Deed {
 
 /// The question before `deed`, with a warning for each agent that is
 /// at work.
-pub(crate) fn question(deed: Deed, at: Vec2) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+pub(crate) fn question(deed: Deed, at: Vec2) -> impl View {
+    built(move |cx| {
         if !deed.is_available(cx.world) {
             return cx.build(frame());
         }

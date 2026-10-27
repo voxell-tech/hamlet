@@ -38,7 +38,7 @@ use crate::looks::{
 };
 use crate::me::Me;
 use crate::{
-    AnyView, Cx, PanelSystems, View, chat, inspector, with_cx,
+    AnyView, PanelSystems, View, built, chat, inspector, with_cx,
 };
 
 /// Characters of a title a row shows.
@@ -471,8 +471,8 @@ fn actions() -> AnyView {
 }
 
 /// The reader of the open session.
-fn reader() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+fn reader() -> impl View {
+    built(|cx| {
         let history = cx.world.resource::<History>();
         let Some(reading) = &history.reading else {
             return cx.build(frame());
@@ -579,7 +579,7 @@ pub fn screen() -> AnyView {
                 h.reading.as_ref().map(|r| r.number)
             }),
             |reading| match reading {
-                Some(_) => reader(),
+                Some(_) => reader().boxed(),
                 None => list().boxed(),
             },
         )

@@ -27,7 +27,7 @@ use crate::links::Aimed;
 use crate::looks::{hairline, note, small_rules};
 use crate::me::Me;
 use crate::petition::Queue;
-use crate::{AnyView, Cx, PanelSystems, View, with_cx};
+use crate::{AnyView, PanelSystems, View, built, with_cx};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>().add_systems(
@@ -122,7 +122,7 @@ pub(crate) fn now_ms() -> u64 {
 fn pair(
     mark: impl View + 'static,
     words: impl View + 'static,
-) -> AnyView {
+) -> impl View {
     with_cx(move |cx| {
         row((mark, words))
             .gap(cx.theme().space.status_icon_gap)
@@ -202,8 +202,8 @@ fn aimed() -> impl View {
 }
 
 /// The bar along the foot of the window.
-pub fn status_bar() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+pub fn status_bar() -> impl View {
+    built(|cx| {
         let theme = cx.theme();
         let (palette, space) = (&theme.palette, &theme.space);
         cx.build(

@@ -28,7 +28,7 @@ use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{Fills, ICON, bare, note, retrace};
 use crate::me::Me;
-use crate::{AnyView, Cx, View, with_cx};
+use crate::{AnyView, Cx, View, built, with_cx};
 
 /// The room of a mark about its picture.
 const AROUND: f32 = 4.0;
@@ -178,8 +178,8 @@ pub(super) fn mark(
     session: Entity,
     id: String,
     by: String,
-) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+) -> impl View {
+    built(move |cx| {
         let reply = button(glyph(Glyph::Talk, ICON))
             .padding(UiRect::all(px(AROUND)))
             .tooltip(|| note("Reply"))
@@ -251,7 +251,9 @@ pub(super) fn preview() -> impl View {
             r.0.as_ref().map(|(_, a)| a.clone())
         }),
         |answers| match answers.clone() {
-            Some(answers) => with_cx(move |cx| shown(cx, &answers)),
+            Some(answers) => {
+                with_cx(move |cx| shown(cx, &answers)).boxed()
+            }
             None => frame().boxed(),
         },
     )

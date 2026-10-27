@@ -45,7 +45,7 @@ use crate::dock::PanelAppExt;
 use crate::icons::Glyph;
 use crate::looks::{Fills, ICON};
 use crate::window::WorldShown;
-use crate::{AnyView, Cx};
+use crate::{View, built};
 
 type WorldCameras<'w, 's> = Query<
     'w,
@@ -267,8 +267,8 @@ pub(crate) fn match_pointer_target(
 
 /// The panel: an ordinary frame whose node shows the world camera's
 /// picture.
-pub fn view() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+pub fn view() -> impl View {
+    built(|cx| {
         let camera = cx.world.get_resource::<WorldCam>().map(|c| c.0);
         // The tags, signs and balloons hang off this node at the
         // camera's viewport coordinates, so one that runs past the

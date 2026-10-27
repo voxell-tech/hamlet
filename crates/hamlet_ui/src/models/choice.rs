@@ -15,7 +15,7 @@ use crate::icons::Glyph;
 use crate::looks::{bare, close, description, group, section};
 use crate::roll::{agents_moved, either, hamlets_moved, moved};
 use crate::switch::labelled_switch;
-use crate::{AnyView, Cx, View};
+use crate::{View, built};
 
 pub(super) fn home_default(world: &World) -> String {
     world
@@ -139,8 +139,8 @@ fn pin(world: &mut World, agent: Entity, model: &str) {
     });
 }
 
-pub(crate) fn of_agent(agent: Entity) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+pub(crate) fn of_agent(agent: Entity) -> impl View {
+    built(move |cx| {
         if cx.world.get::<LivesIn>(agent).is_none() {
             return cx.build(column(()));
         }
@@ -160,8 +160,8 @@ pub(crate) fn of_agent(agent: Entity) -> AnyView {
     })
 }
 
-pub(crate) fn of_hamlet(hamlet: Entity) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
+    built(move |cx| {
         if cx.world.get::<Bylaws>(hamlet).is_none() {
             return cx.build(column(()));
         }

@@ -119,9 +119,11 @@ fn showing(world: &World) -> Showing {
 pub fn screen() -> impl View {
     keyed(derived(showing).when(every_frame()), |showing| {
         match showing {
-            Showing::Overview => overview::overview(),
-            Showing::Hamlet(hamlet) => overview::hamlet(*hamlet),
-            Showing::Gone(agent) => gone::ruin(*agent),
+            Showing::Overview => overview::overview().boxed(),
+            Showing::Hamlet(hamlet) => {
+                overview::hamlet(*hamlet).boxed()
+            }
+            Showing::Gone(agent) => gone::ruin(*agent).boxed(),
             Showing::Chief(chief) => crate::chief::panel(*chief),
             Showing::Library => gone::library().boxed(),
             Showing::Agent => agent::living().boxed(),

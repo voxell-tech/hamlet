@@ -27,7 +27,7 @@ use crate::platform::Glow;
 use crate::status::status_bar;
 use crate::theme::{HamletTheme, ThemeChanged};
 use crate::{
-    AnyView, Cx, View, chrome, hover, menu, welcome, world_menu,
+    Cx, View, built, chrome, hover, menu, welcome, world_menu,
 };
 
 pub(crate) fn plugin(app: &mut App) {
@@ -64,8 +64,8 @@ fn rebuild(world: &mut World) {
     mount(world);
 }
 
-fn root() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+fn root() -> impl View {
+    built(|cx| {
         cx.build(
             column((
                 full(cx),
@@ -164,8 +164,8 @@ fn checked(response: On<Response>, mut test: ResMut<ConnectionTest>) {
 }
 
 /// The default model's connection check and its received answer.
-pub fn connection_test() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+pub fn connection_test() -> impl View {
+    built(|cx| {
         cx.world.init_resource::<ConnectionTest>();
         cx.build(
             row((

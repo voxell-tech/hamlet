@@ -16,7 +16,7 @@ use crate::icons::Glyph;
 use crate::looks::{Fills, action, away, bad_action, description};
 use crate::platform::DisplayText;
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, with_cx};
+use crate::{AnyView, View, built, with_cx};
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct SkillRow {
@@ -54,6 +54,7 @@ fn empty_state<R: Resource>(
                 .padding(UiRect::bottom(px(section)))
                 .align(AlignItems::FlexStart)
             })
+            .boxed()
         } else {
             frame().boxed()
         }
@@ -94,6 +95,7 @@ pub(crate) fn skills() -> impl View {
                     Tone::Body,
                     Some(out),
                 )
+                .boxed()
             },
         )
         .within(column(()).gap(8.0)),
@@ -102,7 +104,7 @@ pub(crate) fn skills() -> impl View {
 }
 
 /// One card: a title over a dim line.
-pub fn item(title: String, detail: String, tone: Tone) -> AnyView {
+pub fn item(title: String, detail: String, tone: Tone) -> impl View {
     card(title, detail, tone, None)
 }
 
@@ -114,8 +116,8 @@ pub fn card(
     detail: String,
     tone: Tone,
     beside: Option<AnyView>,
-) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+) -> impl View {
+    built(move |cx| {
         let space = &cx.theme().space;
         let name = row((label(title)
             .size(cx.theme().text.heading)

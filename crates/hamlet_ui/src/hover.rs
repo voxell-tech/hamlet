@@ -43,7 +43,7 @@ use crate::platform::{DisplayText, show};
 use crate::roll::Roll;
 use crate::theme::Themed;
 use crate::world_menu::Open;
-use crate::{AnyView, Cx, View};
+use crate::{View, built};
 
 /// The layer of the card in the window's stack: over the panels,
 /// under the menus.
@@ -587,8 +587,8 @@ fn line(read: fn(&Card) -> &String, tone: Tone) -> impl View {
 }
 
 /// The card, on the window's top layer. It is built once.
-pub fn view() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+pub fn view() -> impl View {
+    built(|cx| {
         let shadow = cx.theme().shadow();
         let card = column((
             label(resource::<Card, _>(|card| card.title.clone()))

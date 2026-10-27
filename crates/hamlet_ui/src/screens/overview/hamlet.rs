@@ -92,6 +92,7 @@ fn naming(hamlet: Entity, id: String) -> AnyView {
                 .gap(cx.theme().space.gap)
                 .align(AlignItems::Center)
             })
+            .boxed()
         },
     )
     .within(bare())
@@ -187,7 +188,7 @@ fn list_of(hamlet: Entity) -> impl View {
 }
 
 /// One hamlet: what it is, what can be done to it, and its pages.
-pub fn hamlet(hamlet: Entity) -> AnyView {
+pub fn hamlet(hamlet: Entity) -> impl View {
     let facts = derived(move |world: &World| {
         hamlet_rows(world)
             .into_iter()

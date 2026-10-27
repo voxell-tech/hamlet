@@ -18,11 +18,11 @@ use crate::looks::{
 use crate::me::Me;
 use crate::platform::Wraps;
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, lists, overview, with_cx};
+use crate::{AnyView, View, built, lists, overview, with_cx};
 
 /// The page of an agent that is gone, with the way back.
-pub(super) fn ruin(agent: Entity) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
+pub(super) fn ruin(agent: Entity) -> impl View {
+    built(move |cx| {
         let named = |agent: Entity| {
             hamlet_client::realm::name_of(cx.world, agent)
         };
@@ -154,6 +154,7 @@ fn skills() -> AnyView {
         ))
         .gap(cx.theme().space.section),))
     })
+    .boxed()
 }
 
 /// A page of `what` about the selected agent, under whose it is.
@@ -176,6 +177,7 @@ pub(crate) fn of_agent(
                     .fills_height()
                     .gap(cx.theme().space.section)
             })
+            .boxed()
         },
     )
     .within(filling())
