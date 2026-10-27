@@ -190,6 +190,15 @@ pub(crate) fn talk_to_mayor_of(world: &mut World, hamlet: &str) {
     }
 }
 
+/// Points the chat at the agent at `to`, or at its hamlet's office.
+pub(crate) fn talk_at(world: &mut World, to: &protocol::Address) {
+    if to.agent == MAYOR {
+        talk_to_mayor_of(world, &to.hamlet);
+    } else if let Some(agent) = agents::named(world, &to.agent) {
+        talk_to(world, agent);
+    }
+}
+
 /// An agent went, an office changed hands or a name changed.
 pub(crate) fn roster_moved(
     named: Query<

@@ -15,7 +15,7 @@ use bevy::time::Time;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, text_field,
+    BehaviorExt, FrameProps, column, frame, label,
 };
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{Entry, Transcript};
@@ -32,8 +32,9 @@ use crate::icons::Glyph;
 use crate::looks::{
     Fills, ICON, bad_action, beside, brass, buttons, caption,
     description, framed, grim, lamp, marked, note, scroll_area,
-    title, well,
+    title,
 };
+use crate::me::talk_at;
 use crate::platform::MonoText;
 use crate::{AnyView, Cx, PanelSystems, View, asking, chat, with_cx};
 
@@ -57,17 +58,12 @@ pub fn plugin(app: &mut App) {
         })
         .icon(Glyph::Bell.image(ICON)),
     )
-    .init_resource::<Reason>()
     .init_resource::<Queue>()
     .add_observer(tag_answered)
     .add_observer(tag_opened)
     .add_systems(PreUpdate, keep_queue.in_set(PanelSystems::Bind))
     .add_systems(Update, show_new);
 }
-
-/// The reason or reply the next answer carries.
-#[derive(Resource, Default)]
-pub struct Reason(String);
 
 /// Everything that waits for the chief, oldest first, as the panels
 /// show it.
@@ -154,20 +150,21 @@ pub(crate) fn keep_queue(
     }
 }
 
-/// Sends the chief's answer to `entity`, with the typed reason.
-fn answer(world: &mut World, entity: Entity, choice: Choice) {
-    let text = world.resource::<Reason>().0.trim().to_string();
-    // A reply is its words.
-    if choice == Choice::Reply && text.is_empty() {
+/// Sends the chief's answer to `need`. A reply is words, which are
+/// written in the chat that asked, so it opens that chat instead.
+fn answer(world: &mut World, need: &Need, choice: Choice) {
+    if choice == Choice::Reply {
+        if let Some(chat) = &need.chat {
+            talk_at(world, &chat.with);
+        }
         return;
     }
     world.trigger(Answer {
-        wait: entity,
+        wait: need.entity,
         choice,
-        text: (!text.is_empty()).then_some(text),
+        text: None,
     });
     world.flush();
-    world.resource_mut::<Reason>().0.clear();
 }
 
 /// A check or a cross on a tag in the world answers like a button
@@ -215,7 +212,6 @@ fn button(need: &Need, at: usize) -> AnyView {
     let Some(choice) = need.answers.get(at).cloned() else {
         return frame().boxed();
     };
-    let entity = need.entity;
     let always = match need.detail {
         WaitDetail::Approval {
             always: Some(Lasting::Session),
@@ -233,14 +229,17 @@ fn button(need: &Need, at: usize) -> AnyView {
             Choice::Withdraw => {
                 (Restore, "WITHDRAW", grim, Mood::Bad)
             }
-            Choice::Reply => (Talk, "REPLY", lamp, Mood::Good),
+            Choice::Reply => {
+                (Talk, "REPLY IN CHAT", lamp, Mood::Good)
+            }
             Choice::Dismiss => (Cross, "DISMISS", brass, Mood::Plain),
         };
+    let need = need.clone();
     marked(which, text)
         .rules(rules)
         .tagged(mood)
         .on_activate(move |world| {
-            answer(world, entity, choice.clone());
+            answer(world, &need, choice.clone());
         })
         .boxed()
 }
@@ -355,16 +354,10 @@ pub fn screen() -> impl View {
                 1 => "1 THING NEEDS YOU".to_string(),
                 n => format!("{n} THINGS NEED YOU"),
             })),
-            text_field(
-                resource::<Reason, _>(|r| r.0.clone()),
-                |world, text| world.resource_mut::<Reason>().0 = text,
-            )
-            .rules(well),
-            // The stop sits under the field, so a narrow panel never
-            // pushes it past its edge.
+            // On its own row, at its own width, so a narrow panel
+            // never pushes it past its edge.
             beside((
-                column((note("Reason or reply, then answer"),))
-                    .fills_width(),
+                column(()).fills_width(),
                 bad_action(Glyph::Stop, "STOP ALL", |world| {
                     world.trigger(Veto { agent: None });
                     world.flush();
