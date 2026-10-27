@@ -222,6 +222,41 @@ impl Ruleset {
     }
 }
 
+/// The sheets an author edits together, by name: a graph and those it
+/// uses as nodes. The one named `entry` makes the thing.
+#[derive(
+    Clone, PartialEq, Debug, Default, Serialize, Deserialize,
+)]
+pub struct Book {
+    pub entry: String,
+    pub sheets: BTreeMap<String, Sheet>,
+}
+
+impl Book {
+    /// A book of one sheet, named `name`.
+    pub fn of(name: &str, sheet: Sheet) -> Self {
+        Self {
+            entry: name.to_owned(),
+            sheets: BTreeMap::from([(name.to_owned(), sheet)]),
+        }
+    }
+
+    /// The ruleset the game runs from this book.
+    pub fn export(&self) -> Ruleset {
+        Ruleset::export(&self.entry, &self.sheets)
+    }
+
+    pub fn to_ron(&self) -> Result<String, ron::Error> {
+        to_ron(self)
+    }
+
+    pub fn from_ron(
+        text: &str,
+    ) -> Result<Self, ron::error::SpannedError> {
+        ron::from_str(text)
+    }
+}
+
 fn to_ron(value: &impl Serialize) -> Result<String, ron::Error> {
     let pretty = ron::ser::PrettyConfig::new()
         .struct_names(false)

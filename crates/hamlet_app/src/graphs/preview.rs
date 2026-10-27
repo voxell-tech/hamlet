@@ -300,6 +300,7 @@ fn colour(colours: Option<&Colours>, instance: &Instance) -> Vec3 {
         ("post", c.timber),
         ("rail", c.timber),
         ("beam", c.timber_dark),
+        ("frame", c.timber_dark),
         ("door", c.timber_dark),
         ("moss", c.moss),
         ("flower", c.moss),

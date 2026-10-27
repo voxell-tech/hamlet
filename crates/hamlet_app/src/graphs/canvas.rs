@@ -41,7 +41,7 @@ use bevy_fynix::views::{BehaviorExt, frame};
 use bevy_fynix::{EntityCursor, OverrideCursor, Theme};
 use hamlet_graph::{
     Constant, Does, Edit, Initial, NodeId, Port, PortSpec, Roll,
-    Ruleset, Setting, Spread, ValueType, Wire, ports,
+    Setting, Spread, ValueType, Wire, ports,
 };
 
 use super::Editor;
@@ -99,8 +99,35 @@ struct Dot {
 #[derive(Component, Clone)]
 struct Chip {
     node: NodeId,
-    spec: PortSpec,
+    spec: Input,
     part: Part,
+}
+
+/// What a chip knows of the input it shows: a kind's port, or an
+/// input of the graph a node runs.
+#[derive(Clone, Debug)]
+struct Input {
+    name: String,
+    value_type: ValueType,
+    initial: Option<Constant>,
+    /// The choices a choice takes. Empty for any text.
+    choices: &'static [&'static str],
+}
+
+impl Input {
+    fn of_port(spec: &PortSpec) -> Self {
+        Self {
+            name: spec.name.to_owned(),
+            value_type: spec.value_type,
+            initial: spec.initial.map(|initial| match initial {
+                Initial::Number(n) => Constant::Number(n),
+                Initial::Bool(on) => Constant::Bool(on),
+                Initial::Point(p) => Constant::Point(p),
+                Initial::Choice(c) => Constant::Choice(c.to_owned()),
+            }),
+            choices: spec.choices,
+        }
+    }
 }
 
 /// The part of an input's setting a [`Chip`] shows.
@@ -259,7 +286,7 @@ fn rows(
     node: &hamlet_graph::Node,
 ) -> (Vec<Dot>, Vec<Dot>) {
     let Ok((inputs, outputs)) =
-        ports(&editor.registry, &Ruleset::default(), node)
+        ports(&editor.registry, &editor.rules, node)
     else {
         return (Vec::new(), Vec::new());
     };
@@ -279,13 +306,35 @@ fn rows(
     )
 }
 
-/// The kind's description of each input of `node`.
-fn specs(editor: &Editor, node: NodeId) -> &'static [PortSpec] {
+/// What a chip needs of each input of `node`: its kind's ports, or
+/// the inputs of the graph it runs.
+fn specs(editor: &Editor, node: NodeId) -> Vec<Input> {
     match editor.sheet.graph.node(node).map(|node| &node.does) {
-        Some(Does::Kind(kind)) => {
-            editor.registry.get(kind).map_or(&[], |kind| kind.inputs)
-        }
-        _ => &[],
+        Some(Does::Kind(kind)) => editor
+            .registry
+            .get(kind)
+            .map(|kind| {
+                kind.inputs.iter().map(Input::of_port).collect()
+            })
+            .unwrap_or_default(),
+        Some(Does::Graph(graph)) => editor
+            .rules
+            .graphs
+            .get(graph)
+            .map(|graph| {
+                graph
+                    .inputs
+                    .iter()
+                    .map(|input| Input {
+                        name: input.name.clone(),
+                        value_type: input.value_type,
+                        initial: input.default.clone(),
+                        choices: &[],
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        None => Vec::new(),
     }
 }
 
@@ -327,7 +376,7 @@ fn number_text(n: f32) -> String {
 /// The chips that show how an unwired input is set, with any words
 /// between them.
 fn chips(
-    spec: &PortSpec,
+    spec: &Input,
     setting: Option<&Setting>,
 ) -> Vec<Result<Part, String>> {
     let written = match spec.value_type {
@@ -360,8 +409,8 @@ fn chips(
         (Some(Setting::Fixed(Constant::Choice(text))), _) => {
             vec![Err(text.clone())]
         }
-        (None, Some(ValueType::Choice)) => match spec.initial {
-            Some(Initial::Choice(text)) => vec![Err(text.to_owned())],
+        (None, Some(ValueType::Choice)) => match &spec.initial {
+            Some(Constant::Choice(text)) => vec![Err(text.clone())],
             _ => Vec::new(),
         },
         _ => Vec::new(),
@@ -372,10 +421,11 @@ fn chips(
 /// value.
 fn shown(
     setting: Option<&Setting>,
-    spec: &PortSpec,
+    spec: &Input,
     part: Part,
 ) -> String {
-    let initial = || spec.initial.map(hamlet_graph::Value::from);
+    let initial =
+        || spec.initial.clone().map(hamlet_graph::Value::from);
     match (part, setting) {
         (
             Part::Low,
@@ -434,14 +484,14 @@ fn on_off(on: bool) -> String {
 fn number(
     part: Part,
     setting: Option<&Setting>,
-    spec: &PortSpec,
+    spec: &Input,
 ) -> Option<f32> {
     match (part, setting) {
         (Part::Number, Some(Setting::Fixed(Constant::Number(n)))) => {
             Some(*n)
         }
         (Part::Number, None) => match spec.initial {
-            Some(Initial::Number(n)) => Some(n),
+            Some(Constant::Number(n)) => Some(n),
             _ => Some(0.0),
         },
         (
@@ -449,7 +499,7 @@ fn number(
             Some(Setting::Fixed(Constant::Point(p))),
         ) => Some(p[axis]),
         (Part::Axis(axis), None) => match spec.initial {
-            Some(Initial::Point(p)) => Some(p[axis]),
+            Some(Constant::Point(p)) => Some(p[axis]),
             _ => Some(0.0),
         },
         (
@@ -481,15 +531,15 @@ fn number(
 fn with_number(
     part: Part,
     setting: Option<&Setting>,
-    spec: &PortSpec,
+    spec: &Input,
     value: f32,
 ) -> Option<Setting> {
     Some(match (part, setting.cloned()) {
         (Part::Number, _) => Setting::Fixed(Constant::Number(value)),
         (Part::Axis(axis), current) => {
-            let mut point = match (current, spec.initial) {
+            let mut point = match (current, spec.initial.clone()) {
                 (Some(Setting::Fixed(Constant::Point(p))), _)
-                | (None, Some(Initial::Point(p))) => p,
+                | (None, Some(Constant::Point(p))) => p,
                 _ => bevy::math::Vec3::ZERO,
             };
             point[axis] = value;
@@ -576,9 +626,16 @@ fn build(
     let palette = &theme.0.palette;
     for node in &editor.sheet.graph.nodes {
         let (inputs, outputs) = rows(&editor, node);
-        let title = match &node.does {
-            Does::Kind(kind) => kind.replace('_', " "),
-            Does::Graph(graph) => graph.clone(),
+        // A graph run as a node is marked by its header's colour.
+        let (title, header_fill, title_colour) = match &node.does {
+            Does::Kind(kind) => (
+                kind.replace('_', " "),
+                palette.plate,
+                palette.brass_1,
+            ),
+            Does::Graph(graph) => {
+                (graph.clone(), palette.lamp_low, palette.flame)
+            }
         };
         let card = commands
             .spawn((
@@ -599,6 +656,7 @@ fn build(
                 ChildOf(sheet),
             ))
             .observe(select)
+            .observe(open_on_double)
             .observe(grab)
             .observe(drag_card)
             .observe(gesture_end)
@@ -613,14 +671,14 @@ fn build(
                     border_radius: BorderRadius::top(px(6.0)),
                     ..Node::default()
                 },
-                BackgroundColor(palette.plate),
+                BackgroundColor(header_fill),
                 ChildOf(card),
             ))
             .id();
         commands.spawn((
             Text::new(title),
             TextFont::from_font_size(13.0),
-            TextColor(palette.brass_1),
+            TextColor(title_colour),
             Pickable::IGNORE,
             ChildOf(header),
         ));
@@ -665,13 +723,13 @@ fn build(
             if let (false, false, Some(spec)) =
                 (dot.output, wired, spec)
             {
-                let setting = node.settings.get(spec.name);
+                let setting = node.settings.get(&spec.name);
                 for piece in chips(spec, setting) {
                     match piece {
                         Ok(part) => {
                             let chip = Chip {
                                 node: node.id,
-                                spec: *spec,
+                                spec: spec.clone(),
                                 part,
                             };
                             let mut spawned = commands.spawn((
@@ -840,7 +898,7 @@ fn relabel(
             .sheet
             .graph
             .node(chip.node)
-            .and_then(|node| node.settings.get(chip.spec.name));
+            .and_then(|node| node.settings.get(&chip.spec.name));
         let now = shown(setting, &chip.spec, chip.part);
         if text.0 != now {
             text.0 = now;
@@ -1003,6 +1061,23 @@ fn select(
         && editor.selected != Some(card.0)
     {
         editor.selected = Some(card.0);
+    }
+}
+
+/// Opens the graph a card runs on a double press.
+fn open_on_double(
+    press: On<PointerPress>,
+    cards: Query<&Card>,
+    mut commands: Commands,
+) {
+    if press.button != PointerButton::Primary || press.count != 2 {
+        return;
+    }
+    if let Ok(card) = cards.get(press.entity) {
+        let node = card.0;
+        commands.queue(move |world: &mut World| {
+            super::menu::open_graph(world, node);
+        });
     }
 }
 
@@ -1234,13 +1309,13 @@ fn setting_of<'a>(
         .sheet
         .graph
         .node(chip.node)
-        .and_then(|node| node.settings.get(chip.spec.name))
+        .and_then(|node| node.settings.get(&chip.spec.name))
 }
 
 fn put(editor: &mut Editor, chip: &Chip, setting: Setting) {
     editor.apply(Edit::Set {
         node: chip.node,
-        input: chip.spec.name.to_owned(),
+        input: chip.spec.name.clone(),
         setting: Some(setting),
     });
 }
@@ -1316,22 +1391,22 @@ fn flip(
     let current = setting_of(&editor, chip).cloned();
     let setting = match chip.part {
         Part::Flag => {
-            let on = match (&current, chip.spec.initial) {
-                (Some(Setting::Fixed(Constant::Bool(on))), _) => *on,
-                (None, Some(Initial::Bool(on))) => on,
+            let on = match (&current, &chip.spec.initial) {
+                (Some(Setting::Fixed(Constant::Bool(on))), _)
+                | (None, Some(Constant::Bool(on))) => *on,
                 _ => true,
             };
             Setting::Fixed(Constant::Bool(!on))
         }
         Part::Choice => {
             let choices = chip.spec.choices;
-            let now = match (&current, chip.spec.initial) {
+            let now = match (&current, &chip.spec.initial) {
                 (
                     Some(Setting::Fixed(Constant::Choice(choice))),
                     _,
-                ) => choice.clone(),
-                (None, Some(Initial::Choice(choice))) => {
-                    choice.to_owned()
+                )
+                | (None, Some(Constant::Choice(choice))) => {
+                    choice.clone()
                 }
                 _ => String::new(),
             };

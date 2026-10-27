@@ -1,20 +1,22 @@
-//! The selected node's inputs: how each is set, and its values.
+//! The selected node's inputs: how each is set, and its values. With
+//! nothing selected, the open graph's own inputs and outputs.
 
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
 use bevy::ui::{AlignItems, percent, px};
 use bevy_fynix::views::{
-    FrameProps, column, dropdown, number_field, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
+    icon_button, number_field, row, text_field,
 };
-use bevy_fynix::{ScopedExt, keyed, resource};
+use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_graph::{
     Constant, Does, Edit, Initial, NodeId, PortSpec, Roll, Scope,
     Setting, Spread, ValueType,
 };
 
 use super::Editor;
-use crate::icons::Glyph;
-use crate::looks::{ICON, description, note, section, well};
+use crate::icons::{Glyph, glyph};
+use crate::looks::{ICON, command, description, note, section, well};
 use crate::switch::switch;
 use crate::{AnyView, View, with_cx};
 
@@ -39,12 +41,78 @@ pub(super) fn view() -> impl View {
         }),
         |(selected, _)| match selected {
             Some(node) => node_view(*node),
-            None => AnyView::new(|cx| {
-                cx.build(note("Select a node to set its inputs."))
-            }),
+            None => graph_view(),
         },
     )
     .within(column(()).gap(0.0))
+}
+
+/// The open graph's own inputs and outputs, each with a way to take
+/// it away, under a word on selecting a node.
+fn graph_view() -> AnyView {
+    with_cx(|cx| {
+        let editor = cx.world.resource::<Editor>();
+        let gap = cx.theme().space.gap;
+        let mut parts: Vec<AnyView> = vec![
+            note("Select a node to set its inputs.").boxed(),
+            section("Graph inputs").boxed(),
+        ];
+        let port = |name: String,
+                    value_type: ValueType,
+                    edit: Edit| {
+            row((
+                column((note(format!("{name} ({value_type:?})")),))
+                    .width(percent(100.0))
+                    .min_width(px(0.0)),
+                button(glyph(Glyph::Cross, ICON))
+                    .rules(icon_button)
+                    .tooltip(|| note("Take it away"))
+                    .on_activate(move |world| {
+                        world
+                            .resource_mut::<Editor>()
+                            .apply(edit.clone());
+                    }),
+            ))
+            .gap(gap)
+            .align(AlignItems::Center)
+            .boxed()
+        };
+        for input in &editor.sheet.graph.inputs {
+            let edit = Edit::RemoveInput(input.name.clone());
+            parts.push(port(
+                input.name.clone(),
+                input.value_type,
+                edit,
+            ));
+        }
+        if editor.sheet.graph.inputs.is_empty() {
+            parts.push(
+                description(
+                    "None. Set a node's input From parent to add \
+                     one.",
+                )
+                .boxed(),
+            );
+        }
+        parts.push(section("Graph outputs").boxed());
+        for output in &editor.sheet.graph.outputs {
+            let edit = Edit::RemoveOutput(output.name.clone());
+            parts.push(port(
+                output.name.clone(),
+                output.value_type,
+                edit,
+            ));
+        }
+        if editor.sheet.graph.outputs.is_empty() {
+            parts.push(
+                description(
+                    "None. Right-click a node and Expose as output.",
+                )
+                .boxed(),
+            );
+        }
+        column(parts).gap(gap)
+    })
 }
 
 fn node_view(node: NodeId) -> AnyView {
@@ -63,14 +131,31 @@ fn node_view(node: NodeId) -> AnyView {
                 ),
                 None => (name.clone(), "An unknown kind", &[][..]),
             },
-            Does::Graph(name) => {
-                (name.clone(), "Another graph", &[][..])
-            }
+            Does::Graph(name) => (
+                name.clone(),
+                "A graph of this book, run as one node. Its inputs \
+                 are set on its card; double-click the card to open \
+                 it.",
+                &[][..],
+            ),
         };
+        let runs_graph = matches!(found.does, Does::Graph(_));
         let mut parts: Vec<AnyView> = vec![
             AnyView::new(move |cx| cx.build(section(title.clone()))),
             AnyView::new(move |cx| cx.build(description(doc))),
         ];
+        if runs_graph {
+            parts.push(
+                command("Open graph", |world| {
+                    if let Some(node) =
+                        world.resource::<Editor>().selected
+                    {
+                        super::menu::open_graph(world, node);
+                    }
+                })
+                .boxed(),
+            );
+        }
         for spec in specs {
             let wired = editor.sheet.graph.wires.iter().any(|wire| {
                 wire.to.node == node && wire.to.name == spec.name
@@ -203,19 +288,22 @@ fn mode(node: NodeId, spec: PortSpec, wired: bool) -> impl View {
                 1 => start(&spec).map(Setting::Fixed),
                 2 => random(&spec),
                 3 => {
+                    // The graph gets an input for it, starting at the
+                    // value it has now.
                     let editor = world.resource::<Editor>();
-                    let accepts = spec.value_type;
-                    editor
-                        .sheet
-                        .graph
-                        .inputs
-                        .iter()
-                        .find(|input| {
-                            accepts.accepts(input.value_type)
-                        })
-                        .map(|input| {
-                            Setting::FromParent(input.name.clone())
-                        })
+                    let default =
+                        match current(editor, node, spec.name) {
+                            Some(Setting::Fixed(constant)) => {
+                                Some(constant)
+                            }
+                            _ => start(&spec),
+                        };
+                    let value_type =
+                        written(&spec).unwrap_or(spec.value_type);
+                    world.resource_mut::<Editor>().expose_input(
+                        node, spec.name, value_type, default,
+                    );
+                    return;
                 }
                 _ => None,
             };

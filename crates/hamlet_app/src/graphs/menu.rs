@@ -1,7 +1,8 @@
 //! The graph's menus and keys. A right click on the canvas, or Space,
-//! opens a list of every kind of node by group, narrowed by what is
-//! typed while it is open; Enter adds the first left. A right click
-//! on a card opens what can be done to it.
+//! opens a list of every kind of node and every other graph of the
+//! book, by group, narrowed by what is typed while it is open; Enter
+//! adds the first left. A right click on a card opens what can be
+//! done to it.
 
 use bevy::app::{App, Update};
 use bevy::ecs::message::MessageReader;
@@ -20,15 +21,25 @@ use bevy_fynix::views::{
     menu_item, overlay, popup, row,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_graph::{NodeId, NodeKind, Registry};
+use hamlet_graph::{Does, NodeId};
 
 use super::{Editor, canvas};
 use crate::looks::{note, section};
 use crate::{AnyView, Cx, View};
 
+/// The group the book's other graphs are listed under.
+const GRAPHS: &str = "Graphs";
+
 /// The groups in the order they are listed, before any others.
-const GROUPS: [&str; 5] =
-    ["Curves", "Placements", "Modifiers", "Fields", "Output"];
+const GROUPS: [&str; 7] = [
+    GRAPHS,
+    "Curves",
+    "Placements",
+    "Modifiers",
+    "Fields",
+    "Math",
+    "Output",
+];
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Menu>()
@@ -50,6 +61,14 @@ pub(super) enum Menu {
 /// What is typed while the list of kinds is open.
 #[derive(Resource, Default, Clone, PartialEq)]
 struct Search(String);
+
+/// One row of the list of what can be added.
+struct Entry {
+    group: &'static str,
+    name: String,
+    doc: String,
+    does: Does,
+}
 
 /// Opens the list of kinds at the pointer, adding where it is on the
 /// canvas, or in the middle of what is in sight when it is elsewhere.
@@ -73,11 +92,9 @@ fn close(world: &mut World) {
     *world.resource_mut::<Menu>() = Menu::Closed;
 }
 
-/// The kinds whose name or group holds `search`, by group.
-fn matches<'a>(
-    registry: &'a Registry,
-    search: &str,
-) -> Vec<(&'static str, &'a NodeKind)> {
+/// What can be added whose name or group holds `search`, by group. A
+/// graph that runs the open one is left out, as it would run itself.
+fn matches(editor: &Editor, search: &str) -> Vec<Entry> {
     let search = search.trim().to_lowercase().replace(' ', "_");
     let rank = |group: &str| {
         GROUPS
@@ -85,22 +102,46 @@ fn matches<'a>(
             .position(|g| *g == group)
             .unwrap_or(GROUPS.len())
     };
-    let mut found = registry
-        .kinds()
-        .filter(|(group, kind)| {
-            kind.name.contains(&search)
-                || group.to_lowercase().contains(&search)
+    let kinds = editor.registry.kinds().map(|(group, kind)| Entry {
+        group,
+        name: kind.name.to_owned(),
+        doc: kind.doc.to_owned(),
+        does: Does::Kind(kind.name.to_owned()),
+    });
+    let graphs = editor
+        .names()
+        .into_iter()
+        .filter(|name| !editor.runs(name, &editor.name))
+        .map(|name| Entry {
+            group: GRAPHS,
+            doc: format!("The graph {name} of this book"),
+            does: Does::Graph(name.clone()),
+            name,
+        });
+    let mut found = graphs
+        .chain(kinds)
+        .filter(|entry| {
+            entry
+                .name
+                .replace(' ', "_")
+                .to_lowercase()
+                .contains(&search)
+                || entry.group.to_lowercase().contains(&search)
         })
         .collect::<Vec<_>>();
-    found.sort_by_key(|(group, kind)| {
-        (rank(group), *group, kind.name)
+    found.sort_by(|a, b| {
+        (rank(a.group), a.group, &a.name).cmp(&(
+            rank(b.group),
+            b.group,
+            &b.name,
+        ))
     });
     found
 }
 
-fn add(world: &mut World, kind: &'static str, on_sheet: Vec2) {
+fn add(world: &mut World, does: Does, on_sheet: Vec2) {
     close(world);
-    world.resource_mut::<Editor>().add(kind, on_sheet);
+    world.resource_mut::<Editor>().add(does, on_sheet);
 }
 
 /// The open menu, over the panel.
@@ -148,24 +189,25 @@ fn list(search: String, on_sheet: Vec2) -> AnyView {
         let editor = cx.world.resource::<Editor>();
         let mut items: Vec<AnyView> = Vec::new();
         let mut last = None;
-        for (group, kind) in matches(&editor.registry, &search) {
-            if last != Some(group) {
-                last = Some(group);
-                items.push(note(group).boxed());
+        for entry in matches(editor, &search) {
+            if last != Some(entry.group) {
+                last = Some(entry.group);
+                items.push(note(entry.group).boxed());
             }
-            let (name, doc) = (kind.name, kind.doc);
+            let Entry {
+                name, doc, does, ..
+            } = entry;
             items.push(
                 menu_item(label(name.replace('_', " ")).wrap(false))
-                    .tooltip(move || note(doc))
+                    .tooltip(move || note(doc.clone()))
                     .on_activate(move |world| {
-                        add(world, name, on_sheet);
+                        add(world, does.clone(), on_sheet);
                     })
                     .boxed(),
             );
         }
         if items.is_empty() {
-            items
-                .push(note("No kind of node is called that").boxed());
+            items.push(note("Nothing is called that").boxed());
         }
         cx.build(column(items).gap(0.0))
     })
@@ -191,27 +233,61 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
     };
     AnyView::new(move |cx: &mut Cx| {
         let width = cx.theme().space.menu_width;
+        let runs_graph = matches!(
+            cx.world
+                .resource::<Editor>()
+                .sheet
+                .graph
+                .node(node)
+                .map(|found| &found.does),
+            Some(Does::Graph(_))
+        );
+        let mut items = Vec::new();
+        if runs_graph {
+            items.push(item(
+                "Open graph",
+                "Double-click",
+                |world, node| {
+                    open_graph(world, node);
+                },
+            ));
+        }
+        items.extend([
+            item("Expose as output", "", |world, node| {
+                world.resource_mut::<Editor>().expose_output(node);
+            }),
+            item("Duplicate", "Cmd+D", |world, node| {
+                world.resource_mut::<Editor>().duplicate(node);
+            }),
+            item("Disconnect", "", |world, node| {
+                world.resource_mut::<Editor>().unwire(node);
+            }),
+            item("Delete", "Delete", |world, node| {
+                world.resource_mut::<Editor>().remove(node);
+            }),
+        ]);
         cx.build(
-            popup(
-                Rect::from_corners(at, at),
-                vec![
-                    item("Duplicate", "Cmd+D", |world, node| {
-                        world
-                            .resource_mut::<Editor>()
-                            .duplicate(node);
-                    }),
-                    item("Disconnect", "", |world, node| {
-                        world.resource_mut::<Editor>().unwire(node);
-                    }),
-                    item("Delete", "Delete", |world, node| {
-                        world.resource_mut::<Editor>().remove(node);
-                    }),
-                ],
-            )
-            .on_dismiss(|world, _| close(world))
-            .min_width(px(width)),
+            popup(Rect::from_corners(at, at), items)
+                .on_dismiss(|world, _| close(world))
+                .min_width(px(width)),
         )
     })
+}
+
+/// Opens the graph `node` runs, if it runs one.
+pub(super) fn open_graph(world: &mut World, node: NodeId) {
+    let mut editor = world.resource_mut::<Editor>();
+    let name = match editor
+        .sheet
+        .graph
+        .node(node)
+        .map(|found| &found.does)
+    {
+        Some(Does::Graph(name)) => name.clone(),
+        _ => return,
+    };
+    editor.enter(&name);
+    canvas::fit(world);
 }
 
 /// Narrows the list of kinds by what is typed while it is open, and
@@ -242,12 +318,13 @@ fn type_search(
                 search.0.pop();
             }
             Key::Enter => {
-                let first = matches(&editor.registry, &search.0)
-                    .first()
-                    .map(|(_, kind)| kind.name);
-                if let Some(kind) = first {
+                let first = matches(&editor, &search.0)
+                    .into_iter()
+                    .next()
+                    .map(|entry| entry.does);
+                if let Some(does) = first {
                     *menu = Menu::Closed;
-                    editor.add(kind, on_sheet);
+                    editor.add(does, on_sheet);
                     return;
                 }
             }

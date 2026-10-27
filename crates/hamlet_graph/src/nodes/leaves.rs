@@ -5,9 +5,9 @@ use bevy_math::Vec3;
 use super::PLACEMENTS_IN;
 use crate::eval::{Problem, Run};
 use crate::node::{Initial, NodeKind, PortSpec};
-use crate::value::{Instance, Value, ValueType};
+use crate::value::{Frame, Instance, Value, ValueType};
 
-pub(super) const KINDS: &[NodeKind] = &[INSTANCE, JOIN];
+pub(super) const KINDS: &[NodeKind] = &[INSTANCE, PLACE, JOIN];
 
 const GEOMETRY_OUT: PortSpec = PortSpec::new(
     "geometry",
@@ -51,24 +51,67 @@ fn instance(run: &mut Run) -> Result<(), Problem> {
     Ok(())
 }
 
+const PLACE: NodeKind = NodeKind {
+    name: "place",
+    doc: "A copy of the assets at each placement, moved, turned and \
+          scaled with it, such as a window graph at every window",
+    inputs: &[
+        PortSpec::new(
+            "geometry",
+            ValueType::Geometry,
+            "The assets, about their own origin",
+        ),
+        PLACEMENTS_IN,
+    ],
+    outputs: &[GEOMETRY_OUT],
+    run: place,
+};
+
+fn place(run: &mut Run) -> Result<(), Problem> {
+    let shape = run.geometry("geometry")?;
+    let mut instances = Vec::new();
+    for placement in run.placements("placements")? {
+        let at = placement.frame;
+        instances.extend(shape.iter().map(|instance| Instance {
+            asset: instance.asset.clone(),
+            frame: Frame {
+                translation: at.point(instance.frame.translation),
+                rotation: at.rotation * instance.frame.rotation,
+                scale: at.scale * instance.frame.scale,
+            },
+            size: instance.size,
+        }));
+    }
+    run.put("geometry", Value::Geometry(instances));
+    Ok(())
+}
+
+/// The inputs of [`JOIN`], in the order their assets are listed.
+const PARTS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
+
 const JOIN: NodeKind = NodeKind {
     name: "join",
-    doc: "Two sets of assets as one",
+    doc: "Up to six sets of assets as one. Unwired inputs add \
+          nothing",
     inputs: &[
-        PortSpec::new("first", ValueType::Geometry, "The first set"),
-        PortSpec::new(
-            "second",
-            ValueType::Geometry,
-            "The second set",
-        ),
+        PortSpec::new("a", ValueType::Geometry, "A set"),
+        PortSpec::new("b", ValueType::Geometry, "A set"),
+        PortSpec::new("c", ValueType::Geometry, "A set"),
+        PortSpec::new("d", ValueType::Geometry, "A set"),
+        PortSpec::new("e", ValueType::Geometry, "A set"),
+        PortSpec::new("f", ValueType::Geometry, "A set"),
     ],
     outputs: &[GEOMETRY_OUT],
     run: join,
 };
 
 fn join(run: &mut Run) -> Result<(), Problem> {
-    let mut instances = run.geometry("first")?.to_vec();
-    instances.extend_from_slice(run.geometry("second")?);
+    let mut instances = Vec::new();
+    for part in PARTS {
+        if run.is_set(part) {
+            instances.extend_from_slice(run.geometry(part)?);
+        }
+    }
     run.put("geometry", Value::Geometry(instances));
     Ok(())
 }

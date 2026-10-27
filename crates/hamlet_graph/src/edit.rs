@@ -3,7 +3,9 @@
 use bevy_math::Vec2;
 use serde::{Deserialize, Serialize};
 
-use crate::graph::{Node, NodeId, Setting, Sheet, Wire};
+use crate::graph::{
+    GraphInput, GraphOutput, Node, NodeId, Setting, Sheet, Wire,
+};
 
 /// A change to a [`Sheet`].
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -28,6 +30,12 @@ pub enum Edit {
         node: NodeId,
         to: Option<Vec2>,
     },
+    /// Gives the graph an input, set by the graph above.
+    AddInput(GraphInput),
+    RemoveInput(String),
+    /// Gives the graph an output, from a node's port.
+    AddOutput(GraphOutput),
+    RemoveOutput(String),
     /// Edits applied in order, all or none.
     Batch(Vec<Edit>),
 }
@@ -43,6 +51,10 @@ pub enum EditRefusal {
     NoWire,
     #[error("the input already has a wire")]
     Wired,
+    #[error("the graph already has a port named {0}")]
+    NameTaken(String),
+    #[error("the graph has no port named {0}")]
+    NoName(String),
 }
 
 impl Sheet {
@@ -132,6 +144,46 @@ impl Sheet {
                     None => self.layout.remove(&node),
                 };
                 Ok(Edit::Move { node, to: old })
+            }
+            Edit::AddInput(input) => {
+                if graph
+                    .inputs
+                    .iter()
+                    .any(|other| other.name == input.name)
+                {
+                    return Err(EditRefusal::NameTaken(input.name));
+                }
+                let name = input.name.clone();
+                graph.inputs.push(input);
+                Ok(Edit::RemoveInput(name))
+            }
+            Edit::RemoveInput(name) => {
+                let index = graph
+                    .inputs
+                    .iter()
+                    .position(|input| input.name == name)
+                    .ok_or(EditRefusal::NoName(name))?;
+                Ok(Edit::AddInput(graph.inputs.remove(index)))
+            }
+            Edit::AddOutput(output) => {
+                if graph
+                    .outputs
+                    .iter()
+                    .any(|other| other.name == output.name)
+                {
+                    return Err(EditRefusal::NameTaken(output.name));
+                }
+                let name = output.name.clone();
+                graph.outputs.push(output);
+                Ok(Edit::RemoveOutput(name))
+            }
+            Edit::RemoveOutput(name) => {
+                let index = graph
+                    .outputs
+                    .iter()
+                    .position(|output| output.name == name)
+                    .ok_or(EditRefusal::NoName(name))?;
+                Ok(Edit::AddOutput(graph.outputs.remove(index)))
             }
             Edit::Batch(edits) => {
                 let mut undo = Vec::with_capacity(edits.len());

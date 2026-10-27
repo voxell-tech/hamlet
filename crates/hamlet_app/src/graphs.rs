@@ -27,9 +27,9 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
 use hamlet_graph::{
-    Does, Edit, Frame, GraphOutput, Instance, Node, NodeId, Port,
-    Registry, Ruleset, Seed, Seeds, Sheet, Value, ValueType,
-    evaluate,
+    Book, Constant, Does, Edit, Frame, GraphInput, GraphOutput,
+    Instance, Node, NodeId, Port, Registry, Ruleset, Seed, Seeds,
+    Setting, Sheet, Value, ValueType, evaluate,
 };
 
 use self::split::{Floating, Handle, Layout, divider, inset_at};
@@ -42,14 +42,10 @@ use crate::looks::{
 };
 use crate::{View, with_cx};
 
-/// The name of the one graph the editor holds, in the ruleset it
-/// runs.
-const GRAPH: &str = "main";
-
 /// The sheet the editor opens with.
 const START: &str = include_str!("graphs/start.ron");
 
-/// Sheets to start from, by name.
+/// Books to start from, by name: a sheet alone, or a book of sheets.
 const EXAMPLES: [(&str, &str); 2] = [
     ("Fence of pillars", START),
     (
@@ -57,6 +53,15 @@ const EXAMPLES: [(&str, &str); 2] = [
         include_str!("graphs/examples/medieval_house.ron"),
     ),
 ];
+
+/// The book an example's text holds.
+fn example(text: &str) -> Option<Book> {
+    Book::from_ron(text).ok().or_else(|| {
+        Sheet::from_ron(text)
+            .ok()
+            .map(|sheet| Book::of("main", sheet))
+    })
+}
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
@@ -73,27 +78,47 @@ pub(crate) fn plugin(app: &mut App) {
     ));
 }
 
-/// The sheet being edited, its history, and what it last gave.
+/// A sheet that is not open, with its history.
+struct Kept {
+    sheet: Sheet,
+    undo: Vec<Edit>,
+    redo: Vec<Edit>,
+}
+
+/// The book being edited: the open sheet with its history, the others
+/// it may use as nodes, and what the open one last gave.
 #[derive(Resource)]
 pub(crate) struct Editor {
+    /// The open sheet.
     pub sheet: Sheet,
+    /// Its name in the book.
+    pub name: String,
+    others: BTreeMap<String, Kept>,
+    /// The graphs entered to reach the open one, outermost first.
+    trail: Vec<String>,
+    /// Every graph of the book, for the ports of nodes that run one.
+    pub rules: Ruleset,
     pub selected: Option<NodeId>,
     pub registry: Registry,
     pub seeds: Seeds,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
     /// Changes whenever the nodes, the wires or the way an input is
-    /// set change, so what is built from them is built again.
+    /// set change, or another sheet is opened, so what is built from
+    /// them is built again.
     pub shape: u64,
-    /// What the graph put down, or why it could not.
+    /// What the open graph put down, or why it could not.
     pub outcome: Result<Vec<Instance>, String>,
 }
 
 impl Editor {
     fn new() -> Self {
-        let sheet = Sheet::from_ron(START).unwrap_or_default();
         let mut editor = Self {
-            sheet,
+            sheet: Sheet::default(),
+            name: String::new(),
+            others: BTreeMap::new(),
+            trail: Vec::new(),
+            rules: Ruleset::default(),
             selected: None,
             registry: Registry::builtin(),
             seeds: Seeds {
@@ -106,8 +131,117 @@ impl Editor {
             shape: 0,
             outcome: Ok(Vec::new()),
         };
-        editor.run();
+        editor.load(example(START).unwrap_or_default());
         editor
+    }
+
+    /// The names of every sheet in the book, the open one included.
+    pub fn names(&self) -> Vec<String> {
+        let mut names =
+            self.others.keys().cloned().collect::<Vec<_>>();
+        names.push(self.name.clone());
+        names.sort();
+        names
+    }
+
+    /// Whether the graph `name` runs `target`, itself or through
+    /// others.
+    pub fn runs(&self, name: &str, target: &str) -> bool {
+        if name == target {
+            return true;
+        }
+        let Some(graph) = self.rules.graphs.get(name) else {
+            return false;
+        };
+        graph.nodes.iter().any(|node| match &node.does {
+            Does::Graph(child) => self.runs(child, target),
+            Does::Kind(_) => false,
+        })
+    }
+
+    /// Opens the graph a node runs, to come back from with
+    /// [`back`](Self::back).
+    pub fn enter(&mut self, name: &str) {
+        let from = self.name.clone();
+        self.open(name);
+        if self.name != from {
+            self.trail.push(from);
+        }
+    }
+
+    /// Opens the graph the open one was entered from.
+    pub fn back(&mut self) {
+        if let Some(name) = self.trail.pop() {
+            self.open(&name);
+        }
+    }
+
+    /// Opens the sheet `name`, chosen directly.
+    pub fn go_to(&mut self, name: &str) {
+        self.trail.clear();
+        self.open(name);
+    }
+
+    /// Opens the sheet `name`, keeping the open one with its history.
+    fn open(&mut self, name: &str) {
+        let Some(kept) = self.others.remove(name) else {
+            return;
+        };
+        let was = Kept {
+            sheet: std::mem::replace(&mut self.sheet, kept.sheet),
+            undo: std::mem::replace(&mut self.undo, kept.undo),
+            redo: std::mem::replace(&mut self.redo, kept.redo),
+        };
+        self.others.insert(
+            std::mem::replace(&mut self.name, name.to_owned()),
+            was,
+        );
+        self.selected = None;
+        self.changed(true);
+    }
+
+    /// Adds an empty sheet to the book and opens it.
+    pub fn new_graph(&mut self) {
+        let names = self.names();
+        let name = (1..)
+            .map(|n| format!("graph {n}"))
+            .find(|name| !names.contains(name))
+            .unwrap_or_default();
+        self.others.insert(
+            name.clone(),
+            Kept {
+                sheet: Sheet::default(),
+                undo: Vec::new(),
+                redo: Vec::new(),
+            },
+        );
+        self.open(&name);
+    }
+
+    /// Puts `book` in place of the one being edited, with no history,
+    /// open at its entry.
+    fn load(&mut self, mut book: Book) {
+        let entry =
+            book.sheets.remove(&book.entry).unwrap_or_default();
+        self.others = book
+            .sheets
+            .into_iter()
+            .map(|(name, sheet)| {
+                let kept = Kept {
+                    sheet,
+                    undo: Vec::new(),
+                    redo: Vec::new(),
+                };
+                (name, kept)
+            })
+            .collect();
+        self.sheet = entry;
+        self.name = book.entry;
+        self.trail.clear();
+        self.selected = None;
+        self.undo.clear();
+        self.redo.clear();
+        self.changed(true);
     }
 
     /// Applies `edit` and keeps the edit that undoes it. Edits of one
@@ -174,17 +308,32 @@ impl Editor {
         {
             self.selected = None;
         }
+        self.rules = Ruleset {
+            entry: self.name.clone(),
+            graphs: self
+                .others
+                .iter()
+                .map(|(name, kept)| {
+                    (name.clone(), kept.sheet.graph.clone())
+                })
+                .chain([(
+                    self.name.clone(),
+                    self.sheet.graph.clone(),
+                )])
+                .collect(),
+        };
         self.run();
     }
 
-    /// Runs the graph with every output nothing is wired to shown
-    /// too, so a graph is seen as it is built.
+    /// Runs the open graph with every output nothing is wired to
+    /// shown too, so a graph is seen as it is built. Its inputs take
+    /// their defaults.
     fn run(&mut self) {
         let mut graph = self.sheet.graph.clone();
         for node in &self.sheet.graph.nodes {
             let Ok((_, outputs)) = hamlet_graph::ports(
                 &self.registry,
-                &Ruleset::default(),
+                &self.rules,
                 node,
             ) else {
                 continue;
@@ -214,10 +363,8 @@ impl Editor {
                 }
             }
         }
-        let ruleset = Ruleset {
-            entry: GRAPH.to_owned(),
-            graphs: BTreeMap::from([(GRAPH.to_owned(), graph)]),
-        };
+        let mut ruleset = self.rules.clone();
+        ruleset.graphs.insert(self.name.clone(), graph);
         self.outcome = evaluate(
             &self.registry,
             &ruleset,
@@ -230,34 +377,120 @@ impl Editor {
         .map_err(|problem| problem.to_string());
     }
 
-    /// Puts `sheet` in place of the one being edited, with no
-    /// history.
-    fn load(&mut self, sheet: Sheet) {
-        self.sheet = sheet;
-        self.selected = None;
-        self.undo.clear();
-        self.redo.clear();
-        self.changed(true);
-    }
-
     /// Rolls every random value of the house again.
     fn reroll(&mut self) {
         self.seeds.house = self.seeds.house.mix(1);
         self.run();
     }
 
-    /// Adds a node of `kind` with its card at `at`.
-    pub fn add(&mut self, kind: &str, at: Vec2) {
+    /// Adds a node that does `does`, with its card at `at`.
+    pub fn add(&mut self, does: Does, at: Vec2) {
         let id = self.sheet.graph.next_id();
         self.apply(Edit::AddNode {
             node: Node {
                 id,
-                does: Does::Kind(kind.to_owned()),
+                does,
                 settings: BTreeMap::new(),
             },
             at: Some(at),
         });
         self.selected = Some(id);
+    }
+
+    /// Makes the first of `node`'s outputs that puts something down
+    /// an output of the open graph, named after the port.
+    pub fn expose_output(&mut self, node: NodeId) {
+        let Some(found) = self.sheet.graph.node(node) else {
+            return;
+        };
+        let Ok((_, outputs)) =
+            hamlet_graph::ports(&self.registry, &self.rules, found)
+        else {
+            return;
+        };
+        let Some(port) = outputs.into_iter().find(|port| {
+            matches!(
+                port.value_type,
+                ValueType::Geometry | ValueType::Placements
+            )
+        }) else {
+            return;
+        };
+        let name = self.free_name(&port.name, |graph| {
+            graph
+                .outputs
+                .iter()
+                .map(|output| output.name.clone())
+                .collect()
+        });
+        self.apply(Edit::AddOutput(GraphOutput {
+            name,
+            value_type: port.value_type,
+            from: Port {
+                node,
+                name: port.name,
+            },
+        }));
+    }
+
+    /// Sets `input` of `node` from an input of the open graph that
+    /// takes `value_type`, giving the graph one named after the port,
+    /// with `default`, when it has none.
+    pub fn expose_input(
+        &mut self,
+        node: NodeId,
+        input: &str,
+        value_type: ValueType,
+        default: Option<Constant>,
+    ) {
+        let found = self
+            .sheet
+            .graph
+            .inputs
+            .iter()
+            .find(|graph_input| {
+                graph_input.name == input
+                    && value_type.accepts(graph_input.value_type)
+            })
+            .map(|graph_input| graph_input.name.clone());
+        let mut edits = Vec::new();
+        let name = match found {
+            Some(name) => name,
+            None => {
+                let name = self.free_name(input, |graph| {
+                    graph
+                        .inputs
+                        .iter()
+                        .map(|input| input.name.clone())
+                        .collect()
+                });
+                edits.push(Edit::AddInput(GraphInput {
+                    name: name.clone(),
+                    value_type,
+                    default,
+                }));
+                name
+            }
+        };
+        edits.push(Edit::Set {
+            node,
+            input: input.to_owned(),
+            setting: Some(Setting::FromParent(name)),
+        });
+        self.apply(Edit::Batch(edits));
+    }
+
+    /// `wanted`, or it with a number after it, unused among `taken`.
+    fn free_name(
+        &self,
+        wanted: &str,
+        taken: impl Fn(&hamlet_graph::Graph) -> Vec<String>,
+    ) -> String {
+        let taken = taken(&self.sheet.graph);
+        std::iter::once(wanted.to_owned())
+            .chain((2..).map(|n| format!("{wanted} {n}")))
+            .find(|name| !taken.contains(name))
+            .unwrap_or_default()
     }
 
     /// Adds a copy of `node`, unwired, a little below and to the
@@ -547,16 +780,24 @@ fn tools() -> impl View {
                     world.resource_mut::<Editor>().reroll();
                 },
             ),
+            tool(
+                Glyph::Back,
+                "Back to the graph this one was opened from",
+                |world| {
+                    world.resource_mut::<Editor>().back();
+                    canvas::fit(world);
+                },
+            ),
+            switcher(),
             dropdown(
                 EXAMPLES.map(|(name, _)| name),
                 usize::MAX,
                 Glyph::Chevron.image(ICON),
                 |world: &mut World, at| {
-                    let Ok(sheet) = Sheet::from_ron(EXAMPLES[at].1)
-                    else {
+                    let Some(book) = example(EXAMPLES[at].1) else {
                         return;
                     };
-                    world.resource_mut::<Editor>().load(sheet);
+                    world.resource_mut::<Editor>().load(book);
                     canvas::fit(world);
                 },
             )
@@ -578,6 +819,42 @@ fn tools() -> impl View {
     })
 }
 
+/// The graph open, chosen from every graph of the book, and a way to
+/// start a new one.
+fn switcher() -> impl View {
+    keyed(
+        resource::<Editor, _>(|editor| {
+            (editor.names(), editor.name.clone())
+        }),
+        |(names, open)| {
+            let at = names
+                .iter()
+                .position(|name| name == open)
+                .unwrap_or(0);
+            let mut options = names.clone();
+            options.push("New graph".to_owned());
+            let names = names.clone();
+            dropdown(
+                options,
+                at,
+                Glyph::Chevron.image(ICON),
+                move |world: &mut World, chosen| {
+                    let mut editor = world.resource_mut::<Editor>();
+                    match names.get(chosen) {
+                        Some(name) => editor.go_to(name),
+                        None => editor.new_graph(),
+                    }
+                    canvas::fit(world);
+                },
+            )
+            .width(px(150.0))
+            .rules(well)
+            .boxed()
+        },
+    )
+    .within(row(()).gap(0.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,9 +863,25 @@ mod tests {
     fn every_example_opens_and_puts_something_down() {
         let mut editor = Editor::new();
         for (name, text) in EXAMPLES {
-            let sheet = Sheet::from_ron(text)
-                .unwrap_or_else(|e| panic!("{name}: {e}"));
-            editor.load(sheet);
+            let book = example(text)
+                .unwrap_or_else(|| panic!("{name} does not parse"));
+            editor.load(book);
+            // Each graph also runs alone, its inputs at their
+            // defaults.
+            for graph in editor.names() {
+                editor.go_to(&graph);
+                match &editor.outcome {
+                    Ok(instances) => {
+                        assert!(
+                            !instances.is_empty(),
+                            "{name}: {graph}"
+                        );
+                    }
+                    Err(problem) => {
+                        panic!("{name}: {graph}: {problem}")
+                    }
+                }
+            }
             match &editor.outcome {
                 Ok(instances) => {
                     assert!(!instances.is_empty(), "{name}");

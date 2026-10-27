@@ -643,6 +643,11 @@ impl Run<'_> {
         }
     }
 
+    /// Whether `port` has a wire, a setting or an initial value.
+    pub fn is_set(&self, port: &str) -> bool {
+        self.inputs.contains_key(port)
+    }
+
     /// A problem with the value of `port`.
     pub fn invalid(
         &self,
