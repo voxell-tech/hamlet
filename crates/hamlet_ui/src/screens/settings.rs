@@ -585,7 +585,9 @@ fn senses() -> impl View {
             "Visual quality",
             told(
                 quality(),
-                description("Particles, bloom and shadows."),
+                description(
+                    "Particles, bloom, shafts of light and shadows.",
+                ),
             ),
         ),
         field(

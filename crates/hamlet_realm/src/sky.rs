@@ -45,6 +45,9 @@ pub fn plugin(app: &mut App) {
                     (occlude, sky_dome)
                         .run_if(resource_changed::<SkySettings>),
                     spend.run_if(resource_changed::<Quality>),
+                    raise_haze
+                        .run_if(resource_changed::<Quality>)
+                        .run_if(in_state(LowSun)),
                     lay_haze.run_if(in_state(LowSun)),
                 )
                     .in_set(Step::Scene),
@@ -307,9 +310,11 @@ impl CameraSettings {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Quality {
-    /// No particles, no bloom, plain edges and small shadows.
+    /// No particles, no bloom, no shafts of light, plain edges and
+    /// small shadows.
     Low,
-    /// Fewer particles and middling shadows.
+    /// Fewer particles, middling shadows and shafts of light taken
+    /// in few steps.
     Medium,
     #[default]
     High,
@@ -340,6 +345,16 @@ impl Quality {
         match self {
             Self::Low => 0.25,
             Self::Medium => 0.5,
+            Self::High => 1.0,
+        }
+    }
+
+    /// The share of the full steps through the haze it takes. None
+    /// draws no shafts of light.
+    pub fn shafts(self) -> f32 {
+        match self {
+            Self::Low => 0.0,
+            Self::Medium => 0.25,
             Self::High => 1.0,
         }
     }
@@ -689,19 +704,30 @@ pub(crate) fn sky_dome(
         .try_insert(AtmosphereSettings::default());
 }
 
-/// Lets the low sun throw shafts through the haze.
+/// Lets the low sun throw shafts through the haze, as many steps
+/// through it as the quality allows. It runs again when the quality
+/// changes under a low sun.
 pub(crate) fn raise_haze(
     mut commands: Commands,
     set: Res<SkySettings>,
+    quality: Res<Quality>,
     camera: Single<Entity, With<WorldCamera>>,
     sun: Single<Entity, With<Sun>>,
+    old: Query<Entity, With<Haze>>,
 ) {
-    if !set.shafts {
+    for haze in &old {
+        commands.entity(haze).despawn();
+    }
+    let steps =
+        (set.shaft_steps as f32 * quality.shafts()).round() as u32;
+    if !set.shafts || steps == 0 {
+        commands.entity(*camera).try_remove::<VolumetricFog>();
+        commands.entity(*sun).try_remove::<VolumetricLight>();
         return;
     }
     commands.entity(*camera).try_insert(VolumetricFog {
         ambient_intensity: 0.0,
-        step_count: set.shaft_steps,
+        step_count: steps,
         ..default()
     });
     commands.entity(*sun).try_insert(VolumetricLight);
