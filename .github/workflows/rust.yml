@@ -168,25 +168,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --locked -p hamlet_app --all-targets -- -D warnings
 
-  # hamlet_os on NTFS: links, junctions and Job Objects.
-  test-windows-os:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          # vendor/fynix is a submodule.
-          submodules: recursive
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: test
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo test --locked -p hamlet_os
-
-  # The server in insecure mode, with Git Bash. The binaries it builds
-  # are the ones the Windows VM installs.
-  test-windows-server:
+  # hamlet_os on NTFS (links, junctions and Job Objects), and the
+  # server in insecure mode with Git Bash. The binaries it builds are
+  # the ones the Windows VM installs.
+  test-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -203,7 +188,7 @@ jobs:
         with:
           node-version-file: harnesses/pi/.nvmrc
       - run: npm ci --prefix harnesses/pi
-      - run: cargo test --locked -p hamlet_server
+      - run: cargo test --locked -p hamlet_os -p hamlet_server
       - run: cargo build --locked -p hamlet_cli -p hamlet_server -p hamlet_app
       # The CLI starts a server in insecure mode in the foreground and
       # in the background, reports it and stops it. The window is a
