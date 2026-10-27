@@ -50,6 +50,8 @@ pub struct Updated;
 pub(super) struct Lamplight {
     pub alarm: f32,
     pub flash: f32,
+    /// How many things wait in the panel, for its tab's badge.
+    pub count: usize,
 }
 
 /// The node over the top of a panel that its light is drawn on, under
@@ -130,6 +132,10 @@ pub(super) fn light(
         }
         if state.flash != flash {
             state.flash = flash;
+        }
+        let waits = if lit.alarm { count } else { 0 };
+        if state.count != waits {
+            state.count = waits;
         }
         if raised <= 0.0 && flash <= 0.0 {
             if gradient.is_some() {

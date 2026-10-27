@@ -1,20 +1,23 @@
 //! The light of a panel on its tab while another is in front: its
-//! lamp and its flash rise from the tab's foot, and a badge burns on
-//! the tab while the lamp is lit.
+//! lamp and its flash rise from the tab's foot, and a badge with the
+//! count of what waits burns on the tab.
 
 use bevy::camera::visibility::Visibility;
 use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::query::{Has, With};
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::time::Time;
+use bevy::ui::widget::Text;
 use bevy::ui::{
     BackgroundColor, BackgroundGradient, Gradient, RadialGradient,
     RadialGradientShape, UiPosition, percent,
 };
-use bevy_fynix::dock::{ActiveTab, DockPane, DockTab, TabBadge};
+use bevy_fynix::dock::{
+    ActiveTab, DockPane, DockTab, TabBadge, TabBadgeCount,
+};
 
 use super::backdrop::Lamplight;
 use super::{FeelSettings, MagicColors, pool, waver};
@@ -24,12 +27,31 @@ use crate::theme::Themed;
 const LAMP: f32 = 0.2;
 const FLASH: f32 = 0.4;
 
-/// How far a panel's lamp is turned up, kept under 1 on its tab so
-/// that a ring does not blind it, and how much of its flash is left.
-type Light = (f32, f32);
+/// The most a badge counts to before it says there are more.
+const COUNTED: usize = 99;
+
+/// The light of a panel as its tab shows it: how far its lamp is
+/// turned up, kept under 1 so that a ring does not blind it, how much
+/// of its flash is left, and how many things wait in it.
+#[derive(Clone, Copy, Default)]
+struct Light {
+    alarm: f32,
+    flash: f32,
+    count: usize,
+}
+
+/// What a badge says of `count`: the number, or the most it counts to
+/// and a plus.
+fn counted(count: usize) -> String {
+    if count > COUNTED {
+        format!("{COUNTED}+")
+    } else {
+        count.to_string()
+    }
+}
 
 /// Lights each tab behind another as its panel is lit, and burns its
-/// badge while the panel's lamp is.
+/// badge, with the count in it, while something waits.
 pub(super) fn light(
     mut commands: Commands,
     time: Res<Time>,
@@ -38,6 +60,7 @@ pub(super) fn light(
     lamps: Query<(Entity, &Lamplight)>,
     panes: Query<&DockPane>,
     parents: Query<&ChildOf>,
+    children: Query<&Children>,
     tabs: Query<(
         Entity,
         &DockTab,
@@ -48,6 +71,7 @@ pub(super) fn light(
         (Entity, &mut Visibility, &mut BackgroundColor),
         With<TabBadge>,
     >,
+    mut counts: Query<&mut Text, With<TabBadgeCount>>,
 ) {
     // The light of each pane, from the lamp in it.
     let lit: Vec<(DockPane, Light)> = lamps
@@ -57,20 +81,25 @@ pub(super) fn light(
             let pane = parents
                 .iter_ancestors(node)
                 .find_map(|above| panes.get(above).ok())?;
-            Some((*pane, (lamp.alarm.min(1.0), lamp.flash)))
+            let light = Light {
+                alarm: lamp.alarm.min(1.0),
+                flash: lamp.flash,
+                count: lamp.count,
+            };
+            Some((*pane, light))
         })
         .collect();
     // What shows on a tab: none on the one in front, whose panel
     // shows its own.
     let light_of = |tab: &DockTab, front: bool| -> Light {
         if front {
-            return (0.0, 0.0);
+            return Light::default();
         }
         lit.iter()
             .find(|(pane, _)| {
                 pane.leaf == tab.leaf && pane.tab == tab.tab
             })
-            .map_or((0.0, 0.0), |(_, light)| *light)
+            .map_or(Light::default(), |(_, light)| *light)
     };
     let colors = MagicColors::of(&theme);
     // In step with the flame over the panel.
@@ -78,7 +107,7 @@ pub(super) fn light(
     let hue = colors.alarm.mix(&colors.flame, 0.35);
 
     for (node, tab, front, has) in &tabs {
-        let (alarm, flash) = light_of(tab, front);
+        let Light { alarm, flash, .. } = light_of(tab, front);
         if alarm <= 0.0 && flash <= 0.0 {
             if has {
                 commands
@@ -102,18 +131,32 @@ pub(super) fn light(
     }
 
     for (badge, mut visibility, mut fill) in &mut badges {
-        let alarm = parents
+        let count = parents
             .iter_ancestors(badge)
             .find_map(|above| tabs.get(above).ok())
-            .map_or(0.0, |(_, tab, front, _)| light_of(tab, front).0);
-        let (shown, color) = if alarm > 0.0 {
-            let glow = (alarm * flame).clamp(0.0, 1.0);
-            (Visibility::Inherited, hue.with_alpha(glow))
+            .map_or(0, |(_, tab, front, _)| {
+                light_of(tab, front).count
+            });
+        // Solid, so that the number reads.
+        let (shown, color) = if count > 0 {
+            (Visibility::Inherited, hue)
         } else {
             (Visibility::Hidden, Color::NONE)
         };
         visibility.set_if_neq(shown);
         fill.set_if_neq(BackgroundColor(color));
+        let said = if count > 0 {
+            counted(count)
+        } else {
+            String::new()
+        };
+        for inside in children.iter_descendants(badge) {
+            if let Ok(mut text) = counts.get_mut(inside)
+                && text.0 != said
+            {
+                text.0.clone_from(&said);
+            }
+        }
     }
 }
 
