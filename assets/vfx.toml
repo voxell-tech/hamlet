@@ -65,10 +65,10 @@ stripes = 4
 taper = 0.35
 
 [ground]
-repeat = 8.0
+repeat = 20.0
 strength = 1.1
 cavity = 0.2
-patches = 28.0
+patches = 70.0
 calm = 0.35
 turn = 1.0
 dark = [0.86, 0.9, 0.84]
