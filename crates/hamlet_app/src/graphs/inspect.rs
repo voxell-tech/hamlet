@@ -106,6 +106,7 @@ fn graph_view() -> AnyView {
         }
         column(parts).gap(gap)
     })
+    .boxed()
 }
 
 fn node_view(node: NodeId) -> AnyView {
@@ -157,6 +158,7 @@ fn node_view(node: NodeId) -> AnyView {
         }
         column(parts).gap(gap)
     })
+    .boxed()
 }
 
 /// One input: its name, how it is set, and the controls for its
@@ -185,6 +187,7 @@ fn input(node: NodeId, spec: PortSpec, wired: bool) -> AnyView {
         parts.extend(body);
         column(parts).gap(gap / 2.0)
     })
+    .boxed()
 }
 
 /// How an input of `node` is set now.

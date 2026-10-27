@@ -125,6 +125,7 @@ pub(super) fn input(name: String) -> AnyView {
             .border_color(cx.theme().palette.seam)
             .radius(cx.theme().space.round)
     })
+    .boxed()
 }
 
 /// `control` after a word on what it sets.
@@ -140,6 +141,7 @@ fn labelled(word: &'static str, control: AnyView) -> AnyView {
         .gap(gap)
         .align(AlignItems::Center)
     })
+    .boxed()
 }
 
 /// The input's name, its type, and a way to take it away.
@@ -195,6 +197,7 @@ fn head(name: String, value_type: ValueType) -> AnyView {
         .gap(gap / 2.0)
         .align(AlignItems::Center)
     })
+    .boxed()
 }
 
 /// A number field bound to what `read` finds in the input `name`,
