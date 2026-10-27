@@ -192,6 +192,38 @@ fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
 }
 
 #[test]
+fn math_on_a_random_field_is_worked_out_at_each_placement() {
+    let ruleset = Ruleset::from_ron(
+        r#"(
+            entry: "thin",
+            graphs: {"thin": (
+                outputs: [(name: "placements", value_type: Placements, from: (node: 5, name: "placements"))],
+                nodes: [
+                    (id: 1, does: Kind("line"), settings: {"to": Fixed(Point((99.0, 0.0, 0.0)))}),
+                    (id: 2, does: Kind("along_curve")),
+                    (id: 3, does: Kind("random")),
+                    (id: 4, does: Kind("math"), settings: {"op": Fixed(Choice("less")), "b": Fixed(Number(0.5))}),
+                    (id: 5, does: Kind("cull")),
+                ],
+                wires: [
+                    (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
+                    (from: (node: 3, name: "field"), to: (node: 4, name: "a")),
+                    (from: (node: 2, name: "placements"), to: (node: 5, name: "placements")),
+                    (from: (node: 4, name: "value"), to: (node: 5, name: "keep")),
+                ],
+            )},
+        )"#,
+    )
+    .expect("the fixture parses");
+    let outputs = run(&ruleset, 1, &BTreeMap::new());
+    let Value::Placements(kept) = &outputs["placements"] else {
+        panic!("not placements");
+    };
+    // Rolled once for all, all 100 would stay or go together.
+    assert!((25..75).contains(&kept.len()), "{} kept", kept.len());
+}
+
+#[test]
 fn sheet_round_trips_and_edits_undo() {
     let mut sheet = Sheet {
         graph: fence().graphs["fence"].clone(),

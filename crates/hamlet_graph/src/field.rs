@@ -21,8 +21,8 @@ pub enum Field {
         from: [f32; 2],
         to: [f32; 2],
     },
-    Add(Box<Field>, Box<Field>),
-    Multiply(Box<Field>, Box<Field>),
+    Math(Op, Box<Field>, Box<Field>),
+    Random(Random),
 }
 
 impl Field {
@@ -42,13 +42,121 @@ impl Field {
                 };
                 to[0] + (to[1] - to[0]) * t
             }
-            Field::Add(a, b) => {
-                a.sample(placement) + b.sample(placement)
+            Field::Math(op, a, b) => {
+                op.apply(a.sample(placement), b.sample(placement))
             }
-            Field::Multiply(a, b) => {
-                a.sample(placement) * b.sample(placement)
-            }
+            Field::Random(random) => random.sample(placement),
         }
+    }
+}
+
+/// What a math field works out from its two numbers, `a` and `b`.
+/// Trigonometry and powers come from libm and square roots are exact,
+/// so a result is the same on every platform.
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize,
+)]
+pub enum Op {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Min,
+    Max,
+    /// `a` to the power `b`.
+    Power,
+    /// The rest of `a` divided by `b`, as far from zero as `b`.
+    Modulo,
+    Abs,
+    Floor,
+    Ceil,
+    Round,
+    Sqrt,
+    /// Sine of `a` degrees.
+    Sin,
+    Cos,
+    Tan,
+    Hypot,
+    /// The angle in degrees whose rise is `a` over a run of `b`.
+    Angle,
+    /// 1 where `a` is below `b`, else 0.
+    Less,
+    /// 1 where `a` is above `b`, else 0.
+    Greater,
+}
+
+impl Op {
+    /// The names math nodes offer, in order, with the op each is.
+    pub const ALL: [(&'static str, Op); 20] = [
+        ("add", Op::Add),
+        ("subtract", Op::Subtract),
+        ("multiply", Op::Multiply),
+        ("divide", Op::Divide),
+        ("min", Op::Min),
+        ("max", Op::Max),
+        ("power", Op::Power),
+        ("modulo", Op::Modulo),
+        ("abs", Op::Abs),
+        ("floor", Op::Floor),
+        ("ceil", Op::Ceil),
+        ("round", Op::Round),
+        ("sqrt", Op::Sqrt),
+        ("sin", Op::Sin),
+        ("cos", Op::Cos),
+        ("tan", Op::Tan),
+        ("hypot", Op::Hypot),
+        ("angle", Op::Angle),
+        ("less", Op::Less),
+        ("greater", Op::Greater),
+    ];
+
+    pub fn apply(self, a: f32, b: f32) -> f32 {
+        let flag = |on: bool| if on { 1.0 } else { 0.0 };
+        match self {
+            Op::Add => a + b,
+            Op::Subtract => a - b,
+            Op::Multiply => a * b,
+            Op::Divide | Op::Modulo if b == 0.0 => 0.0,
+            Op::Divide => a / b,
+            Op::Min => a.min(b),
+            Op::Max => a.max(b),
+            Op::Power => libm::powf(a, b),
+            Op::Modulo => a.rem_euclid(b),
+            Op::Abs => a.abs(),
+            Op::Floor => a.floor(),
+            Op::Ceil => a.ceil(),
+            Op::Round => a.round(),
+            Op::Sqrt => a.max(0.0).sqrt(),
+            Op::Sin => libm::sinf(a.to_radians()),
+            Op::Cos => libm::cosf(a.to_radians()),
+            Op::Tan => libm::tanf(a.to_radians()),
+            Op::Hypot => (a * a + b * b).sqrt(),
+            Op::Angle => libm::atan2f(a, b).to_degrees(),
+            Op::Less => flag(a < b),
+            Op::Greater => flag(a > b),
+        }
+    }
+}
+
+/// A number picked at random between two, again for each placement or
+/// once for all of them.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Random {
+    pub low: f32,
+    pub high: f32,
+    pub seed: Seed,
+    /// Whether each placement rolls its own.
+    pub each: bool,
+}
+
+impl Random {
+    fn sample(&self, placement: &Placement) -> f32 {
+        let key = if self.each {
+            self.seed.mix(placement.id.0)
+        } else {
+            self.seed
+        };
+        self.low + (self.high - self.low) * key.unit()
     }
 }
 

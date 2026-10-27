@@ -20,9 +20,9 @@ use crate::looks::{ICON, command, description, note, section, well};
 use crate::switch::switch;
 use crate::{AnyView, View, with_cx};
 
-/// The ways an input can be set, in the order offered.
-const MODES: [&str; 4] =
-    ["Default", "Fixed", "Random", "From parent"];
+/// The ways an input can be set, in the order offered. A random value
+/// is wired in from a random or noise node.
+const MODES: [&str; 3] = ["Default", "Fixed", "From parent"];
 
 const SCOPES: [(&str, Scope); 4] = [
     ("Per realm", Scope::Realm),
@@ -275,8 +275,10 @@ fn mode(node: NodeId, spec: PortSpec, wired: bool) -> impl View {
             match current(editor, node, spec.name) {
                 None => 0,
                 Some(Setting::Fixed(_)) => 1,
-                Some(Setting::Random(_)) => 2,
-                Some(Setting::FromParent(_)) => 3,
+                Some(Setting::FromParent(_)) => 2,
+                // Written inline by an older file: shown, not
+                // offered.
+                Some(Setting::Random(_)) => usize::MAX,
             }
         }),
         Glyph::Chevron.image(ICON),
@@ -286,8 +288,7 @@ fn mode(node: NodeId, spec: PortSpec, wired: bool) -> impl View {
             }
             let setting = match at {
                 1 => start(&spec).map(Setting::Fixed),
-                2 => random(&spec),
-                3 => {
+                2 => {
                     // The graph gets an input for it, starting at the
                     // value it has now.
                     let editor = world.resource::<Editor>();
@@ -312,32 +313,10 @@ fn mode(node: NodeId, spec: PortSpec, wired: bool) -> impl View {
             }
         },
     )
+    .placeholder("Random")
     .width(px(CONTROL))
     .shrink(0.0)
     .rules(well)
-}
-
-/// A random setting to start from for `spec`.
-fn random(spec: &PortSpec) -> Option<Setting> {
-    let spread = match (written(spec)?, start(spec)?) {
-        (ValueType::Bool, _) => Spread::Chance(0.5),
-        (ValueType::Choice, _) if !spec.choices.is_empty() => {
-            Spread::Weights(
-                spec.choices
-                    .iter()
-                    .map(|choice| ((*choice).to_owned(), 1.0))
-                    .collect(),
-            )
-        }
-        (ValueType::Number, Constant::Number(n)) => {
-            Spread::Range(n, n + 1.0)
-        }
-        _ => return None,
-    };
-    Some(Setting::Random(Roll {
-        spread,
-        scope: Scope::Placement,
-    }))
 }
 
 /// The controls for the value of an input set as it is now.

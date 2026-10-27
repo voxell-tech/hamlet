@@ -1,13 +1,13 @@
 //! Nodes that make fields.
 
 use crate::eval::{Problem, Run};
-use crate::field::{Field, Measure, Noise, NoiseKind};
+use crate::field::{Field, Measure, Noise, NoiseKind, Random};
 use crate::graph::Scope;
 use crate::node::{Initial, NodeKind, PortSpec};
 use crate::value::{Value, ValueType};
 
 pub(super) const KINDS: &[NodeKind] =
-    &[NOISE, MEASURE, REMAP, ADD, MULTIPLY];
+    &[NOISE, RANDOM, MEASURE, REMAP];
 
 const FIELD_OUT: PortSpec =
     PortSpec::new("field", ValueType::Field, "The field");
@@ -153,43 +153,48 @@ fn remap(run: &mut Run) -> Result<(), Problem> {
     Ok(())
 }
 
-const PAIR: &[PortSpec] = &[
-    PortSpec::new("a", ValueType::Field, "The first field")
+const RANDOM: NodeKind = NodeKind {
+    name: "random",
+    doc: "A number picked at random between low and high, again for \
+          each placement, or once for each house, hamlet or realm",
+    inputs: &[
+        PortSpec::new(
+            "low",
+            ValueType::Number,
+            "The least it can be",
+        )
         .initial(Initial::Number(0.0)),
-    PortSpec::new("b", ValueType::Field, "The second field")
-        .initial(Initial::Number(0.0)),
-];
-
-const ADD: NodeKind = NodeKind {
-    name: "add",
-    doc: "The sum of two fields",
-    inputs: PAIR,
+        PortSpec::new(
+            "high",
+            ValueType::Number,
+            "The most it can be",
+        )
+        .initial(Initial::Number(1.0)),
+        PortSpec::new(
+            "per",
+            ValueType::Choice,
+            "How often it is picked again",
+        )
+        .initial(Initial::Choice("placement"))
+        .choices(&["placement", "house", "hamlet", "realm"]),
+    ],
     outputs: &[FIELD_OUT],
-    run: add,
+    run: random,
 };
 
-fn add(run: &mut Run) -> Result<(), Problem> {
-    let field = Field::Add(
-        Box::new(run.field("a")?),
-        Box::new(run.field("b")?),
-    );
-    run.put("field", Value::Field(field));
-    Ok(())
-}
-
-const MULTIPLY: NodeKind = NodeKind {
-    name: "multiply",
-    doc: "The product of two fields",
-    inputs: PAIR,
-    outputs: &[FIELD_OUT],
-    run: multiply,
-};
-
-fn multiply(run: &mut Run) -> Result<(), Problem> {
-    let field = Field::Multiply(
-        Box::new(run.field("a")?),
-        Box::new(run.field("b")?),
-    );
-    run.put("field", Value::Field(field));
+fn random(run: &mut Run) -> Result<(), Problem> {
+    let (scope, each) = match run.choice("per", None)?.as_str() {
+        "house" => (Scope::House, false),
+        "hamlet" => (Scope::Hamlet, false),
+        "realm" => (Scope::Realm, false),
+        _ => (Scope::Placement, true),
+    };
+    let random = Random {
+        low: run.number("low", None)?,
+        high: run.number("high", None)?,
+        seed: run.chance(scope),
+        each,
+    };
+    run.put("field", Value::Field(Field::Random(random)));
     Ok(())
 }

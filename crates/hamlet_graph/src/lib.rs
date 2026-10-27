@@ -20,7 +20,7 @@ pub use eval::{
     GraphProblem, PortInfo, Problem, Run, Seeds, evaluate, ports,
     validate,
 };
-pub use field::{Field, Measure, Noise, NoiseKind};
+pub use field::{Field, Measure, Noise, NoiseKind, Op, Random};
 pub use graph::{
     Book, Does, Graph, GraphInput, GraphOutput, Node, NodeId, Port,
     Roll, Ruleset, Scope, Setting, Sheet, Spread, Wire,
