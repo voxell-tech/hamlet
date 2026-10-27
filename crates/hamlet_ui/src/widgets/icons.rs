@@ -136,6 +136,8 @@ pub enum Glyph {
     Redo,
     /// A die: roll again.
     Dice,
+    /// A disk: save.
+    Save,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -164,7 +166,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 56] = [
+    pub const ALL: [Glyph; 57] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -221,6 +223,7 @@ impl Glyph {
         Glyph::Undo,
         Glyph::Redo,
         Glyph::Dice,
+        Glyph::Save,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -612,6 +615,22 @@ impl Glyph {
                 Dot(5.5, 5.5, 1.1),
                 Dot(8.0, 8.0, 1.1),
                 Dot(10.5, 10.5, 1.1),
+            ],
+            Glyph::Save => &[
+                Loop(&[
+                    [2.5, 2.5],
+                    [11.5, 2.5],
+                    [13.5, 4.5],
+                    [13.5, 13.5],
+                    [2.5, 13.5],
+                ]),
+                Path(&[
+                    [5.0, 2.5],
+                    [5.0, 6.0],
+                    [10.5, 6.0],
+                    [10.5, 2.5],
+                ]),
+                Round(5.0, 9.0, 11.0, 13.5, 0.5),
             ],
         }
     }

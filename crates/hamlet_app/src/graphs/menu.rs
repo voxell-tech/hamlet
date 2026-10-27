@@ -23,7 +23,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_graph::{Does, NodeId};
 
-use super::{Editor, canvas};
+use super::{Editor, canvas, files};
 use crate::looks::{note, section};
 use crate::{AnyView, Cx, View};
 
@@ -357,10 +357,18 @@ fn keys(world: &mut World) {
         pressed(KeyCode::Delete) || pressed(KeyCode::Backspace);
     let undo = command && pressed(KeyCode::KeyZ);
     let duplicate = command && pressed(KeyCode::KeyD);
+    let save = command && pressed(KeyCode::KeyS);
+    let open = command && pressed(KeyCode::KeyO);
     let fit = !command && pressed(KeyCode::KeyF);
     let selected = world.resource::<Editor>().selected;
     if space {
         create_at_pointer(world);
+    } else if save && shift {
+        files::save_as(world);
+    } else if save {
+        files::save(world);
+    } else if open {
+        files::open(world);
     } else if undo && shift {
         world.resource_mut::<Editor>().redo();
     } else if undo {

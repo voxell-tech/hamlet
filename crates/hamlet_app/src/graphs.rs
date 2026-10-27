@@ -4,6 +4,7 @@
 //! properties.
 
 mod canvas;
+mod files;
 mod inspect;
 mod menu;
 mod preview;
@@ -70,6 +71,7 @@ pub(crate) fn plugin(app: &mut App) {
         menu::plugin,
         preview::plugin,
         split::plugin,
+        files::plugin,
     ));
 }
 
@@ -102,6 +104,8 @@ pub(crate) struct Editor {
     /// set change, or another sheet is opened, so what is built from
     /// them is built again.
     pub shape: u64,
+    /// Changes with every change to the book, so it is saved again.
+    pub revision: u64,
     /// What the open graph put down, or why it could not.
     pub outcome: Result<Vec<Instance>, String>,
 }
@@ -124,6 +128,7 @@ impl Editor {
             undo: Vec::new(),
             redo: Vec::new(),
             shape: 0,
+            revision: 0,
             outcome: Ok(Vec::new()),
         };
         editor.load(example(START).unwrap_or_default());
@@ -213,9 +218,24 @@ impl Editor {
         self.open(&name);
     }
 
+    /// The book as it is now, its entry the open sheet.
+    pub fn book(&self) -> Book {
+        Book {
+            entry: self.name.clone(),
+            sheets: self
+                .others
+                .iter()
+                .map(|(name, kept)| {
+                    (name.clone(), kept.sheet.clone())
+                })
+                .chain([(self.name.clone(), self.sheet.clone())])
+                .collect(),
+        }
+    }
+
     /// Puts `book` in place of the one being edited, with no history,
     /// open at its entry.
-    fn load(&mut self, mut book: Book) {
+    pub fn load(&mut self, mut book: Book) {
         let entry =
             book.sheets.remove(&book.entry).unwrap_or_default();
         self.others = book
@@ -273,6 +293,7 @@ impl Editor {
             to: Some(from),
         });
         self.redo.clear();
+        self.revision += 1;
     }
 
     pub fn undo(&mut self) {
@@ -297,6 +318,7 @@ impl Editor {
         if reshaped {
             self.shape += 1;
         }
+        self.revision += 1;
         if self
             .selected
             .is_some_and(|node| self.sheet.graph.node(node).is_none())
@@ -784,6 +806,16 @@ fn tools() -> impl View {
                 },
             ),
             switcher(),
+            tool(
+                Glyph::Folder,
+                "Open a graph book (Cmd+O)",
+                files::open,
+            ),
+            tool(
+                Glyph::Save,
+                "Save the graph book (Cmd+S; Shift for Save as)",
+                files::save,
+            ),
             dropdown(
                 EXAMPLES.map(|(name, _)| name),
                 usize::MAX,
@@ -800,6 +832,13 @@ fn tools() -> impl View {
             .width(px(190.0))
             .rules(well),
             frame().grow(1.0),
+            description(resource::<files::Files, _>(|files| {
+                if files.note.is_empty() {
+                    files.name()
+                } else {
+                    files.note.clone()
+                }
+            })),
             description(resource::<Editor, _>(
                 |editor| match &editor.outcome {
                     Ok(instances) => {
