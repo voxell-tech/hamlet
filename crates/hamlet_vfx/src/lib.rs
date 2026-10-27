@@ -2,6 +2,7 @@
 //! When and where one is set off is the world's business.
 
 pub mod flag;
+pub mod ground;
 pub mod inlay;
 pub mod magic;
 pub mod mark;
@@ -12,6 +13,7 @@ use bevy::prelude::*;
 use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
 
 use self::flag::FlagSettings;
+use self::ground::GroundSettings;
 use self::inlay::InlayPlugin;
 use self::magic::MagicSettings;
 use self::sparks::SparkSettings;
@@ -32,6 +34,7 @@ impl Plugin for VfxPlugin {
             mark::plugin,
             wind::plugin,
             flag::plugin,
+            ground::plugin,
         ))
         .init_resource::<Now>();
     }
@@ -75,6 +78,7 @@ pub(crate) struct VfxTuning {
     pub magic: MagicSettings,
     pub wind: WindSettings,
     pub flag: FlagSettings,
+    pub ground: GroundSettings,
 }
 
 impl Tuning for VfxTuning {
@@ -85,6 +89,7 @@ impl Tuning for VfxTuning {
         follow(world, &was.magic, &self.magic);
         follow(world, &was.wind, &self.wind);
         follow(world, &was.flag, &self.flag);
+        follow(world, &was.ground, &self.ground);
     }
 }
 
@@ -93,4 +98,5 @@ designed!(VfxTuning {
     MagicSettings => magic,
     WindSettings => wind,
     FlagSettings => flag,
+    GroundSettings => ground,
 });

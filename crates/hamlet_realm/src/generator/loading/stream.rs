@@ -179,7 +179,7 @@ pub(in crate::generator) fn stream(
                 .spawn((
                     Ground(tile),
                     Mesh3d(meshes.add(sod.mesh)),
-                    MeshMaterial3d(kit.matte.clone()),
+                    MeshMaterial3d(kit.ground.clone()),
                     NotShadowCaster,
                     Transform::default(),
                     Visibility::Inherited,
