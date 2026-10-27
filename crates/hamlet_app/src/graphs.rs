@@ -17,26 +17,28 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::math::{Vec2, Vec3};
 use bevy::ui::{
-    AlignItems, Display, Overflow, PositionType, UiRect, Val,
-    percent, px,
+    AlignItems, Display, Overflow, PositionType, UiRect, percent, px,
 };
+use bevy::window::SystemCursorIcon;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
+    frame, icon_button, row,
 };
-use bevy_fynix::{ScopedExt, resource};
+use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
 use hamlet_graph::{
     Does, Edit, Frame, GraphOutput, Instance, Node, NodeId, Port,
     Registry, Ruleset, Seed, Seeds, Sheet, Value, ValueType,
     evaluate,
 };
 
-use self::split::{Layout, divider};
+use self::split::{Floating, Handle, Layout, divider, inset_at};
 use crate::dock::{PanelAppExt, panel};
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
     CONTROL, Fills, ICON, brass, description, note, raised, section,
+    well,
 };
 use crate::{View, with_cx};
 
@@ -46,6 +48,15 @@ const GRAPH: &str = "main";
 
 /// The sheet the editor opens with.
 const START: &str = include_str!("graphs/start.ron");
+
+/// Sheets to start from, by name.
+const EXAMPLES: [(&str, &str); 2] = [
+    ("Fence of pillars", START),
+    (
+        "Medieval house",
+        include_str!("graphs/examples/medieval_house.ron"),
+    ),
+];
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
@@ -219,6 +230,16 @@ impl Editor {
         .map_err(|problem| problem.to_string());
     }
 
+    /// Puts `sheet` in place of the one being edited, with no
+    /// history.
+    fn load(&mut self, sheet: Sheet) {
+        self.sheet = sheet;
+        self.selected = None;
+        self.undo.clear();
+        self.redo.clear();
+        self.changed(true);
+    }
+
     /// Rolls every random value of the house again.
     fn reroll(&mut self) {
         self.seeds.house = self.seeds.house.mix(1);
@@ -350,10 +371,14 @@ fn screen() -> impl View {
                 tools(),
                 // The properties are placed over the canvas, in its
                 // frame.
-                column((canvas::view(), properties()))
-                    .fills_width()
-                    .fills_height()
-                    .gap(0.0),
+                column((
+                    canvas::view(),
+                    dock_outline(),
+                    properties(),
+                ))
+                .fills_width()
+                .fills_height()
+                .gap(0.0),
                 menu::view(),
             ))
             .fills_width()
@@ -385,28 +410,65 @@ fn inner(
     .gap(gap)
 }
 
-/// The selected node's properties, floating over the canvas's top
-/// right corner. Its header folds it away and opens it again.
+/// A lit outline of the corner dragged properties will settle in.
+fn dock_outline() -> impl View {
+    with_cx(|cx| {
+        let theme = cx.theme();
+        frame()
+            .position(PositionType::Absolute)
+            .inset(resource::<Layout, _>(|layout| {
+                inset_at(layout.ghost.unwrap_or(layout.shown))
+            }))
+            .width(px(FLOATING))
+            .height(resource::<Layout, _>(|layout| px(layout.size.y)))
+            .display(resource::<Layout, _>(|layout| {
+                if layout.ghost.is_some() {
+                    Display::Flex
+                } else {
+                    Display::None
+                }
+            }))
+            .fill(theme.palette.chosen)
+            .border(2.0)
+            .border_color(theme.palette.lamp)
+            .radius(theme.space.round)
+    })
+}
+
+/// The selected node's properties, floating over a corner of the
+/// canvas. Its header drags it and its chevron folds it.
 fn properties() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let gap = theme.space.gap;
-        let header = button(
-            row((
-                glyph(Glyph::Sliders, ICON),
-                section("PROPERTIES"),
-                frame().grow(1.0),
-                glyph(Glyph::Chevron, ICON),
-            ))
-            .gap(gap / 2.0)
-            .align(AlignItems::Center),
+        // Open, the chevron points up to fold; folded, it points on.
+        let fold = keyed(
+            resource::<Layout, _>(|layout| layout.properties),
+            |open| {
+                let which =
+                    if *open { Glyph::Chevron } else { Glyph::Into };
+                button(glyph(which, ICON))
+                    .rules(icon_button)
+                    .tooltip(|| note("Fold or open the properties"))
+                    .on_activate(|world| {
+                        let mut layout =
+                            world.resource_mut::<Layout>();
+                        layout.properties = !layout.properties;
+                    })
+                    .boxed()
+            },
         )
-        .width(percent(100.0))
-        .tooltip(|| note("Fold or open the properties"))
-        .on_activate(|world| {
-            let mut layout = world.resource_mut::<Layout>();
-            layout.properties = !layout.properties;
-        });
+        .within(row(()).gap(0.0));
+        let header = row((
+            glyph(Glyph::Sliders, ICON),
+            section("PROPERTIES"),
+            frame().grow(1.0),
+            fold,
+        ))
+        .gap(gap / 2.0)
+        .align(AlignItems::Center)
+        .tagged(Handle)
+        .tagged(EntityCursor(SystemCursorIcon::Grab));
         let body =
             column((inspect::view(),)).display(
                 resource::<Layout, _>(|layout| {
@@ -419,12 +481,9 @@ fn properties() -> impl View {
             );
         column((header, body))
             .position(PositionType::Absolute)
-            .inset(UiRect {
-                top: px(gap),
-                right: px(gap),
-                left: Val::Auto,
-                bottom: Val::Auto,
-            })
+            .inset(resource::<Layout, _>(|layout| {
+                inset_at(layout.shown)
+            }))
             .width(px(FLOATING))
             .max_height(percent(100.0))
             .overflow(Overflow::clip())
@@ -434,6 +493,7 @@ fn properties() -> impl View {
             .border(theme.space.border)
             .border_color(theme.palette.seam)
             .radius(theme.space.round)
+            .tagged(Floating)
     })
 }
 
@@ -487,6 +547,22 @@ fn tools() -> impl View {
                     world.resource_mut::<Editor>().reroll();
                 },
             ),
+            dropdown(
+                EXAMPLES.map(|(name, _)| name),
+                usize::MAX,
+                Glyph::Chevron.image(ICON),
+                |world: &mut World, at| {
+                    let Ok(sheet) = Sheet::from_ron(EXAMPLES[at].1)
+                    else {
+                        return;
+                    };
+                    world.resource_mut::<Editor>().load(sheet);
+                    canvas::fit(world);
+                },
+            )
+            .placeholder("Open an example")
+            .width(px(190.0))
+            .rules(well),
             frame().grow(1.0),
             description(resource::<Editor, _>(
                 |editor| match &editor.outcome {
@@ -500,4 +576,25 @@ fn tools() -> impl View {
         .gap(gap / 2.0)
         .align(AlignItems::Center)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_example_opens_and_puts_something_down() {
+        let mut editor = Editor::new();
+        for (name, text) in EXAMPLES {
+            let sheet = Sheet::from_ron(text)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            editor.load(sheet);
+            match &editor.outcome {
+                Ok(instances) => {
+                    assert!(!instances.is_empty(), "{name}");
+                }
+                Err(problem) => panic!("{name}: {problem}"),
+            }
+        }
+    }
 }

@@ -302,6 +302,8 @@ fn colour(colours: Option<&Colours>, instance: &Instance) -> Vec3 {
         ("beam", c.timber_dark),
         ("door", c.timber_dark),
         ("moss", c.moss),
+        ("flower", c.moss),
+        ("window", c.slate_roof * 0.6),
         ("slate", c.slate_roof),
     ];
     if let Some((_, colour)) =
@@ -344,7 +346,7 @@ fn aim(
         turn.pitch.sin(),
         turn.yaw.sin() * turn.pitch.cos(),
     );
-    let distance = framing.reach * 1.5 + 2.0;
+    let distance = framing.reach * 2.2 + 2.0;
     *transform = Transform::from_translation(
         framing.middle + toward * distance,
     )

@@ -1,0 +1,155 @@
+// A timber-framed house of two storeys: a stone base, plaster walls in
+// a frame of posts that lean a little each, an upper storey that juts
+// out over the lower, a steep tiled roof, a stone chimney, a door,
+// windows, and a flower box under some upper windows, by chance.
+(
+    graph: (
+        nodes: [
+            (id: 1, does: Kind("box"), settings: {
+                "at": Fixed(Point((0.0, 0.0, 0.0))),
+                "size": Fixed(Point((6.2, 0.35, 4.2))),
+            }),
+            (id: 2, does: Kind("instance"), settings: {"asset": Fixed(Choice("stone_base"))}),
+
+            (id: 3, does: Kind("box"), settings: {
+                "at": Fixed(Point((0.0, 0.35, 0.0))),
+                "size": Fixed(Point((5.6, 2.3, 3.6))),
+            }),
+            (id: 4, does: Kind("instance"), settings: {"asset": Fixed(Choice("wall_plaster"))}),
+
+            (id: 5, does: Kind("rectangle"), settings: {
+                "center": Fixed(Point((0.0, 0.35, 0.0))),
+                "width": Fixed(Number(5.6)),
+                "depth": Fixed(Number(3.6)),
+            }),
+            (id: 6, does: Kind("curve_corners")),
+            (id: 7, does: Kind("instance"), settings: {
+                "asset": Fixed(Choice("post_timber")),
+                "size": Fixed(Point((0.24, 2.3, 0.24))),
+            }),
+
+            (id: 8, does: Kind("box"), settings: {
+                "at": Fixed(Point((0.0, 2.65, 0.0))),
+                "size": Fixed(Point((6.2, 0.25, 4.2))),
+            }),
+            (id: 9, does: Kind("instance"), settings: {"asset": Fixed(Choice("beam_timber"))}),
+
+            (id: 10, does: Kind("box"), settings: {
+                "at": Fixed(Point((0.0, 2.9, 0.0))),
+                "size": Fixed(Point((6.0, 1.9, 4.0))),
+            }),
+            (id: 11, does: Kind("instance"), settings: {"asset": Fixed(Choice("wall_plaster"))}),
+
+            (id: 12, does: Kind("rectangle"), settings: {
+                "center": Fixed(Point((0.0, 2.9, 0.0))),
+                "width": Fixed(Number(6.0)),
+                "depth": Fixed(Number(4.0)),
+            }),
+            (id: 13, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(1.0))}),
+            (id: 14, does: Kind("transform"), settings: {
+                "roll": Random((spread: Range(-2.0, 2.0), scope: Placement)),
+            }),
+            (id: 15, does: Kind("instance"), settings: {
+                "asset": Fixed(Choice("post_timber")),
+                "size": Fixed(Point((0.16, 1.9, 0.16))),
+            }),
+
+            (id: 16, does: Kind("box"), settings: {
+                "at": Fixed(Point((0.0, 5.45, 1.175))),
+                "size": Fixed(Point((7.0, 0.18, 3.2))),
+            }),
+            (id: 17, does: Kind("transform"), settings: {"pitch": Fixed(Number(42.0))}),
+            (id: 18, does: Kind("instance"), settings: {"asset": Fixed(Choice("roof_tiles"))}),
+
+            (id: 19, does: Kind("box"), settings: {
+                "at": Fixed(Point((0.0, 5.45, -1.175))),
+                "size": Fixed(Point((7.0, 0.18, 3.2))),
+            }),
+            (id: 20, does: Kind("transform"), settings: {"pitch": Fixed(Number(-42.0))}),
+            (id: 21, does: Kind("instance"), settings: {"asset": Fixed(Choice("roof_tiles"))}),
+
+            (id: 22, does: Kind("box"), settings: {
+                "at": Fixed(Point((2.2, 3.8, -1.3))),
+                "size": Fixed(Point((0.7, 3.6, 0.7))),
+            }),
+            (id: 23, does: Kind("instance"), settings: {"asset": Fixed(Choice("stone_chimney"))}),
+
+            (id: 24, does: Kind("box"), settings: {
+                "at": Fixed(Point((0.0, 0.35, 1.82))),
+                "size": Fixed(Point((1.0, 1.9, 0.12))),
+            }),
+            (id: 25, does: Kind("instance"), settings: {"asset": Fixed(Choice("door"))}),
+
+            (id: 26, does: Kind("line"), settings: {
+                "from": Fixed(Point((-1.9, 1.2, 1.82))),
+                "to": Fixed(Point((1.9, 1.2, 1.82))),
+            }),
+            (id: 27, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(3.8))}),
+            (id: 28, does: Kind("instance"), settings: {
+                "asset": Fixed(Choice("window")),
+                "size": Fixed(Point((0.7, 0.8, 0.12))),
+            }),
+
+            (id: 29, does: Kind("line"), settings: {
+                "from": Fixed(Point((-1.5, 3.4, 2.02))),
+                "to": Fixed(Point((1.5, 3.4, 2.02))),
+            }),
+            (id: 30, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(1.0))}),
+            (id: 31, does: Kind("instance"), settings: {
+                "asset": Fixed(Choice("window")),
+                "size": Fixed(Point((0.55, 0.75, 0.12))),
+            }),
+
+            (id: 32, does: Kind("cull"), settings: {
+                "keep": Random((spread: Chance(0.6), scope: Placement)),
+            }),
+            (id: 33, does: Kind("transform"), settings: {
+                "move_y": Fixed(Number(-0.22)),
+                "move_z": Fixed(Number(0.14)),
+            }),
+            (id: 34, does: Kind("instance"), settings: {
+                "asset": Fixed(Choice("flower_box")),
+                "size": Fixed(Point((0.6, 0.2, 0.25))),
+            }),
+        ],
+        wires: [
+            (from: (node: 1, name: "placements"), to: (node: 2, name: "placements")),
+            (from: (node: 3, name: "placements"), to: (node: 4, name: "placements")),
+            (from: (node: 5, name: "curve"), to: (node: 6, name: "curve")),
+            (from: (node: 6, name: "placements"), to: (node: 7, name: "placements")),
+            (from: (node: 8, name: "placements"), to: (node: 9, name: "placements")),
+            (from: (node: 10, name: "placements"), to: (node: 11, name: "placements")),
+            (from: (node: 12, name: "curve"), to: (node: 13, name: "curve")),
+            (from: (node: 13, name: "placements"), to: (node: 14, name: "placements")),
+            (from: (node: 14, name: "placements"), to: (node: 15, name: "placements")),
+            (from: (node: 16, name: "placements"), to: (node: 17, name: "placements")),
+            (from: (node: 17, name: "placements"), to: (node: 18, name: "placements")),
+            (from: (node: 19, name: "placements"), to: (node: 20, name: "placements")),
+            (from: (node: 20, name: "placements"), to: (node: 21, name: "placements")),
+            (from: (node: 22, name: "placements"), to: (node: 23, name: "placements")),
+            (from: (node: 24, name: "placements"), to: (node: 25, name: "placements")),
+            (from: (node: 26, name: "curve"), to: (node: 27, name: "curve")),
+            (from: (node: 27, name: "placements"), to: (node: 28, name: "placements")),
+            (from: (node: 29, name: "curve"), to: (node: 30, name: "curve")),
+            (from: (node: 30, name: "placements"), to: (node: 31, name: "placements")),
+            (from: (node: 30, name: "placements"), to: (node: 32, name: "placements")),
+            (from: (node: 32, name: "placements"), to: (node: 33, name: "placements")),
+            (from: (node: 33, name: "placements"), to: (node: 34, name: "placements")),
+        ],
+    ),
+    layout: {
+        1: (20.0, 20.0), 2: (260.0, 20.0),
+        3: (20.0, 160.0), 4: (260.0, 160.0),
+        5: (20.0, 300.0), 6: (260.0, 300.0), 7: (500.0, 300.0),
+        8: (20.0, 470.0), 9: (260.0, 470.0),
+        10: (20.0, 610.0), 11: (260.0, 610.0),
+        12: (20.0, 750.0), 13: (260.0, 750.0), 14: (500.0, 750.0), 15: (740.0, 750.0),
+        16: (1000.0, 20.0), 17: (1240.0, 20.0), 18: (1480.0, 20.0),
+        19: (1000.0, 280.0), 20: (1240.0, 280.0), 21: (1480.0, 280.0),
+        22: (1000.0, 540.0), 23: (1240.0, 540.0),
+        24: (1000.0, 680.0), 25: (1240.0, 680.0),
+        26: (1000.0, 820.0), 27: (1240.0, 820.0), 28: (1480.0, 820.0),
+        29: (1000.0, 1000.0), 30: (1240.0, 1000.0), 31: (1480.0, 1000.0),
+        32: (1480.0, 1180.0), 33: (1720.0, 1180.0), 34: (1960.0, 1180.0),
+    },
+)
