@@ -711,28 +711,53 @@ pub(crate) fn doors(
     column(rows).gap(0.0)
 }
 
-/// The head of a page of its own: the way back to `front`, which
-/// `act` takes, and the page's `name` under `which`.
-pub(crate) fn page_head(
-    front: &'static str,
-    act: fn(&mut World),
-    which: Glyph,
-    name: &'static str,
+/// Where a page is within a panel that has pages under it: each page
+/// above it, from the top, as a bare button, a dim `/` after each,
+/// and then `current`, the page shown, which is not a button. A press
+/// hands `go` the place in `trail` of its page.
+pub fn breadcrumb(
+    trail: Vec<String>,
+    current: impl Into<Prop<String>>,
+    go: impl Fn(&mut World, usize) + Clone + Send + Sync + 'static,
 ) -> impl View {
+    let current = current.into();
     with_cx(move |cx| {
-        row((
-            back(front, act),
-            headed(
-                which,
-                label(name)
-                    .bold(true)
+        let size = cx.theme().text.small;
+        let mut parts = Vec::new();
+        for (at, text) in trail.into_iter().enumerate() {
+            let go = go.clone();
+            parts.push(
+                button(label(text).wrap(false).tagged(DisplayText))
+                    // Bare, so that the path starts at the panel's
+                    // edge and its parts sit evenly apart.
+                    .padding(UiRect::all(px(0.0)))
+                    .rules(retrace)
+                    .tagged(Mood::Ink)
+                    .on_activate(move |world| go(world, at))
+                    .boxed(),
+            );
+            parts.push(
+                label("/")
+                    .size(size)
+                    .tone(Tone::Dim)
                     .wrap(false)
-                    .tone(Tone::Faint)
-                    .tagged(DisplayText),
-            ),
-        ))
-        .gap(cx.theme().space.section)
-        .align(AlignItems::Center)
+                    .tagged(DisplayText)
+                    .boxed(),
+            );
+        }
+        parts.push(
+            label(current)
+                .size(size)
+                .bold(true)
+                .tone(Tone::Faint)
+                .wrap(false)
+                .tagged(DisplayText)
+                .boxed(),
+        );
+        row(parts)
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
+            .tagged(Wraps)
     })
 }
 

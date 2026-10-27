@@ -27,9 +27,9 @@ use crate::convo::talk_to;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, action, back, bad_action, bare, beside, brass, buttons,
-    group, lamp, lettered, note, scroll_area, stated_large, title,
-    well,
+    Fills, action, bad_action, bare, beside, brass, breadcrumb,
+    buttons, group, lamp, lettered, note, scroll_area, stated_large,
+    title, well,
 };
 use crate::roll::{either, moved};
 use crate::world_menu::Deed;
@@ -215,9 +215,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         } else {
             format!("Known to the server as {}", facts.id)
         };
-        let mut actions = vec![
-            back("ALL HAMLETS", |world| select(world, None)).boxed(),
-        ];
+        let mut actions = Vec::new();
         if *rename {
             actions.push(action(
                 Glyph::Rename,
@@ -242,6 +240,11 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             ));
         }
         group((
+            breadcrumb(
+                vec!["HAMLETS".into()],
+                facts.title.to_uppercase(),
+                |world, _| select(world, None),
+            ),
             beside((
                 title(facts.title.to_uppercase()),
                 stated_large(mark, state, tone),
