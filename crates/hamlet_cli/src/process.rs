@@ -541,6 +541,25 @@ async fn dev_binary(name: &str, variable: &str) -> Result<PathBuf> {
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
+    // `cargo run` set these for this process. Build scripts such as
+    // ring's track them, so inheriting them rebuilds ring, rustls and
+    // reqwest on every `hamlet dev` under `cargo run`.
+    for (variable, _) in env::vars_os() {
+        let leaked = variable.to_str().is_some_and(|variable| {
+            variable.starts_with("CARGO_PKG_")
+                || variable.starts_with("CARGO_BIN_")
+                || matches!(
+                    variable,
+                    "CARGO_MANIFEST_DIR"
+                        | "CARGO_MANIFEST_PATH"
+                        | "CARGO_CRATE_NAME"
+                        | "CARGO_PRIMARY_PACKAGE"
+                )
+        });
+        if leaked {
+            command.env_remove(variable);
+        }
+    }
     // Not `output`, which pipes stderr too and hides the progress.
     let output = command
         .spawn()
