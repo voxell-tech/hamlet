@@ -1,5 +1,6 @@
-//! The ground's material: the vertex colours of `StandardMaterial`
-//! lit as if painted on in thick strokes. The strokes are one baked
+//! The ground's material: the vertex colours of `StandardMaterial`,
+//! shaded lighter and darker in brush strokes and lit through soft
+//! bumps that the strokes bring out. Strokes and bumps are one baked
 //! texture that the shader lays down in hexagons, each moved and
 //! turned at random and blended by height, so that it never shows as
 //! repeating.
@@ -31,24 +32,30 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
-/// The brush strokes in the ground's light.
+/// The strokes in the ground's colour and the bumps in its light.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GroundSettings {
-    /// World units across one copy of the strokes.
+    /// World units across one copy of the texture.
     pub repeat: f32,
-    /// Slope of the steepest stroke's edge. Zero leaves the ground
-    /// flat.
+    /// Slope of the steepest bump. Zero leaves the ground flat.
     pub strength: f32,
-    /// Share by which the thinnest paint is darkened.
+    /// Share by which the bottom of a dip is darkened.
     pub cavity: f32,
-    /// World units across the patches the strokes are stronger and
+    /// World units across the patches the bumps are stronger and
     /// weaker in, and the share of the strength at the weakest.
     pub patches: f32,
     pub calm: f32,
     /// Share of a full turn each copy may be turned by. Below 1 the
     /// strokes keep to one way.
     pub turn: f32,
+    /// What the ground's own colour is multiplied by outside the
+    /// strokes and inside them.
+    pub dark: [f32; 3],
+    pub light: [f32; 3],
+    /// Share of the bumps' strength outside the strokes. Inside them
+    /// it is whole.
+    pub bare: f32,
     pub strokes: StrokeSettings,
 }
 
@@ -70,10 +77,9 @@ pub struct StrokeSettings {
     /// tail breaks into them over.
     pub bristles: f32,
     pub dry: f32,
-    /// Height of the streaks the bristles leave, of the paint piled
-    /// at a stroke's sides, and of the grain over everything.
+    /// How unevenly the bristles lay their colour down, and the
+    /// speckle over everything.
     pub streaks: f32,
-    pub lip: f32,
     pub grain: f32,
 }
 
@@ -96,28 +102,34 @@ impl MaterialExtension for GroundExt {
 /// [`GroundSettings`].
 #[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
 pub struct GroundUniform {
+    pub dark: Vec4,
+    pub light: Vec4,
     pub repeat: f32,
     pub strength: f32,
     pub cavity: f32,
     pub patches: f32,
     pub calm: f32,
     pub turn: f32,
+    pub bare: f32,
 }
 
 impl From<&GroundSettings> for GroundUniform {
     fn from(set: &GroundSettings) -> Self {
         Self {
+            dark: Vec3::from(set.dark).extend(1.0),
+            light: Vec3::from(set.light).extend(1.0),
             repeat: set.repeat,
             strength: set.strength,
             cavity: set.cavity,
             patches: set.patches,
             calm: set.calm,
             turn: set.turn,
+            bare: set.bare,
         }
     }
 }
 
-/// The ground's material over `base`, with its strokes baked anew.
+/// The ground's material over `base`, with its texture baked anew.
 pub fn material(
     images: &mut Assets<Image>,
     set: &GroundSettings,
@@ -158,61 +170,56 @@ fn retune(
     }
 }
 
-/// A square of strokes that tiles with itself, with all its mip
-/// levels. Red and green are the slope along each side, from -1 at 0
-/// to 1 at 255, blue is the height.
+/// A square that tiles with itself, with all its mip levels. Red and
+/// green are the bumps' slope along each side, from -1 at 0 to 1 at
+/// 255, blue is their height and alpha the strokes.
 fn bumps(set: &StrokeSettings) -> Image {
     let side = set.side.next_power_of_two().max(4);
-    let height = strokes(set, side);
+    let height = clods(side);
+    let mask = strokes(set, side);
     let at =
         |x: usize, y: usize| height[(y % side) * side + x % side];
-    let mut slopes = Vec::with_capacity(side * side);
+    let mut steepest = 0f32;
+    let mut level = Vec::with_capacity(side * side);
     for y in 0..side {
         for x in 0..side {
             let dx = (at(x + 1, y) - at(x + side - 1, y)) * 0.5;
             let dy = (at(x, y + 1) - at(x, y + side - 1)) * 0.5;
-            slopes.push([dx, dy, at(x, y)]);
+            steepest = steepest.max(dx.abs()).max(dy.abs());
+            level.push([dx, dy, at(x, y), mask[y * side + x]]);
         }
     }
-    // The grain's single texels are far steeper than any stroke's
-    // edge, so the slopes are scaled to all but the steepest few.
-    let mut steep = slopes
-        .iter()
-        .map(|[dx, dy, _]| dx.abs().max(dy.abs()))
-        .collect::<Vec<_>>();
-    steep.sort_by(f32::total_cmp);
-    let steepest = steep[steep.len() * 98 / 100].max(1e-6);
-    let mut level = slopes
-        .iter()
-        .map(|&[dx, dy, h]| [dx / steepest, dy / steepest, h])
-        .collect::<Vec<_>>();
+    for texel in &mut level {
+        texel[0] /= steepest;
+        texel[1] /= steepest;
+    }
     let mut data = Vec::new();
     let (mut across, mut levels) = (side, 0);
     loop {
-        for [dx, dy, h] in &level {
+        for [dx, dy, h, a] in &level {
             let byte =
                 |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
             data.extend([
                 byte(dx * 0.5 + 0.5),
                 byte(dy * 0.5 + 0.5),
                 byte(*h),
-                255,
+                byte(*a),
             ]);
         }
         levels += 1;
         if across == 1 {
             break;
         }
-        // A slope and a height both average truly, so each level is
-        // the mean of four texels of the one before.
+        // Slopes, heights and coverage all average truly, so each
+        // level is the mean of four texels of the one before.
         let half = across / 2;
         level = (0..half * half)
             .map(|i| {
                 let (x, y) = (i % half * 2, i / half * 2);
-                let mut sum = [0.0; 3];
+                let mut sum = [0.0; 4];
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     let t = level[(y + dy) * across + x + dx];
-                    for k in 0..3 {
+                    for k in 0..4 {
                         sum[k] += t[k] * 0.25;
                     }
                 }
@@ -244,23 +251,52 @@ fn bumps(set: &StrokeSettings) -> Image {
     image
 }
 
-/// Heights from 0 to 1 of thick paint laid in strokes, each over the
-/// ones before, on a square `side` texels across. A stroke that runs
-/// off one side comes back on the other, so the square tiles.
+/// Heights from 0 to 1 of soft clods that tile with themselves:
+/// value noise of a few octaves, each with a whole number of cells
+/// across the square.
+fn clods(side: usize) -> Vec<f32> {
+    // Cells across, and the weight of each octave.
+    let octaves = [(4, 0.45), (8, 0.3), (16, 0.17), (32, 0.08)];
+    let mut height = vec![0f32; side * side];
+    for (o, &(cells, weight)) in octaves.iter().enumerate() {
+        let corner = |cx: usize, cy: usize| {
+            let (cx, cy) = (cx % cells, cy % cells);
+            hash(cx as u32, cy as u32, o as u32)
+        };
+        for (i, h) in height.iter_mut().enumerate() {
+            let (x, y) = (i % side, i / side);
+            let fx = (x as f32 + 0.5) / side as f32 * cells as f32;
+            let fy = (y as f32 + 0.5) / side as f32 * cells as f32;
+            let (cx, cy) = (fx.floor() as usize, fy.floor() as usize);
+            let (tx, ty) = (ease(fx.fract()), ease(fy.fract()));
+            let top = lerp(corner(cx, cy), corner(cx + 1, cy), tx);
+            let bottom =
+                lerp(corner(cx, cy + 1), corner(cx + 1, cy + 1), tx);
+            // Rounded tops and creased dips, as clods of earth have.
+            let v = lerp(top, bottom, ty);
+            *h += (v * 2.0 - 1.0).abs() * weight;
+        }
+    }
+    normalised(height)
+}
+
+/// Coverage from 0 to 1 of brush strokes laid one over another on a
+/// square `side` texels across. A stroke that runs off one side
+/// comes back on the other, so the square tiles.
 fn strokes(set: &StrokeSettings, side: usize) -> Vec<f32> {
     let n = side as f32;
-    let mut height = vec![0f32; side * side];
+    let mut cover = vec![0f32; side * side];
     for i in 0..set.count as u32 {
         let r = |k: u32| hash(i, k, 1);
         let centre = Vec2::new(r(0), r(1)) * n;
-        let angle = (r(2) - 0.5) * set.scatter * TAU;
-        let along = Vec2::from_angle(angle);
+        let along =
+            Vec2::from_angle((r(2) - 0.5) * set.scatter * TAU);
         let half_length =
             lerp(set.length.0, set.length.1, r(3)) * n * 0.5;
         let half_width =
             lerp(set.width.0, set.width.1, r(4)) * n * 0.5;
-        // Each stroke is its own thickness of paint.
-        let paint = lerp(0.35, 1.0, r(5));
+        // Each stroke lays its own shade, over whatever is under it.
+        let shade = r(5);
         let reach = half_length.hypot(half_width).ceil() as i32 + 1;
         let (cx, cy) = (centre.x as i32, centre.y as i32);
         for py in cy - reach..=cy + reach {
@@ -275,52 +311,57 @@ fn strokes(set: &StrokeSettings, side: usize) -> Vec<f32> {
                 // A side that wanders, a rounded head, and a tail
                 // that breaks into bristles of uneven length.
                 let edge = 1.0 - 0.22 * wobble(u * 5.0, i);
-                let side_in =
+                let inside =
                     1.0 - smoothstep(edge - 0.12, edge, w.abs());
                 let head = smoothstep(-1.0, -0.75, u + 0.25 * w * w);
                 let bristle =
                     ((w * 0.5 + 0.5) * set.bristles).floor() as u32;
                 let end = 1.0 - 2.0 * set.dry * hash(i, bristle, 2);
                 let tail = 1.0 - smoothstep(end - 0.12, end, u);
-                let cover = side_in * head * tail;
-                if cover <= 0.0 {
+                let k = inside * head * tail;
+                if k <= 0.0 {
                     continue;
                 }
                 let streak =
                     (hash(i, bristle, 3) - 0.5) * set.streaks;
-                let lip = set.lip * smoothstep(0.5, 0.9, w.abs());
                 let at = py.rem_euclid(side as i32) as usize * side
                     + px.rem_euclid(side as i32) as usize;
-                height[at] =
-                    lerp(height[at], paint + streak + lip, cover);
+                cover[at] = lerp(cover[at], shade + streak, k);
             }
         }
     }
-    for (at, h) in height.iter_mut().enumerate() {
-        *h += (hash(at as u32, 0, 4) - 0.5) * set.grain;
+    for (at, c) in cover.iter_mut().enumerate() {
+        *c += (hash(at as u32, 0, 4) - 0.5) * set.grain;
     }
+    normalised(cover)
+}
+
+/// `values` stretched to run from 0 to 1.
+fn normalised(values: Vec<f32>) -> Vec<f32> {
     let (lo, hi) =
-        height.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &h| {
-            (lo.min(h), hi.max(h))
+        values.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &v| {
+            (lo.min(v), hi.max(v))
         });
-    height
+    values
         .iter()
-        .map(|h| (h - lo) / (hi - lo).max(1e-6))
+        .map(|v| (v - lo) / (hi - lo).max(1e-6))
         .collect()
 }
 
 /// Smooth noise from 0 to 1 along one line, one of many by `seed`.
 fn wobble(t: f32, seed: u32) -> f32 {
-    let i = t.floor();
-    let f = t - i;
-    let a = hash(i as i32 as u32, seed, 5);
-    let b = hash((i as i32 + 1) as u32, seed, 5);
-    lerp(a, b, f * f * (3.0 - 2.0 * f))
+    let i = t.floor() as i32;
+    let a = hash(i as u32, seed, 5);
+    let b = hash((i + 1) as u32, seed, 5);
+    lerp(a, b, ease(t - i as f32))
+}
+
+fn ease(t: f32) -> f32 {
+    t * t * (3.0 - 2.0 * t)
 }
 
 fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {
-    let t = ((x - lo) / (hi - lo)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
+    ease(((x - lo) / (hi - lo)).clamp(0.0, 1.0))
 }
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
