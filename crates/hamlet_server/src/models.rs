@@ -883,6 +883,11 @@ impl Choices {
             .iter()
             .find(|a| a.number == of.number)
             .context("model's agent")?;
+        let effort = record.limits.chief.effort_of(
+            agent,
+            record.mayor == agent.number,
+            self.settings.effort,
+        );
         let name = record.limits.chief.model_of(
             agent,
             record.mayor == agent.number,
@@ -930,6 +935,7 @@ impl Choices {
         Ok(Selection {
             context_window: size("contextWindow"),
             max_tokens: size("maxTokens"),
+            effort,
             model: ModelRef {
                 provider: provider.into(),
                 id: id.into(),

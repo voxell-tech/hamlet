@@ -11,6 +11,7 @@
     "models",
     "model",
     "pinned",
+    "efforts",
     "mayor",
     "leaving",
     "asking",
@@ -298,6 +299,15 @@
       "patternProperties": {
         "^.*$": {
           "type": "string"
+        }
+      },
+      "default": {}
+    },
+    "efforts": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "enum": ["off", "minimal", "low", "medium", "high"]
         }
       },
       "default": {}

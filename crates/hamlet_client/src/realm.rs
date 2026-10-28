@@ -208,6 +208,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self(protocol::SettingsView {
             model: String::new(),
+            effort: None,
             reflect_every: 0,
             allow_net: false,
             endpoints: Vec::new(),

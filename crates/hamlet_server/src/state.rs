@@ -340,6 +340,7 @@ pub(crate) fn build(
             reflect_every: i64::try_from(settings.reflect_every)
                 .context("the settings' reflectEvery")?,
             allow_net: settings.allow_net,
+            effort: settings.effort,
             unset: !settings.saved,
             link: settings.link,
             endpoints,

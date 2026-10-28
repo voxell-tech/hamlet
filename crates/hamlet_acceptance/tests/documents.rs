@@ -197,6 +197,7 @@ async fn edits_settings_and_refuses_bad_ones() {
     let reply = edit(&mut s.chief, |id| Edit::Settings {
         id,
         set: EditSettingsSet {
+            effort: None,
             reflect_every: Some(0),
             allow_net: Some(true),
             ..set()
@@ -210,6 +211,7 @@ async fn edits_settings_and_refuses_bad_ones() {
     let reply = edit(&mut s.chief, |id| Edit::Settings {
         id,
         set: EditSettingsSet {
+            effort: None,
             reflect_every: Some(-1),
             ..set()
         },
@@ -245,6 +247,7 @@ async fn edits_settings_and_refuses_bad_ones() {
 fn set() -> EditSettingsSet {
     EditSettingsSet {
         model: None,
+        effort: None,
         reflect_every: None,
         allow_net: None,
         endpoints: None,

@@ -8,7 +8,7 @@ use bevy_fynix::{ViewExt, keyed};
 use hamlet_client::realm::{
     Account, Bylaws, LivesIn, MAYOR, Mayor, Settings, address_of,
 };
-use hamlet_protocol::client as protocol;
+use hamlet_protocol::{Effort, client as protocol};
 
 use super::{Shelf, edit};
 use crate::icons::Glyph;
@@ -139,6 +139,80 @@ fn pin(world: &mut World, agent: Entity, model: &str) {
     });
 }
 
+/// Sets how hard `agent`'s model thinks; the settings' effort when
+/// `None`.
+fn think(world: &mut World, agent: Entity, effort: Option<Effort>) {
+    let Some(address) = address_of(world, agent) else {
+        return;
+    };
+    let key = if world.get::<Mayor>(agent).is_some() {
+        MAYOR.into()
+    } else {
+        address.agent
+    };
+    edit(world, |id| {
+        protocol::Edit::Limits(protocol::EditLimits::Set {
+            id,
+            hamlet: address.hamlet,
+            reason: None,
+            set: protocol::LimitsEdit {
+                section: "efforts".into(),
+                key,
+                value: serde_json::to_value(effort)
+                    .expect("an effort is plain text"),
+            },
+        })
+    });
+}
+
+/// The efforts an agent can be given, the first being the settings'.
+const AGENT_EFFORTS: [(Option<Effort>, &str); 6] = [
+    (None, "Settings' effort"),
+    (Some(Effort::Off), "Off"),
+    (Some(Effort::Minimal), "Minimal"),
+    (Some(Effort::Low), "Low"),
+    (Some(Effort::Medium), "Medium"),
+    (Some(Effort::High), "High"),
+];
+
+fn effort_chooser(agent: Entity) -> impl View {
+    let own = bevy_fynix::derived(move |world: &World| {
+        let key = address_of(world, agent).map(|address| {
+            if world.get::<Mayor>(agent).is_some() {
+                MAYOR.to_string()
+            } else {
+                address.agent
+            }
+        });
+        let hamlet = world.get::<LivesIn>(agent)?.0;
+        let limits = &world.get::<Bylaws>(hamlet)?.0;
+        Some(limits.efforts.get(&key?).copied())
+    })
+    .when(either(agents_moved(), hamlets_moved()));
+    keyed(own, move |own| {
+        let was = own.flatten();
+        let at = AGENT_EFFORTS
+            .iter()
+            .position(|(effort, _)| *effort == was)
+            .unwrap_or_default();
+        dropdown(
+            AGENT_EFFORTS.map(|(_, name)| name),
+            at,
+            Glyph::Chevron.image(crate::looks::ICON),
+            move |world, chosen| {
+                let (effort, _) = AGENT_EFFORTS[chosen];
+                if effort != was {
+                    think(world, agent, effort);
+                }
+            },
+        )
+        .width(percent(100.0))
+        .max_width(percent(100.0))
+        .boxed()
+    })
+    .within(bare())
+}
+
 pub(crate) fn of_agent(agent: Entity) -> impl View {
     built(move |cx| {
         if cx.world.get::<LivesIn>(agent).is_none() {
@@ -156,6 +230,8 @@ pub(crate) fn of_agent(agent: Entity) -> impl View {
                 },
                 move |world, model| pin(world, agent, model),
             ),
+            section("Thinking effort"),
+            effort_chooser(agent),
         )))
     })
 }
