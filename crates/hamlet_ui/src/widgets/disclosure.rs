@@ -1,6 +1,7 @@
 //! The disclosure: a part of a page whose body folds away under its
 //! header, which shows a chevron and the part's name.
 
+use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::math::Rot2;
 use bevy::ui::{AlignItems, UiTransform, percent};
@@ -8,7 +9,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, menu_item, row,
 };
-use bevy_fynix::{Signal, ViewExt, keyed};
+use bevy_fynix::{ViewExt, keyed, resource};
 
 use crate::icons::{Glyph, glyph};
 use crate::looks::section;
@@ -18,43 +19,49 @@ use crate::{AnyView, Cx, View};
 const CHEVRON: f32 = 12.0;
 
 /// A part named `title` whose body, built by `body`, shows while
-/// `open` holds. Its header spans the page; a press on it runs
-/// `toggle`, and `open` follows what that writes.
-pub fn disclosure(
+/// `open` reads true of `R`. Its header spans the page and stays as
+/// it is; a press on it runs `toggle`, and the chevron and the body
+/// follow what that writes.
+pub fn disclosure<R: Resource>(
     title: &'static str,
-    open: Signal<bool>,
+    open: fn(&R) -> bool,
     toggle: fn(&mut World),
     body: fn() -> AnyView,
 ) -> impl View {
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.gap;
-        let part = keyed(open, move |&open| {
-            // The chevron points up as drawn: right while shut, down
-            // while open.
-            let turn = if open { 180.0 } else { 90.0 };
-            let head = menu_item(
-                row((
-                    glyph(Glyph::Chevron, CHEVRON)
-                        .tone(Tone::Faint)
-                        .tagged(UiTransform::from_rotation(
+        let chevron = AnyView::new(move |cx: &mut Cx| {
+            let node = cx.build(
+                glyph(Glyph::Chevron, CHEVRON).tone(Tone::Faint),
+            );
+            // It points up as drawn: right while shut, down while
+            // open. Turned in place, so the header is never built
+            // again.
+            cx.effect(
+                node,
+                resource::<R, _>(open).into(),
+                |world, node, &open| {
+                    let turn = if open { 180.0 } else { 90.0 };
+                    if let Ok(mut entity) = world.get_entity_mut(node)
+                    {
+                        entity.insert(UiTransform::from_rotation(
                             Rot2::degrees(turn),
-                        )),
-                    section(title),
-                ))
+                        ));
+                    }
+                },
+            );
+            node
+        });
+        let head = menu_item(
+            row((chevron, section(title)))
                 .gap(gap)
                 .align(AlignItems::Center),
-            )
-            .on_activate(toggle);
-            if open {
-                column((head, body()))
-                    .gap(gap)
-                    .width(percent(100.0))
-                    .boxed()
-            } else {
-                head.boxed()
-            }
+        )
+        .on_activate(toggle);
+        let shown = keyed(resource::<R, _>(open), move |&open| {
+            if open { body() } else { column(()).boxed() }
         })
         .within(column(()).width(percent(100.0)));
-        cx.build(part)
+        cx.build(column((head, shown)).gap(gap).width(percent(100.0)))
     })
 }

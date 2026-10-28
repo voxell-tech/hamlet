@@ -237,7 +237,7 @@ pub(super) fn page() -> impl View {
         field("North", north()),
         disclosure(
             "Fog",
-            resource::<FogOpen, _>(|open| open.0),
+            |open: &FogOpen| open.0,
             |world| {
                 let mut open = world.resource_mut::<FogOpen>();
                 open.0 = !open.0;
