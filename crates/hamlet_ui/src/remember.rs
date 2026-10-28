@@ -1,5 +1,5 @@
-//! The view kept between launches: the places of the panels, the
-//! choices of the View menu, and the selection.
+//! The view kept between launches: the desks, the choices of the
+//! View menu, and the selection.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -16,10 +16,6 @@ use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
-use bevy_fynix::dock::{
-    DockAreaStyle, DockLeaf, DockNode, DockRegistry, DockSplit,
-    DockTree, NodeId, SplitAxis,
-};
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{AgentNumber, HamletId, Left};
 use hamlet_desktop::awake::KeepAwake;
@@ -33,8 +29,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::PanelSystems;
 use crate::convo::Convo;
+use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
-use crate::theme::HamletTheme;
 use crate::world_view::{NorthTarget, TimeOfDay};
 
 /// Seconds a change waits before it is written, so that dragging a
@@ -55,7 +51,7 @@ pub(crate) fn plugin(app: &mut App) {
                 .run_if(|pending: Res<Pending>| pending.is_seeking())
                 .in_set(PanelSystems::Follow),
         )
-        // After fynix has moved the dock.
+        // After the desk has taken in what fynix moved in the dock.
         .add_systems(
             Update,
             (
@@ -65,32 +61,9 @@ pub(crate) fn plugin(app: &mut App) {
                 ),
                 keep,
             )
-                .chain(),
+                .chain()
+                .after(desk::capture),
         );
-}
-
-/// One node of the dock, with its children named by their place in
-/// the list.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-enum Part {
-    Tabs {
-        area: String,
-        tabs: Vec<String>,
-        /// The place of the tab in front.
-        front: usize,
-        headless: bool,
-        /// It stays when its last tab is closed.
-        kept: bool,
-    },
-    Split {
-        /// `a` is above `b`. Beside it otherwise.
-        stacked: bool,
-        /// The share of the split that `a` takes.
-        share: f32,
-        a: usize,
-        b: usize,
-    },
 }
 
 /// What a switch kept before it existed reads as.
@@ -111,7 +84,7 @@ where
         .unwrap_or_default())
 }
 
-/// The kept view. The first part of `dock` is its root.
+/// The kept view.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct View {
     sky: TimeOfDay,
@@ -134,7 +107,11 @@ pub struct View {
     /// Degrees the sun's path is turned.
     #[serde(default)]
     north: f32,
+    /// The one dock kept before there were desks, read into the
+    /// first.
+    #[serde(default, skip_serializing)]
     dock: Vec<Part>,
+    desks: Option<Desks>,
     /// The selection when the window closed.
     selected: Option<Chosen>,
 }
@@ -301,168 +278,10 @@ fn file(view: &Path) -> PathBuf {
     view.join("view.toml")
 }
 
-/// Writes the node `id` and all under it to `parts`, and gives its
-/// place there.
-fn note(
-    tree: &DockTree,
-    id: NodeId,
-    parts: &mut Vec<Part>,
-) -> Option<usize> {
-    let at = parts.len();
-    match tree.get(id)? {
-        DockNode::Leaf(leaf) => {
-            let front = leaf
-                .active
-                .and_then(|tab| leaf.tab_index(tab))
-                .unwrap_or_default();
-            parts.push(Part::Tabs {
-                area: leaf.area_id.clone(),
-                tabs: leaf
-                    .tabs()
-                    .map(|(window, _)| window.to_string())
-                    .collect(),
-                front,
-                headless: leaf.style == DockAreaStyle::Headless,
-                kept: leaf.is_persistent(),
-            });
-        }
-        DockNode::Split(split) => {
-            let (stacked, share) =
-                (split.axis == SplitAxis::Vertical, split.fraction);
-            let (first, second) = (split.a, split.b);
-            // Held open until its children have their places.
-            parts.push(Part::Split {
-                stacked,
-                share,
-                a: 0,
-                b: 0,
-            });
-            let a = note(tree, first, parts)?;
-            let b = note(tree, second, parts)?;
-            parts[at] = Part::Split {
-                stacked,
-                share,
-                a,
-                b,
-            };
-        }
-    }
-    Some(at)
-}
-
-fn noted(tree: &DockTree) -> Vec<Part> {
-    let mut parts = Vec::new();
-    match tree.root.and_then(|root| note(tree, root, &mut parts)) {
-        Some(_) => parts,
-        None => Vec::new(),
-    }
-}
-
-/// Builds the part at `at` into `tree`. A tab whose panel is not
-/// `known` is left out, a tab bar left empty is dropped, and a split
-/// that loses a side becomes its other side. `depth` stops a list
-/// that names itself.
-fn build(
-    parts: &[Part],
-    at: usize,
-    depth: usize,
-    known: &impl Fn(&str) -> bool,
-    tree: &mut DockTree,
-) -> Option<NodeId> {
-    if depth > parts.len() {
-        return None;
-    }
-    match parts.get(at)? {
-        Part::Tabs {
-            area,
-            tabs,
-            front,
-            headless,
-            kept,
-        } => {
-            let front = tabs.get(*front).filter(|tab| known(tab));
-            let open = tabs
-                .iter()
-                .filter(|tab| known(tab))
-                .cloned()
-                .collect::<Vec<_>>();
-            if open.is_empty() && !kept {
-                return None;
-            }
-            let shown = front
-                .and_then(|tab| open.iter().position(|t| t == tab))
-                .unwrap_or_default();
-            let style = if *headless {
-                DockAreaStyle::Headless
-            } else {
-                DockAreaStyle::TabBar
-            };
-            let mut leaf =
-                DockLeaf::new(area.clone(), style).with_windows(open);
-            if *kept {
-                leaf = leaf.persistent();
-            }
-            let id = tree.insert(DockNode::Leaf(leaf));
-            let tab = tree
-                .leaf(id)
-                .and_then(|leaf| leaf.tabs().nth(shown))
-                .map(|(_, tab)| tab);
-            if let Some(tab) = tab {
-                tree.set_active(id, tab);
-            }
-            Some(id)
-        }
-        Part::Split {
-            stacked,
-            share,
-            a,
-            b,
-        } => {
-            let first = build(parts, *a, depth + 1, known, tree);
-            let second = build(parts, *b, depth + 1, known, tree);
-            let (Some(a), Some(b)) = (first, second) else {
-                return first.or(second);
-            };
-            let axis = if *stacked {
-                SplitAxis::Vertical
-            } else {
-                SplitAxis::Horizontal
-            };
-            let id = tree.insert(DockNode::Split(DockSplit {
-                axis,
-                fraction: 0.5,
-                a,
-                b,
-            }));
-            tree.set_fraction(id, *share);
-            Some(id)
-        }
-    }
-}
-
-/// The dock that `parts` describe, or nothing if they describe none.
-fn rebuilt(
-    parts: &[Part],
-    known: &impl Fn(&str) -> bool,
-) -> Option<DockTree> {
-    let mut tree = DockTree::new();
-    let root = build(parts, 0, 0, known, &mut tree)?;
-    tree.root = Some(root);
-    Some(tree)
-}
-
-/// Whether a kept dock was put back.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Restored {
-    Dock,
-    /// None was kept, or the one kept cannot be built again.
-    NoDock,
-}
-
-/// Puts back the kept View choices and the kept dock.
-pub fn restore(world: &mut World) -> Restored {
+/// Puts back the kept View choices and the kept desks.
+pub fn restore(world: &mut World) {
     let Some(view) = world.resource::<Remembered>().0.clone() else {
-        return Restored::NoDock;
+        return;
     };
     *world.resource_mut::<TimeOfDay>() = view.sky;
     let mut sound = world.resource_mut::<SoundSettings>();
@@ -484,13 +303,11 @@ pub fn restore(world: &mut World) -> Restored {
         chosen: view.selected.clone(),
         began: None,
     });
-    let registry = world.resource::<DockRegistry<HamletTheme>>();
-    let known = |id: &str| registry.get(id).is_some();
-    let Some(tree) = rebuilt(&view.dock, &known) else {
-        return Restored::NoDock;
+    let desks = match view.desks {
+        Some(desks) => desks.cleaned(),
+        None => Desks::first(view.dock),
     };
-    *world.resource_mut::<DockTree>() = tree;
-    Restored::Dock
+    world.insert_resource(desks);
 }
 
 /// The selection, by the names it is kept under.
@@ -516,7 +333,7 @@ pub(crate) fn note_selected(
 pub fn keep(
     time: Res<Time>,
     folder: Res<ViewFolder>,
-    tree: Res<DockTree>,
+    desks: Res<Desks>,
     sky: Res<TimeOfDay>,
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
@@ -534,7 +351,7 @@ pub fn keep(
     mut due: Local<Option<f32>>,
 ) {
     let now = time.elapsed_secs();
-    if tree.is_changed()
+    if desks.is_changed()
         || kept.is_changed()
         || sky.is_changed()
         || sound.is_changed()
@@ -564,7 +381,8 @@ pub fn keep(
         volumetric_fog: fog.clone(),
         distance_fog: far.clone(),
         north: north.0,
-        dock: noted(&tree),
+        dock: Vec::new(),
+        desks: Some(desks.clone()),
         selected: kept.0.clone(),
     };
     if written.as_ref() == Some(&view) {
@@ -580,9 +398,12 @@ pub fn keep(
 
 #[cfg(test)]
 mod tests {
-    use bevy_fynix::dock::Edge;
+    use bevy_fynix::dock::{
+        DockAreaStyle, DockLeaf, DockRegistry, DockTree, Edge,
+    };
 
     use super::*;
+    use crate::theme::HamletTheme;
 
     fn dock() -> DockTree {
         let mut tree = DockTree::new();
@@ -599,6 +420,29 @@ mod tests {
         tree.add_tab(side, "skills");
         tree.set_active(side, agent);
         tree
+    }
+
+    fn view(desks: Option<Desks>) -> View {
+        View {
+            sky: TimeOfDay::At(18.5),
+            sound_on: false,
+            music_on: false,
+            wildlife_on: false,
+            ambience_on: true,
+            sound_level: 0.5,
+            music_level: 0.25,
+            keep_awake: false,
+            quality: Quality::Medium,
+            volumetric_fog: VolumetricFogSettings {
+                visibility: 400.0,
+                ..VolumetricFogSettings::default()
+            },
+            distance_fog: DistanceFogSettings { distance: 1200.0 },
+            north: 45.0,
+            dock: Vec::new(),
+            desks,
+            selected: Some(Chosen::House("juniper".into())),
+        }
     }
 
     #[test]
@@ -626,6 +470,9 @@ mod tests {
                 .init_resource::<NorthTarget>()
                 .init_resource::<KeepAwake>()
                 .init_resource::<DockRegistry<HamletTheme>>()
+                .init_resource::<Desks>()
+                .init_resource::<desk::Shown>()
+                .add_systems(Update, desk::capture)
                 .add_plugins(plugin);
             for name in ["world", "needs", "agent", "skills"] {
                 app.world_mut()
@@ -640,8 +487,10 @@ mod tests {
             app
         };
         let mut app = make();
+        app.world_mut().run_system_cached(desk::show).unwrap();
         app.update();
         *app.world_mut().resource_mut::<DockTree>() = dock();
+        app.world_mut().resource_mut::<Desks>().add();
         *app.world_mut().resource_mut::<TimeOfDay>() =
             TimeOfDay::Night;
         app.world_mut().resource_mut::<SoundSettings>().music_on =
@@ -661,7 +510,7 @@ mod tests {
         relaunched.insert_resource(
             Remembered::read(&dir.join("view")).unwrap(),
         );
-        assert_eq!(restore(relaunched.world_mut()), Restored::Dock);
+        restore(relaunched.world_mut());
         assert_eq!(
             *relaunched.world().resource::<TimeOfDay>(),
             TimeOfDay::Night
@@ -674,6 +523,15 @@ mod tests {
             Quality::Medium
         );
         assert!(!relaunched.world().resource::<KeepAwake>().0);
+        let mut desks =
+            relaunched.world_mut().resource_mut::<Desks>();
+        assert_eq!(desks.list().len(), 2);
+        assert_eq!(desks.shown(), 1);
+        desks.show(0);
+        relaunched
+            .world_mut()
+            .run_system_cached(desk::show)
+            .unwrap();
         let tree = relaunched.world().resource::<DockTree>();
         let needs = tree.find_leaf_with_window("needs").unwrap();
         assert_eq!(
@@ -741,37 +599,38 @@ mod tests {
     }
 
     #[test]
-    fn a_dock_comes_back_as_it_was_written() {
-        let view = View {
-            sky: TimeOfDay::At(18.5),
-            sound_on: false,
-            music_on: false,
-            wildlife_on: false,
-            ambience_on: true,
-            sound_level: 0.5,
-            music_level: 0.25,
-            keep_awake: false,
-            quality: Quality::Medium,
-            volumetric_fog: VolumetricFogSettings {
-                visibility: 400.0,
-                ..VolumetricFogSettings::default()
-            },
-            distance_fog: DistanceFogSettings { distance: 1200.0 },
-            north: 45.0,
-            dock: noted(&dock()),
-            selected: Some(Chosen::House("juniper".into())),
-        };
+    fn desks_come_back_as_they_were_written() {
+        let mut desks = Desks::first(desk::noted(&dock()));
+        desks.duplicate(0);
+        desks.rename(1, "Night shift");
+        let view = view(Some(desks));
         let text = toml::to_string(&view).unwrap();
-        let read = toml::from_str::<View>(&text).unwrap();
-        assert_eq!(read, view);
+        assert_eq!(toml::from_str::<View>(&text).unwrap(), view);
+    }
 
-        let tree = rebuilt(&read.dock, &|_| true).unwrap();
-        assert_eq!(noted(&tree), view.dock);
-        let side = tree.find_leaf_with_window("agent").unwrap();
-        let front = tree.active(side).unwrap();
-        let leaf = tree.leaf(side).unwrap();
-        assert_eq!(leaf.tabs().count(), 2);
-        assert_eq!(leaf.tab_index(front), Some(0));
+    #[test]
+    fn the_dock_kept_before_desks_is_read_into_the_first() {
+        #[derive(Serialize)]
+        struct Before {
+            dock: Vec<Part>,
+        }
+
+        let parts = desk::noted(&dock());
+        let text = toml::to_string(&view(None)).unwrap()
+            + &toml::to_string(&Before {
+                dock: parts.clone(),
+            })
+            .unwrap();
+        let mut world = World::new();
+        world.insert_resource(Remembered(Some(
+            toml::from_str::<View>(&text).unwrap(),
+        )));
+        world.init_resource::<TimeOfDay>();
+        world.init_resource::<SoundSettings>();
+        world.init_resource::<KeepAwake>();
+        world.init_resource::<Quality>();
+        restore(&mut world);
+        assert_eq!(*world.resource::<Desks>(), Desks::first(parts));
     }
 
     #[test]
@@ -794,29 +653,5 @@ mod tests {
             std::fs::read_to_string(file(&dir)).unwrap(),
             text
         );
-    }
-
-    #[test]
-    fn a_panel_that_is_gone_is_left_out() {
-        let parts = noted(&dock());
-        let tree =
-            rebuilt(&parts, &|id| id != "needs" && id != "agent")
-                .unwrap();
-        assert!(tree.find_leaf_with_window("needs").is_none());
-        let side = tree.find_leaf_with_window("skills").unwrap();
-        assert_eq!(tree.leaf(side).unwrap().tabs().count(), 1);
-        assert!(tree.find_leaf_with_window("world").is_some());
-        assert!(rebuilt(&parts, &|_| false).is_none());
-    }
-
-    #[test]
-    fn a_list_that_names_itself_builds_nothing() {
-        let parts = vec![Part::Split {
-            stacked: false,
-            share: 0.5,
-            a: 0,
-            b: 0,
-        }];
-        assert!(rebuilt(&parts, &|_| true).is_none());
     }
 }
