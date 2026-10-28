@@ -125,6 +125,10 @@ choice from the models the chief allows the hamlet, else the hamlet's own
 model, else the home's default. Each choice is kept in the record with its
 reason.
 
+**H29a.** How hard an agent's model thinks (off, minimal, low, medium or
+high) is the chief's `efforts` limit for it, else the home's `effort`
+setting, else the model's own default. Models that cannot think ignore it.
+
 ## Roads and letters
 
 **H3.** Every agent has a road to the mayor's office for as long as it lives

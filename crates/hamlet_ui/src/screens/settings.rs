@@ -25,7 +25,7 @@ use hamlet_client::realm::{
 };
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
-use hamlet_protocol::client as protocol;
+use hamlet_protocol::{Effort, client as protocol};
 use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 
@@ -205,6 +205,16 @@ fn not_enforced() -> AnyView {
     .boxed()
 }
 
+/// The thinking efforts a chief can choose, with the words for them.
+pub(crate) const EFFORTS: [(Option<Effort>, &str); 6] = [
+    (None, "Model's own"),
+    (Some(Effort::Off), "Off"),
+    (Some(Effort::Minimal), "Minimal"),
+    (Some(Effort::Low), "Low"),
+    (Some(Effort::Medium), "Medium"),
+    (Some(Effort::High), "High"),
+];
+
 /// The settings of agents. Each applies when changed.
 fn agents() -> impl View {
     parts((
@@ -223,6 +233,37 @@ fn agents() -> impl View {
                 .width(px(90.0))
                 .rules(well),
                 note("0 means never."),
+            ),
+        ),
+        field(
+            "Thinking effort",
+            told(
+                built(|cx| {
+                    cx.build(
+                        dropdown(
+                            EFFORTS.map(|(_, name)| name),
+                            resource::<Settings, _>(|s| {
+                                EFFORTS
+                                    .iter()
+                                    .position(|(effort, _)| {
+                                        *effort == s.0.effort
+                                    })
+                                    .unwrap_or_default()
+                            }),
+                            Glyph::Chevron.image(ICON),
+                            |world, at| {
+                                save(world, |set| {
+                                    set.effort = Some(EFFORTS[at].0);
+                                });
+                            },
+                        )
+                        .width(px(160.0)),
+                    )
+                }),
+                note(
+                    "How hard models think by default; an agent's \
+                     own choice wins.",
+                ),
             ),
         ),
         field(
@@ -522,6 +563,7 @@ fn save(
     let mut set = protocol::EditSettingsSet {
         model: None,
         endpoints: None,
+        effort: None,
         reflect_every: None,
         allow_net: None,
         workspace: None,

@@ -68,6 +68,18 @@ export function allowedStreams(
     };
 }
 
+/** `options` asking for the thinking level `effort`, which the server chose; none for `off`, the model's own for no effort. */
+function withEffort<O extends StreamOptions>(
+    options: O,
+    effort: Selection["effort"],
+): O {
+    if (effort === undefined) return options;
+    const { reasoning: _own, ...rest } = options as O & {
+        reasoning?: unknown;
+    };
+    return (effort === "off" ? rest : { ...rest, reasoning: effort }) as O;
+}
+
 function allowed<O extends StreamOptions>(
     stream: StreamFunction<Api, O>,
     gate: Gate,
@@ -156,7 +168,7 @@ function allowed<O extends StreamOptions>(
                 options === undefined
                     ? options
                     : {
-                          ...options,
+                          ...withEffort(options, permit.selection?.effort),
                           ...(permit.apiKey === undefined
                               ? {}
                               : { apiKey: permit.apiKey }),

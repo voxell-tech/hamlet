@@ -387,6 +387,7 @@ async fn edits_settings_as_whole_json_without_credentials() {
             "model": "faux::faux-1",
             "reflectEvery": 0,
             "allowNet": false,
+            "effort": null,
             "endpoints": [
                 {"name": "local", "baseUrl": "http://localhost:11434/v1"}
             ],

@@ -86,6 +86,7 @@ fn save(world: &mut World) {
                 workspace: Some(workspace),
                 model: None,
                 endpoints: None,
+                effort: None,
                 reflect_every: None,
                 allow_net: None,
             },

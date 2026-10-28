@@ -148,6 +148,7 @@ impl Service {
         let edits = set.model.is_some()
             || set.reflect_every.is_some()
             || set.allow_net.is_some()
+            || set.effort.is_some()
             || set.endpoints.is_some();
         if edits || workspace.is_none() {
             let db = self.db();
@@ -160,6 +161,9 @@ impl Service {
             }
             if let Some(net) = set.allow_net {
                 settings.allow_net = net;
+            }
+            if let Some(effort) = set.effort {
+                settings.effort = effort;
             }
             if let Some(endpoints) = &set.endpoints {
                 settings.endpoints = endpoints

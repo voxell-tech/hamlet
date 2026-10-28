@@ -53,6 +53,11 @@ pub struct Selection {
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "u64", range(min = 1))]
     pub context_window: Option<u64>,
+    /// How hard the model thinks; its own default when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::runtime::present")]
+    #[schemars(with = "crate::Effort")]
+    pub effort: Option<crate::Effort>,
     #[serde(rename = "maxTokens")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]

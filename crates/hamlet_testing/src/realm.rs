@@ -15,7 +15,7 @@ pub fn state() -> protocol::State {
         "hamlets": [hamlet("home")], "agents": [agent("home", 0, "founder")],
         "waits": [], "grants": [], "providers": [],
         "settings": {
-            "model": "faux::faux-1", "reflectEvery": 0, "allowNet": false,
+            "model": "faux::faux-1", "reflectEvery": 0, "allowNet": false, "effort": null,
             "endpoints": [], "unset": false,
             "link": {"state": "untested", "models": null, "words": null},
             "workspace": {"url": null, "running": null}
@@ -47,7 +47,7 @@ pub fn hamlet(id: &str) -> protocol::Hamlet {
             "budget": {"period": "day", "cost": 5, "minutes": null, "tokens": null},
             "task": {"messages": 12, "cost": 1, "minutes": null, "tokens": null},
             "road": {"tokens": 0, "cost": 0.01, "minutes": 0, "growsOverDays": 7},
-            "mostAgents": 12, "mostRoads": 24, "models": [], "model": null, "pinned": {},
+            "mostAgents": 12, "mostRoads": 24, "models": [], "model": null, "pinned": {}, "efforts": {},
             "mayor": {"createAgents": true, "buildRoads": true, "removeAgents": true, "mergeAgents": true, "toldDays": 7},
             "leaving": {"protectedMinutes": 0, "mergedNotes": 6000},
             "asking": {"mayorReview": "remote", "questions": 3, "refusals": 3},
