@@ -33,8 +33,10 @@ Every icon is drawn in a square of 16 units from a short list of `Shape`s.
 
 An icon goes before a word that names an action or a state, where it lets
 the eye find the word sooner. It does not go on every row of a form, on
-the answers of a dialog, or in place of a word the chief reads. Only the
-status bar drops a word for an icon, and there the icon has a tooltip.
+the answers of a dialog, or in place of a word the chief reads. Two places
+drop a word for an icon, and there the icon has a tooltip that names it:
+the status bar, and a tight stack of sliders for one thing's look, such
+as the volumetric fog on the Sight page of Settings.
 
 The states use the same four everywhere: `Moon` at rest, `Bolt` at work,
 `Bell` waiting for the chief, `Gone` removed.

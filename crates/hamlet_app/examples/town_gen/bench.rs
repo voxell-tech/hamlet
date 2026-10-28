@@ -15,7 +15,7 @@ use hamlet_realm::generator::society::Society;
 use hamlet_realm::generator::{
     GeneratorOptions, GeneratorView, Tally, Trips,
 };
-use hamlet_realm::sky::{FogSettings, SkySettings};
+use hamlet_realm::sky::{SkySettings, VolumetricFogSettings};
 use hamlet_realm::{Clock, Hour, Stage};
 
 use crate::made_up::{effects, society};
@@ -92,7 +92,7 @@ pub fn run_bench(
     mut traffic: ResMut<Trips>,
     mut options: ResMut<GeneratorOptions>,
     mut sky_set: ResMut<SkySettings>,
-    mut fog_set: ResMut<FogSettings>,
+    mut fog_set: ResMut<VolumetricFogSettings>,
     mut hour: ResMut<Hour>,
     mut exit: MessageWriter<AppExit>,
 ) {

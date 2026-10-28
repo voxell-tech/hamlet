@@ -12,7 +12,7 @@ use super::shift::Folded;
 use super::society::Society;
 use super::sync::Drawn;
 use super::work::Robot;
-use crate::sky::{CameraSettings, FogSettings, Sun};
+use crate::sky::{CameraSettings, DistanceFogSettings, Sun};
 use crate::{Clock, Stage, WorldCamera};
 
 /// The camera's view.
@@ -74,7 +74,7 @@ impl GeneratorView {
         &self,
         land: &Land,
         settings: &CameraSettings,
-        fog: Option<&FogSettings>,
+        fog: Option<&DistanceFogSettings>,
         detail: &DetailSettings,
     ) -> Sight {
         let (eye, _) = self.eye(land);
@@ -162,7 +162,7 @@ pub(super) fn robot_detail(
 /// nearer than the chief set it.
 fn fog_end(
     settings: &CameraSettings,
-    fog: Option<&FogSettings>,
+    fog: Option<&DistanceFogSettings>,
     dist: f32,
 ) -> f32 {
     let zoomed = dist * settings.fog_end.0 + settings.fog_end.1;
@@ -202,7 +202,10 @@ fn shadowed(
 pub(super) fn aim(
     mut commands: Commands,
     stage: Res<Stage>,
-    (settings, fog_set): (Res<CameraSettings>, Res<FogSettings>),
+    (settings, fog_set): (
+        Res<CameraSettings>,
+        Res<DistanceFogSettings>,
+    ),
     view: Res<GeneratorView>,
     land: Res<Land>,
     time: Res<Time>,

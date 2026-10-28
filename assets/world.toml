@@ -68,10 +68,10 @@ candle = 0.75
 wash = 0.2
 inlay_gain = 1.6
 
-[fog]
+[volumetric_fog]
 on = true
 visibility = 1500.0
-distance = 800.0
+height = 40.0
 strength = 0.7
 high_sun = 0.25
 glow = 0.7
@@ -79,6 +79,9 @@ scattering = 0.6
 absorption = 0.02
 ambient = 0.0
 steps = 64
+
+[distance_fog]
+distance = 800.0
 
 [camera]
 fov = 25.0

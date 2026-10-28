@@ -15,7 +15,7 @@ use crate::generator::ground::{self, Recipe, Sight, Stand};
 use crate::generator::land::{Land, LandData};
 use crate::generator::view::Ahead;
 use crate::generator::{DetailSettings, Kit, Tally};
-use crate::sky::{CameraSettings, FogSettings};
+use crate::sky::{CameraSettings, DistanceFogSettings};
 
 /// The camera's sight of the ground: as far as the fog lets it.
 fn sight(
@@ -62,7 +62,7 @@ pub(in crate::generator) fn stream(
     ahead: Option<Res<Ahead>>,
     (lens, fog_set): (
         Option<Res<CameraSettings>>,
-        Option<Res<FogSettings>>,
+        Option<Res<DistanceFogSettings>>,
     ),
     camera: Query<
         (&Transform, &Projection, Option<&DistanceFog>),

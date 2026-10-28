@@ -56,7 +56,7 @@ const SHOTS: [Shot; 31] = [
     Shot {
         name: "icons",
         scene: Scene::Icons,
-        size: UVec2::new(1200, 560),
+        size: UVec2::new(1200, 760),
         scale: 1.0,
     },
     Shot {

@@ -24,7 +24,9 @@ use hamlet_client::ViewFolder;
 use hamlet_client::realm::{AgentNumber, HamletId, Left};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_realm::pick::{Selected, Thing, select};
-use hamlet_realm::sky::{FogSettings, Quality};
+use hamlet_realm::sky::{
+    DistanceFogSettings, Quality, VolumetricFogSettings,
+};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_realm::{North, chief};
 use serde::{Deserialize, Serialize};
@@ -96,14 +98,16 @@ fn on() -> bool {
     true
 }
 
-/// The kept fog, or `assets/world.toml`'s where it was kept in a
-/// shape the fog no longer has.
-fn kept_fog<'de, D: serde::Deserializer<'de>>(
-    kept: D,
-) -> Result<FogSettings, D::Error> {
+/// The kept settings, or `assets/world.toml`'s where they were kept
+/// in a shape they no longer have.
+fn kept_or_designed<'de, D, T>(kept: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
     Ok(toml::Value::deserialize(kept)
         .ok()
-        .and_then(|fog| fog.try_into().ok())
+        .and_then(|settings| settings.try_into().ok())
         .unwrap_or_default())
 }
 
@@ -121,10 +125,12 @@ pub struct View {
     music_level: f32,
     keep_awake: bool,
     quality: Quality,
-    /// The fog as the chief left it; `assets/world.toml`'s before
-    /// it was kept.
-    #[serde(default, deserialize_with = "kept_fog")]
-    fog: FogSettings,
+    /// The fogs as the chief left them; `assets/world.toml`'s before
+    /// they were kept.
+    #[serde(default, deserialize_with = "kept_or_designed")]
+    volumetric_fog: VolumetricFogSettings,
+    #[serde(default, deserialize_with = "kept_or_designed")]
+    distance_fog: DistanceFogSettings,
     /// Degrees the sun's path is turned.
     #[serde(default)]
     north: f32,
@@ -468,7 +474,8 @@ pub fn restore(world: &mut World) -> Restored {
     sound.music_level = view.music_level.clamp(0.0, 1.0);
     world.resource_mut::<KeepAwake>().0 = view.keep_awake;
     *world.resource_mut::<Quality>() = view.quality;
-    world.insert_resource(view.fog);
+    world.insert_resource(view.volumetric_fog);
+    world.insert_resource(view.distance_fog);
     // North starts where it was left, without a glide.
     let north = view.north.rem_euclid(360.0);
     world.insert_resource(NorthTarget(north));
@@ -514,11 +521,14 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, fog, north): (
+    (pending, kept, north): (
         Res<Pending>,
         Res<Kept>,
-        Res<FogSettings>,
         Res<NorthTarget>,
+    ),
+    (fog, far): (
+        Res<VolumetricFogSettings>,
+        Res<DistanceFogSettings>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -531,6 +541,7 @@ pub fn keep(
         || quality.is_changed()
         || awake.is_changed()
         || fog.is_changed()
+        || far.is_changed()
         || north.is_changed()
     {
         *due = Some(now + SETTLE);
@@ -550,7 +561,8 @@ pub fn keep(
         music_level: sound.music_level,
         keep_awake: awake.0,
         quality: *quality,
-        fog: fog.clone(),
+        volumetric_fog: fog.clone(),
+        distance_fog: far.clone(),
         north: north.0,
         dock: noted(&tree),
         selected: kept.0.clone(),
@@ -608,7 +620,8 @@ mod tests {
                 .init_resource::<TimeOfDay>()
                 .init_resource::<SoundSettings>()
                 .init_resource::<Quality>()
-                .init_resource::<FogSettings>()
+                .init_resource::<VolumetricFogSettings>()
+                .init_resource::<DistanceFogSettings>()
                 .init_resource::<North>()
                 .init_resource::<NorthTarget>()
                 .init_resource::<KeepAwake>()
@@ -739,10 +752,11 @@ mod tests {
             music_level: 0.25,
             keep_awake: false,
             quality: Quality::Medium,
-            fog: FogSettings {
+            volumetric_fog: VolumetricFogSettings {
                 visibility: 400.0,
-                ..FogSettings::default()
+                ..VolumetricFogSettings::default()
             },
+            distance_fog: DistanceFogSettings { distance: 1200.0 },
             north: 45.0,
             dock: noted(&dock()),
             selected: Some(Chosen::House("juniper".into())),

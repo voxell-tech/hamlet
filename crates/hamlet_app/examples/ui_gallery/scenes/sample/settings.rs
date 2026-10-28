@@ -3,6 +3,10 @@
 use bevy::ecs::world::World;
 use hamlet_client::realm::Settings;
 use hamlet_protocol::client as protocol;
+use hamlet_realm::sky::{
+    DistanceFogSettings, SkySettings, VolumetricFogSettings,
+};
+use hamlet_realm::{North, Sky};
 use hamlet_ui::settings;
 
 use crate::scenes::Scene;
@@ -44,10 +48,11 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.insert_resource(settings::Pane::Workspace);
     }
     if scene == Scene::Sight {
-        world.init_resource::<hamlet_realm::sky::SkySettings>();
-        world.init_resource::<hamlet_realm::sky::FogSettings>();
-        world.init_resource::<hamlet_realm::Sky>();
-        world.insert_resource(hamlet_realm::North(30.0));
+        world.init_resource::<SkySettings>();
+        world.init_resource::<VolumetricFogSettings>();
+        world.init_resource::<DistanceFogSettings>();
+        world.init_resource::<Sky>();
+        world.insert_resource(North(30.0));
         world.insert_resource(settings::Pane::Sight);
     }
 }

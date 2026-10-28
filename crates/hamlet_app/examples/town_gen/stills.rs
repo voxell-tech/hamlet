@@ -311,6 +311,19 @@ fn shot_list(land: &Land) -> Vec<Shot> {
         hour: Some(18.7),
         ..default()
     });
+    // Pulled far back and looking down through the fog at dusk.
+    shots.push(Shot {
+        name: "l-high-dusk",
+        view: GeneratorView {
+            focus: hall,
+            dist: 400.0,
+            pitch: 42.0,
+            yaw: 0.42,
+        },
+        world: grown.clone(),
+        hour: Some(18.6),
+        ..default()
+    });
     // Toward the setting sun.
     for (name, hour) in [
         ("l-low-day", None),

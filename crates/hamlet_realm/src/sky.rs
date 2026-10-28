@@ -4,8 +4,12 @@
 use std::f32::consts::PI;
 
 use bevy::anti_alias::smaa::Smaa;
+use bevy::asset::RenderAssetUsages;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::image::{
+    ImageAddressMode, ImageSampler, ImageSamplerDescriptor,
+};
 use bevy::light::atmosphere::ScatteringMedium;
 use bevy::light::{
     Atmosphere, CascadeShadowConfig, DirectionalLightShadowMap,
@@ -14,6 +18,9 @@ use bevy::light::{
 use bevy::pbr::{AtmosphereSettings, ScreenSpaceAmbientOcclusion};
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
+use bevy::render::render_resource::{
+    Extent3d, TextureDimension, TextureFormat,
+};
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use chrono::Timelike;
 use hamlet_assets::tint;
@@ -30,7 +37,8 @@ pub fn plugin(app: &mut App) {
         .init_resource::<CameraSettings>()
         .init_resource::<Quality>()
         .init_resource::<SkySettings>()
-        .init_resource::<FogSettings>()
+        .init_resource::<VolumetricFogSettings>()
+        .init_resource::<DistanceFogSettings>()
         .init_resource::<Hour>()
         .init_resource::<North>()
         .init_state::<DayPart>()
@@ -46,7 +54,7 @@ pub fn plugin(app: &mut App) {
                         .run_if(resource_changed::<Sky>),
                     dim_fill.after(light).run_if(
                         |sky: Res<Sky>,
-                         fog: Res<FogSettings>,
+                         fog: Res<VolumetricFogSettings>,
                          quality: Res<Quality>| {
                             sky.is_changed()
                                 || fog.is_changed()
@@ -59,7 +67,7 @@ pub fn plugin(app: &mut App) {
                     (raise_fog, fit_fog)
                         .chain()
                         .run_if(
-                            |fog: Res<FogSettings>, quality: Res<Quality>| {
+                            |fog: Res<VolumetricFogSettings>, quality: Res<Quality>| {
                                 fog.is_changed() || quality.is_changed()
                             },
                         ),
@@ -240,21 +248,21 @@ impl SkySettings {
     serde::Deserialize,
 )]
 #[serde(deny_unknown_fields)]
-pub struct FogSettings {
+pub struct VolumetricFogSettings {
     /// False draws none.
     pub on: bool,
-    /// How far one sees through the fog: what lies this far away is
-    /// nearly hidden. It fills the air, with no top.
+    /// How far one sees through the fog at sea level: what lies this
+    /// far away is nearly hidden.
     pub visibility: f32,
+    /// The height over sea level in which the fog thins to about a
+    /// third. It has no top: it thins away, so a camera high above
+    /// looks down through little of it.
+    pub height: f32,
     /// How brightly its shafts take the key light under a low sun,
     /// and the share of that they keep under the highest sun. It
     /// does not thicken the fog.
     pub strength: f32,
     pub high_sun: f32,
-    /// How far away the distance fog, which hides the edge of what
-    /// is drawn whether this fog is on or not, is whole, at the
-    /// least. The ground is drawn as far, so further costs more.
-    pub distance: f32,
     /// How much of the light it throws on forward rather than every
     /// way, 0 to 1: the glow around the sun.
     pub glow: f32,
@@ -268,13 +276,37 @@ pub struct FogSettings {
     pub steps: u32,
 }
 
-impl FogSettings {
+impl VolumetricFogSettings {
     /// The engine's density for the visibility: light that far
     /// through it keeps a twentieth of itself.
     pub fn density(&self) -> f32 {
         let taken = (self.absorption + self.scattering).max(1e-3);
         20f32.ln() / (self.visibility.max(1.0) * taken)
     }
+
+    /// Its thickness `y` over sea level, as a share of its thickness
+    /// there.
+    pub fn thickness(&self, y: f32) -> f32 {
+        (-y.max(0.0) / self.height.max(0.1)).exp()
+    }
+}
+
+/// The distance fog, which hides the edge of what is drawn: plain,
+/// cheap and always on, unlike the volumetric fog.
+#[derive(
+    Resource,
+    Clone,
+    PartialEq,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct DistanceFogSettings {
+    /// How far away it is whole, at the least: pulled back further,
+    /// it is further. The ground is drawn as far, so further costs
+    /// more.
+    pub distance: f32,
 }
 
 /// The camera: its lens, where it starts and how far a hand may move
@@ -435,11 +467,13 @@ pub struct Sun;
 #[derive(Component)]
 pub(crate) struct FillLight;
 
-/// The volume of fog that shafts of light show in, and how strongly
-/// it takes the key light before its width is made up for.
+/// The volume of fog that shafts of light show in, how strongly it
+/// takes the key light before its width is made up for, and the foot,
+/// top and height its thinning was drawn for.
 #[derive(Component, Default)]
 pub(crate) struct WorldFog {
     light: f32,
+    drawn: Option<(f32, f32, f32)>,
 }
 
 /// The part of the day.
@@ -806,7 +840,7 @@ fn lowness(look: &Look, sky_set: &SkySettings) -> f32 {
 
 /// The steps taken through the volumetric fog, none when it is not
 /// drawn.
-fn fog_steps(set: &FogSettings, quality: Quality) -> u32 {
+fn fog_steps(set: &VolumetricFogSettings, quality: Quality) -> u32 {
     if set.on {
         (set.steps as f32 * quality.shafts()).round() as u32
     } else {
@@ -819,8 +853,9 @@ fn fog_steps(set: &FogSettings, quality: Quality) -> u32 {
 /// away.
 pub(crate) fn raise_fog(
     mut commands: Commands,
-    set: Res<FogSettings>,
+    set: Res<VolumetricFogSettings>,
     quality: Res<Quality>,
+    mut images: ResMut<Assets<Image>>,
     camera: Single<Entity, With<WorldCamera>>,
     sun: Single<Entity, With<Sun>>,
     fog: Query<Entity, With<WorldFog>>,
@@ -840,13 +875,66 @@ pub(crate) fn raise_fog(
     });
     commands.entity(*sun).try_insert(VolumetricLight);
     if fog.is_empty() {
-        commands.spawn((WorldFog::default(), FogVolume::default()));
+        commands.spawn((
+            WorldFog::default(),
+            FogVolume {
+                density_texture: Some(images.add(thinning())),
+                ..default()
+            },
+        ));
     }
 }
 
 /// How far the volumetric fog reaches below sea level and above the
 /// camera.
 const FOG_MARGIN: f32 = 50.0;
+
+/// Rows of the fog's thinning, from the foot of its volume to the
+/// top. Enough that a low fog in a tall volume still thins smoothly.
+const THINNING_ROWS: u32 = 256;
+
+/// A texture one texel wide and deep for how thick the fog is up its
+/// volume, to be filled by [`thin`].
+fn thinning() -> Image {
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: 1,
+            height: THINNING_ROWS,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D3,
+        &[255],
+        TextureFormat::R8Unorm,
+        RenderAssetUsages::RENDER_WORLD
+            | RenderAssetUsages::MAIN_WORLD,
+    );
+    image.sampler =
+        ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: ImageAddressMode::ClampToEdge,
+            address_mode_v: ImageAddressMode::ClampToEdge,
+            address_mode_w: ImageAddressMode::ClampToEdge,
+            ..ImageSamplerDescriptor::linear()
+        });
+    image
+}
+
+/// Fills `image`, made by [`thinning`], with how thick the fog is up
+/// a volume from `foot` to `top` over sea level.
+fn thin(
+    image: &mut Image,
+    set: &VolumetricFogSettings,
+    foot: f32,
+    top: f32,
+) {
+    let Some(rows) = image.data.as_mut() else {
+        return;
+    };
+    for (row, texel) in rows.iter_mut().enumerate() {
+        let up = (row as f32 + 0.5) / THINNING_ROWS as f32;
+        let y = foot + (top - foot) * up;
+        *texel = (set.thickness(y) * 255.0).round() as u8;
+    }
+}
 
 /// Dims the fill light as the key light sinks while the volumetric
 /// fog is drawn, and puts it out once it gives no light. The engine
@@ -857,7 +945,7 @@ const FOG_MARGIN: f32 = 50.0;
 pub(crate) fn dim_fill(
     sky: Res<Sky>,
     sky_set: Res<SkySettings>,
-    set: Res<FogSettings>,
+    set: Res<VolumetricFogSettings>,
     quality: Res<Quality>,
     mut fill: Single<
         (&mut DirectionalLight, &mut Visibility),
@@ -884,7 +972,7 @@ pub(crate) fn dim_fill(
 /// lower the sun, the more strongly the fog takes its light.
 pub(crate) fn fit_fog(
     sky: Res<Sky>,
-    set: Res<FogSettings>,
+    set: Res<VolumetricFogSettings>,
     sky_set: Res<SkySettings>,
     mut fog: Query<&mut VolumetricFog, With<WorldCamera>>,
     mut volumes: Query<(&mut WorldFog, &mut FogVolume)>,
@@ -905,22 +993,25 @@ pub(crate) fn fit_fog(
             scattering: set.scattering,
             scattering_asymmetry: set.glow,
             light_intensity: volume.light_intensity,
+            density_texture: volume.density_texture.clone(),
             ..default()
         };
     }
 }
 
 /// Keeps the volumetric fog about the camera as far as the sun's
-/// shadows reach, and lit as strongly however wide it is. Past the
-/// shadows the engine would light all of it, a bright wall with a
-/// hard edge.
+/// shadows reach, thinning up from sea level, and lit as strongly
+/// however wide it is. Past the shadows the engine would light all of
+/// it, a bright wall with a hard edge.
 pub(crate) fn lay_fog(
+    set: Res<VolumetricFogSettings>,
+    mut images: ResMut<Assets<Image>>,
     camera: Single<
         &Transform,
         (With<WorldCamera>, Without<WorldFog>),
     >,
     shadows: Query<&CascadeShadowConfig, With<Sun>>,
-    mut fog: Query<(&WorldFog, &mut Transform, &mut FogVolume)>,
+    mut fog: Query<(&mut WorldFog, &mut Transform, &mut FogVolume)>,
 ) {
     // The shadows end this far from the camera; see
     // `generator::view`, which sets them to the ground in view.
@@ -935,13 +1026,28 @@ pub(crate) fn lay_fog(
     let (foot, top) =
         (-FOG_MARGIN, camera.translation.y + FOG_MARGIN);
     let size = Vec3::new(across, top - foot, across);
-    for (fog, mut at, mut volume) in &mut fog {
+    for (mut fog, mut at, mut volume) in &mut fog {
         *at = Transform::from_xyz(
             camera.translation.x,
             (foot + top) * 0.5,
             camera.translation.z,
         )
         .with_scale(size);
+        // The thinning is drawn again only when the volume's height
+        // has moved by more than a row, or the fog's has changed.
+        let row = (top - foot) / THINNING_ROWS as f32;
+        let stale = fog.drawn.is_none_or(|(f, t, h)| {
+            (t - top).abs() > row || f != foot || h != set.height
+        });
+        if stale
+            && let Some(mut image) = volume
+                .density_texture
+                .as_ref()
+                .and_then(|handle| images.get_mut(handle))
+        {
+            thin(&mut image, &set, foot, top);
+            fog.drawn = Some((foot, top, set.height));
+        }
         // The engine dims the light in a volume as if it crossed the
         // whole of it, the radius of a ball about it, and this one is
         // as wide as the view. Making up for that lights it as a thin

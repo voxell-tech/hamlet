@@ -1,24 +1,29 @@
-//! The Sight page: how much the world draws, the hour its sky shows
-//! and the fog the sun throws shafts through.
+//! The Sight page: how much the world draws, the hour its sky shows,
+//! how far the distance fog lies and the volumetric fog the sun
+//! throws shafts through.
 
 use bevy::app::App;
+use bevy::ecs::component::Mutable;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent, px};
+use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    FrameProps, column, dropdown, label, row, slider,
+    FrameProps, TooltipExt, column, dropdown, label, row, slider,
 };
 use bevy_fynix::{
     ModifierExt, ViewExt, derived, every_frame, resource,
 };
-use hamlet_realm::sky::{FogSettings, Quality, SkySettings};
+use hamlet_realm::sky::{
+    DistanceFogSettings, Quality, SkySettings, VolumetricFogSettings,
+};
 use hamlet_realm::{North, Sky};
 
 use super::{field, told};
 use crate::dial::{Face, dial};
 use crate::disclosure::disclosure;
-use crate::icons::Glyph;
-use crate::looks::{action, close, description, parts};
+use crate::icons::{Glyph, glyph};
+use crate::looks::{action, close, description, note, parts};
 use crate::switch::labelled_switch;
 use crate::world_view::{NorthTarget, TimeOfDay};
 use crate::{View, built, with_cx};
@@ -29,7 +34,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<NorthTarget>();
 }
 
-/// True while the fog's settings are shown.
+/// True while the volumetric fog's settings are shown.
 #[derive(Resource, Default)]
 struct FogOpen(bool);
 
@@ -141,21 +146,27 @@ fn north() -> impl View {
     })
 }
 
-/// One of the fog's numbers: its name, a slider from `least` to
-/// `most` and the number itself.
-fn amount(
+/// The side of the icon that names a slider.
+const AMOUNT_ICON: f32 = 16.0;
+
+/// One number of `R`: an icon named by its tooltip, a slider from
+/// `least` to `most` and the number itself.
+fn amount<R: Resource<Mutability = Mutable>>(
+    which: Glyph,
     name: &'static str,
-    at: fn(&FogSettings) -> f32,
-    set: fn(&mut FogSettings, f32),
+    at: fn(&R) -> f32,
+    set: fn(&mut R, f32),
     (least, most): (f32, f32),
 ) -> impl View {
     with_cx(move |cx| {
         row((
-            label(name).wide(px(96.0)),
-            slider(resource::<FogSettings, _>(at))
+            glyph(which, AMOUNT_ICON)
+                .tone(Tone::Dim)
+                .tooltip(move || note(name)),
+            slider(resource::<R, _>(at))
                 .range(least, most)
                 .on_change(move |world, to| {
-                    set(&mut world.resource_mut::<FogSettings>(), to);
+                    set(&mut world.resource_mut::<R>(), to);
                 })
                 // From nothing, so it takes the room the row has
                 // rather than pushing the row past the page.
@@ -164,9 +175,9 @@ fn amount(
                 .grow(1.0),
             // As many places as the range needs: none for a
             // distance, three for a share.
-            label(resource::<FogSettings, _>(move |fog| {
+            label(resource::<R, _>(move |settings| {
                 let places = if most >= 100.0 { 0 } else { 3 };
-                format!("{:.*}", places, at(fog))
+                format!("{:.*}", places, at(settings))
             }))
             .wide(px(48.0)),
         ))
@@ -176,60 +187,74 @@ fn amount(
     })
 }
 
-/// The fog's switch, its numbers and the way back to the designed
-/// fog.
-fn fog() -> impl View {
+/// The volumetric fog's switch, its numbers and the way back to the
+/// designed fog.
+fn volumetric_fog() -> impl View {
+    type Fog = VolumetricFogSettings;
     close((
         labelled_switch(
-            "Fog",
-            resource::<FogSettings, _>(|fog| fog.on),
-            |world, on| world.resource_mut::<FogSettings>().on = on,
+            "On",
+            resource::<Fog, _>(|fog| fog.on),
+            |world, on| world.resource_mut::<Fog>().on = on,
         ),
-        amount(
+        amount::<Fog>(
+            Glyph::Eye,
             "Visibility",
             |f| f.visibility,
             |f, v| f.visibility = v,
             (100.0, 4000.0),
         ),
-        amount(
-            "Distance fog",
-            |f| f.distance,
-            |f, v| f.distance = v,
-            (200.0, 2000.0),
+        amount::<Fog>(
+            Glyph::Rise,
+            "Height",
+            |f| f.height,
+            |f, v| f.height = v,
+            (5.0, 200.0),
         ),
-        amount(
+        amount::<Fog>(
+            Glyph::Rays,
             "Light",
             |f| f.strength,
             |f, v| f.strength = v,
             (0.0, 6.0),
         ),
-        amount(
+        amount::<Fog>(
+            Glyph::Sun,
             "Light at noon",
             |f| f.high_sun,
             |f, v| f.high_sun = v,
             (0.0, 1.0),
         ),
-        amount("Glow", |f| f.glow, |f, v| f.glow = v, (0.0, 0.95)),
-        amount(
+        amount::<Fog>(
+            Glyph::Halo,
+            "Glow",
+            |f| f.glow,
+            |f, v| f.glow = v,
+            (0.0, 0.95),
+        ),
+        amount::<Fog>(
+            Glyph::Scatter,
             "Scattering",
             |f| f.scattering,
             |f, v| f.scattering = v,
             (0.0, 1.0),
         ),
-        amount(
+        amount::<Fog>(
+            Glyph::Drop,
             "Absorption",
             |f| f.absorption,
             |f, v| f.absorption = v,
             (0.0, 0.5),
         ),
-        amount(
+        amount::<Fog>(
+            Glyph::Cloud,
             "Ambient",
             |f| f.ambient,
             |f, v| f.ambient = v,
             (0.0, 1.0),
         ),
-        action(Glyph::Restore, "RESET FOG", |world: &mut World| {
-            world.insert_resource(FogSettings::default());
+        action(Glyph::Restore, "RESET", |world: &mut World| {
+            world.insert_resource(Fog::default());
         }),
     ))
 }
@@ -245,14 +270,27 @@ pub(super) fn page() -> impl View {
         ),
         field("Time of day", hour()),
         field("North", north()),
+        field(
+            "Distance fog",
+            told(
+                amount::<DistanceFogSettings>(
+                    Glyph::Mountains,
+                    "Distance",
+                    |f| f.distance,
+                    |f, v| f.distance = v,
+                    (200.0, 2000.0),
+                ),
+                description("Further draws more land."),
+            ),
+        ),
         disclosure(
-            "Fog",
+            "Volumetric fog",
             |open: &FogOpen| open.0,
             |world| {
                 let mut open = world.resource_mut::<FogOpen>();
                 open.0 = !open.0;
             },
-            || fog().boxed(),
+            || volumetric_fog().boxed(),
         ),
     ))
 }
