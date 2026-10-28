@@ -1,44 +1,7 @@
-# How the panels answer the hand: how bright, how fast, how far glow falls.
-# What each value means is written beside its field, in the module its
-# section tunes. crates/hamlet_ui/src/tuning.rs names the struct of each.
-
-[effects]
-glow_rate = 12.0
-press_rate = 30.0
-pulse_decay = 4.5
-press_scale = 0.03
-pulse_scale = 0.02
-press_offset = 1.5
-shake_distance = 3.0
-shake_rate = 34.0
-glow_default = 0.5
-glow_danger = 0.55
-glow_primary = 0.75
-glow_input = 0.45
-glow_primary_idle = 0.3
-press_dim = 0.75
-done_boost = 0.6
-flicker = 0.06
-outer_glow = 0.35
-outer_glow_danger = 0.5
-outer_glow_radius = 22.0
-outer_glow_pulse_radius = 16.0
-particle_count = 6
-particle_rise = 34.0
-particle_lifetime = 0.9
-particle_size = 3.4
-underglow = 0.26
-underglow_press = 0.2
-enter_duration = 0.18
-enter_scale = 0.94
-drop_hint_rate = 18.0
-drop_hint_pulse_rate = 2.2
-hover_wait = 1.0
-hover_in = 0.1
-hover_out = 0.08
-hover_from = 0.95
-highlight_rate = 3.0
-highlight_boost = 0.6
+# The panels' sizes and limits. What each value means is written beside
+# its field, in the module its section tunes.
+# crates/hamlet_app/src/tuning.rs names the struct of each. The widgets'
+# effects are in effects.toml.
 
 [chrome]
 edge = 5.0

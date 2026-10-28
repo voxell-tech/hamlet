@@ -11,23 +11,29 @@ mod tab;
 mod underglow;
 
 use bevy::app::{App, Update};
+use bevy::asset::Asset;
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::message::Message;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::world::World;
+use bevy::reflect::TypePath;
 use bevy::ui::{ColorStop, percent};
+use hamlet_assets::{File, Tuning, TuningPlugin, follow};
 
-pub(crate) use self::glow::{GlowPanel, glow_layer};
-pub(crate) use self::highlight::highlight_layer;
-pub use self::highlight::{Attention, Highlight, Updated};
+pub use self::glow::{GlowPanel, glow_layer};
+pub use self::highlight::{
+    Attention, Highlight, Updated, highlight_layer,
+};
 pub use self::underglow::Underglow;
 use crate::theme::HamletTheme;
 
 /// The effects of the controls, the dock's drop hint and the
 /// panels' highlights.
 pub fn plugin(app: &mut App) {
-    app.init_resource::<EffectSettings>()
+    app.add_plugins(TuningPlugin::<EffectSettings>::default())
+        .init_resource::<EffectSettings>()
         .init_resource::<Attention>()
         .add_message::<Updated>()
         .add_message::<ControlSound>()
@@ -98,10 +104,12 @@ impl Variant {
     }
 }
 
-/// The tuning of the effects.
-#[derive(Resource, Clone, PartialEq, serde::Deserialize)]
+/// The tuning of the effects, as `assets/effects.toml` has it.
+#[derive(
+    Resource, Asset, TypePath, Clone, PartialEq, serde::Deserialize,
+)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct EffectSettings {
+pub struct EffectSettings {
     /// The rates at which a glow follows the pointer, a press
     /// follows the button and a pulse or a shake dies away, each per
     /// second.
@@ -173,9 +181,23 @@ pub(crate) struct EffectSettings {
     pub highlight_boost: f32,
 }
 
+impl Tuning for EffectSettings {
+    const FILE: File = hamlet_assets::EFFECTS;
+
+    fn apply(&self, was: &Self, world: &mut World) {
+        follow(world, was, self);
+    }
+}
+
+impl Default for EffectSettings {
+    fn default() -> Self {
+        Self::designed()
+    }
+}
+
 /// The colours of the effects.
 #[derive(Clone, PartialEq)]
-pub(crate) struct EffectColors {
+pub struct EffectColors {
     /// The glow of a control, the bright centre of that glow, and
     /// the glow of a danger button.
     pub glow: Color,

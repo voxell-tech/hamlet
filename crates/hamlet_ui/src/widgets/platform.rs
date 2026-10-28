@@ -74,7 +74,7 @@ pub fn plugin(app: &mut App) {
 
 /// The display face, for headers and buttons.
 #[derive(Resource)]
-pub struct Display(pub(crate) Handle<Font>);
+pub struct Display(pub Handle<Font>);
 
 /// A label drawn in the display face.
 #[derive(Component)]
@@ -82,7 +82,7 @@ pub struct DisplayText;
 
 /// The monospace face, kept for what the machine ran.
 #[derive(Resource)]
-pub struct Mono(pub(crate) Handle<Font>);
+pub struct Mono(pub Handle<Font>);
 
 /// A label drawn in the monospace face.
 #[derive(Component)]
@@ -176,7 +176,7 @@ pub fn apply_clip(mut nodes: Query<&mut Node, Added<ClipInside>>) {
 pub struct Wraps;
 
 /// Lets each new [`Wraps`] row wrap.
-pub(crate) fn apply_wrap(mut rows: Query<&mut Node, Added<Wraps>>) {
+pub fn apply_wrap(mut rows: Query<&mut Node, Added<Wraps>>) {
     for mut row in &mut rows {
         row.flex_wrap = FlexWrap::Wrap;
         // The lines are as far apart as the things in one.
@@ -254,7 +254,7 @@ pub fn make_focusable(
 
 /// The focus moved, was shown or hidden, or a control was given its
 /// ring.
-pub(crate) fn focus_moved(
+pub fn focus_moved(
     focus: Res<InputFocus>,
     visible: Res<InputFocusVisible>,
     ringed: Query<(), Added<Ring>>,
@@ -283,7 +283,7 @@ pub fn focus_ring(
     }
 }
 
-pub(crate) fn hide_ring_on_press(
+pub fn hide_ring_on_press(
     _: On<PointerPress>,
     mut visible: ResMut<InputFocusVisible>,
 ) {

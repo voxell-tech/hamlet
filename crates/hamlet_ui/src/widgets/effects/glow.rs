@@ -18,7 +18,7 @@ use crate::View;
 /// A panel whose controls draw their outer glow on its
 /// [`GlowLayer`].
 #[derive(Component)]
-pub(crate) struct GlowPanel;
+pub struct GlowPanel;
 
 /// The node over a panel's whole area that holds the outer glow of
 /// its controls.
@@ -28,7 +28,7 @@ pub(super) struct GlowLayer;
 /// The layer of a panel, under the panel's contents. It ignores the
 /// clip of the panel, which cuts at the content box, and cuts at its
 /// own edge, which is the panel's.
-pub(crate) fn glow_layer() -> impl View {
+pub fn glow_layer() -> impl View {
     frame()
         .position(PositionType::Absolute)
         .inset(UiRect::all(px(0.0)))

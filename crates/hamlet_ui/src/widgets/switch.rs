@@ -22,7 +22,7 @@ use super::fade::ease;
 use crate::theme::{HamletTheme, Themed};
 use crate::{AnyView, Cx, View};
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.add_systems(Update, slide);
 }
 

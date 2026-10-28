@@ -6,13 +6,13 @@ use anyhow::{Result, bail};
 use bevy::DefaultPlugins;
 use bevy::app::PluginGroup;
 use bevy_app::{App, AppExit};
+use hamlet_app::{Remembered, UiPlugin, window_plugin};
 use hamlet_client::connection::LocalServer;
 use hamlet_client::{ClientPlugin, Connection, Tokio, ViewFolder};
 use hamlet_desktop::DesktopPlugin;
 use hamlet_protocol::client::discovery::{self, Chosen};
 use hamlet_realm::RealmPlugin;
 use hamlet_realm::chief::Kept;
-use hamlet_ui::{Remembered, UiPlugin, window_plugin};
 
 const USAGE: &str = "\
 usage: hamlet_app [-h]

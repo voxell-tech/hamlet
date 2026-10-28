@@ -10,14 +10,14 @@ use bevy_fynix::dock::{
     Edge, dock,
 };
 use bevy_fynix::views::{FrameProps, column, frame, overlay};
-use hamlet_client::chats::{Entry, Transcript};
-use hamlet_ui::effects::Highlight;
-use hamlet_ui::icons::Glyph;
-use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::{
+use hamlet_app::effects::Highlight;
+use hamlet_app::icons::Glyph;
+use hamlet_app::theme::HamletTheme;
+use hamlet_app::{
     Convo, Cx, ICON, View, chat, highlight_panel, inspector, menu,
     panel, petition, settings, status_bar, toolbar, welcome,
 };
+use hamlet_client::chats::{Entry, Transcript};
 
 use super::{Scene, Stand, Ui};
 

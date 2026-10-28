@@ -61,7 +61,7 @@ pub(super) struct HighlightState {
 
 /// The node over the top of a panel that its highlight is drawn on,
 /// under the panel's contents.
-pub(crate) fn highlight_layer(highlight: Highlight) -> impl View {
+pub fn highlight_layer(highlight: Highlight) -> impl View {
     frame()
         .position(PositionType::Absolute)
         .inset(UiRect {

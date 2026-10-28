@@ -41,7 +41,7 @@ In `hamlet_ui/src/`:
 - `widgets/effects/` holds the behaviour: a control's warmth, press, flame and
   sparks, the light that falls into a panel and the light its tab
   carries while it is behind another. Its tuning is
-  `EffectSettings`, from `assets/ui.toml`.
+  `EffectSettings`, from `assets/effects.toml`.
 
 ## Seeing it
 

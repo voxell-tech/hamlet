@@ -17,16 +17,16 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{Bevy, Focused, ScopedExt, View, ViewExt};
-use hamlet_assets::Tuning;
-use hamlet_realm::sound::SoundSettings;
-use hamlet_ui::effects::{Highlight, Underglow, Variant};
-use hamlet_ui::icons::{Glyph, glyph};
-use hamlet_ui::platform::DisplayText;
-use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::{
+use hamlet_app::effects::{Highlight, Underglow, Variant};
+use hamlet_app::icons::{Glyph, glyph};
+use hamlet_app::platform::DisplayText;
+use hamlet_app::theme::HamletTheme;
+use hamlet_app::{
     Cx, back_link, chat, danger_button, lists, marked, menu,
     platform, primary_button, tabs, text_input,
 };
+use hamlet_assets::Tuning;
+use hamlet_realm::sound::SoundSettings;
 
 use super::{Scene, Strike, Ui};
 
@@ -238,7 +238,7 @@ pub(super) fn controls() -> Ui {
             states(
                 Glyph::NewSession,
                 "NEW SESSION",
-                hamlet_ui::button,
+                hamlet_app::button,
                 Variant::Default,
             ),
         ),

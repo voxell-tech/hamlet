@@ -47,7 +47,7 @@ question open on E and B, and "allowed" closes it on the home chord.
 
 To add a sound, name it in `kinds.rs`, build its clip in `synth/` and
 write a `Cue` where it happens. World events are in
-`generator/sounds.rs` and panel sounds in `hamlet_ui/src/sounds.rs`.
+`generator/sounds.rs` and panel sounds in `hamlet_app/src/sounds.rs`.
 
 ## The music
 

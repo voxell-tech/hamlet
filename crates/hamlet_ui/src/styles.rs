@@ -22,7 +22,7 @@ use crate::{AnyView, Cx, View, with_cx};
 
 /// The least height of any button (macOS default control size, 28
 /// pt).
-pub(crate) const CONTROL: f32 = 28.0;
+pub const CONTROL: f32 = 28.0;
 
 /// The padding inside a text button.
 pub fn pad() -> UiRect {
@@ -168,7 +168,7 @@ pub fn danger_button(cx: &mut Cx) {
 
 /// The room left over along a row or a column, taken and given back
 /// when there is less than what is inside would like.
-pub(crate) trait Fills: FrameProps + Sized {
+pub trait Fills: FrameProps + Sized {
     /// Takes the height left over, and may shrink below its content.
     fn fills_height(self) -> Self {
         self.grow(1.0).min_height(px(0.0))
@@ -189,12 +189,12 @@ pub fn bare() -> Stack<()> {
 
 /// A column with no gap that fills the height, for a keyed view to
 /// be built under.
-pub(crate) fn filling() -> Stack<()> {
+pub fn filling() -> Stack<()> {
     column(()).fills_height().gap(0.0)
 }
 
 /// A line one pixel thick, of `colour`.
-pub(crate) fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
+pub fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
     frame().height(px(1.0)).fill(colour)
 }
 
@@ -395,7 +395,7 @@ pub fn framed(
 }
 
 /// A button with `text` in the display face.
-pub(crate) fn lettered(
+pub fn lettered(
     text: impl Into<Prop<String>>,
 ) -> impl View + FrameProps {
     views::button(label(text).wrap(false).tagged(DisplayText))
@@ -413,7 +413,7 @@ pub fn raised(mark: Icon) -> impl View + FrameProps {
 }
 
 /// An icon before `words` in the display face.
-pub(crate) fn headed(
+pub fn headed(
     which: Glyph,
     words: impl View + 'static,
 ) -> impl View + FrameProps {
@@ -438,7 +438,7 @@ pub fn marked(
 
 /// A status text in the small size, behind its icon, both in
 /// `tone`.
-pub(crate) fn status_label(
+pub fn status_label(
     which: Glyph,
     text: impl Into<String>,
     tone: Tone,
@@ -448,7 +448,7 @@ pub(crate) fn status_label(
 
 /// A status text in the body size, behind its icon, both in
 /// `tone`.
-pub(crate) fn status_label_large(
+pub fn status_label_large(
     which: Glyph,
     text: impl Into<String>,
     tone: Tone,
@@ -516,7 +516,7 @@ where
 
 /// The rules of an answer to pick: no fill until the pointer is on
 /// it, and the one picked filled and bordered.
-pub(crate) fn choice(
+pub fn choice(
     picked: bool,
 ) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
     let base = style::<HamletTheme>()
@@ -592,7 +592,7 @@ fn acting(
 
 /// A small "x" that closes or drops something by running `act`: dim,
 /// and red under the pointer, as a dock tab's is.
-pub(crate) fn close_button(
+pub fn close_button(
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
     tinted_icon(Glyph::Cross.image(ICON))
@@ -601,7 +601,7 @@ pub(crate) fn close_button(
 }
 
 /// A standard button with an icon before its text, that runs `act`.
-pub(crate) fn action(
+pub fn action(
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
@@ -610,7 +610,7 @@ pub(crate) fn action(
 }
 
 /// The button for the one action a screen is for, that runs `act`.
-pub(crate) fn good_action(
+pub fn good_action(
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
@@ -620,7 +620,7 @@ pub(crate) fn good_action(
 }
 
 /// A button that refuses, stops or throws away, by running `act`.
-pub(crate) fn bad_action(
+pub fn bad_action(
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
@@ -630,7 +630,7 @@ pub(crate) fn bad_action(
 
 /// A row of a list that leads somewhere: no fill and no border at
 /// rest, and a faint fill under the pointer.
-pub(crate) fn link_row(cx: &mut Cx) {
+pub fn link_row(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, _| f.fill(Color::NONE).radius(0.0))
         .label(|l, t| {
@@ -659,7 +659,7 @@ pub fn nav_card(
 }
 
 /// The same as a row of a list, with no border about it.
-pub(crate) fn nav_row(
+pub fn nav_row(
     which: Glyph,
     title: &'static str,
     holds: &'static str,
@@ -710,7 +710,7 @@ fn nav_item(
 
 /// The parts of something as rows of one list, a hairline between
 /// each and the next, over `footer`.
-pub(crate) fn nav_list(
+pub fn nav_list(
     cx: &Cx,
     items: Vec<AnyView>,
     footer: AnyView,
@@ -780,7 +780,7 @@ pub fn breadcrumb(
 
 /// A card that is pressed whole: its border brightens under the
 /// pointer.
-pub(crate) fn card_button(cx: &mut Cx) {
+pub fn card_button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.card)

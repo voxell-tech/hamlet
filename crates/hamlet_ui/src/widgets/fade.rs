@@ -27,7 +27,7 @@ use bevy_fynix::scroll::ScrollGoal;
 use crate::platform::Glow;
 use crate::theme::HamletTheme;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.add_observer(add_fades)
         .add_systems(Update, (default_fade, fade).chain())
         .add_systems(
@@ -144,7 +144,7 @@ impl Edge {
 }
 
 /// Moves `value` toward `to` at `rate` per second.
-pub(crate) fn ease(value: f32, to: f32, rate: f32, dt: f32) -> f32 {
+pub fn ease(value: f32, to: f32, rate: f32, dt: f32) -> f32 {
     let next = to + (value - to) * (-rate * dt).exp();
     if (next - to).abs() < 0.002 { to } else { next }
 }

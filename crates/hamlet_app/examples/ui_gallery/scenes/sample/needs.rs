@@ -79,12 +79,12 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         .find(|(_, wait)| wait.id == "questions")
         .map(|(entity, _)| entity)
         .expect("received question card");
-    hamlet_ui::asking::choose(
+    hamlet_app::asking::choose(
         world,
         card,
         2,
         0,
         Some(protocol::Pick::Offer { index: 0 }),
     );
-    hamlet_ui::asking::turn(world, card, 2, 0);
+    hamlet_app::asking::turn(world, card, 2, 0);
 }

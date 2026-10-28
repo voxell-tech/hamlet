@@ -17,10 +17,10 @@ use bevy::image::Image;
 use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
+use hamlet_app::cursor::{Inks, Mode, face, frames, hot, inks, side};
+use hamlet_app::theme::HamletTheme;
 use hamlet_assets::Tuning;
 use hamlet_realm::palette::Palette;
-use hamlet_ui::cursor::{Inks, Mode, face, frames, hot, inks, side};
-use hamlet_ui::theme::HamletTheme;
 
 /// The colours of the sheet.
 struct Paper {

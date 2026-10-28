@@ -160,7 +160,7 @@ observers and resources and does little else in `build`.
 
 `bevy_fynix` builds a view with `&mut World` and reads the world through
 signals, all inside one exclusive system. So most `world.resource..` calls
-in `hamlet_ui` are the toolkit's shape, not a choice. What is a choice is
+in `hamlet_app`'s panels are the toolkit's shape, not a choice. What is a choice is
 where a signal reads from. The pattern that fits:
 
 > An ordinary system with queries and change detection writes a small
