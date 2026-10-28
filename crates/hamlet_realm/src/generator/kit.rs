@@ -3,6 +3,7 @@
 use bevy::light::NotShadowCaster;
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
+use hamlet_vfx::ground::{self, GroundMaterial, GroundSettings};
 use hamlet_vfx::inlay::{InlayExt, InlayMaterial, InlayUniform};
 
 use super::land::Land;
@@ -18,6 +19,8 @@ use crate::palette::Palette;
 #[derive(Resource)]
 pub(super) struct Kit {
     pub(super) matte: Handle<StandardMaterial>,
+    /// The tiles of ground: matte, with bumps in its light.
+    pub(super) ground: Handle<GroundMaterial>,
     pub(super) windows: Handle<StandardMaterial>,
     /// One lantern material per state, in the order of
     /// [`KeeperState::ALL`].
@@ -50,10 +53,18 @@ pub(super) fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut inlays: ResMut<Assets<InlayMaterial>>,
+    mut grounds: ResMut<Assets<GroundMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     land: Res<Land>,
     pal: Res<Palette>,
     stock: Res<Stock>,
+    bumps: Res<GroundSettings>,
 ) {
+    let ground = grounds.add(ground::material(
+        &mut images,
+        &bumps,
+        materials.get(&stock.matte).cloned().unwrap_or_default(),
+    ));
     let lamps = KeeperState::ALL.map(|_| {
         materials.add(StandardMaterial {
             base_color: pal.glass_lit,
@@ -104,6 +115,7 @@ pub(super) fn setup(
 
     commands.insert_resource(Kit {
         matte: stock.matte.clone(),
+        ground,
         windows: stock.windows.clone(),
         lamps,
         lamp_glass: meshes.add(lantern_glass(0.075, 0.17)),

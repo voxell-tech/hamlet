@@ -30,6 +30,7 @@ pub(super) fn kit(world: &mut World) {
     let stock = world.resource::<Stock>().clone();
     world.insert_resource(Kit {
         matte: stock.matte,
+        ground: Handle::default(),
         windows: stock.windows,
         lamps: [(); 5].map(|_| Handle::default()),
         lamp_glass: Handle::default(),
