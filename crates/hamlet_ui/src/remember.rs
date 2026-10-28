@@ -33,7 +33,7 @@ use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::roll::Roll;
 use crate::theme::HamletTheme;
-use crate::world_view::TimeOfDay;
+use crate::world_view::{NorthTarget, TimeOfDay};
 
 /// Seconds a change waits before it is written, so that dragging a
 /// divider writes once.
@@ -458,7 +458,10 @@ pub fn restore(world: &mut World) -> Restored {
     world.resource_mut::<KeepAwake>().0 = view.keep_awake;
     *world.resource_mut::<Quality>() = view.quality;
     world.insert_resource(view.fog);
-    world.insert_resource(North(view.north.rem_euclid(360.0)));
+    // North starts where it was left, without a glide.
+    let north = view.north.rem_euclid(360.0);
+    world.insert_resource(NorthTarget(north));
+    world.insert_resource(North(north));
     world.insert_resource(Pending {
         chosen: view.selected.clone(),
         began: None,
@@ -504,7 +507,7 @@ pub fn keep(
         Res<Pending>,
         Res<Kept>,
         Res<FogSettings>,
-        Res<North>,
+        Res<NorthTarget>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -596,6 +599,7 @@ mod tests {
                 .init_resource::<Quality>()
                 .init_resource::<FogSettings>()
                 .init_resource::<North>()
+                .init_resource::<NorthTarget>()
                 .init_resource::<KeepAwake>()
                 .init_resource::<DockRegistry<HamletTheme>>()
                 .add_plugins(plugin);

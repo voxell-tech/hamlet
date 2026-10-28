@@ -67,30 +67,42 @@ struct Turns(Option<Change>);
 #[derive(Component, Clone, Copy, PartialEq)]
 struct Shown(f32);
 
+/// On a dial's ring: the amount that trails after the one it shows,
+/// from 0 to a whole turn.
+#[derive(Component, Clone, Copy, PartialEq)]
+struct Trailed(f32);
+
 /// On a dial's ring while it is dragged: the radians from where the
 /// pointer took hold to where the knob was then.
 #[derive(Component, Clone, Copy)]
 struct Grip(f32);
 
-/// The side of the ring and of its knob.
+/// The side of the ring, of its knob and of the dot that trails it.
 const SIDE: f32 = 112.0;
 const KNOB: f32 = 16.0;
+const TRAIL: f32 = 8.0;
 
-/// A dial showing `amount` on `face`. It never turns itself: a drag
+/// A dial showing `amount` on `face`, and a smaller dot at `trail`,
+/// where what it sets has got to. It never turns itself: a drag
 /// around it hands the amount turned to to `change`, and a bound
 /// `amount` follows what that writes. The knob keeps the angle to
 /// the pointer it had when the drag began, so it never jumps.
 pub fn dial(
     face: Face,
     amount: impl Into<Prop<f32>>,
+    trail: impl Into<Prop<f32>>,
     change: impl Fn(&mut World, f32) + Send + Sync + 'static,
 ) -> impl View {
-    let amount = amount.into();
+    let (amount, trail) = (amount.into(), trail.into());
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (palette, border) = (&theme.palette, theme.space.border);
-        let (rim, knob, middle) =
-            (palette.brass_3, palette.brass_1, palette.grey_4);
+        let (rim, knob, trailing, middle) = (
+            palette.brass_3,
+            palette.brass_1,
+            palette.brass_4,
+            palette.grey_4,
+        );
         // The knob is placed inside the rim.
         let inner = SIDE - 4.0 * border;
         let ring = cx.build(
@@ -111,6 +123,7 @@ pub fn dial(
                 face,
                 Turns(Some(Box::new(change))),
                 Shown(0.0),
+                Trailed(0.0),
                 EntityCursor(SystemCursorIcon::Grab),
             ))
             .observe(gripped)
@@ -123,6 +136,23 @@ pub fn dial(
                 entity.insert(to);
             }
         });
+        cx.effect(ring, trail, move |world, node, &amount| {
+            let to = Trailed(amount.rem_euclid(face.whole));
+            if let Ok(mut entity) = world.get_entity_mut(node)
+                && entity.get::<Trailed>() != Some(&to)
+            {
+                entity.insert(to);
+            }
+        });
+        // The dot at `turn` radians from the top, `side` across.
+        let dot = move |turn: f32, side: f32| {
+            let at = place(turn, inner);
+            UiRect {
+                left: px(at.x - side / 2.0),
+                top: px(at.y - side / 2.0),
+                ..UiRect::all(Val::Auto)
+            }
+        };
         cx.under(ring, |cx| {
             cx.build(label(component::<Shown, _>(
                 ring,
@@ -131,19 +161,20 @@ pub fn dial(
             cx.build(
                 frame()
                     .position(PositionType::Absolute)
-                    .inset(component::<Shown, _>(
-                        ring,
-                        move |shown| {
-                            let turn =
-                                face.turn(shown.map_or(0.0, |s| s.0));
-                            let at = place(turn, inner);
-                            UiRect {
-                                left: px(at.x - KNOB / 2.0),
-                                top: px(at.y - KNOB / 2.0),
-                                ..UiRect::all(Val::Auto)
-                            }
-                        },
-                    ))
+                    .inset(component::<Trailed, _>(ring, move |at| {
+                        dot(face.turn(at.map_or(0.0, |a| a.0)), TRAIL)
+                    }))
+                    .width(px(TRAIL))
+                    .height(px(TRAIL))
+                    .radius(TRAIL / 2.0)
+                    .fill(trailing),
+            );
+            cx.build(
+                frame()
+                    .position(PositionType::Absolute)
+                    .inset(component::<Shown, _>(ring, move |at| {
+                        dot(face.turn(at.map_or(0.0, |a| a.0)), KNOB)
+                    }))
                     .width(px(KNOB))
                     .height(px(KNOB))
                     .radius(KNOB / 2.0)

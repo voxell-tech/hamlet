@@ -9,8 +9,11 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, dropdown, ghost, label,
     row, slider,
 };
-use bevy_fynix::{ModifierExt, ScopedExt, ViewExt, keyed, resource};
-use hamlet_realm::sky::{FogSettings, Quality};
+use bevy_fynix::{
+    ModifierExt, ScopedExt, ViewExt, derived, every_frame, keyed,
+    resource,
+};
+use hamlet_realm::sky::{FogSettings, Quality, SkySettings};
 use hamlet_realm::{North, Sky};
 
 use super::{field, told};
@@ -18,7 +21,7 @@ use crate::dial::{Face, dial};
 use crate::icons::Glyph;
 use crate::looks::{action, close, description, parts, section};
 use crate::switch::labelled_switch;
-use crate::world_view::TimeOfDay;
+use crate::world_view::{NorthTarget, TimeOfDay};
 use crate::{View, built, with_cx};
 
 pub(super) fn plugin(app: &mut App) {
@@ -59,6 +62,14 @@ fn hour() -> impl View {
         row((
             dial(
                 Face::HOURS,
+                // The clock's hour moves without any change to
+                // watch.
+                derived(|world: &World| {
+                    world
+                        .resource::<TimeOfDay>()
+                        .target(world.resource::<SkySettings>())
+                })
+                .when(every_frame()),
                 resource::<Sky, _>(|sky| sky.hour),
                 |world, hour| {
                     *world.resource_mut::<TimeOfDay>() =
@@ -76,7 +87,9 @@ fn hour() -> impl View {
                             TimeOfDay::Clock
                         } else {
                             TimeOfDay::At(
-                                world.resource::<Sky>().hour,
+                                world.resource::<TimeOfDay>().target(
+                                    world.resource::<SkySettings>(),
+                                ),
                             )
                         };
                         *world.resource_mut::<TimeOfDay>() = to;
@@ -104,9 +117,10 @@ fn north() -> impl View {
         row((
             dial(
                 Face::DEGREES,
+                resource::<NorthTarget, _>(|north| north.0),
                 resource::<North, _>(|north| north.0),
                 |world, degrees| {
-                    world.resource_mut::<North>().0 = degrees;
+                    world.resource_mut::<NorthTarget>().0 = degrees;
                 },
             ),
             description(
