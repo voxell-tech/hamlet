@@ -311,12 +311,13 @@ fn shot_list(land: &Land) -> Vec<Shot> {
         hour: Some(18.7),
         ..default()
     });
-    // Pulled far back and looking down through the fog at dusk.
+    // Pulled as far back as the camera goes, looking down through the
+    // fog at dusk.
     shots.push(Shot {
         name: "l-high-dusk",
         view: GeneratorView {
             focus: hall,
-            dist: 400.0,
+            dist: 1150.0,
             pitch: 42.0,
             yaw: 0.42,
         },

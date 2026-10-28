@@ -1051,8 +1051,12 @@ pub(crate) fn lay_fog(
         // The engine dims the light in a volume as if it crossed the
         // whole of it, the radius of a ball about it, and this one is
         // as wide as the view. Making up for that lights it as a thin
-        // layer of fog is lit.
+        // layer of fog is lit. It is made up for as thick as the fog
+        // is about the camera: in it, as the whole of it; high over
+        // it, hardly, or the thin air the camera looks down through,
+        // which the engine dims little, would glow over everything.
         let crossed = volume.density_factor
+            * set.thickness(camera.translation.y)
             * size.length()
             * 0.5
             * (volume.absorption + volume.scattering);
