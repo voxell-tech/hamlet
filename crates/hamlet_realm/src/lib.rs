@@ -32,7 +32,9 @@ mod testing;
 
 use bevy::prelude::*;
 
-pub use self::sky::{Dark, DayPart, Hour, LowSun, Sky, WorldCamera};
+pub use self::sky::{
+    Dark, DayPart, Hour, LowSun, North, Sky, WorldCamera,
+};
 pub use self::stage::{
     Clock, RealmSystems, Stage, Step, WorldSystems,
 };

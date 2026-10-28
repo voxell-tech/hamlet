@@ -1,6 +1,8 @@
 //! The camera, the two lights and the look of the hour: the same in
 //! every world.
 
+use std::f32::consts::PI;
+
 use bevy::anti_alias::smaa::Smaa;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::Tonemapping;
@@ -30,6 +32,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<SkySettings>()
         .init_resource::<FogSettings>()
         .init_resource::<Hour>()
+        .init_resource::<North>()
         .init_state::<DayPart>()
         .add_computed_state::<Dark>()
         .add_computed_state::<LowSun>()
@@ -62,6 +65,7 @@ pub fn plugin(app: &mut App) {
         world.resource::<Looks>(),
         world.resource::<SkySettings>(),
         world.resource::<SkySettings>().held(false),
+        North(0.0),
     );
     world.insert_resource(sky);
     let size = world.resource::<CameraSettings>().shadow_map;
@@ -75,7 +79,9 @@ pub struct Look {
     #[serde(with = "tint")]
     pub sun: Color,
     pub sun_lux: f32,
-    /// The direction the key light travels.
+    /// The direction the key light travels. A moving sun goes round
+    /// through the day's, which is where it stands highest, and the
+    /// moon goes opposite it.
     pub sun_dir: Vec3,
     #[serde(with = "tint")]
     pub fill: Color,
@@ -455,23 +461,36 @@ impl ComputedStates for LowSun {
 #[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
 pub struct Hour(pub Option<f32>);
 
+/// Degrees the sun's path is turned about the upright, clockwise seen
+/// from above: where the sun rises and sets.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
+pub struct North(pub f32);
+
 /// The sky as it is now.
 #[derive(Resource, Clone, PartialEq, Debug)]
 pub struct Sky {
     /// Hour of the day, 0 to 24.
     pub hour: f32,
     pub look: Look,
+    /// The direction the fill light travels. It follows the sun
+    /// under the land too, so it never jumps.
+    pub fill_dir: Vec3,
 }
 
 impl Default for Sky {
     fn default() -> Self {
         let set = SkySettings::default();
-        Self::at(&Looks::default(), &set, set.held(false))
+        Self::at(&Looks::default(), &set, set.held(false), North(0.0))
     }
 }
 
 impl Sky {
-    pub fn at(looks: &Looks, set: &SkySettings, hour: f32) -> Self {
+    pub fn at(
+        looks: &Looks,
+        set: &SkySettings,
+        hour: f32,
+        north: North,
+    ) -> Self {
         let day = set.daylight(hour);
         // Away from dawn and dusk the looks are shown as designed.
         let mut look = if day >= 1.0 {
@@ -486,11 +505,19 @@ impl Sky {
                 .toward(&looks.day, day)
                 .toward(&set.glow, glow)
         };
+        let turn = Quat::from_rotation_y(-north.0.to_radians());
         let (dir, height) = key_light(looks, set, hour);
-        look.sun_dir = dir;
+        look.sun_dir = turn * dir;
         let k = (height / set.horizon.max(1e-3)).clamp(0.0, 1.0);
         look.sun_lux *= k * k * (3.0 - 2.0 * k);
-        Self { hour, look }
+        let sun = -sun_at(looks, set, hour);
+        let fill_dir =
+            turn * Vec3::new(-sun.x, -0.5, -sun.z * 0.4 - 0.5);
+        Self {
+            hour,
+            look,
+            fill_dir,
+        }
     }
 
     pub fn part(set: &SkySettings, hour: f32) -> DayPart {
@@ -513,27 +540,30 @@ impl Sky {
     }
 }
 
+/// The place the sun stands at an hour, as a direction from the land.
+/// It goes round one circle through the day's highest place: over
+/// the land by day, under it by night, without a jump.
+fn sun_at(looks: &Looks, set: &SkySettings, hour: f32) -> Vec3 {
+    let (along, sun) = set.arc(hour);
+    let top = -looks.day.sun_dir.normalize();
+    let rising = Vec3::Y.cross(top).normalize_or(Vec3::X);
+    // Half a turn over the day and half under the night.
+    let turn = (along + if sun { 0.0 } else { 1.0 }) * PI;
+    let (s, c) = turn.sin_cos();
+    c * rising + s * top
+}
+
 /// The direction the key light travels at an hour, and the sine of
-/// its height. It rises and sets along a circle through the place
-/// its look gives it, which is where it stands highest.
+/// its height. It is the sun while the sun is up and the moon,
+/// opposite it, while it is down. They change at the horizon, where
+/// both give no light.
 fn key_light(
     looks: &Looks,
     set: &SkySettings,
     hour: f32,
 ) -> (Vec3, f32) {
-    let (along, sun) = set.arc(hour);
-    let highest = if sun {
-        looks.day.sun_dir
-    } else {
-        looks.night.sun_dir
-    };
-    let top = -highest.normalize();
-    if (along - 0.5).abs() < 1e-4 {
-        return (highest, top.y);
-    }
-    let rising = Vec3::Y.cross(top).normalize_or(Vec3::X);
-    let (s, c) = (along * std::f32::consts::PI).sin_cos();
-    let mut to = c * rising + s * top;
+    let sun = sun_at(looks, set, hour);
+    let mut to = if sun.y >= 0.0 { sun } else { -sun };
     let height = to.y;
     to.y = to.y.max(set.lowest);
     (-to.normalize(), height)
@@ -550,7 +580,7 @@ pub(crate) fn tell(
     stage: Res<Stage>,
     looks: Res<Looks>,
     set: Res<SkySettings>,
-    held: Res<Hour>,
+    (held, north): (Res<Hour>, Res<North>),
     part: Res<State<DayPart>>,
     mut next: ResMut<NextState<DayPart>>,
     mut sky: ResMut<Sky>,
@@ -562,8 +592,12 @@ pub(crate) fn tell(
         // The stage has the last word on whether it is night.
         .filter(|&h| set.moving && set.is_night(h) == stage.night)
         .unwrap_or_else(|| set.held(stage.night));
-    if sky.hour != hour || looks.is_changed() || set.is_changed() {
-        let now = Sky::at(&looks, &set, hour);
+    if sky.hour != hour
+        || looks.is_changed()
+        || set.is_changed()
+        || north.is_changed()
+    {
+        let now = Sky::at(&looks, &set, hour, *north);
         if *sky != now {
             *sky = now;
         }
@@ -649,10 +683,7 @@ pub(crate) fn light(
     *sun.1 = Transform::default().looking_to(look.sun_dir, Vec3::Y);
     fill.0.color = look.fill;
     fill.0.illuminance = look.fill_lux;
-    *fill.1 = Transform::default().looking_to(
-        Vec3::new(-look.sun_dir.x, -0.5, -look.sun_dir.z * 0.4 - 0.5),
-        Vec3::Y,
-    );
+    *fill.1 = Transform::default().looking_to(sky.fill_dir, Vec3::Y);
 }
 
 /// Lights every window pane after dark.
@@ -823,5 +854,33 @@ pub(crate) fn lay_fog(
             Transform::from_xyz(centre.x, 0.0, centre.z).with_scale(
                 Vec3::new(reach * 8.0, set.height * 2.0, reach * 8.0),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Minute by minute round the day, the key light, as its
+    /// direction times its strength, and the fill's direction only
+    /// ever move a little: the sun never jumps, nor does the moon
+    /// that takes its place.
+    #[test]
+    fn the_light_goes_round_the_day_without_a_jump() {
+        let (looks, set) = (Looks::default(), SkySettings::default());
+        let north = North(30.0);
+        let light = |sky: &Sky| sky.look.sun_dir * sky.look.sun_lux;
+        let mut was = Sky::at(&looks, &set, 0.0, north);
+        for minute in 1..=24 * 60 {
+            let now =
+                Sky::at(&looks, &set, minute as f32 / 60.0, north);
+            let step = light(&now).distance(light(&was));
+            // The day's light is thousands of lux: a jump in its
+            // direction would move it by that much.
+            assert!(step < 500.0, "light jumped {step} at {minute}");
+            let turn = now.fill_dir.angle_between(was.fill_dir);
+            assert!(turn < 0.05, "fill jumped {turn} at {minute}");
+            was = now;
+        }
     }
 }

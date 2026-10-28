@@ -23,10 +23,10 @@ use bevy_fynix::dock::{
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{AgentNumber, HamletId, Left};
 use hamlet_desktop::awake::KeepAwake;
-use hamlet_realm::chief;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_realm::sky::{FogSettings, Quality};
 use hamlet_realm::sound::SoundSettings;
+use hamlet_realm::{North, chief};
 use serde::{Deserialize, Serialize};
 
 use crate::PanelSystems;
@@ -114,6 +114,9 @@ pub struct View {
     /// it was kept.
     #[serde(default)]
     fog: FogSettings,
+    /// Degrees the sun's path is turned.
+    #[serde(default)]
+    north: f32,
     dock: Vec<Part>,
     /// The selection when the window closed.
     selected: Option<Chosen>,
@@ -455,6 +458,7 @@ pub fn restore(world: &mut World) -> Restored {
     world.resource_mut::<KeepAwake>().0 = view.keep_awake;
     *world.resource_mut::<Quality>() = view.quality;
     world.insert_resource(view.fog);
+    world.insert_resource(North(view.north.rem_euclid(360.0)));
     world.insert_resource(Pending {
         chosen: view.selected.clone(),
         began: None,
@@ -496,7 +500,12 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, fog): (Res<Pending>, Res<Kept>, Res<FogSettings>),
+    (pending, kept, fog, north): (
+        Res<Pending>,
+        Res<Kept>,
+        Res<FogSettings>,
+        Res<North>,
+    ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
 ) {
@@ -508,6 +517,7 @@ pub fn keep(
         || quality.is_changed()
         || awake.is_changed()
         || fog.is_changed()
+        || north.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -527,6 +537,7 @@ pub fn keep(
         keep_awake: awake.0,
         quality: *quality,
         fog: fog.clone(),
+        north: north.0,
         dock: noted(&tree),
         selected: kept.0.clone(),
     };
@@ -584,6 +595,7 @@ mod tests {
                 .init_resource::<SoundSettings>()
                 .init_resource::<Quality>()
                 .init_resource::<FogSettings>()
+                .init_resource::<North>()
                 .init_resource::<KeepAwake>()
                 .init_resource::<DockRegistry<HamletTheme>>()
                 .add_plugins(plugin);
@@ -716,6 +728,7 @@ mod tests {
                 density: 0.02,
                 ..FogSettings::default()
             },
+            north: 45.0,
             dock: noted(&dock()),
             selected: Some(Chosen::House("juniper".into())),
         };

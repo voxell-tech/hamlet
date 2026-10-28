@@ -6,14 +6,15 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent, px};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, dropdown, label, row, slider,
+    BehaviorExt, FrameProps, button, column, dropdown, ghost, label,
+    row, slider,
 };
-use bevy_fynix::{ModifierExt, ViewExt, keyed, resource};
-use hamlet_realm::Sky;
+use bevy_fynix::{ModifierExt, ScopedExt, ViewExt, keyed, resource};
 use hamlet_realm::sky::{FogSettings, Quality};
+use hamlet_realm::{North, Sky};
 
 use super::{field, told};
-use crate::dial::dial;
+use crate::dial::{Face, dial};
 use crate::icons::Glyph;
 use crate::looks::{action, close, description, parts, section};
 use crate::switch::labelled_switch;
@@ -57,6 +58,7 @@ fn hour() -> impl View {
     with_cx(|cx| {
         row((
             dial(
+                Face::HOURS,
                 resource::<Sky, _>(|sky| sky.hour),
                 |world, hour| {
                     *world.resource_mut::<TimeOfDay>() =
@@ -90,6 +92,28 @@ fn hour() -> impl View {
             .align(AlignItems::FlexStart)
             .grow(1.0)
             .min_width(px(0.0)),
+        ))
+        .gap(cx.theme().space.section)
+        .align(AlignItems::Center)
+    })
+}
+
+/// The dial of where the sun's path lies.
+fn north() -> impl View {
+    with_cx(|cx| {
+        row((
+            dial(
+                Face::DEGREES,
+                resource::<North, _>(|north| north.0),
+                |world, degrees| {
+                    world.resource_mut::<North>().0 = degrees;
+                },
+            ),
+            description(
+                "Turn the sun's path: where it rises, stands at \
+                 noon and sets.",
+            )
+            .grown(1.0),
         ))
         .gap(cx.theme().space.section)
         .align(AlignItems::Center)
@@ -182,18 +206,15 @@ fn fog() -> impl View {
     ))
 }
 
-/// The fog's name, which shows or hides its settings.
+/// The fog's name, a button that shows or hides its settings.
 fn fog_head() -> impl View {
-    with_cx(|cx| {
-        row((section(resource::<FogOpen, _>(|open| {
-            if open.0 { "FOG  -" } else { "FOG  +" }.to_owned()
-        })),))
-        .gap(cx.theme().space.gap)
-        .align(AlignItems::Center)
-        .on_activate(|world| {
-            let mut open = world.resource_mut::<FogOpen>();
-            open.0 = !open.0;
-        })
+    button(section(resource::<FogOpen, _>(|open| {
+        if open.0 { "FOG  -" } else { "FOG  +" }.to_owned()
+    })))
+    .rules(ghost)
+    .on_activate(|world| {
+        let mut open = world.resource_mut::<FogOpen>();
+        open.0 = !open.0;
     })
 }
 
@@ -207,6 +228,7 @@ pub(super) fn page() -> impl View {
             ),
         ),
         field("Time of day", hour()),
+        field("North", north()),
         column((
             fog_head(),
             keyed(resource::<FogOpen, _>(|open| open.0), |open| {
