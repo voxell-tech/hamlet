@@ -25,7 +25,7 @@ use hamlet_client::realm::{AgentNumber, HamletId, Left};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_realm::chief;
 use hamlet_realm::pick::{Selected, Thing, select};
-use hamlet_realm::sky::Quality;
+use hamlet_realm::sky::{FogSettings, Quality};
 use hamlet_realm::sound::SoundSettings;
 use serde::{Deserialize, Serialize};
 
@@ -110,6 +110,10 @@ pub struct View {
     music_level: f32,
     keep_awake: bool,
     quality: Quality,
+    /// The fog as the chief left it; `assets/world.toml`'s before
+    /// it was kept.
+    #[serde(default)]
+    fog: FogSettings,
     dock: Vec<Part>,
     /// The selection when the window closed.
     selected: Option<Chosen>,
@@ -450,6 +454,7 @@ pub fn restore(world: &mut World) -> Restored {
     sound.music_level = view.music_level.clamp(0.0, 1.0);
     world.resource_mut::<KeepAwake>().0 = view.keep_awake;
     *world.resource_mut::<Quality>() = view.quality;
+    world.insert_resource(view.fog);
     world.insert_resource(Pending {
         chosen: view.selected.clone(),
         began: None,
@@ -491,7 +496,7 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept): (Res<Pending>, Res<Kept>),
+    (pending, kept, fog): (Res<Pending>, Res<Kept>, Res<FogSettings>),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
 ) {
@@ -502,6 +507,7 @@ pub fn keep(
         || sound.is_changed()
         || quality.is_changed()
         || awake.is_changed()
+        || fog.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -520,6 +526,7 @@ pub fn keep(
         music_level: sound.music_level,
         keep_awake: awake.0,
         quality: *quality,
+        fog: fog.clone(),
         dock: noted(&tree),
         selected: kept.0.clone(),
     };
@@ -576,6 +583,7 @@ mod tests {
                 .init_resource::<TimeOfDay>()
                 .init_resource::<SoundSettings>()
                 .init_resource::<Quality>()
+                .init_resource::<FogSettings>()
                 .init_resource::<KeepAwake>()
                 .init_resource::<DockRegistry<HamletTheme>>()
                 .add_plugins(plugin);
@@ -695,7 +703,7 @@ mod tests {
     #[test]
     fn a_dock_comes_back_as_it_was_written() {
         let view = View {
-            sky: TimeOfDay::Night,
+            sky: TimeOfDay::At(18.5),
             sound_on: false,
             music_on: false,
             wildlife_on: false,
@@ -704,6 +712,10 @@ mod tests {
             music_level: 0.25,
             keep_awake: false,
             quality: Quality::Medium,
+            fog: FogSettings {
+                density: 0.02,
+                ..FogSettings::default()
+            },
             dock: noted(&dock()),
             selected: Some(Chosen::House("juniper".into())),
         };

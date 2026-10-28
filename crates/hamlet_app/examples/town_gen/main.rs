@@ -76,6 +76,8 @@ fn main() {
     println!("  F3  debug overlay (or run with TOWN_DEBUG=1)");
     println!("  Esc  quit");
 
+    let (sky, fog) =
+        effects(&std::env::var("TOWN_FX").unwrap_or_default());
     let mut app = App::new();
     app.insert_resource(Origin { seed, ..default() })
         .add_plugins((
@@ -98,9 +100,8 @@ fn main() {
             scene::plugin,
             generator::plugin,
         ))
-        .insert_resource(effects(
-            &std::env::var("TOWN_FX").unwrap_or_default(),
-        ))
+        .insert_resource(sky)
+        .insert_resource(fog)
         .insert_resource(DebugSettings {
             shown: std::env::var("TOWN_DEBUG").is_ok(),
             ..default()

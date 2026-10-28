@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use hamlet_realm::generator::land::Land;
 use hamlet_realm::generator::noise::{key, unit};
 use hamlet_realm::generator::society::{RoadLevel, Society};
-use hamlet_realm::sky::SkySettings;
+use hamlet_realm::sky::{FogSettings, SkySettings};
 
 /// The site of the town an agent lives in.
 pub fn site_of(
@@ -14,14 +14,19 @@ pub fn site_of(
     world.town(agent.town).map(|t| t.site).unwrap_or(0)
 }
 
-/// The sky's settings with the named effects switched: `shafts`,
-/// `occlusion`, `atmosphere`, `nolamps` (no light from lanterns) and
-/// `fixed` (the sun does not move), separated by commas.
-pub fn effects(names: &str) -> SkySettings {
+/// The sky's and the volumetric fog's settings with the named
+/// effects switched: `shafts`, `occlusion`, `atmosphere`, `nolamps`
+/// (no light from lanterns) and `fixed` (the sun does not move),
+/// separated by commas. The fog is off unless `shafts` is named.
+pub fn effects(names: &str) -> (SkySettings, FogSettings) {
     let mut set = SkySettings::default();
+    let mut fog = FogSettings {
+        on: false,
+        ..default()
+    };
     for name in names.split(',') {
         match name.trim() {
-            "shafts" => set.shafts = true,
+            "shafts" => fog.on = true,
             "occlusion" => set.occlusion = true,
             "atmosphere" => set.atmosphere = true,
             "nolamps" => set.door_lumens = 0.0,
@@ -29,7 +34,7 @@ pub fn effects(names: &str) -> SkySettings {
             _ => {}
         }
     }
-    set
+    (set, fog)
 }
 
 /// A society of towns of the given sizes, with some roads between

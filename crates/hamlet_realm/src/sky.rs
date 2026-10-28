@@ -28,13 +28,12 @@ pub fn plugin(app: &mut App) {
         .init_resource::<CameraSettings>()
         .init_resource::<Quality>()
         .init_resource::<SkySettings>()
+        .init_resource::<FogSettings>()
         .init_resource::<Hour>()
         .init_state::<DayPart>()
         .add_computed_state::<Dark>()
         .add_computed_state::<LowSun>()
         .add_systems(Startup, spawn)
-        .add_systems(OnEnter(LowSun), raise_haze)
-        .add_systems(OnExit(LowSun), clear_haze)
         .add_systems(
             Update,
             (
@@ -45,10 +44,15 @@ pub fn plugin(app: &mut App) {
                     (occlude, sky_dome)
                         .run_if(resource_changed::<SkySettings>),
                     spend.run_if(resource_changed::<Quality>),
-                    raise_haze
-                        .run_if(resource_changed::<Quality>)
-                        .run_if(in_state(LowSun)),
-                    lay_haze.run_if(in_state(LowSun)),
+                    (raise_fog, fit_fog)
+                        .chain()
+                        .run_if(
+                            |fog: Res<FogSettings>, quality: Res<Quality>| {
+                                fog.is_changed() || quality.is_changed()
+                            },
+                        ),
+                    fit_fog.run_if(resource_changed::<Sky>),
+                    lay_fog,
                 )
                     .in_set(Step::Scene),
             ),
@@ -165,13 +169,6 @@ pub struct SkySettings {
     pub door_lumens: f32,
     /// Reach of a door lantern's light.
     pub door_reach: f32,
-    /// Shafts of light through the haze at dawn and dusk.
-    pub shafts: bool,
-    /// Density of the haze the shafts show in, how strongly it
-    /// takes the light, and the steps taken through it.
-    pub shaft_density: f32,
-    pub shaft_strength: f32,
-    pub shaft_steps: u32,
     /// Darkening where surfaces meet. It takes the place of MSAA,
     /// which the engine cannot combine with it.
     pub occlusion: bool,
@@ -213,6 +210,43 @@ impl SkySettings {
             ((hour - self.sunrise) / day.max(1e-3), true)
         }
     }
+}
+
+/// The volumetric fog over the land, which the key light throws
+/// shafts through. Not the distance fog that hides the edge of what
+/// is drawn. The chief may change it, so it is kept apart from
+/// [`SkySettings`], which the land is built from.
+#[derive(
+    Resource,
+    Clone,
+    PartialEq,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct FogSettings {
+    /// False draws none.
+    pub on: bool,
+    /// How thick the fog is.
+    pub density: f32,
+    /// How strongly it takes the key light under a low sun, and the
+    /// share of that it keeps under the highest sun.
+    pub strength: f32,
+    pub high_sun: f32,
+    /// How high above sea level the fog reaches.
+    pub height: f32,
+    /// How much of the light it throws on forward rather than every
+    /// way, 0 to 1: the glow around the sun.
+    pub glow: f32,
+    /// How much light it scatters and how much it takes, 0 to 1.
+    pub scattering: f32,
+    pub absorption: f32,
+    /// How strongly it takes the ambient light, which lifts it where
+    /// no shaft falls.
+    pub ambient: f32,
+    /// The steps taken through it at high quality.
+    pub steps: u32,
 }
 
 /// The camera: its lens, where it starts and how far a hand may move
@@ -313,8 +347,8 @@ pub enum Quality {
     /// No particles, no bloom, no shafts of light, plain edges and
     /// small shadows.
     Low,
-    /// Fewer particles, middling shadows and shafts of light taken
-    /// in few steps.
+    /// Fewer particles, middling shadows and half the steps through
+    /// the volumetric fog.
     Medium,
     #[default]
     High,
@@ -349,12 +383,13 @@ impl Quality {
         }
     }
 
-    /// The share of the full steps through the haze it takes. None
+    /// The share of the full steps through the volumetric fog it
+    /// takes. None
     /// draws no shafts of light.
     pub fn shafts(self) -> f32 {
         match self {
             Self::Low => 0.0,
-            Self::Medium => 0.25,
+            Self::Medium => 0.5,
             Self::High => 1.0,
         }
     }
@@ -372,9 +407,9 @@ pub struct Sun;
 #[derive(Component)]
 pub(crate) struct FillLight;
 
-/// The haze that shafts of light show in.
+/// The volume of fog that shafts of light show in.
 #[derive(Component)]
-pub(crate) struct Haze;
+pub(crate) struct WorldFog;
 
 /// The part of the day.
 #[derive(
@@ -704,62 +739,75 @@ pub(crate) fn sky_dome(
         .try_insert(AtmosphereSettings::default());
 }
 
-/// Lets the low sun throw shafts through the haze, as many steps
-/// through it as the quality allows. It runs again when the quality
-/// changes under a low sun.
-pub(crate) fn raise_haze(
+/// Lets the key light throw shafts through the volumetric fog, as
+/// many steps through it as the quality allows, or takes the fog
+/// away.
+pub(crate) fn raise_fog(
     mut commands: Commands,
-    set: Res<SkySettings>,
+    set: Res<FogSettings>,
     quality: Res<Quality>,
     camera: Single<Entity, With<WorldCamera>>,
     sun: Single<Entity, With<Sun>>,
-    old: Query<Entity, With<Haze>>,
+    fog: Query<Entity, With<WorldFog>>,
 ) {
-    for haze in &old {
-        commands.entity(haze).despawn();
-    }
-    let steps =
-        (set.shaft_steps as f32 * quality.shafts()).round() as u32;
-    if !set.shafts || steps == 0 {
+    let steps = (set.steps as f32 * quality.shafts()).round() as u32;
+    if !set.on || steps == 0 {
+        for fog in &fog {
+            commands.entity(fog).despawn();
+        }
         commands.entity(*camera).try_remove::<VolumetricFog>();
         commands.entity(*sun).try_remove::<VolumetricLight>();
         return;
     }
     commands.entity(*camera).try_insert(VolumetricFog {
-        ambient_intensity: 0.0,
         step_count: steps,
         ..default()
     });
     commands.entity(*sun).try_insert(VolumetricLight);
-    commands.spawn((
-        Haze,
-        FogVolume {
-            density_factor: set.shaft_density,
-            // It scatters far more than it takes, so the haze lifts
-            // the light and does not dim the ground.
-            absorption: 0.02,
-            scattering: 0.6,
-            scattering_asymmetry: 0.7,
-            light_intensity: set.shaft_strength,
-            ..default()
-        },
-        DespawnOnExit(LowSun),
-    ));
+    if fog.is_empty() {
+        commands.spawn((WorldFog, FogVolume::default()));
+    }
 }
 
-pub(crate) fn clear_haze(
-    mut commands: Commands,
-    camera: Single<Entity, With<WorldCamera>>,
-    sun: Single<Entity, With<Sun>>,
+/// Fits the volumetric fog to its settings and to the hour: the
+/// lower the sun, the more strongly the fog takes its light.
+pub(crate) fn fit_fog(
+    sky: Res<Sky>,
+    set: Res<FogSettings>,
+    sky_set: Res<SkySettings>,
+    mut fog: Query<&mut VolumetricFog, With<WorldCamera>>,
+    mut volumes: Query<&mut FogVolume, With<WorldFog>>,
 ) {
-    commands.entity(*camera).try_remove::<VolumetricFog>();
-    commands.entity(*sun).try_remove::<VolumetricLight>();
+    let look = &sky.look;
+    let height = -look.sun_dir.normalize_or(Vec3::NEG_Y).y;
+    let k = ((height - sky_set.lowest) / (1.0 - sky_set.lowest))
+        .clamp(0.0, 1.0);
+    let low = 1.0 - k * k * (3.0 - 2.0 * k);
+    let share = set.high_sun + (1.0 - set.high_sun) * low;
+    for mut fog in &mut fog {
+        fog.ambient_color = look.ambient;
+        fog.ambient_intensity = set.ambient;
+    }
+    for mut volume in &mut volumes {
+        *volume = FogVolume {
+            density_factor: set.density,
+            absorption: set.absorption,
+            scattering: set.scattering,
+            scattering_asymmetry: set.glow,
+            light_intensity: set.strength * share,
+            ..default()
+        };
+    }
 }
 
-/// Keeps the haze over the ground the camera looks at.
-pub(crate) fn lay_haze(
-    camera: Single<&Transform, (With<WorldCamera>, Without<Haze>)>,
-    mut haze: Query<&mut Transform, With<Haze>>,
+/// Keeps the volumetric fog over the ground the camera looks at.
+pub(crate) fn lay_fog(
+    set: Res<FogSettings>,
+    camera: Single<
+        &Transform,
+        (With<WorldCamera>, Without<WorldFog>),
+    >,
+    mut fog: Query<&mut Transform, With<WorldFog>>,
 ) {
     let forward = camera.forward();
     let reach = if forward.y < -0.05 {
@@ -768,8 +816,12 @@ pub(crate) fn lay_haze(
         2000.0
     };
     let centre = camera.translation + forward * reach;
-    for mut at in &mut haze {
-        *at = Transform::from_xyz(centre.x, 0.0, centre.z)
-            .with_scale(Vec3::new(reach * 8.0, 60.0, reach * 8.0));
+    for mut at in &mut fog {
+        // The volume is a unit cube about its middle, so it reaches
+        // as far below sea level as above.
+        *at =
+            Transform::from_xyz(centre.x, 0.0, centre.z).with_scale(
+                Vec3::new(reach * 8.0, set.height * 2.0, reach * 8.0),
+            );
     }
 }

@@ -20,7 +20,7 @@ use crate::keeper::Motion;
 use crate::moving::CarrySettings;
 use crate::needs::TagSettings;
 use crate::pick::PickSettings;
-use crate::sky::{CameraSettings, Looks, SkySettings};
+use crate::sky::{CameraSettings, FogSettings, Looks, SkySettings};
 use crate::sound::SoundSettings;
 use crate::works::WorksSettings;
 
@@ -36,6 +36,7 @@ pub fn plugin(app: &mut App) {
 pub(crate) struct WorldTuning {
     pub looks: Looks,
     pub sky: SkySettings,
+    pub fog: FogSettings,
     pub camera: CameraSettings,
     pub detail: DetailSettings,
     pub carry: CarrySettings,
@@ -60,6 +61,7 @@ impl Tuning for WorldTuning {
     fn apply(&self, was: &Self, world: &mut World) {
         follow(world, &was.looks, &self.looks);
         follow(world, &was.sky, &self.sky);
+        follow(world, &was.fog, &self.fog);
         follow(world, &was.camera, &self.camera);
         follow(world, &was.detail, &self.detail);
         follow(world, &was.carry, &self.carry);
@@ -79,6 +81,7 @@ impl Tuning for WorldTuning {
 designed!(WorldTuning {
     Looks => looks,
     SkySettings => sky,
+    FogSettings => fog,
     CameraSettings => camera,
     DetailSettings => detail,
     CarrySettings => carry,

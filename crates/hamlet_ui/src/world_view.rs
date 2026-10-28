@@ -97,13 +97,13 @@ pub(crate) struct WorldCam(Entity);
 #[derive(Component)]
 pub(crate) struct WorldPanel;
 
-/// The sky following the clock, or held at day or night.
+/// The sky following the clock, or held at day, at night or at an
+/// hour.
 #[derive(
     Resource,
     Clone,
     Copy,
     PartialEq,
-    Eq,
     Default,
     Debug,
     serde::Serialize,
@@ -115,35 +115,36 @@ pub(crate) enum TimeOfDay {
     Clock,
     Day,
     Night,
+    /// An hour of the day, 0 to 24.
+    At(f32),
 }
 
 impl TimeOfDay {
-    fn is_night(self, set: &SkySettings) -> bool {
+    /// The hour it holds the sky at; none while it follows the clock.
+    pub(crate) fn held(self, set: &SkySettings) -> Option<f32> {
         match self {
-            Self::Day => false,
-            Self::Night => true,
-            Self::Clock => {
-                let now = chrono::Local::now();
-                set.is_night(
-                    now.hour() as f32 + now.minute() as f32 / 60.0,
-                )
-            }
+            Self::Clock => None,
+            Self::Day => Some(set.held(false)),
+            Self::Night => Some(set.held(true)),
+            Self::At(hour) => Some(hour.rem_euclid(24.0)),
         }
+    }
+
+    fn is_night(self, set: &SkySettings) -> bool {
+        set.is_night(self.held(set).unwrap_or_else(|| {
+            let now = chrono::Local::now();
+            now.hour() as f32 + now.minute() as f32 / 60.0
+        }))
     }
 }
 
-/// Holds the sky at the middle of the day or of the night, or lets it
-/// follow the clock.
+/// Holds the sky at the hour chosen, or lets it follow the clock.
 pub(crate) fn hold_sky(
     sky: Res<TimeOfDay>,
     set: Res<SkySettings>,
     mut hour: ResMut<Hour>,
 ) {
-    let held = match *sky {
-        TimeOfDay::Clock => None,
-        TimeOfDay::Day => Some(set.held(false)),
-        TimeOfDay::Night => Some(set.held(true)),
-    };
+    let held = sky.held(&set);
     if hour.0 != held {
         hour.0 = held;
     }

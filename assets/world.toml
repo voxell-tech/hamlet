@@ -49,10 +49,6 @@ horizon = 0.14
 lowest = 0.2
 door_lumens = 30000.0
 door_reach = 9.0
-shafts = true
-shaft_density = 0.004
-shaft_strength = 12.0
-shaft_steps = 32
 occlusion = false
 atmosphere = false
 
@@ -71,6 +67,18 @@ lantern_lumens = 9000.0
 candle = 0.75
 wash = 0.2
 inlay_gain = 1.6
+
+[fog]
+on = true
+density = 0.004
+strength = 12.0
+high_sun = 0.25
+height = 30.0
+glow = 0.7
+scattering = 0.6
+absorption = 0.02
+ambient = 0.0
+steps = 64
 
 [camera]
 fov = 25.0
