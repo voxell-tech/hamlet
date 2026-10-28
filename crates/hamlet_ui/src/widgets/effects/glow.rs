@@ -16,7 +16,7 @@ use bevy_fynix::views::{BehaviorExt, frame};
 use crate::View;
 
 /// A panel whose controls draw their outer glow on its
-/// [`GlowLayer`].
+/// [`glow_layer`].
 #[derive(Component)]
 pub struct GlowPanel;
 
