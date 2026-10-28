@@ -10,7 +10,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::system::{Commands, Query};
 use bevy::ecs::world::World;
 use bevy::math::Vec2;
-use bevy::picking::events::PointerDrag;
+use bevy::picking::events::{PointerDrag, PointerDragStart};
 use bevy::picking::pointer::PointerButton;
 use bevy::ui::{
     AlignItems, ComputedNode, JustifyContent, PositionType,
@@ -67,14 +67,19 @@ struct Turns(Option<Change>);
 #[derive(Component, Clone, Copy, PartialEq)]
 struct Shown(f32);
 
+/// On a dial's ring while it is dragged: the radians from where the
+/// pointer took hold to where the knob was then.
+#[derive(Component, Clone, Copy)]
+struct Grip(f32);
+
 /// The side of the ring and of its knob.
 const SIDE: f32 = 112.0;
 const KNOB: f32 = 16.0;
 
 /// A dial showing `amount` on `face`. It never turns itself: a drag
 /// around it hands the amount turned to to `change`, and a bound
-/// `amount` follows what that writes. The knob turns by as much as
-/// the pointer goes round the middle, so it never jumps.
+/// `amount` follows what that writes. The knob keeps the angle to
+/// the pointer it had when the drag began, so it never jumps.
 pub fn dial(
     face: Face,
     amount: impl Into<Prop<f32>>,
@@ -108,6 +113,7 @@ pub fn dial(
                 Shown(0.0),
                 EntityCursor(SystemCursorIcon::Grab),
             ))
+            .observe(gripped)
             .observe(dragged);
         cx.effect(ring, amount, move |world, node, &amount| {
             let to = Shown(amount.rem_euclid(face.whole));
@@ -162,16 +168,45 @@ fn bearing(at: Vec2) -> f32 {
     at.x.atan2(-at.y)
 }
 
-/// The radians a pointer turned round the middle going from `from`
-/// to `to`, the short way, clockwise positive.
-fn swept(from: Vec2, to: Vec2) -> f32 {
-    let d = bearing(to) - bearing(from);
-    (d + TAU / 2.0).rem_euclid(TAU) - TAU / 2.0
+/// The pointer at `at`, in the window's logical pixels, from the
+/// middle of the ring laid out as `computed` and `transform`.
+fn from_middle(
+    at: Vec2,
+    computed: &ComputedNode,
+    transform: &UiGlobalTransform,
+) -> Vec2 {
+    let (_, _, centre) = transform.to_scale_angle_translation();
+    at - centre * computed.inverse_scale_factor()
+}
+
+/// The amount on `face` with the knob `turn` radians from the top.
+fn amount_at(face: &Face, turn: f32) -> f32 {
+    (face.top + turn / TAU * face.whole).rem_euclid(face.whole)
+}
+
+fn gripped(
+    mut start: On<PointerDragStart>,
+    rings: Query<(&Face, &Shown, &ComputedNode, &UiGlobalTransform)>,
+    mut commands: Commands,
+) {
+    if start.button != PointerButton::Primary {
+        return;
+    }
+    start.propagate(false);
+    let node = start.event_target();
+    let Ok((face, shown, computed, transform)) = rings.get(node)
+    else {
+        return;
+    };
+    let at = from_middle(start.pointer.position, computed, transform);
+    commands
+        .entity(node)
+        .insert(Grip(bearing(at) - face.turn(shown.0)));
 }
 
 fn dragged(
     mut drag: On<PointerDrag>,
-    rings: Query<(&Face, &Shown, &ComputedNode, &UiGlobalTransform)>,
+    rings: Query<(&Face, &Grip, &ComputedNode, &UiGlobalTransform)>,
     mut commands: Commands,
 ) {
     if drag.button != PointerButton::Primary {
@@ -179,16 +214,14 @@ fn dragged(
     }
     drag.propagate(false);
     let node = drag.event_target();
-    let Ok((face, shown, computed, transform)) = rings.get(node)
+    let Ok((face, grip, computed, transform)) = rings.get(node)
     else {
         return;
     };
-    let (_, _, centre) = transform.to_scale_angle_translation();
-    let to = drag.pointer.position
-        - centre * computed.inverse_scale_factor();
-    let turn = swept(to - drag.delta, to);
-    let amount =
-        (shown.0 + turn / TAU * face.whole).rem_euclid(face.whole);
+    // Measured from the grip alone, never from what the dial shows,
+    // which follows the world a frame behind.
+    let at = from_middle(drag.pointer.position, computed, transform);
+    let amount = amount_at(face, bearing(at) - grip.0);
     commands.queue(move |world: &mut World| {
         let Some(handler) = world
             .get_mut::<Turns>(node)
@@ -196,9 +229,6 @@ fn dragged(
         else {
             return;
         };
-        if let Some(mut shown) = world.get_mut::<Shown>(node) {
-            shown.0 = amount;
-        }
         handler(world, amount);
         if let Some(mut turns) = world.get_mut::<Turns>(node) {
             turns.0 = Some(handler);
@@ -211,14 +241,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_drag_turns_by_what_it_sweeps_even_across_the_foot() {
-        // A quarter turn clockwise from the top.
-        let quarter =
-            swept(Vec2::new(0.0, -1.0), Vec2::new(1.0, 0.0));
-        assert!((quarter - TAU / 4.0).abs() < 1e-4);
-        // Across the foot, where the bearing wraps, it stays small.
-        let small = swept(Vec2::new(0.1, 1.0), Vec2::new(-0.1, 1.0));
-        assert!(small > 0.0 && small < 0.3);
+    fn a_grip_turns_the_knob_with_the_pointer_and_wraps_at_the_foot()
+    {
+        let face = Face::HOURS;
+        // Taken hold of at the top while the dial shows 18:00.
+        let grip = bearing(Vec2::new(0.0, -1.0)) - face.turn(18.0);
+        // A quarter turn clockwise later it shows midnight.
+        let quarter = bearing(Vec2::new(1.0, 0.0)) - grip;
+        assert!(amount_at(&face, quarter).abs() < 1e-3);
+        // Either side of the foot, where the bearing wraps, the hours
+        // stay close.
+        let left =
+            amount_at(&face, bearing(Vec2::new(-0.1, 1.0)) - grip);
+        let right =
+            amount_at(&face, bearing(Vec2::new(0.1, 1.0)) - grip);
+        let apart = (left - right).rem_euclid(24.0);
+        assert!(apart.min(24.0 - apart) < 1.0);
         let top = place(Face::HOURS.turn(12.0), SIDE);
         assert!((top.x - SIDE / 2.0).abs() < 1e-3);
         assert!((top.y - KNOB / 2.0).abs() < 1e-3);
