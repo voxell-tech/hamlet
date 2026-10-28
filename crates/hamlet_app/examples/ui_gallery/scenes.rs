@@ -2,6 +2,7 @@
 
 mod dock;
 mod sample;
+mod selling;
 mod sheets;
 mod stalls;
 
@@ -188,9 +189,32 @@ pub enum Trade {
     Installing,
     /// The seller terms shown before payouts are set up.
     Terms,
-    /// A listing of the chief's rejected by the bazaar's checks.
-    Rejected,
+    /// The chief sells nothing yet, with the bazaar's panel alone.
+    SellingNothing,
+    /// The chief sells three listings at each state, with the
+    /// bazaar's panel alone.
+    Selling,
+    /// The same, with the bazaar's panel narrow beside the world.
+    SellingNarrow,
 }
+
+impl Trade {
+    /// The chief sells at the desk, the bazaar's panel beside the
+    /// world at most.
+    pub fn is_alone(self) -> bool {
+        matches!(
+            self,
+            Trade::SellingNothing
+                | Trade::Selling
+                | Trade::SellingNarrow
+        )
+    }
+}
+
+/// The share of the window the world takes beside the bazaar's panel
+/// in the sell scenes; the panel is alone without one.
+#[derive(Resource)]
+pub struct Side(pub Option<f32>);
 
 /// The picture that stands where the world is drawn, and the part of
 /// it shown.

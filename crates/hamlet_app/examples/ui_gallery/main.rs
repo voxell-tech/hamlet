@@ -25,7 +25,9 @@ use hamlet_app::pictures::Pictures;
 use hamlet_app::welcome::Step;
 
 use self::offscreen::{Target, word};
-use self::scenes::{GalleryPlugin, Scene, Stand, Strike, Trade};
+use self::scenes::{
+    GalleryPlugin, Scene, Side, Stand, Strike, Trade,
+};
 
 /// A still of the world, shown where the world is drawn.
 const WORLD: &str = concat!(
@@ -78,7 +80,55 @@ const fn market(
     }
 }
 
-const SHOTS: [Shot; 72] = [
+/// A still of the seller's desk, the bazaar's panel alone in the
+/// window, with the chief selling as `trade` says.
+const fn sell(
+    name: &'static str,
+    trade: Trade,
+    words: &'static [&'static str],
+    width: u32,
+) -> Shot {
+    Shot {
+        name,
+        scene: Scene::Market(Stall::Community, trade, words),
+        size: UVec2::new(width, 1100),
+        scale: 1.0,
+    }
+}
+
+const SHOTS: [Shot; 75] = [
+    sell("sell-empty", Trade::SellingNothing, &["YOURS"], 1280),
+    sell("sell-list", Trade::Selling, &["YOURS"], 1280),
+    sell(
+        "sell-new-agent",
+        Trade::Selling,
+        &["YOURS", "NEW LISTING", "AGENT", "Baker"],
+        1280,
+    ),
+    sell(
+        "sell-draft",
+        Trade::Selling,
+        &["YOURS", "Lighthouse Keeper"],
+        1280,
+    ),
+    sell(
+        "sell-verified",
+        Trade::Selling,
+        &["YOURS", "Lighthouse Keeper", "v0.0.3"],
+        1280,
+    ),
+    sell(
+        "sell-rejected",
+        Trade::Selling,
+        &["YOURS", "Lighthouse Keeper", "v0.0.2"],
+        1280,
+    ),
+    sell(
+        "sell-narrow",
+        Trade::SellingNarrow,
+        &["YOURS", "Lighthouse Keeper"],
+        1280,
+    ),
     bazaar("bazaar-models", Scene::Stall(Stall::Models, &[])),
     bazaar(
         "bazaar-model",
@@ -202,30 +252,6 @@ const SHOTS: [Shot; 72] = [
         Stall::Assets,
         Trade::SignedIn,
         &["FITTING", "FOUNDER"],
-    ),
-    market(
-        "market-desk",
-        Stall::Community,
-        Trade::SignedIn,
-        &["SELL AN AGENT"],
-    ),
-    market(
-        "market-yours",
-        Stall::Community,
-        Trade::SignedIn,
-        &["YOURS"],
-    ),
-    market(
-        "market-desk-change",
-        Stall::Community,
-        Trade::SignedIn,
-        &["YOURS", "Tutor Owl"],
-    ),
-    market(
-        "market-desk-rejected",
-        Stall::Community,
-        Trade::Rejected,
-        &["YOURS", "Tutor Owl"],
     ),
     Shot {
         name: "menu",
@@ -438,6 +464,10 @@ const SHOTS: [Shot; 72] = [
     },
 ];
 
+/// The width of the bazaar's panel beside the world in the
+/// SellingNarrow scenes, unless `--side` says.
+const SIDE: f32 = 420.0;
+
 /// The update the done buttons are pressed on unless `--strike` says,
 /// the updates after it the still is taken, and the updates its file
 /// is given to be written.
@@ -513,18 +543,28 @@ fn draw(shot: &Shot, path: PathBuf) {
         };
         app.insert_resource(Stand(world, part));
     }
-    app.insert_resource(Output(path))
-        .insert_resource(Strike(
-            word("--strike")
-                .and_then(|at| at.parse::<u32>().ok())
-                .unwrap_or(STRIKE),
-        ))
-        .insert_resource(TimeUpdateStrategy::ManualDuration(
-            Duration::from_secs_f64(1.0 / 60.0),
-        ))
-        .add_plugins(GalleryPlugin(shot.scene))
-        .add_systems(Startup, camera)
-        .add_systems(Update, capture);
+    let narrow = matches!(
+        shot.scene,
+        Scene::Market(_, Trade::SellingNarrow, _)
+    );
+    let side = word("--side")
+        .and_then(|side| side.parse::<f32>().ok())
+        .or(narrow.then_some(SIDE));
+    app.insert_resource(Side(
+        side.map(|side| 1.0 - side / size.x as f32),
+    ))
+    .insert_resource(Output(path))
+    .insert_resource(Strike(
+        word("--strike")
+            .and_then(|at| at.parse::<u32>().ok())
+            .unwrap_or(STRIKE),
+    ))
+    .insert_resource(TimeUpdateStrategy::ManualDuration(
+        Duration::from_secs_f64(1.0 / 60.0),
+    ))
+    .add_plugins(GalleryPlugin(shot.scene))
+    .add_systems(Startup, camera)
+    .add_systems(Update, capture);
     app.run();
 }
 

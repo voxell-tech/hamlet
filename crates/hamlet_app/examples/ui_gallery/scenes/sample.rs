@@ -28,6 +28,26 @@ pub(super) fn setup(world: &mut World) {
     state.agents[0].purpose =
         "Keeps the orchard's notes in order.".into();
     state.agents[0].spent.cost = "$0.10".into();
+    if matches!(scene, Scene::Market(_, trade, _) if trade.is_alone())
+    {
+        let more = [
+            ("Lighthouse Keeper", "Watches the coast at night."),
+            ("Ferryman", "Carries agents across the river."),
+            ("Baker", "Bakes bread for the square."),
+            ("Scribe", "Writes the hamlet's records."),
+        ];
+        for (at, (name, purpose)) in more.into_iter().enumerate() {
+            let mut agent = hamlet_testing::realm::agent(
+                "home",
+                at as i64 + 1,
+                name,
+            );
+            agent.purpose = purpose.into();
+            agent.skills =
+                (0..at + 2).map(|n| format!("skill-{n}")).collect();
+            state.agents.push(agent);
+        }
+    }
     hamlet_client::receive(
         world,
         protocol::ServerMessage::State(state),

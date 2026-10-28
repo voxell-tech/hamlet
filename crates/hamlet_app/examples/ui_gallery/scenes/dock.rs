@@ -21,7 +21,7 @@ use hamlet_ui::widgets::effects::Highlight;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{Cx, View};
 
-use super::{Scene, Stand, Ui};
+use super::{Scene, Side, Stand, Ui};
 
 /// The picture of the world over the command line.
 fn world_stand() -> Ui {
@@ -90,7 +90,24 @@ pub(super) fn seed_dock(world: &mut World) {
             .icon(Glyph::Sliders.image(ICON)),
     );
     let scene = *world.resource::<Scene>();
+    let side = world.get_resource::<Side>().and_then(|side| side.0);
     let mut tree = world.resource_mut::<DockTree>();
+    if matches!(scene, Scene::Market(_, trade, _) if trade.is_alone())
+    {
+        let window = if side.is_some() { "world" } else { "bazaar" };
+        let centre = tree.set_root_leaf(
+            DockLeaf::new("centre", DockAreaStyle::TabBar)
+                .with_windows(vec![window.into()]),
+        );
+        if let Some(share) = side
+            && let Some((_, _)) =
+                tree.split(centre, Edge::Right, "bazaar".into())
+            && let Some(parent) = tree.parent_of(centre)
+        {
+            tree.set_fraction(parent, share);
+        }
+        return;
+    }
     let centre = tree.set_root_leaf(
         DockLeaf::new("centre", DockAreaStyle::TabBar)
             .with_windows(vec!["world".into()]),
