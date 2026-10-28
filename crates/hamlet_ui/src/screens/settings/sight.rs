@@ -94,11 +94,7 @@ fn hour() -> impl View {
                         *world.resource_mut::<TimeOfDay>() = to;
                     },
                 ),
-                description(
-                    "Drag the sun around the ring to hold the sky \
-                     at an hour: noon at the top, midnight at the \
-                     foot.",
-                ),
+                description("Drag to hold an hour."),
             ))
             .gap(cx.theme().space.gap / 2.0)
             .align(AlignItems::FlexStart)
@@ -122,12 +118,9 @@ fn north() -> impl View {
                     world.resource_mut::<NorthTarget>().0 = degrees;
                 },
             ),
-            column((description(
-                "Turn the sun's path: where it rises, stands at \
-                 noon and sets.",
-            ),))
-            .grow(1.0)
-            .min_width(px(0.0)),
+            column((description("Where the sun rises."),))
+                .grow(1.0)
+                .min_width(px(0.0)),
         ))
         .gap(cx.theme().space.section)
         .align(AlignItems::Center)
@@ -155,8 +148,11 @@ fn amount(
                 .width(px(0.0))
                 .min_width(px(0.0))
                 .grow(1.0),
+            // As many places as the range needs: none for a
+            // distance, three for a share.
             label(resource::<FogSettings, _>(move |fog| {
-                format!("{:.3}", at(fog))
+                let places = if most >= 100.0 { 0 } else { 3 };
+                format!("{:.*}", places, at(fog))
             }))
             .wide(px(48.0)),
         ))
@@ -176,16 +172,10 @@ fn fog() -> impl View {
             |world, on| world.resource_mut::<FogSettings>().on = on,
         ),
         amount(
-            "Density",
-            |f| f.density,
-            |f, v| f.density = v,
-            (0.0, 0.03),
-        ),
-        amount(
-            "Height",
-            |f| f.height,
-            |f, v| f.height = v,
-            (2.0, 200.0),
+            "Visibility",
+            |f| f.visibility,
+            |f, v| f.visibility = v,
+            (100.0, 4000.0),
         ),
         amount(
             "Light",
@@ -230,7 +220,7 @@ pub(super) fn page() -> impl View {
             "Visual quality",
             told(
                 quality(),
-                description("Particles, bloom, fog and shadows."),
+                description("Particles, bloom, fog, shadows."),
             ),
         ),
         field("Time of day", hour()),

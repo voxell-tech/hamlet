@@ -4,12 +4,8 @@
 use std::f32::consts::PI;
 
 use bevy::anti_alias::smaa::Smaa;
-use bevy::asset::RenderAssetUsages;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::image::{
-    ImageAddressMode, ImageSampler, ImageSamplerDescriptor,
-};
 use bevy::light::atmosphere::ScatteringMedium;
 use bevy::light::{
     Atmosphere, CascadeShadowConfig, DirectionalLightShadowMap,
@@ -18,9 +14,6 @@ use bevy::light::{
 use bevy::pbr::{AtmosphereSettings, ScreenSpaceAmbientOcclusion};
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
-use bevy::render::render_resource::{
-    Extent3d, TextureDimension, TextureFormat,
-};
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use chrono::Timelike;
 use hamlet_assets::tint;
@@ -250,14 +243,14 @@ impl SkySettings {
 pub struct FogSettings {
     /// False draws none.
     pub on: bool,
-    /// How thick the fog is.
-    pub density: f32,
-    /// How strongly it takes the key light under a low sun, and the
-    /// share of that it keeps under the highest sun.
+    /// How far one sees through the fog: what lies this far away is
+    /// nearly hidden. It fills the air, with no top.
+    pub visibility: f32,
+    /// How brightly its shafts take the key light under a low sun,
+    /// and the share of that they keep under the highest sun. It
+    /// does not thicken the fog.
     pub strength: f32,
     pub high_sun: f32,
-    /// How high above sea level the fog reaches.
-    pub height: f32,
     /// How much of the light it throws on forward rather than every
     /// way, 0 to 1: the glow around the sun.
     pub glow: f32,
@@ -269,6 +262,15 @@ pub struct FogSettings {
     pub ambient: f32,
     /// The steps taken through it at high quality.
     pub steps: u32,
+}
+
+impl FogSettings {
+    /// The engine's density for the visibility: light that far
+    /// through it keeps a twentieth of itself.
+    pub fn density(&self) -> f32 {
+        let taken = (self.absorption + self.scattering).max(1e-3);
+        20f32.ln() / (self.visibility.max(1.0) * taken)
+    }
 }
 
 /// The camera: its lens, where it starts and how far a hand may move
@@ -815,7 +817,6 @@ pub(crate) fn raise_fog(
     mut commands: Commands,
     set: Res<FogSettings>,
     quality: Res<Quality>,
-    mut images: ResMut<Assets<Image>>,
     camera: Single<Entity, With<WorldCamera>>,
     sun: Single<Entity, With<Sun>>,
     fog: Query<Entity, With<WorldFog>>,
@@ -835,51 +836,13 @@ pub(crate) fn raise_fog(
     });
     commands.entity(*sun).try_insert(VolumetricLight);
     if fog.is_empty() {
-        commands.spawn((
-            WorldFog::default(),
-            FogVolume {
-                density_texture: Some(images.add(thinning())),
-                ..default()
-            },
-        ));
+        commands.spawn((WorldFog::default(), FogVolume::default()));
     }
 }
 
-/// Rows of [`thinning`], from the foot of the volume to its top.
-const THINNING_ROWS: u32 = 32;
-
-/// How thick the fog is up a volume, as a texture one texel wide and
-/// deep: whole below sea level, the volume's middle, and thinning
-/// smoothly to nothing at its top, so it has no hard ceiling.
-fn thinning() -> Image {
-    let rows = (0..THINNING_ROWS)
-        .map(|row| {
-            let up = (row as f32 + 0.5) / THINNING_ROWS as f32;
-            let t = ((up - 0.5) * 2.0).clamp(0.0, 1.0);
-            let thick = 1.0 - t * t * (3.0 - 2.0 * t);
-            (thick * 255.0).round() as u8
-        })
-        .collect();
-    let mut image = Image::new(
-        Extent3d {
-            width: 1,
-            height: THINNING_ROWS,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D3,
-        rows,
-        TextureFormat::R8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    image.sampler =
-        ImageSampler::Descriptor(ImageSamplerDescriptor {
-            address_mode_u: ImageAddressMode::ClampToEdge,
-            address_mode_v: ImageAddressMode::ClampToEdge,
-            address_mode_w: ImageAddressMode::ClampToEdge,
-            ..ImageSamplerDescriptor::linear()
-        });
-    image
-}
+/// How far the volumetric fog reaches below sea level and above the
+/// camera.
+const FOG_MARGIN: f32 = 50.0;
 
 /// Dims the fill light as the key light sinks while the volumetric
 /// fog is drawn, and puts it out once it gives no light. The engine
@@ -933,12 +896,11 @@ pub(crate) fn fit_fog(
         fog.light = set.strength * share;
         // `lay_fog` sets its light, once it knows how wide it is.
         *volume = FogVolume {
-            density_factor: set.density,
+            density_factor: set.density(),
             absorption: set.absorption,
             scattering: set.scattering,
             scattering_asymmetry: set.glow,
             light_intensity: volume.light_intensity,
-            density_texture: volume.density_texture.clone(),
             ..default()
         };
     }
@@ -949,7 +911,6 @@ pub(crate) fn fit_fog(
 /// shadows the engine would light all of it, a bright wall with a
 /// hard edge.
 pub(crate) fn lay_fog(
-    set: Res<FogSettings>,
     camera: Single<
         &Transform,
         (With<WorldCamera>, Without<WorldFog>),
@@ -965,13 +926,15 @@ pub(crate) fn lay_fog(
         return;
     };
     let across = reach * 2.0;
-    // The volume is a unit cube about its middle, so it reaches as
-    // far below sea level as above.
-    let size = Vec3::new(across, set.height * 2.0, across);
+    // From under the lowest ground to over the camera, so the camera
+    // is always inside and the fog shows no top and no sides.
+    let (foot, top) =
+        (-FOG_MARGIN, camera.translation.y + FOG_MARGIN);
+    let size = Vec3::new(across, top - foot, across);
     for (fog, mut at, mut volume) in &mut fog {
         *at = Transform::from_xyz(
             camera.translation.x,
-            0.0,
+            (foot + top) * 0.5,
             camera.translation.z,
         )
         .with_scale(size);

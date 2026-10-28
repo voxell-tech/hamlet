@@ -96,6 +96,17 @@ fn on() -> bool {
     true
 }
 
+/// The kept fog, or `assets/world.toml`'s where it was kept in a
+/// shape the fog no longer has.
+fn kept_fog<'de, D: serde::Deserializer<'de>>(
+    kept: D,
+) -> Result<FogSettings, D::Error> {
+    Ok(toml::Value::deserialize(kept)
+        .ok()
+        .and_then(|fog| fog.try_into().ok())
+        .unwrap_or_default())
+}
+
 /// The kept view. The first part of `dock` is its root.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct View {
@@ -112,7 +123,7 @@ pub struct View {
     quality: Quality,
     /// The fog as the chief left it; `assets/world.toml`'s before
     /// it was kept.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "kept_fog")]
     fog: FogSettings,
     /// Degrees the sun's path is turned.
     #[serde(default)]
@@ -729,7 +740,7 @@ mod tests {
             keep_awake: false,
             quality: Quality::Medium,
             fog: FogSettings {
-                density: 0.02,
+                visibility: 400.0,
                 ..FogSettings::default()
             },
             north: 45.0,

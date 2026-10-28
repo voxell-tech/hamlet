@@ -297,6 +297,20 @@ fn shot_list(land: &Land) -> Vec<Shot> {
             ..default()
         });
     }
+    // Nearly level with the ground, as far down as the camera goes,
+    // toward the setting sun through the fog.
+    shots.push(Shot {
+        name: "l-level-dusk",
+        view: GeneratorView {
+            focus: hall,
+            dist: 46.0,
+            pitch: 5.0,
+            yaw: 0.42,
+        },
+        world: grown.clone(),
+        hour: Some(18.7),
+        ..default()
+    });
     // Toward the setting sun.
     for (name, hour) in [
         ("l-low-day", None),

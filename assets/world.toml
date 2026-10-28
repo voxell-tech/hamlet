@@ -70,10 +70,9 @@ inlay_gain = 1.6
 
 [fog]
 on = true
-density = 0.003
-strength = 1.5
+visibility = 1500.0
+strength = 0.7
 high_sun = 0.25
-height = 30.0
 glow = 0.7
 scattering = 0.6
 absorption = 0.02
