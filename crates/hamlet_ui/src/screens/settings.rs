@@ -11,7 +11,9 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, percent, px};
+use bevy::ui::{
+    AlignItems, Overflow, OverflowAxis, UiRect, percent, px,
+};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -666,9 +668,15 @@ pub fn screen() -> AnyView {
         let width = cx.theme().space.page_width;
         let page =
             page.within(column(()).gap(0.0).max_width(px(width)));
+        // It scrolls down only: a page is laid out to the panel's
+        // width.
         cx.build(
             scroll((page,))
                 .fills_height()
+                .overflow(Overflow {
+                    x: OverflowAxis::Clip,
+                    y: OverflowAxis::Scroll,
+                })
                 .tagged(ScrollFade::default()),
         )
     })

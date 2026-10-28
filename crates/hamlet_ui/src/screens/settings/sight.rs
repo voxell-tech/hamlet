@@ -6,20 +6,19 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent, px};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, dropdown, ghost, label,
-    row, slider,
+    FrameProps, column, dropdown, label, row, slider,
 };
 use bevy_fynix::{
-    ModifierExt, ScopedExt, ViewExt, derived, every_frame, keyed,
-    resource,
+    ModifierExt, ViewExt, derived, every_frame, resource,
 };
 use hamlet_realm::sky::{FogSettings, Quality, SkySettings};
 use hamlet_realm::{North, Sky};
 
 use super::{field, told};
 use crate::dial::{Face, dial};
+use crate::disclosure::disclosure;
 use crate::icons::Glyph;
-use crate::looks::{action, close, description, parts, section};
+use crate::looks::{action, close, description, parts};
 use crate::switch::labelled_switch;
 use crate::world_view::{NorthTarget, TimeOfDay};
 use crate::{View, built, with_cx};
@@ -123,11 +122,12 @@ fn north() -> impl View {
                     world.resource_mut::<NorthTarget>().0 = degrees;
                 },
             ),
-            description(
+            column((description(
                 "Turn the sun's path: where it rises, stands at \
                  noon and sets.",
-            )
-            .grown(1.0),
+            ),))
+            .grow(1.0)
+            .min_width(px(0.0)),
         ))
         .gap(cx.theme().space.section)
         .align(AlignItems::Center)
@@ -150,6 +150,10 @@ fn amount(
                 .on_change(move |world, to| {
                     set(&mut world.resource_mut::<FogSettings>(), to);
                 })
+                // From nothing, so it takes the room the row has
+                // rather than pushing the row past the page.
+                .width(px(0.0))
+                .min_width(px(0.0))
                 .grow(1.0),
             label(resource::<FogSettings, _>(move |fog| {
                 format!("{:.3}", at(fog))
@@ -220,18 +224,6 @@ fn fog() -> impl View {
     ))
 }
 
-/// The fog's name, a button that shows or hides its settings.
-fn fog_head() -> impl View {
-    button(section(resource::<FogOpen, _>(|open| {
-        if open.0 { "FOG  -" } else { "FOG  +" }.to_owned()
-    })))
-    .rules(ghost)
-    .on_activate(|world| {
-        let mut open = world.resource_mut::<FogOpen>();
-        open.0 = !open.0;
-    })
-}
-
 pub(super) fn page() -> impl View {
     parts((
         field(
@@ -243,17 +235,14 @@ pub(super) fn page() -> impl View {
         ),
         field("Time of day", hour()),
         field("North", north()),
-        column((
-            fog_head(),
-            keyed(resource::<FogOpen, _>(|open| open.0), |open| {
-                if *open {
-                    fog().boxed()
-                } else {
-                    description("Shafts of light through the fog.")
-                        .boxed()
-                }
-            }),
-        ))
-        .gap(0.0),
+        disclosure(
+            "Fog",
+            resource::<FogOpen, _>(|open| open.0),
+            |world| {
+                let mut open = world.resource_mut::<FogOpen>();
+                open.0 = !open.0;
+            },
+            || fog().boxed(),
+        ),
     ))
 }
