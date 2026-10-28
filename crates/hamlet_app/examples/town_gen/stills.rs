@@ -14,7 +14,7 @@ use hamlet_realm::generator::{
 };
 use hamlet_realm::keeper::KeeperState;
 use hamlet_realm::keeper::work::{Chore, routine};
-use hamlet_realm::sky::SkySettings;
+use hamlet_realm::sky::{SkySettings, VolumetricFogSettings};
 use hamlet_realm::{Clock, Hour, Stage};
 
 use crate::made_up::{site_of, society};
@@ -38,6 +38,9 @@ struct Shot {
     /// The hour shown, where it is not the middle of the day or of
     /// the night.
     hour: Option<f32>,
+    /// The volumetric fog is on for this still, whatever `TOWN_FX`
+    /// says.
+    fog: bool,
 }
 
 fn town_view(
@@ -309,6 +312,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
         },
         world: grown.clone(),
         hour: Some(18.7),
+        fog: true,
         ..default()
     });
     // The same through the evening, where a snap would show between
@@ -327,6 +331,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
             },
             world: grown.clone(),
             hour: Some(hour),
+            fog: true,
             ..default()
         });
     }
@@ -342,6 +347,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
         },
         world: grown.clone(),
         hour: Some(18.6),
+        fog: true,
         ..default()
     });
     // Toward the setting sun.
@@ -572,6 +578,9 @@ pub struct ShotRun {
     frame: u32,
     /// Stills saved so far.
     taken: usize,
+    /// Whether the fog was on before the first still, which the
+    /// stills without their own fog go back to.
+    fog_was: Option<bool>,
 }
 
 impl ShotRun {
@@ -582,6 +591,7 @@ impl ShotRun {
             index: 0,
             frame: 0,
             taken: 0,
+            fog_was: None,
         }
     }
 }
@@ -598,6 +608,7 @@ pub fn run_shots(
     mut rehearsal: ResMut<Rehearsal>,
     sky_set: Res<SkySettings>,
     mut hour: ResMut<Hour>,
+    mut fog_set: ResMut<VolumetricFogSettings>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let shots = shot_list(&land);
@@ -628,6 +639,11 @@ pub fn run_shots(
         stage.night =
             shot.hour.map_or(shot.night, |h| sky_set.is_night(h));
         hour.0 = shot.hour;
+        let fog_was = *run.fog_was.get_or_insert(fog_set.on);
+        let fog_on = shot.fog || fog_was;
+        if fog_set.on != fog_on {
+            fog_set.on = fog_on;
+        }
         clock.frozen = true;
         clock.t = shot.at.unwrap_or(0.5);
         traffic.trips.clear();
