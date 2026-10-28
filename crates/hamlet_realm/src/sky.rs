@@ -4,16 +4,23 @@
 use std::f32::consts::PI;
 
 use bevy::anti_alias::smaa::Smaa;
+use bevy::asset::RenderAssetUsages;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::image::{
+    ImageAddressMode, ImageSampler, ImageSamplerDescriptor,
+};
 use bevy::light::atmosphere::ScatteringMedium;
 use bevy::light::{
-    Atmosphere, DirectionalLightShadowMap, FogVolume,
-    ShadowFilteringMethod, VolumetricFog, VolumetricLight,
+    Atmosphere, CascadeShadowConfig, DirectionalLightShadowMap,
+    FogVolume, ShadowFilteringMethod, VolumetricFog, VolumetricLight,
 };
 use bevy::pbr::{AtmosphereSettings, ScreenSpaceAmbientOcclusion};
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
+use bevy::render::render_resource::{
+    Extent3d, TextureDimension, TextureFormat,
+};
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use chrono::Timelike;
 use hamlet_assets::tint;
@@ -44,6 +51,15 @@ pub fn plugin(app: &mut App) {
                 (
                     (light, light_windows)
                         .run_if(resource_changed::<Sky>),
+                    dim_fill.after(light).run_if(
+                        |sky: Res<Sky>,
+                         fog: Res<FogSettings>,
+                         quality: Res<Quality>| {
+                            sky.is_changed()
+                                || fog.is_changed()
+                                || quality.is_changed()
+                        },
+                    ),
                     (occlude, sky_dome)
                         .run_if(resource_changed::<SkySettings>),
                     spend.run_if(resource_changed::<Quality>),
@@ -773,31 +789,44 @@ pub(crate) fn sky_dome(
         .try_insert(AtmosphereSettings::default());
 }
 
+/// How low the key light stands, 0 high in the sky to 1 at its
+/// lowest.
+fn lowness(look: &Look, sky_set: &SkySettings) -> f32 {
+    let height = -look.sun_dir.normalize_or(Vec3::NEG_Y).y;
+    let k = ((height - sky_set.lowest) / (1.0 - sky_set.lowest))
+        .clamp(0.0, 1.0);
+    1.0 - k * k * (3.0 - 2.0 * k)
+}
+
+/// The steps taken through the volumetric fog, none when it is not
+/// drawn.
+fn fog_steps(set: &FogSettings, quality: Quality) -> u32 {
+    if set.on {
+        (set.steps as f32 * quality.shafts()).round() as u32
+    } else {
+        0
+    }
+}
+
 /// Lets the key light throw shafts through the volumetric fog, as
 /// many steps through it as the quality allows, or takes the fog
 /// away.
-///
-/// The fill light is put out meanwhile. The engine orders the
-/// directional lights with the volumetric ones last, though its fog
-/// looks for them first, so with the fill light drawn the sun's
-/// shafts never show.
 pub(crate) fn raise_fog(
     mut commands: Commands,
     set: Res<FogSettings>,
     quality: Res<Quality>,
+    mut images: ResMut<Assets<Image>>,
     camera: Single<Entity, With<WorldCamera>>,
     sun: Single<Entity, With<Sun>>,
-    fill: Single<Entity, With<FillLight>>,
     fog: Query<Entity, With<WorldFog>>,
 ) {
-    let steps = (set.steps as f32 * quality.shafts()).round() as u32;
-    if !set.on || steps == 0 {
+    let steps = fog_steps(&set, *quality);
+    if steps == 0 {
         for fog in &fog {
             commands.entity(fog).despawn();
         }
         commands.entity(*camera).try_remove::<VolumetricFog>();
         commands.entity(*sun).try_remove::<VolumetricLight>();
-        commands.entity(*fill).try_insert(Visibility::Inherited);
         return;
     }
     commands.entity(*camera).try_insert(VolumetricFog {
@@ -805,9 +834,82 @@ pub(crate) fn raise_fog(
         ..default()
     });
     commands.entity(*sun).try_insert(VolumetricLight);
-    commands.entity(*fill).try_insert(Visibility::Hidden);
     if fog.is_empty() {
-        commands.spawn((WorldFog::default(), FogVolume::default()));
+        commands.spawn((
+            WorldFog::default(),
+            FogVolume {
+                density_texture: Some(images.add(thinning())),
+                ..default()
+            },
+        ));
+    }
+}
+
+/// Rows of [`thinning`], from the foot of the volume to its top.
+const THINNING_ROWS: u32 = 32;
+
+/// How thick the fog is up a volume, as a texture one texel wide and
+/// deep: whole below sea level, the volume's middle, and thinning
+/// smoothly to nothing at its top, so it has no hard ceiling.
+fn thinning() -> Image {
+    let rows = (0..THINNING_ROWS)
+        .map(|row| {
+            let up = (row as f32 + 0.5) / THINNING_ROWS as f32;
+            let t = ((up - 0.5) * 2.0).clamp(0.0, 1.0);
+            let thick = 1.0 - t * t * (3.0 - 2.0 * t);
+            (thick * 255.0).round() as u8
+        })
+        .collect();
+    let mut image = Image::new(
+        Extent3d {
+            width: 1,
+            height: THINNING_ROWS,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D3,
+        rows,
+        TextureFormat::R8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    image.sampler =
+        ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: ImageAddressMode::ClampToEdge,
+            address_mode_v: ImageAddressMode::ClampToEdge,
+            address_mode_w: ImageAddressMode::ClampToEdge,
+            ..ImageSamplerDescriptor::linear()
+        });
+    image
+}
+
+/// Dims the fill light as the key light sinks while the volumetric
+/// fog is drawn, and puts it out once it gives no light. The engine
+/// orders the directional lights with the volumetric ones last,
+/// though its fog looks for them first, so with the fill light drawn
+/// the key light's shafts never show. Faded rather than put out at
+/// once, the change is never seen.
+pub(crate) fn dim_fill(
+    sky: Res<Sky>,
+    sky_set: Res<SkySettings>,
+    set: Res<FogSettings>,
+    quality: Res<Quality>,
+    mut fill: Single<
+        (&mut DirectionalLight, &mut Visibility),
+        With<FillLight>,
+    >,
+) {
+    let left = if fog_steps(&set, *quality) > 0 {
+        1.0 - lowness(&sky.look, &sky_set)
+    } else {
+        1.0
+    };
+    fill.0.illuminance = sky.look.fill_lux * left;
+    let shown = if left > 1e-3 {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    if *fill.1 != shown {
+        *fill.1 = shown;
     }
 }
 
@@ -821,10 +923,7 @@ pub(crate) fn fit_fog(
     mut volumes: Query<(&mut WorldFog, &mut FogVolume)>,
 ) {
     let look = &sky.look;
-    let height = -look.sun_dir.normalize_or(Vec3::NEG_Y).y;
-    let k = ((height - sky_set.lowest) / (1.0 - sky_set.lowest))
-        .clamp(0.0, 1.0);
-    let low = 1.0 - k * k * (3.0 - 2.0 * k);
+    let low = lowness(look, &sky_set);
     let share = set.high_sun + (1.0 - set.high_sun) * low;
     for mut fog in &mut fog {
         fog.ambient_color = look.ambient;
@@ -839,6 +938,7 @@ pub(crate) fn fit_fog(
             scattering: set.scattering,
             scattering_asymmetry: set.glow,
             light_intensity: volume.light_intensity,
+            density_texture: volume.density_texture.clone(),
             ..default()
         };
     }
@@ -850,22 +950,21 @@ pub(crate) fn fit_fog(
 /// hard edge.
 pub(crate) fn lay_fog(
     set: Res<FogSettings>,
-    view: Res<CameraSettings>,
     camera: Single<
         &Transform,
         (With<WorldCamera>, Without<WorldFog>),
     >,
+    shadows: Query<&CascadeShadowConfig, With<Sun>>,
     mut fog: Query<(&WorldFog, &mut Transform, &mut FogVolume)>,
 ) {
-    let forward = camera.forward();
-    let reach = if forward.y < -0.05 {
-        (-camera.translation.y / forward.y).clamp(10.0, 2000.0)
-    } else {
-        2000.0
-    };
     // The shadows end this far from the camera; see
-    // `generator::view`.
-    let across = reach * view.shadow_range.2 * 2.0;
+    // `generator::view`, which sets them to the ground in view.
+    let Some(&reach) =
+        shadows.iter().next().and_then(|c| c.bounds.last())
+    else {
+        return;
+    };
+    let across = reach * 2.0;
     // The volume is a unit cube about its middle, so it reaches as
     // far below sea level as above.
     let size = Vec3::new(across, set.height * 2.0, across);

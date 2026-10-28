@@ -191,7 +191,7 @@ fn fog() -> impl View {
             "Light",
             |f| f.strength,
             |f, v| f.strength = v,
-            (0.0, 40.0),
+            (0.0, 6.0),
         ),
         amount(
             "Light at noon",

@@ -157,6 +157,35 @@ pub(super) fn robot_detail(
     }
 }
 
+/// The distances from the camera the sun's shadows start at, split at
+/// and end at, for a camera `dist` from what it looks at, `rise`
+/// above it and looking down by the sine `down`. They follow the
+/// zoom, so shadows stay sharp up close, and stretch to cover the
+/// ground in view: from the foot of the view to its top, or to the
+/// fog's end where the top is over the horizon.
+fn shadowed(
+    settings: &CameraSettings,
+    dist: f32,
+    rise: f32,
+    down: f32,
+    fog_end: f32,
+) -> (f32, f32, f32) {
+    let (start, split, end) = settings.shadow_range;
+    let pitch = down.clamp(-1.0, 1.0).asin();
+    let half = settings.fov.to_radians() * 0.5;
+    let rise = rise.max(settings.near);
+    let nearest = rise / (pitch + half).sin().max(1e-3);
+    let farthest = if pitch - half > 0.01 {
+        (rise / (pitch - half).sin()).min(fog_end)
+    } else {
+        fog_end
+    };
+    let least = (dist * start).min(nearest * 0.8).max(settings.near);
+    let most = (dist * end).max(farthest).max(least * 2.0);
+    let split = (dist * split).clamp(least * 1.5, most * 0.75);
+    (least, split, most)
+}
+
 /// Points the camera where [`GeneratorView`] looks, with fog, shadows
 /// and blur fitted to its distance.
 pub(super) fn aim(
@@ -205,18 +234,24 @@ pub(super) fn aim(
     let (eye, focus) = (eye + lift, focus + lift);
     *at = Transform::from_translation(eye).looking_at(focus, Vec3::Y);
 
+    let fog_end = dist * settings.fog_end.0 + settings.fog_end.1;
     fog.falloff = FogFalloff::Linear {
         start: dist * settings.fog_start,
-        end: dist * settings.fog_end.0 + settings.fog_end.1,
+        end: fog_end,
     };
-    // The shadowed range follows the zoom, so shadows stay sharp up
-    // close and still reach the ground when pulled back.
+    let (least, split, most) = shadowed(
+        &settings,
+        dist,
+        eye.y - focus.y,
+        -at.forward().y,
+        fog_end,
+    );
     commands.entity(*sun).try_insert(
         CascadeShadowConfigBuilder {
             num_cascades: 2,
-            minimum_distance: dist * settings.shadow_range.0,
-            first_cascade_far_bound: dist * settings.shadow_range.1,
-            maximum_distance: dist * settings.shadow_range.2,
+            minimum_distance: least,
+            first_cascade_far_bound: split,
+            maximum_distance: most,
             ..default()
         }
         .build(),
