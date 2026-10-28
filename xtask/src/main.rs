@@ -452,7 +452,10 @@ fn locked(subcommand: &str, args: &[&str]) -> Command {
 }
 
 fn npm(args: &[&str]) -> Command {
-    let mut command = Command::new("npm");
+    // Windows ships npm as `npm.cmd`, which Command does not find
+    // under the bare name.
+    let program = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    let mut command = Command::new(program);
     command.args(args).args(["--prefix", "harnesses/pi"]);
     command
 }
