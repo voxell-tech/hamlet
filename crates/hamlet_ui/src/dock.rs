@@ -3,7 +3,9 @@
 
 use std::collections::HashMap;
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate, Update};
+use bevy::ecs::query::With;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{ComputedNode, Overflow, UiRect, px};
@@ -12,14 +14,15 @@ use bevy_fynix::dock::{
     DockTree, DockWindowKind, Edge, NodeId, SplitAxis,
 };
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
+use hamlet_client::waits::Waiting;
 
 use crate::effects::{
-    GlowPanel, Highlight, glow_layer, highlight_layer,
+    Attention, GlowPanel, Highlight, glow_layer, highlight_layer,
 };
 use crate::platform::{ClipInside, Glow};
 use crate::styles::Fills;
 use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View, desk, remember};
+use crate::{AnyView, Cx, PanelSystems, View, desk, remember};
 
 /// The least width a panel keeps, in logical pixels.
 const LEAST: f32 = 300.0;
@@ -28,7 +31,22 @@ const LEAST: f32 = 300.0;
 pub(crate) const NEEDS_SHARE: f32 = 0.2;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Update, keep_wide);
+    app.add_systems(
+        PreUpdate,
+        count_waits.in_set(PanelSystems::Bind),
+    )
+    .add_systems(Update, keep_wide);
+}
+
+/// Tells the panels' highlights how many things wait for the chief.
+fn count_waits(
+    waiting: Query<(), With<Waiting>>,
+    mut attention: ResMut<Attention>,
+) {
+    let count = waiting.iter().count();
+    if attention.0 != count {
+        attention.0 = count;
+    }
 }
 
 /// Registers a panel's dock window from its own plugin.

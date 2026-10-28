@@ -3,7 +3,7 @@
 
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChanges;
-use bevy::ecs::message::MessageWriter;
+use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, With};
 use bevy::ecs::system::{Local, Query, Res};
@@ -16,20 +16,39 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::sound::{Cue, Sound};
 
 use crate::chat::{ChatError, Unfolded};
+use crate::effects::ControlSound;
 use crate::hover::Card;
 use crate::inspector::Section;
 use crate::menu::OpenMenu;
 use crate::world_menu::Open;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_observer(sent)
+    app.add_message::<ControlSound>()
+        .add_observer(sent)
         .add_observer(failed)
         .add_observer(
             |_: On<ChatError>, mut cues: MessageWriter<Cue>| {
                 cues.write(cue(Sound::Error));
             },
         )
-        .add_systems(Update, (menus, tabs, folds));
+        .add_systems(Update, (controls, menus, tabs, folds));
+}
+
+/// The sounds the controls ask for.
+fn controls(
+    mut asked: MessageReader<ControlSound>,
+    mut turn: Local<u32>,
+    mut cues: MessageWriter<Cue>,
+) {
+    for sound in asked.read() {
+        let sound = match sound {
+            ControlSound::Hover => Sound::Tick,
+            ControlSound::Press => Sound::Tap,
+            ControlSound::Confirm => Sound::Confirm,
+            ControlSound::Deny => Sound::Deny,
+        };
+        write(&mut cues, &mut turn, sound);
+    }
 }
 
 fn cue(sound: Sound) -> Cue {

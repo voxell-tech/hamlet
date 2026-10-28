@@ -13,13 +13,14 @@ mod underglow;
 use bevy::app::{App, Update};
 use bevy::color::Color;
 use bevy::ecs::component::Component;
+use bevy::ecs::message::Message;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ui::{ColorStop, percent};
 
 pub(crate) use self::glow::{GlowPanel, glow_layer};
 pub(crate) use self::highlight::highlight_layer;
-pub use self::highlight::{Highlight, Updated};
+pub use self::highlight::{Attention, Highlight, Updated};
 pub use self::underglow::Underglow;
 use crate::theme::HamletTheme;
 
@@ -27,7 +28,9 @@ use crate::theme::HamletTheme;
 /// panels' highlights.
 pub fn plugin(app: &mut App) {
     app.init_resource::<EffectSettings>()
+        .init_resource::<Attention>()
         .add_message::<Updated>()
+        .add_message::<ControlSound>()
         .add_observer(control::answer)
         .add_systems(
             Update,
@@ -48,6 +51,20 @@ pub fn plugin(app: &mut App) {
                     .chain(),
             ),
         );
+}
+
+/// A sound a control asks for. The kit plays nothing itself: the
+/// app reads these and plays what it likes.
+#[derive(Message, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ControlSound {
+    /// The pointer came onto a control that is heard.
+    Hover,
+    /// A control was pressed.
+    Press,
+    /// A primary action was done.
+    Confirm,
+    /// A danger action was done.
+    Deny,
 }
 
 /// The meaning of a press on a button, which sets its glow, its

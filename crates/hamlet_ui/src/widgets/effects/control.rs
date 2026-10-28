@@ -25,14 +25,13 @@ use bevy::ui::{
 };
 use bevy::ui_widgets::{Activate, Button};
 use bevy_fynix::Focused;
-use hamlet_realm::sound::{Cue, Sound};
 
 use super::glow::{GlowLayer, GlowPanel, layer_of};
 use super::{
-    EffectColors, EffectSettings, Variant, ease, flicker, pool,
+    ControlSound, EffectColors, EffectSettings, Variant, ease,
+    flicker, pool,
 };
 use crate::fade::ScrollFade;
-use crate::sounds;
 use crate::theme::Themed;
 
 /// A button's animated state, each 0 to 1.
@@ -84,24 +83,22 @@ type Entered = (Changed<Hovered>, With<ControlEffect>);
 
 pub(super) fn hover_tick(
     buttons: Query<(&Hovered, Option<&Variant>), Entered>,
-    mut cues: MessageWriter<Cue>,
-    mut turn: Local<u32>,
+    mut sounds: MessageWriter<ControlSound>,
 ) {
     let heard = |(hovered, variant): (&Hovered, Option<&Variant>)| {
         hovered.0 && variant.is_some_and(|variant| variant.has_tick())
     };
     if buttons.iter().any(heard) {
-        sounds::write(&mut cues, &mut turn, Sound::Tick);
+        sounds.write(ControlSound::Hover);
     }
 }
 
 pub(super) fn press_tap(
     pressed: Query<(), (Added<Pressed>, With<ControlEffect>)>,
-    mut cues: MessageWriter<Cue>,
-    mut turn: Local<u32>,
+    mut sounds: MessageWriter<ControlSound>,
 ) {
     if !pressed.is_empty() {
-        sounds::write(&mut cues, &mut turn, Sound::Tap);
+        sounds.write(ControlSound::Press);
     }
 }
 
@@ -173,9 +170,10 @@ pub(super) fn answer(
     mut commands: Commands,
     set: Res<EffectSettings>,
     mut buttons: Query<Answering>,
-    mut cues: MessageWriter<Cue>,
+    mut sounds: MessageWriter<ControlSound>,
     mut turn: Local<u32>,
 ) {
+    *turn = turn.wrapping_add(1);
     let Ok((mut effect, variant, node, at)) =
         buttons.get_mut(activated.entity)
     else {
@@ -188,7 +186,7 @@ pub(super) fn answer(
         }
         Variant::Primary => {
             effect.pulse = 1.0;
-            sounds::write(&mut cues, &mut turn, Sound::Confirm);
+            sounds.write(ControlSound::Confirm);
             if let Some((node, at)) = node.zip(at) {
                 let scale = node.inverse_scale_factor;
                 spawn_particles(
@@ -202,7 +200,7 @@ pub(super) fn answer(
         }
         Variant::Danger => {
             effect.shake = 1.0;
-            sounds::write(&mut cues, &mut turn, Sound::Deny);
+            sounds.write(ControlSound::Deny);
         }
     }
 }

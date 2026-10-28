@@ -5,7 +5,7 @@ use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::{Message, MessageReader};
-use bevy::ecs::query::With;
+use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Local, Query, Res};
 use bevy::picking::Pickable;
 use bevy::time::Time;
@@ -15,7 +15,6 @@ use bevy::ui::{
     UiRect, Val, percent, px,
 };
 use bevy_fynix::views::{BehaviorExt, frame};
-use hamlet_client::waits::Waiting;
 
 use super::{EffectColors, EffectSettings, ease, flicker, pool};
 use crate::View;
@@ -43,6 +42,12 @@ pub struct Highlight {
 /// panel is in front. Its tab flashes too while it is behind another.
 #[derive(Message, Clone, Copy, Debug)]
 pub struct Updated;
+
+/// How many things wait for the chief, which the app keeps. A
+/// highlight's glow shows while it is above zero, and its tab's
+/// badge shows the number.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub struct Attention(pub usize);
 
 /// How far a panel's glow is raised and how much of its flash is
 /// left, kept on the node that draws them.
@@ -96,7 +101,7 @@ pub(super) fn update_highlights(
     set: Res<EffectSettings>,
     theme: Themed,
     mut updated: MessageReader<Updated>,
-    waiting: Query<(), With<Waiting>>,
+    waiting: Res<Attention>,
     mut panels: Query<(
         Entity,
         &Highlight,
@@ -107,7 +112,7 @@ pub(super) fn update_highlights(
 ) {
     let dt = time.delta_secs();
     let changed = updated.read().count() > 0;
-    let count = waiting.iter().count();
+    let count = waiting.0;
     let rung = count > *counted;
     *counted = count;
     let attention = f32::from(count > 0);
