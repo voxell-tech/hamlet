@@ -71,6 +71,7 @@ inlay_gain = 1.6
 [fog]
 on = true
 visibility = 1500.0
+distance = 800.0
 strength = 0.7
 high_sun = 0.25
 glow = 0.7

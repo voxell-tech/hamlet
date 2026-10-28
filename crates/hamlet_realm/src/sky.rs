@@ -251,6 +251,10 @@ pub struct FogSettings {
     /// does not thicken the fog.
     pub strength: f32,
     pub high_sun: f32,
+    /// How far away the distance fog, which hides the edge of what
+    /// is drawn whether this fog is on or not, is whole, at the
+    /// least. The ground is drawn as far, so further costs more.
+    pub distance: f32,
     /// How much of the light it throws on forward rather than every
     /// way, 0 to 1: the glow around the sun.
     pub glow: f32,

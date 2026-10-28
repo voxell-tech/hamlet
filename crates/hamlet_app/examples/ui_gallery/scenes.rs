@@ -147,6 +147,8 @@ pub enum Scene {
     /// The Settings panel at its Workspace page, a remote workspace
     /// chosen and not yet in use.
     Workspace,
+    /// The Settings panel at its Sight page, with its dials.
+    Sight,
     /// Every icon, at each size it is drawn for.
     Icons,
     /// The panels with the HAMLET menu open.

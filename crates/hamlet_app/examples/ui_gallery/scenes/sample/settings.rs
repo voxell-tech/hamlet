@@ -1,4 +1,4 @@
-//! The settings, charter and workspace gallery scenes.
+//! The settings, charter, workspace and sight gallery scenes.
 
 use bevy::ecs::world::World;
 use hamlet_client::realm::Settings;
@@ -10,7 +10,10 @@ use crate::scenes::Scene;
 pub(super) fn setup(world: &mut World, scene: Scene) {
     if !matches!(
         scene,
-        Scene::Settings | Scene::Charter | Scene::Workspace
+        Scene::Settings
+            | Scene::Charter
+            | Scene::Workspace
+            | Scene::Sight
     ) {
         return;
     }
@@ -39,5 +42,12 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
                 moving: None,
             };
         world.insert_resource(settings::Pane::Workspace);
+    }
+    if scene == Scene::Sight {
+        world.init_resource::<hamlet_realm::sky::SkySettings>();
+        world.init_resource::<hamlet_realm::sky::FogSettings>();
+        world.init_resource::<hamlet_realm::Sky>();
+        world.insert_resource(hamlet_realm::North(30.0));
+        world.insert_resource(settings::Pane::Sight);
     }
 }

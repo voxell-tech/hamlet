@@ -12,7 +12,7 @@ use super::shift::Folded;
 use super::society::Society;
 use super::sync::Drawn;
 use super::work::Robot;
-use crate::sky::{CameraSettings, Sun};
+use crate::sky::{CameraSettings, FogSettings, Sun};
 use crate::{Clock, Stage, WorldCamera};
 
 /// The camera's view.
@@ -74,11 +74,11 @@ impl GeneratorView {
         &self,
         land: &Land,
         settings: &CameraSettings,
+        fog: Option<&FogSettings>,
         detail: &DetailSettings,
     ) -> Sight {
         let (eye, _) = self.eye(land);
-        let whole =
-            self.dist * settings.fog_end.0 + settings.fog_end.1;
+        let whole = fog_end(settings, fog, self.dist);
         Sight {
             eye,
             centre: self.focus,
@@ -157,6 +157,18 @@ pub(super) fn robot_detail(
     }
 }
 
+/// The distance at which the distance fog is whole for a camera
+/// `dist` from what it looks at: further when pulled back, and no
+/// nearer than the chief set it.
+fn fog_end(
+    settings: &CameraSettings,
+    fog: Option<&FogSettings>,
+    dist: f32,
+) -> f32 {
+    let zoomed = dist * settings.fog_end.0 + settings.fog_end.1;
+    zoomed.max(fog.map_or(0.0, |fog| fog.distance))
+}
+
 /// The distances from the camera the sun's shadows start at, split at
 /// and end at, for a camera `dist` from what it looks at, `rise`
 /// above it and looking down by the sine `down`. They start at the
@@ -190,7 +202,7 @@ fn shadowed(
 pub(super) fn aim(
     mut commands: Commands,
     stage: Res<Stage>,
-    settings: Res<CameraSettings>,
+    (settings, fog_set): (Res<CameraSettings>, Res<FogSettings>),
     view: Res<GeneratorView>,
     land: Res<Land>,
     time: Res<Time>,
@@ -222,7 +234,11 @@ pub(super) fn aim(
     let eased = if settled { focus.y } else { eased };
     let moved = *level != Some(eased);
     *level = Some(eased);
-    if !stage.is_changed() && !view.is_changed() && !moved {
+    if !stage.is_changed()
+        && !view.is_changed()
+        && !fog_set.is_changed()
+        && !moved
+    {
         return;
     }
     if !settled {
@@ -233,9 +249,10 @@ pub(super) fn aim(
     let (eye, focus) = (eye + lift, focus + lift);
     *at = Transform::from_translation(eye).looking_at(focus, Vec3::Y);
 
-    let fog_end = dist * settings.fog_end.0 + settings.fog_end.1;
+    let fog_end = fog_end(&settings, Some(&fog_set), dist);
+    // The nearer half of the way to where it is whole stays clear.
     fog.falloff = FogFalloff::Linear {
-        start: dist * settings.fog_start,
+        start: (dist * settings.fog_start).max(fog_end * 0.5),
         end: fog_end,
     };
     let (least, split, most) = shadowed(

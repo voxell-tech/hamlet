@@ -9,17 +9,22 @@ use bevy::ecs::event::EntityEvent;
 use bevy::ecs::observer::On;
 use bevy::ecs::system::{Commands, Query};
 use bevy::ecs::world::World;
-use bevy::math::Vec2;
+use bevy::math::{Rot2, Vec2};
 use bevy::picking::events::{PointerDrag, PointerDragStart};
 use bevy::picking::pointer::PointerButton;
+use bevy::ui::widget::ImageNode;
 use bevy::ui::{
     AlignItems, ComputedNode, JustifyContent, PositionType,
-    UiGlobalTransform, UiRect, Val, px,
+    UiGlobalTransform, UiRect, UiTransform, Val, px,
 };
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::views::{frame, label};
+use bevy_fynix::tokens::Tone;
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, column, frame, icon as icon_view, label,
+};
 use bevy_fynix::{EntityCursor, Prop, component};
 
+use crate::icons::Glyph;
 use crate::{AnyView, Cx, View};
 
 /// A handler run with the world and the amount the dial was asked to
@@ -27,16 +32,22 @@ use crate::{AnyView, Cx, View};
 type Change = Box<dyn Fn(&mut World, f32) + Send + Sync>;
 
 /// What a dial's face shows: the amount in one whole turn, the
-/// amount at the top and how an amount is written in its middle.
+/// amount at the top, how an amount is written in its middle, the
+/// marks round its rim, every so many of them long, and whether the
+/// icon in its middle turns with the amount.
 #[derive(Component, Clone, Copy)]
 pub struct Face {
     pub whole: f32,
     pub top: f32,
     pub text: fn(f32) -> String,
+    pub marks: u32,
+    pub long: u32,
+    pub turns_icon: bool,
 }
 
 impl Face {
-    /// Hours of the day: noon at the top, midnight at the foot.
+    /// Hours of the day: noon at the top, midnight at the foot, a
+    /// mark each hour and a long one each quarter of the day.
     pub const HOURS: Face = Face {
         whole: 24.0,
         top: 12.0,
@@ -44,13 +55,20 @@ impl Face {
             let minutes = (hour * 60.0) as u32;
             format!("{:02}:{:02}", minutes / 60 % 24, minutes % 60)
         },
+        marks: 24,
+        long: 6,
+        turns_icon: false,
     };
 
-    /// Degrees of a bearing, nought at the top.
+    /// Degrees of a bearing, nought at the top, a mark each ten and a
+    /// long one each quarter turn. The icon points along it.
     pub const DEGREES: Face = Face {
         whole: 360.0,
         top: 0.0,
         text: |degrees| format!("{:.0}°", degrees),
+        marks: 36,
+        long: 9,
+        turns_icon: true,
     };
 
     /// The turn from the top, in radians clockwise, at `amount`.
@@ -77,23 +95,34 @@ struct Trailed(f32);
 #[derive(Component, Clone, Copy)]
 struct Grip(f32);
 
-/// The side of the ring, of its knob and of the dot that trails it.
+/// The side of the ring, of its knob, of the dot that trails it and
+/// of the icon in its middle.
 const SIDE: f32 = 112.0;
 const KNOB: f32 = 16.0;
 const TRAIL: f32 = 8.0;
+const ICON: f32 = 20.0;
 
-/// A dial showing `amount` on `face`, and a smaller dot at `trail`,
-/// where what it sets has got to. It never turns itself: a drag
-/// around it hands the amount turned to to `change`, and a bound
-/// `amount` follows what that writes. The knob keeps the angle to
-/// the pointer it had when the drag began, so it never jumps.
+/// The length of a short and of a long mark round the rim, and the
+/// gap between the marks and the rim.
+const MARK: f32 = 4.0;
+const LONG_MARK: f32 = 8.0;
+const MARK_GAP: f32 = 4.0;
+
+/// A dial showing `amount` on `face`, `icon` and the amount in its
+/// middle, and a smaller dot at `trail`, where what it sets has got
+/// to. It never turns itself: a drag around it hands the amount
+/// turned to to `change`, and a bound `amount` follows what that
+/// writes. The knob sits on the rim and keeps the angle to the
+/// pointer it had when the drag began, so it never jumps.
 pub fn dial(
     face: Face,
+    icon: impl Into<Prop<Glyph>>,
     amount: impl Into<Prop<f32>>,
     trail: impl Into<Prop<f32>>,
     change: impl Fn(&mut World, f32) + Send + Sync + 'static,
 ) -> impl View {
-    let (amount, trail) = (amount.into(), trail.into());
+    let (icon, amount, trail) =
+        (icon.into(), amount.into(), trail.into());
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (palette, border) = (&theme.palette, theme.space.border);
@@ -103,15 +132,20 @@ pub fn dial(
             palette.brass_4,
             palette.grey_4,
         );
-        // The knob is placed inside the rim.
-        let inner = SIDE - 4.0 * border;
+        let (short_mark, long_mark) =
+            (palette.brass_5, palette.brass_3);
+        let rim_width = border * 2.0;
+        // Places are measured inside the rim; its line is half its
+        // width further out.
+        let inner = SIDE - 2.0 * rim_width;
+        let on_rim = inner / 2.0 + rim_width / 2.0;
         let ring = cx.build(
             frame()
                 .width(px(SIDE))
                 .height(px(SIDE))
                 .shrink(0.0)
                 .radius(SIDE / 2.0)
-                .border(border * 2.0)
+                .border(rim_width)
                 .border_color(rim)
                 .fill(middle)
                 .align(AlignItems::Center)
@@ -144,9 +178,10 @@ pub fn dial(
                 entity.insert(to);
             }
         });
-        // The dot at `turn` radians from the top, `side` across.
+        // A dot `side` across, on the rim `turn` radians from the
+        // top.
         let dot = move |turn: f32, side: f32| {
-            let at = place(turn, inner);
+            let at = place(turn, inner, on_rim);
             UiRect {
                 left: px(at.x - side / 2.0),
                 top: px(at.y - side / 2.0),
@@ -154,10 +189,82 @@ pub fn dial(
             }
         };
         cx.under(ring, |cx| {
-            cx.build(label(component::<Shown, _>(
-                ring,
-                move |shown| (face.text)(shown.map_or(0.0, |s| s.0)),
-            )));
+            for k in 0..face.marks {
+                let turn = k as f32 / face.marks as f32 * TAU;
+                let long = k % face.long == 0;
+                let (tall, colour) = if long {
+                    (LONG_MARK, long_mark)
+                } else {
+                    (MARK, short_mark)
+                };
+                let wide = if long { 2.0 } else { 1.5 };
+                let at = place(
+                    turn,
+                    inner,
+                    inner / 2.0 - MARK_GAP - tall / 2.0,
+                );
+                cx.build(
+                    frame()
+                        .position(PositionType::Absolute)
+                        .inset(UiRect {
+                            left: px(at.x - wide / 2.0),
+                            top: px(at.y - tall / 2.0),
+                            ..UiRect::all(Val::Auto)
+                        })
+                        .width(px(wide))
+                        .height(px(tall))
+                        .radius(wide / 2.0)
+                        .fill(colour)
+                        .tagged(UiTransform::from_rotation(
+                            Rot2::radians(turn),
+                        )),
+                );
+            }
+            let centre = cx
+                .build(column(()).gap(2.0).align(AlignItems::Center));
+            cx.under(centre, |cx| {
+                let mark = cx.build(
+                    icon_view(Glyph::Sun.image(ICON))
+                        .size(ICON)
+                        .tone(Tone::Dim)
+                        .rotation(component::<Shown, _>(
+                            ring,
+                            move |shown| {
+                                if face.turns_icon {
+                                    face.turn(
+                                        shown.map_or(0.0, |s| s.0),
+                                    )
+                                    .to_degrees()
+                                } else {
+                                    0.0
+                                }
+                            },
+                        )),
+                );
+                cx.effect(
+                    mark,
+                    icon,
+                    |world, node, &glyph: &Glyph| {
+                        if let Some(mut image) =
+                            world.get_mut::<ImageNode>(node)
+                        {
+                            let to = glyph.image(ICON);
+                            if image.image != to {
+                                image.image = to;
+                            }
+                        }
+                    },
+                );
+                cx.build(
+                    label(component::<Shown, _>(
+                        ring,
+                        move |shown| {
+                            (face.text)(shown.map_or(0.0, |s| s.0))
+                        },
+                    ))
+                    .size(cx.theme().text.small),
+                );
+            });
             cx.build(
                 frame()
                     .position(PositionType::Absolute)
@@ -178,6 +285,10 @@ pub fn dial(
                     .width(px(KNOB))
                     .height(px(KNOB))
                     .radius(KNOB / 2.0)
+                    // A ring of the face's colour sets it off the rim
+                    // it sits on.
+                    .border(border * 1.5)
+                    .border_color(middle)
                     .fill(knob),
             );
         });
@@ -185,10 +296,10 @@ pub fn dial(
     })
 }
 
-/// The middle of the knob `turn` radians clockwise from the top, from
-/// the top left corner of a ring `inner` across inside its rim.
-fn place(turn: f32, inner: f32) -> Vec2 {
-    let reach = (inner - KNOB) / 2.0;
+/// The point `reach` from the middle, `turn` radians clockwise from
+/// the top, from the top left corner of a ring `inner` across inside
+/// its rim.
+fn place(turn: f32, inner: f32, reach: f32) -> Vec2 {
     Vec2::splat(inner / 2.0)
         + Vec2::new(turn.sin(), -turn.cos()) * reach
 }
@@ -288,8 +399,9 @@ mod tests {
             amount_at(&face, bearing(Vec2::new(0.1, 1.0)) - grip);
         let apart = (left - right).rem_euclid(24.0);
         assert!(apart.min(24.0 - apart) < 1.0);
-        let top = place(Face::HOURS.turn(12.0), SIDE);
+        // Noon on the rim is straight above the middle.
+        let top = place(Face::HOURS.turn(12.0), SIDE, SIDE / 2.0);
         assert!((top.x - SIDE / 2.0).abs() < 1e-3);
-        assert!((top.y - KNOB / 2.0).abs() < 1e-3);
+        assert!(top.y.abs() < 1e-3);
     }
 }

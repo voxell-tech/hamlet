@@ -24,7 +24,9 @@ use crate::world_view::{NorthTarget, TimeOfDay};
 use crate::{View, built, with_cx};
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<FogOpen>();
+    app.init_resource::<FogOpen>()
+        .init_resource::<TimeOfDay>()
+        .init_resource::<NorthTarget>();
 }
 
 /// True while the fog's settings are shown.
@@ -61,6 +63,17 @@ fn hour() -> impl View {
         row((
             dial(
                 Face::HOURS,
+                derived(|world: &World| {
+                    let set = world.resource::<SkySettings>();
+                    let hour =
+                        world.resource::<TimeOfDay>().target(set);
+                    if set.is_night(hour) {
+                        Glyph::Moon
+                    } else {
+                        Glyph::Sun
+                    }
+                })
+                .when(every_frame()),
                 // The clock's hour moves without any change to
                 // watch.
                 derived(|world: &World| {
@@ -112,6 +125,7 @@ fn north() -> impl View {
         row((
             dial(
                 Face::DEGREES,
+                Glyph::Compass,
                 resource::<NorthTarget, _>(|north| north.0),
                 resource::<North, _>(|north| north.0),
                 |world, degrees| {
@@ -176,6 +190,12 @@ fn fog() -> impl View {
             |f| f.visibility,
             |f, v| f.visibility = v,
             (100.0, 4000.0),
+        ),
+        amount(
+            "Distance fog",
+            |f| f.distance,
+            |f, v| f.distance = v,
+            (200.0, 2000.0),
         ),
         amount(
             "Light",

@@ -15,7 +15,7 @@ use crate::generator::ground::{self, Recipe, Sight, Stand};
 use crate::generator::land::{Land, LandData};
 use crate::generator::view::Ahead;
 use crate::generator::{DetailSettings, Kit, Tally};
-use crate::sky::CameraSettings;
+use crate::sky::{CameraSettings, FogSettings};
 
 /// The camera's sight of the ground: as far as the fog lets it.
 fn sight(
@@ -60,7 +60,10 @@ pub(in crate::generator) fn stream(
     kit: Res<Kit>,
     lanes: Res<Lanes>,
     ahead: Option<Res<Ahead>>,
-    lens: Option<Res<CameraSettings>>,
+    (lens, fog_set): (
+        Option<Res<CameraSettings>>,
+        Option<Res<FogSettings>>,
+    ),
     camera: Query<
         (&Transform, &Projection, Option<&DistanceFog>),
         (With<WorldCamera>, Without<Ground>),
@@ -103,7 +106,9 @@ pub(in crate::generator) fn stream(
     let going = ahead
         .and_then(|ahead| ahead.0)
         .zip(lens)
-        .map(|(view, lens)| view.sight(&land, &lens, &detail))
+        .map(|(view, lens)| {
+            view.sight(&land, &lens, fog_set.as_deref(), &detail)
+        })
         .unwrap_or(sight);
 
     // Ground a site came to or left is built anew, and so are the
