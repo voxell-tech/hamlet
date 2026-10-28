@@ -3,6 +3,7 @@
 //! Below [`NARROW`] the pages stack what they lay side by side.
 
 mod actions;
+mod description;
 mod details;
 mod files;
 mod form;
@@ -51,6 +52,7 @@ pub(crate) fn plugin(app: &mut App) {
                 measure,
                 follow,
                 tag_field::typing,
+                description::shape,
                 new_listing::searching,
             ),
         );

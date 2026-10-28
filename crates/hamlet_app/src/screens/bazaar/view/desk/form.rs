@@ -34,6 +34,8 @@ pub(crate) struct Form {
     pub lit: usize,
     /// The tags' field takes focus again.
     pub refocus: bool,
+    /// A line just broken in the description.
+    pub broken: Option<super::description::Broken>,
     /// Why the details cannot be saved as they are.
     pub problem: Option<String>,
 }
@@ -51,6 +53,7 @@ impl Form {
             typing: String::new(),
             lit: 0,
             refocus: false,
+            broken: None,
             problem: None,
         }
     }

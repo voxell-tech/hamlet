@@ -21,7 +21,7 @@ use super::form::{Form, cents, least, price_of, save_form};
 use super::look::{
     aside, boxed, initial, line, lines, plain_pill, value,
 };
-use super::{Desk, tag_field};
+use super::{Desk, description, tag_field};
 use crate::bazaar::covers::{
     MOST_BYTES, MOST_SIDE, Pick, Picked, pick,
 };
@@ -192,11 +192,7 @@ fn form(narrow: bool) -> AnyView {
     .within(bare());
     let body = column((
         top,
-        field(
-            "Description",
-            |form| form.description.clone(),
-            |form, typed| form.description = typed,
-        ),
+        named("Description", description::description()),
         named("Tags", tag_field::tags()),
         foot,
         row((

@@ -17,7 +17,10 @@ pub(super) fn listings(none: bool) -> Value {
                    tags: &[&str]| {
         json!({"title": title, "summary": summary,
             "description": "Lights the lamp at dusk, logs every ship that \
-                passes, and rings the bell when fog rolls in.",
+                passes, and rings the bell when fog rolls in. It keeps a \
+                book of the night's weather and wakes the harbour master \
+                when a ship flies a flag it does not know.\n\nIt sleeps \
+                through the day.",
             "priceCents": cents, "tags": tags, "coverUrl": null})
     };
     let keeper = details(
@@ -38,6 +41,13 @@ pub(super) fn listings(none: bool) -> Value {
     rejected["reasons"] = json!(["Agent 5 (Safety): the tool \
                                   \"log\" sends ship records to \
                                   an outside address."]);
+    // Paid to be verified after it was published, and turned down.
+    let mut failed =
+        version("0.0.1", "unverified", "2026-10-20T09:14:02Z", 4);
+    failed["publishedAt"] = json!("2026-10-20T09:20:00Z");
+    failed["reasons"] = json!(["Agent 2 (Hidden instructions): \
+                                its character tells it to share \
+                                the log with anyone who asks."]);
     let harbor =
         details("Harbor Town", "A fishing village", 0, &["village"]);
     let ferry =
@@ -45,7 +55,7 @@ pub(super) fn listings(none: bool) -> Value {
     json!({"items": [
         {"id": "l_keeper", "kind": "agent", "title": "Lighthouse Keeper",
             "versions": [
-                version("0.0.1", "unverified", "2026-10-20T09:14:02Z", 4),
+                failed,
                 rejected,
                 version("0.0.3", "verified", "2026-10-26T11:35:42Z", 3),
                 version("0.0.4", "draft", "2026-10-28T14:02:11Z", 4),
@@ -57,6 +67,7 @@ pub(super) fn listings(none: bool) -> Value {
         {"id": "l_ferry", "kind": "agent", "title": "Ferryman",
             "versions": [{"version": "0.0.2", "state": "checking",
                 "createdAt": "2026-10-28T13:50:10Z", "size": 8_120,
+                "publishedAt": "2026-10-28T13:52:00Z",
                 "fileCount": 1, "details": ferry}]},
     ], "total": 3})
 }
@@ -109,6 +120,15 @@ pub(super) fn files() -> Vec<(String, String, Value)> {
         same("tools/bell.json", bell_0),
         same("tools/log.json", log),
     ];
+    let first = older
+        .iter()
+        .map(|one| {
+            let mut one = one.clone();
+            one["change"] = json!("added");
+            one["previousText"] = Value::Null;
+            one
+        })
+        .collect::<Vec<_>>();
     let newest = vec![
         file("agent.toml", "changed", toml_b, Some(toml_a)),
         same("prompts/day.md", day),
@@ -135,9 +155,10 @@ pub(super) fn files() -> Vec<(String, String, Value)> {
         file("tools/log.json", "removed", "", Some(log)),
     ];
     [
-        ("0.0.2", "0.0.1", older),
-        ("0.0.3", "0.0.2", checked),
-        ("0.0.4", "0.0.3", newest),
+        ("0.0.1", None, first),
+        ("0.0.2", Some("0.0.1"), older),
+        ("0.0.3", Some("0.0.2"), checked),
+        ("0.0.4", Some("0.0.3"), newest),
     ]
     .into_iter()
     .map(|(version, against, files)| {
@@ -145,5 +166,12 @@ pub(super) fn files() -> Vec<(String, String, Value)> {
             json!({"version": version, "against": against, "files": files});
         ("l_keeper".into(), version.into(), answer)
     })
+    .chain([(
+        "l_ferry".into(),
+        "0.0.2".into(),
+        json!({"version": "0.0.2", "against": null, "files": [
+            file("agent.toml", "added", "name = \"Ferryman\"", None),
+        ]}),
+    )])
     .collect()
 }

@@ -12,7 +12,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    action, bad_action, bare, buttons, marked, note, primary_button,
+    Fills, action, bad_action, bare, buttons, marked, note,
+    primary_button,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -51,9 +52,7 @@ pub(super) fn actions(lot: &Lot, version: &Version) -> AnyView {
         version: version.version.clone(),
     };
     let (kind, versions) = (lot.kind, lot.versions.clone());
-    let state = version.state;
-    let reasons = version.reasons.clone();
-    let asked = version.human_asked_at.is_some();
+    let shown = version.clone();
     let now = derived(move |world: &World| {
         let drafts = world.resource::<Drafts>();
         let fee = drafts
@@ -76,8 +75,7 @@ pub(super) fn actions(lot: &Lot, version: &Version) -> AnyView {
         version: version.version.clone(),
     };
     let body = keyed(now, move |(fee, job, said, paying)| {
-        let mut parts =
-            by_state(state, &which, *fee, &reasons, asked);
+        let mut parts = by_state(&shown, &which, *fee);
         if let Some(step) = job {
             parts.push(note(going(*step)).boxed());
         }
@@ -140,16 +138,26 @@ fn ask(which: &Which, asked: bool) -> AnyView {
 }
 
 fn by_state(
-    state: State,
+    version: &Version,
     which: &Which,
     fee: Option<u32>,
-    reasons: &[String],
-    asked: bool,
 ) -> Vec<AnyView> {
     let line_of = |words: &'static str| {
         label(words).size(13.0).tone(Tone::Dim).boxed()
     };
-    match state {
+    let (reasons, asked) =
+        (&version.reasons, version.human_asked_at.is_some());
+    // Reasons on a live version are those of a verification that
+    // failed, or of a rejection published after; a person can look.
+    let failed = |parts: &mut Vec<AnyView>| {
+        if !reasons.is_empty() {
+            parts.extend(
+                reasons.iter().map(|why| problem(why.clone())),
+            );
+            parts.push(buttons(vec![ask(which, asked)]).boxed());
+        }
+    };
+    match version.state {
         State::Draft => {
             let thrown = which.clone();
             vec![
@@ -180,36 +188,45 @@ fn by_state(
         }
         State::Unverified => {
             let mut parts = vec![
-                line_of("Live, without a badge.").boxed(),
-                note(
-                    "To verify it, make a new version and pay to \
-                     verify that.",
-                )
+                row((
+                    column((line_of("Live, without a badge."),))
+                        .fills_width(),
+                    pay(which, fee, false),
+                ))
+                .gap(12.0)
+                .align(AlignItems::Center)
+                .tagged(Wraps)
                 .boxed(),
             ];
-            // Published after a rejection, it can still go to a
-            // person.
-            if !reasons.is_empty() {
-                parts.extend(
-                    reasons.iter().map(|why| problem(why.clone())),
-                );
-                parts.push(ask(which, asked));
-            }
+            failed(&mut parts);
             parts
         }
-        State::Checking => vec![
-            row((
-                state_pill(State::Checking),
-                note(
-                    "Our agents are checking it. It goes live with \
-                     a badge if all of them agree.",
-                ),
-            ))
-            .gap(10.0)
-            .align(AlignItems::Center)
-            .tagged(Wraps)
-            .boxed(),
-        ],
+        State::Checking => {
+            let live = version
+                .is_live()
+                .then(|| line_of("Live, without a badge."));
+            let words = match live.is_some() {
+                true => {
+                    "Our agents are checking it. It gets a badge if \
+                     all of them agree."
+                }
+                false => {
+                    "Our agents are checking it. It goes live with a \
+                     badge if all of them agree."
+                }
+            };
+            vec![
+                row(live
+                    .into_iter()
+                    .chain([state_pill(State::Checking)])
+                    .collect::<Vec<_>>())
+                .gap(10.0)
+                .align(AlignItems::Center)
+                .tagged(Wraps)
+                .boxed(),
+                note(words).boxed(),
+            ]
+        }
         State::Verified => vec![
             row((
                 state_pill(State::Verified),

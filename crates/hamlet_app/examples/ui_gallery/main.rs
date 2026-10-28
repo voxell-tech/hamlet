@@ -96,7 +96,7 @@ const fn sell(
     }
 }
 
-const SHOTS: [Shot; 75] = [
+const SHOTS: [Shot; 77] = [
     sell("sell-empty", Trade::SellingNothing, &["YOURS"], 1280),
     sell("sell-list", Trade::Selling, &["YOURS"], 1280),
     sell(
@@ -121,6 +121,18 @@ const SHOTS: [Shot; 75] = [
         "sell-rejected",
         Trade::Selling,
         &["YOURS", "Lighthouse Keeper", "v0.0.2"],
+        1280,
+    ),
+    sell(
+        "sell-unverified",
+        Trade::Selling,
+        &["YOURS", "Lighthouse Keeper", "v0.0.1"],
+        1280,
+    ),
+    sell(
+        "sell-checking",
+        Trade::Selling,
+        &["YOURS", "Ferryman"],
         1280,
     ),
     sell(

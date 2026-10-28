@@ -34,10 +34,6 @@ impl State {
             State::Rejected => "Rejected",
         }
     }
-
-    pub fn is_live(self) -> bool {
-        matches!(self, State::Unverified | State::Verified)
-    }
 }
 
 /// What a version is listed with.
@@ -79,9 +75,22 @@ pub(crate) struct Version {
     /// When a person at the bazaar was asked to look at it again.
     #[serde(default)]
     pub human_asked_at: Option<String>,
+    /// When it went live, published or verified.
+    #[serde(default)]
+    pub published_at: Option<String>,
 }
 
 impl Version {
+    /// Buyers get it: published or verified, being checked once
+    /// published among them.
+    pub fn is_live(&self) -> bool {
+        match self.state {
+            State::Unverified | State::Verified => true,
+            State::Checking => self.published_at.is_some(),
+            State::Draft | State::Rejected => false,
+        }
+    }
+
     /// When it was uploaded, as `YYYY-MM-DD HH:MM:SS UTC`.
     pub fn uploaded(&self) -> String {
         let at = self.created_at.trim_end_matches('Z');
@@ -117,7 +126,7 @@ pub(crate) fn before<'a>(
 pub(crate) fn shown(lot: &Lot) -> Details {
     let all = newest_first(lot);
     all.iter()
-        .find(|one| one.state.is_live())
+        .find(|one| one.is_live())
         .or(all.first())
         .map(|one| one.details.clone())
         .or_else(|| lot.shown.clone())
@@ -141,7 +150,7 @@ pub(crate) fn standing(lot: &Lot) -> State {
         return newest;
     }
     all.iter()
-        .find(|one| one.state.is_live())
+        .find(|one| one.is_live())
         .map_or(newest, |one| one.state)
 }
 
@@ -285,6 +294,7 @@ mod tests {
             details: Details::default(),
             reasons: Vec::new(),
             human_asked_at: None,
+            published_at: None,
         }
     }
 

@@ -148,12 +148,15 @@ reached, said to be samples, with ASK AGAIN at their foot.
   chosen, or over it below 560 pixels of panel. A draft's details are a
   form: cover, title, summary, price (at least $0.99, or 0 for free;
   SET UP PAYOUTS when it has a price and Stripe cannot pay yet),
-  description and tags, picked from those in use (`GET /v1/tags`); any
+  description (Shift+Enter breaks a line) and tags, picked from those
+  in use (`GET /v1/tags`); any
   other version's are locked. Under them are when it was uploaded, its
   size and files, and its files against the version before, each
   opening on its lines taken out and put in. A draft is published
   unverified, paid to be verified (Stripe's page in the browser, its
-  payment asked after every five seconds) or discarded; NEW VERSION
+  payment asked after every five seconds) or discarded, and an
+  unverified one paid to be verified, live while it is checked and
+  showing why if it fails; NEW VERSION
   packs it again as the next draft, one draft at a time.
 - The bazaar's checks (`market/check.rs`): a version paid for is
   checked, its state asked after every five seconds until it is

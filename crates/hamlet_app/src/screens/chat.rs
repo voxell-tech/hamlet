@@ -315,7 +315,7 @@ fn input_root(world: &mut World) -> Option<Entity> {
 /// `text` with a new line in place of `range`, and the characters up
 /// to after it, as a caret moving right counts them. A range off the
 /// text, or not on its characters, is its end.
-fn new_line(
+pub(crate) fn new_line(
     text: &str,
     range: std::ops::Range<usize>,
 ) -> (String, usize) {
