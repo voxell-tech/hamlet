@@ -23,6 +23,11 @@
   `docs/proposals/`, `docs/` is only for what exists: no progress notes,
   no screenshots.
 
+## Branches
+
+Prefix every branch with the name of the person it is for, as in
+`nixon/thinking-effort`.
+
 ## Running safely
 
 The Rust binaries are `hamlet` in `crates/hamlet_cli`, `hamlet_server` in
