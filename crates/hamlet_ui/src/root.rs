@@ -76,6 +76,7 @@ fn root() -> impl View {
             ))
             .width(percent(100.0))
             .height(percent(100.0))
+            .min_height(px(0.0))
             .fill(cx.theme().background())
             .gap(0.0),
         )
