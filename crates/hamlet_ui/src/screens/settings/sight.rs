@@ -239,13 +239,6 @@ fn volumetric_fog() -> impl View {
             |f, v| f.absorption = v,
             (0.0, 0.5),
         ),
-        amount::<Fog>(
-            Glyph::Cloud,
-            "Ambient",
-            |f| f.ambient,
-            |f, v| f.ambient = v,
-            (0.0, 1.0),
-        ),
         action(Glyph::Restore, "RESET", |world: &mut World| {
             world.insert_resource(Fog::default());
         }),

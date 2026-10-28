@@ -267,9 +267,6 @@ pub struct VolumetricFogSettings {
     /// How much light it scatters and how much it takes, 0 to 1.
     pub scattering: f32,
     pub absorption: f32,
-    /// How strongly it takes the ambient light, which lifts it where
-    /// no shaft falls.
-    pub ambient: f32,
     /// The steps taken through it at high quality.
     pub steps: u32,
 }
@@ -878,8 +875,11 @@ pub(crate) fn raise_fog(
         commands.entity(*sun).try_remove::<VolumetricLight>();
         return;
     }
+    // No ambient light: the engine fades it by how far a ray goes,
+    // not by the fog it crosses, so over the land it shows nowhere.
     commands.entity(*camera).try_insert(VolumetricFog {
         step_count: steps,
+        ambient_intensity: 0.0,
         ..default()
     });
     commands.entity(*sun).try_insert(VolumetricLight);
@@ -979,17 +979,11 @@ fn thin(
 pub(crate) fn fit_fog(
     sky: Res<Sky>,
     set: Res<VolumetricFogSettings>,
-    mut fog: Query<&mut VolumetricFog, With<WorldCamera>>,
     mut volumes: Query<(&mut WorldFog, &mut FogVolume)>,
 ) {
-    let look = &sky.look;
     // It comes in as the key light sinks, thickening and lighting
     // together, so it never appears at once.
     let risen = sunk(sky.key_height, FOG_RISES);
-    for mut fog in &mut fog {
-        fog.ambient_color = look.ambient;
-        fog.ambient_intensity = set.ambient * risen;
-    }
     for (mut fog, mut volume) in &mut volumes {
         fog.light = set.strength * risen;
         // `lay_fog` sets its light, once it knows how wide it is.

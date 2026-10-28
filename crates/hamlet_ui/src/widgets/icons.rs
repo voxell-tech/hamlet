@@ -128,7 +128,6 @@ pub enum Glyph {
     /// A beam breaking into rays every way.
     Scatter,
     Drop,
-    Cloud,
     /// An arrow rising from the ground.
     Rise,
 }
@@ -159,7 +158,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 54] = [
+    pub const ALL: [Glyph; 53] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -212,7 +211,6 @@ impl Glyph {
         Glyph::Halo,
         Glyph::Scatter,
         Glyph::Drop,
-        Glyph::Cloud,
         Glyph::Rise,
     ];
 
@@ -587,12 +585,6 @@ impl Glyph {
                 [4.0, 9.75],
                 [4.75, 7.0],
             ])],
-            Glyph::Cloud => &[
-                Arc(4.75, 9.5, 2.5, 90.0, 270.0),
-                Arc(8.0, 7.75, 3.5, 180.0, 360.0),
-                Arc(11.25, 9.5, 2.5, -90.0, 90.0),
-                Line(4.75, 12.0, 11.25, 12.0),
-            ],
             Glyph::Rise => &[
                 Line(8.0, 11.0, 8.0, 2.25),
                 Path(&[[4.75, 5.5], [8.0, 2.25], [11.25, 5.5]]),

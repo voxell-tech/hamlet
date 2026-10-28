@@ -76,7 +76,6 @@ strength = 0.7
 glow = 0.7
 scattering = 0.6
 absorption = 0.02
-ambient = 0.0
 steps = 64
 
 [distance_fog]
