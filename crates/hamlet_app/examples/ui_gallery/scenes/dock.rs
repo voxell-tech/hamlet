@@ -108,7 +108,10 @@ pub(super) fn seed_dock(world: &mut World) {
         }
         if matches!(
             scene,
-            Scene::Settings | Scene::Charter | Scene::Workspace
+            Scene::Settings
+                | Scene::Charter
+                | Scene::Workspace
+                | Scene::Sight
         ) {
             tree.add_tab(side, "settings");
         }

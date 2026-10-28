@@ -117,6 +117,19 @@ pub enum Glyph {
     /// Three lines: a list folded away.
     Menu,
     Folder,
+    /// A compass needle, its north half filled, pointing up.
+    Compass,
+    Eye,
+    Mountains,
+    /// Light falling from a small sun in the corner.
+    Rays,
+    /// A small light in a ring of its glow.
+    Halo,
+    /// A beam breaking into rays every way.
+    Scatter,
+    Drop,
+    /// An arrow rising from the ground.
+    Rise,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -145,7 +158,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 45] = [
+    pub const ALL: [Glyph; 53] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -191,6 +204,14 @@ impl Glyph {
         Glyph::More,
         Glyph::Menu,
         Glyph::Folder,
+        Glyph::Compass,
+        Glyph::Eye,
+        Glyph::Mountains,
+        Glyph::Rays,
+        Glyph::Halo,
+        Glyph::Scatter,
+        Glyph::Drop,
+        Glyph::Rise,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -517,6 +538,58 @@ impl Glyph {
                 [14.0, 12.75],
                 [2.0, 12.75],
             ])],
+            Glyph::Compass => &[
+                Loop(&[
+                    [8.0, 2.0],
+                    [10.5, 8.0],
+                    [8.0, 14.0],
+                    [5.5, 8.0],
+                ]),
+                Fill(&[[8.0, 2.0], [10.5, 8.0], [5.5, 8.0]]),
+            ],
+            Glyph::Eye => &[
+                Curve(1.75, 8.0, 8.0, 2.5, 14.25, 8.0),
+                Curve(1.75, 8.0, 8.0, 13.5, 14.25, 8.0),
+                Ring(8.0, 8.0, 2.25),
+            ],
+            Glyph::Mountains => &[Loop(&[
+                [1.75, 12.5],
+                [5.75, 5.0],
+                [8.75, 9.5],
+                [10.75, 7.0],
+                [14.25, 12.5],
+            ])],
+            Glyph::Rays => &[
+                Ring(3.75, 3.75, 2.0),
+                Line(6.75, 4.75, 14.0, 8.0),
+                Line(6.25, 6.25, 12.75, 12.75),
+                Line(4.75, 6.75, 8.0, 14.0),
+            ],
+            Glyph::Halo => {
+                &[Dot(8.0, 8.0, 2.0), Ring(8.0, 8.0, 5.75)]
+            }
+            Glyph::Scatter => &[
+                Line(1.75, 8.0, 6.5, 8.0),
+                Dot(8.5, 8.0, 1.25),
+                Line(10.75, 5.75, 13.5, 3.0),
+                Line(11.25, 8.0, 14.25, 8.0),
+                Line(10.75, 10.25, 13.5, 13.0),
+            ],
+            Glyph::Drop => &[Loop(&[
+                [8.0, 1.75],
+                [11.25, 7.0],
+                [12.0, 9.75],
+                [11.0, 12.75],
+                [8.0, 14.25],
+                [5.0, 12.75],
+                [4.0, 9.75],
+                [4.75, 7.0],
+            ])],
+            Glyph::Rise => &[
+                Line(8.0, 11.0, 8.0, 2.25),
+                Path(&[[4.75, 5.5], [8.0, 2.25], [11.25, 5.5]]),
+                Line(3.0, 13.75, 13.0, 13.75),
+            ],
         }
     }
 }

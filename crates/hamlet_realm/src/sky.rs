@@ -1,17 +1,26 @@
 //! The camera, the two lights and the look of the hour: the same in
 //! every world.
 
+use std::f32::consts::PI;
+
 use bevy::anti_alias::smaa::Smaa;
+use bevy::asset::RenderAssetUsages;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::image::{
+    ImageAddressMode, ImageSampler, ImageSamplerDescriptor,
+};
 use bevy::light::atmosphere::ScatteringMedium;
 use bevy::light::{
-    Atmosphere, DirectionalLightShadowMap, FogVolume,
-    ShadowFilteringMethod, VolumetricFog, VolumetricLight,
+    Atmosphere, CascadeShadowConfig, DirectionalLightShadowMap,
+    FogVolume, ShadowFilteringMethod, VolumetricFog, VolumetricLight,
 };
 use bevy::pbr::{AtmosphereSettings, ScreenSpaceAmbientOcclusion};
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
+use bevy::render::render_resource::{
+    Extent3d, TextureDimension, TextureFormat,
+};
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use chrono::Timelike;
 use hamlet_assets::tint;
@@ -28,13 +37,14 @@ pub fn plugin(app: &mut App) {
         .init_resource::<CameraSettings>()
         .init_resource::<Quality>()
         .init_resource::<SkySettings>()
+        .init_resource::<VolumetricFogSettings>()
+        .init_resource::<DistanceFogSettings>()
         .init_resource::<Hour>()
+        .init_resource::<North>()
         .init_state::<DayPart>()
         .add_computed_state::<Dark>()
         .add_computed_state::<LowSun>()
         .add_systems(Startup, spawn)
-        .add_systems(OnEnter(LowSun), raise_haze)
-        .add_systems(OnExit(LowSun), clear_haze)
         .add_systems(
             Update,
             (
@@ -42,10 +52,27 @@ pub fn plugin(app: &mut App) {
                 (
                     (light, light_windows)
                         .run_if(resource_changed::<Sky>),
+                    dim_fill.after(light).run_if(
+                        |sky: Res<Sky>,
+                         fog: Res<VolumetricFogSettings>,
+                         quality: Res<Quality>| {
+                            sky.is_changed()
+                                || fog.is_changed()
+                                || quality.is_changed()
+                        },
+                    ),
                     (occlude, sky_dome)
                         .run_if(resource_changed::<SkySettings>),
                     spend.run_if(resource_changed::<Quality>),
-                    lay_haze.run_if(in_state(LowSun)),
+                    (raise_fog, fit_fog)
+                        .chain()
+                        .run_if(
+                            |fog: Res<VolumetricFogSettings>, quality: Res<Quality>| {
+                                fog.is_changed() || quality.is_changed()
+                            },
+                        ),
+                    fit_fog.run_if(resource_changed::<Sky>),
+                    lay_fog,
                 )
                     .in_set(Step::Scene),
             ),
@@ -55,6 +82,7 @@ pub fn plugin(app: &mut App) {
         world.resource::<Looks>(),
         world.resource::<SkySettings>(),
         world.resource::<SkySettings>().held(false),
+        North(0.0),
     );
     world.insert_resource(sky);
     let size = world.resource::<CameraSettings>().shadow_map;
@@ -68,7 +96,9 @@ pub struct Look {
     #[serde(with = "tint")]
     pub sun: Color,
     pub sun_lux: f32,
-    /// The direction the key light travels.
+    /// The direction the key light travels. A moving sun goes round
+    /// through the day's, which is where it stands highest, and the
+    /// moon goes opposite it.
     pub sun_dir: Vec3,
     #[serde(with = "tint")]
     pub fill: Color,
@@ -162,13 +192,6 @@ pub struct SkySettings {
     pub door_lumens: f32,
     /// Reach of a door lantern's light.
     pub door_reach: f32,
-    /// Shafts of light through the haze at dawn and dusk.
-    pub shafts: bool,
-    /// Density of the haze the shafts show in, how strongly it
-    /// takes the light, and the steps taken through it.
-    pub shaft_density: f32,
-    pub shaft_strength: f32,
-    pub shaft_steps: u32,
     /// Darkening where surfaces meet. It takes the place of MSAA,
     /// which the engine cannot combine with it.
     pub occlusion: bool,
@@ -210,6 +233,75 @@ impl SkySettings {
             ((hour - self.sunrise) / day.max(1e-3), true)
         }
     }
+}
+
+/// The volumetric fog over the land, which the key light throws
+/// shafts through. Not the distance fog that hides the edge of what
+/// is drawn. The chief may change it, so it is kept apart from
+/// [`SkySettings`], which the land is built from.
+#[derive(
+    Resource,
+    Clone,
+    PartialEq,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct VolumetricFogSettings {
+    /// False draws none.
+    pub on: bool,
+    /// How far one sees through the fog at sea level: what lies this
+    /// far away is nearly hidden.
+    pub visibility: f32,
+    /// The height over sea level in which the fog thins to about a
+    /// third. It has no top: it thins away, so a camera high above
+    /// looks down through little of it.
+    pub height: f32,
+    /// How brightly its shafts take the key light. It does not
+    /// thicken the fog.
+    pub strength: f32,
+    /// How much of the light it throws on forward rather than every
+    /// way, 0 to 1: the glow around the sun.
+    pub glow: f32,
+    /// How much light it scatters and how much it takes, 0 to 1.
+    pub scattering: f32,
+    pub absorption: f32,
+    /// The steps taken through it at high quality.
+    pub steps: u32,
+}
+
+impl VolumetricFogSettings {
+    /// The engine's density for the visibility: light that far
+    /// through it keeps a twentieth of itself.
+    pub fn density(&self) -> f32 {
+        let taken = (self.absorption + self.scattering).max(1e-3);
+        20f32.ln() / (self.visibility.max(1.0) * taken)
+    }
+
+    /// Its thickness `y` over sea level, as a share of its thickness
+    /// there.
+    pub fn thickness(&self, y: f32) -> f32 {
+        (-y.max(0.0) / self.height.max(0.1)).exp()
+    }
+}
+
+/// The distance fog, which hides the edge of what is drawn: plain,
+/// cheap and always on, unlike the volumetric fog.
+#[derive(
+    Resource,
+    Clone,
+    PartialEq,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct DistanceFogSettings {
+    /// How far away it is whole, at the least: pulled back further,
+    /// it is further. The ground is drawn as far, so further costs
+    /// more.
+    pub distance: f32,
 }
 
 /// The camera: its lens, where it starts and how far a hand may move
@@ -272,9 +364,9 @@ pub struct CameraSettings {
     /// Fog is whole at the distance times the first, plus the
     /// second.
     pub fog_end: (f32, f32),
-    /// The sun's shadows reach from, split at and end at the
-    /// distance times these.
-    pub shadow_range: (f32, f32, f32),
+    /// The sun's shadows split at and end at no nearer than the
+    /// distance times these. They start at the camera.
+    pub shadow_range: (f32, f32),
     /// Beyond this distance nothing is blurred.
     pub blur_within: f32,
     /// The f-stop at a distance of one unit. It narrows with
@@ -307,9 +399,11 @@ impl CameraSettings {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Quality {
-    /// No particles, no bloom, plain edges and small shadows.
+    /// No particles, no bloom, no shafts of light, plain edges and
+    /// small shadows.
     Low,
-    /// Fewer particles and middling shadows.
+    /// Fewer particles, middling shadows and half the steps through
+    /// the volumetric fog.
     Medium,
     #[default]
     High,
@@ -343,6 +437,17 @@ impl Quality {
             Self::High => 1.0,
         }
     }
+
+    /// The share of the full steps through the volumetric fog it
+    /// takes. None
+    /// draws no shafts of light.
+    pub fn shafts(self) -> f32 {
+        match self {
+            Self::Low => 0.0,
+            Self::Medium => 0.5,
+            Self::High => 1.0,
+        }
+    }
 }
 
 /// The camera the world is seen through. The app points it at a
@@ -357,9 +462,14 @@ pub struct Sun;
 #[derive(Component)]
 pub(crate) struct FillLight;
 
-/// The haze that shafts of light show in.
-#[derive(Component)]
-pub(crate) struct Haze;
+/// The volume of fog that shafts of light show in, how strongly it
+/// takes the key light before its width is made up for, and the foot,
+/// top and height its thinning was drawn for.
+#[derive(Component, Default)]
+pub(crate) struct WorldFog {
+    light: f32,
+    drawn: Option<(f32, f32, f32)>,
+}
 
 /// The part of the day.
 #[derive(
@@ -405,23 +515,39 @@ impl ComputedStates for LowSun {
 #[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
 pub struct Hour(pub Option<f32>);
 
+/// Degrees the sun's path is turned about the upright, clockwise seen
+/// from above: where the sun rises and sets.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
+pub struct North(pub f32);
+
 /// The sky as it is now.
 #[derive(Resource, Clone, PartialEq, Debug)]
 pub struct Sky {
     /// Hour of the day, 0 to 24.
     pub hour: f32,
     pub look: Look,
+    /// The direction the fill light travels. It follows the sun
+    /// under the land too, so it never jumps.
+    pub fill_dir: Vec3,
+    /// The sine of the key light's height, before its direction is
+    /// held at [`SkySettings::lowest`].
+    pub key_height: f32,
 }
 
 impl Default for Sky {
     fn default() -> Self {
         let set = SkySettings::default();
-        Self::at(&Looks::default(), &set, set.held(false))
+        Self::at(&Looks::default(), &set, set.held(false), North(0.0))
     }
 }
 
 impl Sky {
-    pub fn at(looks: &Looks, set: &SkySettings, hour: f32) -> Self {
+    pub fn at(
+        looks: &Looks,
+        set: &SkySettings,
+        hour: f32,
+        north: North,
+    ) -> Self {
         let day = set.daylight(hour);
         // Away from dawn and dusk the looks are shown as designed.
         let mut look = if day >= 1.0 {
@@ -436,11 +562,20 @@ impl Sky {
                 .toward(&looks.day, day)
                 .toward(&set.glow, glow)
         };
+        let turn = Quat::from_rotation_y(-north.0.to_radians());
         let (dir, height) = key_light(looks, set, hour);
-        look.sun_dir = dir;
+        look.sun_dir = turn * dir;
         let k = (height / set.horizon.max(1e-3)).clamp(0.0, 1.0);
         look.sun_lux *= k * k * (3.0 - 2.0 * k);
-        Self { hour, look }
+        let sun = -sun_at(looks, set, hour);
+        let fill_dir =
+            turn * Vec3::new(-sun.x, -0.5, -sun.z * 0.4 - 0.5);
+        Self {
+            hour,
+            look,
+            fill_dir,
+            key_height: height,
+        }
     }
 
     pub fn part(set: &SkySettings, hour: f32) -> DayPart {
@@ -463,27 +598,30 @@ impl Sky {
     }
 }
 
+/// The place the sun stands at an hour, as a direction from the land.
+/// It goes round one circle through the day's highest place: over
+/// the land by day, under it by night, without a jump.
+fn sun_at(looks: &Looks, set: &SkySettings, hour: f32) -> Vec3 {
+    let (along, sun) = set.arc(hour);
+    let top = -looks.day.sun_dir.normalize();
+    let rising = Vec3::Y.cross(top).normalize_or(Vec3::X);
+    // Half a turn over the day and half under the night.
+    let turn = (along + if sun { 0.0 } else { 1.0 }) * PI;
+    let (s, c) = turn.sin_cos();
+    c * rising + s * top
+}
+
 /// The direction the key light travels at an hour, and the sine of
-/// its height. It rises and sets along a circle through the place
-/// its look gives it, which is where it stands highest.
+/// its height. It is the sun while the sun is up and the moon,
+/// opposite it, while it is down. They change at the horizon, where
+/// both give no light.
 fn key_light(
     looks: &Looks,
     set: &SkySettings,
     hour: f32,
 ) -> (Vec3, f32) {
-    let (along, sun) = set.arc(hour);
-    let highest = if sun {
-        looks.day.sun_dir
-    } else {
-        looks.night.sun_dir
-    };
-    let top = -highest.normalize();
-    if (along - 0.5).abs() < 1e-4 {
-        return (highest, top.y);
-    }
-    let rising = Vec3::Y.cross(top).normalize_or(Vec3::X);
-    let (s, c) = (along * std::f32::consts::PI).sin_cos();
-    let mut to = c * rising + s * top;
+    let sun = sun_at(looks, set, hour);
+    let mut to = if sun.y >= 0.0 { sun } else { -sun };
     let height = to.y;
     to.y = to.y.max(set.lowest);
     (-to.normalize(), height)
@@ -500,7 +638,7 @@ pub(crate) fn tell(
     stage: Res<Stage>,
     looks: Res<Looks>,
     set: Res<SkySettings>,
-    held: Res<Hour>,
+    (held, north): (Res<Hour>, Res<North>),
     part: Res<State<DayPart>>,
     mut next: ResMut<NextState<DayPart>>,
     mut sky: ResMut<Sky>,
@@ -512,8 +650,12 @@ pub(crate) fn tell(
         // The stage has the last word on whether it is night.
         .filter(|&h| set.moving && set.is_night(h) == stage.night)
         .unwrap_or_else(|| set.held(stage.night));
-    if sky.hour != hour || looks.is_changed() || set.is_changed() {
-        let now = Sky::at(&looks, &set, hour);
+    if sky.hour != hour
+        || looks.is_changed()
+        || set.is_changed()
+        || north.is_changed()
+    {
+        let now = Sky::at(&looks, &set, hour, *north);
         if *sky != now {
             *sky = now;
         }
@@ -599,10 +741,7 @@ pub(crate) fn light(
     *sun.1 = Transform::default().looking_to(look.sun_dir, Vec3::Y);
     fill.0.color = look.fill;
     fill.0.illuminance = look.fill_lux;
-    *fill.1 = Transform::default().looking_to(
-        Vec3::new(-look.sun_dir.x, -0.5, -look.sun_dir.z * 0.4 - 0.5),
-        Vec3::Y,
-    );
+    *fill.1 = Transform::default().looking_to(sky.fill_dir, Vec3::Y);
 }
 
 /// Lights every window pane after dark.
@@ -689,61 +828,269 @@ pub(crate) fn sky_dome(
         .try_insert(AtmosphereSettings::default());
 }
 
-/// Lets the low sun throw shafts through the haze.
-pub(crate) fn raise_haze(
+/// The heights of the key light, as sines, between which the fill
+/// light fades out as it sinks, and then between which the
+/// volumetric fog fades in. The engine's fog takes no light while
+/// any directional light without shadows is drawn: its lights are
+/// sorted with those first, and it stops at the first that is not
+/// volumetric. So the fill light is gone before the fog comes.
+const FILL_FADES: (f32, f32) = (0.35, 0.25);
+const FOG_RISES: (f32, f32) = (0.25, 0.12);
+
+/// How far the key light at `height` has sunk through `fade`, 0
+/// above it to 1 below it, eased at both ends.
+fn sunk(height: f32, (from, to): (f32, f32)) -> f32 {
+    let k = ((from - height) / (from - to)).clamp(0.0, 1.0);
+    k * k * (3.0 - 2.0 * k)
+}
+
+/// The steps taken through the volumetric fog, none when it is not
+/// drawn.
+fn fog_steps(set: &VolumetricFogSettings, quality: Quality) -> u32 {
+    if set.on {
+        (set.steps as f32 * quality.shafts()).round() as u32
+    } else {
+        0
+    }
+}
+
+/// Lets the key light throw shafts through the volumetric fog, as
+/// many steps through it as the quality allows, or takes the fog
+/// away.
+pub(crate) fn raise_fog(
     mut commands: Commands,
-    set: Res<SkySettings>,
+    set: Res<VolumetricFogSettings>,
+    quality: Res<Quality>,
+    mut images: ResMut<Assets<Image>>,
     camera: Single<Entity, With<WorldCamera>>,
     sun: Single<Entity, With<Sun>>,
+    fog: Query<Entity, With<WorldFog>>,
 ) {
-    if !set.shafts {
+    let steps = fog_steps(&set, *quality);
+    if steps == 0 {
+        for fog in &fog {
+            commands.entity(fog).despawn();
+        }
+        commands.entity(*camera).try_remove::<VolumetricFog>();
+        commands.entity(*sun).try_remove::<VolumetricLight>();
         return;
     }
+    // No ambient light: the engine fades it by how far a ray goes,
+    // not by the fog it crosses, so over the land it shows nowhere.
     commands.entity(*camera).try_insert(VolumetricFog {
+        step_count: steps,
         ambient_intensity: 0.0,
-        step_count: set.shaft_steps,
         ..default()
     });
     commands.entity(*sun).try_insert(VolumetricLight);
-    commands.spawn((
-        Haze,
-        FogVolume {
-            density_factor: set.shaft_density,
-            // It scatters far more than it takes, so the haze lifts
-            // the light and does not dim the ground.
-            absorption: 0.02,
-            scattering: 0.6,
-            scattering_asymmetry: 0.7,
-            light_intensity: set.shaft_strength,
-            ..default()
-        },
-        DespawnOnExit(LowSun),
-    ));
+    if fog.is_empty() {
+        commands.spawn((
+            WorldFog::default(),
+            FogVolume {
+                density_texture: Some(images.add(thinning())),
+                ..default()
+            },
+        ));
+    }
 }
 
-pub(crate) fn clear_haze(
-    mut commands: Commands,
-    camera: Single<Entity, With<WorldCamera>>,
-    sun: Single<Entity, With<Sun>>,
-) {
-    commands.entity(*camera).try_remove::<VolumetricFog>();
-    commands.entity(*sun).try_remove::<VolumetricLight>();
-}
+/// How far the volumetric fog reaches below sea level and above the
+/// camera.
+const FOG_MARGIN: f32 = 50.0;
 
-/// Keeps the haze over the ground the camera looks at.
-pub(crate) fn lay_haze(
-    camera: Single<&Transform, (With<WorldCamera>, Without<Haze>)>,
-    mut haze: Query<&mut Transform, With<Haze>>,
+/// Fades the fill light out as the key light sinks through
+/// [`FILL_FADES`] while the volumetric fog is drawn, and puts it out
+/// once it gives no light, so that the fog can take the key light's.
+pub(crate) fn dim_fill(
+    sky: Res<Sky>,
+    set: Res<VolumetricFogSettings>,
+    quality: Res<Quality>,
+    mut fill: Single<
+        (&mut DirectionalLight, &mut Visibility),
+        With<FillLight>,
+    >,
 ) {
-    let forward = camera.forward();
-    let reach = if forward.y < -0.05 {
-        (-camera.translation.y / forward.y).clamp(10.0, 2000.0)
+    let left = if fog_steps(&set, *quality) > 0 {
+        1.0 - sunk(sky.key_height, FILL_FADES)
     } else {
-        2000.0
+        1.0
     };
-    let centre = camera.translation + forward * reach;
-    for mut at in &mut haze {
-        *at = Transform::from_xyz(centre.x, 0.0, centre.z)
-            .with_scale(Vec3::new(reach * 8.0, 60.0, reach * 8.0));
+    fill.0.illuminance = sky.look.fill_lux * left;
+    let shown = if left > 0.0 {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    if *fill.1 != shown {
+        *fill.1 = shown;
+    }
+}
+
+/// Rows of the fog's thinning, from the foot of its volume to the
+/// top. Enough that a low fog in a tall volume still thins smoothly.
+const THINNING_ROWS: u32 = 256;
+
+/// A texture one texel wide and deep for how thick the fog is up its
+/// volume, to be filled by [`thin`].
+fn thinning() -> Image {
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: 1,
+            height: THINNING_ROWS,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D3,
+        &[255],
+        TextureFormat::R8Unorm,
+        RenderAssetUsages::RENDER_WORLD
+            | RenderAssetUsages::MAIN_WORLD,
+    );
+    image.sampler =
+        ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: ImageAddressMode::ClampToEdge,
+            address_mode_v: ImageAddressMode::ClampToEdge,
+            address_mode_w: ImageAddressMode::ClampToEdge,
+            ..ImageSamplerDescriptor::linear()
+        });
+    image
+}
+
+/// Fills `image`, made by [`thinning`], with how thick the fog is up
+/// a volume from `foot` to `top` over sea level.
+fn thin(
+    image: &mut Image,
+    set: &VolumetricFogSettings,
+    foot: f32,
+    top: f32,
+) {
+    let Some(rows) = image.data.as_mut() else {
+        return;
+    };
+    for (row, texel) in rows.iter_mut().enumerate() {
+        let up = (row as f32 + 0.5) / THINNING_ROWS as f32;
+        let y = foot + (top - foot) * up;
+        *texel = (set.thickness(y) * 255.0).round() as u8;
+    }
+}
+
+/// Fits the volumetric fog to its settings and to the hour: none
+/// while the key light is high, coming in through [`FOG_RISES`] as it
+/// sinks.
+pub(crate) fn fit_fog(
+    sky: Res<Sky>,
+    set: Res<VolumetricFogSettings>,
+    mut volumes: Query<(&mut WorldFog, &mut FogVolume)>,
+) {
+    // It comes in as the key light sinks, thickening and lighting
+    // together, so it never appears at once.
+    let risen = sunk(sky.key_height, FOG_RISES);
+    for (mut fog, mut volume) in &mut volumes {
+        fog.light = set.strength * risen;
+        // `lay_fog` sets its light, once it knows how wide it is.
+        *volume = FogVolume {
+            density_factor: set.density() * risen,
+            absorption: set.absorption,
+            scattering: set.scattering,
+            scattering_asymmetry: set.glow,
+            light_intensity: volume.light_intensity,
+            density_texture: volume.density_texture.clone(),
+            ..default()
+        };
+    }
+}
+
+/// Keeps the volumetric fog about the camera as far as the sun's
+/// shadows reach, thinning up from sea level, and lit as strongly
+/// however wide it is. Past the shadows the engine would light all of
+/// it, a bright wall with a hard edge.
+pub(crate) fn lay_fog(
+    set: Res<VolumetricFogSettings>,
+    mut images: ResMut<Assets<Image>>,
+    camera: Single<
+        &Transform,
+        (With<WorldCamera>, Without<WorldFog>),
+    >,
+    shadows: Query<&CascadeShadowConfig, With<Sun>>,
+    mut fog: Query<(&mut WorldFog, &mut Transform, &mut FogVolume)>,
+) {
+    // The shadows end this far from the camera; see
+    // `generator::view`, which sets them to the ground in view.
+    let Some(&reach) =
+        shadows.iter().next().and_then(|c| c.bounds.last())
+    else {
+        return;
+    };
+    let across = reach * 2.0;
+    // From under the lowest ground to over the camera, so the camera
+    // is always inside and the fog shows no top and no sides.
+    let (foot, top) =
+        (-FOG_MARGIN, camera.translation.y + FOG_MARGIN);
+    let size = Vec3::new(across, top - foot, across);
+    for (mut fog, mut at, mut volume) in &mut fog {
+        *at = Transform::from_xyz(
+            camera.translation.x,
+            (foot + top) * 0.5,
+            camera.translation.z,
+        )
+        .with_scale(size);
+        // The thinning is drawn again only when the volume's height
+        // has moved by more than a row, or the fog's has changed.
+        let row = (top - foot) / THINNING_ROWS as f32;
+        let stale = fog.drawn.is_none_or(|(f, t, h)| {
+            (t - top).abs() > row || f != foot || h != set.height
+        });
+        if stale
+            && let Some(mut image) = volume
+                .density_texture
+                .as_ref()
+                .and_then(|handle| images.get_mut(handle))
+        {
+            thin(&mut image, &set, foot, top);
+            fog.drawn = Some((foot, top, set.height));
+        }
+        // The engine dims the light in a volume as if it crossed the
+        // whole of it, the radius of a ball about it, and this one is
+        // as wide as the view. Making up for that lights it as a thin
+        // layer of fog is lit. It is made up for as thick as the fog
+        // is about the camera: in it, as the whole of it; high over
+        // it, hardly, or the thin air the camera looks down through,
+        // which the engine dims little, would glow over everything.
+        let crossed = volume.density_factor
+            * set.thickness(camera.translation.y)
+            * size.length()
+            * 0.5
+            * (volume.absorption + volume.scattering);
+        let light = fog.light * crossed.min(80.0).exp();
+        if volume.light_intensity != light {
+            volume.light_intensity = light;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Minute by minute round the day, the key light, as its
+    /// direction times its strength, and the fill's direction only
+    /// ever move a little: the sun never jumps, nor does the moon
+    /// that takes its place.
+    #[test]
+    fn the_light_goes_round_the_day_without_a_jump() {
+        let (looks, set) = (Looks::default(), SkySettings::default());
+        let north = North(30.0);
+        let light = |sky: &Sky| sky.look.sun_dir * sky.look.sun_lux;
+        let mut was = Sky::at(&looks, &set, 0.0, north);
+        for minute in 1..=24 * 60 {
+            let now =
+                Sky::at(&looks, &set, minute as f32 / 60.0, north);
+            let step = light(&now).distance(light(&was));
+            // The day's light is thousands of lux: a jump in its
+            // direction would move it by that much.
+            assert!(step < 500.0, "light jumped {step} at {minute}");
+            let turn = now.fill_dir.angle_between(was.fill_dir);
+            assert!(turn < 0.05, "fill jumped {turn} at {minute}");
+            was = now;
+        }
     }
 }

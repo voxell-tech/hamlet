@@ -1,6 +1,7 @@
 //! The settings screen: a front page of its parts, each on a page
 //! of its own.
 
+mod sight;
 mod workspace;
 
 use bevy::app::{App, Update};
@@ -10,12 +11,14 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, percent, px};
+use bevy::ui::{
+    AlignItems, Overflow, OverflowAxis, UiRect, percent, px,
+};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
-    label, number_field, row, scroll, slider,
+    BehaviorExt, FrameProps, TooltipExt, column, frame, label,
+    number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::messages::{ChiefMessage, Reconnected, Response};
@@ -26,7 +29,6 @@ use hamlet_client::realm::{
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::client as protocol;
-use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 
 use crate::dock::{PanelAppExt, panel};
@@ -39,7 +41,7 @@ use crate::looks::{
 };
 use crate::switch::switch;
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, built, markdown, with_cx};
+use crate::{AnyView, Cx, View, markdown, with_cx};
 
 pub fn plugin(app: &mut App) {
     app.add_panel(
@@ -47,7 +49,7 @@ pub fn plugin(app: &mut App) {
         DockWindowKind::new("SETTINGS", || panel(screen()))
             .icon(Glyph::Sliders.image(ICON)),
     )
-    .add_plugins(workspace::plugin)
+    .add_plugins((sight::plugin, workspace::plugin))
     .init_resource::<Pane>()
     .init_resource::<Charter>()
     .init_resource::<CharterRequests>()
@@ -72,30 +74,6 @@ fn field(name: &'static str, value: impl View) -> impl View {
     close((section(name), value))
 }
 
-/// The choice of the world's visual quality.
-fn quality() -> impl View {
-    built(|cx| {
-        cx.build(
-            dropdown(
-                Quality::ALL.map(Quality::name),
-                resource::<Quality, _>(|q| {
-                    Quality::ALL
-                        .iter()
-                        .position(|a| a == q)
-                        .unwrap_or_default()
-                }),
-                Glyph::Chevron.image(ICON),
-                |world, at| {
-                    *world.resource_mut::<Quality>() =
-                        Quality::ALL[at];
-                },
-            )
-            .width(percent(100.0))
-            .max_width(percent(100.0)),
-        )
-    })
-}
-
 /// A part of the settings, each on a page of its own.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pane {
@@ -111,18 +89,21 @@ pub enum Pane {
     Charter,
     /// The limits that hold for every hamlet.
     Realm,
-    Senses,
+    Sound,
+    /// How the world is drawn: quality, the hour and the fog.
+    Sight,
 }
 
 impl Pane {
-    const PAGES: [Pane; 7] = [
+    const PAGES: [Pane; 8] = [
         Pane::Endpoints,
         Pane::Models,
         Pane::Agents,
         Pane::Workspace,
         Pane::Charter,
         Pane::Realm,
-        Pane::Senses,
+        Pane::Sound,
+        Pane::Sight,
     ];
 
     fn title(self) -> &'static str {
@@ -134,7 +115,8 @@ impl Pane {
             Pane::Workspace => "WORKSPACE",
             Pane::Charter => "CHARTER",
             Pane::Realm => "REALM",
-            Pane::Senses => "SOUND AND SIGHT",
+            Pane::Sound => "SOUND",
+            Pane::Sight => "SIGHT",
         }
     }
 
@@ -147,7 +129,8 @@ impl Pane {
             Pane::Workspace => Glyph::Shield,
             Pane::Charter => Glyph::Notes,
             Pane::Realm => Glyph::Signpost,
-            Pane::Senses => Glyph::Sun,
+            Pane::Sound => Glyph::Bell,
+            Pane::Sight => Glyph::Sun,
         }
     }
 
@@ -170,7 +153,8 @@ impl Pane {
             }
             Pane::Charter => "What every agent is told.",
             Pane::Realm => "Limits that apply to every hamlet.",
-            Pane::Senses => "Sound, music and how much is drawn.",
+            Pane::Sound => "Sound, music and the land's noises.",
+            Pane::Sight => "Quality, the time of day and the fog.",
         }
     }
 }
@@ -579,15 +563,8 @@ fn sound_switch(
     })
 }
 
-fn senses() -> impl View {
+fn sound() -> impl View {
     parts((
-        field(
-            "Visual quality",
-            told(
-                quality(),
-                description("Particles, bloom and shadows."),
-            ),
-        ),
         field(
             "Sound",
             level(
@@ -673,7 +650,8 @@ pub fn screen() -> AnyView {
             Pane::Workspace => workspace::page().boxed(),
             Pane::Charter => with_cx(charter_page).boxed(),
             Pane::Realm => crate::limits::realm().boxed(),
-            Pane::Front | Pane::Senses => senses().boxed(),
+            Pane::Sight => sight::page().boxed(),
+            Pane::Front | Pane::Sound => sound().boxed(),
         };
         let head = page_head(
             "SETTINGS",
@@ -690,9 +668,15 @@ pub fn screen() -> AnyView {
         let width = cx.theme().space.page_width;
         let page =
             page.within(column(()).gap(0.0).max_width(px(width)));
+        // It scrolls down only: a page is laid out to the panel's
+        // width.
         cx.build(
             scroll((page,))
                 .fills_height()
+                .overflow(Overflow {
+                    x: OverflowAxis::Clip,
+                    y: OverflowAxis::Scroll,
+                })
                 .tagged(ScrollFade::default()),
         )
     })

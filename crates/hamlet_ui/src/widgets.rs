@@ -1,5 +1,7 @@
 //! What every panel is built from.
 
+pub mod dial;
+pub mod disclosure;
 pub mod fade;
 pub mod feel;
 pub mod icons;

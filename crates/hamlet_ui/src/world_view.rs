@@ -24,6 +24,7 @@ use bevy::render::render_resource::{
 };
 use bevy::state::condition::in_state;
 use bevy::state::state::{OnEnter, OnExit};
+use bevy::time::Time;
 use bevy::ui::widget::ViewportNode;
 use bevy::ui::{Display, Node, Overflow, UiSystems, px};
 use bevy::window::{PrimaryWindow, Window};
@@ -39,7 +40,9 @@ use hamlet_realm::hand::Readout;
 use hamlet_realm::needs::NeedTag;
 use hamlet_realm::pick::{NameTag, Sign, WorldSurface};
 use hamlet_realm::sky::SkySettings;
-use hamlet_realm::{Hour, RealmSystems, Stage, WorldCamera};
+use hamlet_realm::{
+    Hour, North, RealmSystems, Sky, Stage, WorldCamera,
+};
 
 use crate::dock::PanelAppExt;
 use crate::icons::Glyph;
@@ -67,15 +70,16 @@ pub(crate) fn plugin(app: &mut App) {
         .icon(Glyph::Globe.image(ICON)),
     )
     .init_resource::<TimeOfDay>()
+    .init_resource::<NorthTarget>()
+    .init_resource::<Gliding>()
     .insert_resource(hamlet_realm::pick::NoNameTag)
     .add_systems(
         Update,
         (
-            drive.in_set(RealmSystems::Steer),
+            (glide_sky, drive).chain().in_set(RealmSystems::Steer),
             pace.run_if(in_state(WorldShown)),
             adopt_tags,
             follow_scale,
-            hold_sky.in_set(RealmSystems::Steer),
         ),
     )
     .add_systems(
@@ -97,13 +101,13 @@ pub(crate) struct WorldCam(Entity);
 #[derive(Component)]
 pub(crate) struct WorldPanel;
 
-/// The sky following the clock, or held at day or night.
+/// The sky following the clock, or held at day, at night or at an
+/// hour.
 #[derive(
     Resource,
     Clone,
     Copy,
     PartialEq,
-    Eq,
     Default,
     Debug,
     serde::Serialize,
@@ -115,37 +119,93 @@ pub(crate) enum TimeOfDay {
     Clock,
     Day,
     Night,
+    /// An hour of the day, 0 to 24.
+    At(f32),
 }
 
 impl TimeOfDay {
-    fn is_night(self, set: &SkySettings) -> bool {
+    /// The hour it holds the sky at; none while it follows the clock.
+    pub(crate) fn held(self, set: &SkySettings) -> Option<f32> {
         match self {
-            Self::Day => false,
-            Self::Night => true,
-            Self::Clock => {
-                let now = chrono::Local::now();
-                set.is_night(
-                    now.hour() as f32 + now.minute() as f32 / 60.0,
-                )
-            }
+            Self::Clock => None,
+            Self::Day => Some(set.held(false)),
+            Self::Night => Some(set.held(true)),
+            Self::At(hour) => Some(hour.rem_euclid(24.0)),
         }
+    }
+
+    /// The hour the sky goes to: the one held, or the clock's.
+    pub(crate) fn target(self, set: &SkySettings) -> f32 {
+        self.held(set).unwrap_or_else(wall_hour)
     }
 }
 
-/// Holds the sky at the middle of the day or of the night, or lets it
-/// follow the clock.
-pub(crate) fn hold_sky(
-    sky: Res<TimeOfDay>,
-    set: Res<SkySettings>,
+fn wall_hour() -> f32 {
+    let now = chrono::Local::now();
+    now.hour() as f32 + now.minute() as f32 / 60.0
+}
+
+/// Degrees north is to be at; [`North`] glides to it.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
+pub(crate) struct NorthTarget(pub(crate) f32);
+
+/// True while the sky glides to the hour or the north chosen.
+#[derive(Resource, Default)]
+pub(crate) struct Gliding(bool);
+
+/// The share of what is left that the sky closes each second, as the
+/// rate of its fall.
+const GLIDE: f32 = 4.0;
+
+/// The way from `from` to `to` round a circle of `whole`, the short
+/// way, clockwise positive.
+fn way(from: f32, to: f32, whole: f32) -> f32 {
+    (to - from + whole / 2.0).rem_euclid(whole) - whole / 2.0
+}
+
+/// Moves the sky's hour and north toward the ones chosen, the short
+/// way round. The first frame puts them there at once.
+pub(crate) fn glide_sky(
+    time: Res<Time>,
+    (chosen, set, sky): (Res<TimeOfDay>, Res<SkySettings>, Res<Sky>),
+    target: Res<NorthTarget>,
+    mut north: ResMut<North>,
     mut hour: ResMut<Hour>,
+    mut gliding: ResMut<Gliding>,
+    mut began: Local<bool>,
 ) {
-    let held = match *sky {
-        TimeOfDay::Clock => None,
-        TimeOfDay::Day => Some(set.held(false)),
-        TimeOfDay::Night => Some(set.held(true)),
+    let k = if *began {
+        1.0 - (-GLIDE * time.delta_secs()).exp()
+    } else {
+        1.0
     };
+    *began = true;
+    let to = chosen.target(&set);
+    let from = hour.0.unwrap_or(sky.hour);
+    let left = way(from, to, 24.0);
+    let turning = left.abs() > 1e-3;
+    let at = if turning {
+        (from + left * k).rem_euclid(24.0)
+    } else {
+        to
+    };
+    // Once it has caught the clock up, the sky follows it itself.
+    let held = (turning || *chosen != TimeOfDay::Clock).then_some(at);
     if hour.0 != held {
         hour.0 = held;
+    }
+    let left = way(north.0, target.0, 360.0);
+    let swinging = left.abs() > 1e-2;
+    let at = if swinging {
+        (north.0 + left * k).rem_euclid(360.0)
+    } else {
+        target.0
+    };
+    if north.0 != at {
+        north.0 = at;
+    }
+    if gliding.0 != (turning || swinging) {
+        gliding.0 = turning || swinging;
     }
 }
 
@@ -324,13 +384,14 @@ pub(crate) fn adopt_tags(
     }
 }
 
-/// The sky's night state.
+/// The sky's night state, at the hour the sky is at, not the one it
+/// glides to, so the two never disagree.
 pub(crate) fn drive(
-    sky: Res<TimeOfDay>,
+    hour: Res<Hour>,
     sky_set: Res<SkySettings>,
     mut stage: ResMut<Stage>,
 ) {
-    let night = sky.is_night(&sky_set);
+    let night = sky_set.is_night(hour.0.unwrap_or_else(wall_hour));
     if stage.night != night {
         stage.night = night;
     }
@@ -338,12 +399,13 @@ pub(crate) fn drive(
 
 /// Draws every frame while something moves, and at the window's slow
 /// tick otherwise.
-pub fn pace(
+pub(crate) fn pace(
     busy: Query<(), With<Busy>>,
     waiting: Query<(), With<Waiting>>,
+    gliding: Res<Gliding>,
     mut winit: ResMut<WinitSettings>,
 ) {
-    let moving = !busy.is_empty() || !waiting.is_empty();
+    let moving = !busy.is_empty() || !waiting.is_empty() || gliding.0;
     let mode = if moving {
         UpdateMode::Continuous
     } else {

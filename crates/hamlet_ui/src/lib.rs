@@ -62,7 +62,8 @@ pub use self::screens::{
 pub use self::status::{Bar, status_bar};
 use self::theme::{HamletTheme, Look};
 pub use self::widgets::{
-    fade, feel, icons, platform, switch, tabs, tuning,
+    dial, disclosure, fade, feel, icons, platform, switch, tabs,
+    tuning,
 };
 pub use self::window::window_plugin;
 

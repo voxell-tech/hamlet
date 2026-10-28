@@ -49,10 +49,6 @@ horizon = 0.14
 lowest = 0.2
 door_lumens = 30000.0
 door_reach = 9.0
-shafts = false
-shaft_density = 0.004
-shaft_strength = 12.0
-shaft_steps = 32
 occlusion = false
 atmosphere = false
 
@@ -72,6 +68,19 @@ candle = 0.75
 wash = 0.2
 inlay_gain = 1.6
 
+[volumetric_fog]
+on = true
+visibility = 1500.0
+height = 40.0
+strength = 0.7
+glow = 0.7
+scattering = 0.6
+absorption = 0.02
+steps = 64
+
+[distance_fog]
+distance = 800.0
+
 [camera]
 fov = 25.0
 near = 2.0
@@ -80,13 +89,13 @@ shadow_map = 4096
 distance = 72.0
 spread_distance = 3.4
 pitch = 40.0
-pitch_limits = [14.0, 40.0]
+pitch_limits = [5.0, 85.0]
 zoom = [0.07, 16.0]
 reach = 1150.0
 pan = 600.0
 turn_rate = 0.006
 tilt_rate = 0.004
-tilt = [-0.35, 0.0]
+tilt = [-0.611, 0.785]
 slide_tilt = 1.5
 glide = 9.0
 level = 3.5
@@ -97,7 +106,7 @@ scroll_line = 40.0
 click_slop = 4.0
 fog_start = 1.2
 fog_end = [2.6, 150.0]
-shadow_range = [0.45, 1.25, 2.4]
+shadow_range = [1.25, 2.4]
 blur_within = 130.0
 blur_stop = 8.400001
 blur_stop_min = 0.1

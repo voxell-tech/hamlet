@@ -12,7 +12,7 @@ use super::shift::Folded;
 use super::society::Society;
 use super::sync::Drawn;
 use super::work::Robot;
-use crate::sky::{CameraSettings, Sun};
+use crate::sky::{CameraSettings, DistanceFogSettings, Sun};
 use crate::{Clock, Stage, WorldCamera};
 
 /// The camera's view.
@@ -74,11 +74,11 @@ impl GeneratorView {
         &self,
         land: &Land,
         settings: &CameraSettings,
+        fog: Option<&DistanceFogSettings>,
         detail: &DetailSettings,
     ) -> Sight {
         let (eye, _) = self.eye(land);
-        let whole =
-            self.dist * settings.fog_end.0 + settings.fog_end.1;
+        let whole = fog_end(settings, fog, self.dist);
         Sight {
             eye,
             centre: self.focus,
@@ -157,12 +157,55 @@ pub(super) fn robot_detail(
     }
 }
 
+/// The distance at which the distance fog is whole for a camera
+/// `dist` from what it looks at: further when pulled back, and no
+/// nearer than the chief set it.
+fn fog_end(
+    settings: &CameraSettings,
+    fog: Option<&DistanceFogSettings>,
+    dist: f32,
+) -> f32 {
+    let zoomed = dist * settings.fog_end.0 + settings.fog_end.1;
+    zoomed.max(fog.map_or(0.0, |fog| fog.distance))
+}
+
+/// The distances from the camera the sun's shadows start at, split at
+/// and end at, for a camera `dist` from what it looks at, `rise`
+/// above it and looking down by the sine `down`. They start at the
+/// camera, for the volumetric fog takes no light where they do not
+/// reach, and stretch to cover the ground in view: to the top of the
+/// view, or to the fog's end where the top is over the horizon. The
+/// split follows the zoom, so shadows stay sharp up close.
+fn shadowed(
+    settings: &CameraSettings,
+    dist: f32,
+    rise: f32,
+    down: f32,
+    fog_end: f32,
+) -> (f32, f32, f32) {
+    let (split, end) = settings.shadow_range;
+    let pitch = down.clamp(-1.0, 1.0).asin();
+    let half = settings.fov.to_radians() * 0.5;
+    let farthest = if pitch - half > 0.01 {
+        (rise.max(settings.near) / (pitch - half).sin()).min(fog_end)
+    } else {
+        fog_end
+    };
+    let least = settings.near;
+    let most = (dist * end).max(farthest).max(least * 2.0);
+    let split = (dist * split).clamp(least * 1.5, most * 0.75);
+    (least, split, most)
+}
+
 /// Points the camera where [`GeneratorView`] looks, with fog, shadows
 /// and blur fitted to its distance.
 pub(super) fn aim(
     mut commands: Commands,
     stage: Res<Stage>,
-    settings: Res<CameraSettings>,
+    (settings, fog_set): (
+        Res<CameraSettings>,
+        Res<DistanceFogSettings>,
+    ),
     view: Res<GeneratorView>,
     land: Res<Land>,
     time: Res<Time>,
@@ -194,7 +237,11 @@ pub(super) fn aim(
     let eased = if settled { focus.y } else { eased };
     let moved = *level != Some(eased);
     *level = Some(eased);
-    if !stage.is_changed() && !view.is_changed() && !moved {
+    if !stage.is_changed()
+        && !view.is_changed()
+        && !fog_set.is_changed()
+        && !moved
+    {
         return;
     }
     if !settled {
@@ -205,18 +252,25 @@ pub(super) fn aim(
     let (eye, focus) = (eye + lift, focus + lift);
     *at = Transform::from_translation(eye).looking_at(focus, Vec3::Y);
 
+    let fog_end = fog_end(&settings, Some(&fog_set), dist);
+    // The nearer half of the way to where it is whole stays clear.
     fog.falloff = FogFalloff::Linear {
-        start: dist * settings.fog_start,
-        end: dist * settings.fog_end.0 + settings.fog_end.1,
+        start: (dist * settings.fog_start).max(fog_end * 0.5),
+        end: fog_end,
     };
-    // The shadowed range follows the zoom, so shadows stay sharp up
-    // close and still reach the ground when pulled back.
+    let (least, split, most) = shadowed(
+        &settings,
+        dist,
+        eye.y - focus.y,
+        -at.forward().y,
+        fog_end,
+    );
     commands.entity(*sun).try_insert(
         CascadeShadowConfigBuilder {
             num_cascades: 2,
-            minimum_distance: dist * settings.shadow_range.0,
-            first_cascade_far_bound: dist * settings.shadow_range.1,
-            maximum_distance: dist * settings.shadow_range.2,
+            minimum_distance: least,
+            first_cascade_far_bound: split,
+            maximum_distance: most,
             ..default()
         }
         .build(),
