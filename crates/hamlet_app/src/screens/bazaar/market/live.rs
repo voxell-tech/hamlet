@@ -109,17 +109,22 @@ fn the_bazaar_works_end_to_end_against_a_local_server() {
     // cannot publish it, and is told from when it can.
     let title = format!("Clock {run}");
     sell_agent(&mut seller, &title);
-    let Step::Done(id, version) = finished_sale(&mut seller) else {
-        panic!("the agent was not uploaded");
+    let step = finished_sale(&mut seller);
+    let Step::Done(id, version) = step else {
+        panic!("the agent was not uploaded: {step:?}");
     };
     assert_eq!(version, sell::FIRST_VERSION);
     let which = drafts::Which {
         id: id.clone(),
         version,
     };
+    // Free, since this Stripe sandbox has no payouts to sell for a
+    // price.
+    make_free(&mut seller, &which, &title);
     let said = publish(&mut seller, &which);
     assert!(
-        said.contains("7 days old") && said.contains("sell from")
+        said.contains("7 days old") && said.contains("sell from"),
+        "{said}"
     );
 
     // Made 8 days ago, it publishes the draft unverified, and it is
@@ -248,6 +253,13 @@ fn chief(
         name: "OpenRouter".into(),
     });
     world.insert_resource(providers);
+    // The home hamlet, where a bought agent moves in.
+    world.spawn((
+        hamlet_client::realm::HamletId(
+            hamlet_client::realm::HOME.into(),
+        ),
+        bevy::ecs::name::Name::new("Home"),
+    ));
     world
 }
 
@@ -418,6 +430,7 @@ fn sell_agent(world: &mut World, title: &str) {
     let package = serde_json::to_vec(&serde_json::json!({
         "format": 1, "kind": "agent", "agent": {
             "name": "clock",
+            "purpose": "Tells the time.",
             "files": [{
                 "path": "CHARACTER.md",
                 "data": STANDARD.encode(format!("{title} tells the time.")),
@@ -441,6 +454,26 @@ fn sell_agent(world: &mut World, title: &str) {
             ),
         },
     );
+}
+
+/// Saves the draft `which` as free.
+fn make_free(world: &mut World, which: &drafts::Which, title: &str) {
+    let details = versions::Details {
+        title: title.into(),
+        ..Default::default()
+    };
+    drafts::save(
+        world,
+        which.clone(),
+        details,
+        None,
+        drafts::Then::Stay,
+    );
+    pump(world, "the draft saved", |world| {
+        world.resource::<drafts::Drafts>().job.is_none()
+    });
+    let said = world.resource::<drafts::Drafts>().said.clone();
+    assert_eq!(said, Some(("Draft saved.".into(), false)));
 }
 
 /// Publishes the draft `which` unverified, and says what came of it.
