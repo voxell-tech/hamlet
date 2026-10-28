@@ -13,8 +13,8 @@ use hamlet_client::realm::Skills;
 
 use crate::dock::show_tab;
 use crate::icons::Glyph;
-use crate::looks::{Fills, action, away, bad_action, description};
 use crate::platform::DisplayText;
+use crate::styles::{Fills, action, bad_action, description, hidden};
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, View, built, with_cx};
 
@@ -139,10 +139,10 @@ pub fn card(
                 px(space.card_padding_y),
             ))
             .border(space.border)
-            .border_color(cx.theme().palette.brass_6)
+            .border_color(cx.theme().palette.gold_6)
             .radius(space.round)
             .fill(cx.theme().palette.card)
-            .appear(away)
+            .appear(hidden)
             .transition(Motion::Expand),
         )
     })

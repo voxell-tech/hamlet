@@ -23,11 +23,11 @@ use hamlet_protocol::client::{self as protocol, Limits, Period};
 use serde_json::Value;
 
 use crate::icons::Glyph;
-use crate::looks::{
-    Fills, action, bare, beside, breadcrumb, choices, close,
-    description, doors, group, list_door, note, parts, well,
-};
 use crate::overview::heading;
+use crate::styles::{
+    Fills, action, bare, beside, breadcrumb, choices, close,
+    description, group, nav_list, nav_row, note, parts, text_input,
+};
 use crate::switch::switch as toggle;
 use crate::{AnyView, PanelSystems, View, with_cx};
 
@@ -208,7 +208,7 @@ fn whole(
         )
         .range(0, most)
         .width(px(110.0))
-        .rules(well)
+        .rules(text_input)
         .boxed()
     })
 }
@@ -238,7 +238,7 @@ fn cost(
         .step(0.05)
         .precision(2)
         .width(px(110.0))
-        .rules(well)
+        .rules(text_input)
         .boxed()
     })
 }
@@ -517,7 +517,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                         .into_iter()
                         .filter(|part| *part != Part::Realm || home)
                         .map(|part| {
-                            list_door(
+                            nav_row(
                                 part.glyph(),
                                 part.title(),
                                 part.holds(),
@@ -535,7 +535,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                     })
                     .boxed();
                     cx.build(with_cx(move |cx| {
-                        doors(cx, parts, foot)
+                        nav_list(cx, parts, foot)
                     }))
                 });
             }

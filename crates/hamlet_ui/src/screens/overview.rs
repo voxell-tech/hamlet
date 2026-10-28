@@ -28,9 +28,9 @@ pub use self::record::Annals;
 use self::rows::{hamlet_rows, pressable};
 pub(crate) use self::rows::{stale, standing};
 use crate::icons::{Glyph, glyph};
-use crate::looks::{
+use crate::styles::{
     Fills, ICON, action, bare, beside, close, description, group,
-    note, raised, scroll_area, section, title, well,
+    note, raised, scroll_area, section, text_input, title,
 };
 use crate::{AnyView, View, chat, tabs, with_cx, world_menu};
 
@@ -137,7 +137,7 @@ pub fn overview() -> impl View {
         row((
             text_field(String::new(), |_, _| {})
                 .grow(1.0)
-                .rules(well)
+                .rules(text_input)
                 .tagged(SearchField),
             keyed(
                 resource::<Deeds, _>(|deeds| {
@@ -258,7 +258,7 @@ fn closed() -> AnyView {
                 if *erase {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
-                    actions.push(crate::looks::bad_action(
+                    actions.push(crate::styles::bad_action(
                         Glyph::Gone,
                         "DELETE FOR GOOD",
                         move |world| {
@@ -271,7 +271,7 @@ fn closed() -> AnyView {
                     close((
                         note(hamlet.name.clone()),
                         note(hamlet.reason.clone()),
-                        crate::looks::buttons(actions),
+                        crate::styles::buttons(actions),
                     ))
                     .boxed(),
                 );
@@ -291,8 +291,8 @@ fn closed() -> AnyView {
                                 "Every archived house is deleted. \
                                  This cannot be undone.",
                             ),
-                            crate::looks::buttons(vec![
-                                crate::looks::bad_action(
+                            crate::styles::buttons(vec![
+                                crate::styles::bad_action(
                                     Glyph::Gone,
                                     "DELETE",
                                     move |world| {

@@ -25,8 +25,8 @@ use hamlet_protocol::client as protocol;
 use crate::convo::Convo;
 use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;
-use crate::looks::{hairline, note, small_rules};
 use crate::petition::Queue;
+use crate::styles::{hairline, note, small_rules};
 use crate::{AnyView, PanelSystems, View, built, with_cx};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -247,7 +247,7 @@ pub fn status_bar() -> impl View {
         let (palette, space) = (&theme.palette, &theme.space);
         cx.build(
             column((
-                hairline(palette.seam),
+                hairline(palette.border),
                 row((
                     confinement(),
                     fact(
@@ -313,7 +313,7 @@ pub fn status_bar() -> impl View {
                     px(space.status_padding_x),
                     px(space.status_padding_y),
                 ))
-                .fill(palette.black),
+                .fill(palette.surface),
             ))
             .gap(0.0),
         )

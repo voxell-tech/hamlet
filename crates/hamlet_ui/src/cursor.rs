@@ -28,7 +28,7 @@ use hamlet_realm::hand::{Grip, Hand};
 use hamlet_realm::pick::{Hovered, Pressable, Steer, Taken, Thing};
 
 pub use self::art::{Inks, face, frames, hot, side};
-use crate::theme::{HamletTheme, Look};
+use crate::theme::{HamletTheme, ThemeState};
 use crate::welcome::Welcome;
 
 /// The share of a cursor that is left while the hand carries a thing
@@ -36,7 +36,7 @@ use crate::welcome::Welcome;
 const FAINT: f32 = 0.4;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(OnEnter(Look::Ready), draw)
+    app.add_systems(OnEnter(ThemeState::Ready), draw)
         .add_observer(lend)
         .add_systems(
             PostUpdate,
@@ -186,15 +186,15 @@ impl Mode {
 pub fn inks(theme: &HamletTheme) -> Inks {
     let p = &theme.palette;
     Inks {
-        flame: p.flame,
-        lamp: p.lamp,
-        ember: p.ember,
-        wax: p.brass_1,
-        shade: p.brass_2,
-        brass: p.brass_4,
-        rune: p.rune,
-        coal: p.coal,
-        edge: p.black,
+        flame: p.glow_core,
+        lamp: p.glow,
+        ember: p.particle,
+        wax: p.gold_1,
+        shade: p.gold_2,
+        brass: p.gold_4,
+        rune: p.agent,
+        coal: p.danger_glow,
+        edge: p.surface,
     }
 }
 

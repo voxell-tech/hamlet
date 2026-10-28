@@ -19,10 +19,10 @@ use super::draw::{Face, Ink, rich};
 use super::{Span, Style, Target};
 use crate::chat::ChatSettings;
 use crate::icons::Glyph;
-use crate::looks::{action, bare, note};
 use crate::pictures::{
     Drawn, Pictures, Source, State, fetch, find, host,
 };
+use crate::styles::{action, bare, note};
 use crate::{AnyView, Cx, View};
 
 fn plain(text: &str) -> Span {
@@ -51,9 +51,9 @@ fn framed(cx: &Cx) -> Frame {
     let theme = cx.theme();
     frame()
         .max_width(percent(100.0))
-        .fill(theme.palette.plate)
+        .fill(theme.palette.code)
         .border(1.0)
-        .border_color(theme.palette.brass_6)
+        .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
 }
 
@@ -85,8 +85,8 @@ fn shown(
                     .round)),
                 ..Node::default()
             },
-            BackgroundColor(theme.palette.plate),
-            BorderColor::all(theme.palette.brass_6),
+            BackgroundColor(theme.palette.code),
+            BorderColor::all(theme.palette.gold_6),
             ImageNode::new(image).with_mode(NodeImageMode::Stretch),
             anchor,
             EntityCursor(SystemCursorIcon::Pointer),
@@ -156,9 +156,9 @@ fn card(
         .align(AlignItems::FlexStart)
         .min_width(px(0.0))
         .max_width(percent(100.0))
-        .fill(theme.palette.plate)
+        .fill(theme.palette.code)
         .border(1.0)
-        .border_color(theme.palette.brass_6)
+        .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
 }
 

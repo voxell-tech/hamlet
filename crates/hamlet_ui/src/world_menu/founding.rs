@@ -11,11 +11,12 @@ use bevy_fynix::{ScopedExt, resource};
 use hamlet_client::realm::{Deeds, HOME};
 
 use super::close;
-use crate::feel::Mood;
-use crate::looks::{
-    brass, description, lamp, lettered, section, well,
-};
+use crate::effects::Variant;
 use crate::platform::DisplayText;
+use crate::styles::{
+    button, description, lettered, primary_button, section,
+    text_input,
+};
 use crate::{View, built, chat};
 
 /// The name of a hamlet being founded, the name of its mayor, and its
@@ -52,7 +53,7 @@ fn asks(
     read: fn(&Founding) -> &String,
     write: fn(&mut Founding, String),
 ) -> impl View {
-    crate::looks::close((
+    crate::styles::close((
         section(what),
         text_field(
             resource::<Founding, _>(move |f| read(f).clone()),
@@ -60,7 +61,7 @@ fn asks(
                 write(&mut world.resource_mut::<Founding>(), text);
             },
         )
-        .rules(well),
+        .rules(text_input),
     ))
 }
 
@@ -109,8 +110,8 @@ pub(super) fn founding(at: Vec2) -> impl View {
             })),
             row((
                 lettered("FOUND")
-                    .rules(lamp)
-                    .tagged(Mood::Good)
+                    .rules(primary_button)
+                    .tagged(Variant::Primary)
                     .on_activate(|world| {
                         if !Deeds::is_allowed(world, "found") {
                             return;
@@ -125,7 +126,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
                             Founding::default();
                         chat::decree(world, HOME, command);
                     }),
-                lettered("CANCEL").rules(brass).on_activate(close),
+                lettered("CANCEL").rules(button).on_activate(close),
             ))
             .gap(gap),
         ))

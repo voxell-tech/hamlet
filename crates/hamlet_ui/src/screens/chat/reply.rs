@@ -25,9 +25,11 @@ use hamlet_client::chats::{Entry, Transcript};
 
 use super::{ChatSettings, Draft};
 use crate::convo::Convo;
-use crate::feel::Mood;
+use crate::effects::Variant;
 use crate::icons::{Glyph, glyph};
-use crate::looks::{Fills, ICON, bare, close_mark, note, retrace};
+use crate::styles::{
+    Fills, ICON, back_link, bare, close_button, note,
+};
 use crate::{AnyView, Cx, View, built, with_cx};
 
 /// The room of a mark about its picture.
@@ -187,8 +189,8 @@ pub(super) fn mark(
         let reply = button(glyph(Glyph::Talk, ICON))
             .padding(UiRect::all(px(AROUND)))
             .tooltip(|| note("Reply"))
-            .rules(retrace)
-            .tagged(Mood::Ink)
+            .rules(back_link)
+            .tagged(Variant::Text)
             .on_activate(move |world| take(world, session, &id, &by));
         let node = cx.build(
             column((reply,))
@@ -265,7 +267,7 @@ pub(super) fn preview() -> impl View {
 }
 
 fn shown(cx: &Cx, answers: &Answers) -> AnyView {
-    let drop = close_mark(|world| {
+    let drop = close_button(|world| {
         world.resource_mut::<Replying>().0 = None;
     })
     .tooltip(|| note("Do not reply"));
@@ -273,7 +275,7 @@ fn shown(cx: &Cx, answers: &Answers) -> AnyView {
         frame()
             .width(px(3.0))
             .shrink(0.0)
-            .fill(cx.theme().palette.brass_5),
+            .fill(cx.theme().palette.gold_5),
         column((
             label(format!("Replying to {}", answers.by))
                 .size(11.0)

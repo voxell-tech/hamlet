@@ -252,8 +252,8 @@ fn gift_reports() -> AnyView {
                     Rect::new(16.0, 52.0, 16.0, 52.0),
                     (column((
                         column(lines).gap(space.gap / 2.0),
-                        crate::looks::lettered("DISMISS")
-                            .rules(crate::looks::brass)
+                        crate::styles::lettered("DISMISS")
+                            .rules(crate::styles::button)
                             .on_activate(|world| {
                                 world
                                     .resource_mut::<GiftReports>()

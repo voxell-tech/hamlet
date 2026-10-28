@@ -37,7 +37,7 @@ use hamlet_realm::chief::{Beside, Look};
 use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
 
-use crate::feel::FeelSettings;
+use crate::effects::EffectSettings;
 use crate::overview::standing;
 use crate::platform::{DisplayText, show};
 use crate::roll::Roll;
@@ -425,7 +425,7 @@ pub(crate) struct Resting {
 pub(crate) fn describe(
     hovered: Res<Hovered>,
     time: Res<Time>,
-    feel: Res<FeelSettings>,
+    set: Res<EffectSettings>,
     open: Res<Open>,
     roll: Res<Roll>,
     told: Told,
@@ -438,7 +438,7 @@ pub(crate) fn describe(
         resting.on = hovered.0;
         resting.since = clock;
     }
-    let rested = clock - resting.since >= feel.hover_wait;
+    let rested = clock - resting.since >= set.hover_wait;
     let menu = *open != Open::Nothing;
     let Some(thing) = hovered.0.filter(|_| rested && !menu) else {
         *made = None;
@@ -479,7 +479,7 @@ pub fn place(
     theme: Themed,
     card: Res<Card>,
     time: Res<Time>,
-    set: Res<FeelSettings>,
+    set: Res<EffectSettings>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut boxes: Query<
         (
@@ -543,7 +543,7 @@ pub fn place(
         if fill.0.alpha() != eased {
             fill.0.set_alpha(eased);
             *edge = BorderColor::all(
-                theme.palette.brass_5.with_alpha(eased),
+                theme.palette.gold_5.with_alpha(eased),
             );
         }
         for child in under.iter_descendants(entity) {
@@ -607,7 +607,7 @@ pub fn view() -> impl View {
         .padding(UiRect::axes(px(12.0), px(9.0)))
         .max_width(px(280.0))
         .border(1.0)
-        .border_color(cx.theme().palette.brass_5)
+        .border_color(cx.theme().palette.gold_5)
         .radius(cx.theme().space.soft)
         .fill(cx.theme().palette.card)
         .position(PositionType::Absolute)

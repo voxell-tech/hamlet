@@ -1,4 +1,4 @@
-//! The looks of the buttons and fields, and the view shapes the
+//! The styles of the buttons and fields, and the view shapes the
 //! panels share.
 
 use bevy::color::Color;
@@ -6,15 +6,15 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, Frame, FrameProps, Icon, Stack, button, column,
-    frame, label, row, scroll, tinted_icon,
+    self, BehaviorExt, Frame, FrameProps, Icon, Stack, column, frame,
+    label, row, scroll, tinted_icon,
 };
 use bevy_fynix::{
     Bevy, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
 };
 
+use crate::effects::Variant;
 use crate::fade::{FadeSurface, ScrollFade};
-use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
 use crate::platform::{DisplayText, Wraps};
 use crate::theme::{HamletTheme, TextSizes};
@@ -29,14 +29,14 @@ pub fn pad() -> UiRect {
     UiRect::axes(px(14.0), px(0.0))
 }
 
-/// An ordinary button: a wooden plate in a brass frame, lettered in
-/// brass. A held one sinks into the dark.
-pub fn brass(cx: &mut Cx) {
+/// A standard button: bordered, with gold text. It darkens while
+/// pressed.
+pub fn button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(t.palette.grey_4)
+            f.fill(t.palette.button)
                 .border(t.space.border)
-                .border_color(t.palette.brass_5)
+                .border_color(t.palette.gold_5)
                 .radius(t.space.round)
         })
         .label(|l, t| {
@@ -45,14 +45,14 @@ pub fn brass(cx: &mut Cx) {
         .icon(|i, _| i.tone(Tone::Faint))
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.brass_hover)
-                    .border_color(t.palette.brass_3)
+                f.fill(t.palette.gold_hover)
+                    .border_color(t.palette.gold_3)
             })
             .tone(Tone::Body)
         })
         .pressed(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.well).border_color(t.palette.brass_5)
+                f.fill(t.palette.input).border_color(t.palette.gold_5)
             })
             .tone(Tone::Dim)
         })
@@ -60,14 +60,14 @@ pub fn brass(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The button for the one action a screen is for: a lamp that burns
-/// low behind amber glass, and is turned up under the pointer.
-pub fn lamp(cx: &mut Cx) {
+/// The button for the one action a screen is for: a dark amber fill
+/// that brightens under the pointer.
+pub fn primary_button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(t.palette.lamp_low)
+            f.fill(t.palette.primary_low)
                 .border(t.space.border)
-                .border_color(t.palette.brass_4)
+                .border_color(t.palette.gold_4)
                 .radius(t.space.round)
         })
         .label(|l, t| {
@@ -76,14 +76,14 @@ pub fn lamp(cx: &mut Cx) {
         .icon(|i, _| i.tone(Tone::Body))
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.lamp_low)
-                    .border_color(t.palette.lamp)
+                f.fill(t.palette.primary_low)
+                    .border_color(t.palette.glow)
             })
         })
         .pressed(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.lamp_low)
-                    .border_color(t.palette.brass_5)
+                f.fill(t.palette.primary_low)
+                    .border_color(t.palette.gold_5)
             })
             .tone(Tone::Faint)
         })
@@ -91,9 +91,9 @@ pub fn lamp(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The way back to where a page was reached from: an arrow and a name
-/// with no plate, dim until the pointer is on them.
-pub fn retrace(cx: &mut Cx) {
+/// A link back to the page the current one was reached from: an
+/// arrow and a name with no fill, dim until the pointer is on it.
+pub fn back_link(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, _| f.fill(Color::NONE))
         .label(|l, t| l.tone(Tone::Dim).size(t.text.small).bold(true))
@@ -104,45 +104,45 @@ pub fn retrace(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// A view before it comes in and after it goes: clear, and a little
-/// small.
-pub fn away(cx: &mut Cx) {
+/// A view before it comes in and after it goes: transparent and
+/// slightly small.
+pub fn hidden(cx: &mut Cx) {
     cx.set::<Visual>(|visual, _| visual.opacity(0.0));
     cx.root(|cx| cx.set::<Visual>(|visual, _| visual.scale(0.96)));
 }
 
-/// A text field: a well sunk into the panel, framed in dim brass that
+/// A text input: darker than the panel, with a dim gold border that
 /// brightens under the pointer and while it is typed in.
-pub fn well(cx: &mut Cx) {
+pub fn text_input(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(t.palette.well)
+            f.fill(t.palette.input)
                 .border(t.space.border)
-                .border_color(t.palette.brass_6)
+                .border_color(t.palette.gold_6)
                 .radius(t.space.round)
         })
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.well).border_color(t.palette.brass_5)
+                f.fill(t.palette.input).border_color(t.palette.gold_5)
             })
         })
         .when::<bevy_fynix::Focused>(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.well).border_color(t.palette.brass_4)
+                f.fill(t.palette.input).border_color(t.palette.gold_4)
             })
         })
         .transition(Motion::Interact)
         .apply(cx);
 }
 
-/// A button for what refuses, stops or throws away: a dark red plate
-/// in a red frame, and a coal under the pointer.
-pub fn grim(cx: &mut Cx) {
+/// A button for what refuses, stops or throws away: a dark red fill
+/// and a red border, with a red glow under the pointer.
+pub fn danger_button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(t.palette.red_deep)
+            f.fill(t.palette.danger)
                 .border(t.space.border)
-                .border_color(t.palette.red_low)
+                .border_color(t.palette.danger_border)
                 .radius(t.space.round)
         })
         .label(|l, t| {
@@ -151,14 +151,14 @@ pub fn grim(cx: &mut Cx) {
         .icon(|i, _| i.tone(Tone::Critical))
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.red_hover)
+                f.fill(t.palette.danger_hover)
                     .border_color(t.palette.red)
             })
             .tone(Tone::Body)
         })
         .pressed(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.well).border_color(t.palette.red)
+                f.fill(t.palette.input).border_color(t.palette.red)
             })
             .tone(Tone::Critical)
         })
@@ -239,7 +239,7 @@ pub fn beside(
 pub fn list(rows: Vec<AnyView>) -> impl View {
     with_cx(move |cx| {
         let space = &cx.theme().space;
-        let line = cx.theme().palette.brass_6;
+        let line = cx.theme().palette.gold_6;
         let rows = rows
             .into_iter()
             .enumerate()
@@ -388,17 +388,17 @@ pub fn framed(
                 px(space.card_padding_y),
             ))
             .border(space.border)
-            .border_color(theme.palette.brass_6)
+            .border_color(theme.palette.gold_6)
             .radius(space.round)
             .fill(theme.palette.card)
     })
 }
 
-/// A lettered button: `text` in the display face.
+/// A button with `text` in the display face.
 pub(crate) fn lettered(
     text: impl Into<Prop<String>>,
 ) -> impl View + FrameProps {
-    button(label(text).wrap(false).tagged(DisplayText))
+    views::button(label(text).wrap(false).tagged(DisplayText))
         .padding(pad())
         .min_height(px(CONTROL))
 }
@@ -422,38 +422,41 @@ pub(crate) fn headed(
         .align(AlignItems::Center)
 }
 
-/// A lettered button with an icon before its word.
+/// A button with an icon before its text.
 pub fn marked(
     which: Glyph,
     text: &'static str,
 ) -> impl View + FrameProps {
-    button(headed(which, label(text).wrap(false).tagged(DisplayText)))
-        // Less on the icon's side, which has air of its own.
-        .padding(UiRect::new(px(10.0), px(13.0), px(0.0), px(0.0)))
-        .min_height(px(CONTROL))
+    views::button(headed(
+        which,
+        label(text).wrap(false).tagged(DisplayText),
+    ))
+    // Less on the icon's side, which has air of its own.
+    .padding(UiRect::new(px(10.0), px(13.0), px(0.0), px(0.0)))
+    .min_height(px(CONTROL))
 }
 
-/// A word of status in the small size, behind its icon, both in
+/// A status text in the small size, behind its icon, both in
 /// `tone`.
-pub(crate) fn stated(
+pub(crate) fn status_label(
     which: Glyph,
     text: impl Into<String>,
     tone: Tone,
 ) -> impl View {
-    stated_at(which, text.into(), tone, |sizes| sizes.small)
+    status_label_at(which, text.into(), tone, |sizes| sizes.small)
 }
 
-/// A word of status in the body size, behind its icon, both in
+/// A status text in the body size, behind its icon, both in
 /// `tone`.
-pub(crate) fn stated_large(
+pub(crate) fn status_label_large(
     which: Glyph,
     text: impl Into<String>,
     tone: Tone,
 ) -> impl View {
-    stated_at(which, text.into(), tone, |sizes| sizes.body)
+    status_label_at(which, text.into(), tone, |sizes| sizes.body)
 }
 
-fn stated_at(
+fn status_label_at(
     which: Glyph,
     text: String,
     tone: Tone,
@@ -482,8 +485,8 @@ pub fn buttons(buttons: Vec<AnyView>) -> impl View {
 }
 
 /// One answer of several to pick from, each showing `labels`, the
-/// one at `picked` lit. A press hands the place of its answer to
-/// `pick`.
+/// one at `picked` highlighted. A press hands the place of its
+/// answer to `pick`.
 pub fn choices<F>(
     labels: impl IntoIterator<Item = &'static str>,
     picked: usize,
@@ -497,7 +500,7 @@ where
         .enumerate()
         .map(|(at, text)| {
             let pick = pick.clone();
-            button(label(text).wrap(false))
+            views::button(label(text).wrap(false))
                 .rules(choice(at == picked))
                 .on_activate(move |world| pick(world, at))
                 .boxed()
@@ -511,8 +514,8 @@ where
     })
 }
 
-/// The rules of an answer to pick: bare until the pointer is on it,
-/// and the one picked a lit plate in a frame.
+/// The rules of an answer to pick: no fill until the pointer is on
+/// it, and the one picked filled and bordered.
 pub(crate) fn choice(
     picked: bool,
 ) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
@@ -526,13 +529,14 @@ pub(crate) fn choice(
         });
     let rules = if picked {
         base.frame(|f, t| {
-            f.fill(t.palette.lamp_low).border_color(t.palette.brass_4)
+            f.fill(t.palette.primary_low)
+                .border_color(t.palette.gold_4)
         })
         .tone(Tone::Body)
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.lamp_low)
-                    .border_color(t.palette.lamp)
+                f.fill(t.palette.primary_low)
+                    .border_color(t.palette.glow)
             })
         })
     } else {
@@ -542,52 +546,53 @@ pub(crate) fn choice(
         .tone(Tone::Faint)
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.wood_hover).border_color(Color::NONE)
+                f.fill(t.palette.button_hover)
+                    .border_color(Color::NONE)
             })
             .tone(Tone::Body)
         })
         .pressed(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.well).border_color(Color::NONE)
+                f.fill(t.palette.input).border_color(Color::NONE)
             })
         })
     };
     rules.transition(Motion::Interact).bundle()
 }
 
-/// A brass button that runs `act`.
+/// A standard button that runs `act`.
 pub fn command(text: &'static str, act: fn(&mut World)) -> impl View {
     lettered(text)
-        .rules(brass)
-        .tagged(Mood::Plain)
+        .rules(button)
+        .tagged(Variant::Default)
         .on_activate(act)
 }
 
 /// The way back to `text`, which `act` takes.
 pub fn back(text: &'static str, act: fn(&mut World)) -> impl View {
     marked(Glyph::Back, text)
-        .rules(retrace)
-        .tagged(Mood::Ink)
+        .rules(back_link)
+        .tagged(Variant::Text)
         .on_activate(act)
 }
 
-/// A button with an icon before its word, of the look `rules` and
-/// the feel of `mood`, that runs `act`.
+/// A button with an icon before its text, in the style `rules` and
+/// the effects of `variant`, that runs `act`.
 fn acting(
     which: Glyph,
     text: &'static str,
-    (rules, mood): (fn(&mut Cx), Mood),
+    (rules, variant): (fn(&mut Cx), Variant),
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
     marked(which, text)
         .rules(rules)
-        .tagged(mood)
+        .tagged(variant)
         .on_activate(act)
 }
 
 /// A small "x" that closes or drops something by running `act`: dim,
 /// and red under the pointer, as a dock tab's is.
-pub(crate) fn close_mark(
+pub(crate) fn close_button(
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
     tinted_icon(Glyph::Cross.image(ICON))
@@ -595,13 +600,13 @@ pub(crate) fn close_mark(
         .on_activate(act)
 }
 
-/// A brass button with an icon before its word, that runs `act`.
+/// A standard button with an icon before its text, that runs `act`.
 pub(crate) fn action(
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (brass, Mood::Plain), act).boxed()
+    acting(which, text, (button, Variant::Default), act).boxed()
 }
 
 /// The button for the one action a screen is for, that runs `act`.
@@ -610,7 +615,8 @@ pub(crate) fn good_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (lamp, Mood::Good), act).boxed()
+    acting(which, text, (primary_button, Variant::Primary), act)
+        .boxed()
 }
 
 /// A button that refuses, stops or throws away, by running `act`.
@@ -619,12 +625,12 @@ pub(crate) fn bad_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (grim, Mood::Bad), act).boxed()
+    acting(which, text, (danger_button, Variant::Danger), act).boxed()
 }
 
-/// A row of a list that leads somewhere: no plate and no frame at
-/// rest, and a faint plate under the pointer.
-pub(crate) fn passage(cx: &mut Cx) {
+/// A row of a list that leads somewhere: no fill and no border at
+/// rest, and a faint fill under the pointer.
+pub(crate) fn link_row(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, _| f.fill(Color::NONE).radius(0.0))
         .label(|l, t| {
@@ -632,47 +638,46 @@ pub(crate) fn passage(cx: &mut Cx) {
         })
         .icon(|i, _| i.tone(Tone::Faint))
         .hovered(|s| {
-            s.frame(|f, t| f.fill(t.palette.grey_4)).tone(Tone::Body)
+            s.frame(|f, t| f.fill(t.palette.button)).tone(Tone::Body)
         })
         .pressed(|s| {
-            s.frame(|f, t| f.fill(t.palette.well)).tone(Tone::Dim)
+            s.frame(|f, t| f.fill(t.palette.input)).tone(Tone::Dim)
         })
         .transition(Motion::Interact)
         .apply(cx);
 }
 
-/// The way into a part of something, as a framed plate: its name
-/// under `which`, what it holds and a mark that it opens. `act`
-/// takes it.
-pub fn door(
+/// A card that leads into a part of something: its name under
+/// `which`, what it holds and a mark that it opens. `act` takes it.
+pub fn nav_card(
     which: Glyph,
     title: &'static str,
     holds: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    way_in(which, title, holds, brass, act).boxed()
+    nav_item(which, title, holds, button, act).boxed()
 }
 
-/// The same as a row of a list, with no frame about it.
-pub(crate) fn list_door(
+/// The same as a row of a list, with no border about it.
+pub(crate) fn nav_row(
     which: Glyph,
     title: &'static str,
     holds: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    way_in(which, title, holds, passage, act).boxed()
+    nav_item(which, title, holds, link_row, act).boxed()
 }
 
-fn way_in(
+fn nav_item(
     which: Glyph,
     title: &'static str,
     holds: &'static str,
-    look: fn(&mut Cx),
+    rules: fn(&mut Cx),
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
     with_cx(move |cx| {
         let space = &cx.theme().space;
-        button(
+        views::button(
             row((
                 column((
                     headed(
@@ -697,27 +702,27 @@ fn way_in(
             px(space.card_padding_x),
             px(space.card_padding_y),
         ))
-        .rules(look)
-        .tagged(Mood::Plain)
+        .rules(rules)
+        .tagged(Variant::Default)
         .on_activate(act)
     })
 }
 
 /// The parts of something as rows of one list, a hairline between
-/// each and the next, over `foot`.
-pub(crate) fn doors(
+/// each and the next, over `footer`.
+pub(crate) fn nav_list(
     cx: &Cx,
-    doors: Vec<AnyView>,
-    foot: AnyView,
+    items: Vec<AnyView>,
+    footer: AnyView,
 ) -> impl View + use<> {
     let mut rows = Vec::new();
-    for door in doors {
+    for item in items {
         if !rows.is_empty() {
-            rows.push(hairline(cx.theme().palette.brass_6).boxed());
+            rows.push(hairline(cx.theme().palette.gold_6).boxed());
         }
-        rows.push(door);
+        rows.push(item);
     }
-    rows.push(foot);
+    rows.push(footer);
     column(rows).gap(0.0)
 }
 
@@ -737,14 +742,16 @@ pub fn breadcrumb(
         for (at, text) in trail.into_iter().enumerate() {
             let go = go.clone();
             parts.push(
-                button(label(text).wrap(false).tagged(DisplayText))
-                    // Bare, so that the path starts at the panel's
-                    // edge and its parts sit evenly apart.
-                    .padding(UiRect::all(px(0.0)))
-                    .rules(retrace)
-                    .tagged(Mood::Ink)
-                    .on_activate(move |world| go(world, at))
-                    .boxed(),
+                views::button(
+                    label(text).wrap(false).tagged(DisplayText),
+                )
+                // Bare, so that the path starts at the panel's
+                // edge and its parts sit evenly apart.
+                .padding(UiRect::all(px(0.0)))
+                .rules(back_link)
+                .tagged(Variant::Text)
+                .on_activate(move |world| go(world, at))
+                .boxed(),
             );
             parts.push(
                 label("/")
@@ -771,13 +778,14 @@ pub fn breadcrumb(
     })
 }
 
-/// A card that is pressed whole: its frame lights under the pointer.
+/// A card that is pressed whole: its border brightens under the
+/// pointer.
 pub(crate) fn card_button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.card)
                 .border(t.space.border)
-                .border_color(t.palette.brass_6)
+                .border_color(t.palette.gold_6)
                 .radius(t.space.round)
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::FlexStart)
@@ -788,12 +796,12 @@ pub(crate) fn card_button(cx: &mut Cx) {
         })
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.card).border_color(t.palette.brass_4)
+                f.fill(t.palette.card).border_color(t.palette.gold_4)
             })
         })
         .pressed(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.card).border_color(t.palette.brass_5)
+                f.fill(t.palette.card).border_color(t.palette.gold_5)
             })
         })
         .transition(Motion::Interact)

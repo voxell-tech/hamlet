@@ -30,7 +30,7 @@ use bevy_fynix::{Dragging, OverrideCursor, ReducedMotion};
 
 use super::{DeskTab, Indicator, Renaming, TabRow, TabStrip};
 use crate::desk::{DeskSettings, Desks};
-use crate::feel::FeelSettings;
+use crate::effects::EffectSettings;
 use crate::theme::Themed;
 
 pub(super) fn plugin(app: &mut App) {
@@ -217,7 +217,7 @@ fn drag_end(
 fn preview(
     time: Res<Time>,
     theme: Themed,
-    feel: Res<FeelSettings>,
+    effects: Res<EffectSettings>,
     reduced: Res<ReducedMotion>,
     mut dragged: ResMut<TabDrag>,
     mut tabs: Query<(Entity, &DeskTab, &mut Node, Has<Dragging>)>,
@@ -259,7 +259,7 @@ fn preview(
         {
             want
         } else {
-            ease(now, want, feel.glide, dt)
+            ease(now, want, effects.drop_hint_rate, dt)
         };
         dragged.shift[at] = next;
         settled &= next == 0.0;
@@ -305,7 +305,7 @@ fn grab(
 /// placed, under reduced motion or while a tab is dragged.
 fn glide(
     time: Res<Time>,
-    feel: Res<FeelSettings>,
+    effects: Res<EffectSettings>,
     reduced: Res<ReducedMotion>,
     desks: Res<Desks>,
     dragged: Res<TabDrag>,
@@ -330,8 +330,8 @@ fn glide(
     let dt = time.delta_secs();
     let at = match glide.0 {
         Some(was) if !reduced.0 && !dragged.is_moving() => Vec2::new(
-            ease(was.x, target.x, feel.glide, dt),
-            ease(was.y, target.y, feel.glide, dt),
+            ease(was.x, target.x, effects.drop_hint_rate, dt),
+            ease(was.y, target.y, effects.drop_hint_rate, dt),
         ),
         _ => target,
     };

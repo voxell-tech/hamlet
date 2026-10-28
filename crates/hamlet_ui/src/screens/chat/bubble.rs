@@ -25,9 +25,9 @@ use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
 use super::timeline::{Kind, Line, Who};
 use crate::convo::Convo;
-use crate::looks::{Fills, bare, hairline};
 use crate::platform::DisplayText;
 use crate::select::{self, Area, Quotable};
+use crate::styles::{Fills, bare, hairline};
 use crate::theme::{Palette, contrast};
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, Cx, View, markdown, with_cx};
@@ -84,7 +84,7 @@ fn inked(text: String, colour: Color, size: f32) -> AnyView {
 }
 
 /// A speaker's picture: its first letter on its robot's paint. The
-/// mayor's is ringed in brass, and a chief's is square.
+/// mayor's is ringed in gold, and a chief's is square.
 fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
     let theme = cx.theme();
     let letter = who
@@ -94,7 +94,7 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
         .map(|first| first.to_uppercase().collect::<String>())
         .unwrap_or_default();
     let ground = who.paint;
-    let tone = if contrast(theme.palette.brass_1, ground) >= 3.0 {
+    let tone = if contrast(theme.palette.gold_1, ground) >= 3.0 {
         Tone::Body
     } else {
         Tone::OnAccent
@@ -115,11 +115,11 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
         Kind::Mayor => face
             .radius(size / 2.0)
             .border(1.5)
-            .border_color(theme.palette.brass_3),
+            .border_color(theme.palette.gold_3),
         Kind::Me | Kind::Chief => face
             .radius(theme.space.round)
             .border(1.0)
-            .border_color(theme.palette.brass_2),
+            .border_color(theme.palette.gold_2),
     }
 }
 
@@ -205,7 +205,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             && session == cx.world.resource::<Convo>().session;
         let palette = &cx.theme().palette;
         let fill: fn(&Palette) -> Color =
-            if mine { |p| p.brass_6 } else { |p| p.card };
+            if mine { |p| p.gold_6 } else { |p| p.card };
         let time = hour(line.at);
         let key = line.key();
 
@@ -213,7 +213,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
         if line.named && !mine {
             let mut head = vec![inked(
                 who.name.clone(),
-                legible(who.paint, fill(palette), palette.brass_1),
+                legible(who.paint, fill(palette), palette.gold_1),
                 12.0,
             )];
             if let Some(to) = to {
@@ -267,7 +267,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
         // Words with a link in them are set once, span by span.
         let linked = match quote::has_quote(typed) {
             true => {
-                Some(quote::drawn(typed, reserve, palette.brass_4))
+                Some(quote::drawn(typed, reserve, palette.gold_4))
             }
             false => markdown::typed(typed, reserve),
         };
@@ -351,9 +351,9 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             .fill(fill(palette))
             .border(1.0)
             .border_color(if mine {
-                palette.brass_6
+                palette.gold_6
             } else {
-                palette.seam
+                palette.border
             })
             .corners(resource::<Lines, _>(move |lines| {
                 let tail =
@@ -488,19 +488,19 @@ fn names(cast: &[Who]) -> String {
 /// The way to a new session: a small mark with no plate at the chat's
 /// head, which asks before it acts.
 fn fresh() -> impl View {
-    button(crate::looks::raised(crate::icons::glyph(
+    button(crate::styles::raised(crate::icons::glyph(
         crate::icons::Glyph::NewSession,
-        crate::looks::ICON,
+        crate::styles::ICON,
     )))
     .padding(UiRect::axes(px(8.0), px(0.0)))
-    .min_height(px(crate::looks::CONTROL))
+    .min_height(px(crate::styles::CONTROL))
     .tooltip(|| {
-        crate::looks::note(
+        crate::styles::note(
             "Start a new session. This one goes to the Archive.",
         )
     })
-    .rules(crate::looks::retrace)
-    .tagged(crate::feel::Mood::Ink)
+    .rules(crate::styles::back_link)
+    .tagged(crate::effects::Variant::Text)
     .on_activate(|world| world_menu::ask(world, Deed::NewSession))
 }
 
@@ -557,7 +557,7 @@ fn head(cx: &Cx, cast: &[Who]) -> AnyView {
         .gap(10.0)
         .align(AlignItems::Center)
         .padding(UiRect::axes(px(0.0), px(7.0))),
-        hairline(cx.theme().palette.seam),
+        hairline(cx.theme().palette.border),
     ))
     .gap(0.0)
     .boxed()

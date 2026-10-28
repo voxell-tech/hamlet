@@ -67,7 +67,7 @@ pub use self::lines::{
 };
 pub use self::rewind::{Rewinds, asked as rewind_asked};
 use crate::convo::{self, Convo};
-use crate::looks::{note, well};
+use crate::styles::{note, text_input};
 use crate::{PanelSystems, View, with_cx};
 
 /// The room at the sides of the field, as the theme gives a field.
@@ -516,7 +516,7 @@ fn message_bar_in(gap: f32, border: f32) -> impl View {
                 bottom: px(LINE_ROOM),
                 ..UiRect::horizontal(px(FIELD_SIDE))
             })
-            .rules(well)
+            .rules(text_input)
             .tagged(ChatField),
         // Shown in the empty field, under the caret.
         overlay((row((label("Message")

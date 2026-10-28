@@ -37,11 +37,11 @@ In `hamlet_ui/src/`:
   not readable gives way to the copy built into the app. A test holds
   every text tone to a contrast of 4.5:1 or better on every surface it
   meets.
-- `looks.rs` holds the looks of each kind of button and field.
-- `widgets/feel/` holds the behaviour: a control's warmth, press, flame and
+- `styles.rs` holds the styles of each kind of button and field.
+- `widgets/effects/` holds the behaviour: a control's warmth, press, flame and
   sparks, the light that falls into a panel and the light its tab
   carries while it is behind another. Its tuning is
-  `FeelSettings`, from `assets/ui.toml`.
+  `EffectSettings`, from `assets/ui.toml`.
 
 ## Seeing it
 

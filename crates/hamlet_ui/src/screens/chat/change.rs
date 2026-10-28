@@ -21,8 +21,8 @@ use hamlet_protocol::client::{
 };
 
 use super::entry::state;
-use crate::looks::{Fills, bare, note};
 use crate::platform::{Mono, MonoText};
+use crate::styles::{Fills, bare, note};
 use crate::{AnyView, Cx, View, markdown};
 
 /// The tuning of the chat.
@@ -114,11 +114,11 @@ fn block(lines: &[Line]) -> AnyView {
                 Mark::Space => (theme.tone(Tone::Dim), None),
                 Mark::Minus => (
                     theme.tone(Tone::Critical),
-                    Some(theme.palette.red_deep),
+                    Some(theme.palette.danger),
                 ),
                 Mark::Plus => (
-                    theme.palette.moss,
-                    Some(theme.palette.moss_deep),
+                    theme.palette.green,
+                    Some(theme.palette.green_deep),
                 ),
             };
             let font = TextFont {
@@ -173,9 +173,9 @@ fn plate(
         .gap(4.0)
         .padding(UiRect::axes(px(10.0), px(8.0)))
         .min_width(px(0.0))
-        .fill(theme.palette.plate)
+        .fill(theme.palette.code)
         .border(1.0)
-        .border_color(theme.palette.brass_6)
+        .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
 }
 

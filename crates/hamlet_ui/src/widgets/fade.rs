@@ -246,13 +246,13 @@ fn fade(
         }
         let ground = match scroll.surface {
             FadeSurface::Card => theme.palette.card,
-            FadeSurface::Well => theme.palette.well,
+            FadeSurface::Well => theme.palette.input,
             FadeSurface::Panel => {
                 let y = fade.edge.y(place, computed.size());
                 parents
                     .iter_ancestors(fade.area)
                     .find_map(|panel| shaded.get(panel).ok())
-                    .map_or(theme.palette.black, |(panel, at)| {
+                    .map_or(theme.palette.surface, |(panel, at)| {
                         shade(theme, panel, at, y)
                     })
             }
@@ -280,10 +280,10 @@ fn shade(
     let down = (y - at.translation.y) / tall + 0.5;
     let share = ((down - start) / (1.0 - start)).clamp(0.0, 1.0);
     if !share.is_finite() {
-        return palette.black;
+        return palette.surface;
     }
-    Oklaba::from(palette.black)
-        .mix(&Oklaba::from(palette.hearth), share)
+    Oklaba::from(palette.surface)
+        .mix(&Oklaba::from(palette.bottom_glow), share)
         .into()
 }
 

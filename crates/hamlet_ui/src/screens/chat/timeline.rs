@@ -177,7 +177,7 @@ impl People<'_, '_> {
                 Kind::Chief
             },
             paint: cloak
-                .map_or(self.theme.palette.brass_5, Self::shown),
+                .map_or(self.theme.palette.gold_5, Self::shown),
         }
     }
 }
@@ -219,14 +219,14 @@ impl Cast<'_, '_, '_> {
                     name: "Mayor".to_string(),
                     tag: "MAYOR".to_string(),
                     kind: Kind::Mayor,
-                    paint: people.theme.palette.brass_5,
+                    paint: people.theme.palette.gold_5,
                 },
             })
         })
     }
 
     fn peer(&mut self, name: &str) -> usize {
-        let paint = self.people.theme.palette.brass_5;
+        let paint = self.people.theme.palette.gold_5;
         self.place(Id::Peer(name.into()), || Who {
             name: name.into(),
             tag: "AGENT".into(),

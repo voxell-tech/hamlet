@@ -13,9 +13,11 @@ use bevy_fynix::dock::{
 };
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 
-use crate::feel::{GlowPanel, Lit, glow_layer, lamplight};
-use crate::looks::Fills;
+use crate::effects::{
+    GlowPanel, Highlight, glow_layer, highlight_layer,
+};
 use crate::platform::{ClipInside, Glow};
+use crate::styles::Fills;
 use crate::theme::HamletTheme;
 use crate::{AnyView, Cx, View, desk, remember};
 
@@ -54,16 +56,19 @@ impl PanelAppExt for App {
 
 /// A dock panel's contents.
 pub fn panel(view: impl View) -> AnyView {
-    lit_panel(view, Lit::default())
+    highlight_panel(view, Highlight::default())
 }
 
-/// A panel that light falls into as things happen in the hamlet.
-pub fn lit_panel(view: impl View, lit: Lit) -> AnyView {
+/// A panel that is highlighted as things happen in the hamlet.
+pub fn highlight_panel(
+    view: impl View,
+    highlight: Highlight,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let fill = cx.theme().palette.black;
+        let fill = cx.theme().palette.surface;
         // The dock frames the area; this is what fills it.
         cx.build(
-            column((lamplight(lit), glow_layer(), view))
+            column((highlight_layer(highlight), glow_layer(), view))
                 .fills_width()
                 .min_height(px(0.0))
                 .padding(UiRect::all(px(16.0)))

@@ -10,7 +10,7 @@ use hamlet_protocol::client as protocol;
 
 use super::Section;
 use crate::convo::Convo;
-use crate::looks::{
+use crate::styles::{
     breadcrumb, close, filling, group, lettered, note, scroll_area,
 };
 use crate::{View, built};
@@ -98,7 +98,7 @@ fn exchange(peer: protocol::ConversationView) -> impl View {
         let selected = peer.clone();
         let button =
             lettered(format!("{kind} WITH {}", name.to_uppercase()))
-                .rules(crate::looks::brass)
+                .rules(crate::styles::button)
                 .on_activate(move |world| {
                     open(world, selected.clone());
                 });

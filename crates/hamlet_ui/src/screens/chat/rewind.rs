@@ -24,9 +24,9 @@ use hamlet_client::messages::Rewound;
 use super::Draft;
 use super::reply::{Replying, unreplied};
 use crate::convo::Convo;
-use crate::feel::Mood;
+use crate::effects::Variant;
 use crate::icons::{Glyph, glyph};
-use crate::looks::{ICON, note, retrace};
+use crate::styles::{ICON, back_link, note};
 use crate::world_menu::{self, Deed};
 use crate::{View, built};
 
@@ -59,8 +59,8 @@ pub(super) fn mark(session: Entity, entry: String) -> impl View {
         let back = button(glyph(Glyph::Restore, ICON))
             .padding(UiRect::all(px(AROUND)))
             .tooltip(|| note("Rewind to here"))
-            .rules(retrace)
-            .tagged(Mood::Ink)
+            .rules(back_link)
+            .tagged(Variant::Text)
             .on_activate(move |world| {
                 let deed = Deed::Rewind {
                     session,

@@ -25,8 +25,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{Prop, ScopedExt};
 
 use crate::View;
-use crate::looks::well;
 use crate::platform::{ClipInside, Mono};
+use crate::styles::text_input;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(
@@ -46,7 +46,7 @@ pub(crate) fn secret_field(
     row((
         text_field(value, on_commit)
             .grow(1.0)
-            .rules(well)
+            .rules(text_input)
             .tagged(Secret),
         overlay((label("").tagged(Stars).tagged(Pickable::IGNORE),))
             .align(AlignItems::Center)

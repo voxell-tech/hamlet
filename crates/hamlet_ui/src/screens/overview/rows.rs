@@ -18,10 +18,10 @@ use hamlet_client::waits::Waiting;
 use hamlet_realm::pick::Thing;
 
 use super::{Naming, Search};
-use crate::feel::Mood;
+use crate::effects::Variant;
 use crate::icons::Glyph;
-use crate::looks::{card_button, card_name, note, stated};
 use crate::roll::Roll;
+use crate::styles::{card_button, card_name, note, status_label};
 use crate::{View, with_cx, world_menu};
 
 /// A check that fires when the agents or the hamlets changed,
@@ -264,7 +264,7 @@ pub(super) fn pressable(
             column((
                 row((
                     card_name(title, Tone::Body),
-                    stated(beside.0, beside.1, beside.2),
+                    status_label(beside.0, beside.1, beside.2),
                 ))
                 .gap(gap)
                 .align(AlignItems::Center),
@@ -274,7 +274,7 @@ pub(super) fn pressable(
             .align(AlignItems::FlexStart),
         )
         .rules(card_button)
-        .tagged(Mood::Plain)
+        .tagged(Variant::Default)
         .tagged(world_menu::Asks(thing))
         .on_activate(act)
     })

@@ -31,11 +31,11 @@ use hamlet_client::waits::{
 use hamlet_protocol::client::{Offer, Pick, Questions};
 
 use crate::convo::Convo;
-use crate::feel::Mood;
+use crate::effects::Variant;
 use crate::icons::{Glyph, glyph};
-use crate::looks::{
-    Fills, bare, brass, lamp, marked, note, note_rules, retrace,
-    small_rules, well,
+use crate::styles::{
+    self, Fills, back_link, bare, marked, note, note_rules,
+    primary_button, small_rules, text_input,
 };
 use crate::theme::HamletTheme;
 use crate::{AnyView, Cx, PanelSystems, View, with_cx};
@@ -216,22 +216,22 @@ fn option(cx: &mut Cx) {
                 .border_color(Color::NONE)
                 .radius(t.space.round)
         })
-        .hovered(|s| s.frame(|f, t| f.fill(t.palette.wood_hover)))
-        .pressed(|s| s.frame(|f, t| f.fill(t.palette.well)))
+        .hovered(|s| s.frame(|f, t| f.fill(t.palette.button_hover)))
+        .pressed(|s| s.frame(|f, t| f.fill(t.palette.input)))
         .transition(Motion::Interact)
         .apply(cx);
 }
 
-/// The option picked: lamp glass in a brass frame.
+/// The option picked: the primary fill in a gold border.
 fn picked(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(t.palette.lamp_low)
+            f.fill(t.palette.primary_low)
                 .border(t.space.border)
-                .border_color(t.palette.brass_4)
+                .border_color(t.palette.gold_4)
                 .radius(t.space.round)
         })
-        .hovered(|s| s.frame(|f, t| f.border_color(t.palette.lamp)))
+        .hovered(|s| s.frame(|f, t| f.border_color(t.palette.glow)))
         .transition(Motion::Interact)
         .apply(cx);
 }
@@ -287,9 +287,10 @@ fn options(
                 .gap(space.section)
                 .align(AlignItems::Center)
                 .width(percent(100.0));
-                let (rules, mood): (fn(&mut Cx), _) = match chosen {
-                    true => (picked, Mood::Good),
-                    false => (option, Mood::Quiet),
+                let (rules, variant): (fn(&mut Cx), _) = match chosen
+                {
+                    true => (picked, Variant::Primary),
+                    false => (option, Variant::Subtle),
                 };
                 let then = (!chosen).then_some(Pick::Offer { index });
                 button(line)
@@ -300,7 +301,7 @@ fn options(
                         px(space.gap / 2.0),
                     ))
                     .rules(rules)
-                    .tagged(mood)
+                    .tagged(variant)
                     .on_activate(move |world| {
                         choose(world, card, count, at, then.clone());
                     })
@@ -319,8 +320,8 @@ fn pager(card: Entity, count: usize, at: usize) -> impl View {
         let step = |which: &'static str, to: usize| {
             button(label(which).size(body).wrap(false))
                 .padding(UiRect::axes(px(gap / 2.0), px(0.0)))
-                .rules(retrace)
-                .tagged(Mood::Ink)
+                .rules(back_link)
+                .tagged(Variant::Text)
                 .on_activate(move |world| {
                     turn(world, card, count, to);
                 })
@@ -401,8 +402,8 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
                         write(world, card, count, at, text);
                     })
                     .fills_width()
-                    .rules(well)
-                    .tagged(Mood::Field),
+                    .rules(text_input)
+                    .tagged(Variant::Input),
                 ))
                 .gap(space.section)
                 .align(AlignItems::Center)
@@ -413,15 +414,15 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
     }
     let next = match at + 1 < count {
         true => marked(Glyph::Into, "NEXT")
-            .rules(brass)
-            .tagged(Mood::Plain)
+            .rules(styles::button)
+            .tagged(Variant::Default)
             .on_activate(move |world| {
                 turn(world, card, count, at + 1);
             })
             .boxed(),
         false => marked(Glyph::Check, "SUBMIT")
-            .rules(lamp)
-            .tagged(Mood::Good)
+            .rules(primary_button)
+            .tagged(Variant::Primary)
             .on_activate(move |world| submit(world, card, count))
             .boxed(),
     };
@@ -434,8 +435,8 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             row((
                 column((done,)).fills_width(),
                 marked(Glyph::Cross, "DISMISS")
-                    .rules(retrace)
-                    .tagged(Mood::Ink)
+                    .rules(back_link)
+                    .tagged(Variant::Text)
                     .on_activate(move |world| dismiss(world, card)),
                 next,
             ))
@@ -512,7 +513,7 @@ pub fn in_chat() -> impl View {
             ))
             .margin(UiRect::bottom(px(space.gap)))
             .border(space.border)
-            .border_color(palette.brass_5)
+            .border_color(palette.gold_5)
             .radius(space.round)
             .fill(palette.card)
             .boxed()

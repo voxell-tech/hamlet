@@ -23,7 +23,7 @@ use super::{field, told};
 use crate::dial::{Face, dial};
 use crate::disclosure::disclosure;
 use crate::icons::{Glyph, glyph};
-use crate::looks::{action, close, description, note, parts};
+use crate::styles::{action, close, description, note, parts};
 use crate::switch::labelled_switch;
 use crate::world_view::{NorthTarget, TimeOfDay};
 use crate::{View, built, with_cx};
@@ -50,7 +50,7 @@ fn quality() -> impl View {
                         .position(|a| a == q)
                         .unwrap_or_default()
                 }),
-                Glyph::Chevron.image(crate::looks::ICON),
+                Glyph::Chevron.image(crate::styles::ICON),
                 |world, at| {
                     *world.resource_mut::<Quality>() =
                         Quality::ALL[at];

@@ -23,10 +23,10 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, style};
 
-use crate::feel::FootLight;
+use crate::effects::Underglow;
 use crate::icons::Glyph;
-use crate::looks::{ICON, hairline, headed};
 use crate::platform::{DisplayText, show};
+use crate::styles::{ICON, hairline, headed};
 use crate::theme::{HamletTheme, Themed};
 use crate::{Cx, View, with_cx};
 
@@ -109,7 +109,7 @@ pub fn strip<R: Resource + Copy>(
                     button(tab_name(which, name))
                         .rules(tab_look)
                         .tagged(TabOf(of))
-                        .tagged(FootLight::new(false))
+                        .tagged(Underglow::new(false))
                         .on_activate(move |world| choose(world, of)),
                     frame()
                         .height(px(cx.theme().space.underline))
@@ -125,7 +125,7 @@ pub fn strip<R: Resource + Copy>(
         .collect::<Vec<_>>();
     column((
         row(tabs).gap(0.0).tagged(Folds::default()),
-        with_cx(|cx| hairline(cx.theme().palette.brass_6)),
+        with_cx(|cx| hairline(cx.theme().palette.gold_6)),
     ))
     .gap(0.0)
 }
@@ -186,7 +186,7 @@ pub fn mark<R: Resource + Copy + PartialEq>(
     mut commands: Commands,
     theme: Themed,
     shown: Res<R>,
-    mut tabs: Query<(Entity, &TabOf<R>, &mut FootLight, Has<Shown>)>,
+    mut tabs: Query<(Entity, &TabOf<R>, &mut Underglow, Has<Shown>)>,
     mut lines: Query<(&Underline<R>, &mut BackgroundColor)>,
 ) {
     for (tab, of, mut light, marked) in &mut tabs {
@@ -202,7 +202,7 @@ pub fn mark<R: Resource + Copy + PartialEq>(
     }
     for (of, mut fill) in &mut lines {
         let want = if of.0 == *shown {
-            theme.palette.brass_3
+            theme.palette.gold_3
         } else {
             Color::NONE
         };

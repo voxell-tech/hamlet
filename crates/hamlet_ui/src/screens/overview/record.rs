@@ -15,7 +15,7 @@ use hamlet_protocol::client as protocol;
 use super::{heading, tell};
 use crate::AnyView;
 use crate::icons::Glyph;
-use crate::looks::{bad_action, bare, group, note};
+use crate::styles::{bad_action, bare, group, note};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Annals>()

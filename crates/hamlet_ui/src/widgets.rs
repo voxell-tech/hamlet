@@ -2,8 +2,8 @@
 
 pub mod dial;
 pub mod disclosure;
+pub mod effects;
 pub mod fade;
-pub mod feel;
 pub mod icons;
 pub mod platform;
 pub mod switch;
@@ -18,7 +18,7 @@ pub fn plugin(app: &mut App) {
         tabs::plugin,
         platform::plugin,
         icons::plugin,
-        feel::plugin,
+        effects::plugin,
         switch::plugin,
         fade::plugin,
     ));

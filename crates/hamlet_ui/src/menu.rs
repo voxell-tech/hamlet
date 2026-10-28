@@ -23,10 +23,10 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
 use hamlet_realm::pick::{Orbit, Taken};
 
-use crate::feel::FootLight;
+use crate::effects::Underglow;
 use crate::icons::{Glyph, glyph};
-use crate::looks::ICON;
 use crate::platform::DisplayText;
+use crate::styles::ICON;
 use crate::theme::HamletTheme;
 use crate::world_view::TimeOfDay;
 use crate::{AnyView, Cx, View, window, with_cx};
@@ -157,7 +157,7 @@ pub fn nav(cx: &mut Cx) {
 /// Holds a title lit while its menu is open.
 pub(crate) fn light_titles(
     open: Res<OpenMenu>,
-    mut titles: Query<(&Menu, &mut FootLight)>,
+    mut titles: Query<(&Menu, &mut Underglow)>,
 ) {
     for (menu, mut light) in &mut titles {
         let held = open.0.is_some_and(|(shown, _)| shown == *menu);
@@ -171,7 +171,7 @@ fn title(name: &'static str, menu: Menu) -> impl View {
     button(label(name).wrap(false).tagged(DisplayText))
         .rules(nav)
         .tagged(menu)
-        .tagged(FootLight::new(false))
+        .tagged(Underglow::new(false))
         .on_activate_with(move |world, node| open(world, menu, node))
 }
 

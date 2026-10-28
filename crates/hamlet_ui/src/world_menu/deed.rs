@@ -20,9 +20,9 @@ use hamlet_realm::orders;
 
 use super::close;
 use crate::convo::Convo;
-use crate::feel::Mood;
-use crate::looks::{brass, description, grim, lettered};
+use crate::effects::Variant;
 use crate::platform::DisplayText;
+use crate::styles::{button, danger_button, description, lettered};
 use crate::{View, built, chat};
 
 /// Something that ends an agent or a hamlet, or changes who runs
@@ -303,13 +303,13 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> impl View {
             warning,
             row((
                 lettered(deed.verb())
-                    .rules(grim)
-                    .tagged(Mood::Bad)
+                    .rules(danger_button)
+                    .tagged(Variant::Danger)
                     .on_activate(move |world| {
                         close(world);
                         done.run(world);
                     }),
-                lettered("CANCEL").rules(brass).on_activate(close),
+                lettered("CANCEL").rules(button).on_activate(close),
             ))
             .gap(gap),
         ))

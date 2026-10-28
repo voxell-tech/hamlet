@@ -12,8 +12,8 @@ use hamlet_protocol::client as protocol;
 
 use super::{Shelf, edit};
 use crate::icons::Glyph;
-use crate::looks::{bare, close, description, group, section};
 use crate::roll::{agents_moved, either, hamlets_moved, moved};
+use crate::styles::{bare, close, description, group, section};
 use crate::switch::labelled_switch;
 use crate::{View, built};
 
@@ -72,7 +72,7 @@ pub(super) fn chooser(
         dropdown(
             names.clone(),
             at,
-            Glyph::Chevron.image(crate::looks::ICON),
+            Glyph::Chevron.image(crate::styles::ICON),
             move |world, chosen| {
                 if let Some(picked) =
                     names.get(chosen).filter(|picked| **picked != was)

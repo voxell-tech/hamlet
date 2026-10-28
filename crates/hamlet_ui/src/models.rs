@@ -120,7 +120,7 @@ fn edit(
 }
 
 fn problem() -> impl crate::View {
-    crate::looks::note(
+    crate::styles::note(
         bevy_fynix::derived(|world: &World| {
             world
                 .get_resource::<Shelf>()

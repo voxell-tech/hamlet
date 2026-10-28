@@ -53,9 +53,9 @@ use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
 use parley::{Affinity, AlignmentOptions, Cursor, Layout, Selection};
 
 use crate::convo::Convo;
-use crate::feel::Mood;
+use crate::effects::Variant;
 use crate::icons::Glyph;
-use crate::looks::{brass, marked};
+use crate::styles::{button, marked};
 use crate::theme::Themed;
 use crate::{View, chat};
 
@@ -762,7 +762,7 @@ fn light(
                 commands.entity(*glow).despawn();
             }
         }
-        let fill = theme.palette.chosen;
+        let fill = theme.palette.text_selection;
         for b in &boxes {
             commands.spawn((
                 Node {
@@ -836,8 +836,8 @@ pub fn quote_button(session: Entity, id: String) -> impl View {
         }),
         |on| match on {
             true => row((marked(Glyph::Talk, "QUOTE")
-                .rules(brass)
-                .tagged(Mood::Plain)
+                .rules(button)
+                .tagged(Variant::Default)
                 .on_activate(quote_chosen),))
             .position(PositionType::Absolute)
             .inset(resource::<Selecting, _>(|s| {

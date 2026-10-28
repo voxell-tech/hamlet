@@ -34,10 +34,10 @@ use hamlet_realm::sound::SoundSettings;
 use crate::dock::{PanelAppExt, panel};
 use crate::fade::ScrollFade;
 use crate::icons::Glyph;
-use crate::looks::{
+use crate::styles::{
     Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
-    close, description, doors, hairline, list, note, parts, section,
-    small_rules, well,
+    close, description, hairline, list, nav_list, note, parts,
+    section, small_rules, text_input,
 };
 use crate::switch::switch;
 use crate::world_menu::{self, Deed};
@@ -205,7 +205,7 @@ fn agents() -> impl View {
                 )
                 .range(0i64, 1000i64)
                 .width(px(90.0))
-                .rules(well),
+                .rules(text_input),
                 note("0 means never."),
             ),
         ),
@@ -493,7 +493,7 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
             requests.error.clone()
         }))
         .tone(Tone::Critical),
-        hairline(cx.theme().palette.brass_6),
+        hairline(cx.theme().palette.gold_6),
         shown,
     ))
 }
@@ -608,8 +608,8 @@ fn sound() -> impl View {
     ))
 }
 
-fn door(pane: Pane) -> AnyView {
-    crate::looks::list_door(
+fn nav_item(pane: Pane) -> AnyView {
+    crate::styles::nav_row(
         pane.glyph(),
         pane.title(),
         pane.holds(),
@@ -640,8 +640,9 @@ pub fn screen() -> AnyView {
     let page = keyed(resource::<Pane, _>(|pane| *pane), |pane| {
         if *pane == Pane::Front {
             let (pages, foot) =
-                (Pane::PAGES.map(door).into(), again().boxed());
-            return with_cx(move |cx| doors(cx, pages, foot)).boxed();
+                (Pane::PAGES.map(nav_item).into(), again().boxed());
+            return with_cx(move |cx| nav_list(cx, pages, foot))
+                .boxed();
         }
         let body = match pane {
             Pane::Endpoints => crate::models::endpoints().boxed(),

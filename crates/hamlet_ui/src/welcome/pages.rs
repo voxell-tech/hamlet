@@ -9,19 +9,19 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 
 use super::{Narrowing, Step, Welcome, close, go, look, pick};
+use crate::effects::Variant;
 use crate::fade::FadeSurface;
-use crate::feel::Mood;
 use crate::icons::Glyph;
-use crate::looks::{
-    back, bare, beside, brass, description, door, good_action, group,
-    headed, marked, note, pad, parts, retrace, scroll_area_on,
-    small_rules, well,
-};
 use crate::models::narrowed;
+use crate::styles::{
+    self, back, back_link, bare, beside, description, good_action,
+    group, headed, marked, nav_card, note, pad, parts,
+    scroll_area_on, small_rules, text_input,
+};
 use crate::{AnyView, Cx, View, built, with_cx};
 
 fn title(which: Glyph, text: &'static str) -> impl View {
-    headed(which, crate::looks::title(text))
+    headed(which, styles::title(text))
 }
 
 pub(super) fn said(text: impl Into<String>) -> AnyView {
@@ -69,7 +69,7 @@ fn choice(adding: bool) -> AnyView {
     parts((
         title(Glyph::Hearth, name),
         said(says),
-        door(
+        nav_card(
             Glyph::Signal,
             "SIGN IN WITH OPENROUTER",
             "The quickest way. You sign in with your browser and \
@@ -78,7 +78,7 @@ fn choice(adding: bool) -> AnyView {
                 super::providers::start(world, "openrouter", false);
             },
         ),
-        door(
+        nav_card(
             Glyph::Talk,
             "CONTINUE WITH CHATGPT",
             "Use your ChatGPT plan, with no key. You sign in with \
@@ -86,14 +86,14 @@ fn choice(adding: bool) -> AnyView {
              your plan's usage.",
             |world| super::providers::start(world, "chatgpt", false),
         ),
-        door(
+        nav_card(
             Glyph::Globe,
             "I HAVE A KEY",
             "Use a key from a provider such as OpenAI, DeepSeek or \
              OpenRouter. You pay them for what you use.",
             |world| go(world, Step::Key),
         ),
-        door(
+        nav_card(
             Glyph::Chip,
             "I RUN MY OWN MODEL",
             "Use a model served on the server's machine, with \
@@ -102,8 +102,8 @@ fn choice(adding: bool) -> AnyView {
         ),
         beside((
             marked(Glyph::Clock, leave)
-                .rules(retrace)
-                .tagged(Mood::Plain)
+                .rules(back_link)
+                .tagged(Variant::Default)
                 .on_activate(close),
             note(after),
         ))
@@ -125,9 +125,9 @@ fn offered(id: &str) -> AnyView {
     let chosen = id.to_string();
     button(row((label(id.to_string()),)).grow(1.0))
         .padding(pad())
-        .min_height(px(crate::looks::CONTROL))
-        .rules(brass)
-        .tagged(Mood::Plain)
+        .min_height(px(styles::CONTROL))
+        .rules(styles::button)
+        .tagged(Variant::Default)
         .on_activate(move |world| pick(world, &chosen))
         .boxed()
 }
@@ -170,7 +170,7 @@ fn models() -> AnyView {
                 world.resource_mut::<Welcome>().narrow = text;
             },
         )
-        .rules(well)
+        .rules(text_input)
         .tagged(Narrowing),
         news("Asking it to say hello..."),
         list,
@@ -255,7 +255,7 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     .gap(0.0)
     .fill(theme.palette.card)
     .border(space.border)
-    .border_color(theme.palette.brass_5)
+    .border_color(theme.palette.gold_5)
     .radius(space.soft)
     .tagged(theme.shadow());
     // A row, so the card is as tall as its words once they wrap to

@@ -17,13 +17,13 @@ use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 
-use crate::feel::Mood;
+use crate::effects::Variant;
 use crate::icons::Glyph;
-use crate::looks::{
-    CONTROL, action, bad_action, bare, brass, buttons, choices, note,
-};
 use crate::overview::{heading, tell};
 use crate::roll::hamlets_moved;
+use crate::styles::{
+    CONTROL, action, bad_action, bare, button, buttons, choices, note,
+};
 use crate::{View, with_cx};
 
 /// The most earlier folders offered again.
@@ -170,10 +170,10 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                 .map(|folder| {
                     let folder = folder.clone();
                     bevy_fynix::views::button(label(folder.clone()))
-                        .padding(crate::looks::pad())
+                        .padding(crate::styles::pad())
                         .min_height(px(CONTROL))
-                        .rules(brass)
-                        .tagged(Mood::Plain)
+                        .rules(button)
+                        .tagged(Variant::Default)
                         .on_activate(move |world| {
                             work_on(
                                 world,

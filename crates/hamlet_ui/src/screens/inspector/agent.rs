@@ -21,15 +21,15 @@ use hamlet_realm::pick::{Thing, select};
 
 use super::papers::Papers;
 use crate::convo::Convo;
-use crate::feel::Mood;
+use crate::effects::Variant;
 use crate::icons::Glyph;
-use crate::looks::{
-    Fills, ICON, action, bad_action, bare, breadcrumb, close,
-    filling, hairline, note, scroll_area, title,
-};
 use crate::platform::Wraps;
 use crate::roll::rolled;
 use crate::status::Bar;
+use crate::styles::{
+    Fills, ICON, action, bad_action, bare, breadcrumb, close,
+    filling, hairline, note, scroll_area, title,
+};
 use crate::world_menu::{self};
 use crate::{
     AnyView, Cx, View, built, chat, markdown, tabs, with_cx,
@@ -162,15 +162,14 @@ fn header(agent: Entity, with: Option<String>) -> impl View {
             }));
         // Everything else that can be done to it, as a right click
         // on it in the world offers.
-        let more = button(crate::looks::raised(crate::icons::glyph(
-            Glyph::More,
-            ICON,
-        )))
+        let more = button(crate::styles::raised(
+            crate::icons::glyph(Glyph::More, ICON),
+        ))
         .padding(UiRect::axes(px(10.0), px(0.0)))
-        .min_height(px(crate::looks::CONTROL))
+        .min_height(px(crate::styles::CONTROL))
         .tooltip(|| note("More to do with it"))
-        .rules(crate::looks::brass)
-        .tagged(Mood::Plain)
+        .rules(crate::styles::button)
+        .tagged(Variant::Default)
         .on_activate(move |world| {
             let mayor = hamlet_client::realm::mayor(world);
             let thing = if mayor == Some(agent) {
@@ -314,7 +313,7 @@ fn prompt(cx: &Cx) -> impl View + use<> {
             *world.resource_mut::<Section>() = Section::Conversation;
         }),
         note("What this agent is told at the start of a turn."),
-        hairline(cx.theme().palette.brass_6),
+        hairline(cx.theme().palette.gold_6),
         scroll_area((shown,)),
     ))
     .fills_height()

@@ -1,4 +1,4 @@
-//! The light under a title or a tab.
+//! The glow under a title or a tab.
 
 use bevy::color::Alpha;
 use bevy::ecs::component::Component;
@@ -12,63 +12,64 @@ use bevy::ui::{
     RadialGradientShape, UiPosition, percent,
 };
 
-use super::control::Feel;
-use super::{FeelSettings, MagicColors, ease};
+use super::control::ControlEffect;
+use super::{EffectColors, EffectSettings, ease};
 use crate::theme::Themed;
 
-/// A title or a tab that is lit from below under the pointer, at a
+/// A title or a tab that glows from below under the pointer, at a
 /// press, and for as long as it is `held`.
 #[derive(Component, Default)]
-pub struct FootLight {
+pub struct Underglow {
     pub held: bool,
     level: f32,
 }
 
-impl FootLight {
-    /// A foot light at rest, or held lit.
+impl Underglow {
+    /// An underglow at rest, or held on.
     pub fn new(held: bool) -> Self {
         Self { held, level: 0.0 }
     }
 }
 
-type FootLit<'a> = (
+type Glowing<'a> = (
     Entity,
-    &'a mut FootLight,
+    &'a mut Underglow,
     Option<&'a Hovered>,
-    Option<&'a Feel>,
+    Option<&'a ControlEffect>,
     Has<BackgroundGradient>,
 );
 
-/// Eases each foot light toward the pointer and its hold, and
-/// flares it at a press. The light is a pool from under the middle
-/// of the word, as from a candle set below it.
-pub(super) fn foot_lights(
+/// Eases each underglow toward the pointer and its hold, and
+/// flares it at a press. The glow is a pool from under the middle
+/// of the word.
+pub(super) fn update_underglow(
     mut commands: Commands,
     time: Res<Time>,
-    set: Res<FeelSettings>,
+    set: Res<EffectSettings>,
     theme: Themed,
-    mut lights: Query<FootLit>,
+    mut glows: Query<Glowing>,
 ) {
-    let colors = MagicColors::of(&theme);
+    let colors = EffectColors::of(&theme);
     let dt = time.delta_secs();
-    for (node, mut light, hovered, feel, lit) in &mut lights {
+    for (node, mut glow, hovered, effect, shown) in &mut glows {
         let over = hovered.is_some_and(|h| h.0);
-        let want = f32::from(over || light.held);
-        let level = ease(light.level, want, set.warm, dt);
-        let flare = feel.map_or(0.0, |feel| feel.pulse);
-        let steady = level == light.level && flare == 0.0;
-        if steady && (lit || level == 0.0) {
+        let want = f32::from(over || glow.held);
+        let level = ease(glow.level, want, set.glow_rate, dt);
+        let flare = effect.map_or(0.0, |effect| effect.pulse);
+        let steady = level == glow.level && flare == 0.0;
+        if steady && (shown || level == 0.0) {
             continue;
         }
-        light.level = level;
-        let strength = set.foot * level + set.flare * flare;
+        glow.level = level;
+        let strength =
+            set.underglow * level + set.underglow_press * flare;
         if strength <= 0.0 {
             commands.entity(node).try_remove::<BackgroundGradient>();
             continue;
         }
-        let hue = colors.foot;
+        let hue = colors.underglow;
         // Wider than the node and faint by its edges, so that the
-        // light has no rim to it.
+        // glow has no rim to it.
         let stops = vec![
             ColorStop::new(hue.with_alpha(strength), percent(0.0)),
             ColorStop::new(

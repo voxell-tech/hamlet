@@ -317,10 +317,10 @@ fn main() {
     let theme = HamletTheme::designed();
     let p = &theme.palette;
     let paper = Paper {
-        panel: bytes(p.black),
+        panel: bytes(p.surface),
         grass: bytes(Color::linear_rgb(sun.x, sun.y, sun.z)),
-        seam: bytes(p.brass_6),
-        ink: bytes(p.brass_1),
+        seam: bytes(p.gold_6),
+        ink: bytes(p.gold_1),
         dim: bytes(p.grey_1),
         mark: bytes(Color::srgb(1.0, 0.2, 0.9)),
         inks: inks(&theme),

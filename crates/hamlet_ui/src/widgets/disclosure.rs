@@ -12,7 +12,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, keyed, resource};
 
 use crate::icons::{Glyph, glyph};
-use crate::looks::section;
+use crate::styles::section;
 use crate::{AnyView, Cx, View};
 
 /// The side of the header's chevron.

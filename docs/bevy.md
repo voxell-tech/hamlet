@@ -40,7 +40,7 @@ trusting memory: the engine moves every release.
 | Something happened, and a system reads it in its turn | A message (`MessageWriter`, `MessageReader`) | `Played`, `Cue`, `SetDown` |
 | A component came or went | `On<Add, T>`, `On<Insert, T>`, `On<Discard, T>` | A chat is opened when its `Chat` is inserted and closed when it is discarded |
 | A map that must follow a component | `on_insert` and `on_discard` hooks on an `immutable` component | `hamlet_client`'s `Index` |
-| A mode with work on entering and leaving | A state, `OnEnter`, `OnExit`, a computed state | `Look`, `WorldShown`, `DayPart`, `Dark` |
+| A mode with work on entering and leaving | A state, `OnEnter`, `OnExit`, a computed state | `ThemeState`, `WorldShown`, `DayPart`, `Dark` |
 | A result from another thread | A channel in a resource, drained by one system gated on it | `connection::receive`, `pictures::take` |
 | Heavy work off the frame | A task on `AsyncComputeTaskPool`, polled each frame | The mesh builds in `generator/building.rs` |
 | A file read for the window | A task on Tokio's blocking threads, collected by a system gated on it | `gifts::collect` |

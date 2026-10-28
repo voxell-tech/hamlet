@@ -27,15 +27,15 @@ use hamlet_protocol::client::{
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 
 use crate::convo::talk_at;
-use crate::dock::{PanelAppExt, lit_panel, show_tab};
-use crate::feel::{Lit, Mood};
+use crate::dock::{PanelAppExt, highlight_panel, show_tab};
+use crate::effects::{Highlight, Variant};
 use crate::icons::Glyph;
-use crate::looks::{
-    Fills, ICON, bad_action, beside, brass, buttons, caption,
-    description, framed, grim, lamp, marked, note, scroll_area,
-    title,
-};
 use crate::platform::MonoText;
+use crate::styles::{
+    self, Fills, ICON, bad_action, beside, buttons, caption,
+    danger_button, description, framed, marked, note, primary_button,
+    scroll_area, title,
+};
 use crate::{AnyView, Cx, PanelSystems, View, asking, chat, with_cx};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
@@ -48,10 +48,10 @@ pub fn plugin(app: &mut App) {
     app.add_panel(
         "needs",
         DockWindowKind::new("PETITIONS", || {
-            lit_panel(
+            highlight_panel(
                 screen(),
-                Lit {
-                    alarm: true,
+                Highlight {
+                    attention: true,
                     flash: false,
                 },
             )
@@ -205,24 +205,40 @@ fn button(need: &Need, at: usize) -> AnyView {
         _ => "ALWAYS ALLOW",
     };
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
-    let (which, text, rules, mood): (_, _, fn(&mut Cx), _) =
+    let (which, text, rules, variant): (_, _, fn(&mut Cx), _) =
         match choice {
-            Choice::Allow => (Check, "ALLOW ONCE", lamp, Mood::Good),
-            Choice::Always => (CheckAll, always, brass, Mood::Plain),
-            Choice::Deny => (Cross, "DENY", grim, Mood::Bad),
-            Choice::Go => (Check, "GO AHEAD", lamp, Mood::Good),
+            Choice::Allow => (
+                Check,
+                "ALLOW ONCE",
+                primary_button,
+                Variant::Primary,
+            ),
+            Choice::Always => {
+                (CheckAll, always, styles::button, Variant::Default)
+            }
+            Choice::Deny => {
+                (Cross, "DENY", danger_button, Variant::Danger)
+            }
+            Choice::Go => {
+                (Check, "GO AHEAD", primary_button, Variant::Primary)
+            }
             Choice::Withdraw => {
-                (Restore, "WITHDRAW", grim, Mood::Bad)
+                (Restore, "WITHDRAW", danger_button, Variant::Danger)
             }
-            Choice::Reply => {
-                (Talk, "REPLY IN CHAT", lamp, Mood::Good)
+            Choice::Reply => (
+                Talk,
+                "REPLY IN CHAT",
+                primary_button,
+                Variant::Primary,
+            ),
+            Choice::Dismiss => {
+                (Cross, "DISMISS", styles::button, Variant::Default)
             }
-            Choice::Dismiss => (Cross, "DISMISS", brass, Mood::Plain),
         };
     let need = need.clone();
     marked(which, text)
         .rules(rules)
-        .tagged(mood)
+        .tagged(variant)
         .on_activate(move |world| {
             answer(world, &need, choice.clone());
         })

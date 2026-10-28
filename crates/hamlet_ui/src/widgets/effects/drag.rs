@@ -14,7 +14,7 @@ use bevy::ui::{
     UiTransform, Val, px,
 };
 
-use super::{FeelSettings, MagicColors};
+use super::{EffectColors, EffectSettings};
 use crate::theme::Themed;
 
 /// The layers the dock library puts its drop hint and the dragged
@@ -55,19 +55,21 @@ type Dragged<'a> = (
     Option<&'a mut Gliding>,
 );
 
-/// Makes the dock's drop hint a pane of lamplight with a brighter
-/// edge that breathes, and the dragged tab a framed plate. Each fades
-/// and grows in as it appears, and the hint glides from one place it
-/// could land to the next.
+/// Makes the dock's drop hint a glowing pane with a brighter border
+/// that pulses, and the dragged tab a bordered, filled box. Each
+/// fades and grows in as it appears, and the hint moves from one
+/// place it could land to the next.
 pub(super) fn dress_drag(
     mut commands: Commands,
     time: Res<Time>,
-    set: Res<FeelSettings>,
+    set: Res<EffectSettings>,
     theme: Themed,
     mut drawn: Query<Dragged, Without<ChildOf>>,
 ) {
-    let colors = MagicColors::of(&theme);
-    let breath = 0.5 + 0.5 * (time.elapsed_secs() * set.breath).sin();
+    let colors = EffectColors::of(&theme);
+    let pulse = 0.5
+        + 0.5
+            * (time.elapsed_secs() * set.drop_hint_pulse_rate).sin();
     let dt = time.delta_secs();
     for (
         id,
@@ -82,19 +84,20 @@ pub(super) fn dress_drag(
     {
         let (pane, line) = match layer.0 {
             HINT_LAYER => (
-                colors.hint.with_alpha(0.06 + 0.05 * breath),
-                colors.hint.with_alpha(0.5 + 0.3 * breath),
+                colors.drop_hint.with_alpha(0.06 + 0.05 * pulse),
+                colors.drop_hint.with_alpha(0.5 + 0.3 * pulse),
             ),
-            GHOST_LAYER => {
-                (colors.ghost.with_alpha(0.9), colors.plate_edge)
-            }
+            GHOST_LAYER => (
+                colors.drag_ghost.with_alpha(0.9),
+                colors.drag_border,
+            ),
             _ => continue,
         };
         // Its share of the way in, 0 to 1, fast at first.
         let come = match age {
             Some(mut age) => {
                 age.0 += time.delta_secs();
-                let t = (age.0 / set.arrive).min(1.0);
+                let t = (age.0 / set.enter_duration).min(1.0);
                 1.0 - (1.0 - t).powi(3)
             }
             None => {
@@ -103,7 +106,7 @@ pub(super) fn dress_drag(
             }
         };
         let size = Vec2::splat(
-            set.arrive_from + (1.0 - set.arrive_from) * come,
+            set.enter_scale + (1.0 - set.enter_scale) * come,
         );
         match grown {
             Some(mut grown) if grown.scale != size => {
@@ -130,7 +133,7 @@ pub(super) fn dress_drag(
                     if put != glide.shown {
                         glide.to = put;
                     }
-                    let k = 1.0 - (-set.glide * dt).exp();
+                    let k = 1.0 - (-set.drop_hint_rate * dt).exp();
                     let mut next = glide.shown.lerp(glide.to, k);
                     if next.abs_diff_eq(glide.to, 0.5) {
                         next = glide.to;

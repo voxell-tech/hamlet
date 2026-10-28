@@ -151,7 +151,7 @@ fn plate(under: fn(&Palette) -> Color) -> impl FnOnce(&mut Cx) {
         style::<HamletTheme>()
             .frame(|f, _| f.fill(Color::NONE).radius(0.0))
             .hovered(move |s| s.fill(move |t| under(&t.palette)))
-            .pressed(|s| s.fill(|t| t.palette.black))
+            .pressed(|s| s.fill(|t| t.palette.surface))
             .transition(Motion::Interact)
             .apply(cx);
     }
@@ -216,8 +216,8 @@ pub fn buttons() -> impl View {
         };
         cx.build(
             row((
-                one(small, |p| p.brass_hover, minimise),
-                one(large, |p| p.brass_hover, maximise),
+                one(small, |p| p.gold_hover, minimise),
+                one(large, |p| p.gold_hover, maximise),
                 one(shut, |p| p.red, close),
             ))
             .gap(2.0)

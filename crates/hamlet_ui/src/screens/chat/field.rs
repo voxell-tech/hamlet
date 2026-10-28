@@ -150,7 +150,7 @@ const ABOVE: f32 = 5.5;
 /// The thumb of the bar, over the right of the field.
 pub fn bar() -> impl View {
     built(|cx| {
-        let fill = cx.theme().palette.brass_5;
+        let fill = cx.theme().palette.gold_5;
         cx.build(
             column(())
                 .position(PositionType::Absolute)

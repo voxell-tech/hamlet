@@ -31,11 +31,11 @@ use protocol::Past;
 
 use crate::convo::Convo;
 use crate::dock::show_tab;
-use crate::feel::Mood;
+use crate::effects::Variant;
 use crate::icons::Glyph;
-use crate::looks::{
-    Fills, away, breadcrumb, buttons, card_button, command, filling,
-    good_action, hairline, note, scroll_area, well,
+use crate::styles::{
+    Fills, breadcrumb, buttons, card_button, command, filling,
+    good_action, hairline, hidden, note, scroll_area, text_input,
 };
 use crate::{
     AnyView, PanelSystems, View, built, chat, inspector, with_cx,
@@ -411,9 +411,9 @@ fn line_view(line: &Line) -> AnyView {
     }))
     .width(percent(100.0))
     .rules(card_button)
-    .tagged(Mood::Plain)
+    .tagged(Variant::Default)
     .on_activate(move |world| open(world, number))
-    .appear(away)
+    .appear(hidden)
     .transition(Motion::Expand)
     .context_menu(move || choices(&menu))
     .boxed()
@@ -441,7 +441,7 @@ fn list() -> impl View {
                     world.resource_mut::<History>().query = text;
                 },
             )
-            .rules(well),
+            .rules(text_input),
             note(resource::<History, _>(History::count)),
             failed(),
             scroll_area((each(
@@ -491,7 +491,7 @@ fn reader() -> impl View {
             theme.space.gap,
             theme.space.section,
         );
-        let line = theme.palette.brass_6;
+        let line = theme.palette.gold_6;
         cx.build(
             column((
                 breadcrumb(

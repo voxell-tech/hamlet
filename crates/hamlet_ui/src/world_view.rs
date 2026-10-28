@@ -46,7 +46,7 @@ use hamlet_realm::{
 
 use crate::dock::PanelAppExt;
 use crate::icons::Glyph;
-use crate::looks::{Fills, ICON};
+use crate::styles::{Fills, ICON};
 use crate::window::WorldShown;
 use crate::{View, built};
 

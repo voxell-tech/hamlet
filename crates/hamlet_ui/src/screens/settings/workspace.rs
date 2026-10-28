@@ -18,10 +18,11 @@ use hamlet_protocol::client as protocol;
 
 use super::{Pane, field, told};
 use crate::icons::Glyph;
-use crate::looks::{
-    action, bare, beside, choices, description, note, parts, well,
-};
 use crate::secret::secret_field;
+use crate::styles::{
+    action, bare, beside, choices, description, note, parts,
+    text_input,
+};
 use crate::{AnyView, PanelSystems, View};
 
 pub(super) fn plugin(app: &mut App) {
@@ -237,7 +238,7 @@ fn remote() -> AnyView {
                         world.resource_mut::<Draft>().url = url;
                     },
                 )
-                .rules(well),
+                .rules(text_input),
             ),
             field(
                 "Access token",

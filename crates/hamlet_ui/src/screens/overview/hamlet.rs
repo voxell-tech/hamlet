@@ -24,14 +24,14 @@ use super::rows::{
     AgentRow, agent_rows, hamlet_rows, pressable, stale,
 };
 use crate::convo::talk_to;
-use crate::feel::Mood;
+use crate::effects::Variant;
 use crate::icons::Glyph;
-use crate::looks::{
-    Fills, action, bad_action, bare, beside, brass, breadcrumb,
-    buttons, group, lamp, lettered, note, scroll_area, stated_large,
-    title, well,
-};
 use crate::roll::{either, moved};
+use crate::styles::{
+    self, Fills, action, bad_action, bare, beside, breadcrumb,
+    buttons, group, lettered, note, primary_button, scroll_area,
+    status_label_large, text_input, title,
+};
 use crate::world_menu::Deed;
 use crate::{AnyView, View, chat, tabs, with_cx, world_menu};
 
@@ -70,11 +70,11 @@ fn naming(hamlet: Entity, id: String) -> AnyView {
                 row((
                     text_field(String::new(), |_, _| {})
                         .grow(1.0)
-                        .rules(well)
+                        .rules(text_input)
                         .tagged(NameField),
                     lettered("SAVE")
-                        .rules(lamp)
-                        .tagged(Mood::Good)
+                        .rules(primary_button)
+                        .tagged(Variant::Primary)
                         .on_activate(move |world| {
                             let name = typed::<NameField>(world);
                             world.resource_mut::<Naming>().0 = None;
@@ -83,11 +83,11 @@ fn naming(hamlet: Entity, id: String) -> AnyView {
                                 format!("/name-hamlet {id} {name}"),
                             );
                         }),
-                    lettered("CANCEL").rules(brass).on_activate(
-                        |world| {
+                    lettered("CANCEL")
+                        .rules(styles::button)
+                        .on_activate(|world| {
                             world.resource_mut::<Naming>().0 = None;
-                        },
-                    ),
+                        }),
                 ))
                 .gap(cx.theme().space.gap)
                 .align(AlignItems::Center)
@@ -247,7 +247,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             ),
             beside((
                 title(facts.title.to_uppercase()),
-                stated_large(mark, state, tone),
+                status_label_large(mark, state, tone),
             )),
             note(facts.account.clone()),
             note(known),

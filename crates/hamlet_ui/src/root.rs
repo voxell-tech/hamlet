@@ -22,9 +22,9 @@ use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 
 use crate::icons::Glyph;
-use crate::looks::{Fills, action, hairline, note};
 use crate::platform::Glow;
 use crate::status::status_bar;
+use crate::styles::{Fills, action, hairline, note};
 use crate::theme::{HamletTheme, ThemeChanged};
 use crate::{
     Cx, View, built, chrome, desk, hover, menu, welcome, world_menu,
@@ -118,10 +118,10 @@ pub fn toolbar(cx: &Cx) -> impl View {
             px(cx.theme().space.bar_padding),
             px(0.0),
         ))
-        .fill(palette.black)
+        .fill(palette.surface)
         .tagged(Glow)
         .tagged(chrome::Grip),
-        hairline(palette.seam),
+        hairline(palette.border),
     ))
     .gap(0.0)
 }

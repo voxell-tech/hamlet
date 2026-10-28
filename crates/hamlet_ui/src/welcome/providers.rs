@@ -17,13 +17,13 @@ use hamlet_protocol::client as protocol;
 use super::pages::{head, news, said};
 use super::{Step, Welcome, commit, go, read_models};
 use crate::AnyView;
-use crate::feel::Mood;
+use crate::effects::Variant;
 use crate::icons::Glyph;
-use crate::looks::{
-    bare, buttons, close, good_action, group, lettered, note, parts,
-    well,
-};
 use crate::secret::secret_field;
+use crate::styles::{
+    bare, buttons, close, good_action, group, lettered, note, parts,
+    text_input,
+};
 
 /// The browser used for the server's login URLs.
 #[derive(Resource)]
@@ -296,7 +296,7 @@ fn prompt() -> AnyView {
             let field = if *secret {
                 secret_field(answer, answered).boxed()
             } else {
-                text_field(answer, answered).rules(well).boxed()
+                text_field(answer, answered).rules(text_input).boxed()
             };
             group((
                 said(words.clone()),
@@ -329,7 +329,7 @@ pub(super) fn key_page() -> AnyView {
                     let id = provider.id.clone();
                     close((
                         lettered(provider.name.clone())
-                            .tagged(Mood::Plain)
+                            .tagged(Variant::Default)
                             .on_activate(move |world| {
                                 start(world, &id, true);
                             }),

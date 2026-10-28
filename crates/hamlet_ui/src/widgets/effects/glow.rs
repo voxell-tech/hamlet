@@ -1,5 +1,5 @@
-//! The layer a panel's controls spill their light on, so that the
-//! light is cut at the panel's border and not at its padding.
+//! The layer a panel's controls draw their outer glow on, so that
+//! the glow is cut at the panel's border and not at its padding.
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -15,12 +15,13 @@ use bevy_fynix::views::{BehaviorExt, frame};
 
 use crate::View;
 
-/// A panel whose controls spill their light on its [`GlowLayer`].
+/// A panel whose controls draw their outer glow on its
+/// [`GlowLayer`].
 #[derive(Component)]
 pub(crate) struct GlowPanel;
 
-/// The node over a panel's whole area that holds the light its
-/// controls spill.
+/// The node over a panel's whole area that holds the outer glow of
+/// its controls.
 #[derive(Component)]
 pub(super) struct GlowLayer;
 

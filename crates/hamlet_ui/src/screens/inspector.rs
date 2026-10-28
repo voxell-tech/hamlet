@@ -23,20 +23,20 @@ pub use self::agent::{Briefing, Section};
 pub(crate) use self::gone::{of_agent, skills_screen};
 pub use self::papers::{Papers, keep_papers};
 use crate::convo::{Convo, seat};
-use crate::dock::{PanelAppExt, lit_panel, panel};
-use crate::feel::{Lit, Updated};
+use crate::dock::{PanelAppExt, highlight_panel, panel};
+use crate::effects::{Highlight, Updated};
 use crate::icons::Glyph;
-use crate::looks::{ICON, filling};
+use crate::styles::{ICON, filling};
 use crate::{View, overview, tabs};
 
 pub fn plugin(app: &mut App) {
     app.add_panel(
         "agent",
         DockWindowKind::new("INSPECTOR", || {
-            lit_panel(
+            highlight_panel(
                 screen(),
-                Lit {
-                    alarm: false,
+                Highlight {
+                    attention: false,
                     flash: true,
                 },
             )

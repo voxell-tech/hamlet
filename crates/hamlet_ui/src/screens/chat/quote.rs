@@ -8,7 +8,7 @@ use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, frame, label, row};
 
-use crate::looks::Fills;
+use crate::styles::Fills;
 use crate::{AnyView, markdown};
 
 /// The parts of `text` in order: each its words, and whether they are

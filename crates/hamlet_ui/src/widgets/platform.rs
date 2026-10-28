@@ -200,10 +200,10 @@ pub fn apply_glow(
     for surface in &surfaces {
         let stops = vec![
             ColorStop::new(
-                theme.palette.black,
+                theme.palette.surface,
                 percent(theme.space.bottom_start * 100.0),
             ),
-            ColorStop::new(theme.palette.hearth, percent(100.0)),
+            ColorStop::new(theme.palette.bottom_glow, percent(100.0)),
         ];
         commands.entity(surface).try_insert(
             BackgroundGradient::from(LinearGradient::to_bottom(

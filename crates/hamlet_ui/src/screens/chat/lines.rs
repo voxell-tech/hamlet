@@ -35,7 +35,7 @@ use super::timeline::{Line, People, Who, timeline};
 use super::{AwayFromEnd, ChatScroll, bubble};
 use crate::View;
 use crate::convo::Convo;
-use crate::looks::{Fills, note};
+use crate::styles::{Fills, note};
 
 /// Messages are people talking, so they get the width of a readable
 /// line.
@@ -747,14 +747,14 @@ pub fn transcript() -> impl View {
         }),
         |_: &()| 0u8,
         |_| {
-            button(crate::looks::raised(crate::icons::glyph(
+            button(crate::styles::raised(crate::icons::glyph(
                 crate::icons::Glyph::ToEnd,
-                crate::looks::ICON,
+                crate::styles::ICON,
             )))
             .padding(UiRect::all(px(8.0)))
             .tooltip(|| note("Scroll to the latest"))
-            .rules(crate::looks::retrace)
-            .tagged(crate::feel::Mood::Ink)
+            .rules(crate::styles::back_link)
+            .tagged(crate::effects::Variant::Text)
             .on_activate(super::to_end)
             .boxed()
         },

@@ -11,7 +11,7 @@ use hamlet_desktop::editor;
 use hamlet_protocol::client as protocol;
 
 use crate::icons::Glyph;
-use crate::looks::{action, bad_action, note};
+use crate::styles::{action, bad_action, note};
 use crate::{AnyView, View};
 
 pub(crate) fn plugin(app: &mut App) {

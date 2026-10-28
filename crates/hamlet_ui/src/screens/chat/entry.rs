@@ -13,8 +13,8 @@ use hamlet_client::messages::ChiefMessage;
 
 use super::change::change_view;
 use crate::convo::Convo;
-use crate::looks::{Fills, note};
 use crate::platform::{DisplayText, MonoText};
+use crate::styles::{Fills, note};
 use crate::{AnyView, Cx, View, markdown};
 
 /// A single line cut to its first `most` characters.
@@ -119,7 +119,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .gap(2.0)
             .padding(UiRect::axes(px(12.0), px(8.0)))
             .border(1.0)
-            .border_color(cx.theme().palette.brass_6)
+            .border_color(cx.theme().palette.gold_6)
             .radius(cx.theme().space.round)
             .fill(cx.theme().palette.card)
             .boxed(),
@@ -235,7 +235,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .gap(2.0)
             .padding(UiRect::axes(px(12.0), px(8.0)))
             .border(1.0)
-            .border_color(cx.theme().palette.brass_6)
+            .border_color(cx.theme().palette.gold_6)
             .radius(cx.theme().space.round)
             .fill(cx.theme().palette.card)
             .boxed(),

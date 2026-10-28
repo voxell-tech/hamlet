@@ -19,13 +19,13 @@ use bevy_fynix::views::{
 use bevy_fynix::{Bevy, Focused, ScopedExt, View, ViewExt};
 use hamlet_assets::Tuning;
 use hamlet_realm::sound::SoundSettings;
-use hamlet_ui::feel::{FootLight, Lit, Mood};
+use hamlet_ui::effects::{Highlight, Underglow, Variant};
 use hamlet_ui::icons::{Glyph, glyph};
 use hamlet_ui::platform::DisplayText;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::{
-    Cx, brass, chat, grim, lamp, lists, marked, menu, platform, tabs,
-    well,
+    Cx, back_link, chat, danger_button, lists, marked, menu,
+    platform, primary_button, tabs, text_input,
 };
 
 use super::{Scene, Strike, Ui};
@@ -72,12 +72,12 @@ fn states(
     which: Glyph,
     text: &'static str,
     look: Look,
-    mood: Mood,
+    variant: Variant,
 ) -> Ui {
     let one = move || {
         marked(which, text)
             .rules(look)
-            .tagged(mood)
+            .tagged(variant)
             .on_activate(|_| {})
     };
     row((
@@ -93,7 +93,7 @@ fn states(
 fn field(text: &'static str) -> impl View<Bevy, HamletTheme> {
     text_field(text.to_string(), |_, _| {})
         .width(px(160.0))
-        .rules(well)
+        .rules(text_input)
 }
 
 fn fields() -> Ui {
@@ -128,18 +128,18 @@ fn titles() -> Ui {
     row((
         cell(
             "AT REST",
-            title("HAMLET").tagged(FootLight::new(false)).boxed(),
+            title("HAMLET").tagged(Underglow::new(false)).boxed(),
         ),
         cell(
             "UNDER THE POINTER",
             title("VIEW")
-                .tagged(FootLight::new(false))
+                .tagged(Underglow::new(false))
                 .tagged(Held::Hover)
                 .boxed(),
         ),
         cell(
             "ITS MENU OPEN",
-            title("VIEW").tagged(FootLight::new(true)).boxed(),
+            title("VIEW").tagged(Underglow::new(true)).boxed(),
         ),
     ))
     .gap(16.0)
@@ -157,22 +157,22 @@ fn tabs() -> Ui {
     let theme = HamletTheme::designed();
     let shown = column((
         tab(Glyph::Talk, "TALK")
-            .tagged(FootLight::new(true))
+            .tagged(Underglow::new(true))
             .tagged(tabs::Shown),
-        frame().height(px(2.0)).fill(theme.palette.brass_3),
+        frame().height(px(2.0)).fill(theme.palette.gold_3),
     ))
     .gap(0.0);
     row((
         cell(
             "AT REST",
             tab(Glyph::Notes, "NOTES")
-                .tagged(FootLight::new(false))
+                .tagged(Underglow::new(false))
                 .boxed(),
         ),
         cell(
             "UNDER THE POINTER",
             tab(Glyph::Notes, "NOTES")
-                .tagged(FootLight::new(false))
+                .tagged(Underglow::new(false))
                 .tagged(Held::Hover)
                 .boxed(),
         ),
@@ -202,7 +202,7 @@ fn popups() -> Ui {
     .gap(3.0)
     .padding(UiRect::axes(px(12.0), px(9.0)))
     .border(1.0)
-    .border_color(theme.palette.brass_5)
+    .border_color(theme.palette.gold_5)
     .radius(theme.space.soft)
     .fill(theme.palette.card)
     .with(theme.shadow());
@@ -238,25 +238,35 @@ pub(super) fn controls() -> Ui {
             states(
                 Glyph::NewSession,
                 "NEW SESSION",
-                brass,
-                Mood::Plain,
+                hamlet_ui::button,
+                Variant::Default,
             ),
         ),
         part(
-            "THE ONE GOOD ACTION",
-            states(Glyph::Check, "ALLOW ONCE", lamp, Mood::Good),
+            "THE ONE PRIMARY ACTION",
+            states(
+                Glyph::Check,
+                "ALLOW ONCE",
+                primary_button,
+                Variant::Primary,
+            ),
         ),
         part(
             "WHAT REFUSES OR STOPS",
-            states(Glyph::Cross, "DENY", grim, Mood::Bad),
+            states(
+                Glyph::Cross,
+                "DENY",
+                danger_button,
+                Variant::Danger,
+            ),
         ),
         part(
             "A WAY BACK",
             states(
                 Glyph::Back,
                 "ALL HAMLETS",
-                hamlet_ui::retrace,
-                Mood::Ink,
+                back_link,
+                Variant::Text,
             ),
         ),
         part("A TEXT FIELD", fields()),
@@ -279,10 +289,10 @@ pub(super) fn controls() -> Ui {
     .height(percent(100.0))
     .padding(UiRect::all(px(28.0)))
     .gap(20.0)
-    .fill(theme.palette.black)
+    .fill(theme.palette.surface)
     .overflow(Overflow::clip())
     .tagged(platform::Glow)
-    .tagged(Lit::default())
+    .tagged(Highlight::default())
     .boxed()
 }
 
@@ -322,7 +332,7 @@ pub(super) fn icon_sheet() -> Ui {
         .width(percent(100.0))
         .height(percent(100.0))
         .padding(UiRect::all(px(24.0)))
-        .fill(theme.palette.black)
+        .fill(theme.palette.surface)
         .tagged(platform::Wraps)
         .boxed()
 }

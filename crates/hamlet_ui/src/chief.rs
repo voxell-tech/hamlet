@@ -33,12 +33,12 @@ use hamlet_realm::pick::{Selected, Thing, focus_on, select};
 
 use crate::convo::Convo;
 use crate::icons::Glyph;
-use crate::looks::{
+use crate::platform::Wraps;
+use crate::roll::{agents_moved, either, moved};
+use crate::styles::{
     Fills, action, breadcrumb, buttons, choice, choices, description,
     filling, group, note, scroll_area, section, title,
 };
-use crate::platform::Wraps;
-use crate::roll::{agents_moved, either, moved};
 use crate::{AnyView, PanelSystems, View, with_cx};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -343,7 +343,7 @@ pub fn panel(chief: Entity) -> AnyView {
                 facts.name.to_uppercase(),
                 |world, _| select(world, None),
             ),
-            crate::looks::beside((
+            crate::styles::beside((
                 title(facts.name.to_uppercase()),
                 label(place).tone(tone).wrap(false),
             )),

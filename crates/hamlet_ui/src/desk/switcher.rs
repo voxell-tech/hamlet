@@ -56,15 +56,15 @@ use bevy_fynix::{
 
 use self::motion::TabDrag;
 use crate::desk::{DeskSettings, Desks, Turn};
+use crate::effects::EffectSettings;
 use crate::fade::{FadeSurface, ScrollFade};
-use crate::feel::FeelSettings;
 use crate::icons::{Glyph, glyph};
-use crate::looks::{
-    ICON, action, bad_action, close_mark, description, note, section,
-    well,
-};
 use crate::menu::rect_of;
 use crate::platform::DisplayText;
+use crate::styles::{
+    ICON, action, bad_action, close_button, description, note,
+    section, text_input,
+};
 use crate::theme::{HamletTheme, Themed};
 use crate::{AnyView, Cx, View, with_cx};
 
@@ -116,7 +116,8 @@ pub(crate) fn plugin(app: &mut App) {
                 mark_shown,
                 show_close,
                 (focus_field, end_rename).chain(),
-                retune_halo.run_if(resource_changed::<DeskSettings>),
+                retune_underline_glow
+                    .run_if(resource_changed::<DeskSettings>),
             ),
         );
 }
@@ -213,7 +214,7 @@ struct Underline;
 
 /// On the "x" that closes the desk at its index.
 #[derive(Component, Clone, Copy)]
-struct CloseMark(usize);
+struct CloseButton(usize);
 
 /// On the field a desk is renamed in.
 #[derive(Component, Clone, Copy)]
@@ -228,7 +229,7 @@ pub(crate) fn switcher() -> impl View {
             .width(px(space.divider))
             .height(px(space.track_divider))
             .shrink(0.0)
-            .fill(palette.brass_6);
+            .fill(palette.gold_6);
         let hidden = ScrollbarStyle {
             visibility: ScrollbarVisibility::Hidden,
             floating: true,
@@ -274,9 +275,9 @@ pub(crate) fn switcher() -> impl View {
             .shrink(1.0)
             .padding(UiRect::all(px(space.track_padding)))
             .gap(space.track_padding)
-            .fill(palette.well)
+            .fill(palette.input)
             .border(space.border)
-            .border_color(palette.brass_6)
+            .border_color(palette.gold_6)
             .radius(space.track_radius)
             .align(AlignItems::Stretch);
         row((divider, track))
@@ -341,12 +342,15 @@ fn indicator() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let (space, palette) = (&theme.space, &theme.palette);
-        let foot = cx.world.resource::<FeelSettings>().foot;
-        let halo =
-            halo(cx.world.resource::<DeskSettings>(), palette.lamp);
+        let underglow =
+            cx.world.resource::<EffectSettings>().underglow;
+        let glow = underline_glow(
+            cx.world.resource::<DeskSettings>(),
+            palette.glow,
+        );
         let radius =
             (space.track_radius - space.track_padding).max(0.0);
-        let light = palette.lamp.with_alpha(foot);
+        let light = palette.glow.with_alpha(underglow);
         let inner =
             BackgroundGradient::from(LinearGradient::to_top(vec![
                 ColorStop::new(light, percent(0.0)),
@@ -361,8 +365,8 @@ fn indicator() -> impl View {
                 bottom: px(0.0),
             })
             .height(px(space.underline))
-            .fill(palette.brass_4)
-            .tagged(halo)
+            .fill(palette.gold_4)
+            .tagged(glow)
             .tagged(Underline);
         column((line,))
             .position(PositionType::Absolute)
@@ -373,7 +377,7 @@ fn indicator() -> impl View {
                 bottom: px(0.0),
             })
             .display(Display::None)
-            .fill(palette.grey_4)
+            .fill(palette.button)
             .radius(radius)
             .tagged(inner)
             .tagged(Indicator)
@@ -381,25 +385,28 @@ fn indicator() -> impl View {
     })
 }
 
-/// The glow about the shown desk's underline, in `lamp`.
-fn halo(settings: &DeskSettings, lamp: Color) -> BoxShadow {
+/// The glow about the shown desk's underline, in `color`.
+fn underline_glow(
+    settings: &DeskSettings,
+    color: Color,
+) -> BoxShadow {
     BoxShadow(vec![ShadowStyle {
-        color: lamp.with_alpha(settings.halo),
+        color: color.with_alpha(settings.underline_glow),
         x_offset: px(0.0),
         y_offset: px(0.0),
         spread_radius: px(0.0),
-        blur_radius: px(settings.halo_blur),
+        blur_radius: px(settings.underline_glow_blur),
     }])
 }
 
-/// Glows the underline again as the tuning changes.
-fn retune_halo(
+/// Sets the underline's glow again as the tuning changes.
+fn retune_underline_glow(
     settings: Res<DeskSettings>,
     theme: Themed,
     mut lines: Query<&mut BoxShadow, With<Underline>>,
 ) {
     for mut line in &mut lines {
-        *line = halo(&settings, theme.palette.lamp);
+        *line = underline_glow(&settings, theme.palette.glow);
     }
 }
 
@@ -560,8 +567,8 @@ fn all_view() -> impl View {
 /// The "x" that closes a tab's desk, after its name, shown while the
 /// pointer is on the tab.
 fn tab_close(at: usize) -> impl View {
-    close_mark(move |world| ask_close(world, at))
-        .tagged(CloseMark(at))
+    close_button(move |world| ask_close(world, at))
+        .tagged(CloseButton(at))
         .tagged(Visibility::Hidden)
 }
 
@@ -624,7 +631,7 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
             world.resource_mut::<Desks>().rename(at, &name);
             world.resource_mut::<Renaming>().0 = None;
         })
-        .rules(well)
+        .rules(text_input)
         .rules(|cx: &mut Cx| {
             // As wide and as tall as the tab it covers.
             style::<HamletTheme>()
@@ -718,7 +725,7 @@ fn mark_shown(
 fn show_close(
     dragged: Res<TabDrag>,
     tabs: Query<(&DeskTab, &Hovered)>,
-    mut marks: Query<(&CloseMark, &mut Visibility)>,
+    mut marks: Query<(&CloseButton, &mut Visibility)>,
 ) {
     let over = |at: usize| {
         !dragged.is_moving()
@@ -754,7 +761,7 @@ fn click(
 /// Keeps a press on a tab's "x" from pressing the tab.
 fn press_close(
     mut press: On<PointerPress>,
-    marks: Query<(), With<CloseMark>>,
+    marks: Query<(), With<CloseButton>>,
 ) {
     if marks.contains(press.event_target()) {
         press.propagate(false);
@@ -765,7 +772,7 @@ fn press_close(
 /// would rename the desk.
 fn click_close(
     mut click: On<PointerClick>,
-    marks: Query<(), With<CloseMark>>,
+    marks: Query<(), With<CloseButton>>,
 ) {
     if marks.contains(click.event_target()) {
         click.propagate(false);

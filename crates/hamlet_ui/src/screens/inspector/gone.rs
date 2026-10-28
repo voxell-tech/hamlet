@@ -12,12 +12,12 @@ use super::agent::dim;
 use super::papers::Papers;
 use crate::convo::Convo;
 use crate::icons::Glyph;
-use crate::looks::{
-    Fills, action, bad_action, bare, breadcrumb, buttons, filling,
-    good_action, group, note, scroll_area, section, stated_large,
-    title,
-};
 use crate::platform::Wraps;
+use crate::styles::{
+    Fills, action, bad_action, bare, breadcrumb, buttons, filling,
+    good_action, group, note, scroll_area, section,
+    status_label_large, title,
+};
 use crate::world_menu::{self, Deed};
 use crate::{AnyView, View, built, lists, overview, with_cx};
 
@@ -59,7 +59,11 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 crumb,
                 row((
                     title(name.to_uppercase()),
-                    stated_large(Glyph::Gone, fate, Tone::Critical),
+                    status_label_large(
+                        Glyph::Gone,
+                        fate,
+                        Tone::Critical,
+                    ),
                 ))
                 .gap(section)
                 .align(AlignItems::Center)

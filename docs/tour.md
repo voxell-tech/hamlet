@@ -94,9 +94,9 @@ chief's place, the library), and `Trips` the letters on the roads right
 now.
 
 `hamlet_ui/src/screens/` groups the panels drawn from the client's state.
-`widgets/` groups their shared controls: `feel/`, `icons.rs`, `tabs.rs`,
+`widgets/` groups their shared controls: `effects/`, `icons.rs`, `tabs.rs`,
 `platform.rs` and `tuning.rs`. The other panels live beside those folders;
-`theme.rs` and `looks.rs` define their appearance. The panels' steps
+`theme.rs` and `styles.rs` define their appearance. The panels' steps
 before fynix mounts are `PanelSystems` in `hamlet_ui/src/lib.rs`
 (`Follow`, `Bind`), in `PreUpdate`; `panel_sets` orders them, and the
 apps in `testing.rs` add it, so a UI test settles in one update.
@@ -210,7 +210,7 @@ ordinary tools.
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs`, `index.rs` |
 | Gifts of skills and files, their upload in parts | `hamlet_client/src/gifts.rs`; dropped files reach it through `hamlet_realm/src/orders.rs` |
 | A panel or right-click menu | `hamlet_ui/src/screens/`, `world_menu/items.rs` |
-| Panels' colors, controls and icons | `assets/theme.toml`; `hamlet_ui/src/theme.rs`, `looks.rs`, `widgets/feel/`, `widgets/icons.rs` |
+| Panels' colors, controls and icons | `assets/theme.toml`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
 | Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |

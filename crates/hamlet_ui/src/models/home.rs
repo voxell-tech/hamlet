@@ -16,11 +16,11 @@ use super::{
     Asked, Draft, SHOWN, Shelf, catalogue, edit, read_models,
 };
 use crate::icons::Glyph;
-use crate::looks::{
-    Fills, action, bad_action, bare, beside, close, description,
-    good_action, group, list, note, section, well,
-};
 use crate::roll::{either, moved};
+use crate::styles::{
+    Fills, action, bad_action, bare, beside, close, description,
+    good_action, group, list, note, section, text_input,
+};
 use crate::switch::labelled_switch;
 use crate::{AnyView, View, with_cx};
 
@@ -174,7 +174,7 @@ fn price(name: &str, output: bool) -> AnyView {
             .step(0.05)
             .precision(2)
             .width(px(PRICE_WIDE))
-            .rules(well)
+            .rules(text_input)
             .boxed()
         },
     )
@@ -234,7 +234,7 @@ fn entry(model: &protocol::Listed) -> AnyView {
                 },
             );
         })
-        .rules(well),
+        .rules(text_input),
     ))
     .boxed()
 }
@@ -340,7 +340,7 @@ pub fn shelf() -> AnyView {
                 },
             )
             .grow(1.0)
-            .rules(well),
+            .rules(text_input),
         )),
         note(resource::<Shelf, _>(|shelf| {
             if shelf.asking {

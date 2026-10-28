@@ -11,12 +11,12 @@ use bevy_fynix::dock::{
 };
 use bevy_fynix::views::{FrameProps, column, frame, overlay};
 use hamlet_client::chats::{Entry, Transcript};
-use hamlet_ui::feel::Lit;
+use hamlet_ui::effects::Highlight;
 use hamlet_ui::icons::Glyph;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::{
-    Convo, Cx, ICON, View, chat, inspector, lit_panel, menu, panel,
-    petition, settings, status_bar, toolbar, welcome,
+    Convo, Cx, ICON, View, chat, highlight_panel, inspector, menu,
+    panel, petition, settings, status_bar, toolbar, welcome,
 };
 
 use super::{Scene, Stand, Ui};
@@ -59,10 +59,10 @@ pub(super) fn seed_dock(world: &mut World) {
     registry.register(
         "needs",
         DockWindowKind::new("NEEDS YOU", || {
-            lit_panel(
+            highlight_panel(
                 petition::screen(),
-                Lit {
-                    alarm: true,
+                Highlight {
+                    attention: true,
                     flash: false,
                 },
             )
@@ -72,10 +72,10 @@ pub(super) fn seed_dock(world: &mut World) {
     registry.register(
         "agent",
         DockWindowKind::new("INSPECTOR", || {
-            lit_panel(
+            highlight_panel(
                 inspector::screen(),
-                Lit {
-                    alarm: false,
+                Highlight {
+                    attention: false,
                     flash: true,
                 },
             )

@@ -14,7 +14,6 @@ pub mod history;
 mod hover;
 pub mod limits;
 pub mod lists;
-mod looks;
 mod markdown;
 pub mod menu;
 pub mod models;
@@ -28,6 +27,7 @@ pub mod screens;
 pub mod select;
 mod sounds;
 mod status;
+mod styles;
 #[cfg(test)]
 mod testing;
 pub mod theme;
@@ -50,10 +50,7 @@ use hamlet_client::connection::ClientSystems;
 use hamlet_realm::pick::Selected;
 
 pub use self::convo::Convo;
-pub use self::dock::{lit_panel, panel};
-pub use self::looks::{
-    ICON, brass, grim, lamp, marked, retrace, well,
-};
+pub use self::dock::{highlight_panel, panel};
 pub use self::remember::Remembered;
 pub use self::roll::Roll;
 pub use self::root::toolbar;
@@ -61,9 +58,13 @@ pub use self::screens::{
     chat, inspector, links, overview, petition, pictures, settings,
 };
 pub use self::status::{Bar, status_bar};
-use self::theme::{HamletTheme, Look};
+pub use self::styles::{
+    ICON, back_link, button, danger_button, marked, primary_button,
+    text_input,
+};
+use self::theme::{HamletTheme, ThemeState};
 pub use self::widgets::{
-    dial, disclosure, fade, feel, icons, platform, switch, tabs,
+    dial, disclosure, effects, fade, icons, platform, switch, tabs,
     tuning,
 };
 pub use self::window::window_plugin;
@@ -196,7 +197,7 @@ impl Plugin for UiPlugin {
         // The world panel shows the world's camera, which the world
         // has spawned by now.
         .add_systems(
-            OnEnter(Look::Ready),
+            OnEnter(ThemeState::Ready),
             (world_view::attach, dock::seed, root::mount).chain(),
         )
         .add_systems(

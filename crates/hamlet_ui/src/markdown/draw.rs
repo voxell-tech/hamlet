@@ -28,11 +28,11 @@ use super::parse::{Reading, hashed, parse, plain};
 use super::picture::picture_view;
 use super::{Align, Block, Kind, Marker, Row, Span, Style, Target};
 use crate::links::{Anchor, seek};
-use crate::looks::{Fills, bare};
 use crate::platform::{
     Display as DisplayFace, DisplayText, Mono, MonoText,
 };
 use crate::select::Area;
+use crate::styles::{Fills, bare};
 use crate::theme::Palette;
 use crate::{AnyView, Cx, View};
 
@@ -262,7 +262,7 @@ pub(super) fn rich(spans: &[Span], ink: Ink) -> AnyView {
                     if code {
                         entity.insert((
                             MonoText,
-                            TextBackgroundColor(theme.palette.plate),
+                            TextBackgroundColor(theme.palette.code),
                         ));
                     } else if ink.face == Face::Heading {
                         entity.insert(DisplayText);
@@ -317,9 +317,9 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
         .gap(4.0)
         .padding(UiRect::axes(px(10.0), px(8.0)))
         .min_width(px(0.0))
-        .fill(theme.palette.plate)
+        .fill(theme.palette.code)
         .border(1.0)
-        .border_color(theme.palette.brass_6)
+        .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
 }
 
@@ -352,9 +352,9 @@ fn table_view(
                 .map_or(&[][..], Vec::as_slice);
             let (face, fill): (_, fn(&Palette) -> Color) = if at == 0
             {
-                (Face::Strong, |p| p.plate)
+                (Face::Strong, |p| p.code)
             } else {
-                (Face::Body, |p| p.black)
+                (Face::Body, |p| p.surface)
             };
             let side = match align.get(column_at) {
                 Some(Align::Center) => AlignItems::Center,
@@ -382,7 +382,7 @@ fn table_view(
                 .gap(1.0)
                 .padding(UiRect::all(px(1.0)))
                 .min_width(px(0.0))
-                .fill(cx.theme().palette.brass_6),
+                .fill(cx.theme().palette.gold_6),
         );
         if let Some(mut ui) = cx.world.get_mut::<Node>(node) {
             ui.display = Display::Grid;
@@ -430,7 +430,7 @@ fn block_view(
         Kind::Rule => frame()
             .height(px(1.0))
             .margin(UiRect::vertical(px(4.0)))
-            .fill(cx.theme().palette.brass_6)
+            .fill(cx.theme().palette.gold_6)
             .boxed(),
         Kind::Table { align, rows } => {
             table_view(cx, align, rows, tone)
@@ -449,7 +449,7 @@ fn block_view(
                 .width(px(3.0))
                 .margin(UiRect::right(px(10.0)))
                 .shrink(0.0)
-                .fill(cx.theme().palette.brass_5)
+                .fill(cx.theme().palette.gold_5)
                 .boxed(),
         );
     }
