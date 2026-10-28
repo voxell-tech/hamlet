@@ -331,9 +331,9 @@ pub struct CameraSettings {
     /// Fog is whole at the distance times the first, plus the
     /// second.
     pub fog_end: (f32, f32),
-    /// The sun's shadows reach from, split at and end at the
-    /// distance times these.
-    pub shadow_range: (f32, f32, f32),
+    /// The sun's shadows split at and end at no nearer than the
+    /// distance times these. They start at the camera.
+    pub shadow_range: (f32, f32),
     /// Beyond this distance nothing is blurred.
     pub blur_within: f32,
     /// The f-stop at a distance of one unit. It narrows with

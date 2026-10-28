@@ -159,10 +159,11 @@ pub(super) fn robot_detail(
 
 /// The distances from the camera the sun's shadows start at, split at
 /// and end at, for a camera `dist` from what it looks at, `rise`
-/// above it and looking down by the sine `down`. They follow the
-/// zoom, so shadows stay sharp up close, and stretch to cover the
-/// ground in view: from the foot of the view to its top, or to the
-/// fog's end where the top is over the horizon.
+/// above it and looking down by the sine `down`. They start at the
+/// camera, for the volumetric fog takes no light where they do not
+/// reach, and stretch to cover the ground in view: to the top of the
+/// view, or to the fog's end where the top is over the horizon. The
+/// split follows the zoom, so shadows stay sharp up close.
 fn shadowed(
     settings: &CameraSettings,
     dist: f32,
@@ -170,17 +171,15 @@ fn shadowed(
     down: f32,
     fog_end: f32,
 ) -> (f32, f32, f32) {
-    let (start, split, end) = settings.shadow_range;
+    let (split, end) = settings.shadow_range;
     let pitch = down.clamp(-1.0, 1.0).asin();
     let half = settings.fov.to_radians() * 0.5;
-    let rise = rise.max(settings.near);
-    let nearest = rise / (pitch + half).sin().max(1e-3);
     let farthest = if pitch - half > 0.01 {
-        (rise / (pitch - half).sin()).min(fog_end)
+        (rise.max(settings.near) / (pitch - half).sin()).min(fog_end)
     } else {
         fog_end
     };
-    let least = (dist * start).min(nearest * 0.8).max(settings.near);
+    let least = settings.near;
     let most = (dist * end).max(farthest).max(least * 2.0);
     let split = (dist * split).clamp(least * 1.5, most * 0.75);
     (least, split, most)
