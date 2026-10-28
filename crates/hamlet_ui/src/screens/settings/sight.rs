@@ -219,13 +219,6 @@ fn volumetric_fog() -> impl View {
             (0.0, 6.0),
         ),
         amount::<Fog>(
-            Glyph::Sun,
-            "Light at noon",
-            |f| f.high_sun,
-            |f, v| f.high_sun = v,
-            (0.0, 1.0),
-        ),
-        amount::<Fog>(
             Glyph::Halo,
             "Glow",
             |f| f.glow,

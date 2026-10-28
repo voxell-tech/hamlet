@@ -52,6 +52,15 @@ pub fn plugin(app: &mut App) {
                 (
                     (light, light_windows)
                         .run_if(resource_changed::<Sky>),
+                    dim_fill.after(light).run_if(
+                        |sky: Res<Sky>,
+                         fog: Res<VolumetricFogSettings>,
+                         quality: Res<Quality>| {
+                            sky.is_changed()
+                                || fog.is_changed()
+                                || quality.is_changed()
+                        },
+                    ),
                     (occlude, sky_dome)
                         .run_if(resource_changed::<SkySettings>),
                     spend.run_if(resource_changed::<Quality>),
@@ -249,11 +258,9 @@ pub struct VolumetricFogSettings {
     /// third. It has no top: it thins away, so a camera high above
     /// looks down through little of it.
     pub height: f32,
-    /// How brightly its shafts take the key light under a low sun,
-    /// and the share of that they keep under the highest sun. It
-    /// does not thicken the fog.
+    /// How brightly its shafts take the key light. It does not
+    /// thicken the fog.
     pub strength: f32,
-    pub high_sun: f32,
     /// How much of the light it throws on forward rather than every
     /// way, 0 to 1: the glow around the sun.
     pub glow: f32,
@@ -525,6 +532,9 @@ pub struct Sky {
     /// The direction the fill light travels. It follows the sun
     /// under the land too, so it never jumps.
     pub fill_dir: Vec3,
+    /// The sine of the key light's height, before its direction is
+    /// held at [`SkySettings::lowest`].
+    pub key_height: f32,
 }
 
 impl Default for Sky {
@@ -567,6 +577,7 @@ impl Sky {
             hour,
             look,
             fill_dir,
+            key_height: height,
         }
     }
 
@@ -820,13 +831,20 @@ pub(crate) fn sky_dome(
         .try_insert(AtmosphereSettings::default());
 }
 
-/// How low the key light stands, 0 high in the sky to 1 at its
-/// lowest.
-fn lowness(look: &Look, sky_set: &SkySettings) -> f32 {
-    let height = -look.sun_dir.normalize_or(Vec3::NEG_Y).y;
-    let k = ((height - sky_set.lowest) / (1.0 - sky_set.lowest))
-        .clamp(0.0, 1.0);
-    1.0 - k * k * (3.0 - 2.0 * k)
+/// The heights of the key light, as sines, between which the fill
+/// light fades out as it sinks, and then between which the
+/// volumetric fog fades in. The engine's fog takes no light while
+/// any directional light without shadows is drawn: its lights are
+/// sorted with those first, and it stops at the first that is not
+/// volumetric. So the fill light is gone before the fog comes.
+const FILL_FADES: (f32, f32) = (0.35, 0.25);
+const FOG_RISES: (f32, f32) = (0.25, 0.12);
+
+/// How far the key light at `height` has sunk through `fade`, 0
+/// above it to 1 below it, eased at both ends.
+fn sunk(height: f32, (from, to): (f32, f32)) -> f32 {
+    let k = ((from - height) / (from - to)).clamp(0.0, 1.0);
+    k * k * (3.0 - 2.0 * k)
 }
 
 /// The steps taken through the volumetric fog, none when it is not
@@ -842,12 +860,6 @@ fn fog_steps(set: &VolumetricFogSettings, quality: Quality) -> u32 {
 /// Lets the key light throw shafts through the volumetric fog, as
 /// many steps through it as the quality allows, or takes the fog
 /// away.
-///
-/// The fill light is marked volumetric with it. The engine's fog
-/// stops at the first directional light that is not, and with the
-/// fill light first it would take no light at all. The fill light
-/// casts no shadows, which the fog takes as no light, so it adds
-/// nothing of its own.
 pub(crate) fn raise_fog(
     mut commands: Commands,
     set: Res<VolumetricFogSettings>,
@@ -855,7 +867,6 @@ pub(crate) fn raise_fog(
     mut images: ResMut<Assets<Image>>,
     camera: Single<Entity, With<WorldCamera>>,
     sun: Single<Entity, With<Sun>>,
-    fill: Single<Entity, With<FillLight>>,
     fog: Query<Entity, With<WorldFog>>,
 ) {
     let steps = fog_steps(&set, *quality);
@@ -865,7 +876,6 @@ pub(crate) fn raise_fog(
         }
         commands.entity(*camera).try_remove::<VolumetricFog>();
         commands.entity(*sun).try_remove::<VolumetricLight>();
-        commands.entity(*fill).try_remove::<VolumetricLight>();
         return;
     }
     commands.entity(*camera).try_insert(VolumetricFog {
@@ -873,7 +883,6 @@ pub(crate) fn raise_fog(
         ..default()
     });
     commands.entity(*sun).try_insert(VolumetricLight);
-    commands.entity(*fill).try_insert(VolumetricLight);
     if fog.is_empty() {
         commands.spawn((
             WorldFog::default(),
@@ -888,6 +897,34 @@ pub(crate) fn raise_fog(
 /// How far the volumetric fog reaches below sea level and above the
 /// camera.
 const FOG_MARGIN: f32 = 50.0;
+
+/// Fades the fill light out as the key light sinks through
+/// [`FILL_FADES`] while the volumetric fog is drawn, and puts it out
+/// once it gives no light, so that the fog can take the key light's.
+pub(crate) fn dim_fill(
+    sky: Res<Sky>,
+    set: Res<VolumetricFogSettings>,
+    quality: Res<Quality>,
+    mut fill: Single<
+        (&mut DirectionalLight, &mut Visibility),
+        With<FillLight>,
+    >,
+) {
+    let left = if fog_steps(&set, *quality) > 0 {
+        1.0 - sunk(sky.key_height, FILL_FADES)
+    } else {
+        1.0
+    };
+    fill.0.illuminance = sky.look.fill_lux * left;
+    let shown = if left > 0.0 {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    if *fill.1 != shown {
+        *fill.1 = shown;
+    }
+}
 
 /// Rows of the fog's thinning, from the foot of its volume to the
 /// top. Enough that a low fog in a tall volume still thins smoothly.
@@ -936,27 +973,28 @@ fn thin(
     }
 }
 
-/// Fits the volumetric fog to its settings and to the hour: the
-/// lower the sun, the more strongly the fog takes its light.
+/// Fits the volumetric fog to its settings and to the hour: none
+/// while the key light is high, coming in through [`FOG_RISES`] as it
+/// sinks.
 pub(crate) fn fit_fog(
     sky: Res<Sky>,
     set: Res<VolumetricFogSettings>,
-    sky_set: Res<SkySettings>,
     mut fog: Query<&mut VolumetricFog, With<WorldCamera>>,
     mut volumes: Query<(&mut WorldFog, &mut FogVolume)>,
 ) {
     let look = &sky.look;
-    let low = lowness(look, &sky_set);
-    let share = set.high_sun + (1.0 - set.high_sun) * low;
+    // It comes in as the key light sinks, thickening and lighting
+    // together, so it never appears at once.
+    let risen = sunk(sky.key_height, FOG_RISES);
     for mut fog in &mut fog {
         fog.ambient_color = look.ambient;
-        fog.ambient_intensity = set.ambient;
+        fog.ambient_intensity = set.ambient * risen;
     }
     for (mut fog, mut volume) in &mut volumes {
-        fog.light = set.strength * share;
+        fog.light = set.strength * risen;
         // `lay_fog` sets its light, once it knows how wide it is.
         *volume = FogVolume {
-            density_factor: set.density(),
+            density_factor: set.density() * risen,
             absorption: set.absorption,
             scattering: set.scattering,
             scattering_asymmetry: set.glow,
