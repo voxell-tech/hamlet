@@ -135,31 +135,40 @@ reached, said to be samples, with ASK AGAIN at their foot.
   time. An agent moves into the hamlet chosen, a hamlet is founded and
   shown, tools join those added by hand. The server's side is in
   [`protocol.md`](protocol.md#packages).
-- The seller's desk (`view/desk.rs`, `market/sell.rs`): SELL AN AGENT,
-  SELL A HAMLET or SELL TOOLS opens a form laid out as Settings is. What
-  is sold is packed by the home's server (a `package` read, in parts),
-  the listing is put up or changed with its words, price, tags and
-  cover, the package is uploaded as its new version, and PUT UP FOR SALE
-  lists it. A cover is a PNG, JPEG or WebP of at most 400 KB, from a
-  file of this computer or an address on the web. A price starts at
-  $1.99 and is at least $0.99. Publishing first shows the seller terms
-  to agree to. A paid listing needs payouts set up with Stripe, which
-  SET UP PAYOUTS opens after the terms; CHECK AGAIN asks Stripe whether
-  the chief can be paid.
-- The bazaar's checks (`market/check.rs`): a listing put up, and each
-  new version of one on the shelves, is checked before buyers get it.
-  The form's ON THE SHELVES says it is being checked, asking the server
-  every five seconds until it is done, or why it was rejected, with ASK
-  A HUMAN to have a person at the bazaar look at it. The limits on
-  selling (a verified email, an account 7 days old, 3 sent a day and 2
-  checked at once) are said with what to do (`Refusal::words`).
-- YOURS lists what the chief sells, each opening its form, and what they
-  bought, each opening its page with how it stands in the home.
+- The seller's desk (`view/desk.rs` and `view/desk/`, `market/sell.rs`,
+  `market/drafts.rs`, `market/versions.rs`): SELL opens the chief's
+  listings, a row each with its kind, price, newest version and state,
+  over what they bought. NEW LISTING shows the seller terms the first
+  time, then a card for each kind, AGENT and HAMLET with the fee to
+  verify from `GET /v1/sell/config` (PLUGIN is coming soon), then the
+  home's agents or hamlets, searched, those already listed greyed out.
+  CONTINUE has the home's server pack it (a `package` read, in parts)
+  and puts the listing up with it as draft 0.0.1.
+- A listing's page has its versions, newest first, beside the version
+  chosen, or over it below 560 pixels of panel. A draft's details are a
+  form: cover, title, summary, price (at least $0.99, or 0 for free;
+  SET UP PAYOUTS when it has a price and Stripe cannot pay yet),
+  description and tags, picked from those in use (`GET /v1/tags`); any
+  other version's are locked. Under them are when it was uploaded, its
+  size and files, and its files against the version before, each
+  opening on its lines taken out and put in. A draft is published
+  unverified, paid to be verified (Stripe's page in the browser, its
+  payment asked after every five seconds) or discarded; NEW VERSION
+  packs it again as the next draft, one draft at a time.
+- The bazaar's checks (`market/check.rs`): a version paid for is
+  checked, its state asked after every five seconds until it is
+  verified or rejected. A rejected one says why, with PUBLISH
+  UNVERIFIED and ASK A HUMAN to have a person at the bazaar look at it.
+  The limits on selling (a verified email, an account 7 days old, 3
+  sent a day and 2 checked at once) are said with what to do
+  (`Refusal::words`).
 
 The panel's sizes are under `[bazaar]` in `assets/ui.toml`. The
 `bazaar-*` scenes of `cargo run --example ui_gallery` draw each stall and
 a page of each, with OpenRouter's and skills.sh's answers given by hand
 (`bazaar::offer`), and the `market-*` scenes the market signed in and
-out, signing in, a listing at each step of a deal, the desk, a listing
-rejected by the checks and Yours,
-with the bazaar's server's answers given by hand (`bazaar::stage`).
+out, signing in and a listing at each step of a deal, and the `sell-*`
+scenes the seller's desk with
+the bazaar's panel alone (`sell-narrow` beside the world, 420 pixels
+wide; `--side <px>` does the same for any of them), with the bazaar's
+server's answers given by hand (`bazaar::stage`).

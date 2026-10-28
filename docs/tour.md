@@ -212,7 +212,7 @@ ordinary tools.
 | Founding and cross-hamlet agreements | `hamlet_server/src/realm/deeds.rs`, `dealings.rs`; a hamlet founded from a template is `realm::found_from` |
 | Skills the chief takes into the library | `hamlet_server/src/society/library.rs` (`take`) |
 | The Agent Bazaar's panel, its stalls and fetches | `hamlet_app/src/screens/bazaar.rs`, `bazaar/`; [`bazaar.md`](bazaar.md) |
-| Buying and selling at the bazaar's server | `hamlet_app/src/screens/bazaar/market.rs`, `market/`, `view/trade.rs`, `view/desk.rs`; the home's side in `hamlet_server/src/market.rs` |
+| Buying and selling at the bazaar's server | `hamlet_app/src/screens/bazaar/market.rs`, `market/`, `view/trade.rs`, `view/desk.rs` and `view/desk/`; the home's side in `hamlet_server/src/market.rs` |
 | The Agent Bazaar in the world, dioramas and the viewer | `hamlet_realm/src/bazaar.rs`, `bazaar/`, `diorama.rs`, `viewer.rs`; the viewer in a panel: `hamlet_app/src/viewer.rs` |
 | What agents and hamlets wear | Kept: `hamlet_server/src/looks.rs`; worn: `hamlet_realm/src/dress.rs`, `wardrobe.rs`, `generator/attire.rs`, `keeper/wear.rs`; sold and fitted: `hamlet_app/src/screens/bazaar/wardrobe.rs`, `view/wardrobe.rs`; baked: `voxell-tech/private-hamlet-assets` (private); [`looks.md`](looks.md) |
 | A prompt or chief document | `hamlet_server/src/prompt/`, `documents.rs`; default charter in `hamlet_server/assets/charter.md` |
