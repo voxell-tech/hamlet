@@ -10,9 +10,8 @@ use hamlet_protocol::client as protocol;
 
 use super::Section;
 use crate::convo::Convo;
-use crate::icons::Glyph;
 use crate::looks::{
-    action, close, filling, group, lettered, note, scroll_area,
+    breadcrumb, close, filling, group, lettered, note, scroll_area,
 };
 use crate::{View, built};
 
@@ -59,14 +58,39 @@ fn peers(world: &World) -> Vec<protocol::ConversationView> {
         .unwrap_or_default()
 }
 
+/// The name of the agent `with` is, or its place in its hamlet while
+/// it is not known.
+fn name_of_peer(world: &World, with: &protocol::AgentRef) -> String {
+    hamlet_client::realm::agent(world, with)
+        .filter(|agent| address_of(world, *agent).is_some())
+        .map(|agent| name_of(world, agent))
+        .unwrap_or_else(|| format!("{}#{}", with.hamlet, with.number))
+}
+
+/// Where the chat that is watched read-only is: back to the chief's
+/// chat, then the letters or questions it is of.
+pub(super) fn path(world: &World) -> impl View + use<> {
+    let convo = world.resource::<Convo>();
+    let current = world
+        .get::<Chat>(convo.session)
+        .and_then(|chat| {
+            let with = chat.0.from.as_ref()?;
+            let kind = match chat.0.kind {
+                Some(protocol::ChatRefKind::Questions) => "QUESTIONS",
+                _ => "LETTERS",
+            };
+            let name = name_of_peer(world, with);
+            Some(format!("{kind} WITH {}", name.to_uppercase()))
+        })
+        .unwrap_or_default();
+    breadcrumb(vec!["CHIEF CHAT".into()], current, |world, _| {
+        chief(world);
+    })
+}
+
 fn exchange(peer: protocol::ConversationView) -> impl View {
     built(move |cx| {
-        let name = hamlet_client::realm::agent(cx.world, &peer.with)
-            .filter(|agent| address_of(cx.world, *agent).is_some())
-            .map(|agent| name_of(cx.world, agent))
-            .unwrap_or_else(|| {
-                format!("{}#{}", peer.with.hamlet, peer.with.number)
-            });
+        let name = name_of_peer(cx.world, &peer.with);
         let kind = match peer.kind {
             protocol::ConversationViewKind::Letters => "LETTERS",
             protocol::ConversationViewKind::Questions => "QUESTIONS",
@@ -92,8 +116,14 @@ fn exchange(peer: protocol::ConversationView) -> impl View {
 
 pub(super) fn screen() -> impl View {
     keyed(derived(peers).when(every_frame()), |chats| {
-        let mut rows =
-            vec![action(Glyph::Back, "CHIEF CHAT", chief).boxed()];
+        let mut rows = vec![
+            breadcrumb(
+                vec!["CHIEF CHAT".into()],
+                "AGENT CHATS",
+                |world, _| chief(world),
+            )
+            .boxed(),
+        ];
         if chats.is_empty() {
             rows.push(
                 note("No conversations with other agents yet.")

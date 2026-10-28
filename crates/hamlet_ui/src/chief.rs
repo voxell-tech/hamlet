@@ -34,7 +34,7 @@ use hamlet_realm::pick::{Selected, Thing, focus_on, select};
 use crate::convo::Convo;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, action, back, buttons, choice, choices, description,
+    Fills, action, breadcrumb, buttons, choice, choices, description,
     filling, group, note, scroll_area, section, title,
 };
 use crate::platform::Wraps;
@@ -338,6 +338,11 @@ pub fn panel(chief: Entity) -> AnyView {
             None => ("At home".to_string(), Tone::Dim),
         };
         let views = (
+            breadcrumb(
+                vec!["HAMLETS".into()],
+                facts.name.to_uppercase(),
+                |world, _| select(world, None),
+            ),
             crate::looks::beside((
                 title(facts.name.to_uppercase()),
                 label(place).tone(tone).wrap(false),
@@ -347,11 +352,11 @@ pub fn panel(chief: Entity) -> AnyView {
                  as Wickstep.",
             ),
             note(facts.look.words()),
-            buttons(vec![
-                action(Glyph::Hearth, "THE HEARTH", go_home),
-                back("ALL HAMLETS", |world| select(world, None))
-                    .boxed(),
-            ]),
+            buttons(vec![action(
+                Glyph::Hearth,
+                "THE HEARTH",
+                go_home,
+            )]),
             scroll_area((wardrobe(chief, facts),)),
         );
         with_cx(move |cx| {

@@ -34,7 +34,7 @@ use crate::dock::show_tab;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, away, back, buttons, card_button, command, filling,
+    Fills, away, breadcrumb, buttons, card_button, command, filling,
     good_action, hairline, note, scroll_area, well,
 };
 use crate::{
@@ -464,11 +464,7 @@ fn list() -> impl View {
 
 /// Buttons for the session being read.
 fn actions() -> AnyView {
-    buttons(vec![
-        back("BACK", close).boxed(),
-        good_action(Glyph::Play, "RESUME", resume),
-    ])
-    .boxed()
+    buttons(vec![good_action(Glyph::Play, "RESUME", resume)]).boxed()
 }
 
 /// The reader of the open session.
@@ -484,6 +480,7 @@ fn reader() -> impl View {
             Some(past) => (shortened(&past.title), detail(past)),
             None => Default::default(),
         };
+        let session = format!("SESSION {}", reading.number);
         let hint = format!(
             "RESUME carries on from session {}.",
             reading.number
@@ -497,6 +494,11 @@ fn reader() -> impl View {
         let line = theme.palette.brass_6;
         cx.build(
             column((
+                breadcrumb(
+                    vec!["HISTORY".into()],
+                    session,
+                    |world, _| close(world),
+                ),
                 label(title).size(heading).bold(true),
                 note(detail),
                 actions(),

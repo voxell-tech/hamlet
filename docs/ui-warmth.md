@@ -21,7 +21,9 @@ room stays dark so that the world stays the bright thing on screen.
 | A coal | A refusing button glows red-brown under the pointer | This stops, refuses or throws away |
 | Candle under a word | A low pool of light under a menu title or a tab | Where you are in a menu or a set of tabs |
 | A lamp lit over a panel | Lamplight falls from the top of Needs You while something waits, and swells when something new arrives | Something waits for you |
-| A breath of magic | A faint teal light crosses the top of the Inspector when the selected agent changes | You are with another agent now. This is the only teal in the panels |
+| A breath of magic | A faint teal light crosses the top of the Inspector when what it shows changes, another page or another agent | You are looking at something else now. This and its tab's flash are the only teal in the panels |
+| A lit tab | A panel behind another carries its light on its tab: lamplight rising from the tab's foot, or a teal flash | Something happened in a panel you are not looking at |
+| A badge | A small amber pill with a number burns on the tab of a panel behind another while something waits in it | Something waits for you there, and how many |
 | Amber words | Status words are lamp amber | Live, or waiting |
 | A speaker's paint | In the chat, a speaker's name and disc are in the paint of its robot | Who said it. The world's colours mark speakers and nothing else |
 | An icon | A small line drawing before a word, in the word's own tone | What the word is, found sooner |
@@ -37,7 +39,8 @@ In `hamlet_ui/src/`:
   meets.
 - `looks.rs` holds the looks of each kind of button and field.
 - `widgets/feel/` holds the behaviour: a control's warmth, press, flame and
-  sparks, and the light that falls into a panel. Its tuning is
+  sparks, the light that falls into a panel and the light its tab
+  carries while it is behind another. Its tuning is
   `FeelSettings`, from `assets/ui.toml`.
 
 ## Seeing it

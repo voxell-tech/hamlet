@@ -35,9 +35,9 @@ use crate::dock::{PanelAppExt, panel};
 use crate::fade::ScrollFade;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, ICON, action, bad_action, bare, buttons, close,
-    description, doors, hairline, list, note, page_head, parts,
-    section, small_rules, well,
+    Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
+    close, description, doors, hairline, list, note, parts, section,
+    small_rules, well,
 };
 use crate::switch::switch;
 use crate::world_menu::{self, Deed};
@@ -653,11 +653,10 @@ pub fn screen() -> AnyView {
             Pane::Sight => sight::page().boxed(),
             Pane::Front | Pane::Sound => sound().boxed(),
         };
-        let head = page_head(
-            "SETTINGS",
-            |world| *world.resource_mut::<Pane>() = Pane::Front,
-            pane.glyph(),
+        let head = breadcrumb(
+            vec!["SETTINGS".into()],
             pane.title(),
+            |world, _| *world.resource_mut::<Pane>() = Pane::Front,
         );
         with_cx(move |cx| {
             column((head, body)).gap(cx.theme().space.panel)

@@ -24,10 +24,10 @@ use crate::convo::Convo;
 use crate::feel::Mood;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, ICON, action, bad_action, bare, close, filling, hairline,
-    headed, note, page_head, scroll_area, title,
+    Fills, ICON, action, bad_action, bare, breadcrumb, close,
+    filling, hairline, note, scroll_area, title,
 };
-use crate::platform::{DisplayText, Wraps};
+use crate::platform::Wraps;
 use crate::roll::rolled;
 use crate::status::Bar;
 use crate::world_menu::{self};
@@ -132,28 +132,20 @@ fn header(agent: Entity, with: Option<String>) -> impl View {
         }))
         .size(ICON)
         .tone(Tone::Accent);
-        // The way to its hamlet, whose page leads on to its mayor.
+        // The path to it: every hamlet, then its own, whose page
+        // leads on to its mayor.
         let hamlet =
             cx.world.get::<LivesIn>(agent).map(|lives| lives.0);
-        let crumb = match hamlet {
-            Some(hamlet) => {
-                let of =
-                    hamlet_client::realm::name_of(cx.world, hamlet);
-                button(headed(
-                    Glyph::Back,
-                    label(of.to_uppercase())
-                        .wrap(false)
-                        .tagged(DisplayText),
-                ))
-                .rules(crate::looks::retrace)
-                .tagged(Mood::Ink)
-                .on_activate(move |world| {
-                    select(world, Some(Thing::Common(hamlet)));
-                })
-                .boxed()
-            }
-            None => frame().boxed(),
-        };
+        let mut trail = vec!["HAMLETS".to_string()];
+        if let Some(hamlet) = hamlet {
+            let of = hamlet_client::realm::name_of(cx.world, hamlet);
+            trail.push(of.to_uppercase());
+        }
+        let crumb =
+            breadcrumb(trail, name.clone(), move |world, at| {
+                let place = hamlet.filter(|_| at == 1);
+                select(world, place.map(Thing::Common));
+            });
         // There only while there is work to stop.
         let stop =
             row((bad_action(Glyph::Stop, "STOP", move |world| {
@@ -318,15 +310,9 @@ fn prompt(cx: &Cx) -> impl View + use<> {
         })
         .within(bare());
     column((
-        page_head(
-            "CHAT",
-            |world| {
-                *world.resource_mut::<Section>() =
-                    Section::Conversation;
-            },
-            Glyph::Notes,
-            "PROMPT",
-        ),
+        breadcrumb(vec!["CHAT".into()], "PROMPT", |world, _| {
+            *world.resource_mut::<Section>() = Section::Conversation;
+        }),
         note("What this agent is told at the start of a turn."),
         hairline(cx.theme().palette.brass_6),
         scroll_area((shown,)),
@@ -348,24 +334,27 @@ fn sections() -> impl View {
         Section::Conversation => {
             keyed(resource::<Convo, _>(|m| m.session), |_| {
                 with_cx(|cx| {
-                    let bar = if super::conversations::is_read_only(
-                        cx.world,
-                    ) {
-                        close((
-                            note("READ ONLY"),
-                            action(
-                                Glyph::Back,
-                                "CHIEF CHAT",
-                                super::conversations::chief,
-                            ),
+                    let gap = cx.theme().space.gap;
+                    // Another's chat is only watched, and leads
+                    // back to the chief's by the path over it.
+                    if super::conversations::is_read_only(cx.world) {
+                        column((
+                            super::conversations::path(cx.world),
+                            chat::transcript(),
+                            close((note("READ ONLY"),)),
                         ))
+                        .fills_height()
+                        .gap(gap)
                         .boxed()
                     } else {
-                        chat::message_bar().boxed()
-                    };
-                    column((chat::transcript(), bar))
+                        column((
+                            chat::transcript(),
+                            chat::message_bar(),
+                        ))
                         .fills_height()
-                        .gap(cx.theme().space.gap)
+                        .gap(gap)
+                        .boxed()
+                    }
                 })
                 .boxed()
             })
@@ -844,6 +833,9 @@ mod tests {
             press(&mut app, "AGENT CHATS");
             app.update();
         }
+        // The path over a watched chat leads back to the chief's.
+        press(&mut app, "LETTERS WITH SCOUT");
+        app.update();
         press(&mut app, "CHIEF CHAT");
         app.update();
         let session = app.world().resource::<Convo>().session;

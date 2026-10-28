@@ -6,15 +6,16 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
-use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_realm::pick::{Thing, select};
 
 use super::agent::dim;
 use super::papers::Papers;
 use crate::convo::Convo;
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, action, bad_action, bare, buttons, filling, good_action,
-    group, note, scroll_area, section, stated_large, title,
+    Fills, action, bad_action, bare, breadcrumb, buttons, filling,
+    good_action, group, note, scroll_area, section, stated_large,
+    title,
 };
 use crate::platform::Wraps;
 use crate::world_menu::{self, Deed};
@@ -36,10 +37,26 @@ pub(super) fn ruin(agent: Entity) -> impl View {
             .get::<Purpose>(agent)
             .map(|p| p.0.clone())
             .unwrap_or_default();
+        // The path to it: every hamlet, then the one it lived in.
+        let hamlet =
+            cx.world.get::<LivesIn>(agent).map(|lives| lives.0);
+        let mut trail = vec!["HAMLETS".to_string()];
+        if let Some(hamlet) = hamlet {
+            trail.push(named(hamlet).to_uppercase());
+        }
+        let crumb = breadcrumb(
+            trail,
+            name.to_uppercase(),
+            move |world, at| {
+                let place = hamlet.filter(|_| at == 1);
+                select(world, place.map(Thing::Common));
+            },
+        );
         let (section, gap) =
             (cx.theme().space.section, cx.theme().space.gap);
         cx.build(
             column((
+                crumb,
                 row((
                     title(name.to_uppercase()),
                     stated_large(Glyph::Gone, fate, Tone::Critical),
@@ -68,20 +85,6 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                             );
                         },
                     ),
-                    action(
-                        Glyph::Hamlet,
-                        "ITS HAMLET",
-                        move |world| {
-                            let Some(lives) =
-                                world.get::<LivesIn>(agent)
-                            else {
-                                return;
-                            };
-                            let hamlet = Thing::Common(lives.0);
-                            world.resource_mut::<Selected>().0 =
-                                Some(hamlet);
-                        },
-                    ),
                 ]),
             ))
             .gap(gap),
@@ -94,21 +97,20 @@ pub(super) fn ruin(agent: Entity) -> impl View {
 pub(super) fn library() -> impl View {
     with_cx(|cx| {
         column((
+            breadcrumb(
+                vec!["HAMLETS".into()],
+                "THE LIBRARY",
+                |world, _| select(world, None),
+            ),
             title("THE LIBRARY"),
             // On a line of their own, and on to another when the
             // panel is narrow.
-            buttons(vec![
-                crate::looks::back("ALL HAMLETS", |world| {
-                    select(world, None);
-                })
-                .boxed(),
-                action(Glyph::Move, "MOVE", |world| {
-                    hamlet_realm::moving::pick_up(
-                        world,
-                        hamlet_realm::generator::society::Ground::Library,
-                    );
-                }),
-            ]),
+            buttons(vec![action(Glyph::Move, "MOVE", |world| {
+                hamlet_realm::moving::pick_up(
+                    world,
+                    hamlet_realm::generator::society::Ground::Library,
+                );
+            })]),
             dim("Every agent shares these skills. An agent offers \
                  one and the librarian decides whether to keep it."),
             scroll_area((lists::skills(),)),

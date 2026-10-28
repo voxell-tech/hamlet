@@ -24,8 +24,8 @@ use serde_json::Value;
 
 use crate::icons::Glyph;
 use crate::looks::{
-    Fills, action, bare, beside, choices, close, description, doors,
-    group, list_door, note, page_head, parts, well,
+    Fills, action, bare, beside, breadcrumb, choices, close,
+    description, doors, group, list_door, note, parts, well,
 };
 use crate::overview::heading;
 use crate::switch::switch as toggle;
@@ -549,13 +549,12 @@ pub fn panel(hamlet: Entity) -> AnyView {
                 Part::Front | Part::Mayor => mayor().boxed(),
             };
             parts((
-                page_head(
-                    "BYLAWS",
-                    |world| {
+                breadcrumb(
+                    vec!["BYLAWS".into()],
+                    part.title(),
+                    |world, _| {
                         *world.resource_mut::<Part>() = Part::Front;
                     },
-                    part.glyph(),
-                    part.title(),
                 ),
                 body,
             ))

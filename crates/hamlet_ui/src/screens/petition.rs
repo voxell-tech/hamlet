@@ -2,11 +2,11 @@
 //! first and in full, with the answers each one takes. Questions are
 //! answered on their `asking` card.
 
-use bevy::app::{App, PreUpdate, Update};
+use bevy::app::{App, PreUpdate};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::{Changed, With};
+use bevy::ecs::query::Changed;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
@@ -61,8 +61,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Queue>()
     .add_observer(tag_answered)
     .add_observer(tag_opened)
-    .add_systems(PreUpdate, keep_queue.in_set(PanelSystems::Bind))
-    .add_systems(Update, show_new);
+    .add_systems(PreUpdate, keep_queue.in_set(PanelSystems::Bind));
 }
 
 /// Everything that waits for the chief, oldest first, as the panels
@@ -186,20 +185,6 @@ pub(crate) fn tag_answered(
             text: None,
         });
     }
-}
-
-/// Brings this screen to the front when something new waits, so it
-/// is not missed.
-pub(crate) fn show_new(
-    waiting: Query<(), With<Waiting>>,
-    mut seen: Local<usize>,
-    mut commands: Commands,
-) {
-    let now = waiting.iter().count();
-    if now > *seen {
-        commands.queue(|world: &mut World| show_tab(world, "needs"));
-    }
-    *seen = now;
 }
 
 /// A click on a tag's paper opens this screen, which has the full

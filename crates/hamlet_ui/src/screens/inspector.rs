@@ -11,6 +11,7 @@ use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
+use bevy::ecs::system::Local;
 use bevy::ecs::world::World;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
@@ -21,9 +22,9 @@ pub(crate) use self::agent::show_prompt;
 pub use self::agent::{Briefing, Section};
 pub(crate) use self::gone::{of_agent, skills_screen};
 pub use self::papers::{Papers, keep_papers};
-use crate::convo::{Convo, talk_to};
-use crate::dock::{PanelAppExt, lit_panel, panel, show_tab};
-use crate::feel::Lit;
+use crate::convo::{Convo, seat};
+use crate::dock::{PanelAppExt, lit_panel, panel};
+use crate::feel::{Lit, Updated};
 use crate::icons::Glyph;
 use crate::looks::{ICON, filling};
 use crate::{View, overview, tabs};
@@ -72,7 +73,7 @@ pub fn plugin(app: &mut App) {
 /// hamlet whose common is, an agent that is gone, a chief, or the
 /// agent the chat is with.
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Showing {
+pub(crate) enum Showing {
     Overview,
     Hamlet(Entity),
     Gone(Entity),
@@ -132,7 +133,9 @@ pub fn screen() -> impl View {
     .within(filling())
 }
 
-/// A click on a robot or a house selects its agent.
+/// A click on a robot or a house selects its agent. The panel is not
+/// brought to the front: it flashes, and its tab with it, when it is
+/// behind another.
 pub(crate) fn follow_selection(world: &mut World) {
     let selected = world.resource_ref::<Selected>();
     if !selected.is_changed() {
@@ -147,10 +150,27 @@ pub(crate) fn follow_selection(world: &mut World) {
         }
         Some(Thing::Agent(agent) | Thing::House(agent)) => agent,
         // A hamlet, one that is gone, or nothing at all.
-        _ => return show_tab(world, "agent"),
+        _ => return,
     };
     if world.resource::<Convo>().agent != agent {
-        talk_to(world, agent);
+        seat(world, agent);
     }
-    show_tab(world, "agent");
+}
+
+/// Tells the panels that flash that the Inspector shows something
+/// else: another page, or on an agent's, another agent.
+pub(crate) fn tell_page(
+    world: &mut World,
+    mut seen: Local<Option<(Showing, Option<Entity>)>>,
+) {
+    let page = showing(world);
+    let agent = (page == Showing::Agent)
+        .then(|| world.resource::<Convo>().agent);
+    // The first look is not a change.
+    if seen
+        .replace((page, agent))
+        .is_some_and(|was| was != (page, agent))
+    {
+        world.write_message(Updated);
+    }
 }
