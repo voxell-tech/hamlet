@@ -7,10 +7,12 @@ use std::f32::consts::TAU;
 use bevy::ecs::component::Component;
 use bevy::ecs::event::EntityEvent;
 use bevy::ecs::observer::On;
-use bevy::ecs::system::{Commands, Query};
+use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::{Rot2, Vec2};
-use bevy::picking::events::{PointerDrag, PointerDragStart};
+use bevy::picking::events::{
+    PointerDrag, PointerDragEnd, PointerDragStart,
+};
 use bevy::picking::pointer::PointerButton;
 use bevy::ui::widget::ImageNode;
 use bevy::ui::{
@@ -22,7 +24,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, icon as icon_view, label,
 };
-use bevy_fynix::{EntityCursor, Prop, component};
+use bevy_fynix::{EntityCursor, OverrideCursor, Prop, component};
 
 use crate::icons::Glyph;
 use crate::{AnyView, Cx, View};
@@ -161,7 +163,8 @@ pub fn dial(
                 EntityCursor(SystemCursorIcon::Grab),
             ))
             .observe(gripped)
-            .observe(dragged);
+            .observe(dragged)
+            .observe(let_go);
         cx.effect(ring, amount, move |world, node, &amount| {
             let to = Shown(amount.rem_euclid(face.whole));
             if let Ok(mut entity) = world.get_entity_mut(node)
@@ -326,9 +329,12 @@ fn amount_at(face: &Face, turn: f32) -> f32 {
     (face.top + turn / TAU * face.whole).rem_euclid(face.whole)
 }
 
+/// Takes hold of the dial, and shows a closed hand until it is let
+/// go, wherever the pointer goes meanwhile.
 fn gripped(
     mut start: On<PointerDragStart>,
     rings: Query<(&Face, &Shown, &ComputedNode, &UiGlobalTransform)>,
+    mut cursor: ResMut<OverrideCursor>,
     mut commands: Commands,
 ) {
     if start.button != PointerButton::Primary {
@@ -344,6 +350,18 @@ fn gripped(
     commands
         .entity(node)
         .insert(Grip(bearing(at) - face.turn(shown.0)));
+    cursor.0 = Some(SystemCursorIcon::Grabbing);
+}
+
+fn let_go(
+    mut end: On<PointerDragEnd>,
+    mut cursor: ResMut<OverrideCursor>,
+) {
+    if end.button != PointerButton::Primary {
+        return;
+    }
+    end.propagate(false);
+    cursor.0 = None;
 }
 
 fn dragged(

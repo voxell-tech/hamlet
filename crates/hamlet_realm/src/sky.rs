@@ -52,15 +52,6 @@ pub fn plugin(app: &mut App) {
                 (
                     (light, light_windows)
                         .run_if(resource_changed::<Sky>),
-                    dim_fill.after(light).run_if(
-                        |sky: Res<Sky>,
-                         fog: Res<VolumetricFogSettings>,
-                         quality: Res<Quality>| {
-                            sky.is_changed()
-                                || fog.is_changed()
-                                || quality.is_changed()
-                        },
-                    ),
                     (occlude, sky_dome)
                         .run_if(resource_changed::<SkySettings>),
                     spend.run_if(resource_changed::<Quality>),
@@ -851,6 +842,12 @@ fn fog_steps(set: &VolumetricFogSettings, quality: Quality) -> u32 {
 /// Lets the key light throw shafts through the volumetric fog, as
 /// many steps through it as the quality allows, or takes the fog
 /// away.
+///
+/// The fill light is marked volumetric with it. The engine's fog
+/// stops at the first directional light that is not, and with the
+/// fill light first it would take no light at all. The fill light
+/// casts no shadows, which the fog takes as no light, so it adds
+/// nothing of its own.
 pub(crate) fn raise_fog(
     mut commands: Commands,
     set: Res<VolumetricFogSettings>,
@@ -858,6 +855,7 @@ pub(crate) fn raise_fog(
     mut images: ResMut<Assets<Image>>,
     camera: Single<Entity, With<WorldCamera>>,
     sun: Single<Entity, With<Sun>>,
+    fill: Single<Entity, With<FillLight>>,
     fog: Query<Entity, With<WorldFog>>,
 ) {
     let steps = fog_steps(&set, *quality);
@@ -867,6 +865,7 @@ pub(crate) fn raise_fog(
         }
         commands.entity(*camera).try_remove::<VolumetricFog>();
         commands.entity(*sun).try_remove::<VolumetricLight>();
+        commands.entity(*fill).try_remove::<VolumetricLight>();
         return;
     }
     commands.entity(*camera).try_insert(VolumetricFog {
@@ -874,6 +873,7 @@ pub(crate) fn raise_fog(
         ..default()
     });
     commands.entity(*sun).try_insert(VolumetricLight);
+    commands.entity(*fill).try_insert(VolumetricLight);
     if fog.is_empty() {
         commands.spawn((
             WorldFog::default(),
@@ -933,38 +933,6 @@ fn thin(
         let up = (row as f32 + 0.5) / THINNING_ROWS as f32;
         let y = foot + (top - foot) * up;
         *texel = (set.thickness(y) * 255.0).round() as u8;
-    }
-}
-
-/// Dims the fill light as the key light sinks while the volumetric
-/// fog is drawn, and puts it out once it gives no light. The engine
-/// orders the directional lights with the volumetric ones last,
-/// though its fog looks for them first, so with the fill light drawn
-/// the key light's shafts never show. Faded rather than put out at
-/// once, the change is never seen.
-pub(crate) fn dim_fill(
-    sky: Res<Sky>,
-    sky_set: Res<SkySettings>,
-    set: Res<VolumetricFogSettings>,
-    quality: Res<Quality>,
-    mut fill: Single<
-        (&mut DirectionalLight, &mut Visibility),
-        With<FillLight>,
-    >,
-) {
-    let left = if fog_steps(&set, *quality) > 0 {
-        1.0 - lowness(&sky.look, &sky_set)
-    } else {
-        1.0
-    };
-    fill.0.illuminance = sky.look.fill_lux * left;
-    let shown = if left > 1e-3 {
-        Visibility::Inherited
-    } else {
-        Visibility::Hidden
-    };
-    if *fill.1 != shown {
-        *fill.1 = shown;
     }
 }
 

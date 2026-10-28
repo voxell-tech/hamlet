@@ -311,6 +311,25 @@ fn shot_list(land: &Land) -> Vec<Shot> {
         hour: Some(18.7),
         ..default()
     });
+    // The same through the evening, where a snap would show between
+    // one still and the next.
+    for (k, hour) in
+        [16.5, 17.3, 17.5, 17.6, 17.8, 18.2].into_iter().enumerate()
+    {
+        shots.push(Shot {
+            name: "l-level-evening",
+            frame: Some(k),
+            view: GeneratorView {
+                focus: hall,
+                dist: 46.0,
+                pitch: 5.0,
+                yaw: 0.42,
+            },
+            world: grown.clone(),
+            hour: Some(hour),
+            ..default()
+        });
+    }
     // Pulled as far back as the camera goes, looking down through the
     // fog at dusk.
     shots.push(Shot {
