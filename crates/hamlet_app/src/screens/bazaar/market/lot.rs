@@ -123,25 +123,12 @@ impl Lot {
     }
 }
 
-/// Where a version stands with the bazaar's checks.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
-)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Checked {
-    /// Not sent to the checks.
-    Draft,
-    Pending,
-    Approved,
-    Rejected,
-}
-
 /// The bazaar's checks of one version of a listing.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Check {
     pub version: String,
-    pub state: Checked,
+    pub state: super::versions::State,
     /// Why it was rejected, as `Agent 5 (Safety): ...`.
     #[serde(default)]
     pub reasons: Vec<String>,

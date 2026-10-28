@@ -11,7 +11,7 @@ use bevy::ecs::world::World;
 
 use crate::bazaar::errand::Fetched;
 use crate::bazaar::market::client::done;
-use crate::bazaar::market::lot::{Checked, Lot, Status};
+use crate::bazaar::market::lot::{Lot, Status};
 use crate::bazaar::market::versions::State;
 use crate::bazaar::market::{Market, account, send};
 use crate::bazaar::shelf::now;
@@ -64,7 +64,7 @@ pub(crate) fn is_checked(lot: &Lot) -> bool {
         || lot
             .check
             .as_ref()
-            .is_some_and(|check| check.state == Checked::Pending)
+            .is_some_and(|check| check.state == State::Checking)
         || lot.versions.iter().any(|one| one.state == State::Checking)
 }
 
