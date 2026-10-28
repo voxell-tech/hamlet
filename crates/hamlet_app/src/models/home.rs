@@ -41,6 +41,7 @@ fn remove(world: &mut World, name: &str) {
         set: protocol::EditSettingsSet {
             endpoints: Some(endpoints),
             model: None,
+            effort: None,
             reflect_every: None,
             allow_net: None,
             workspace: None,
@@ -263,6 +264,7 @@ fn save_default(world: &mut World, model: &str) {
             set: protocol::EditSettingsSet {
                 model: Some(model.into()),
                 endpoints: None,
+                effort: None,
                 reflect_every: None,
                 allow_net: None,
                 workspace: None,

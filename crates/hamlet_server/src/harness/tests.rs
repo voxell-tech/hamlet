@@ -581,6 +581,41 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
 }
 
 #[test]
+fn every_attempt_thinks_as_hard_as_the_agent_then_the_settings_say() {
+    use hamlet_protocol::Effort;
+
+    let scratch = Scratch::new("effort-choice");
+    let (store, binding) = bound(&scratch, 0);
+    let chosen = |store: &Store| {
+        crate::models::Choices::read(
+            store,
+            &scratch,
+            &crate::Overrides::none(false),
+        )
+        .unwrap()
+        .select(store, &binding.agent)
+        .unwrap()
+        .effort
+    };
+    assert_eq!(chosen(&store), None);
+    let settings = crate::settings::Settings {
+        effort: Some(Effort::Low),
+        ..Default::default()
+    };
+    crate::settings::keep(store.connection(), &settings).unwrap();
+    assert_eq!(chosen(&store), Some(Effort::Low));
+    let mut limits =
+        crate::limits::of(store.connection(), "home").unwrap();
+    limits.efforts = BTreeMap::from([(
+        hamlet_protocol::MAYOR.to_owned(),
+        Effort::High,
+    )]);
+    crate::testing::set_limits(store.connection(), "home", limits)
+        .unwrap();
+    assert_eq!(chosen(&store), Some(Effort::High));
+}
+
+#[test]
 fn a_hello_lacking_the_protocol_version_or_a_needed_capability_is_refused()
  {
     use std::path::Path;
