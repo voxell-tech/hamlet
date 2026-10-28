@@ -1,9 +1,8 @@
-//! Selling at the bazaar: an agent, a hamlet or tools packed by the
-//! home's server and handed to the window in parts, the listing put
-//! up or changed with its words and price, its cover sent, the
-//! package uploaded as its new version, and the listing put on the
-//! shelves; and a listing of the chief's put on the shelves or taken
-//! off. One sale goes at a time.
+//! Selling at the bazaar: an agent or a hamlet packed by the home's
+//! server and handed to the window in parts, then put up as a new
+//! listing with it as its draft first version, or uploaded as the
+//! next draft version of a listing of the chief's. One sale goes at a
+//! time.
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -16,37 +15,26 @@ use hamlet_protocol::client as protocol;
 
 use crate::bazaar::errand::Fetched;
 use crate::bazaar::market::client::{Refusal, done, read};
-use crate::bazaar::market::lot::{Draft, Lot, Status};
-use crate::bazaar::market::{
-    Market, ask_account, ask_shelves, refused, send,
-};
+use crate::bazaar::market::lot::{Kind, Lot};
+use crate::bazaar::market::{Market, ask_mine, refused, send};
+
+/// The version a new listing's first draft is uploaded as.
+pub(crate) const FIRST_VERSION: &str = "0.0.1";
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Selling>().init_resource::<Housed>();
+    app.init_resource::<Selling>();
 }
 
-/// The tools added by hand that can be sold, as the home's server
-/// last told, or why it could not; and the read asking for them.
-#[derive(Resource, Clone, PartialEq, Debug, Default)]
-pub(crate) struct Housed {
-    pub tools: Option<Result<Vec<protocol::PackableTool>, String>>,
-    asked: Option<protocol::RequestId>,
-}
-
-/// Something put up for sale, or a listing of the chief's changed.
+/// What is packed and uploaded.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Offer {
-    /// The listing changed; `None` for a new one.
+    /// The listing it is a new version of; `None` for a new listing.
     pub id: Option<String>,
-    pub draft: Draft,
-    /// What is packed as its new version, if one is uploaded.
-    pub wares: Option<protocol::Packing>,
+    pub kind: Kind,
+    /// A new listing's first title.
+    pub title: String,
+    pub wares: protocol::Packing,
     pub version: String,
-    pub changes: String,
-    /// A picture for its cover and its media type.
-    pub cover: Option<(Vec<u8>, String)>,
-    /// Put on the shelves once done.
-    pub publish: bool,
 }
 
 /// How putting something up for sale goes.
@@ -60,8 +48,8 @@ pub(crate) struct Sale {
     pub step: Step,
     /// The package packed by the home's server, as far as it came.
     package: Option<Vec<u8>>,
-    /// The listing, once it is put up or changed.
-    listing: Option<Lot>,
+    /// The listing, once it is made.
+    listing: Option<String>,
 }
 
 /// A step of a sale.
@@ -69,14 +57,12 @@ pub(crate) struct Sale {
 pub(crate) enum Step {
     /// The home's server packs it, answering this read.
     Packing(protocol::RequestId),
-    /// The listing is put up or changed.
-    Saving,
-    Covering,
-    /// The package goes up as its new version.
+    /// The listing is made, with the package as its first draft.
+    Creating,
+    /// The package goes up as a draft version.
     Uploading,
-    Publishing,
-    /// Saved, as the listing of this title, now in this state.
-    Done(String, Status),
+    /// Uploaded, as this version of the listing of this id.
+    Done(String, String),
     Failed(String),
 }
 
@@ -86,24 +72,11 @@ impl Step {
     }
 }
 
-/// A call of the server for the sale going on, or a listing put on
-/// the shelves or taken off.
+/// A call of the server for the sale going on.
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum Call {
-    Save,
-    Cover,
-    Release,
-    Publish,
-    /// The listing of this id put on the shelves, or taken off.
-    Shelve(String, bool),
-}
-
-/// Asks the home's server for the tools that can be sold.
-pub(crate) fn ask_tools(world: &mut World) {
-    let request = world.resource_mut::<Outbox>().send(|id| {
-        protocol::ClientMessage::Read(protocol::Read::Tools { id })
-    });
-    world.resource_mut::<Housed>().asked = Some(request);
+    Create,
+    Upload,
 }
 
 fn going(world: &World) -> bool {
@@ -114,83 +87,60 @@ fn going(world: &World) -> bool {
         .is_some_and(|sale| sale.step.going())
 }
 
-/// Packs `offer`, then sends it to the bazaar.
+/// Packs `offer`, then uploads it to the bazaar.
 pub(crate) fn sell(world: &mut World, offer: Offer) {
     if going(world) {
         return;
     }
-    let signed = world.resource::<Market>().signed_in();
-    let mut package = None;
-    let first = match (&offer.wares, signed) {
-        (_, false) => Step::Failed(
+    let first = match world.resource::<Market>().signed_in() {
+        false => Step::Failed(
             "Sign in to your Hamlet account first.".into(),
         ),
-        (Some(wares), true) => {
-            let wares = wares.clone();
+        true => {
+            let wares = offer.wares.clone();
             let request = world.resource_mut::<Outbox>().send(|id| {
                 protocol::ClientMessage::Read(
                     protocol::Read::Package { id, of: wares },
                 )
             });
-            package = Some(Vec::new());
             Step::Packing(request)
         }
-        (None, true) => Step::Saving,
     };
-    let save = first == Step::Saving;
+    let listing = offer.id.clone();
     world.resource_mut::<Selling>().0 = Some(Sale {
         offer,
         step: first,
-        package,
-        listing: None,
+        package: Some(Vec::new()),
+        listing,
     });
-    if save {
-        ask(world, Call::Save);
-    }
 }
 
 fn ask(world: &mut World, call: Call) {
     let server = &world.resource::<Market>().server;
-    let sale = &world.resource::<Selling>().0;
-    let id = sale
-        .as_ref()
-        .and_then(|sale| sale.listing.as_ref())
-        .map(|lot| lot.id.clone())
-        .unwrap_or_default();
-    let request = match (&call, sale) {
-        (Call::Shelve(id, true), _) => server.publish(id),
-        (Call::Shelve(id, false), _) => server.unlist(id),
-        (_, None) => return,
-        (Call::Save, Some(sale)) => match &sale.offer.id {
-            Some(id) => server.change(id, &sale.offer.draft),
-            None => server.create(&sale.offer.draft),
-        },
-        (Call::Cover, Some(sale)) => {
-            let Some((bytes, kind)) = sale.offer.cover.clone() else {
-                return;
-            };
-            server.cover(&id, bytes, &kind)
-        }
-        (Call::Release, Some(sale)) => {
+    let Some(sale) = &world.resource::<Selling>().0 else {
+        return;
+    };
+    let request = match call {
+        Call::Create => {
             let Some(package) = &sale.package else {
                 return;
             };
-            server.release(
-                &id,
-                &sale.offer.version,
-                &sale.offer.changes,
+            server.create_with(
+                sale.offer.kind,
+                &sale.offer.title,
                 package,
             )
         }
-        (Call::Publish, Some(_)) => server.publish(&id),
+        Call::Upload => {
+            let (Some(id), Some(package)) =
+                (&sale.listing, &sale.package)
+            else {
+                return;
+            };
+            server.upload(id, &sale.offer.version, package)
+        }
     };
     send(world, crate::bazaar::market::Call::Sell(call), request);
-}
-
-/// Puts the listing `id` of the chief's on the shelves, or takes it
-/// off.
-pub(crate) fn shelve(world: &mut World, id: &str, on: bool) {
-    ask(world, Call::Shelve(id.to_string(), on));
 }
 
 /// Sets the step of the sale going on.
@@ -200,59 +150,32 @@ fn now_on(world: &mut World, step: Step) {
     }
 }
 
-/// Goes on from the listing put up or changed, or its cover set, to
-/// what comes after.
-fn after_saving(world: &mut World, covered: bool) {
-    let Some(sale) = &world.resource::<Selling>().0 else {
-        return;
-    };
-    let (cover, wares) =
-        (sale.offer.cover.is_some(), sale.offer.wares.is_some());
-    if !covered && cover {
-        now_on(world, Step::Covering);
-        return ask(world, Call::Cover);
+/// Goes on from the package packed, to the listing made if it is new,
+/// else to its upload.
+fn packed(world: &mut World) {
+    let new = world
+        .resource::<Selling>()
+        .0
+        .as_ref()
+        .is_some_and(|sale| sale.listing.is_none());
+    match new {
+        true => {
+            now_on(world, Step::Creating);
+            ask(world, Call::Create);
+        }
+        false => {
+            now_on(world, Step::Uploading);
+            ask(world, Call::Upload);
+        }
     }
-    if wares {
-        now_on(world, Step::Uploading);
-        return ask(world, Call::Release);
-    }
-    after_release(world);
 }
 
-/// Goes on from the version made, or none, to the shelves or to the
-/// end.
-fn after_release(world: &mut World) {
-    let Some(sale) = &world.resource::<Selling>().0 else {
-        return;
-    };
-    if sale.offer.publish {
-        now_on(world, Step::Publishing);
-        return ask(world, Call::Publish);
-    }
-    let lot = sale.listing.clone();
-    finish(world, lot);
-}
-
-/// Ends the sale with the listing as it is now.
-fn finish(world: &mut World, lot: Option<Lot>) {
-    let step = match lot {
-        Some(lot) => Step::Done(lot.title, lot.status),
-        None => Step::Failed("The bazaar said nothing of it.".into()),
-    };
+fn end(world: &mut World, step: Step) {
     if let Some(sale) = &mut world.resource_mut::<Selling>().0 {
         sale.package = None;
     }
     now_on(world, step);
-    ask_account(world);
-    ask_shelves(world);
-}
-
-fn fail(world: &mut World, why: Refusal) {
-    if let Some(sale) = &mut world.resource_mut::<Selling>().0 {
-        sale.package = None;
-    }
-    now_on(world, Step::Failed(why.words()));
-    ask_account(world);
+    ask_mine(world);
 }
 
 pub(super) fn answered(
@@ -260,79 +183,47 @@ pub(super) fn answered(
     call: Call,
     answer: Fetched,
 ) {
-    if let Call::Shelve(_, on) = call {
-        let said = match read::<Lot>(answer) {
-            Ok(lot) if lot.status == Status::Pending => (
-                format!(
-                    "{} is being checked. It goes on the shelves \
-                     once it passes.",
-                    lot.title
-                ),
-                false,
-            ),
-            Ok(lot) if on => {
-                (format!("{} is on the shelves.", lot.title), false)
-            }
-            Ok(lot) => (
-                format!(
-                    "{} is off the shelves. Those who own it keep \
-                     it.",
-                    lot.title
-                ),
-                false,
-            ),
-            Err(why) => (why.words(), true),
-        };
-        world.resource_mut::<Market>().said = Some(said);
-        ask_account(world);
-        return ask_shelves(world);
-    }
     if !going(world) {
         return;
     }
     match call {
-        Call::Save => match read::<Lot>(answer) {
+        Call::Create => match read::<Lot>(answer) {
             Ok(lot) => {
-                if let Some(sale) =
-                    &mut world.resource_mut::<Selling>().0
-                {
-                    sale.listing = Some(lot);
-                }
-                after_saving(world, false);
+                end(world, Step::Done(lot.id, FIRST_VERSION.into()));
             }
             Err(why) => fail(world, why),
         },
-        Call::Cover => match done(answer) {
-            Ok(()) => after_saving(world, true),
+        Call::Upload => match done(answer) {
+            Ok(()) => {
+                let sale = world.resource::<Selling>().0.clone();
+                let Some(Sale {
+                    listing: Some(id),
+                    offer,
+                    ..
+                }) = sale
+                else {
+                    return;
+                };
+                end(world, Step::Done(id, offer.version));
+            }
             Err(why) => fail(world, why),
         },
-        Call::Release => match done(answer) {
-            Ok(()) => after_release(world),
-            Err(why) => fail(world, why),
-        },
-        Call::Publish => match read::<Lot>(answer) {
-            Ok(lot) => finish(world, Some(lot)),
-            Err(why) => fail(world, why),
-        },
-        Call::Shelve(..) => {}
     }
 }
 
-/// Takes in the tools the home's server told of, and the parts of the
-/// package it packed.
+fn fail(world: &mut World, why: Refusal) {
+    let words = match why.code.as_str() {
+        "conflict" => "Finish the draft first: publish, verify or \
+                       discard it."
+            .into(),
+        "kind_unavailable" => "Plugins can't be sold yet.".into(),
+        _ => why.words(),
+    };
+    end(world, Step::Failed(words));
+}
+
+/// Takes in the parts of the package the home's server packed.
 pub(super) fn heard(world: &mut World, response: &Response) {
-    let mut housed = world.resource_mut::<Housed>();
-    if housed.asked.as_ref() == Some(&response.to) {
-        housed.asked = None;
-        housed.tools = Some(match &response.message {
-            protocol::ServerMessage::Read(
-                protocol::ReadResult::Tools { tools, .. },
-            ) => Ok(tools.clone()),
-            other => Err(refused(other)
-                .unwrap_or_else(|| "it answered oddly".into())),
-        });
-        return;
-    }
     let packing = match &world.resource::<Selling>().0 {
         Some(Sale {
             step: Step::Packing(request),
@@ -381,6 +272,5 @@ pub(super) fn heard(world: &mut World, response: &Response) {
     if (bytes.len() as u64) < part.size {
         return;
     }
-    sale.step = Step::Saving;
-    ask(world, Call::Save);
+    packed(world);
 }

@@ -10,8 +10,9 @@ use bevy::ecs::system::Res;
 use bevy::ecs::world::World;
 
 use crate::bazaar::errand::Fetched;
-use crate::bazaar::market::client::{done, read};
-use crate::bazaar::market::lot::{self, Checked, Lot, Status};
+use crate::bazaar::market::client::done;
+use crate::bazaar::market::lot::{Checked, Lot, Status};
+use crate::bazaar::market::versions::State;
 use crate::bazaar::market::{Market, account, send};
 use crate::bazaar::shelf::now;
 
@@ -31,8 +32,9 @@ pub(super) fn plugin(app: &mut App) {
 /// A call of the server about the checks or a report.
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum Call {
-    /// A person asked to look again at the listing of this id.
-    AskHuman(String),
+    /// A person asked to look again at this version of the listing
+    /// of this id.
+    AskHuman(String, String),
     /// The listing of this id reported.
     Report(String),
 }
@@ -63,6 +65,7 @@ pub(crate) fn is_checked(lot: &Lot) -> bool {
             .check
             .as_ref()
             .is_some_and(|check| check.state == Checked::Pending)
+        || lot.versions.iter().any(|one| one.state == State::Checking)
 }
 
 fn checking(market: Res<Market>) -> bool {
@@ -79,25 +82,13 @@ fn watch(world: &mut World) {
     account::ask_mine(world);
 }
 
-/// Asks a person at the bazaar to look again at the newest version of
-/// the chief's listing `id`, which the checks rejected.
-pub(crate) fn ask_human(world: &mut World, id: &str) {
-    let market = world.resource::<Market>();
-    let Some(version) = market
-        .mine
-        .iter()
-        .find(|lot| lot.id == id)
-        .and_then(|lot| lot.check.as_ref())
-        .map(|check| check.version.clone())
-    else {
-        return;
-    };
-    let request = market.server.ask_human(id, &version);
-    send(
-        world,
-        super::Call::Check(Call::AskHuman(id.to_string())),
-        request,
-    );
+/// Asks a person at the bazaar to look again at `version` of the
+/// chief's listing `id`, which the checks rejected.
+pub(crate) fn ask_human(world: &mut World, id: &str, version: &str) {
+    let request =
+        world.resource::<Market>().server.ask_human(id, version);
+    let call = Call::AskHuman(id.to_string(), version.to_string());
+    send(world, super::Call::Check(call), request);
 }
 
 /// Opens the report of the listing `id`, or shuts it.
@@ -134,14 +125,19 @@ pub(super) fn answered(
     answer: Fetched,
 ) {
     match call {
-        Call::AskHuman(id) => match read::<lot::Check>(answer) {
-            Ok(check) => {
+        Call::AskHuman(id, version) => match done(answer) {
+            Ok(()) => {
                 let mut market = world.resource_mut::<Market>();
-                if let Some(lot) =
-                    market.mine.iter_mut().find(|lot| lot.id == id)
-                {
-                    lot.check = Some(check);
+                let asked = market
+                    .mine
+                    .iter_mut()
+                    .filter(|lot| lot.id == id)
+                    .flat_map(|lot| lot.versions.iter_mut())
+                    .find(|one| one.version == version);
+                if let Some(asked) = asked {
+                    asked.human_asked_at = Some(now().to_string());
                 }
+                account::ask_mine(world);
             }
             Err(why) => account::refused(world, why),
         },

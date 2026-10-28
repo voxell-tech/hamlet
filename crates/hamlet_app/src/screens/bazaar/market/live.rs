@@ -1,7 +1,7 @@
 //! The bazaar end to end against a local bazaar server, driven as the
 //! window drives it, with the home's server played by hand: two
-//! accounts, the vault, the seller terms, a listing sold, checked,
-//! bought, downloaded and reported, a rejected one asked of a person,
+//! accounts, the vault, the seller terms, an agent uploaded as a
+//! draft and published unverified, bought, downloaded and reported,
 //! and the LOOKS stall's free and paid looks. Nothing is paid out:
 //! payouts need Stripe Connect.
 //!
@@ -28,8 +28,8 @@ use hamlet_protocol::vault::DataKey;
 
 use super::check::{Reporting, Watch};
 use super::deal::{Dealing, Places};
-use super::lot::{Checked, Checkout, Draft, Kind, Lot, Status};
-use super::sell::{Housed, Offer, Selling, Step};
+use super::lot::{Checkout, Kind, Lot};
+use super::sell::{Offer, Selling, Step};
 use super::*;
 use crate::account::{Form, Page};
 use crate::bazaar::errand::{self, Errands, fetch};
@@ -105,51 +105,38 @@ fn the_bazaar_works_end_to_end_against_a_local_server() {
             .is_some_and(|user| user.seller_terms.is_some())
     });
 
-    // Too new an account cannot sell, and is told from when it can.
+    // An agent is packed and uploaded as a draft. Too new an account
+    // cannot publish it, and is told from when it can.
     let title = format!("Clock {run}");
-    sell_tools(&mut seller, &title, "Tells the time.", None);
-    let Step::Failed(why) = finished_sale(&mut seller) else {
-        panic!("a new account sold");
+    sell_agent(&mut seller, &title);
+    let Step::Done(id, version) = finished_sale(&mut seller) else {
+        panic!("the agent was not uploaded");
     };
-    assert!(why.contains("7 days old") && why.contains("sell from"));
-    let id = mine(&mut seller, &title).id;
-
-    // Made 8 days ago, it sends the listing to the checks, which pass
-    // it, and it is on the shelves.
-    backdate(&seller_email);
-    sell_tools(&mut seller, &title, "Tells the time.", Some(&id));
-    let done = finished_sale(&mut seller);
+    assert_eq!(version, sell::FIRST_VERSION);
+    let which = drafts::Which {
+        id: id.clone(),
+        version,
+    };
+    let said = publish(&mut seller, &which);
     assert!(
-        matches!(
-            done,
-            Step::Done(_, Status::Pending | Status::Listed)
-        ),
-        "{done:?}"
+        said.contains("7 days old") && said.contains("sell from")
     );
-    let listed = checked(&mut seller, &id);
-    assert_eq!(listed.status, Status::Listed);
-    pump_shelves(&mut seller, &id);
 
-    // One the checks reject says why, and a person can be asked.
-    let rejected = format!("Spy {run}");
-    sell_tools(&mut seller, &rejected, "faux-no:safety", None);
-    finished_sale(&mut seller);
-    let spy = mine(&mut seller, &rejected).id;
-    let lot = checked(&mut seller, &spy);
-    assert_eq!(lot.status, Status::Rejected);
-    let check = lot.check.unwrap();
-    assert_eq!(check.state, Checked::Rejected);
-    assert!(!check.reasons.is_empty());
-    ask_human(&mut seller, &spy);
-    pump(&mut seller, "a person asked", |world| {
-        world.resource::<Market>().mine.iter().any(|lot| {
-            lot.id == spy
-                && lot
-                    .check
-                    .as_ref()
-                    .is_some_and(|check| check.human_review.is_some())
-        })
-    });
+    // Made 8 days ago, it publishes the draft unverified, and it is
+    // on the shelves.
+    backdate(&seller_email);
+    let said = publish(&mut seller, &which);
+    assert!(said.contains("live, unverified"), "{said}");
+    let listed = mine(&mut seller, &id);
+    assert!(
+        listed
+            .versions
+            .iter()
+            .any(|one| one.state == versions::State::Unverified)
+    );
+    pump_shelves(&mut seller, &id);
+    let listed =
+        seller.resource::<Market>().lot(&id).cloned().unwrap();
 
     // A buyer gets the free listing, downloads it and has it set up,
     // then reports it.
@@ -246,7 +233,7 @@ fn chief(
     world.init_resource::<Stock<Wares<Tools>>>();
     world.init_resource::<Stock<Wares<Hamlets>>>();
     world.init_resource::<Selling>();
-    world.init_resource::<Housed>();
+    world.init_resource::<drafts::Drafts>();
     world.init_resource::<Dealing>();
     world.init_resource::<Places>();
     world.init_resource::<vault::Syncing>();
@@ -402,34 +389,25 @@ fn play_home_sealing(world: &mut World) -> String {
     sealed
 }
 
-/// Puts tools up for sale, free, packed as the home packs them, about
-/// `about`: as a new listing, or the listing `id` sent again.
-fn sell_tools(
-    world: &mut World,
-    title: &str,
-    about: &str,
-    id: Option<&str>,
-) {
-    let offer = Offer {
-        id: id.map(str::to_string),
-        draft: Draft {
-            kind: Some(Kind::Plugin),
+/// Packs an agent as the home packs one, and uploads it as a new
+/// listing of `title`.
+fn sell_agent(world: &mut World, title: &str) {
+    sell(
+        world,
+        Offer {
+            id: None,
+            kind: Kind::Agent,
             title: title.into(),
-            description: about.into(),
-            ..Draft::default()
+            wares: protocol::Packing::Agent {
+                agent: protocol::Address {
+                    agent: "clock".into(),
+                    hamlet: "home".into(),
+                },
+                notes: false,
+            },
+            version: sell::FIRST_VERSION.into(),
         },
-        wares: id.is_none().then(|| protocol::Packing::Tools {
-            tools: vec!["clock".into()],
-        }),
-        version: "1.0.0".into(),
-        changes: "First.".into(),
-        cover: None,
-        publish: true,
-    };
-    sell(world, offer);
-    if id.is_some() {
-        return;
-    }
+    );
     let request = outgoing(world, |message| match message {
         protocol::ClientMessage::Read(protocol::Read::Package {
             id,
@@ -438,20 +416,13 @@ fn sell_tools(
         _ => None,
     });
     let package = serde_json::to_vec(&serde_json::json!({
-        "format": 1, "kind": "plugin", "plugin": {"tools": [{
+        "format": 1, "kind": "agent", "agent": {
             "name": "clock",
             "files": [{
-                "path": "manifest.json",
-                "data": STANDARD.encode(serde_json::json!({
-                    "name": "clock", "exec": ["./run"],
-                    "description": format!("{title}: {about}"),
-                }).to_string()),
-            }, {
-                "path": "run",
-                "data": STANDARD.encode(format!("#!/bin/sh\ndate # {title}\n")),
-                "executable": true,
+                "path": "CHARACTER.md",
+                "data": STANDARD.encode(format!("{title} tells the time.")),
             }],
-        }]},
+        },
     }))
     .unwrap();
     sell::heard(
@@ -472,6 +443,15 @@ fn sell_tools(
     );
 }
 
+/// Publishes the draft `which` unverified, and says what came of it.
+fn publish(world: &mut World, which: &drafts::Which) -> String {
+    drafts::go_on(world, which.clone(), drafts::Then::Publish);
+    pump(world, "the draft published", |world| {
+        world.resource::<drafts::Drafts>().job.is_none()
+    });
+    world.resource::<drafts::Drafts>().said.clone().unwrap().0
+}
+
 /// How the sale going on ended.
 fn finished_sale(world: &mut World) -> Step {
     pump(world, "end of the sale", |world| {
@@ -485,39 +465,17 @@ fn finished_sale(world: &mut World) -> Step {
     world.resource::<Selling>().0.clone().unwrap().step
 }
 
-/// The chief's listing of `title`, as the server says now.
-fn mine(world: &mut World, title: &str) -> Lot {
-    account::ask_mine(world);
+/// The chief's listing `id`, as the server says now.
+fn mine(world: &mut World, id: &str) -> Lot {
+    ask_mine(world);
     settle_down(world);
     world
         .resource::<Market>()
         .mine
         .iter()
-        .find(|lot| lot.title == title)
+        .find(|lot| lot.id == id)
         .cloned()
-        .unwrap_or_else(|| panic!("{title} is not the chief's"))
-}
-
-/// The chief's listing `id` once the checks are done with it, asked
-/// after as the window does.
-fn checked(world: &mut World, id: &str) -> Lot {
-    let start = Instant::now();
-    loop {
-        account::ask_mine(world);
-        settle_down(world);
-        let lot = world
-            .resource::<Market>()
-            .mine
-            .iter()
-            .find(|lot| lot.id == id)
-            .cloned()
-            .unwrap();
-        if !check::is_checked(&lot) {
-            return lot;
-        }
-        assert!(start.elapsed() < PATIENCE, "{id} was never checked");
-        std::thread::sleep(Duration::from_millis(500));
-    }
+        .unwrap_or_else(|| panic!("{id} is not the chief's"))
 }
 
 /// Asks for the shelves until the listing `id` is on them.

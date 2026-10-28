@@ -8,6 +8,7 @@ mod account;
 pub(crate) mod check;
 pub(crate) mod client;
 pub(crate) mod deal;
+pub(crate) mod drafts;
 #[cfg(test)]
 mod live;
 pub(crate) mod lot;
@@ -16,6 +17,7 @@ mod session;
 #[cfg(test)]
 mod tests;
 mod vault;
+pub(crate) mod versions;
 
 use std::collections::BTreeMap;
 
@@ -29,7 +31,7 @@ use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 
 pub(crate) use self::account::{
-    Account, agree, ask_account, browse, change_password,
+    Account, agree, ask_account, ask_mine, browse, change_password,
     check_payouts, choose_username, disagree, forgot, read_terms,
     resend, reset, set_up_payouts, sign_in, sign_out, sign_up,
     verify,
@@ -41,9 +43,7 @@ use self::client::{Request, Server, read};
 use self::deal::Dealing;
 pub(crate) use self::deal::{Deal, buy, install, update};
 use self::lot::{Detail, Kind, Lot, Page};
-pub(crate) use self::sell::{
-    Housed, Offer, Selling, ask_tools, sell, shelve,
-};
+pub(crate) use self::sell::{Offer, Selling, sell};
 pub(crate) use self::vault::{disconnect, home_has_key};
 use crate::bazaar::errand::{self, Errand, Fetched};
 use crate::bazaar::listings::{Agents, Hamlets, Sells, Tools, Wares};
@@ -60,6 +60,7 @@ pub(crate) fn plugin(app: &mut App) {
         shelf::plugin::<Wares<Hamlets>>,
         deal::plugin,
         sell::plugin,
+        drafts::plugin,
         vault::plugin,
         check::plugin,
     ))
@@ -189,6 +190,7 @@ pub(crate) enum Call {
     Vault(vault::Call),
     Deal(deal::Call),
     Sell(sell::Call),
+    Drafts(drafts::Call),
     Check(check::Call),
     /// A listing's cover, or an asset's picture, at its address on
     /// the server.
@@ -227,6 +229,7 @@ pub(crate) fn answered(
         Call::Vault(call) => vault::answered(world, call, answer),
         Call::Deal(call) => deal::answered(world, call, answer),
         Call::Sell(call) => sell::answered(world, call, answer),
+        Call::Drafts(call) => drafts::answered(world, call, answer),
         Call::Check(call) => check::answered(world, call, answer),
         Call::Picture(url) => {
             crate::bazaar::covers::came(world, url, answer);
@@ -438,6 +441,17 @@ pub struct Staged {
     /// The seller terms shown to be agreed to, as
     /// `GET /v1/seller-terms` answers.
     pub terms: Option<serde_json::Value>,
+    /// What the one signed in sells, as `GET /v1/me/listings`
+    /// answers, in place of `mine`.
+    pub selling: Option<serde_json::Value>,
+    /// The terms for selling, as `GET /v1/sell/config` answers.
+    pub fees: Option<serde_json::Value>,
+    /// The files of versions, by listing and version, as
+    /// `GET /v1/listings/:id/versions/:v/files` answers.
+    pub files: Vec<(String, String, serde_json::Value)>,
+    /// The tags in use that hold some words, and those words, as
+    /// `GET /v1/tags` answers.
+    pub tags: Option<(String, serde_json::Value)>,
 }
 
 /// Puts the bazaar's server in the state `staged` gives.
@@ -451,7 +465,13 @@ pub fn stage(world: &mut World, staged: Staged) {
             .cloned()
             .collect::<Vec<_>>()
     };
-    let (mine, library) = (pick(&staged.mine), pick(&staged.owned));
+    let (mut mine, library) =
+        (pick(&staged.mine), pick(&staged.owned));
+    if let Some(selling) = staged.selling {
+        mine = serde_json::from_value::<Page<Lot>>(selling)
+            .map(|page| page.items)
+            .unwrap_or_default();
+    }
     let user = staged.user.and_then(|user| {
         serde_json::from_value::<lot::User>(user).ok()
     });
@@ -502,6 +522,22 @@ pub fn stage(world: &mut World, staged: Staged) {
     }
     if let Some(deal) = deal {
         world.resource_mut::<Dealing>().deal = Some(deal);
+    }
+    let mut drafts = world.resource_mut::<drafts::Drafts>();
+    drafts.fees = staged
+        .fees
+        .and_then(|fees| serde_json::from_value(fees).ok());
+    for (id, version, files) in staged.files {
+        let files =
+            serde_json::from_value::<versions::FilesOf>(files)
+                .map_or_else(|_| Vec::new(), |files| files.files);
+        drafts
+            .files
+            .insert((id, version), drafts::Files::Got(files));
+    }
+    if let Some((words, tags)) = staged.tags {
+        drafts.tags =
+            (words, serde_json::from_value(tags).unwrap_or_default());
     }
     for (url, bytes) in staged.covers {
         crate::bazaar::covers::came(world, url, Ok((200, bytes)));

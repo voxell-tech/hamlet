@@ -53,7 +53,7 @@ pub(crate) fn plugin(app: &mut App) {
         shelf::typing::<Wares<Hamlets>>,
         shelf::typing::<Asset>,
     ))
-    .init_resource::<Desk>()
+    .add_plugins(desk::plugin)
     .add_systems(
         Update,
         (
@@ -108,7 +108,7 @@ pub(crate) fn screen() -> AnyView {
 
 /// Opens the page of what the chief sells and has bought.
 pub(crate) fn yours(world: &mut World) {
-    desk::open_yours(world);
+    desk::open_list(world);
 }
 
 /// Opens the seller's desk at `stall`, to sell what it sells.
@@ -118,7 +118,7 @@ pub(crate) fn sell(world: &mut World, stall: Stall) {
         Stall::Hamlets => Kind::Hamlet,
         _ => Kind::Agent,
     };
-    desk::open_form(world, kind, None);
+    desk::open_new(world, Some(kind));
 }
 
 /// The shelf of `stall`.

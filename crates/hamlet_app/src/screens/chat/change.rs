@@ -87,7 +87,7 @@ fn flip(all: &mut Vec<(Entity, String)>, one: (Entity, String)) {
 
 /// The lines of a change as one block of text, each run of lines of
 /// one kind a span of it.
-fn block(lines: &[Line]) -> AnyView {
+pub(crate) fn block(lines: &[Line]) -> AnyView {
     let mut runs = Vec::<(Mark, String)>::new();
     for (at, line) in lines.iter().enumerate() {
         let lead = match line.mark {

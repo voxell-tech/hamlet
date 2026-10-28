@@ -224,11 +224,12 @@ pub(crate) fn pay(deal: Deal, event: Event, now: u64) -> Paid {
         (Deal::Paying { .. }, Event::Paid(Ok(Paying::Paid))) => {
             Paid::Owned
         }
-        (Deal::Paying { .. }, Event::Paid(Ok(Paying::Expired))) => {
-            going(failed(
-                "The payment was not made. Nothing was charged.",
-            ))
-        }
+        (
+            Deal::Paying { .. },
+            Event::Paid(Ok(Paying::Expired | Paying::Failed)),
+        ) => going(failed(
+            "The payment was not made. Nothing was charged.",
+        )),
         // Not yet, or a blip of the network: asked again later.
         (
             Deal::Paying {

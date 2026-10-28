@@ -29,11 +29,12 @@ impl Kind {
 
 /// Where a listing stands with its buyers.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+    Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize,
 )]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Status {
     /// Never sent to the checks.
+    #[default]
     Draft,
     /// Its first version is being checked.
     Pending,
@@ -46,25 +47,13 @@ pub(crate) enum Status {
     Removed,
 }
 
-impl Status {
-    pub fn words(self) -> &'static str {
-        match self {
-            Status::Draft => "Draft",
-            Status::Pending => "Being checked",
-            Status::Rejected => "Rejected by the checks",
-            Status::Listed => "On the shelves",
-            Status::Unlisted => "Off the shelves",
-            Status::Removed => "Taken down by the bazaar",
-        }
-    }
-}
-
 /// A listing at the bazaar's server.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Lot {
     pub id: String,
     pub kind: Kind,
+    #[serde(default)]
     pub title: String,
     /// What it is, in a line.
     #[serde(default)]
@@ -75,11 +64,14 @@ pub(crate) struct Lot {
     pub category: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
     pub price_cents: u32,
+    #[serde(default)]
     pub status: Status,
     /// Why it was rejected or taken down, one reason a line.
     #[serde(default)]
     pub status_reason: Option<String>,
+    #[serde(default)]
     pub seller: Maker,
     /// Its picture, relative to the server, if it has one; its query
     /// changes with each new cover.
@@ -100,6 +92,13 @@ pub(crate) struct Lot {
     /// The checks of its newest version, given to its seller alone.
     #[serde(default)]
     pub check: Option<Check>,
+    /// Its versions, given to its seller alone.
+    #[serde(default)]
+    pub versions: Vec<super::versions::Version>,
+    /// The details of the version it is shown with, given to its
+    /// seller alone.
+    #[serde(default)]
+    pub shown: Option<super::versions::Details>,
 }
 
 impl Lot {
@@ -332,22 +331,6 @@ pub(crate) struct Owned {
     pub listing: Lot,
 }
 
-/// What a listing is put up with, or changed to.
-#[derive(
-    Clone, Debug, PartialEq, Default, Serialize, Deserialize,
-)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Draft {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<Kind>,
-    pub title: String,
-    pub summary: String,
-    pub description: String,
-    pub category: String,
-    pub tags: Vec<String>,
-    pub price_cents: u32,
-}
-
 /// A sign-in, or a code, that went through.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Signed {
@@ -377,6 +360,7 @@ pub(crate) enum Paying {
     Pending,
     Paid,
     Expired,
+    Failed,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -152,9 +152,9 @@ pub(super) fn selling(kind: Kind) -> AnyView {
         };
         buttons(vec![
             action(Glyph::Plus, sell, move |world| {
-                desk::open_form(world, kind, None);
+                desk::open_new(world, Some(kind));
             }),
-            action(Glyph::Book, "YOURS", desk::open_yours),
+            action(Glyph::Book, "YOURS", desk::open_list),
         ])
         .boxed()
     })
@@ -447,7 +447,7 @@ fn get(
             buttons.push(action(
                 Glyph::Rename,
                 "CHANGE THIS LISTING",
-                move |world| desk::open_edit(world, &id),
+                move |world| desk::open_listing(world, &id),
             ));
             None
         }

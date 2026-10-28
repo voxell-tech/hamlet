@@ -7,7 +7,7 @@
 //! lines as chat apps do.
 
 mod bubble;
-mod change;
+pub(crate) mod change;
 mod entry;
 mod field;
 mod lines;

@@ -13,10 +13,9 @@ use bevy_fynix::{ViewExt, derived, keyed};
 use hamlet_ui::styles::{bare, note};
 use hamlet_ui::{AnyView, Cx};
 
-use super::desk::Desk;
+use super::desk::{self, Desk};
 use super::parts::nothing;
 use crate::bazaar::covers::{self, Covers, Held, Pick, Picked};
-use crate::bazaar::market::Market;
 use crate::pictures::Drawn;
 use crate::roll::{either, moved};
 
@@ -48,10 +47,14 @@ pub(super) fn cover(url: String) -> AnyView {
     })
 }
 
-/// The cover chosen at the desk, else that of the listing changed
-/// there.
-pub(super) fn chosen() -> AnyView {
-    AnyView::new(|cx: &mut Cx| {
+/// The cover chosen at the desk, else that of the version chosen
+/// there, in a frame as wide and as tall as `frame`; `none` without
+/// one.
+pub(super) fn chosen(
+    frame: Vec2,
+    none: impl Fn() -> AnyView + Send + Sync + 'static,
+) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
         if let Some(url) = now_of(cx.world) {
             covers::want(cx.world, &url);
         }
@@ -74,20 +77,19 @@ pub(super) fn chosen() -> AnyView {
             moved::<Desk>(),
         ));
         cx.build(
-            keyed(drawn, |drawn| match drawn {
-                Some(drawn) => picture(drawn.clone(), PAGE),
-                None => nothing(),
+            keyed(drawn, move |drawn| match drawn {
+                Some(drawn) => picture(drawn.clone(), frame),
+                None => none(),
             })
             .within(bare()),
         )
     })
 }
 
-/// The address of the cover of the listing changed at the desk, if it
+/// The address of the cover of the version chosen at the desk, if it
 /// has one.
 pub(super) fn now_of(world: &World) -> Option<String> {
-    let id = world.resource::<Desk>().form.id.clone()?;
-    world.resource::<Market>().lot(&id)?.cover_url.clone()
+    desk::chosen(world)?.1.details.cover_url
 }
 
 /// `drawn` in a frame as wide and as tall as `frame`, as a picture of

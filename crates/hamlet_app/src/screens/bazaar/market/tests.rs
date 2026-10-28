@@ -88,13 +88,18 @@ fn the_server_is_asked_with_its_token_as_a_header_and_its_methods() {
     assert_eq!(detail.url, "https://bazaar.dev/v1/listings/l%201");
     assert_eq!(detail.token.as_deref(), Some("hms_1"));
     assert_eq!(server.drop_sealed().method, reqwest::Method::DELETE);
-    let draft = lot::Draft::default();
+    let details = versions::Details::default();
+    let change = server.change_version("l_1", "0.0.1", &details);
+    assert_eq!(change.method, reqwest::Method::PATCH);
     assert_eq!(
-        server.change("l_1", &draft).method,
-        reqwest::Method::PATCH
+        change.url,
+        "https://bazaar.dev/v1/listings/l_1/versions/0.0.1"
     );
-    let release =
-        server.release("l_1", "1.0.0", "", br#"{"format":1}"#);
+    let files = server.files("l_1", "0.0.2", Some("0.0.1"));
+    assert!(
+        files.url.ends_with("/versions/0.0.2/files?against=0.0.1")
+    );
+    let release = server.upload("l_1", "0.0.1", br#"{"format":1}"#);
     assert!(release.long);
     let (kind, body) = release.body.unwrap();
     assert_eq!(kind, "application/json");
@@ -281,36 +286,31 @@ fn a_limit_on_selling_says_what_to_do() {
 }
 
 #[test]
-fn a_rejected_listing_waits_for_a_person_once_one_is_asked() {
+fn a_rejected_version_waits_for_a_person_once_one_is_asked() {
     let mut world = account_world();
-    let rejected = serde_json::json!({
-        "id": "l_1", "kind": "agent", "title": "Scribe",
-        "priceCents": 0, "status": "rejected",
-        "statusReason": "Automatic check: it holds an API key.",
-        "seller": {"username": "ada"},
-        "check": {"version": "1.0.0", "state": "rejected",
-            "submittedAt": null, "approvedAt": null,
-            "reasons": ["Automatic check: it holds an API key."],
-            "humanReview": null},
+    let mine = serde_json::json!({
+        "id": "l_1", "kind": "agent",
+        "versions": [
+            {"version": "0.0.1", "state": "unverified"},
+            {"version": "0.0.2", "state": "rejected",
+                "reasons": ["Automatic check: it holds an API key."]},
+        ],
     });
-    let lot = serde_json::from_value::<Lot>(rejected).unwrap();
+    let lot = serde_json::from_value::<Lot>(mine).unwrap();
     assert!(!check::is_checked(&lot));
     world.resource_mut::<Market>().mine = vec![lot];
-    let asked = serde_json::json!({"version": "1.0.0",
-        "state": "rejected", "reasons": [],
-        "humanReview": {"askedAt": "2026-10-27T00:00:00Z",
-            "note": null, "decided": false}});
     check::answered(
         &mut world,
-        check::Call::AskHuman("l_1".into()),
-        reply(200, asked),
+        check::Call::AskHuman("l_1".into(), "0.0.2".into()),
+        Ok((204, Vec::new())),
     );
     let market = world.resource::<Market>();
-    let review = market.mine[0]
-        .check
-        .as_ref()
-        .and_then(|check| check.human_review.clone());
-    assert_eq!(review.map(|review| review.decided), Some(false));
+    let asked = market.mine[0]
+        .versions
+        .iter()
+        .map(|one| one.human_asked_at.is_some())
+        .collect::<Vec<_>>();
+    assert_eq!(asked, [false, true]);
 }
 
 #[test]

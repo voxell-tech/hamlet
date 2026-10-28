@@ -8,7 +8,8 @@ use serde::de::DeserializeOwned;
 use serde_json::json;
 
 use crate::bazaar::errand::Fetched;
-use crate::bazaar::market::lot::Draft;
+use crate::bazaar::market::lot::Kind;
+use crate::bazaar::market::versions::Details;
 
 /// The server's address where `HAMLET_BAZAAR_URL` does not say.
 pub(crate) const DEFAULT_SERVER: &str = "http://localhost:8787";
@@ -389,19 +390,80 @@ impl Server {
         }
     }
 
-    /// Puts up a listing, not yet on the shelves.
-    pub fn create(&self, draft: &Draft) -> Request {
-        self.post("/v1/listings", Some(json!(draft)))
+    /// Puts up a listing of `kind` and `title` with `package`, the
+    /// bytes of its JSON as the home packed it, as its draft
+    /// first version.
+    pub fn create_with(
+        &self,
+        kind: Kind,
+        title: &str,
+        package: &[u8],
+    ) -> Request {
+        let package =
+            serde_json::from_slice::<serde_json::Value>(package)
+                .unwrap_or_default();
+        let body = json!({ "kind": kind, "title": title, "package": package });
+        Request {
+            long: true,
+            ..self.post("/v1/listings", Some(body))
+        }
     }
 
-    /// Changes a listing's words, price or tags.
-    pub fn change(&self, id: &str, draft: &Draft) -> Request {
-        let draft = Draft {
-            kind: None,
-            ..draft.clone()
-        };
-        let path = format!("/v1/listings/{}", escaped(id));
-        self.with(Method::PATCH, &path, Some(json!(draft)))
+    /// Where a payment stands, asked of Stripe while it is pending.
+    pub fn payment(&self, id: &str) -> Request {
+        self.get(&format!("/v1/payments/{}", escaped(id)))
+    }
+
+    /// The bazaar's terms for selling: the kinds sold, the fees to
+    /// verify and the least price.
+    pub fn sell_config(&self) -> Request {
+        self.get("/v1/sell/config")
+    }
+
+    /// The tags most used that hold `words`.
+    pub fn tags(&self, words: &str) -> Request {
+        let query = [("q", words.to_string())];
+        self.request(Method::GET, "/v1/tags", &query)
+    }
+
+    /// The path of `version` of the listing `id`, and `rest` after
+    /// it.
+    fn version_path(id: &str, version: &str, rest: &str) -> String {
+        format!(
+            "/v1/listings/{}/versions/{}{rest}",
+            escaped(id),
+            escaped(version)
+        )
+    }
+
+    /// Uploads `package`, the bytes of its JSON as the home packed
+    /// it, as the draft `version` of the listing `id`.
+    pub fn upload(
+        &self,
+        id: &str,
+        version: &str,
+        package: &[u8],
+    ) -> Request {
+        let path = format!("/v1/listings/{}/versions", escaped(id));
+        let package =
+            serde_json::from_slice::<serde_json::Value>(package)
+                .unwrap_or_default();
+        let body = json!({ "version": version, "package": package });
+        Request {
+            long: true,
+            ..self.post(&path, Some(body))
+        }
+    }
+
+    /// Changes the details of a draft version.
+    pub fn change_version(
+        &self,
+        id: &str,
+        version: &str,
+        details: &Details,
+    ) -> Request {
+        let path = Self::version_path(id, version, "");
+        self.with(Method::PATCH, &path, Some(json!(details)))
     }
 
     /// The picture at `path`, an address on the server that may hold
@@ -416,48 +478,51 @@ impl Server {
         }
     }
 
-    /// Sets a listing's cover, `bytes` of a picture of `kind`.
-    pub fn cover(
+    /// Sets the cover of a draft version, `bytes` of a picture of
+    /// `kind`.
+    pub fn version_cover(
         &self,
         id: &str,
+        version: &str,
         bytes: Vec<u8>,
         kind: &str,
     ) -> Request {
-        let path = format!("/v1/listings/{}/cover", escaped(id));
+        let path = Self::version_path(id, version, "/cover");
         Request {
             body: Some((kind.to_string(), bytes)),
             ..self.request(Method::PUT, &path, &[])
         }
     }
 
-    /// Makes `version` of a listing of `package`, the bytes of its
-    /// JSON as the home packed it.
-    pub fn release(
+    /// Throws a draft version away.
+    pub fn discard(&self, id: &str, version: &str) -> Request {
+        let path = Self::version_path(id, version, "");
+        self.with(Method::DELETE, &path, None)
+    }
+
+    /// Puts a draft or rejected version on the shelves, unverified.
+    pub fn publish(&self, id: &str, version: &str) -> Request {
+        self.post(&Self::version_path(id, version, "/publish"), None)
+    }
+
+    /// Stripe's page to pay for a draft version to be verified.
+    pub fn verify_version(&self, id: &str, version: &str) -> Request {
+        self.post(&Self::version_path(id, version, "/verify"), None)
+    }
+
+    /// The files of a version, against the version `against`.
+    pub fn files(
         &self,
         id: &str,
         version: &str,
-        changes: &str,
-        package: &[u8],
+        against: Option<&str>,
     ) -> Request {
-        let path = format!("/v1/listings/{}/versions", escaped(id));
-        let package =
-            serde_json::from_slice::<serde_json::Value>(package)
-                .unwrap_or_default();
-        let body = json!({
-            "version": version,
-            "changes": changes,
-            "package": package,
-        });
-        Request {
-            long: true,
-            ..self.post(&path, Some(body))
-        }
-    }
-
-    /// Puts a listing on the shelves.
-    pub fn publish(&self, id: &str) -> Request {
-        let path = format!("/v1/listings/{}/publish", escaped(id));
-        self.post(&path, None)
+        let path = Self::version_path(id, version, "/files");
+        let query = against
+            .map(|against| ("against", against.to_string()))
+            .into_iter()
+            .collect::<Vec<_>>();
+        self.request(Method::GET, &path, &query)
     }
 
     /// Asks a person at the bazaar to look again at `version` of a
@@ -475,12 +540,6 @@ impl Server {
     pub fn report(&self, id: &str, reason: &str) -> Request {
         let path = format!("/v1/listings/{}/report", escaped(id));
         self.post(&path, Some(json!({ "reason": reason })))
-    }
-
-    /// Takes a listing off the shelves. Its owners keep it.
-    pub fn unlist(&self, id: &str) -> Request {
-        let path = format!("/v1/listings/{}/unlist", escaped(id));
-        self.post(&path, None)
     }
 }
 
