@@ -84,20 +84,23 @@ pub(crate) fn items_of(world: &World, kind: Kind) -> Vec<Item> {
                     .iter()
                     .filter(|agent| agent.hamlet == *id)
                     .count();
+                let about = hamlet_client::realm::mayor_of(world, id)
+                    .and_then(|mayor| world.get::<Purpose>(mayor))
+                    .map(|one| one.0.trim().to_string())
+                    .filter(|one| !one.is_empty())
+                    .unwrap_or_else(|| format!("The hamlet {name}"));
+                // The kind of hamlet it is, which the protocol holds
+                // to 1 to 60 letters.
+                let kind = about.chars().take(60).collect::<String>();
                 Item {
                     key: id.clone(),
                     name: name.clone(),
-                    about: hamlet_client::realm::mayor_of(world, id)
-                        .and_then(|mayor| world.get::<Purpose>(mayor))
-                        .map_or_else(
-                            || format!("The hamlet {name}"),
-                            |one| one.0.clone(),
-                        ),
+                    about,
                     counts: vec![counted(living, "agent")],
                     listed: listed(id, name),
                     wares: Packing::Hamlet {
                         hamlet: id.clone(),
-                        kind: String::new(),
+                        kind,
                         notes: false,
                     },
                 }
