@@ -19,7 +19,7 @@ use bevy_fynix::dock::{
 };
 use serde::{Deserialize, Serialize};
 
-pub(crate) use self::switcher::{closing, switcher};
+pub(crate) use self::switcher::{popups, switcher};
 use crate::dock;
 use crate::theme::HamletTheme;
 

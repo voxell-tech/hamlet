@@ -70,7 +70,7 @@ fn root() -> impl View {
             column((
                 full(cx),
                 menu::open_menu(),
-                desk::closing(),
+                desk::popups(),
                 world_menu::view(),
                 crate::saving::screen(),
                 hover::view(),
@@ -103,11 +103,6 @@ pub fn toolbar(cx: &Cx) -> impl View {
     column((
         row((
             menu::titles(),
-            frame()
-                .width(px(cx.theme().space.divider))
-                .height(px(cx.theme().space.bar / 2.0))
-                .shrink(0.0)
-                .fill(palette.seam),
             desk::switcher(),
             // The rest of the bar is where the window is held.
             frame()

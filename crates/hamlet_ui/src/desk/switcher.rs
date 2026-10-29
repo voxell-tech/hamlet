@@ -1,11 +1,14 @@
-//! The desk switcher in the top bar: a tab for each desk, the one
-//! shown lit, and a "+" that adds one. A tab is renamed in place on a
-//! double-click, closed by its "x" once asked, and offers the rest on
-//! a right-click.
+//! The desk switcher in the top bar: the desks as segments of one
+//! sunken track, the one shown raised and underlined, then "+",
+//! which adds one, and a chevron listing them all. A tab is renamed
+//! in place on a double-click, closed by its "x" once asked, dragged
+//! to another place, and offers the rest on a right-click.
+
+mod motion;
 
 use bevy::app::{App, Update};
 use bevy::camera::visibility::Visibility;
-use bevy::color::Color;
+use bevy::color::{Alpha, Color};
 use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -20,13 +23,16 @@ use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::input_focus::{FocusCause, InputFocus};
-use bevy::math::Rect;
+use bevy::math::{Rect, Rot2};
+use bevy::picking::Pickable;
 use bevy::picking::events::{PointerClick, PointerPress};
 use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, Overflow, PositionType, UiRect, Val, percent, px,
+    AlignItems, BackgroundGradient, BoxShadow, ColorStop, Display,
+    LinearGradient, Overflow, OverflowAxis, PositionType,
+    ShadowStyle, UiRect, UiTransform, Val, percent, px,
 };
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, GLOBAL, Invoke, Mods,
@@ -37,13 +43,16 @@ use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, TooltipExt, button,
     column, frame, label, menu_item, overlay, popup, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource, style};
+use bevy_fynix::{
+    ModifierExt, ScopedExt, ViewExt, keyed, resource, style,
+};
 
+use self::motion::TabDrag;
 use crate::desk::Desks;
-use crate::feel::FootLight;
+use crate::feel::FeelSettings;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
-    ICON, action, bad_action, description, note, well,
+    ICON, action, bad_action, description, note, section, well,
 };
 use crate::menu::rect_of;
 use crate::platform::DisplayText;
@@ -63,8 +72,8 @@ const NEW: Chord = Chord {
     mods: Mods::PRIMARY,
 };
 
-/// The commands that show the first nine desks, each with its digit
-/// and the primary key.
+/// The keys that show the first nine desks, with the primary key,
+/// and the commands they run.
 const SHOWN_BY_DIGIT: [(
     &str,
     &str,
@@ -82,10 +91,16 @@ const SHOWN_BY_DIGIT: [(
     ("desk.show_9", "Desk 9", KeyCode::Digit9, show_at::<8>),
 ];
 
+/// The strength of the glow about the shown desk's underline, and
+/// its blur in logical pixels.
+const HALO: f32 = 0.75;
+const HALO_BLUR: f32 = 4.8;
+
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Tabs>()
+    app.add_plugins(motion::plugin)
+        .init_resource::<Tabs>()
         .init_resource::<Renaming>()
-        .init_resource::<Closing>()
+        .init_resource::<Opened>()
         .add_observer(click)
         .add_observer(press_close)
         .add_observer(click_close)
@@ -114,9 +129,16 @@ struct Tabs {
 #[derive(Resource, Clone, Copy, PartialEq, Default)]
 struct Renaming(Option<usize>);
 
-/// The desk asked about closing, and the rect of its tab.
+/// The popup open from the switcher, and the rect it hangs from.
 #[derive(Resource, Clone, Copy, PartialEq, Default)]
-struct Closing(Option<(usize, Rect)>);
+enum Opened {
+    #[default]
+    Nothing,
+    /// Every desk.
+    All { anchor: Rect },
+    /// The question of closing the desk at `at`.
+    Close { at: usize, anchor: Rect },
+}
 
 /// On a desk's tab: the desk's index.
 #[derive(Component, Clone, Copy)]
@@ -126,6 +148,18 @@ struct DeskTab(usize);
 #[derive(Component)]
 struct ShownDesk;
 
+/// On the track's row of tabs, which scrolls across.
+#[derive(Component, Clone, Copy)]
+struct TabStrip;
+
+/// On the row of tabs in the strip.
+#[derive(Component, Clone, Copy)]
+struct TabRow;
+
+/// On the raised segment under the shown tab.
+#[derive(Component, Clone, Copy)]
+struct Indicator;
+
 /// On the "x" that closes the desk at its index.
 #[derive(Component, Clone, Copy)]
 struct CloseMark(usize);
@@ -134,114 +168,220 @@ struct CloseMark(usize);
 #[derive(Component, Clone, Copy)]
 struct RenameField;
 
-/// The switcher, for the top bar.
+/// The switcher, for the top bar: a divider, then the track.
 pub(crate) fn switcher() -> impl View {
-    keyed(resource::<Tabs, _>(Clone::clone), tabs_view).within(
-        row(())
-            .height(percent(100.0))
+    with_cx(|cx| {
+        let theme = cx.theme();
+        let (space, palette) = (&theme.space, &theme.palette);
+        let divider = frame()
+            .width(px(space.divider))
+            .height(px(space.track_divider))
+            .shrink(0.0)
+            .fill(palette.brass_6);
+        let strip =
+            keyed(resource::<Tabs, _>(Clone::clone), tabs_view)
+                .within(
+                    row(())
+                        .height(percent(100.0))
+                        .min_width(px(0.0))
+                        .shrink(1.0)
+                        .overflow(Overflow {
+                            x: OverflowAxis::Scroll,
+                            y: OverflowAxis::Visible,
+                        })
+                        .tagged(TabStrip),
+                );
+        let new = segment(glyph(Glyph::Plus, ICON), space.gap)
+            .on_activate(new_desk)
+            .tooltip(|| note(format!("New desk ({NEW})")));
+        let all = segment(
+            row((glyph(Glyph::Chevron, ICON),)).tagged(UiTransform {
+                rotation: Rot2::degrees(180.0),
+                ..UiTransform::IDENTITY
+            }),
+            space.gap / 2.0,
+        )
+        .on_activate_with(|world, node| {
+            let anchor = rect_of(world, node).unwrap_or_default();
+            *world.resource_mut::<Opened>() = Opened::All { anchor };
+        })
+        .tooltip(|| note("All desks"));
+        let track = row((strip, new, all))
+            .height(px(space.bar - 2.0 * space.track_inset))
             .min_width(px(0.0))
             .shrink(1.0)
-            .overflow(Overflow::clip_x()),
-    )
+            .padding(UiRect::all(px(space.track_padding)))
+            .gap(space.track_padding)
+            .fill(palette.well)
+            .border(space.border)
+            .border_color(palette.brass_6)
+            .radius(space.track_radius)
+            .align(AlignItems::Stretch);
+        row((divider, track))
+            .gap(space.section)
+            .padding(UiRect::left(px(space.section)))
+            .min_width(px(0.0))
+            .shrink(1.0)
+            .height(percent(100.0))
+            .align(AlignItems::Center)
+    })
 }
 
-/// The question of closing a desk, over everything, while it is
-/// asked.
-pub(crate) fn closing() -> impl View {
-    keyed(resource::<Closing, _>(|closing| *closing), |closing| {
-        match closing.0 {
-            Some((at, anchor)) => with_cx(move |cx| {
-                popup(anchor, (close_view(at),))
-                    .on_dismiss(|world, _| {
-                        world.resource_mut::<Closing>().0 = None;
-                    })
-                    .min_width(px(cx.theme().space.menu_width))
-            })
-            .boxed(),
-            None => frame().boxed(),
-        }
+/// The switcher's popups, over everything, while one is open.
+pub(crate) fn popups() -> impl View {
+    keyed(resource::<Opened, _>(|opened| *opened), |opened| {
+        let (anchor, content) = match *opened {
+            Opened::Nothing => return frame().boxed(),
+            Opened::All { anchor } => (anchor, all_view()),
+            Opened::Close { at, anchor } => (anchor, close_view(at)),
+        };
+        with_cx(move |cx| {
+            popup(anchor, (content,))
+                .on_dismiss(|world, _| {
+                    *world.resource_mut::<Opened>() = Opened::Nothing;
+                })
+                .min_width(px(cx.theme().space.menu_width))
+        })
+        .boxed()
     })
     .within(overlay(()))
 }
 
-/// A desk's tab, and "+": lettering alone, like a menu's title, that
-/// brightens under the pointer and on the desk shown.
-fn tab_look(cx: &mut Cx) {
-    style::<HamletTheme>()
-        .frame(|f, t| {
-            f.fill(Color::NONE)
-                .height(percent(100.0))
-                .radius(0.0)
-                .padding(UiRect::axes(
-                    px(t.space.title_padding),
-                    px(0.0),
-                ))
-        })
-        .label(|l, t| l.size(t.text.heading).bold(true))
-        .tone(Tone::Faint)
-        .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
-        .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Dim))
-        .when::<ShownDesk>(|s| s.tone(Tone::Body))
-        .transition(Motion::Interact)
-        .apply(cx);
-}
-
-/// The row of tabs, then "+".
+/// The row of tabs, over the raised segment under the shown one.
 fn tabs_view(tabs: &Tabs) -> AnyView {
     let tabs = tabs.clone();
     with_cx(move |cx| {
         let count = tabs.names.len();
-        let mut views = tabs
-            .names
-            .iter()
-            .enumerate()
-            .map(|(at, name)| {
+        let mut views = vec![indicator().boxed()];
+        views.extend(tabs.names.iter().enumerate().map(
+            |(at, name)| {
                 if tabs.renaming == Some(at) {
                     renaming_tab(at, name).boxed()
                 } else {
                     tab(at, name, count)
                 }
-            })
-            .collect::<Vec<_>>();
-        views.push(
-            button(glyph(Glyph::Plus, ICON))
-                .rules(tab_look)
-                .on_activate(new_desk)
-                .tooltip(|| note(format!("New desk ({NEW})")))
-                .boxed(),
-        );
+            },
+        ));
         row(views)
-            .gap(0.0)
-            .height(px(cx.theme().space.bar))
+            .gap(cx.theme().space.track_padding)
+            .height(percent(100.0))
             .shrink(0.0)
-            .align(AlignItems::Center)
+            .align(AlignItems::Stretch)
+            .tagged(TabRow)
     })
     .boxed()
+}
+
+/// The raised segment under the shown tab, lit inside from below
+/// and underlined with a glowing line, placed by `motion::glide`.
+fn indicator() -> impl View {
+    with_cx(|cx| {
+        let theme = cx.theme();
+        let (space, palette) = (&theme.space, &theme.palette);
+        let foot = cx.world.resource::<FeelSettings>().foot;
+        let radius =
+            (space.track_radius - space.track_padding).max(0.0);
+        let light = palette.lamp.with_alpha(foot);
+        let inner =
+            BackgroundGradient::from(LinearGradient::to_top(vec![
+                ColorStop::new(light, percent(0.0)),
+                ColorStop::new(light.with_alpha(0.0), percent(100.0)),
+            ]));
+        let halo = BoxShadow(vec![ShadowStyle {
+            color: palette.lamp.with_alpha(HALO),
+            x_offset: px(0.0),
+            y_offset: px(0.0),
+            spread_radius: px(0.0),
+            blur_radius: px(HALO_BLUR),
+        }]);
+        let line = frame()
+            .position(PositionType::Absolute)
+            .inset(UiRect {
+                left: px(radius),
+                right: px(radius),
+                top: Val::Auto,
+                bottom: px(0.0),
+            })
+            .height(px(space.underline))
+            .fill(palette.brass_4)
+            .tagged(halo);
+        column((line,))
+            .position(PositionType::Absolute)
+            .inset(UiRect {
+                left: px(0.0),
+                right: Val::Auto,
+                top: px(0.0),
+                bottom: px(0.0),
+            })
+            .display(Display::None)
+            .fill(palette.grey_4)
+            .radius(radius)
+            .tagged(inner)
+            .tagged(Indicator)
+            .tagged(Pickable::IGNORE)
+    })
+}
+
+/// A segment of the track: no plate of its own, dim until the
+/// pointer is on it or it is shown.
+fn segment_look(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(Color::NONE)
+                .radius(
+                    (t.space.track_radius - t.space.track_padding)
+                        .max(0.0),
+                )
+                .padding(UiRect::all(px(0.0)))
+                .min_height(px(0.0))
+                .height(percent(100.0))
+                .shrink(0.0)
+        })
+        .label(|l, t| l.size(t.text.heading).bold(true))
+        .tone(Tone::Dim)
+        .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
+        .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Faint))
+        .when::<ShownDesk>(|s| s.tone(Tone::Body))
+        .transition(Motion::Interact)
+        .apply(cx);
+}
+
+/// `content` as a segment of the track, `pad` either side.
+fn segment(content: impl View, pad: f32) -> impl View {
+    button(
+        row((content,))
+            .height(percent(100.0))
+            .padding(UiRect::axes(px(pad), px(0.0)))
+            .align(AlignItems::Center),
+    )
+    .rules(segment_look)
 }
 
 /// The tab of the desk at `at`, one of `count`.
 fn tab(at: usize, name: &str, count: usize) -> AnyView {
     let words =
         label(name.to_uppercase()).wrap(false).tagged(DisplayText);
-    let content = if count > 1 {
-        with_cx(move |cx| {
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        let content = if count > 1 {
             row((words, close_mark(at)))
-                .gap(cx.theme().space.gap / 2.0)
+                .gap(space.gap / 2.0)
                 .align(AlignItems::Center)
-        })
-        .boxed()
-    } else {
-        words.boxed()
-    };
-    button(content)
-        .rules(tab_look)
-        .tagged(DeskTab(at))
-        .tagged(FootLight::new(false))
-        .on_activate(move |world| {
-            world.resource_mut::<Desks>().show(at);
-        })
-        .context_menu(move || tab_items(at, count))
-        .boxed()
+                .boxed()
+        } else {
+            words.boxed()
+        };
+        segment(content, space.tab_padding)
+            .tagged(DeskTab(at))
+            .on_activate(move |world| {
+                // The release that ends a drag is no press.
+                if !world.resource::<TabDrag>().has_dropped() {
+                    world.resource_mut::<Desks>().show(at);
+                }
+            })
+            .context_menu(move || tab_items(at, count))
+    })
+    .boxed()
 }
 
 /// What a right-click on the tab at `at`, one of `count`, offers.
@@ -277,6 +417,65 @@ fn tab_items(at: usize, count: usize) -> Vec<AnyView> {
     items
 }
 
+/// Every desk, the one shown in the accent and each with the key
+/// that shows it, then a way to add one.
+fn all_view() -> AnyView {
+    with_cx(|cx| {
+        let desks = cx.world.resource::<Desks>();
+        let gap = cx.theme().space.menu_gap;
+        let mut rows = desks
+            .list()
+            .iter()
+            .enumerate()
+            .map(|(at, desk)| {
+                let tone = if at == desks.shown() {
+                    Tone::Accent
+                } else {
+                    Tone::Body
+                };
+                let keys = SHOWN_BY_DIGIT
+                    .get(at)
+                    .map(|&(_, _, key, _)| {
+                        Chord {
+                            key,
+                            mods: Mods::PRIMARY,
+                        }
+                        .to_string()
+                    })
+                    .unwrap_or_default();
+                menu_item(
+                    row((
+                        label(desk.name.clone())
+                            .wrap(false)
+                            .tone(tone)
+                            .grown(1.0),
+                        label(keys).wrap(false).tone(Tone::Dim),
+                    ))
+                    .gap(gap)
+                    .grow(1.0)
+                    .align(AlignItems::Center),
+                )
+                .on_activate(move |world| {
+                    *world.resource_mut::<Opened>() = Opened::Nothing;
+                    world.resource_mut::<Desks>().show(at);
+                })
+                .boxed()
+            })
+            .collect::<Vec<_>>();
+        rows.push(section("NEW").boxed());
+        rows.push(
+            menu_item(label("New Desk"))
+                .on_activate(|world| {
+                    *world.resource_mut::<Opened>() = Opened::Nothing;
+                    new_desk(world);
+                })
+                .boxed(),
+        );
+        column(rows).gap(0.0)
+    })
+    .boxed()
+}
+
 /// The "x" that closes a tab's desk, after its name, shown while the
 /// pointer is on the tab.
 fn close_mark(at: usize) -> impl View {
@@ -300,13 +499,13 @@ fn ask_close(world: &mut World, at: usize) {
         return;
     }
     let anchor = tab_rect(world, at).unwrap_or_default();
-    world.resource_mut::<Closing>().0 = Some((at, anchor));
+    *world.resource_mut::<Opened>() = Opened::Close { at, anchor };
 }
 
 /// The question of closing the desk at `at`.
 fn close_view(at: usize) -> AnyView {
     let answered = |world: &mut World| {
-        world.resource_mut::<Closing>().0 = None;
+        *world.resource_mut::<Opened>() = Opened::Nothing;
     };
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
@@ -334,7 +533,7 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
     with_cx(move |cx| {
         let theme = cx.theme();
         let (pad, size) =
-            (theme.space.title_padding, theme.text.heading);
+            (theme.space.tab_padding, theme.text.heading);
         let field = text_field(name.clone(), move |world, name| {
             // Enter keeps the field focused while it commits. Focus
             // leaving first, as on a press outside, drops the name.
@@ -355,10 +554,13 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
         })
         .rules(well)
         .rules(|cx: &mut Cx| {
-            // As wide as the tab it covers.
+            // As wide and as tall as the tab it covers.
             style::<HamletTheme>()
                 .frame(|f, _| {
-                    f.width(percent(100.0)).min_width(px(0.0))
+                    f.width(percent(100.0))
+                        .height(percent(100.0))
+                        .min_width(px(0.0))
+                        .min_height(px(0.0))
                 })
                 .apply(cx);
         })
@@ -372,8 +574,7 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
             row((room,)).tagged(Visibility::Hidden),
             row((field,))
                 .position(PositionType::Absolute)
-                .inset(UiRect::all(Val::Px(0.0)))
-                .align(AlignItems::Center),
+                .inset(UiRect::all(px(0.0))),
         ))
         .height(percent(100.0))
         .shrink(0.0)
@@ -424,39 +625,34 @@ fn follow(
     }
 }
 
-/// Marks and lights the tab of the desk shown, and only it.
+/// Marks the tab of the desk shown, and only it.
 fn mark_shown(
     desks: Res<Desks>,
-    mut tabs: Query<(
-        Entity,
-        &DeskTab,
-        Has<ShownDesk>,
-        Option<&mut FootLight>,
-    )>,
+    tabs: Query<(Entity, &DeskTab, Has<ShownDesk>)>,
     mut commands: Commands,
 ) {
-    for (node, tab, marked, light) in &mut tabs {
+    for (node, tab, marked) in &tabs {
         let shown = tab.0 == desks.shown();
         if shown && !marked {
             commands.entity(node).try_insert(ShownDesk);
         } else if !shown && marked {
             commands.entity(node).try_remove::<ShownDesk>();
         }
-        if let Some(mut light) = light
-            && light.held != shown
-        {
-            light.held = shown;
-        }
     }
 }
 
-/// Shows each tab's "x" while the pointer is on the tab.
+/// Shows each tab's "x" while the pointer is on the tab and no tab is
+/// dragged.
 fn show_close(
+    dragged: Res<TabDrag>,
     tabs: Query<(&DeskTab, &Hovered)>,
     mut marks: Query<(&CloseMark, &mut Visibility)>,
 ) {
     let over = |at: usize| {
-        tabs.iter().any(|(tab, hovered)| tab.0 == at && hovered.0)
+        !dragged.is_moving()
+            && tabs
+                .iter()
+                .any(|(tab, hovered)| tab.0 == at && hovered.0)
     };
     for (mark, mut visibility) in &mut marks {
         visibility.set_if_neq(if over(mark.0) {

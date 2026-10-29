@@ -257,6 +257,15 @@ pub struct Spacing {
     pub switch_width: f32,
     pub switch_height: f32,
     pub switch_inset: f32,
+    /// The space between the bar's edge and the desks' track,
+    /// between the track's frame and its segments, and the track's
+    /// corner. A segment's corner follows the track's.
+    pub track_inset: f32,
+    pub track_padding: f32,
+    pub track_radius: f32,
+    /// The height of the line that sets the track apart from the
+    /// menus.
+    pub track_divider: f32,
     /// How far into a scroll area the fade over an edge with more
     /// past it reaches.
     pub scroll_fade: f32,
