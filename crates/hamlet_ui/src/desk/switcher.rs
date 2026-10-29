@@ -35,6 +35,7 @@ use bevy::ui::{
     FlexDirection, LinearGradient, Overflow, OverflowAxis,
     PositionType, ShadowStyle, UiRect, UiTransform, Val, percent, px,
 };
+use bevy::window::SystemCursorIcon;
 use bevy_fynix::scroll::{
     OwnScrollbar, ScrollbarStyle, ScrollbarVisibility,
 };
@@ -49,7 +50,8 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{
-    ModifierExt, ScopedExt, ViewExt, keyed, resource, style,
+    EntityCursor, ModifierExt, ScopedExt, ViewExt, keyed, resource,
+    style,
 };
 
 use self::motion::TabDrag;
@@ -452,6 +454,8 @@ fn tab(at: usize, name: &str, count: usize) -> impl View {
         };
         segment(content, space.tab_padding)
             .tagged(DeskTab(at))
+            // An open hand, as a dock tab has: it can be dragged.
+            .tagged(EntityCursor(SystemCursorIcon::Grab))
             .on_activate(move |world| {
                 // The release that ends a drag is no press.
                 if !world.resource::<TabDrag>().has_dropped() {
