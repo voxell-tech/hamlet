@@ -26,7 +26,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{EntityCursor, OverrideCursor, Prop, component};
 
-use crate::icons::Glyph;
+use super::icons::Glyph;
 use crate::{AnyView, Cx, View};
 
 /// A handler run with the world and the amount the dial was asked to
@@ -129,13 +129,13 @@ pub fn dial(
         let theme = cx.theme();
         let (palette, border) = (&theme.palette, theme.space.border);
         let (rim, knob, trailing, middle) = (
-            palette.brass_3,
-            palette.brass_1,
-            palette.brass_4,
-            palette.grey_4,
+            palette.gold_3,
+            palette.gold_1,
+            palette.gold_4,
+            palette.button,
         );
         let (short_mark, long_mark) =
-            (palette.brass_5, palette.brass_3);
+            (palette.gold_5, palette.gold_3);
         let rim_width = border * 2.0;
         // Places are measured inside the rim; its line is half its
         // width further out.

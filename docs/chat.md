@@ -1,7 +1,8 @@
 # The chat
 
 An agent's watched conversation, its rows and the links and pictures they
-hold. The drawing is `hamlet_ui/src/screens/chat/` and `markdown/`. The client
+hold. The drawing is `hamlet_app/src/screens/chat/` and `markdown/`, on
+the Markdown of `hamlet_ui/src/markdown/`. The client
 transcript is `hamlet_client/src/chats.rs`; the server keeps the
 conversations through pi-durable. [The client protocol](protocol.md) describes the
 wire messages, watch rules and page boundaries; this page covers the window.
@@ -144,7 +145,7 @@ the text or the focus has changed.
 
 Any text of the panels is selected where it is drawn, as on a web page:
 a press and a drag, a double-click for a word, a triple-click for a line.
-`hamlet_ui/src/select.rs` holds it. An `Area` is selected as one across
+`hamlet_app/src/select.rs` holds it. An `Area` is selected as one across
 all its text: the words of a message, and every Markdown document, so a
 drag runs across the paragraphs, lists and code blocks of a reply or of
 the Notes page. Any other text is selected on its own. What a button, a
@@ -242,7 +243,7 @@ true unless the agent says otherwise; a question with no options always
 takes words. `crates/hamlet_server/src/chats/asking.rs` reads and
 checks a call, and a call it refuses tells the agent why.
 
-**Where it is answered.** One card, `hamlet_ui/src/asking.rs`, is shown
+**Where it is answered.** One card, `hamlet_app/src/asking.rs`, is shown
 in Needs You and over the field of the chat with the agent that asked,
 and both read the same answers, so what is begun in one stands in the
 other. The card shows one question at a time, with "1 of 3" and the way

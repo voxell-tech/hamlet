@@ -30,7 +30,7 @@ break the set.
 
 ## Which mode wins
 
-`Mode::choose` in `hamlet_ui/src/cursor.rs` decides, and the first of
+`Mode::choose` in `hamlet_app/src/cursor.rs` decides, and the first of
 these that holds is shown:
 
 1. Something waits: `Wait`.

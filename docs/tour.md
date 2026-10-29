@@ -48,7 +48,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
 | `hamlet_server` | `hamlet_server`: realm, permissions, tools, records, credentials and harness supervision |
 | `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name, and the tools' walk, path text and error words; `process`, a command's process tree, started inside its limits and killed whole |
-| `hamlet_app` | `hamlet_app`, the window, and the seven examples that draw the world and the panels |
+| `hamlet_app` | `hamlet_app`, the window: its panels, menus, chat and pointer, and the seven examples that draw the world and the panels |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
 | `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch homes, through the typed `Client`, the `hamlet` command and `hamlet_testing`'s server |
@@ -56,7 +56,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
 | `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, sound and camera |
-| `hamlet_ui` | Panels, menus, chat and pointer |
+| `hamlet_ui` | The widget kit: theme, styles, controls and their effects, with no client state |
 | `hamlet_vfx` | Visual effects |
 | `hamlet_testing` | Fixtures shared by tests: scratch folders, protocol values, faux scripts, the loopback OpenAI endpoint, and a server process on a scratch home with a raw connection to it (`send`, `until`, `answers`) |
 | `hamlet_workspace` | The Linux remote-workspace worker the server's workspace-v1 client connects to |
@@ -73,7 +73,7 @@ Bevy's parts (`bevy_app`, `bevy_ecs`, `bevy_asset`, ...) rather than
 frame in the update it arrives in, and sends the outbox in `Last`
 (`ClientSystems::Send`). The connect task calls the `Wake` resource after
 each frame it hands over, and a gift's read after each folder walked or
-part read; `hamlet_ui/src/window.rs` inserts one that wakes winit's
+part read; `hamlet_app/src/window.rs` inserts one that wakes winit's
 reactive loop, so a frame is drawn at once rather than at the loop's
 next timeout. `connection::Contact` is the window's standing
 with its server: connecting, connected, lost or refused. `index.rs` finds
@@ -93,13 +93,20 @@ before the world are `RealmSystems` in `hamlet_realm/src/stage.rs`
 chief's place, the library), and `Trips` the letters on the roads right
 now.
 
-`hamlet_ui/src/screens/` groups the panels drawn from the client's state.
-`widgets/` groups their shared controls: `feel/`, `icons.rs`, `tabs.rs`,
-`platform.rs` and `tuning.rs`. The other panels live beside those folders;
-`theme.rs` and `looks.rs` define their appearance. The panels' steps
-before fynix mounts are `PanelSystems` in `hamlet_ui/src/lib.rs`
-(`Follow`, `Bind`), in `PreUpdate`; `panel_sets` orders them, and the
-apps in `testing.rs` add it, so a UI test settles in one update.
+`hamlet_app/src/screens/` groups the panels drawn from the client's
+state; the other panels live beside that folder, and `tuning.rs` loads
+their sizes and limits from `assets/ui.toml`. They are built from
+`hamlet_ui`, which reads no client state: `theme.rs` and `styles.rs`
+define the appearance, and `widgets/` holds the shared controls:
+`effects/`, `icons.rs`, `tabs.rs` and `platform.rs`. `markdown/` parses
+Markdown and draws it. A control asks for a sound with `ControlSound`
+and lights its panel from `Attention`; the app plays the one and keeps
+the other. A document finds a written path's file through `PathLinks`
+and draws a picture through `PictureView`, which the app's `links` and
+`pictures` screens set. The panels' steps before fynix mounts are `PanelSystems` in
+`hamlet_app/src/lib.rs` (`Follow`, `Bind`), in `PreUpdate`;
+`panel_sets` orders them, and the apps in `testing.rs` add it, so a UI
+test settles in one update.
 
 ## The server
 
@@ -194,9 +201,9 @@ ordinary tools.
 | Typed commands, command replies | `hamlet_server/src/chats/say.rs`, `society.rs`, `realm/deeds.rs`; advertised deeds in `state.rs` |
 | Conversation stop/retry/resume/rewind | `hamlet_server/src/chats/deeds.rs` and `chats/follow.rs` |
 | Transcript rows, paging and peer watches | `hamlet_server/src/chats/fold.rs`, `chats/watch.rs`; `hamlet_client/src/chats.rs` |
-| Questions and their answer cards | `hamlet_server/src/chats/asking.rs`, `chats/calls/ask.rs`, `chats/calls/answer.rs`, `hamlet_ui/src/asking.rs` |
+| Questions and their answer cards | `hamlet_server/src/chats/asking.rs`, `chats/calls/ask.rs`, `chats/calls/answer.rs`, `hamlet_app/src/asking.rs` |
 | Approvals, grants and waits | `hamlet_server/src/gate.rs`, `chats/calls/decide.rs`, `oversight.rs`, `oversight/held.rs` |
-| Selecting, quoting and replying to chat text | `hamlet_ui/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
+| Selecting, quoting and replying to chat text | `hamlet_app/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
 | Agent creation, model choice, departure and merge | `hamlet_server/src/society/agents.rs`, `leaving.rs`, `merging.rs`, whose `merging/lane.rs` runs every merge and split, one at a time; a chief's merge that fails lets the lane and the chief's connection go; rules in `record/` |
 | Letters, questions, votes and library | `hamlet_server/src/society/letters.rs`, `votes.rs`, `library.rs` |
 | Instructions and objections | `hamlet_server/src/society/objections.rs`, `reviews.rs` |
@@ -209,15 +216,15 @@ ordinary tools.
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs`, `index.rs` |
 | Gifts of skills and files, their upload in parts | `hamlet_client/src/gifts.rs`; dropped files reach it through `hamlet_realm/src/orders.rs` |
-| A panel or right-click menu | `hamlet_ui/src/screens/`, `world_menu/items.rs` |
-| Panels' colors, controls and icons | `assets/theme.toml`; `hamlet_ui/src/theme.rs`, `looks.rs`, `widgets/feel/`, `widgets/icons.rs` |
+| A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
+| Panels' colors, controls and icons | `assets/theme.toml`, `effects.toml`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
 | Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Wizard, Hearth, camera or sound | `hamlet_realm/src/chief/`, `pick/camera.rs`, `sound/` |
-| Helpers several modules' tests share | `testing.rs` in `hamlet_server`, `hamlet_ui` and `hamlet_realm`; fixtures crates share in `hamlet_testing` |
-| Window state or editor saves | `hamlet_ui/src/remember.rs`, `window.rs`, `saving.rs`; `hamlet_desktop/src/editor.rs` |
-| Desks and their switcher in the top bar | `hamlet_ui/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
+| Helpers several modules' tests share | `testing.rs` in `hamlet_server`, `hamlet_app` and `hamlet_realm`; fixtures crates share in `hamlet_testing` |
+| Window state or editor saves | `hamlet_app/src/remember.rs`, `window.rs`, `saving.rs`; `hamlet_desktop/src/editor.rs` |
+| Desks and their switcher in the top bar | `hamlet_app/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
 
 `hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
 plots and roads. `AgentNumber` is an agent's number in its hamlet, not a

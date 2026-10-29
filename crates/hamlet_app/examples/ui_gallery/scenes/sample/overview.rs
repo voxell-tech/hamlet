@@ -100,16 +100,16 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         Scene::Hamlet | Scene::Bylaws => Some(Thing::Common(first)),
         _ => None,
     }));
-    world.insert_resource(hamlet_ui::overview::Annals::received(
+    world.insert_resource(hamlet_app::overview::Annals::received(
         first,
         "The mayor created scout to read the orchard's records. The \
          chief restored smith, whose house and notes returned."
             .into(),
     ));
     if scene == Scene::Hamlet {
-        world.insert_resource(hamlet_ui::overview::Page::Record);
+        world.insert_resource(hamlet_app::overview::Page::Record);
     }
     if scene == Scene::Bylaws {
-        world.insert_resource(hamlet_ui::overview::Page::Bylaws);
+        world.insert_resource(hamlet_app::overview::Page::Bylaws);
     }
 }

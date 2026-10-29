@@ -1,13 +1,13 @@
 //! The settings, charter, workspace and sight gallery scenes.
 
 use bevy::ecs::world::World;
+use hamlet_app::settings;
 use hamlet_client::realm::Settings;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::sky::{
     DistanceFogSettings, SkySettings, VolumetricFogSettings,
 };
 use hamlet_realm::{North, Sky};
-use hamlet_ui::settings;
 
 use crate::scenes::Scene;
 
