@@ -13,12 +13,14 @@ use hamlet_blueprint::{
     Constant, Does, Edit, Initial, NodeId, PortSpec, Roll, Scope,
     Setting, Spread, ValueType,
 };
+use hamlet_ui::styles::{
+    ICON, command, description, note, section, text_input,
+};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::switch::switch;
+use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Editor;
-use crate::icons::{Glyph, glyph};
-use crate::looks::{ICON, command, description, note, section, well};
-use crate::switch::switch;
-use crate::{AnyView, View, with_cx};
 
 /// The ways an input can be set, in the order offered. A random value
 /// is wired in from a random or noise node.
@@ -409,7 +411,7 @@ fn value(
             )
             .width(percent(100.0))
             .min_width(px(0.0))
-            .rules(well),
+            .rules(text_input),
         ),
         Setting::Fixed(Constant::Point(_)) => {
             let axis = |index: usize| {
@@ -566,7 +568,7 @@ fn number(
     .precision(2)
     .width(percent(100.0))
     .min_width(px(0.0))
-    .rules(well)
+    .rules(text_input)
 }
 
 /// The dropdown of how often a random input is rolled again.

@@ -14,12 +14,12 @@ use bevy_fynix::{ScopedExt, ViewExt, resource};
 use hamlet_blueprint::{
     Constant, Edit, GraphInput, Scope, ValueType, Vary,
 };
+use hamlet_ui::styles::{ICON, command, note, text_input};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::switch::switch;
+use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Editor;
-use crate::icons::{Glyph, glyph};
-use crate::looks::{ICON, command, note, well};
-use crate::switch::switch;
-use crate::{AnyView, View, with_cx};
 
 /// The types an input can take, as offered.
 const TYPES: [(&str, ValueType); 4] = [
@@ -122,7 +122,7 @@ pub(super) fn input(name: String) -> AnyView {
             .gap(gap / 2.0)
             .padding(bevy::ui::UiRect::all(px(gap)))
             .border(1.0)
-            .border_color(cx.theme().palette.seam)
+            .border_color(cx.theme().palette.border)
             .radius(cx.theme().space.round)
     })
     .boxed()
@@ -167,7 +167,7 @@ fn head(name: String, value_type: ValueType) -> AnyView {
             })
             .width(percent(100.0))
             .min_width(px(0.0))
-            .rules(well),
+            .rules(text_input),
             dropdown(
                 TYPES.map(|(word, _)| word),
                 at,
@@ -221,7 +221,7 @@ fn number(
     .precision(2)
     .width(percent(100.0))
     .min_width(px(0.0))
-    .rules(well)
+    .rules(text_input)
     .boxed()
 }
 
@@ -285,7 +285,7 @@ fn default(name: String, value_type: ValueType) -> AnyView {
                 },
             )
             .width(percent(100.0))
-            .rules(well)
+            .rules(text_input)
             .boxed()
         }
         _ => number(

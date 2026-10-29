@@ -20,9 +20,9 @@ use bevy::ui::{ComputedNode, UiRect, Val, px};
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::OverrideCursor;
 use bevy_fynix::views::{self, Axis, BehaviorExt};
+use hamlet_ui::View;
 
 use super::canvas::Canvas;
-use crate::View;
 
 /// The least and the most the preview is wide, in logical pixels.
 const PREVIEW: std::ops::RangeInclusive<f32> = 120.0..=480.0;

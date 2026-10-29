@@ -45,13 +45,13 @@ use hamlet_blueprint::{
     Constant, Does, Edit, Initial, NodeId, Port, PortSpec, Roll,
     Setting, Spread, ValueType, Wire, ports,
 };
+use hamlet_ui::styles::Fills;
+use hamlet_ui::theme::{HamletTheme, Palette};
+use hamlet_ui::{View, with_cx};
 
 use super::Editor;
 use super::menu::Menu;
 use super::wire::{Shape, WireMaterial};
-use crate::looks::Fills;
-use crate::theme::{HamletTheme, Palette};
-use crate::{View, with_cx};
 
 const WIDTH: f32 = 196.0;
 const HEADER: f32 = 26.0;
@@ -188,7 +188,7 @@ pub(super) fn view() -> impl View {
             .fills_width()
             .fills_height()
             .overflow(Overflow::clip())
-            .fill(theme.palette.well)
+            .fill(theme.palette.input)
             .radius(theme.space.round)
             .tagged(Canvas)
     })
@@ -354,13 +354,13 @@ fn card_at(editor: &Editor, node: NodeId) -> Vec2 {
 /// The colour of a wire or a dot of `value_type`.
 fn tint(palette: &Palette, value_type: ValueType) -> Color {
     match value_type {
-        ValueType::Number => palette.brass_3,
-        ValueType::Bool => palette.moss,
-        ValueType::Point | ValueType::Curve => palette.rune,
+        ValueType::Number => palette.gold_3,
+        ValueType::Bool => palette.green,
+        ValueType::Point | ValueType::Curve => palette.agent,
         ValueType::Choice => palette.grey_1,
-        ValueType::Placements => palette.lamp,
-        ValueType::Field => palette.ember,
-        ValueType::Geometry => palette.flame,
+        ValueType::Placements => palette.glow,
+        ValueType::Field => palette.particle,
+        ValueType::Geometry => palette.glow_core,
     }
 }
 
@@ -629,14 +629,14 @@ fn build(
         let (inputs, outputs) = rows(&editor, node);
         // A graph run as a node is marked by its header's colour.
         let (title, header_fill, title_colour) = match &node.does {
-            Does::Kind(kind) => (
-                kind.replace('_', " "),
-                palette.plate,
-                palette.brass_1,
-            ),
-            Does::Graph(graph) => {
-                (graph.clone(), palette.lamp_low, palette.flame)
+            Does::Kind(kind) => {
+                (kind.replace('_', " "), palette.code, palette.gold_1)
             }
+            Does::Graph(graph) => (
+                graph.clone(),
+                palette.primary_low,
+                palette.glow_core,
+            ),
         };
         let card = commands
             .spawn((
@@ -651,7 +651,7 @@ fn build(
                     ..Node::default()
                 },
                 BackgroundColor(palette.card),
-                BorderColor::all(palette.seam),
+                BorderColor::all(palette.border),
                 Hovered::default(),
                 EntityCursor(SystemCursorIcon::Grab),
                 ChildOf(sheet),
@@ -736,7 +736,7 @@ fn build(
                             let mut spawned = commands.spawn((
                                 Text::new(shown(setting, spec, part)),
                                 TextFont::from_font_size(11.0),
-                                TextColor(palette.brass_2),
+                                TextColor(palette.gold_2),
                                 Node {
                                     padding: UiRect::axes(
                                         px(5.0),
@@ -747,7 +747,7 @@ fn build(
                                     ),
                                     ..Node::default()
                                 },
-                                BackgroundColor(palette.well),
+                                BackgroundColor(palette.input),
                                 Hovered::default(),
                                 EntityCursor(if part.is_number() {
                                     SystemCursorIcon::EwResize
@@ -770,7 +770,7 @@ fn build(
                             commands.spawn((
                                 Text::new(words.replace('_', " ")),
                                 TextFont::from_font_size(11.0),
-                                TextColor(palette.brass_5),
+                                TextColor(palette.gold_5),
                                 Pickable::IGNORE,
                                 ChildOf(row),
                             ));
@@ -793,7 +793,7 @@ fn build(
                     ..Node::default()
                 },
                 BackgroundColor(tint(palette, dot.value_type)),
-                BorderColor::all(palette.well),
+                BorderColor::all(palette.input),
                 Hovered::default(),
                 EntityCursor(SystemCursorIcon::Crosshair),
                 ChildOf(row),
@@ -968,11 +968,11 @@ fn paint(
     let palette = &theme.0.palette;
     for (card, hovered, mut border) in &mut cards {
         let colour = if editor.selected == Some(card.0) {
-            palette.lamp
+            palette.glow
         } else if hovered.get() {
-            palette.brass_5
+            palette.gold_5
         } else {
-            palette.seam
+            palette.border
         };
         *border = BorderColor::all(colour);
     }
@@ -993,21 +993,21 @@ fn paint(
         let colour = tint(palette, dot.value_type);
         fill.0 = if open { colour } else { colour.with_alpha(0.2) };
         *border = BorderColor::all(if hovered.get() && open {
-            palette.flame
+            palette.glow_core
         } else {
-            palette.well
+            palette.input
         });
     }
     for (hovered, mut fill, mut text) in &mut chips {
         fill.0 = if hovered.get() {
-            palette.lamp_low
+            palette.primary_low
         } else {
-            palette.well
+            palette.input
         };
         text.0 = if hovered.get() {
-            palette.flame
+            palette.glow_core
         } else {
-            palette.brass_2
+            palette.gold_2
         };
     }
 }

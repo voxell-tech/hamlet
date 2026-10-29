@@ -1,8 +1,8 @@
 //! The graph's menus and keys. A right click on the canvas, or Space,
 //! opens the groups of what can be added, each a page of its own;
 //! its search field, which has the keys while it is open, searches
-//! every group, and Enter adds the first found. A right click on a card opens what can be
-//! done to it.
+//! every group, and Enter adds the first found. A right click on a
+//! card opens what can be done to it.
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -32,11 +32,11 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, Signal, ViewExt, keyed, resource};
 use hamlet_blueprint::{Does, NodeId};
+use hamlet_ui::styles::{ICON, note, section, text_input};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, Cx, View};
 
 use super::{Editor, canvas, files};
-use crate::icons::{Glyph, glyph};
-use crate::looks::{ICON, note, section, well};
-use crate::{AnyView, Cx, View};
 
 /// The group the book's other graphs are listed under.
 const GRAPHS: &str = "Graphs";
@@ -286,7 +286,7 @@ fn search_bar() -> AnyView {
                     text_field(String::new(), |_, _| {})
                         .grow(1.0)
                         .tagged(SearchField)
-                        .rules(well),
+                        .rules(text_input),
                     hint,
                 ))
                 .gap(0.0)

@@ -40,10 +40,10 @@ use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::pick::{Orbit, Steer, scrolled_lines};
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
+use hamlet_ui::styles::Fills;
+use hamlet_ui::{AnyView, Cx, View};
 
 use super::Editor;
-use crate::looks::Fills;
-use crate::{AnyView, Cx, View};
 
 /// The asset name a placement is shown as when nothing is put there.
 pub(super) const MARKER: &str = "marker";
@@ -105,7 +105,7 @@ pub(super) fn view() -> impl View {
             .width(percent(100.0))
             .fills_height()
             .overflow(Overflow::clip())
-            .fill(theme.palette.well)
+            .fill(theme.palette.input)
             .tagged(Shown);
         match cx
             .world

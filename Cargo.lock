@@ -3370,6 +3370,7 @@ dependencies = [
  "bevy_fynix",
  "chrono",
  "hamlet_assets",
+ "hamlet_blueprint",
  "hamlet_client",
  "hamlet_desktop",
  "hamlet_protocol",
@@ -3401,6 +3402,18 @@ dependencies = [
  "bevy_reflect",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "hamlet_blueprint"
+version = "0.1.0"
+dependencies = [
+ "bevy_math",
+ "fastnoise-lite",
+ "libm",
+ "ron",
+ "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3457,18 +3470,6 @@ dependencies = [
  "rfd",
  "tokio",
  "winit",
-]
-
-[[package]]
-name = "hamlet_graph"
-version = "0.1.0"
-dependencies = [
- "bevy_math",
- "fastnoise-lite",
- "libm",
- "ron",
- "serde",
- "thiserror 2.0.21",
 ]
 
 [[package]]

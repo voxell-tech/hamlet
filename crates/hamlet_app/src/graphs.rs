@@ -37,17 +37,17 @@ use hamlet_blueprint::{
     Instance, Node, NodeId, Port, Registry, Ruleset, Seed, Seeds,
     Setting, Sheet, Value, ValueType, evaluate,
 };
+use hamlet_ui::styles::{
+    CONTROL, Fills, ICON, description, hairline, note, raised,
+    section,
+};
+use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{View, styles, with_cx};
 
 use self::split::{Floating, Handle, Layout, divider, inset_at};
 use crate::dock::{PanelAppExt, flush_panel};
-use crate::feel::Mood;
-use crate::icons::{Glyph, glyph};
-use crate::looks::{
-    CONTROL, Fills, ICON, brass, description, hairline, note, raised,
-    section,
-};
-use crate::theme::HamletTheme;
-use crate::{View, with_cx};
 
 /// The book the editor opens with.
 const START: &str =
@@ -618,7 +618,7 @@ fn screen() -> impl View {
         .shrink(0.0);
     column((
         tools(),
-        with_cx(|cx| hairline(cx.theme().palette.seam)),
+        with_cx(|cx| hairline(cx.theme().palette.border)),
         row((
             // The properties are placed over the canvas, in its
             // frame.
@@ -658,9 +658,9 @@ fn dock_outline() -> impl View {
                     Display::None
                 }
             }))
-            .fill(theme.palette.chosen)
+            .fill(theme.palette.text_selection)
             .border(2.0)
-            .border_color(theme.palette.lamp)
+            .border_color(theme.palette.glow)
             .radius(theme.space.round)
     })
 }
@@ -718,7 +718,7 @@ fn properties() -> impl View {
             .gap(gap / 2.0)
             .fill(theme.palette.card)
             .border(theme.space.border)
-            .border_color(theme.palette.seam)
+            .border_color(theme.palette.border)
             .radius(theme.space.round)
             .tagged(Floating)
     })
@@ -735,8 +735,8 @@ fn tool(
         .padding(UiRect::axes(px(9.0), px(0.0)))
         .min_height(px(CONTROL))
         .tooltip(move || note(tip))
-        .rules(brass)
-        .tagged(Mood::Plain)
+        .rules(styles::button)
+        .tagged(Variant::Default)
         .on_activate(act)
 }
 
@@ -750,7 +750,7 @@ fn cluster(
             .gap(2.0)
             .padding(UiRect::all(px(3.0)))
             .align(AlignItems::Center)
-            .fill(theme.palette.well)
+            .fill(theme.palette.input)
             .radius(theme.space.round)
     })
 }
