@@ -17,9 +17,9 @@ use bevy::image::Image;
 use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
+use hamlet_app::cursor::{Inks, Mode, face, frames, hot, inks, side};
 use hamlet_assets::Tuning;
 use hamlet_realm::palette::Palette;
-use hamlet_ui::cursor::{Inks, Mode, face, frames, hot, inks, side};
 use hamlet_ui::theme::HamletTheme;
 
 /// The colours of the sheet.
@@ -317,10 +317,10 @@ fn main() {
     let theme = HamletTheme::designed();
     let p = &theme.palette;
     let paper = Paper {
-        panel: bytes(p.black),
+        panel: bytes(p.surface),
         grass: bytes(Color::linear_rgb(sun.x, sun.y, sun.z)),
-        seam: bytes(p.brass_6),
-        ink: bytes(p.brass_1),
+        seam: bytes(p.gold_6),
+        ink: bytes(p.gold_1),
         dim: bytes(p.grey_1),
         mark: bytes(Color::srgb(1.0, 0.2, 0.9)),
         inks: inks(&theme),

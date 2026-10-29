@@ -24,10 +24,10 @@ use bevy::ui::{
 use bevy_fynix::Theme;
 use bevy_fynix::scroll::ScrollGoal;
 
-use crate::platform::Glow;
+use super::platform::Glow;
 use crate::theme::HamletTheme;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.add_observer(add_fades)
         .add_systems(Update, (default_fade, fade).chain())
         .add_systems(
@@ -144,7 +144,7 @@ impl Edge {
 }
 
 /// Moves `value` toward `to` at `rate` per second.
-pub(crate) fn ease(value: f32, to: f32, rate: f32, dt: f32) -> f32 {
+pub fn ease(value: f32, to: f32, rate: f32, dt: f32) -> f32 {
     let next = to + (value - to) * (-rate * dt).exp();
     if (next - to).abs() < 0.002 { to } else { next }
 }
@@ -246,13 +246,13 @@ fn fade(
         }
         let ground = match scroll.surface {
             FadeSurface::Card => theme.palette.card,
-            FadeSurface::Well => theme.palette.well,
+            FadeSurface::Well => theme.palette.input,
             FadeSurface::Panel => {
                 let y = fade.edge.y(place, computed.size());
                 parents
                     .iter_ancestors(fade.area)
                     .find_map(|panel| shaded.get(panel).ok())
-                    .map_or(theme.palette.black, |(panel, at)| {
+                    .map_or(theme.palette.surface, |(panel, at)| {
                         shade(theme, panel, at, y)
                     })
             }
@@ -280,10 +280,10 @@ fn shade(
     let down = (y - at.translation.y) / tall + 0.5;
     let share = ((down - start) / (1.0 - start)).clamp(0.0, 1.0);
     if !share.is_finite() {
-        return palette.black;
+        return palette.surface;
     }
-    Oklaba::from(palette.black)
-        .mix(&Oklaba::from(palette.hearth), share)
+    Oklaba::from(palette.surface)
+        .mix(&Oklaba::from(palette.bottom_glow), share)
         .into()
 }
 

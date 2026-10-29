@@ -390,7 +390,8 @@ fn settled(text: &str) -> Option<usize> {
     Some(end)
 }
 
-pub(super) fn hashed(text: &str) -> u64 {
+/// A hash of `text`, to tell whether words have changed.
+pub fn hashed(text: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
     hasher.finish()
@@ -399,7 +400,7 @@ pub(super) fn hashed(text: &str) -> u64 {
 /// The blocks of a document that grows at its end. The blocks
 /// before the last are read once and shared from then on.
 #[derive(Default)]
-pub(crate) struct Reading {
+pub struct Reading {
     end: usize,
     hash: u64,
     done: Vec<Arc<Block>>,
@@ -440,7 +441,24 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
-    use crate::testing::{plain, top};
+
+    fn plain(text: &str) -> Span {
+        Span {
+            text: text.into(),
+            style: Style::default(),
+            link: None,
+        }
+    }
+
+    /// A block of `kind` outside any quote or list.
+    fn top(kind: Kind) -> Block {
+        Block {
+            quote: 0,
+            indent: 0,
+            marker: None,
+            kind,
+        }
+    }
 
     fn link(text: &str, target: Target) -> Span {
         Span {

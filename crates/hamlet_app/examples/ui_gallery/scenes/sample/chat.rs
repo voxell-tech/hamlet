@@ -1,9 +1,9 @@
 //! The gallery's received conversations.
 
 use bevy::ecs::world::World;
+use hamlet_app::links::Roots;
 use hamlet_client::chats::{Entry, Item, Transcript};
 use hamlet_protocol::client as protocol;
-use hamlet_ui::links::Roots;
 
 use crate::scenes::Scene;
 

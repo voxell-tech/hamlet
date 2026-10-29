@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use bevy::math::Rect;
-use hamlet_ui::menu;
+use hamlet_app::menu;
 
 use crate::scenes::Scene;
 

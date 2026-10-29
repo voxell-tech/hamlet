@@ -157,3 +157,12 @@ stays beside the code that binds it and is embedded from there.
 ## No mod.rs
 
 Use the filename instead of `mod.rs` in a folder.
+
+## Moved code is imported from where it now lives
+
+When code moves to another module or crate, every `use` and every
+qualified path that names it changes to its new home, in the code, the
+tests and the examples. Do not add a `pub use` that keeps the old paths
+working: a move is permanent, and a re-export left to spare the edits
+hides where things live. A re-export is for a deliberate public API
+only.

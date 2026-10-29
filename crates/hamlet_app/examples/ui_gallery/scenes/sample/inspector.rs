@@ -1,9 +1,9 @@
 //! The notes, character and prompt gallery scenes.
 
 use bevy::ecs::world::World;
+use hamlet_app::{Convo, inspector};
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
-use hamlet_ui::{Convo, inspector};
 
 use crate::scenes::Scene;
 

@@ -19,8 +19,8 @@ use std::time::Duration;
 use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
-use hamlet_ui::pictures::Pictures;
-use hamlet_ui::welcome::Step;
+use hamlet_app::pictures::Pictures;
+use hamlet_app::welcome::Step;
 
 use self::offscreen::{Target, word};
 use self::scenes::{GalleryPlugin, Scene, Stand, Strike};

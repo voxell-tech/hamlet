@@ -1,6 +1,6 @@
 //! The first-run gallery scenes.
 
-use hamlet_ui::welcome;
+use hamlet_app::welcome;
 
 use crate::scenes::Scene;
 

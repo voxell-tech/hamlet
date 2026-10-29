@@ -12,11 +12,11 @@ mod welcome;
 use std::path::PathBuf;
 
 use bevy::ecs::world::World;
+use hamlet_app::Convo;
 use hamlet_client::chats::{Chat, Status, Usage};
 use hamlet_client::{ViewFolder, realm};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Also, Selected, Thing};
-use hamlet_ui::Convo;
 pub(super) use welcome::first_run;
 
 use super::Scene;
@@ -81,7 +81,8 @@ pub(super) fn setup(world: &mut World) {
     overview::setup(world, scene);
     needs::setup(world, scene);
     if matches!(scene, Scene::History | Scene::Reading) {
-        world.insert_resource(hamlet_ui::inspector::Section::History);
+        world
+            .insert_resource(hamlet_app::inspector::Section::History);
         history::setup(world, scene == Scene::Reading);
     }
     if scene == Scene::Chief {

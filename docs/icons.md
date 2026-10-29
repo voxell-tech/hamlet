@@ -16,7 +16,7 @@ there is no icon font, no file to load and no licence to carry.
 - `icons::draw` draws every icon once at startup, at a few sizes and twice
   the pixels.
 
-`looks.rs` holds the helpers that set an icon beside words, such as
+`styles.rs` holds the helpers that set an icon beside words, such as
 `marked` and `action`.
 
 ## The family

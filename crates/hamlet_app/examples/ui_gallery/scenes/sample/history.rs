@@ -3,9 +3,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::ecs::world::World;
+use hamlet_app::history::{self, History, Reading};
 use hamlet_client::chats::Chat;
 use hamlet_protocol::client::{self as protocol, Past};
-use hamlet_ui::history::{self, History, Reading};
 
 /// Sample sessions for the History page, one open if `reading`.
 pub(super) fn setup(world: &mut World, reading: bool) {
@@ -55,7 +55,7 @@ pub(super) fn setup(world: &mut World, reading: bool) {
                         kind: None,
                         from: None,
                         with: world
-                            .resource::<hamlet_ui::Convo>()
+                            .resource::<hamlet_app::Convo>()
                             .to
                             .clone(),
                         past: Some(pasts[1].number),

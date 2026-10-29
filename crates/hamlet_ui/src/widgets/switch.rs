@@ -22,7 +22,7 @@ use super::fade::ease;
 use crate::theme::{HamletTheme, Themed};
 use crate::{AnyView, Cx, View};
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.add_systems(Update, slide);
 }
 
@@ -79,9 +79,9 @@ fn switch_of(
         );
         let knob = height - 2.0 * (border + inset);
         let travel = width - height;
-        let tracks = (palette.brass_4, palette.grey_4);
-        let frames = (palette.brass_3, palette.brass_5);
-        let knobs = (palette.brass_1, palette.grey_1);
+        let tracks = (palette.gold_4, palette.button);
+        let frames = (palette.gold_3, palette.gold_5);
+        let knobs = (palette.gold_1, palette.grey_1);
         cx.scope(|cx| {
             style::<HamletTheme>()
                 .tone(Tone::Faint)

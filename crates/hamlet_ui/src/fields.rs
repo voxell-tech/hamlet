@@ -17,7 +17,7 @@ use bevy::ui::widget::{
 };
 use bevy::ui::{ComputedUiRenderTargetInfo, UiSystems};
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Resized>().add_systems(Startup, steady);
 }
 
