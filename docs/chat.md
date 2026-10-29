@@ -1,7 +1,8 @@
 # The chat
 
 An agent's watched conversation, its rows and the links and pictures they
-hold. The drawing is `hamlet_app/src/screens/chat/` and `markdown/`. The client
+hold. The drawing is `hamlet_app/src/screens/chat/` and `markdown/`, on
+the Markdown of `hamlet_ui/src/markdown/`. The client
 transcript is `hamlet_client/src/chats.rs`; the server keeps the
 conversations through pi-durable. [The client protocol](protocol.md) describes the
 wire messages, watch rules and page boundaries; this page covers the window.

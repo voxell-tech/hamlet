@@ -130,10 +130,7 @@ impl Selecting {
     }
 }
 
-/// Text whose words are selected as one, across every text node in
-/// it.
-#[derive(Component)]
-pub struct Area;
+pub use crate::markdown::Area;
 
 /// On a row of the chat whose words can be quoted.
 #[derive(Component, Clone, Debug)]

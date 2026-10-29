@@ -34,8 +34,8 @@ pub(crate) use self::fetch::host;
 pub(crate) use self::load::fit;
 use self::load::{Bounds, Pixels};
 use crate::chat::ChatSettings;
-use crate::links::{Anchor, seek};
-use crate::markdown::Target;
+use crate::links::seek;
+use crate::markdown::{self, Anchor, PictureView, Target};
 
 /// The endings of the files drawn as pictures, in small letters.
 const PICTURED: [&str; 6] =
@@ -58,6 +58,7 @@ type Read = (Source, Option<Stamp>, Option<Pixels>);
 /// Reads the pictures of the chat off the frame and keeps them.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Pictures>()
+        .insert_resource(PictureView(markdown::picture_view))
         .add_observer(show)
         .add_observer(unshow)
         .add_observer(look_again)
@@ -557,7 +558,7 @@ mod tests {
             .add_plugins(plugin);
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            crate::markdown::fixed(
+            markdown::fixed(
                 &format!("![pear]({})", file.display()),
                 Tone::Body,
             ),

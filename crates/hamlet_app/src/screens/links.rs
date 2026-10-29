@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use bevy::app::{App, PreUpdate};
-use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::Remove;
 use bevy::ecs::message::MessageWriter;
@@ -26,6 +25,7 @@ use hamlet_desktop::open;
 use hamlet_realm::sound::{Cue, Sound};
 
 use crate::convo::Convo;
+use crate::markdown::{Anchor, PathLinks};
 use crate::roll::{self, Roll};
 use crate::{PanelSystems, sounds};
 
@@ -38,6 +38,10 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Roots>()
         .init_resource::<Found>()
         .init_resource::<Aimed>()
+        .insert_resource(PathLinks {
+            resolve: seek,
+            generation: 0,
+        })
         .add_observer(aim)
         .add_observer(aim_off)
         .add_observer(aim_gone)
@@ -46,20 +50,22 @@ pub fn plugin(app: &mut App) {
         .add_observer(forget)
         .add_systems(
             PreUpdate,
-            turn.run_if(
-                resource_changed::<Convo>.or_eager(hamlets_turned),
+            (
+                turn.run_if(
+                    resource_changed::<Convo>
+                        .or_eager(hamlets_turned),
+                ),
+                roots_moved.run_if(resource_changed::<Roots>),
             )
-            .after(roll::turn_roll)
-            .in_set(PanelSystems::Bind),
+                .chain()
+                .after(roll::turn_roll)
+                .in_set(PanelSystems::Bind),
         );
 }
 
-/// The place a span of text leads when it is clicked.
-#[derive(Component, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub(crate) enum Anchor {
-    Web(String),
-    /// A file or a folder, with every link on the way to it followed.
-    File(PathBuf),
+/// Has the documents find their links again under the new folders.
+fn roots_moved(mut links: ResMut<PathLinks>) {
+    links.generation = links.generation.wrapping_add(1);
 }
 
 /// The local folders used to resolve relative paths in the chat.

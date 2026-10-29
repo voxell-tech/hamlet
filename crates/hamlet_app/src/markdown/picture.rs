@@ -14,9 +14,10 @@ use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{Frame, FrameProps, column, frame, label};
 use bevy_fynix::{EntityCursor, ViewExt, derived, keyed, resource};
+use hamlet_ui::markdown::{
+    Face, Ink, Span, Style, Target, picture_words as words, rich,
+};
 
-use super::draw::{Face, Ink, rich};
-use super::{Span, Style, Target};
 use crate::chat::ChatSettings;
 use crate::icons::Glyph;
 use crate::pictures::{
@@ -31,19 +32,6 @@ fn plain(text: &str) -> Span {
         style: Style::default(),
         link: None,
     }
-}
-
-/// The words that stand for a picture, as a link to where it is.
-fn words(caption: &str, target: &Target, ink: Ink) -> AnyView {
-    let written = match target {
-        Target::Web(address) => address,
-        Target::Path(path) => path,
-    };
-    let link = Span {
-        link: Some(target.clone()),
-        ..plain(if caption.is_empty() { written } else { caption })
-    };
-    rich(&[link], ink)
 }
 
 /// A plate in the frame of a picture.
@@ -165,7 +153,7 @@ fn card(
 /// The picture written as `target` with the words `caption`: the
 /// picture itself once it is read, and its words as a link if it is
 /// none that can be drawn.
-pub(super) fn picture_view(
+pub(crate) fn picture_view(
     caption: &str,
     target: &Target,
     ink: Ink,
