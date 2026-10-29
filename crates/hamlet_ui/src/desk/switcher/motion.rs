@@ -24,8 +24,9 @@ use bevy::ui::{
     ComputedNode, Display, Node, ScrollPosition, UiGlobalTransform,
     ZIndex, px,
 };
+use bevy::window::SystemCursorIcon;
 use bevy_fynix::scroll::{ScrollGoal, wheel};
-use bevy_fynix::{Dragging, ReducedMotion};
+use bevy_fynix::{Dragging, OverrideCursor, ReducedMotion};
 
 use super::{DeskTab, Indicator, Renaming, TabRow, TabStrip};
 use crate::desk::{DeskSettings, Desks};
@@ -39,7 +40,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(drag)
         .add_observer(drag_end)
         .add_observer(wheel_across)
-        .add_systems(Update, (preview, glide, reveal).chain())
+        .add_systems(Update, ((preview, glide, reveal).chain(), grab))
         .add_systems(Last, |mut dragged: ResMut<TabDrag>| {
             dragged.dropped = false;
         });
@@ -280,6 +281,23 @@ fn preview(
     if settled && dragged.held.is_none() {
         dragged.rest.clear();
         dragged.shift.clear();
+    }
+}
+
+/// Shows a closed hand while a tab is dragged, and puts back only the
+/// cursor this set once it is let go.
+fn grab(
+    dragged: Res<TabDrag>,
+    mut shown: ResMut<OverrideCursor>,
+    mut ours: Local<bool>,
+) {
+    let moving = dragged.is_moving();
+    if moving && !*ours {
+        shown.0 = Some(SystemCursorIcon::Grabbing);
+        *ours = true;
+    } else if !moving && *ours {
+        shown.0 = None;
+        *ours = false;
     }
 }
 
