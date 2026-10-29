@@ -7,7 +7,7 @@ use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, Frame, FrameProps, Icon, Stack, button, column,
-    frame, label, row, scroll,
+    frame, label, row, scroll, tinted_icon,
 };
 use bevy_fynix::{
     Bevy, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
@@ -582,6 +582,16 @@ fn acting(
     marked(which, text)
         .rules(rules)
         .tagged(mood)
+        .on_activate(act)
+}
+
+/// A small "x" that closes or drops something by running `act`: dim,
+/// and red under the pointer, as a dock tab's is.
+pub(crate) fn close_mark(
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> impl View {
+    tinted_icon(Glyph::Cross.image(ICON))
+        .hover(Tone::Critical)
         .on_activate(act)
 }
 

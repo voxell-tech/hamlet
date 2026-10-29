@@ -6,6 +6,7 @@ mod chief;
 pub mod chrome;
 mod convo;
 pub mod cursor;
+mod desk;
 mod dock;
 pub mod fields;
 mod folder;
@@ -166,6 +167,7 @@ impl Plugin for UiPlugin {
                 menu::plugin,
                 status::plugin,
                 remember::plugin,
+                desk::plugin,
             ),
             (
                 screens::plugin,

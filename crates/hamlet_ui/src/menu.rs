@@ -78,7 +78,7 @@ pub(crate) fn hold_escape(
 }
 
 /// The rect of `title`, in the window's logical pixels.
-fn rect_of(world: &World, title: Entity) -> Option<Rect> {
+pub(crate) fn rect_of(world: &World, title: Entity) -> Option<Rect> {
     let (node, at) = world
         .get::<ComputedNode>(title)
         .zip(world.get::<UiGlobalTransform>(title))?;

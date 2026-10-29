@@ -17,7 +17,7 @@ use crate::feel::{GlowPanel, Lit, glow_layer, lamplight};
 use crate::looks::Fills;
 use crate::platform::{ClipInside, Glow};
 use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, View, remember};
+use crate::{AnyView, Cx, View, desk, remember};
 
 /// The least width a panel keeps, in logical pixels.
 const LEAST: f32 = 300.0;
@@ -148,12 +148,17 @@ pub(crate) fn keep_wide(
     }
 }
 
-/// The world in the centre, and the working panels as tabs beside it.
+/// Puts back the kept view and lays out the desk shown.
 pub(crate) fn seed(world: &mut World) {
-    if remember::restore(world) == remember::Restored::Dock {
-        return;
-    }
-    let mut tree = world.resource_mut::<DockTree>();
+    remember::restore(world);
+    // Here rather than in the next frame, so the panels are mounted
+    // on the desk.
+    let _ = world.run_system_cached(desk::show);
+}
+
+/// The dock the window starts with: the world in the centre, and the
+/// working panels as tabs beside it.
+pub(crate) fn designed(tree: &mut DockTree) {
     let centre = tree.set_root_leaf(
         DockLeaf::new("centre", DockAreaStyle::TabBar)
             .with_windows(vec!["world".into()]),
@@ -175,10 +180,17 @@ pub(crate) fn seed(world: &mut World) {
     }
 }
 
-/// Brings a panel's tab to the front.
+/// Brings a panel's tab to the front, or opens it in the first area
+/// when the desk shown does not have it.
 pub(crate) fn show_tab(world: &mut World, id: &str) {
     let mut tree = world.resource_mut::<DockTree>();
     let Some(leaf) = tree.find_leaf_with_window(id) else {
+        let first = tree.root.and_then(|root| {
+            tree.leaves_under(root).first().map(|(leaf, _)| *leaf)
+        });
+        if let Some(leaf) = first {
+            tree.add_tab(leaf, id);
+        }
         return;
     };
     let tab = tree.leaf(leaf).and_then(|l| {

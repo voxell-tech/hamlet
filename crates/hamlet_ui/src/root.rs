@@ -27,7 +27,7 @@ use crate::platform::Glow;
 use crate::status::status_bar;
 use crate::theme::{HamletTheme, ThemeChanged};
 use crate::{
-    Cx, View, built, chrome, hover, menu, welcome, world_menu,
+    Cx, View, built, chrome, desk, hover, menu, welcome, world_menu,
 };
 
 pub(crate) fn plugin(app: &mut App) {
@@ -70,12 +70,14 @@ fn root() -> impl View {
             column((
                 full(cx),
                 menu::open_menu(),
+                desk::popups(),
                 world_menu::view(),
                 crate::saving::screen(),
                 hover::view(),
             ))
             .width(percent(100.0))
             .height(percent(100.0))
+            .min_width(px(0.0))
             .min_height(px(0.0))
             .fill(cx.theme().background())
             .gap(0.0),
@@ -95,13 +97,14 @@ fn full(cx: &Cx) -> impl View {
     .gap(0.0)
 }
 
-/// The bar across the top: the menus, on a surface that warms
-/// toward its foot.
+/// The bar across the top: the menus and the desks, on a surface
+/// that warms toward its foot.
 pub fn toolbar(cx: &Cx) -> impl View {
     let palette = &cx.theme().palette;
     column((
         row((
             menu::titles(),
+            desk::switcher(),
             // The rest of the bar is where the window is held.
             frame()
                 .grow(1.0)

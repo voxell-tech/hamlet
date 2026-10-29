@@ -10,7 +10,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::With;
+use bevy::ecs::query::{Or, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Local, Query, Res, ResMut, Single};
 use bevy::ecs::world::World;
@@ -19,10 +19,12 @@ use bevy::input::ButtonInput;
 use bevy::input::mouse::MouseButton;
 use bevy::math::{CompassOctant, Vec2};
 use bevy::picking::events::PointerPress;
-use bevy::picking::pointer::PointerButton;
+use bevy::picking::hover::HoverMap;
+use bevy::picking::pointer::{PointerButton, PointerId};
 use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
+use bevy::text::EditableText;
 use bevy::time::Time;
 use bevy::ui::{AlignItems, px};
 use bevy::ui_widgets::Button as ButtonBehavior;
@@ -32,6 +34,7 @@ use bevy::window::{
 use bevy_fynix::tokens::Motion;
 use bevy_fynix::views::{BehaviorExt, FrameProps, button, icon, row};
 use bevy_fynix::{OverrideCursor, ScopedExt, style};
+use hamlet_desktop::title_bar::TitleBarDrag;
 
 use crate::theme::{HamletTheme, Palette};
 use crate::{Cx, View, built};
@@ -41,7 +44,7 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Maximised>()
         .add_observer(grab)
         .add_systems(Startup, draw_marks)
-        .add_systems(Update, resize_by_edge);
+        .add_systems(Update, (resize_by_edge, hold_title_bar));
 }
 
 /// A window with no title bar from the system. On macOS the system
@@ -260,6 +263,40 @@ pub(crate) fn grab(
     }
     *last = Some(now);
     window.start_drag_move();
+}
+
+/// Leaves a drag that starts on a control in the top bar, a button
+/// or a field, to that control rather than to the system, which
+/// moves the window by a drag anywhere in its title bar.
+fn hold_title_bar(
+    hover: Option<Res<HoverMap>>,
+    controls: Query<
+        (),
+        Or<(With<ButtonBehavior>, With<EditableText>)>,
+    >,
+    handles: Query<(), With<Grip>>,
+    parents: Query<&ChildOf>,
+    drag: Option<ResMut<TitleBarDrag>>,
+) {
+    let Some(mut drag) = drag else {
+        return;
+    };
+    let on_control = hover
+        .as_deref()
+        .and_then(|hover| hover.get(&PointerId::Mouse))
+        .is_some_and(|hits| {
+            hits.keys().any(|&hit| {
+                let mut up = core::iter::once(hit)
+                    .chain(parents.iter_ancestors(hit));
+                up.any(|node| controls.contains(node))
+                    && parents
+                        .iter_ancestors(hit)
+                        .any(|node| handles.contains(node))
+            })
+        });
+    if drag.0 == on_control {
+        drag.0 = !on_control;
+    }
 }
 
 /// The edge or corner of a window `size` across that the pointer at

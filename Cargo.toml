@@ -80,8 +80,8 @@ url = "2"
 tokio-tungstenite = "0.28"
 tokio = { version = "1", features = ["full"] }
 objc2 = "0.5"
-objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
-objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSData", "NSThread"] }
+objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder", "NSWindow"] }
+objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSArray", "NSData", "NSEnumerator", "NSThread"] }
 winit = { version = "0.30", default-features = false }
 windows-sys = "0.61"
 toml = "1"

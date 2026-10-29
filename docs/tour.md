@@ -217,6 +217,7 @@ ordinary tools.
 | Wizard, Hearth, camera or sound | `hamlet_realm/src/chief/`, `pick/camera.rs`, `sound/` |
 | Helpers several modules' tests share | `testing.rs` in `hamlet_server`, `hamlet_ui` and `hamlet_realm`; fixtures crates share in `hamlet_testing` |
 | Window state or editor saves | `hamlet_ui/src/remember.rs`, `window.rs`, `saving.rs`; `hamlet_desktop/src/editor.rs` |
+| Desks and their switcher in the top bar | `hamlet_ui/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
 
 `hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
 plots and roads. `AgentNumber` is an agent's number in its hamlet, not a

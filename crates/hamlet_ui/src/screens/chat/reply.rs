@@ -27,7 +27,7 @@ use super::{ChatSettings, Draft};
 use crate::convo::Convo;
 use crate::feel::Mood;
 use crate::icons::{Glyph, glyph};
-use crate::looks::{Fills, ICON, bare, note, retrace};
+use crate::looks::{Fills, ICON, bare, close_mark, note, retrace};
 use crate::{AnyView, Cx, View, built, with_cx};
 
 /// The room of a mark about its picture.
@@ -265,14 +265,10 @@ pub(super) fn preview() -> impl View {
 }
 
 fn shown(cx: &Cx, answers: &Answers) -> AnyView {
-    let drop = button(glyph(Glyph::Cross, ICON))
-        .padding(UiRect::all(px(AROUND)))
-        .tooltip(|| note("Do not reply"))
-        .rules(retrace)
-        .tagged(Mood::Ink)
-        .on_activate(|world| {
-            world.resource_mut::<Replying>().0 = None;
-        });
+    let drop = close_mark(|world| {
+        world.resource_mut::<Replying>().0 = None;
+    })
+    .tooltip(|| note("Do not reply"));
     row((
         frame()
             .width(px(3.0))
