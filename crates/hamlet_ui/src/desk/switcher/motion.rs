@@ -386,8 +386,9 @@ fn most(computed: &ComputedNode) -> f32 {
     .max(0.0)
 }
 
-/// Scrolls the track across with a wheel turned up or down. A wheel
-/// turned across is fynix's to scroll.
+/// Scrolls the track across with a wheel turned mostly up or down,
+/// as a trackpad's swipe is, which always drifts across a little. A
+/// wheel turned mostly across is fynix's to scroll.
 fn wheel_across(
     mut scroll: On<PointerScroll>,
     per_line: Res<MouseScrollPixelsPerLine>,
@@ -402,7 +403,7 @@ fn wheel_across(
         return;
     };
     let (turned, notched) = wheel(&scroll, *per_line);
-    if turned.y == 0.0 || turned.x != 0.0 {
+    if turned.y.abs() <= turned.x.abs() {
         return;
     }
     goal.scroll_by(

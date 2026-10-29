@@ -77,6 +77,9 @@ fn root() -> impl View {
             ))
             .width(percent(100.0))
             .height(percent(100.0))
+            // Never wider or taller than the window, however much a
+            // bar holds: what does not fit scrolls or is cut.
+            .min_width(px(0.0))
             .min_height(px(0.0))
             .fill(cx.theme().background())
             .gap(0.0),

@@ -31,10 +31,12 @@ use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, BackgroundGradient, BoxShadow, ColorStop, Display,
-    LinearGradient, Overflow, OverflowAxis, PositionType,
-    ShadowStyle, UiRect, UiTransform, Val, percent, px,
+    FlexDirection, LinearGradient, PositionType, ShadowStyle, UiRect,
+    UiTransform, Val, percent, px,
 };
-use bevy_fynix::scroll::ScrollGoal;
+use bevy_fynix::scroll::{
+    OwnScrollbar, ScrollbarStyle, ScrollbarVisibility,
+};
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, GLOBAL, Invoke, Mods,
     ShortcutAppExt,
@@ -42,7 +44,8 @@ use bevy_fynix::shortcut::{
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, TooltipExt, button,
-    column, frame, label, menu_item, overlay, popup, row, text_field,
+    column, frame, label, menu_item, overlay, popup, row, scroll,
+    text_field,
 };
 use bevy_fynix::{
     ModifierExt, ScopedExt, ViewExt, keyed, resource, style,
@@ -50,6 +53,7 @@ use bevy_fynix::{
 
 use self::motion::TabDrag;
 use crate::desk::Desks;
+use crate::fade::{FadeSurface, ScrollFade};
 use crate::feel::FeelSettings;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
@@ -179,20 +183,23 @@ pub(crate) fn switcher() -> impl View {
             .height(px(space.track_divider))
             .shrink(0.0)
             .fill(palette.brass_6);
-        let strip =
+        let hidden = ScrollbarStyle {
+            visibility: ScrollbarVisibility::Hidden,
+            floating: true,
+            ..ScrollbarStyle::default()
+        };
+        let tabs =
             keyed(resource::<Tabs, _>(Clone::clone), tabs_view)
-                .within(
-                    row(())
-                        .height(percent(100.0))
-                        .min_width(px(0.0))
-                        .shrink(1.0)
-                        .overflow(Overflow {
-                            x: OverflowAxis::Scroll,
-                            y: OverflowAxis::Visible,
-                        })
-                        .tagged(ScrollGoal::default())
-                        .tagged(TabStrip),
-                );
+                .within(row(()).height(percent(100.0)).shrink(0.0));
+        let strip = scroll((tabs,))
+            .direction(FlexDirection::Row)
+            .height(percent(100.0))
+            .shrink(1.0)
+            .tagged(OwnScrollbar(hidden))
+            .tagged(ScrollFade {
+                surface: FadeSurface::Well,
+            })
+            .tagged(TabStrip);
         let new = segment(glyph(Glyph::Plus, ICON), space.gap)
             .on_activate(new_desk)
             .tooltip(|| note(format!("New desk ({NEW})")));
