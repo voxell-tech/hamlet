@@ -58,7 +58,8 @@ use crate::fade::{FadeSurface, ScrollFade};
 use crate::feel::FeelSettings;
 use crate::icons::{Glyph, glyph};
 use crate::looks::{
-    ICON, action, bad_action, description, note, section, well,
+    ICON, action, bad_action, close_mark, description, note, section,
+    well,
 };
 use crate::menu::rect_of;
 use crate::platform::DisplayText;
@@ -231,9 +232,10 @@ pub(crate) fn switcher() -> impl View {
             floating: true,
             ..ScrollbarStyle::default()
         };
-        let tabs =
-            keyed(resource::<Tabs, _>(Clone::clone), tabs_view)
-                .within(row(()).height(percent(100.0)).shrink(0.0));
+        let tabs = keyed(resource::<Tabs, _>(Clone::clone), |tabs| {
+            tabs_view(tabs).boxed()
+        })
+        .within(row(()).height(percent(100.0)).shrink(0.0));
         let strip = scroll((tabs,))
             .direction(FlexDirection::Row)
             // Across only, so that the glow under the shown desk is
@@ -290,8 +292,10 @@ pub(crate) fn popups() -> impl View {
     keyed(resource::<Opened, _>(|opened| *opened), |opened| {
         let (anchor, content) = match *opened {
             Opened::Nothing => return frame().boxed(),
-            Opened::All { anchor } => (anchor, all_view()),
-            Opened::Close { at, anchor } => (anchor, close_view(at)),
+            Opened::All { anchor } => (anchor, all_view().boxed()),
+            Opened::Close { at, anchor } => {
+                (anchor, close_view(at).boxed())
+            }
         };
         with_cx(move |cx| {
             popup(anchor, (content,))
@@ -306,7 +310,7 @@ pub(crate) fn popups() -> impl View {
 }
 
 /// The row of tabs, over the raised segment under the shown one.
-fn tabs_view(tabs: &Tabs) -> AnyView {
+fn tabs_view(tabs: &Tabs) -> impl View {
     let tabs = tabs.clone();
     with_cx(move |cx| {
         let count = tabs.names.len();
@@ -316,7 +320,7 @@ fn tabs_view(tabs: &Tabs) -> AnyView {
                 if tabs.renaming == Some(at) {
                     renaming_tab(at, name).boxed()
                 } else {
-                    tab(at, name, count)
+                    tab(at, name, count).boxed()
                 }
             },
         ));
@@ -327,7 +331,6 @@ fn tabs_view(tabs: &Tabs) -> AnyView {
             .align(AlignItems::Stretch)
             .tagged(TabRow)
     })
-    .boxed()
 }
 
 /// The raised segment under the shown tab, lit inside from below
@@ -434,13 +437,13 @@ fn segment(content: impl View, pad: f32) -> impl View {
 }
 
 /// The tab of the desk at `at`, one of `count`.
-fn tab(at: usize, name: &str, count: usize) -> AnyView {
+fn tab(at: usize, name: &str, count: usize) -> impl View {
     let words =
         label(name.to_uppercase()).wrap(false).tagged(DisplayText);
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let content = if count > 1 {
-            row((words, close_mark(at)))
+            row((words, tab_close(at)))
                 .gap(space.gap / 2.0)
                 .align(AlignItems::Center)
                 .boxed()
@@ -457,7 +460,6 @@ fn tab(at: usize, name: &str, count: usize) -> AnyView {
             })
             .context_menu(move || tab_items(at, count))
     })
-    .boxed()
 }
 
 /// What a right-click on the tab at `at`, one of `count`, offers.
@@ -495,7 +497,7 @@ fn tab_items(at: usize, count: usize) -> Vec<AnyView> {
 
 /// Every desk, the one shown in the accent and each with the key
 /// that shows it, then a way to add one.
-fn all_view() -> AnyView {
+fn all_view() -> impl View {
     with_cx(|cx| {
         let desks = cx.world.resource::<Desks>();
         let gap = cx.theme().space.menu_gap;
@@ -549,21 +551,12 @@ fn all_view() -> AnyView {
         );
         column(rows).gap(0.0)
     })
-    .boxed()
 }
 
 /// The "x" that closes a tab's desk, after its name, shown while the
 /// pointer is on the tab.
-fn close_mark(at: usize) -> impl View {
-    row((glyph(Glyph::Cross, ICON),))
-        .align(AlignItems::Center)
-        .rules(|cx: &mut Cx| {
-            style::<HamletTheme>()
-                .tone(Tone::Dim)
-                .hovered(|s| s.tone(Tone::Accent))
-                .transition(Motion::Interact)
-                .apply(cx);
-        })
+fn tab_close(at: usize) -> impl View {
+    close_mark(move |world| ask_close(world, at))
         .tagged(CloseMark(at))
         .tagged(Visibility::Hidden)
 }
@@ -579,7 +572,7 @@ fn ask_close(world: &mut World, at: usize) {
 }
 
 /// The question of closing the desk at `at`.
-fn close_view(at: usize) -> AnyView {
+fn close_view(at: usize) -> impl View {
     let answered = |world: &mut World| {
         *world.resource_mut::<Opened>() = Opened::Nothing;
     };
@@ -599,7 +592,6 @@ fn close_view(at: usize) -> AnyView {
         .gap(gap)
         .padding(UiRect::all(px(gap)))
     })
-    .boxed()
 }
 
 /// The tab of the desk at `at` while it is renamed: a field over it,
@@ -765,19 +757,14 @@ fn press_close(
     }
 }
 
-/// Asks to close the desk of the "x" clicked.
+/// Keeps a click on a tab's "x" from reaching the tab, where a second
+/// would rename the desk.
 fn click_close(
     mut click: On<PointerClick>,
-    marks: Query<&CloseMark>,
-    mut commands: Commands,
+    marks: Query<(), With<CloseMark>>,
 ) {
-    if let Ok(mark) = marks.get(click.event_target()) {
+    if marks.contains(click.event_target()) {
         click.propagate(false);
-        if click.button == PointerButton::Primary {
-            let at = mark.0;
-            commands
-                .queue(move |world: &mut World| ask_close(world, at));
-        }
     }
 }
 
