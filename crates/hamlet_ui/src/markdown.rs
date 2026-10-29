@@ -1,4 +1,4 @@
-//! Markdown: its blocks ([`parse`]), the links in its words and the
+//! Markdown: its blocks ([`parse()`]), the links in its words and the
 //! views that draw them ([`document`], [`fixed`], [`typed`]). Where a
 //! written path leads and how a picture is drawn are the app's, set
 //! with [`PathLinks`] and [`PictureView`]; without them a path is
