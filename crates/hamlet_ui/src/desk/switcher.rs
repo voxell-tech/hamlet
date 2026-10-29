@@ -18,6 +18,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
@@ -61,7 +62,7 @@ use crate::looks::{
 };
 use crate::menu::rect_of;
 use crate::platform::DisplayText;
-use crate::theme::HamletTheme;
+use crate::theme::{HamletTheme, Themed};
 use crate::{AnyView, Cx, View, with_cx};
 
 /// Ctrl, on macOS too, where the primary key is Command.
@@ -112,6 +113,7 @@ pub(crate) fn plugin(app: &mut App) {
                 mark_shown,
                 show_close,
                 (focus_field, end_rename).chain(),
+                retune_halo.run_if(resource_changed::<DeskSettings>),
             ),
         );
 }
@@ -201,6 +203,10 @@ struct TabRow;
 /// On the raised segment under the shown tab.
 #[derive(Component, Clone, Copy)]
 struct Indicator;
+
+/// On the glowing line under the shown tab.
+#[derive(Component, Clone, Copy)]
+struct Underline;
 
 /// On the "x" that closes the desk at its index.
 #[derive(Component, Clone, Copy)]
@@ -331,7 +337,8 @@ fn indicator() -> impl View {
         let theme = cx.theme();
         let (space, palette) = (&theme.space, &theme.palette);
         let foot = cx.world.resource::<FeelSettings>().foot;
-        let desk = cx.world.resource::<DeskSettings>();
+        let halo =
+            halo(cx.world.resource::<DeskSettings>(), palette.lamp);
         let radius =
             (space.track_radius - space.track_padding).max(0.0);
         let light = palette.lamp.with_alpha(foot);
@@ -340,13 +347,6 @@ fn indicator() -> impl View {
                 ColorStop::new(light, percent(0.0)),
                 ColorStop::new(light.with_alpha(0.0), percent(100.0)),
             ]));
-        let halo = BoxShadow(vec![ShadowStyle {
-            color: palette.lamp.with_alpha(desk.halo),
-            x_offset: px(0.0),
-            y_offset: px(0.0),
-            spread_radius: px(0.0),
-            blur_radius: px(desk.halo_blur),
-        }]);
         let line = frame()
             .position(PositionType::Absolute)
             .inset(UiRect {
@@ -357,7 +357,8 @@ fn indicator() -> impl View {
             })
             .height(px(space.underline))
             .fill(palette.brass_4)
-            .tagged(halo);
+            .tagged(halo)
+            .tagged(Underline);
         column((line,))
             .position(PositionType::Absolute)
             .inset(UiRect {
@@ -373,6 +374,28 @@ fn indicator() -> impl View {
             .tagged(Indicator)
             .tagged(Pickable::IGNORE)
     })
+}
+
+/// The glow about the shown desk's underline, in `lamp`.
+fn halo(settings: &DeskSettings, lamp: Color) -> BoxShadow {
+    BoxShadow(vec![ShadowStyle {
+        color: lamp.with_alpha(settings.halo),
+        x_offset: px(0.0),
+        y_offset: px(0.0),
+        spread_radius: px(0.0),
+        blur_radius: px(settings.halo_blur),
+    }])
+}
+
+/// Glows the underline again as the tuning changes.
+fn retune_halo(
+    settings: Res<DeskSettings>,
+    theme: Themed,
+    mut lines: Query<&mut BoxShadow, With<Underline>>,
+) {
+    for mut line in &mut lines {
+        *line = halo(&settings, theme.palette.lamp);
+    }
 }
 
 /// A segment of the track: no plate of its own, dim until the
