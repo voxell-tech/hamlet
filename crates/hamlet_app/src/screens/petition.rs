@@ -32,9 +32,9 @@ use crate::effects::{Highlight, Variant};
 use crate::icons::Glyph;
 use crate::platform::MonoText;
 use crate::styles::{
-    self, Fills, ICON, bad_action, beside, buttons, caption,
-    danger_button, description, framed, marked, note, primary_button,
-    scroll_area, title,
+    self, Fills, ICON, bad_action, buttons, caption, danger_button,
+    description, framed, marked, note, primary_button, scroll_area,
+    title,
 };
 use crate::{AnyView, Cx, PanelSystems, View, asking, chat, with_cx};
 
@@ -355,15 +355,10 @@ pub fn screen() -> impl View {
                 1 => "1 THING NEEDS YOU".to_string(),
                 n => format!("{n} THINGS NEED YOU"),
             })),
-            // On its own row, at its own width, so a narrow panel
-            // never pushes it past its edge.
-            beside((
-                column(()).fills_width(),
-                bad_action(Glyph::Stop, "STOP ALL", |world| {
-                    world.trigger(Veto { agent: None });
-                    world.flush();
-                }),
-            )),
+            bad_action(Glyph::Stop, "STOP ALL", |world| {
+                world.trigger(Veto { agent: None });
+                world.flush();
+            }),
             description(resource::<Queue, _>(|queue| {
                 if queue.is_empty() {
                     EMPTY.to_string()
