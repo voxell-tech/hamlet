@@ -3,7 +3,7 @@
 //! fees to verify one (`GET /v1/sell/config`), the files of one
 //! against the version before it, and the tags already in use.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::bazaar::market::lot::{Kind, Lot, Paying, semver};
 
@@ -63,14 +63,14 @@ pub(crate) struct Version {
     #[serde(default)]
     pub created_at: String,
     /// The bytes of its package.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_default")]
     pub size: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_default")]
     pub file_count: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_default")]
     pub details: Details,
     /// Why the checks rejected it, as `Agent 5 (Safety): ...`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "or_default")]
     pub reasons: Vec<String>,
     /// When a person at the bazaar was asked to look at it again.
     #[serde(default)]
@@ -278,6 +278,16 @@ pub(crate) fn size_words(bytes: u64) -> String {
         1024..1_048_576 => format!("{} KB", bytes.div_ceil(1024)),
         _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
     }
+}
+
+/// The value, or its default where the server sends `null`, as for
+/// versions uploaded before the server counted their files.
+fn or_default<'de, D, T>(from: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(from)?.unwrap_or_default())
 }
 
 #[cfg(test)]

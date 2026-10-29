@@ -340,3 +340,15 @@ fn a_report_is_sent_once_and_its_form_shut() {
     let said = world.resource::<Reporting>().said.clone().unwrap();
     assert!(said.1.contains("already") && !said.2);
 }
+
+#[test]
+fn a_version_from_before_files_were_counted_still_reads() {
+    let version = serde_json::from_value::<versions::Version>(
+        serde_json::json!({
+            "version": "0.0.1", "state": "draft", "size": 299,
+            "fileCount": null, "reasons": null,
+        }),
+    )
+    .unwrap();
+    assert_eq!((version.file_count, version.reasons.len()), (0, 0));
+}
