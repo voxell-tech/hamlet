@@ -31,8 +31,8 @@ use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, BackgroundGradient, BoxShadow, ColorStop, Display,
-    FlexDirection, LinearGradient, PositionType, ShadowStyle, UiRect,
-    UiTransform, Val, percent, px,
+    FlexDirection, LinearGradient, Overflow, OverflowAxis,
+    PositionType, ShadowStyle, UiRect, UiTransform, Val, percent, px,
 };
 use bevy_fynix::scroll::{
     OwnScrollbar, ScrollbarStyle, ScrollbarVisibility,
@@ -193,6 +193,12 @@ pub(crate) fn switcher() -> impl View {
                 .within(row(()).height(percent(100.0)).shrink(0.0));
         let strip = scroll((tabs,))
             .direction(FlexDirection::Row)
+            // Across only, so that the glow under the shown desk is
+            // not cut at the track's foot.
+            .overflow(Overflow {
+                x: OverflowAxis::Scroll,
+                y: OverflowAxis::Visible,
+            })
             .height(percent(100.0))
             .shrink(1.0)
             .tagged(OwnScrollbar(hidden))
