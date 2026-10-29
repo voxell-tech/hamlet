@@ -1,7 +1,8 @@
 //! How the switcher moves: the raised segment gliding to the shown
 //! tab, a tab dragged along the track with the others easing aside,
-//! and the track scrolled to the shown tab. Each eases toward where
-//! it is going at the rate the dock's hint glides at.
+//! and the track scrolled to the shown tab and across by the wheel.
+//! The segment and the tabs ease at the rate the dock's hint glides
+//! at; the track scrolls as fynix eases a scroll.
 
 use bevy::app::{App, Last, Update};
 use bevy::ecs::entity::Entity;
@@ -12,9 +13,10 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
+use bevy::input::mouse::MouseScrollPixelsPerLine;
 use bevy::math::Vec2;
 use bevy::picking::events::{
-    PointerDrag, PointerDragEnd, PointerDragStart,
+    PointerDrag, PointerDragEnd, PointerDragStart, PointerScroll,
 };
 use bevy::picking::pointer::PointerButton;
 use bevy::time::Time;
@@ -22,6 +24,7 @@ use bevy::ui::{
     ComputedNode, Display, Node, ScrollPosition, UiGlobalTransform,
     ZIndex, px,
 };
+use bevy_fynix::scroll::{ScrollGoal, wheel};
 use bevy_fynix::{Dragging, ReducedMotion};
 
 use super::{DeskTab, Indicator, TabRow, TabStrip};
@@ -38,6 +41,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(drag_start)
         .add_observer(drag)
         .add_observer(drag_end)
+        .add_observer(wheel_across)
         .add_systems(Update, (preview, glide, reveal).chain())
         .add_systems(Last, |mut dragged: ResMut<TabDrag>| {
             dragged.dropped = false;
@@ -327,7 +331,12 @@ fn reveal(
     desks: Res<Desks>,
     tabs: Query<(&DeskTab, &ComputedNode, &UiGlobalTransform)>,
     mut strips: Query<
-        (&ComputedNode, &UiGlobalTransform, &mut ScrollPosition),
+        (
+            &ComputedNode,
+            &UiGlobalTransform,
+            &mut ScrollPosition,
+            &mut ScrollGoal,
+        ),
         With<TabStrip>,
     >,
     mut pending: Local<Option<usize>>,
@@ -340,7 +349,9 @@ fn reveal(
     let Some(shown) = *pending else {
         return;
     };
-    let Ok((computed, at, mut position)) = strips.single_mut() else {
+    let Ok((computed, at, mut position, mut goal)) =
+        strips.single_mut()
+    else {
         return;
     };
     let Some(tab) = tabs
@@ -360,5 +371,45 @@ fn reveal(
     } else {
         return;
     };
-    position.0.x = (position.0.x + by).max(0.0);
+    goal.scroll_by(
+        &mut position,
+        Vec2::new(by, 0.0),
+        Vec2::new(most(computed), 0.0),
+        true,
+    );
+}
+
+/// The furthest the track scrolls across, in logical pixels.
+fn most(computed: &ComputedNode) -> f32 {
+    ((computed.content_size().x - computed.size().x)
+        * computed.inverse_scale_factor())
+    .max(0.0)
+}
+
+/// Scrolls the track across with a wheel turned up or down. A wheel
+/// turned across is fynix's to scroll.
+fn wheel_across(
+    mut scroll: On<PointerScroll>,
+    per_line: Res<MouseScrollPixelsPerLine>,
+    mut strips: Query<
+        (&ComputedNode, &mut ScrollPosition, &mut ScrollGoal),
+        With<TabStrip>,
+    >,
+) {
+    let Ok((computed, mut position, mut goal)) =
+        strips.get_mut(scroll.entity)
+    else {
+        return;
+    };
+    let (turned, notched) = wheel(&scroll, *per_line);
+    if turned.y == 0.0 || turned.x != 0.0 {
+        return;
+    }
+    goal.scroll_by(
+        &mut position,
+        Vec2::new(-turned.y, 0.0),
+        Vec2::new(most(computed), 0.0),
+        notched,
+    );
+    scroll.propagate(false);
 }

@@ -34,6 +34,7 @@ use bevy::ui::{
     LinearGradient, Overflow, OverflowAxis, PositionType,
     ShadowStyle, UiRect, UiTransform, Val, percent, px,
 };
+use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, GLOBAL, Invoke, Mods,
     ShortcutAppExt,
@@ -189,6 +190,7 @@ pub(crate) fn switcher() -> impl View {
                             x: OverflowAxis::Scroll,
                             y: OverflowAxis::Visible,
                         })
+                        .tagged(ScrollGoal::default())
                         .tagged(TabStrip),
                 );
         let new = segment(glyph(Glyph::Plus, ICON), space.gap)
