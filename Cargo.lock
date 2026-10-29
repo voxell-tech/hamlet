@@ -3544,6 +3544,7 @@ dependencies = [
  "bevy_fynix",
  "hamlet_assets",
  "image",
+ "pulldown-cmark",
  "serde",
  "toml",
 ]
