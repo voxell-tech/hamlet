@@ -1,5 +1,6 @@
-//! The command center (I4): a Bevy and fynix window on the client's
-//! state, built from the widgets of `hamlet_ui`.
+//! The window (I4): the world, the dock of panels around it, the top
+//! bar and its menus, the foot and the pointer, on the client's
+//! state and built from the widgets of `hamlet_ui`.
 
 pub mod asking;
 mod chief;
