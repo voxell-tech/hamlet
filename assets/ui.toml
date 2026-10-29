@@ -45,6 +45,11 @@ edge = 5.0
 double = 0.35
 button = 26.0
 
+[desk]
+halo = 0.75
+halo_blur = 4.8
+drag_start = 4.0
+
 [chat]
 change_lines = 16
 picture_width = 720.0

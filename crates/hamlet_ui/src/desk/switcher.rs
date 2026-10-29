@@ -52,7 +52,7 @@ use bevy_fynix::{
 };
 
 use self::motion::TabDrag;
-use crate::desk::Desks;
+use crate::desk::{DeskSettings, Desks, Turn};
 use crate::fade::{FadeSurface, ScrollFade};
 use crate::feel::FeelSettings;
 use crate::icons::{Glyph, glyph};
@@ -96,13 +96,8 @@ const SHOWN_BY_DIGIT: [(
     ("desk.show_9", "Desk 9", KeyCode::Digit9, show_at::<8>),
 ];
 
-/// The strength of the glow about the shown desk's underline, and
-/// its blur in logical pixels.
-const HALO: f32 = 0.75;
-const HALO_BLUR: f32 = 4.8;
-
 pub(crate) fn plugin(app: &mut App) {
-    app.add_plugins(motion::plugin)
+    app.add_plugins((motion::plugin, keys))
         .init_resource::<Tabs>()
         .init_resource::<Renaming>()
         .init_resource::<Opened>()
@@ -119,7 +114,49 @@ pub(crate) fn plugin(app: &mut App) {
                 (focus_field, end_rename).chain(),
             ),
         );
-    add_commands(app);
+}
+
+/// The desks' commands: the primary key with T for a new one,
+/// Ctrl+Tab and Ctrl+Shift+Tab to go round, and the primary key with
+/// 1 to 9 to show one.
+fn keys(app: &mut App) {
+    let command = |id, label, run| CommandSpec {
+        id: CommandId(id),
+        label,
+        scope: GLOBAL,
+        run,
+        enabled: |_| true,
+        repeat: false,
+    };
+    let tab = |mods| Chord {
+        key: KeyCode::Tab,
+        mods,
+    };
+    app.add_command(
+        command("desk.new", "New Desk", |world, _| new_desk(world)),
+        &[NEW],
+    )
+    .add_command(
+        command("desk.next", "Next Desk", |world, _| {
+            world.resource_mut::<Desks>().cycle(Turn::Next);
+        }),
+        &[tab(CTRL)],
+    )
+    .add_command(
+        command("desk.previous", "Previous Desk", |world, _| {
+            world.resource_mut::<Desks>().cycle(Turn::Previous);
+        }),
+        &[tab(CTRL.with(Mods::SHIFT))],
+    );
+    for (id, label, key, run) in SHOWN_BY_DIGIT {
+        app.add_command(
+            command(id, label, run),
+            &[Chord {
+                key,
+                mods: Mods::PRIMARY,
+            }],
+        );
+    }
 }
 
 /// What the tabs are built from: each desk's name, and the one
@@ -288,12 +325,13 @@ fn tabs_view(tabs: &Tabs) -> AnyView {
 }
 
 /// The raised segment under the shown tab, lit inside from below
-/// and underlined with a glowing line, placed by `motion::glide`.
+/// and underlined with a glowing line.
 fn indicator() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let (space, palette) = (&theme.space, &theme.palette);
         let foot = cx.world.resource::<FeelSettings>().foot;
+        let desk = cx.world.resource::<DeskSettings>();
         let radius =
             (space.track_radius - space.track_padding).max(0.0);
         let light = palette.lamp.with_alpha(foot);
@@ -303,11 +341,11 @@ fn indicator() -> impl View {
                 ColorStop::new(light.with_alpha(0.0), percent(100.0)),
             ]));
         let halo = BoxShadow(vec![ShadowStyle {
-            color: palette.lamp.with_alpha(HALO),
+            color: palette.lamp.with_alpha(desk.halo),
             x_offset: px(0.0),
             y_offset: px(0.0),
             spread_radius: px(0.0),
-            blur_radius: px(HALO_BLUR),
+            blur_radius: px(desk.halo_blur),
         }]);
         let line = frame()
             .position(PositionType::Absolute)
@@ -783,47 +821,4 @@ fn end_rename(
 
 fn show_at<const AT: usize>(world: &mut World, _: Invoke) {
     world.resource_mut::<Desks>().show(AT);
-}
-
-/// The desks' commands: the primary key with T for a new one,
-/// Ctrl+Tab and Ctrl+Shift+Tab to go round, and the primary key with
-/// 1 to 9 to show one.
-fn add_commands(app: &mut App) {
-    let command = |id, label, run| CommandSpec {
-        id: CommandId(id),
-        label,
-        scope: GLOBAL,
-        run,
-        enabled: |_| true,
-        repeat: false,
-    };
-    let tab = |mods| Chord {
-        key: KeyCode::Tab,
-        mods,
-    };
-    app.add_command(
-        command("desk.new", "New Desk", |world, _| new_desk(world)),
-        &[NEW],
-    )
-    .add_command(
-        command("desk.next", "Next Desk", |world, _| {
-            world.resource_mut::<Desks>().cycle(false);
-        }),
-        &[tab(CTRL)],
-    )
-    .add_command(
-        command("desk.previous", "Previous Desk", |world, _| {
-            world.resource_mut::<Desks>().cycle(true);
-        }),
-        &[tab(CTRL.with(Mods::SHIFT))],
-    );
-    for (id, label, key, run) in SHOWN_BY_DIGIT {
-        app.add_command(
-            command(id, label, run),
-            &[Chord {
-                key,
-                mods: Mods::PRIMARY,
-            }],
-        );
-    }
 }

@@ -9,6 +9,7 @@ use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
 
 use crate::chat::ChatSettings;
 use crate::chrome::ChromeSettings;
+use crate::desk::DeskSettings;
 use crate::feel::FeelSettings;
 
 /// Loads `assets/ui.toml` and keeps the panels in step with it.
@@ -22,6 +23,7 @@ pub fn plugin(app: &mut App) {
 pub(crate) struct UiTuning {
     pub feel: FeelSettings,
     pub chrome: ChromeSettings,
+    pub desk: DeskSettings,
     pub chat: ChatSettings,
 }
 
@@ -31,6 +33,7 @@ impl Tuning for UiTuning {
     fn apply(&self, was: &Self, world: &mut World) {
         follow(world, &was.feel, &self.feel);
         follow(world, &was.chrome, &self.chrome);
+        follow(world, &was.desk, &self.desk);
         follow(world, &was.chat, &self.chat);
     }
 }
@@ -38,5 +41,6 @@ impl Tuning for UiTuning {
 designed!(UiTuning {
     FeelSettings => feel,
     ChromeSettings => chrome,
+    DeskSettings => desk,
     ChatSettings => chat,
 });

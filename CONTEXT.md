@@ -142,3 +142,10 @@ The judge of skills offered to the library, and the adviser on its shelves.
 **Archive**:
 What is kept of agents and hamlets that left, so a chief can restore them.
 _Avoid_: trash, deleted agents
+
+### The window
+
+**Desk**:
+A named arrangement of the window's panels. A chief keeps several and shows
+one at a time.
+_Avoid_: workspace, layout

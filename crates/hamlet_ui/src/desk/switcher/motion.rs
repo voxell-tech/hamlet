@@ -27,13 +27,10 @@ use bevy::ui::{
 use bevy_fynix::scroll::{ScrollGoal, wheel};
 use bevy_fynix::{Dragging, ReducedMotion};
 
-use super::{DeskTab, Indicator, TabRow, TabStrip};
-use crate::desk::Desks;
+use super::{DeskTab, Indicator, Renaming, TabRow, TabStrip};
+use crate::desk::{DeskSettings, Desks};
 use crate::feel::FeelSettings;
 use crate::theme::Themed;
-
-/// How far, in logical pixels, a tab is dragged before it moves.
-const DRAG_START: f32 = 4.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Glide>()
@@ -131,6 +128,7 @@ fn drag_start(
     start: On<PointerDragStart>,
     tabs: Query<(&DeskTab, &ComputedNode, &UiGlobalTransform)>,
     rows: Query<Laid, With<TabRow>>,
+    renaming: Res<Renaming>,
     mut dragged: ResMut<TabDrag>,
 ) {
     let Ok((tab, ..)) = tabs.get(start.event_target()) else {
@@ -139,7 +137,10 @@ fn drag_start(
     let Ok(row) = rows.single() else {
         return;
     };
-    if start.button != PointerButton::Primary {
+    // A drag in the field a desk is renamed in selects its words.
+    if start.button != PointerButton::Primary
+        || renaming.0 == Some(tab.0)
+    {
         return;
     }
     let mut rest = tabs
@@ -164,6 +165,7 @@ fn drag_start(
 fn drag(
     drag: On<PointerDrag>,
     tabs: Query<&DeskTab>,
+    settings: Res<DeskSettings>,
     mut dragged: ResMut<TabDrag>,
 ) {
     let Ok(tab) = tabs.get(drag.event_target()) else {
@@ -175,7 +177,7 @@ fn drag(
         return;
     };
     held.moved = drag.distance.x;
-    held.started |= held.moved.abs() >= DRAG_START;
+    held.started |= held.moved.abs() >= settings.drag_start;
 }
 
 /// Sets the held tab down where it was dragged to, and shows it.

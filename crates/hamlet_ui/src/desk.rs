@@ -30,7 +30,8 @@ const FIRST: &str = "Main";
 const LONGEST_NAME: usize = 40;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Desks>()
+    app.init_resource::<DeskSettings>()
+        .init_resource::<Desks>()
         .init_resource::<Shown>()
         .add_plugins(switcher::plugin)
         .add_systems(
@@ -41,6 +42,25 @@ pub(crate) fn plugin(app: &mut App) {
             )
                 .chain(),
         );
+}
+
+/// The tuning of the desk switcher.
+#[derive(Resource, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DeskSettings {
+    /// The strength, 0 to 1, of the glow about the shown desk's
+    /// underline, and its blur in pixels.
+    pub halo: f32,
+    pub halo_blur: f32,
+    /// How far, in pixels, a desk's tab is dragged before it moves.
+    pub drag_start: f32,
+}
+
+/// Which way to go round the desks.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Turn {
+    Next,
+    Previous,
 }
 
 /// One node of a dock, with its children named by their place in
@@ -119,11 +139,13 @@ impl Desks {
         }
     }
 
-    /// Shows the next desk, or the previous with `back`, going
-    /// round.
-    pub(crate) fn cycle(&mut self, back: bool) {
+    /// Shows the next or the previous desk, going round.
+    pub(crate) fn cycle(&mut self, turn: Turn) {
         let count = self.list.len();
-        let step = if back { count - 1 } else { 1 };
+        let step = match turn {
+            Turn::Next => 1,
+            Turn::Previous => count - 1,
+        };
         self.show((self.shown + step) % count);
     }
 
@@ -132,7 +154,7 @@ impl Desks {
     pub(crate) fn add(&mut self) -> usize {
         let name = (self.list.len() + 1..)
             .map(|n| format!("Desk {n}"))
-            .find(|name| !self.named(name, None))
+            .find(|name| !self.is_taken(name, None))
             .unwrap_or_default();
         let at = self.list.len();
         self.list.push(Desk {
@@ -177,7 +199,7 @@ impl Desks {
         let name = name.trim();
         let fits = !name.is_empty()
             && name.chars().count() <= LONGEST_NAME
-            && !self.named(name, Some(at));
+            && !self.is_taken(name, Some(at));
         if let Some(desk) = self.list.get_mut(at)
             && fits
         {
@@ -208,13 +230,15 @@ impl Desks {
                 1 => name.clone(),
                 n => format!("{name} {n}"),
             })
-            .find(|name| !name.is_empty() && !self.named(name, None))
+            .find(|name| {
+                !name.is_empty() && !self.is_taken(name, None)
+            })
             .unwrap_or_default()
     }
 
     /// Whether a desk other than the one at `besides` is called
     /// `name`.
-    fn named(&self, name: &str, besides: Option<usize>) -> bool {
+    fn is_taken(&self, name: &str, besides: Option<usize>) -> bool {
         self.list.iter().enumerate().any(|(at, desk)| {
             Some(at) != besides
                 && desk.name.eq_ignore_ascii_case(name)
