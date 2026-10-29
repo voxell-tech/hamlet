@@ -241,13 +241,14 @@ fn price_field() -> AnyView {
             .user()
             .and_then(|user| user.payouts)
             .is_some_and(|payouts| payouts.charges_enabled);
-        (price.map(|price| cents(&price, least)), least, paid)
+        let said = world.resource::<Market>().said.clone();
+        (price.map(|price| cents(&price, least)), least, paid, said)
     })
     .when(either(
         either(moved::<Desk>(), moved::<Market>()),
         moved::<Drafts>(),
     ));
-    let state = keyed(now, |(cents, least, paid)| {
+    let state = keyed(now, |(cents, least, paid, said)| {
         let hint =
             format!("At least {}, or 0 for free", price_of(*least));
         let mut parts = vec![match cents {
@@ -275,6 +276,13 @@ fn price_field() -> AnyView {
                 .tagged(Wraps)
                 .boxed(),
             );
+            // What came of SET UP PAYOUTS or CHECK AGAIN.
+            parts.extend(said.clone().map(
+                |(words, wrong)| match wrong {
+                    true => problem(words),
+                    false => note(words).boxed(),
+                },
+            ));
         }
         column(parts).gap(6.0).boxed()
     })
