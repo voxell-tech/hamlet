@@ -257,8 +257,8 @@ pub(super) fn is_hovered(world: &mut World) -> bool {
         .any(Hovered::get)
 }
 
-/// The canvas's top left corner in the window, in logical pixels.
-fn corner(
+/// A node's top left corner in the window, in logical pixels.
+pub(super) fn corner(
     node: &ComputedNode,
     transform: &UiGlobalTransform,
 ) -> Vec2 {

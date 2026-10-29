@@ -25,7 +25,7 @@ use super::canvas::Canvas;
 use crate::View;
 
 /// The least and the most the preview is wide, in logical pixels.
-const PREVIEW: std::ops::RangeInclusive<f32> = 200.0..=480.0;
+const PREVIEW: std::ops::RangeInclusive<f32> = 120.0..=480.0;
 
 /// How far the properties sit from the canvas's edges.
 const MARGIN: f32 = 8.0;

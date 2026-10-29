@@ -609,9 +609,11 @@ const FLOATING: f32 = 300.0;
 /// beside it, sized by dragging the line between them. The canvas and
 /// the preview fill their sides edge to edge.
 fn screen() -> impl View {
+    // Not `fills_height`: its grow would be along the row, sharing
+    // the width with the canvas.
     let preview = column((preview::view(),))
         .gap(0.0)
-        .fills_height()
+        .min_height(px(0.0))
         .width(resource::<Layout, _>(|layout| px(layout.preview)))
         .shrink(0.0);
     column((

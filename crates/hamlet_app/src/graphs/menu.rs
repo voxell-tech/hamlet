@@ -1,30 +1,41 @@
 //! The graph's menus and keys. A right click on the canvas, or Space,
-//! opens a list of every kind of node and every other graph of the
-//! book, by group, narrowed by what is typed while it is open; Enter
-//! adds the first left. A right click on a card opens what can be
+//! opens the groups of what can be added, each a page of its own;
+//! its search field, which has the keys while it is open, searches
+//! every group, and Enter adds the first found. A right click on a card opens what can be
 //! done to it.
 
 use bevy::app::{App, Update};
-use bevy::ecs::message::MessageReader;
+use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
+use bevy::ecs::event::EntityEvent;
+use bevy::ecs::hierarchy::Children;
+use bevy::ecs::observer::On;
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::ResMut;
+use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::{Key, KeyCode, KeyboardInput};
-use bevy::input_focus::InputFocus;
+use bevy::input_focus::{FocusCause, FocusedInput, InputFocus};
 use bevy::math::{Rect, Vec2};
-use bevy::ui::px;
+use bevy::picking::Pickable;
+use bevy::text::{EditableText, TextEdit, TextEditChange};
+use bevy::ui::{
+    AlignItems, ComputedNode, Display, PositionType,
+    UiGlobalTransform, UiRect, Val, px,
+};
 use bevy::window::Window;
+use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label,
-    menu_item, overlay, popup, row,
+    menu_item, overlay, popup, row, scroll, text_field,
 };
-use bevy_fynix::{ViewExt, keyed, resource};
+use bevy_fynix::{ScopedExt, Signal, ViewExt, keyed, resource};
 use hamlet_blueprint::{Does, NodeId};
 
 use super::{Editor, canvas, files};
-use crate::looks::{note, section};
+use crate::icons::{Glyph, glyph};
+use crate::looks::{ICON, note, section, well};
 use crate::{AnyView, Cx, View};
 
 /// The group the book's other graphs are listed under.
@@ -41,10 +52,13 @@ const GROUPS: [&str; 7] = [
     "Output",
 ];
 
+/// The most the list of what can be added grows before it scrolls.
+const TALLEST: f32 = 320.0;
+
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Menu>()
         .init_resource::<Search>()
-        .add_systems(Update, (type_search, keys).chain());
+        .add_systems(Update, keys);
 }
 
 /// The menu open over the graph, at its place in the window.
@@ -58,9 +72,21 @@ pub(super) enum Menu {
     Card { node: NodeId, at: Vec2 },
 }
 
-/// What is typed while the list of kinds is open.
+/// Where the list of kinds stands: what is typed, and the group open,
+/// none for the list of groups.
 #[derive(Resource, Default, Clone, PartialEq)]
-struct Search(String);
+struct Search {
+    typed: String,
+    group: Option<&'static str>,
+}
+
+/// On the search field of the list of kinds.
+#[derive(Component)]
+struct SearchField;
+
+/// On the layer the menus are placed in.
+#[derive(Component)]
+struct Layer;
 
 /// One row of the list of what can be added.
 struct Entry {
@@ -84,7 +110,7 @@ pub(super) fn create_at_pointer(world: &mut World) {
 }
 
 pub(super) fn open(world: &mut World, menu: Menu) {
-    world.resource_mut::<Search>().0.clear();
+    *world.resource_mut::<Search>() = Search::default();
     *world.resource_mut::<Menu>() = menu;
 }
 
@@ -92,10 +118,29 @@ fn close(world: &mut World) {
     *world.resource_mut::<Menu>() = Menu::Closed;
 }
 
-/// What can be added whose name or group holds `search`, by group. A
-/// graph that runs the open one is left out, as it would run itself.
-fn matches(editor: &Editor, search: &str) -> Vec<Entry> {
+/// Where the window's point `at` is in the layer the menus are
+/// placed in.
+fn in_layer(world: &mut World, at: Vec2) -> Vec2 {
+    world
+        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Layer>>()
+        .iter(world)
+        .next()
+        .map_or(at, |(node, transform)| {
+            at - canvas::corner(node, transform)
+        })
+}
+
+/// Whether `search` finds the kind `name` of `group`: either holds
+/// it.
+fn holds(group: &str, name: &str, search: &str) -> bool {
     let search = search.trim().to_lowercase().replace(' ', "_");
+    name.replace(' ', "_").to_lowercase().contains(&search)
+        || group.to_lowercase().contains(&search)
+}
+
+/// Everything that can be added, by group. A graph that runs the
+/// open one is left out, as it would run itself.
+fn entries(editor: &Editor) -> Vec<Entry> {
     let rank = |group: &str| {
         GROUPS
             .iter()
@@ -118,17 +163,7 @@ fn matches(editor: &Editor, search: &str) -> Vec<Entry> {
             does: Does::Graph(name.clone()),
             name,
         });
-    let mut found = graphs
-        .chain(kinds)
-        .filter(|entry| {
-            entry
-                .name
-                .replace(' ', "_")
-                .to_lowercase()
-                .contains(&search)
-                || entry.group.to_lowercase().contains(&search)
-        })
-        .collect::<Vec<_>>();
+    let mut found = graphs.chain(kinds).collect::<Vec<_>>();
     found.sort_by(|a, b| {
         (rank(a.group), a.group, &a.name).cmp(&(
             rank(b.group),
@@ -137,6 +172,24 @@ fn matches(editor: &Editor, search: &str) -> Vec<Entry> {
         ))
     });
     found
+}
+
+/// Whether the kind `name` of `group` is in the list where it
+/// stands: found by what is typed, else in the open group.
+fn listed(group: &'static str, name: &str, search: &Search) -> bool {
+    if search.typed.trim().is_empty() {
+        search.group == Some(group)
+    } else {
+        holds(group, name, &search.typed)
+    }
+}
+
+/// What the list shows, in order.
+fn shown(editor: &Editor, search: &Search) -> Vec<Entry> {
+    entries(editor)
+        .into_iter()
+        .filter(|entry| listed(entry.group, &entry.name, search))
+        .collect()
 }
 
 fn add(world: &mut World, does: Does, on_sheet: Vec2) {
@@ -151,66 +204,272 @@ pub(super) fn view() -> impl View {
         Menu::Create { at, on_sheet } => create(at, on_sheet),
         Menu::Card { node, at } => card(node, at),
     })
-    .within(overlay(()))
+    .within(overlay(()).tagged(Layer))
 }
 
 fn create(at: Vec2, on_sheet: Vec2) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
+        let at = in_layer(cx.world, at);
         let width = cx.theme().space.menu_width + 60.0;
-        let typed = label(resource::<Search, _>(|search| {
-            if search.0.is_empty() {
-                "Type to search".to_owned()
-            } else {
-                format!("{}|", search.0)
-            }
-        }));
-        let list = keyed(
-            resource::<Search, _>(Search::clone),
-            move |search| list(search.0.clone(), on_sheet),
-        )
-        .within(column(()).gap(0.0));
-        cx.build(
+        let list = list(cx.world.resource::<Editor>(), on_sheet);
+        let root = cx.build(
             popup(
                 Rect::from_corners(at, at),
                 vec![
-                    column((section("Create node"), typed, list))
-                        .gap(4.0)
-                        .boxed(),
+                    column((
+                        section("Create node"),
+                        search_bar(),
+                        scroll((list,))
+                            .gap(0.0)
+                            .max_height(px(TALLEST)),
+                    ))
+                    .gap(4.0)
+                    .boxed(),
                 ],
             )
             .on_dismiss(|world, _| close(world))
-            .min_width(px(width)),
+            .min_width(px(width))
+            .max_width(px(width)),
+        );
+        if let Some(input) = search_input(cx.world) {
+            cx.world
+                .entity_mut(input)
+                .observe(edited)
+                .observe(pressed);
+            focus_search(cx.world);
+        }
+        root
+    })
+}
+
+/// Shown while `show` holds for where the list stands.
+fn shown_while(
+    show: impl Fn(&Search) -> bool + Send + Sync + 'static,
+) -> Signal<Display> {
+    resource::<Search, _>(move |search| {
+        if show(search) {
+            Display::Flex
+        } else {
+            Display::None
+        }
+    })
+}
+
+/// `view`, shown while `show` holds for where the list stands.
+fn shown_with(
+    view: impl View + 'static,
+    show: impl Fn(&Search) -> bool + Send + Sync + 'static,
+) -> AnyView {
+    row((view,)).gap(0.0).display(shown_while(show)).boxed()
+}
+
+/// The search field, over what it is for while nothing is typed in
+/// it.
+fn search_bar() -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let gap = cx.theme().space.gap;
+        let hint = row((note("Search"),))
+            .position(PositionType::Absolute)
+            .inset(UiRect::new(
+                px(gap / 2.0),
+                Val::Auto,
+                px(0.0),
+                px(0.0),
+            ))
+            .align(AlignItems::Center)
+            .display(shown_while(|search| search.typed.is_empty()))
+            .with(Pickable::IGNORE);
+        cx.build(
+            row((
+                glyph(Glyph::Lens, ICON).tone(Tone::Dim),
+                row((
+                    text_field(String::new(), |_, _| {})
+                        .grow(1.0)
+                        .tagged(SearchField)
+                        .rules(well),
+                    hint,
+                ))
+                .gap(0.0)
+                .grow(1.0),
+            ))
+            .gap(gap / 2.0)
+            .align(AlignItems::Center),
         )
     })
 }
 
-fn list(search: String, on_sheet: Vec2) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
-        let editor = cx.world.resource::<Editor>();
-        let mut items: Vec<AnyView> = Vec::new();
-        let mut last = None;
-        for entry in matches(editor, &search) {
-            if last != Some(entry.group) {
-                last = Some(entry.group);
-                items.push(note(entry.group).boxed());
+/// The search field's input, while the list of kinds is open.
+fn search_input(world: &mut World) -> Option<Entity> {
+    world
+        .query_filtered::<&Children, With<SearchField>>()
+        .iter(world)
+        .next()
+        .and_then(|kids| kids.first().copied())
+}
+
+/// Gives the search field the keys, with the caret at its end.
+fn focus_search(world: &mut World) {
+    let Some(input) = search_input(world) else {
+        return;
+    };
+    world
+        .resource_mut::<InputFocus>()
+        .set(input, FocusCause::Pressed);
+    if let Some(mut text) = world.get_mut::<EditableText>(input) {
+        text.queue_edit(TextEdit::TextEnd(false));
+    }
+}
+
+/// Searches by what is in the search field as it is typed.
+fn edited(
+    change: On<TextEditChange>,
+    texts: Query<&EditableText>,
+    mut search: ResMut<Search>,
+) {
+    let Ok(text) = texts.get(change.event_target()) else {
+        return;
+    };
+    let typed = text.value().to_string();
+    if search.typed != typed {
+        search.typed = typed;
+    }
+}
+
+/// Adds the first found on Enter in the search field, and goes back
+/// to the groups on Backspace with nothing in it.
+fn pressed(
+    key: On<FocusedInput<KeyboardInput>>,
+    mut commands: Commands,
+) {
+    if !key.input.state.is_pressed() {
+        return;
+    }
+    match key.input.logical_key {
+        Key::Enter => commands.queue(add_first),
+        Key::Backspace => commands.queue(|world: &mut World| {
+            let mut search = world.resource_mut::<Search>();
+            if search.typed.is_empty() {
+                search.group = None;
             }
-            let Entry {
-                name, doc, does, ..
-            } = entry;
-            items.push(
-                menu_item(label(name.replace('_', " ")).wrap(false))
-                    .tooltip(move || note(doc.clone()))
-                    .on_activate(move |world| {
-                        add(world, does.clone(), on_sheet);
-                    })
-                    .boxed(),
-            );
+        }),
+        _ => {}
+    }
+}
+
+/// Adds the first kind the list shows.
+fn add_first(world: &mut World) {
+    let Menu::Create { on_sheet, .. } = *world.resource::<Menu>()
+    else {
+        return;
+    };
+    let first =
+        shown(world.resource::<Editor>(), world.resource::<Search>())
+            .into_iter()
+            .next();
+    if let Some(entry) = first {
+        add(world, entry.does, on_sheet);
+    }
+}
+
+/// Every row the list can show, built once, each shown while it
+/// belongs where the list stands: the groups' doors, then each
+/// group's way back, its name over what is found and its kinds.
+fn list(editor: &Editor, on_sheet: Vec2) -> AnyView {
+    let entries = entries(editor);
+    let mut groups: Vec<&'static str> = Vec::new();
+    for entry in &entries {
+        if groups.last() != Some(&entry.group) {
+            groups.push(entry.group);
         }
-        if items.is_empty() {
-            items.push(note("Nothing is called that").boxed());
+    }
+    let mut items: Vec<AnyView> =
+        groups.iter().copied().map(door).collect();
+    for &group in &groups {
+        items.push(back(group));
+        let names = entries
+            .iter()
+            .filter(|entry| entry.group == group)
+            .map(|entry| entry.name.clone())
+            .collect::<Vec<_>>();
+        items.push(shown_with(note(group), move |search| {
+            !search.typed.trim().is_empty()
+                && names
+                    .iter()
+                    .any(|name| holds(group, name, &search.typed))
+        }));
+        for entry in
+            entries.iter().filter(|entry| entry.group == group)
+        {
+            items.push(kind_row(entry, on_sheet));
         }
-        cx.build(column(items).gap(0.0))
+    }
+    let names = entries
+        .iter()
+        .map(|entry| (entry.group, entry.name.clone()))
+        .collect::<Vec<_>>();
+    items.push(shown_with(
+        note("Nothing is called that"),
+        move |search| {
+            !search.typed.trim().is_empty()
+                && !names.iter().any(|(group, name)| {
+                    holds(group, name, &search.typed)
+                })
+        },
+    ));
+    column(items).gap(0.0).boxed()
+}
+
+/// The row that adds `entry`.
+fn kind_row(entry: &Entry, on_sheet: Vec2) -> AnyView {
+    let (group, name) = (entry.group, entry.name.clone());
+    let (doc, does) = (entry.doc.clone(), entry.does.clone());
+    menu_item(label(entry.name.replace('_', " ")).wrap(false))
+        .display(shown_while(move |search| {
+            listed(group, &name, search)
+        }))
+        .tooltip(move || note(doc.clone()))
+        .on_activate(move |world| add(world, does.clone(), on_sheet))
+        .boxed()
+}
+
+/// The row that opens `group`'s page, shown with the other groups.
+fn door(group: &'static str) -> AnyView {
+    menu_item(
+        row((
+            label(group).wrap(false),
+            frame().grow(1.0),
+            glyph(Glyph::Into, ICON).tone(Tone::Dim),
+        ))
+        .align(AlignItems::Center),
+    )
+    .display(shown_while(|search| {
+        search.typed.trim().is_empty() && search.group.is_none()
+    }))
+    .on_activate(move |world| {
+        world.resource_mut::<Search>().group = Some(group);
+        focus_search(world);
     })
+    .boxed()
+}
+
+/// The row at the head of `group`'s page, back to the groups.
+fn back(group: &'static str) -> AnyView {
+    menu_item(
+        row((
+            glyph(Glyph::Back, ICON).tone(Tone::Dim),
+            label(group).bold(true).wrap(false),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center),
+    )
+    .display(shown_while(move |search| {
+        search.typed.trim().is_empty() && search.group == Some(group)
+    }))
+    .on_activate(|world| {
+        world.resource_mut::<Search>().group = None;
+        focus_search(world);
+    })
+    .boxed()
 }
 
 fn card(node: NodeId, at: Vec2) -> AnyView {
@@ -232,6 +491,7 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
         .boxed()
     };
     AnyView::new(move |cx: &mut Cx| {
+        let at = in_layer(cx.world, at);
         let width = cx.theme().space.menu_width;
         let runs_graph = matches!(
             cx.world
@@ -288,49 +548,6 @@ pub(super) fn open_graph(world: &mut World, node: NodeId) {
     };
     editor.go_to(&name);
     canvas::fit(world);
-}
-
-/// Narrows the list of kinds by what is typed while it is open, and
-/// adds the first kind left on Enter.
-fn type_search(
-    mut typed: MessageReader<KeyboardInput>,
-    mut menu: ResMut<Menu>,
-    mut search: ResMut<Search>,
-    mut editor: ResMut<Editor>,
-) {
-    let Menu::Create { on_sheet, .. } = *menu else {
-        typed.clear();
-        return;
-    };
-    for input in typed.read() {
-        if !input.state.is_pressed() {
-            continue;
-        }
-        match &input.logical_key {
-            Key::Character(text) => {
-                let letters = text
-                    .chars()
-                    .filter(|c| c.is_alphanumeric() || *c == ' ');
-                search.0.extend(letters);
-            }
-            Key::Space => search.0.push(' '),
-            Key::Backspace => {
-                search.0.pop();
-            }
-            Key::Enter => {
-                let first = matches(&editor, &search.0)
-                    .into_iter()
-                    .next()
-                    .map(|entry| entry.does);
-                if let Some(does) = first {
-                    *menu = Menu::Closed;
-                    editor.add(does, on_sheet);
-                    return;
-                }
-            }
-            _ => {}
-        }
-    }
 }
 
 /// The graph's keys, while the pointer is on the canvas and nothing
