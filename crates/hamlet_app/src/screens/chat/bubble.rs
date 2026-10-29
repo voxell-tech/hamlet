@@ -17,6 +17,11 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
+use hamlet_ui::markdown::Area;
+use hamlet_ui::styles::{Fills, bare, hairline};
+use hamlet_ui::theme::{Palette, contrast};
+use hamlet_ui::widgets::platform::DisplayText;
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::entry::entry_view;
 use super::lines::{Lines, Row, fold_view};
@@ -25,12 +30,9 @@ use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
 use super::timeline::{Kind, Line, Who};
 use crate::convo::Convo;
-use crate::platform::DisplayText;
-use crate::select::{self, Area, Quotable};
-use crate::styles::{Fills, bare, hairline};
-use crate::theme::{Palette, contrast};
+use crate::markdown;
+use crate::select::{self, Quotable};
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, markdown, with_cx};
 
 /// The room at the left of the chat that a speaker's picture stands
 /// in, and the width of the picture.
@@ -269,7 +271,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             true => {
                 Some(quote::drawn(typed, reserve, palette.gold_4))
             }
-            false => markdown::typed(typed, reserve),
+            false => hamlet_ui::markdown::typed(typed, reserve),
         };
         let hour = label(time).size(10.0).wrap(false).tone(if mine {
             Tone::Faint
@@ -321,7 +323,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             Words::Markdown | Words::Fault => {
                 let body = match words {
                     Words::Fault => entry_view(session, id.clone()),
-                    _ => markdown::document(
+                    _ => hamlet_ui::markdown::document(
                         markdown::entry(session, id.clone()),
                         Tone::Body,
                     )
@@ -488,19 +490,21 @@ fn names(cast: &[Who]) -> String {
 /// The way to a new session: a small mark with no plate at the chat's
 /// head, which asks before it acts.
 fn fresh() -> impl View {
-    button(crate::styles::raised(crate::icons::glyph(
-        crate::icons::Glyph::NewSession,
-        crate::styles::ICON,
-    )))
+    button(hamlet_ui::styles::raised(
+        hamlet_ui::widgets::icons::glyph(
+            hamlet_ui::widgets::icons::Glyph::NewSession,
+            hamlet_ui::styles::ICON,
+        ),
+    ))
     .padding(UiRect::axes(px(8.0), px(0.0)))
-    .min_height(px(crate::styles::CONTROL))
+    .min_height(px(hamlet_ui::styles::CONTROL))
     .tooltip(|| {
-        crate::styles::note(
+        hamlet_ui::styles::note(
             "Start a new session. This one goes to the Archive.",
         )
     })
-    .rules(crate::styles::back_link)
-    .tagged(crate::effects::Variant::Text)
+    .rules(hamlet_ui::styles::back_link)
+    .tagged(hamlet_ui::widgets::effects::Variant::Text)
     .on_activate(|world| world_menu::ask(world, Deed::NewSession))
 }
 

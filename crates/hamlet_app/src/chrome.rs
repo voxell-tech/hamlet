@@ -35,9 +35,8 @@ use bevy_fynix::tokens::Motion;
 use bevy_fynix::views::{BehaviorExt, FrameProps, button, icon, row};
 use bevy_fynix::{OverrideCursor, ScopedExt, style};
 use hamlet_desktop::title_bar::TitleBarDrag;
-
-use crate::theme::{HamletTheme, Palette};
-use crate::{Cx, View, built};
+use hamlet_ui::theme::{HamletTheme, Palette};
+use hamlet_ui::{Cx, View, built};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<ChromeSettings>()

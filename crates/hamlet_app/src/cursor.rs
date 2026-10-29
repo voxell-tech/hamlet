@@ -26,9 +26,9 @@ use bevy::window::{
 use bevy_fynix::{EntityCursor, Theme};
 use hamlet_realm::hand::{Grip, Hand};
 use hamlet_realm::pick::{Hovered, Pressable, Steer, Taken, Thing};
+use hamlet_ui::theme::{HamletTheme, ThemeState};
 
 pub use self::art::{Inks, face, frames, hot, side};
-use crate::theme::{HamletTheme, ThemeState};
 use crate::welcome::Welcome;
 
 /// The share of a cursor that is left while the hand carries a thing

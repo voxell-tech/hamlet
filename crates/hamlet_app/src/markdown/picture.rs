@@ -17,14 +17,14 @@ use bevy_fynix::{EntityCursor, ViewExt, derived, keyed, resource};
 use hamlet_ui::markdown::{
     Face, Ink, Span, Style, Target, picture_words as words, rich,
 };
+use hamlet_ui::styles::{action, bare, note};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{AnyView, Cx, View};
 
 use crate::chat::ChatSettings;
-use crate::icons::Glyph;
 use crate::pictures::{
     Drawn, Pictures, Source, State, fetch, find, host,
 };
-use crate::styles::{action, bare, note};
-use crate::{AnyView, Cx, View};
 
 fn plain(text: &str) -> Span {
     Span {

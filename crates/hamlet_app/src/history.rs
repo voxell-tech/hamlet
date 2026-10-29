@@ -27,19 +27,18 @@ use hamlet_client::messages::{ChiefMessage, JobFinished, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::address_of;
 use hamlet_protocol::client as protocol;
+use hamlet_ui::styles::{
+    Fills, breadcrumb, buttons, card_button, command, filling,
+    good_action, hairline, hidden, note, scroll_area, text_input,
+};
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{AnyView, View, built, with_cx};
 use protocol::Past;
 
 use crate::convo::Convo;
 use crate::dock::show_tab;
-use crate::effects::Variant;
-use crate::icons::Glyph;
-use crate::styles::{
-    Fills, breadcrumb, buttons, card_button, command, filling,
-    good_action, hairline, hidden, note, scroll_area, text_input,
-};
-use crate::{
-    AnyView, PanelSystems, View, built, chat, inspector, with_cx,
-};
+use crate::{PanelSystems, chat, inspector};
 
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
@@ -596,11 +595,11 @@ pub fn screen() -> AnyView {
 mod tests {
     use hamlet_client::chats::Chat;
     use hamlet_client::outbox::Outbox;
+    use hamlet_ui::theme::HamletTheme;
     use serde_json::json;
 
     use super::*;
     use crate::testing::{panel_app, press, words};
-    use crate::theme::HamletTheme;
 
     #[test]
     fn history_reads_received_rows_searches_and_opens_a_numbered_chat()

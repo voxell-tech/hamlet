@@ -43,12 +43,12 @@ use hamlet_realm::sky::SkySettings;
 use hamlet_realm::{
     Hour, North, RealmSystems, Sky, Stage, WorldCamera,
 };
+use hamlet_ui::styles::{Fills, ICON};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{View, built};
 
 use crate::dock::PanelAppExt;
-use crate::icons::Glyph;
-use crate::styles::{Fills, ICON};
 use crate::window::WorldShown;
-use crate::{View, built};
 
 type WorldCameras<'w, 's> = Query<
     'w,

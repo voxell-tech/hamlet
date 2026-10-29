@@ -9,10 +9,9 @@ use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_desktop::editor;
 use hamlet_protocol::client as protocol;
-
-use crate::icons::Glyph;
-use crate::styles::{action, bad_action, note};
-use crate::{AnyView, View};
+use hamlet_ui::styles::{action, bad_action, note};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{AnyView, View};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Saves>()
@@ -105,7 +104,7 @@ pub(crate) fn screen() -> impl View {
             } else {
                 errors
             };
-            AnyView::new(move |cx: &mut crate::Cx| {
+            AnyView::new(move |cx: &mut hamlet_ui::Cx| {
                 let copies = editor::copies(cx.world)
                     .iter()
                     .map(|p| p.display().to_string())
@@ -258,7 +257,7 @@ mod tests {
         assert_eq!(app.should_exit(), None);
         app.world_mut()
             .trigger(hamlet_client::messages::Reconnected);
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             super::screen(),
         );

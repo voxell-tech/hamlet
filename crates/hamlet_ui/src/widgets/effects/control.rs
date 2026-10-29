@@ -31,8 +31,8 @@ use super::{
     ControlSound, EffectColors, EffectSettings, Variant, ease,
     flicker, pool,
 };
-use crate::fade::ScrollFade;
 use crate::theme::Themed;
+use crate::widgets::fade::ScrollFade;
 
 /// A button's animated state, each 0 to 1.
 #[derive(Component, Default)]

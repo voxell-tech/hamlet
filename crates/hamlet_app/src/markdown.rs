@@ -11,7 +11,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use bevy_fynix::{Signal, component};
 use hamlet_client::chats::{Entry, Transcript};
-pub use hamlet_ui::markdown::*;
+use hamlet_ui::markdown::{Block, Reading, hashed, unsettle};
 
 pub(crate) use self::picture::picture_view;
 
@@ -104,11 +104,14 @@ mod tests {
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_assets::Tuning;
     use hamlet_client::chats::Item;
+    use hamlet_ui::markdown::{
+        Anchor, Kind, PathLinks, document, fixed,
+    };
+    use hamlet_ui::theme::{self, HamletTheme};
 
     use super::*;
     use crate::links::{Roots, seek};
     use crate::testing::{plain, top};
-    use crate::theme::{self, HamletTheme};
 
     fn app() -> App {
         let mut app = App::new();

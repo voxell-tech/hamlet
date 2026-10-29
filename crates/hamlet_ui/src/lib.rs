@@ -12,14 +12,7 @@ use bevy::app::App;
 use bevy::ecs::entity::Entity;
 use bevy_fynix::Bevy;
 
-pub use self::styles::{
-    ICON, back_link, button, danger_button, marked, primary_button,
-    text_input,
-};
 use self::theme::HamletTheme;
-pub use self::widgets::{
-    dial, disclosure, effects, fade, icons, platform, switch, tabs,
-};
 
 /// The theme, the widgets' systems and the fields.
 pub fn plugin(app: &mut App) {

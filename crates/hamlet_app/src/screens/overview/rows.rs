@@ -16,13 +16,14 @@ use hamlet_client::realm::{
 };
 use hamlet_client::waits::Waiting;
 use hamlet_realm::pick::Thing;
+use hamlet_ui::styles::{card_button, card_name, note, status_label};
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{View, with_cx};
 
 use super::{Naming, Search};
-use crate::effects::Variant;
-use crate::icons::Glyph;
 use crate::roll::Roll;
-use crate::styles::{card_button, card_name, note, status_label};
-use crate::{View, with_cx, world_menu};
+use crate::world_menu;
 
 /// A check that fires when the agents or the hamlets changed,
 /// something began or ended its wait, or the words typed did.

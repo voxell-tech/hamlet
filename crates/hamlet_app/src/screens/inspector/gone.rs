@@ -7,19 +7,20 @@ use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Thing, select};
-
-use super::agent::dim;
-use super::papers::Papers;
-use crate::convo::Convo;
-use crate::icons::Glyph;
-use crate::platform::Wraps;
-use crate::styles::{
+use hamlet_ui::styles::{
     Fills, action, bad_action, bare, breadcrumb, buttons, filling,
     good_action, group, note, scroll_area, section,
     status_label_large, title,
 };
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::platform::Wraps;
+use hamlet_ui::{AnyView, View, built, with_cx};
+
+use super::agent::dim;
+use super::papers::Papers;
+use crate::convo::Convo;
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, View, built, lists, overview, with_cx};
+use crate::{lists, overview};
 
 /// The page of an agent that is gone, with the way back.
 pub(super) fn ruin(agent: Entity) -> impl View {

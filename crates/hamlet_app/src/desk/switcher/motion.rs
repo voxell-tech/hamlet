@@ -27,11 +27,11 @@ use bevy::ui::{
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::scroll::{ScrollGoal, wheel};
 use bevy_fynix::{Dragging, OverrideCursor, ReducedMotion};
+use hamlet_ui::theme::Themed;
+use hamlet_ui::widgets::effects::EffectSettings;
 
 use super::{DeskTab, Indicator, Renaming, TabRow, TabStrip};
 use crate::desk::{DeskSettings, Desks};
-use crate::effects::EffectSettings;
-use crate::theme::Themed;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Glide>()

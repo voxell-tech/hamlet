@@ -30,18 +30,18 @@ use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::sound::SoundSettings;
-
-use crate::dock::{PanelAppExt, panel};
-use crate::fade::ScrollFade;
-use crate::icons::Glyph;
-use crate::styles::{
+use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
     close, description, hairline, list, nav_list, note, parts,
     section, small_rules, text_input,
 };
-use crate::switch::switch;
+use hamlet_ui::widgets::fade::ScrollFade;
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::switch::switch;
+use hamlet_ui::{AnyView, Cx, View, with_cx};
+
+use crate::dock::{PanelAppExt, panel};
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, Cx, View, markdown, with_cx};
 
 pub fn plugin(app: &mut App) {
     app.add_panel(
@@ -474,7 +474,7 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
     .within(bare());
     let shown =
         keyed(resource::<Charter, _>(|c| c.text.clone()), |text| {
-            markdown::fixed(text, Tone::Body).boxed()
+            hamlet_ui::markdown::fixed(text, Tone::Body).boxed()
         })
         .within(bare());
     parts((
@@ -609,7 +609,7 @@ fn sound() -> impl View {
 }
 
 fn nav_item(pane: Pane) -> AnyView {
-    crate::styles::nav_row(
+    hamlet_ui::styles::nav_row(
         pane.glyph(),
         pane.title(),
         pane.holds(),
@@ -982,7 +982,7 @@ mod tests {
         );
 
         app.init_resource::<world_menu::Open>();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             world_menu::view(),
         );

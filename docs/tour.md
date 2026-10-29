@@ -103,9 +103,7 @@ Markdown and draws it. A control asks for a sound with `ControlSound`
 and lights its panel from `Attention`; the app plays the one and keeps
 the other. A document finds a written path's file through `PathLinks`
 and draws a picture through `PictureView`, which the app's `links` and
-`pictures` screens set. The app's `lib.rs` re-exports
-the kit's modules, so its panels name them as `crate::theme` and the
-like. The panels' steps before fynix mounts are `PanelSystems` in
+`pictures` screens set. The panels' steps before fynix mounts are `PanelSystems` in
 `hamlet_app/src/lib.rs` (`Follow`, `Bind`), in `PreUpdate`;
 `panel_sets` orders them, and the apps in `testing.rs` add it, so a UI
 test settles in one update.

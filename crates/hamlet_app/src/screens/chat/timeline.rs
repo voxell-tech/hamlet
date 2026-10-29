@@ -16,10 +16,10 @@ use hamlet_realm::chief::{Chief, Look};
 use hamlet_realm::hamlet::Housed;
 use hamlet_realm::keeper;
 use hamlet_realm::palette::Palette;
+use hamlet_ui::theme::Themed;
 
 use super::lines::{Row, rows};
 use crate::convo::Convo;
-use crate::theme::Themed;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(super) enum Kind {

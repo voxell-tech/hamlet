@@ -53,20 +53,20 @@ use bevy_fynix::{
     EntityCursor, ModifierExt, ScopedExt, ViewExt, keyed, resource,
     style,
 };
-
-use self::motion::TabDrag;
-use crate::desk::{DeskSettings, Desks, Turn};
-use crate::effects::EffectSettings;
-use crate::fade::{FadeSurface, ScrollFade};
-use crate::icons::{Glyph, glyph};
-use crate::menu::rect_of;
-use crate::platform::DisplayText;
-use crate::styles::{
+use hamlet_ui::styles::{
     ICON, action, bad_action, close_button, description, note,
     section, text_input,
 };
-use crate::theme::{HamletTheme, Themed};
-use crate::{AnyView, Cx, View, with_cx};
+use hamlet_ui::theme::{HamletTheme, Themed};
+use hamlet_ui::widgets::effects::EffectSettings;
+use hamlet_ui::widgets::fade::{FadeSurface, ScrollFade};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::DisplayText;
+use hamlet_ui::{AnyView, Cx, View, with_cx};
+
+use self::motion::TabDrag;
+use crate::desk::{DeskSettings, Desks, Turn};
+use crate::menu::rect_of;
 
 /// Ctrl, on macOS too, where the primary key is Command.
 const CTRL: Mods = if cfg!(target_os = "macos") {

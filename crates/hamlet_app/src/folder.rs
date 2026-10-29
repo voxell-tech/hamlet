@@ -16,15 +16,15 @@ use hamlet_client::realm::{Mode, Works};
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
-
-use crate::effects::Variant;
-use crate::icons::Glyph;
-use crate::overview::{heading, tell};
-use crate::roll::hamlets_moved;
-use crate::styles::{
+use hamlet_ui::styles::{
     CONTROL, action, bad_action, bare, button, buttons, choices, note,
 };
-use crate::{View, with_cx};
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{View, with_cx};
+
+use crate::overview::{heading, tell};
+use crate::roll::hamlets_moved;
 
 /// The most earlier folders offered again.
 const EARLIER: usize = 3;
@@ -170,7 +170,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                 .map(|folder| {
                     let folder = folder.clone();
                     bevy_fynix::views::button(label(folder.clone()))
-                        .padding(crate::styles::pad())
+                        .padding(hamlet_ui::styles::pad())
                         .min_height(px(CONTROL))
                         .rules(button)
                         .tagged(Variant::Default)
@@ -230,7 +230,7 @@ mod tests {
             .next()
             .unwrap()
             .0;
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             crate::overview::hamlet(hamlet),
         );

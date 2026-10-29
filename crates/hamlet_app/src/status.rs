@@ -21,13 +21,14 @@ use hamlet_client::realm::{
     Confinement, HOME, HamletId, Settings, Treasury,
 };
 use hamlet_protocol::client as protocol;
+use hamlet_ui::styles::{hairline, note, small_rules};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, View, built, with_cx};
 
+use crate::PanelSystems;
 use crate::convo::Convo;
-use crate::icons::{Glyph, glyph};
 use crate::links::Aimed;
 use crate::petition::Queue;
-use crate::styles::{hairline, note, small_rules};
-use crate::{AnyView, PanelSystems, View, built, with_cx};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>().add_systems(

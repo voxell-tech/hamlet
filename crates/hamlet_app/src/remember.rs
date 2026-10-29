@@ -401,9 +401,9 @@ mod tests {
     use bevy_fynix::dock::{
         DockAreaStyle, DockLeaf, DockRegistry, DockTree, Edge,
     };
+    use hamlet_ui::theme::HamletTheme;
 
     use super::*;
-    use crate::theme::HamletTheme;
 
     fn dock() -> DockTree {
         let mut tree = DockTree::new();

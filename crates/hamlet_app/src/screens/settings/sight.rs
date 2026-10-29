@@ -18,15 +18,15 @@ use hamlet_realm::sky::{
     DistanceFogSettings, Quality, SkySettings, VolumetricFogSettings,
 };
 use hamlet_realm::{North, Sky};
+use hamlet_ui::styles::{action, close, description, note, parts};
+use hamlet_ui::widgets::dial::{Face, dial};
+use hamlet_ui::widgets::disclosure::disclosure;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::switch::labelled_switch;
+use hamlet_ui::{View, built, with_cx};
 
 use super::{field, told};
-use crate::dial::{Face, dial};
-use crate::disclosure::disclosure;
-use crate::icons::{Glyph, glyph};
-use crate::styles::{action, close, description, note, parts};
-use crate::switch::labelled_switch;
 use crate::world_view::{NorthTarget, TimeOfDay};
-use crate::{View, built, with_cx};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<FogOpen>()
@@ -50,7 +50,7 @@ fn quality() -> impl View {
                         .position(|a| a == q)
                         .unwrap_or_default()
                 }),
-                Glyph::Chevron.image(crate::styles::ICON),
+                Glyph::Chevron.image(hamlet_ui::styles::ICON),
                 |world, at| {
                     *world.resource_mut::<Quality>() =
                         Quality::ALL[at];

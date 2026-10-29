@@ -27,11 +27,11 @@ use super::{
     Align, Anchor, Area, Block, Kind, Marker, PathLinks, PictureView,
     Row, Span, Style, Target,
 };
-use crate::platform::{
-    Display as DisplayFace, DisplayText, Mono, MonoText,
-};
 use crate::styles::{Fills, bare};
 use crate::theme::Palette;
+use crate::widgets::platform::{
+    Display as DisplayFace, DisplayText, Mono, MonoText,
+};
 use crate::{AnyView, Cx, View};
 
 /// Takes the link off a path that `blocks` end with, which may be

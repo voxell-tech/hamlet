@@ -10,12 +10,14 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, component};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
+use hamlet_ui::markdown::document;
+use hamlet_ui::styles::{Fills, note};
+use hamlet_ui::widgets::platform::{DisplayText, MonoText};
+use hamlet_ui::{AnyView, Cx, View};
 
 use super::change::change_view;
 use crate::convo::Convo;
-use crate::platform::{DisplayText, MonoText};
-use crate::styles::{Fills, note};
-use crate::{AnyView, Cx, View, markdown};
+use crate::markdown;
 
 /// A single line cut to its first `most` characters.
 pub(super) fn clip_start(text: &str, most: usize) -> String {
@@ -129,10 +131,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                     .bold(true)
                     .tone(Tone::Faint)
                     .tagged(DisplayText),
-                markdown::document(
-                    markdown::entry(session, id),
-                    Tone::Body,
-                ),
+                document(markdown::entry(session, id), Tone::Body),
             ))
             .gap(2.0)
             .padding(UiRect::axes(px(12.0), px(4.0)))
@@ -205,10 +204,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                 .bold(true)
                 .tone(Tone::Accent)
                 .tagged(DisplayText),
-                markdown::document(
-                    markdown::entry(session, id),
-                    Tone::Dim,
-                ),
+                document(markdown::entry(session, id), Tone::Dim),
             ))
             .gap(2.0)
             .padding(UiRect::axes(px(24.0), px(2.0)))

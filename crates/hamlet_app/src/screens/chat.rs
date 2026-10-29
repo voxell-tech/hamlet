@@ -52,6 +52,8 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::MAYOR;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders::{Decree, Tell};
+use hamlet_ui::styles::{note, text_input};
+use hamlet_ui::{View, with_cx};
 use unicode_segmentation::UnicodeSegmentation;
 
 pub(crate) use self::change::change_view;
@@ -66,9 +68,8 @@ pub use self::lines::{
     fold_lines, hide_unseen, read_back, transcript,
 };
 pub use self::rewind::{Rewinds, asked as rewind_asked};
+use crate::PanelSystems;
 use crate::convo::{self, Convo};
-use crate::styles::{note, text_input};
-use crate::{PanelSystems, View, with_cx};
 
 /// The room at the sides of the field, as the theme gives a field.
 const FIELD_SIDE: f32 = 8.0;
@@ -89,7 +90,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Lines>()
         .init_resource::<Reach>()
         .init_resource::<AwayFromEnd>()
-        .init_resource::<crate::fields::Resized>()
+        .init_resource::<hamlet_ui::fields::Resized>()
         .add_observer(keep_typed)
         .add_observer(scroll_field)
         .add_observer(decreed)
@@ -561,7 +562,7 @@ mod tests {
             .init_resource::<crate::inspector::Section>()
             .init_resource::<crate::hover::Card>()
             .add_plugins((plugin, crate::sounds::plugin));
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             message_bar(),
         );
@@ -621,7 +622,7 @@ mod tests {
             }]),
         );
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             column((transcript(), message_bar())),
         );
@@ -632,7 +633,8 @@ mod tests {
             .iter(world)
             .find(|(_, image)| {
                 image.image
-                    == crate::icons::Glyph::Talk.image(crate::ICON)
+                    == hamlet_ui::widgets::icons::Glyph::Talk
+                        .image(hamlet_ui::styles::ICON)
             })
             .unwrap()
             .0;
@@ -898,7 +900,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::Transcript(pages[0].clone()),
         );
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             transcript(),
         );
@@ -968,7 +970,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::Transcript(pages[0].clone()),
         );
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             transcript(),
         );
@@ -1163,7 +1165,7 @@ mod tests {
             ]),
         );
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             transcript(),
         );
@@ -1209,7 +1211,7 @@ mod tests {
             }]),
         );
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             column((
                 transcript(),
@@ -1224,7 +1226,8 @@ mod tests {
             .iter(world)
             .find(|(_, image)| {
                 image.image
-                    == crate::icons::Glyph::Restore.image(crate::ICON)
+                    == hamlet_ui::widgets::icons::Glyph::Restore
+                        .image(hamlet_ui::styles::ICON)
             })
             .unwrap()
             .0;

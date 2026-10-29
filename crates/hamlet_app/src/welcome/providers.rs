@@ -13,17 +13,17 @@ use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
-
-use super::pages::{head, news, said};
-use super::{Step, Welcome, commit, go, read_models};
-use crate::AnyView;
-use crate::effects::Variant;
-use crate::icons::Glyph;
-use crate::secret::secret_field;
-use crate::styles::{
+use hamlet_ui::AnyView;
+use hamlet_ui::styles::{
     bare, buttons, close, good_action, group, lettered, note, parts,
     text_input,
 };
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::Glyph;
+
+use super::pages::{head, news, said};
+use super::{Step, Welcome, commit, go, read_models};
+use crate::secret::secret_field;
 
 /// The browser used for the server's login URLs.
 #[derive(Resource)]

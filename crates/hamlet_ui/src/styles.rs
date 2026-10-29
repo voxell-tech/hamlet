@@ -13,11 +13,11 @@ use bevy_fynix::{
     Bevy, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
 };
 
-use crate::effects::Variant;
-use crate::fade::{FadeSurface, ScrollFade};
-use crate::icons::{Glyph, glyph};
-use crate::platform::{DisplayText, Wraps};
 use crate::theme::{HamletTheme, TextSizes};
+use crate::widgets::effects::Variant;
+use crate::widgets::fade::{FadeSurface, ScrollFade};
+use crate::widgets::icons::{Glyph, glyph};
+use crate::widgets::platform::{DisplayText, Wraps};
 use crate::{AnyView, Cx, View, with_cx};
 
 /// The least height of any button (macOS default control size, 28

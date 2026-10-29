@@ -20,16 +20,17 @@ use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Bylaws, HOME, HamletId};
 use hamlet_protocol::client::{self as protocol, Limits, Period};
-use serde_json::Value;
-
-use crate::icons::Glyph;
-use crate::overview::heading;
-use crate::styles::{
+use hamlet_ui::styles::{
     Fills, action, bare, beside, breadcrumb, choices, close,
     description, group, nav_list, nav_row, note, parts, text_input,
 };
-use crate::switch::switch as toggle;
-use crate::{AnyView, PanelSystems, View, with_cx};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::switch::switch as toggle;
+use hamlet_ui::{AnyView, View, with_cx};
+use serde_json::Value;
+
+use crate::PanelSystems;
+use crate::overview::heading;
 
 const CONTROLS: f32 = 150.0;
 
@@ -321,7 +322,7 @@ fn budget(hamlet: Entity) -> impl View {
             ),
             note("What was spent stays in the record."),
         ))
-        .tagged(crate::platform::Wraps)
+        .tagged(hamlet_ui::widgets::platform::Wraps)
         .boxed(),
         heading(Glyph::Coins, "ONE TASK"),
         fine("Counted across every agent the task touches."),
@@ -508,36 +509,42 @@ pub fn panel(hamlet: Entity) -> AnyView {
     let page =
         keyed(resource::<Part, _>(|part| *part), move |part| {
             if *part == Part::Front {
-                return AnyView::new(move |cx: &mut crate::Cx| {
-                    let home = cx
-                        .world
-                        .get::<HamletId>(hamlet)
-                        .is_some_and(|h| h.0 == HOME);
-                    let parts = Part::PAGES
-                        .into_iter()
-                        .filter(|part| *part != Part::Realm || home)
-                        .map(|part| {
-                            nav_row(
-                                part.glyph(),
-                                part.title(),
-                                part.holds(),
-                                move |world| {
-                                    *world.resource_mut::<Part>() =
-                                        part;
-                                },
-                            )
+                return AnyView::new(
+                    move |cx: &mut hamlet_ui::Cx| {
+                        let home = cx
+                            .world
+                            .get::<HamletId>(hamlet)
+                            .is_some_and(|h| h.0 == HOME);
+                        let parts = Part::PAGES
+                            .into_iter()
+                            .filter(|part| {
+                                *part != Part::Realm || home
+                            })
+                            .map(|part| {
+                                nav_row(
+                                    part.glyph(),
+                                    part.title(),
+                                    part.holds(),
+                                    move |world| {
+                                        *world
+                                            .resource_mut::<Part>() =
+                                            part;
+                                    },
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        let foot = fine(if home {
+                            "The realm's limits apply to every \
+                             hamlet."
+                        } else {
+                            "These apply to this hamlet only."
                         })
-                        .collect::<Vec<_>>();
-                    let foot = fine(if home {
-                        "The realm's limits apply to every hamlet."
-                    } else {
-                        "These apply to this hamlet only."
-                    })
-                    .boxed();
-                    cx.build(with_cx(move |cx| {
-                        nav_list(cx, parts, foot)
-                    }))
-                });
+                        .boxed();
+                        cx.build(with_cx(move |cx| {
+                            nav_list(cx, parts, foot)
+                        }))
+                    },
+                );
             }
             let body = match part {
                 Part::Budget => budget(hamlet).boxed(),
@@ -561,7 +568,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
             .boxed()
         })
         .within(bare());
-    AnyView::new(move |cx: &mut crate::Cx| {
+    AnyView::new(move |cx: &mut hamlet_ui::Cx| {
         if cx
             .world
             .get::<HamletId>(hamlet)
@@ -677,7 +684,7 @@ mod tests {
             .unwrap()
             .0;
         *app.world_mut().resource_mut::<Part>() = part;
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             panel(hamlet),
         );
@@ -762,12 +769,12 @@ mod tests {
             .map(|(e, h)| (h.0.clone(), e))
             .collect::<BTreeMap<_, _>>();
         *app.world_mut().resource_mut::<Part>() = Part::Budget;
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             panel(places["mill"]),
         );
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             realm(),
         );
@@ -851,7 +858,7 @@ mod tests {
             .find(|(_, h)| h.0 == "mill")
             .unwrap()
             .0;
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             panel(mill),
         );

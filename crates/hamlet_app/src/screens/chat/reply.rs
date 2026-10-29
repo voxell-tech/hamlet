@@ -22,15 +22,15 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
+use hamlet_ui::styles::{
+    Fills, ICON, back_link, bare, close_button, note,
+};
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{ChatSettings, Draft};
 use crate::convo::Convo;
-use crate::effects::Variant;
-use crate::icons::{Glyph, glyph};
-use crate::styles::{
-    Fills, ICON, back_link, bare, close_button, note,
-};
-use crate::{AnyView, Cx, View, built, with_cx};
 
 /// The room of a mark about its picture.
 const AROUND: f32 = 4.0;

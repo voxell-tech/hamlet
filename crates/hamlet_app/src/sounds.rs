@@ -14,9 +14,9 @@ use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
 use hamlet_client::messages::{ChiefMessage, SessionOutput};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::sound::{Cue, Sound};
+use hamlet_ui::widgets::effects::ControlSound;
 
 use crate::chat::{ChatError, Unfolded};
-use crate::effects::ControlSound;
 use crate::hover::Card;
 use crate::inspector::Section;
 use crate::menu::OpenMenu;

@@ -23,9 +23,9 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, style};
 
-use crate::effects::Underglow;
-use crate::icons::Glyph;
-use crate::platform::{DisplayText, show};
+use super::effects::Underglow;
+use super::icons::Glyph;
+use super::platform::{DisplayText, show};
 use crate::styles::{ICON, hairline, headed};
 use crate::theme::{HamletTheme, Themed};
 use crate::{Cx, View, with_cx};

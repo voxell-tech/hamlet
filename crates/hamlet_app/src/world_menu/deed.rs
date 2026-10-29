@@ -17,13 +17,16 @@ use hamlet_client::realm::{
     self as agents, AgentNumber, Busy, Deeds, HamletId, Left, LivesIn,
 };
 use hamlet_realm::orders;
+use hamlet_ui::styles::{
+    button, danger_button, description, lettered,
+};
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::platform::DisplayText;
+use hamlet_ui::{View, built};
 
 use super::close;
+use crate::chat;
 use crate::convo::Convo;
-use crate::effects::Variant;
-use crate::platform::DisplayText;
-use crate::styles::{button, danger_button, description, lettered};
-use crate::{View, built, chat};
 
 /// Something that ends an agent or a hamlet, or changes who runs
 /// one.

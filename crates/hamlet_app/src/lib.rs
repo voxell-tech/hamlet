@@ -45,13 +45,7 @@ use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
 use hamlet_client::connection::ClientSystems;
 use hamlet_realm::pick::Selected;
-// The kit, under the paths the panels use.
-pub use hamlet_ui::{
-    AnyView, Cx, ICON, View, back_link, built, button, danger_button,
-    dial, disclosure, effects, fade, fields, icons, marked, platform,
-    primary_button, styles, switch, tabs, text_input, theme, widgets,
-    with_cx,
-};
+use hamlet_ui::theme::{HamletTheme, ThemeState};
 
 pub use self::convo::Convo;
 pub use self::dock::{highlight_panel, panel};
@@ -62,7 +56,6 @@ pub use self::screens::{
     chat, inspector, links, overview, petition, pictures, settings,
 };
 pub use self::status::{Bar, status_bar};
-use self::theme::{HamletTheme, ThemeState};
 pub use self::window::window_plugin;
 
 /// The panels' steps before fynix mounts the views, in order, after
@@ -170,6 +163,7 @@ mod tests {
     use bevy::winit::WinitPlugin;
     use hamlet_client::{ClientPlugin, ViewFolder};
     use hamlet_testing::Scratch;
+    use hamlet_ui::theme;
 
     use super::*;
 

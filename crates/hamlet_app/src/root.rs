@@ -20,15 +20,14 @@ use bevy_fynix::views::{
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
+use hamlet_ui::styles::{Fills, action, hairline, note};
+use hamlet_ui::theme::{HamletTheme, ThemeChanged};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::platform::Glow;
+use hamlet_ui::{Cx, View, built};
 
-use crate::icons::Glyph;
-use crate::platform::Glow;
 use crate::status::status_bar;
-use crate::styles::{Fills, action, hairline, note};
-use crate::theme::{HamletTheme, ThemeChanged};
-use crate::{
-    Cx, View, built, chrome, desk, hover, menu, welcome, world_menu,
-};
+use crate::{chrome, desk, hover, menu, welcome, world_menu};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<ConnectionTest>()

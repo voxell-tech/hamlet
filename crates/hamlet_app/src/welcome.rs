@@ -384,13 +384,13 @@ mod server_tests {
     use hamlet_assets::Tuning;
     use hamlet_client::ClientPlugin;
     use hamlet_protocol::client as protocol;
+    use hamlet_ui::theme::{self, HamletTheme};
 
     use super::*;
     use crate::testing::{
         all_words, connect, incoming, press, press_and_update, sent,
         welcome_app,
     };
-    use crate::theme::{self, HamletTheme};
 
     #[test]
     fn received_settings_and_connection_choose_the_welcome_page() {

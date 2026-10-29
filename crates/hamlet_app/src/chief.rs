@@ -30,16 +30,17 @@ use hamlet_realm::library::{Library, Stood};
 use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
 use hamlet_realm::pick::{Selected, Thing, focus_on, select};
-
-use crate::convo::Convo;
-use crate::icons::Glyph;
-use crate::platform::Wraps;
-use crate::roll::{agents_moved, either, moved};
-use crate::styles::{
+use hamlet_ui::styles::{
     Fills, action, breadcrumb, buttons, choice, choices, description,
     filling, group, note, scroll_area, section, title,
 };
-use crate::{AnyView, PanelSystems, View, with_cx};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::platform::Wraps;
+use hamlet_ui::{AnyView, View, with_cx};
+
+use crate::PanelSystems;
+use crate::convo::Convo;
+use crate::roll::{agents_moved, either, moved};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(spoke)
@@ -343,7 +344,7 @@ pub fn panel(chief: Entity) -> AnyView {
                 facts.name.to_uppercase(),
                 |world, _| select(world, None),
             ),
-            crate::styles::beside((
+            hamlet_ui::styles::beside((
                 title(facts.name.to_uppercase()),
                 label(place).tone(tone).wrap(false),
             )),

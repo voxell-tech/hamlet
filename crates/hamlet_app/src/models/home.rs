@@ -10,19 +10,19 @@ use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
+use hamlet_ui::styles::{
+    Fills, action, bad_action, bare, beside, close, description,
+    good_action, group, list, note, section, text_input,
+};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::switch::labelled_switch;
+use hamlet_ui::{AnyView, View, with_cx};
 
 use super::choice::{chooser, home_default};
 use super::{
     Asked, Draft, SHOWN, Shelf, catalogue, edit, read_models,
 };
-use crate::icons::Glyph;
 use crate::roll::{either, moved};
-use crate::styles::{
-    Fills, action, bad_action, bare, beside, close, description,
-    good_action, group, list, note, section, text_input,
-};
-use crate::switch::labelled_switch;
-use crate::{AnyView, View, with_cx};
 
 fn remove(world: &mut World, name: &str) {
     let endpoints = world

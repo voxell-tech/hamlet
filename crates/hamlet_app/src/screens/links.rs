@@ -23,9 +23,9 @@ use hamlet_client::messages::JobFinished;
 use hamlet_client::realm::{Houses, LivesIn, Works};
 use hamlet_desktop::open;
 use hamlet_realm::sound::{Cue, Sound};
+use hamlet_ui::markdown::{Anchor, PathLinks};
 
 use crate::convo::Convo;
-use crate::markdown::{Anchor, PathLinks};
 use crate::roll::{self, Roll};
 use crate::{PanelSystems, sounds};
 

@@ -19,11 +19,11 @@ use hamlet_client::chats::{Entry, Transcript};
 use hamlet_protocol::client::{
     Change, ChangeLines as Line, ChangeLinesMark as Mark,
 };
+use hamlet_ui::styles::{Fills, bare, note};
+use hamlet_ui::widgets::platform::{Mono, MonoText};
+use hamlet_ui::{AnyView, Cx, View};
 
 use super::entry::state;
-use crate::platform::{Mono, MonoText};
-use crate::styles::{Fills, bare, note};
-use crate::{AnyView, Cx, View, markdown};
 
 /// The tuning of the chat.
 #[derive(Resource, Clone, PartialEq, serde::Deserialize)]
@@ -243,7 +243,7 @@ pub(crate) fn change_view(
             t.is_some_and(Transcript::is_answering)
         }),
         move |_| {
-            markdown::typed(&path, "")
+            hamlet_ui::markdown::typed(&path, "")
                 .unwrap_or_else(|| label(path.clone()).boxed())
         },
     )

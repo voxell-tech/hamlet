@@ -50,14 +50,16 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, row,
 };
 use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
+use hamlet_ui::View;
+use hamlet_ui::markdown::Area;
+use hamlet_ui::styles::{button, marked};
+use hamlet_ui::theme::Themed;
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::Glyph;
 use parley::{Affinity, AlignmentOptions, Cursor, Layout, Selection};
 
+use crate::chat;
 use crate::convo::Convo;
-use crate::effects::Variant;
-use crate::icons::Glyph;
-use crate::styles::{button, marked};
-use crate::theme::Themed;
-use crate::{View, chat};
 
 /// The layer the light is drawn on: over the panels, under the drag
 /// of a tab, the menus and the tooltips.
@@ -129,8 +131,6 @@ impl Selecting {
         *self = Selecting::default();
     }
 }
-
-pub use crate::markdown::Area;
 
 /// On a row of the chat whose words can be quoted.
 #[derive(Component, Clone, Debug)]

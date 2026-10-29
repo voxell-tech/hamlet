@@ -7,18 +7,18 @@ use bevy_fynix::views::{
     row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
-
-use super::{Narrowing, Step, Welcome, close, go, look, pick};
-use crate::effects::Variant;
-use crate::fade::FadeSurface;
-use crate::icons::Glyph;
-use crate::models::narrowed;
-use crate::styles::{
+use hamlet_ui::styles::{
     self, back, back_link, bare, beside, description, good_action,
     group, headed, marked, nav_card, note, pad, parts,
     scroll_area_on, small_rules, text_input,
 };
-use crate::{AnyView, Cx, View, built, with_cx};
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::fade::FadeSurface;
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{AnyView, Cx, View, built, with_cx};
+
+use super::{Narrowing, Step, Welcome, close, go, look, pick};
+use crate::models::narrowed;
 
 fn title(which: Glyph, text: &'static str) -> impl View {
     headed(which, styles::title(text))
@@ -107,7 +107,7 @@ fn choice(adding: bool) -> AnyView {
                 .on_activate(close),
             note(after),
         ))
-        .tagged(crate::platform::Wraps),
+        .tagged(hamlet_ui::widgets::platform::Wraps),
     ))
     .boxed()
 }

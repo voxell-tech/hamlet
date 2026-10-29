@@ -15,15 +15,16 @@ use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
 use hamlet_protocol::client as protocol;
-
-use super::{Pane, field, told};
-use crate::icons::Glyph;
-use crate::secret::secret_field;
-use crate::styles::{
+use hamlet_ui::styles::{
     action, bare, beside, choices, description, note, parts,
     text_input,
 };
-use crate::{AnyView, PanelSystems, View};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{AnyView, View};
+
+use super::{Pane, field, told};
+use crate::PanelSystems;
+use crate::secret::secret_field;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -422,7 +423,9 @@ mod tests {
         let mono = bevy::asset::uuid_handle!(
             "6f1c1d3e-0b7a-4c55-9a43-2d0f7a1c9e21"
         );
-        app.insert_resource(crate::platform::Mono(mono.clone()));
+        app.insert_resource(hamlet_ui::widgets::platform::Mono(
+            mono.clone(),
+        ));
         let field = control::<EditableText>(&mut app, "Access token");
         app.world_mut()
             .get_mut::<TextFont>(field)

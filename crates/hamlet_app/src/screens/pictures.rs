@@ -26,6 +26,7 @@ use bevy::render::render_resource::{
 use bevy::tasks::{AsyncComputeTaskPool, TaskPool};
 use hamlet_client::Tokio;
 use hamlet_client::messages::JobFinished;
+use hamlet_ui::markdown::{Anchor, PictureView, Target};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
@@ -35,7 +36,7 @@ pub(crate) use self::load::fit;
 use self::load::{Bounds, Pixels};
 use crate::chat::ChatSettings;
 use crate::links::seek;
-use crate::markdown::{self, Anchor, PictureView, Target};
+use crate::markdown;
 
 /// The endings of the files drawn as pictures, in small letters.
 const PICTURED: [&str; 6] =
@@ -546,8 +547,7 @@ mod tests {
 
         use bevy::ui::widget::ImageNode;
         use bevy_fynix::tokens::Tone;
-
-        use crate::theme::HamletTheme;
+        use hamlet_ui::theme::HamletTheme;
         let scratch =
             hamlet_testing::Scratch::new("absolute-picture");
         let file = scratch.join("pear.png");
@@ -558,7 +558,7 @@ mod tests {
             .add_plugins(plugin);
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            markdown::fixed(
+            hamlet_ui::markdown::fixed(
                 &format!("![pear]({})", file.display()),
                 Tone::Body,
             ),

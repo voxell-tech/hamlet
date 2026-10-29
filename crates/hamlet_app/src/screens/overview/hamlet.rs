@@ -17,6 +17,15 @@ use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::{Deeds, HOME};
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Thing, select};
+use hamlet_ui::styles::{
+    self, Fills, action, bad_action, bare, beside, breadcrumb,
+    buttons, group, lettered, note, primary_button, scroll_area,
+    status_label_large, text_input, title,
+};
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::tabs;
+use hamlet_ui::{AnyView, View, with_cx};
 
 use super::heading;
 use super::record::record_of;
@@ -24,16 +33,9 @@ use super::rows::{
     AgentRow, agent_rows, hamlet_rows, pressable, stale,
 };
 use crate::convo::talk_to;
-use crate::effects::Variant;
-use crate::icons::Glyph;
 use crate::roll::{either, moved};
-use crate::styles::{
-    self, Fills, action, bad_action, bare, beside, breadcrumb,
-    buttons, group, lettered, note, primary_button, scroll_area,
-    status_label_large, text_input, title,
-};
 use crate::world_menu::Deed;
-use crate::{AnyView, View, chat, tabs, with_cx, world_menu};
+use crate::{chat, world_menu};
 
 /// The field a hamlet's new name is typed in.
 #[derive(Component)]

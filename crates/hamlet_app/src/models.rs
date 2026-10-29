@@ -119,8 +119,8 @@ fn edit(
     shelf.problem = None;
 }
 
-fn problem() -> impl crate::View {
-    crate::styles::note(
+fn problem() -> impl hamlet_ui::View {
+    hamlet_ui::styles::note(
         bevy_fynix::derived(|world: &World| {
             world
                 .get_resource::<Shelf>()
@@ -205,6 +205,7 @@ mod tests {
     use bevy::input_focus::{FocusCause, InputFocus};
     use bevy::text::EditableText;
     use bevy_fynix::mount;
+    use hamlet_ui::theme::HamletTheme;
     use serde_json::json;
 
     use super::*;
@@ -212,7 +213,6 @@ mod tests {
         all_words, connect, incoming, press_and_update, sent,
         welcome_app,
     };
-    use crate::theme::HamletTheme;
 
     #[test]
     fn the_models_page_reads_the_catalogue_and_shows_the_servers_prices_and_notes()

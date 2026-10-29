@@ -17,10 +17,10 @@ use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
 use hamlet_app::history::History;
-use hamlet_app::theme::{self, HamletTheme};
 use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
 use hamlet_assets::Tuning;
 use hamlet_realm::sound::{Cue, SoundSettings};
+use hamlet_ui::theme::{self, HamletTheme};
 
 use self::dock::{panels, seed_dock};
 use self::sample::{first_run, setup};
@@ -85,7 +85,7 @@ impl Plugin for GalleryPlugin {
             )
             .add_plugins((
                 hamlet_app::secret::plugin,
-                hamlet_app::widgets::plugin,
+                hamlet_ui::widgets::plugin,
                 hamlet_app::screens::plugin,
                 asking::plugin,
                 select::plugin,

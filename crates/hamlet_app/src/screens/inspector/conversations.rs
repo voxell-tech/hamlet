@@ -7,13 +7,13 @@ use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::chats::Chat;
 use hamlet_client::realm::{PeerChats, address_of, name_of};
 use hamlet_protocol::client as protocol;
+use hamlet_ui::styles::{
+    breadcrumb, close, filling, group, lettered, note, scroll_area,
+};
+use hamlet_ui::{View, built};
 
 use super::Section;
 use crate::convo::Convo;
-use crate::styles::{
-    breadcrumb, close, filling, group, lettered, note, scroll_area,
-};
-use crate::{View, built};
 
 pub(super) fn is_read_only(world: &World) -> bool {
     let convo = world.resource::<Convo>();
@@ -98,7 +98,7 @@ fn exchange(peer: protocol::ConversationView) -> impl View {
         let selected = peer.clone();
         let button =
             lettered(format!("{kind} WITH {}", name.to_uppercase()))
-                .rules(crate::styles::button)
+                .rules(hamlet_ui::styles::button)
                 .on_activate(move |world| {
                     open(world, selected.clone());
                 });

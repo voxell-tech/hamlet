@@ -15,14 +15,15 @@ use bevy_fynix::dock::{
 };
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 use hamlet_client::waits::Waiting;
-
-use crate::effects::{
+use hamlet_ui::styles::Fills;
+use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::effects::{
     Attention, GlowPanel, Highlight, glow_layer, highlight_layer,
 };
-use crate::platform::{ClipInside, Glow};
-use crate::styles::Fills;
-use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, PanelSystems, View, desk, remember};
+use hamlet_ui::widgets::platform::{ClipInside, Glow};
+use hamlet_ui::{AnyView, Cx, View};
+
+use crate::{PanelSystems, desk, remember};
 
 /// The least width a panel keeps, in logical pixels.
 const LEAST: f32 = 300.0;

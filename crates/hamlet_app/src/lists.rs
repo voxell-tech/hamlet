@@ -10,13 +10,15 @@ use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, each, keyed, resource,
 };
 use hamlet_client::realm::Skills;
+use hamlet_ui::styles::{
+    Fills, action, bad_action, description, hidden,
+};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::platform::DisplayText;
+use hamlet_ui::{AnyView, View, built, with_cx};
 
 use crate::dock::show_tab;
-use crate::icons::Glyph;
-use crate::platform::DisplayText;
-use crate::styles::{Fills, action, bad_action, description, hidden};
 use crate::world_menu::{self, Deed};
-use crate::{AnyView, View, built, with_cx};
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct SkillRow {
@@ -161,7 +163,7 @@ mod tests {
     {
         let mut app = panel_app();
         app.insert_resource(Selected(Some(Thing::Library)));
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             crate::inspector::screen(),
         );

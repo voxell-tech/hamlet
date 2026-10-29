@@ -334,7 +334,7 @@ mod tests {
                 Thing::Agent(founder),
                 bevy::math::Vec2::ZERO,
             );
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             crate::world_menu::view(),
         );

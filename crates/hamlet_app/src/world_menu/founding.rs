@@ -9,15 +9,16 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, resource};
 use hamlet_client::realm::{Deeds, HOME};
-
-use super::close;
-use crate::effects::Variant;
-use crate::platform::DisplayText;
-use crate::styles::{
+use hamlet_ui::styles::{
     button, description, lettered, primary_button, section,
     text_input,
 };
-use crate::{View, built, chat};
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::platform::DisplayText;
+use hamlet_ui::{View, built};
+
+use super::close;
+use crate::chat;
 
 /// The name of a hamlet being founded, the name of its mayor, and its
 /// purpose.
@@ -53,7 +54,7 @@ fn asks(
     read: fn(&Founding) -> &String,
     write: fn(&mut Founding, String),
 ) -> impl View {
-    crate::styles::close((
+    hamlet_ui::styles::close((
         section(what),
         text_field(
             resource::<Founding, _>(move |f| read(f).clone()),
@@ -171,7 +172,7 @@ mod tests {
             mayor: "miller".into(),
             purpose: "Grinds flour".into(),
         });
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             founding(Vec2::ZERO),
         );

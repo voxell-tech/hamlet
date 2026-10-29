@@ -15,11 +15,11 @@ use bevy::picking::events::PointerScroll;
 use bevy::text::{EditableText, LineHeight, TextLayoutInfo};
 use bevy::ui::{ComputedNode, Node, PositionType, UiRect, Val, px};
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
+use hamlet_ui::fields::Resized;
+use hamlet_ui::widgets::platform::show;
+use hamlet_ui::{View, built};
 
 use super::{ChatField, Draft};
-use crate::fields::Resized;
-use crate::platform::show;
-use crate::{View, built};
 
 /// The editable text inside the field.
 fn typing(

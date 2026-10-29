@@ -25,18 +25,19 @@ use hamlet_protocol::client::{
     Change, Lasting, WaitDanger, WaitDetail,
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
-
-use crate::convo::talk_at;
-use crate::dock::{PanelAppExt, highlight_panel, show_tab};
-use crate::effects::{Highlight, Variant};
-use crate::icons::Glyph;
-use crate::platform::MonoText;
-use crate::styles::{
+use hamlet_ui::styles::{
     self, Fills, ICON, bad_action, buttons, caption, danger_button,
     description, framed, marked, note, primary_button, scroll_area,
     title,
 };
-use crate::{AnyView, Cx, PanelSystems, View, asking, chat, with_cx};
+use hamlet_ui::widgets::effects::{Highlight, Variant};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::platform::MonoText;
+use hamlet_ui::{AnyView, Cx, View, with_cx};
+
+use crate::convo::talk_at;
+use crate::dock::{PanelAppExt, highlight_panel, show_tab};
+use crate::{PanelSystems, asking, chat};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
                      questions and faults come here, oldest first.";
@@ -437,7 +438,7 @@ mod tests {
         );
         app.add_plugins(plugin);
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             screen(),
         );
@@ -509,7 +510,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             screen(),
         );

@@ -22,14 +22,15 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
 use hamlet_realm::pick::{Orbit, Taken};
+use hamlet_ui::styles::ICON;
+use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::effects::Underglow;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::DisplayText;
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use crate::effects::Underglow;
-use crate::icons::{Glyph, glyph};
-use crate::platform::DisplayText;
-use crate::styles::ICON;
-use crate::theme::HamletTheme;
+use crate::window;
 use crate::world_view::TimeOfDay;
-use crate::{AnyView, Cx, View, window, with_cx};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<OpenMenu>()

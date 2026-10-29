@@ -26,7 +26,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{EntityCursor, OverrideCursor, Prop, component};
 
-use crate::icons::Glyph;
+use super::icons::Glyph;
 use crate::{AnyView, Cx, View};
 
 /// A handler run with the world and the amount the dial was asked to

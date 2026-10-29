@@ -22,17 +22,19 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::{Closed, Deeds, HOME, HamletId};
 use hamlet_realm::pick::{Thing, focus_on, select};
+use hamlet_ui::styles::{
+    Fills, ICON, action, bare, beside, close, description, group,
+    note, raised, scroll_area, section, text_input, title,
+};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::tabs;
+use hamlet_ui::{AnyView, View, with_cx};
 
 pub use self::hamlet::{Naming, Page, hamlet};
 pub use self::record::Annals;
 use self::rows::{hamlet_rows, pressable};
 pub(crate) use self::rows::{stale, standing};
-use crate::icons::{Glyph, glyph};
-use crate::styles::{
-    Fills, ICON, action, bare, beside, close, description, group,
-    note, raised, scroll_area, section, text_input, title,
-};
-use crate::{AnyView, View, chat, tabs, with_cx, world_menu};
+use crate::{chat, world_menu};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(record::plugin)
@@ -258,7 +260,7 @@ fn closed() -> AnyView {
                 if *erase {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
-                    actions.push(crate::styles::bad_action(
+                    actions.push(hamlet_ui::styles::bad_action(
                         Glyph::Gone,
                         "DELETE FOR GOOD",
                         move |world| {
@@ -271,7 +273,7 @@ fn closed() -> AnyView {
                     close((
                         note(hamlet.name.clone()),
                         note(hamlet.reason.clone()),
-                        crate::styles::buttons(actions),
+                        hamlet_ui::styles::buttons(actions),
                     ))
                     .boxed(),
                 );
@@ -291,8 +293,8 @@ fn closed() -> AnyView {
                                 "Every archived house is deleted. \
                                  This cannot be undone.",
                             ),
-                            crate::styles::buttons(vec![
-                                crate::styles::bad_action(
+                            hamlet_ui::styles::buttons(vec![
+                                hamlet_ui::styles::bad_action(
                                     Glyph::Gone,
                                     "DELETE",
                                     move |world| {
@@ -386,7 +388,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             overview(),
         );
@@ -438,7 +440,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),
         );
-        let root = bevy_fynix::mount::<crate::theme::HamletTheme>(
+        let root = bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             closed(),
         );
@@ -455,7 +457,7 @@ mod tests {
         app.update();
         app.world_mut().despawn(root);
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             closed(),
         );
@@ -499,7 +501,7 @@ mod tests {
             .query_filtered::<Entity, With<HamletId>>()
             .single(app.world())
             .unwrap();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             self::hamlet(hamlet),
         );
@@ -553,7 +555,7 @@ mod tests {
             .unwrap()
             .0;
         *app.world_mut().resource_mut::<Page>() = Page::Record;
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             self::hamlet(hamlet),
         );

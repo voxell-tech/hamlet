@@ -15,12 +15,13 @@ use hamlet_client::realm::{
 use hamlet_realm::generator::society::Ground;
 use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
 use hamlet_realm::{moving, orders};
+use hamlet_ui::AnyView;
 
 use super::deed::Deed;
 use super::{Open, close, restore, stop};
+use crate::chat;
 use crate::convo::{talk_to, talk_to_mayor};
 use crate::inspector::show_prompt;
-use crate::{AnyView, chat};
 
 /// An agent of the hamlet that is not its mayor and has not left,
 /// with its name.

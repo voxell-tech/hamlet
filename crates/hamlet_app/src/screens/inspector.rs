@@ -17,6 +17,11 @@ use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::Left;
 use hamlet_realm::pick::{Selected, Thing};
+use hamlet_ui::View;
+use hamlet_ui::styles::{ICON, filling};
+use hamlet_ui::widgets::effects::{Highlight, Updated};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::tabs;
 
 pub(crate) use self::agent::show_prompt;
 pub use self::agent::{Briefing, Section};
@@ -24,10 +29,7 @@ pub(crate) use self::gone::{of_agent, skills_screen};
 pub use self::papers::{Papers, keep_papers};
 use crate::convo::{Convo, seat};
 use crate::dock::{PanelAppExt, highlight_panel, panel};
-use crate::effects::{Highlight, Updated};
-use crate::icons::Glyph;
-use crate::styles::{ICON, filling};
-use crate::{View, overview, tabs};
+use crate::overview;
 
 pub fn plugin(app: &mut App) {
     app.add_panel(

@@ -29,16 +29,17 @@ use hamlet_client::waits::{
     Asks, Choice, RaisedBy, Refused, Waiting,
 };
 use hamlet_protocol::client::{Offer, Pick, Questions};
-
-use crate::convo::Convo;
-use crate::effects::Variant;
-use crate::icons::{Glyph, glyph};
-use crate::styles::{
+use hamlet_ui::styles::{
     self, Fills, back_link, bare, marked, note, note_rules,
     primary_button, small_rules, text_input,
 };
-use crate::theme::HamletTheme;
-use crate::{AnyView, Cx, PanelSystems, View, with_cx};
+use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
+
+use crate::PanelSystems;
+use crate::convo::Convo;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Answering>()

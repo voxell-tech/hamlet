@@ -20,15 +20,15 @@ use bevy_fynix::views::{
 };
 use hamlet_client::chats::{Chat, Status};
 use hamlet_client::messages::Rewound;
+use hamlet_ui::styles::{ICON, back_link, note};
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{View, built};
 
 use super::Draft;
 use super::reply::{Replying, unreplied};
 use crate::convo::Convo;
-use crate::effects::Variant;
-use crate::icons::{Glyph, glyph};
-use crate::styles::{ICON, back_link, note};
 use crate::world_menu::{self, Deed};
-use crate::{View, built};
 
 /// The room of a mark about its picture, and the room it takes
 /// beside its message.

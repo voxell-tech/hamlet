@@ -29,13 +29,13 @@ use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
+use hamlet_ui::View;
+use hamlet_ui::styles::{Fills, note};
 
 use super::entry::entry_view;
 use super::timeline::{Line, People, Who, timeline};
 use super::{AwayFromEnd, ChatScroll, bubble};
-use crate::View;
 use crate::convo::Convo;
-use crate::styles::{Fills, note};
 
 /// Messages are people talking, so they get the width of a readable
 /// line.
@@ -747,14 +747,16 @@ pub fn transcript() -> impl View {
         }),
         |_: &()| 0u8,
         |_| {
-            button(crate::styles::raised(crate::icons::glyph(
-                crate::icons::Glyph::ToEnd,
-                crate::styles::ICON,
-            )))
+            button(hamlet_ui::styles::raised(
+                hamlet_ui::widgets::icons::glyph(
+                    hamlet_ui::widgets::icons::Glyph::ToEnd,
+                    hamlet_ui::styles::ICON,
+                ),
+            ))
             .padding(UiRect::all(px(8.0)))
             .tooltip(|| note("Scroll to the latest"))
-            .rules(crate::styles::back_link)
-            .tagged(crate::effects::Variant::Text)
+            .rules(hamlet_ui::styles::back_link)
+            .tagged(hamlet_ui::widgets::effects::Variant::Text)
             .on_activate(super::to_end)
             .boxed()
         },

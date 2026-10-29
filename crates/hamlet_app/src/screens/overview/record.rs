@@ -11,11 +11,11 @@ use hamlet_client::realm::{
     Mayor, Seen, Treasury, Votes, Works,
 };
 use hamlet_protocol::client as protocol;
+use hamlet_ui::AnyView;
+use hamlet_ui::styles::{bad_action, bare, group, note};
+use hamlet_ui::widgets::icons::Glyph;
 
 use super::{heading, tell};
-use crate::AnyView;
-use crate::icons::Glyph;
-use crate::styles::{bad_action, bare, group, note};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Annals>()
@@ -221,7 +221,7 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
         },
     )
     .within(bare());
-    AnyView::new(move |cx: &mut crate::Cx| {
+    AnyView::new(move |cx: &mut hamlet_ui::Cx| {
         request(cx.world, hamlet, true);
         cx.build(body)
     })
@@ -273,7 +273,7 @@ mod tests {
         let hamlet =
             hamlet_client::realm::mayor(app.world_mut()).unwrap();
         let hamlet = app.world().get::<LivesIn>(hamlet).unwrap().0;
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             record_of(hamlet),
         );
@@ -363,7 +363,7 @@ mod tests {
         let agent =
             hamlet_client::realm::mayor(app.world_mut()).unwrap();
         let hamlet = app.world().get::<LivesIn>(agent).unwrap().0;
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             record_of(hamlet),
         );

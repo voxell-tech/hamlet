@@ -28,10 +28,10 @@ use hamlet_client::messages::Veto;
 use hamlet_client::realm::{self as agents, Deeds};
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Asked, AskedGround, Thing};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
-use crate::{AnyView, Cx, View, with_cx};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Open>()
@@ -252,8 +252,8 @@ fn gift_reports() -> AnyView {
                     Rect::new(16.0, 52.0, 16.0, 52.0),
                     (column((
                         column(lines).gap(space.gap / 2.0),
-                        crate::styles::lettered("DISMISS")
-                            .rules(crate::styles::button)
+                        hamlet_ui::styles::lettered("DISMISS")
+                            .rules(hamlet_ui::styles::button)
                             .on_activate(|world| {
                                 world
                                     .resource_mut::<GiftReports>()
@@ -296,7 +296,7 @@ mod tests {
             .init_resource::<AskedGround>()
             .init_resource::<Selected>()
             .init_resource::<Also>();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             view(),
         );

@@ -18,11 +18,11 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Connection, receive};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_protocol::client as protocol;
+use hamlet_ui::markdown::{Block, Kind, Span, Style};
+use hamlet_ui::theme::{self, HamletTheme, ThemeChanged};
 use image::{ImageFormat, RgbaImage};
 
-use crate::markdown::{Block, Kind, Span, Style};
 use crate::screens::settings::{self, Pane};
-use crate::theme::{self, HamletTheme, ThemeChanged};
 use crate::welcome::Browser;
 
 /// A window's panels on the received fixture state: the chat's

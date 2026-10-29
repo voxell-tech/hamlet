@@ -24,7 +24,7 @@ use bevy::ui::{
 use bevy_fynix::Theme;
 use bevy_fynix::scroll::ScrollGoal;
 
-use crate::platform::Glow;
+use super::platform::Glow;
 use crate::theme::HamletTheme;
 
 pub fn plugin(app: &mut App) {

@@ -36,14 +36,14 @@ use hamlet_client::waits::Waiting;
 use hamlet_realm::chief::{Beside, Look};
 use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
+use hamlet_ui::theme::Themed;
+use hamlet_ui::widgets::effects::EffectSettings;
+use hamlet_ui::widgets::platform::{DisplayText, show};
+use hamlet_ui::{View, built};
 
-use crate::effects::EffectSettings;
 use crate::overview::standing;
-use crate::platform::{DisplayText, show};
 use crate::roll::Roll;
-use crate::theme::Themed;
 use crate::world_menu::Open;
-use crate::{View, built};
 
 /// The layer of the card in the window's stack: over the panels,
 /// under the menus.

@@ -23,10 +23,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, label, overlay, row, text_field,
 };
 use bevy_fynix::{Prop, ScopedExt};
-
-use crate::View;
-use crate::platform::{ClipInside, Mono};
-use crate::styles::text_input;
+use hamlet_ui::View;
+use hamlet_ui::styles::text_input;
+use hamlet_ui::widgets::platform::{ClipInside, Mono};
 
 pub fn plugin(app: &mut App) {
     app.add_systems(

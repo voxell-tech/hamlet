@@ -9,13 +9,13 @@ use hamlet_client::realm::{
     Account, Bylaws, LivesIn, MAYOR, Mayor, Settings, address_of,
 };
 use hamlet_protocol::client as protocol;
+use hamlet_ui::styles::{bare, close, description, group, section};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::switch::labelled_switch;
+use hamlet_ui::{View, built};
 
 use super::{Shelf, edit};
-use crate::icons::Glyph;
 use crate::roll::{agents_moved, either, hamlets_moved, moved};
-use crate::styles::{bare, close, description, group, section};
-use crate::switch::labelled_switch;
-use crate::{View, built};
 
 pub(super) fn home_default(world: &World) -> String {
     world
@@ -72,7 +72,7 @@ pub(super) fn chooser(
         dropdown(
             names.clone(),
             at,
-            Glyph::Chevron.image(crate::styles::ICON),
+            Glyph::Chevron.image(hamlet_ui::styles::ICON),
             move |world, chosen| {
                 if let Some(picked) =
                     names.get(chosen).filter(|picked| **picked != was)

@@ -7,9 +7,8 @@ use bevy::ui::{AlignItems, px};
 use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, frame, label, row};
-
-use crate::styles::Fills;
-use crate::{AnyView, markdown};
+use hamlet_ui::AnyView;
+use hamlet_ui::styles::Fills;
 
 /// The parts of `text` in order: each its words, and whether they are
 /// quoted.
@@ -86,7 +85,7 @@ pub(super) fn drawn(
                 .gap(8.0)
                 .align(AlignItems::Stretch)
                 .boxed(),
-                false => markdown::typed(&words, "")
+                false => hamlet_ui::markdown::typed(&words, "")
                     .unwrap_or_else(|| label(words).boxed()),
             }
         })

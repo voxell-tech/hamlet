@@ -11,7 +11,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ViewExt, keyed, resource};
 
-use crate::icons::{Glyph, glyph};
+use super::icons::{Glyph, glyph};
 use crate::styles::section;
 use crate::{AnyView, Cx, View};
 

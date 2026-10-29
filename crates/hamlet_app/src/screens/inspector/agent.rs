@@ -18,22 +18,22 @@ use hamlet_client::realm::{
     Account, Activity, Busy, LivesIn, Purpose, Treasury,
 };
 use hamlet_realm::pick::{Thing, select};
-
-use super::papers::Papers;
-use crate::convo::Convo;
-use crate::effects::Variant;
-use crate::icons::Glyph;
-use crate::platform::Wraps;
-use crate::roll::rolled;
-use crate::status::Bar;
-use crate::styles::{
+use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, breadcrumb, close,
     filling, hairline, note, scroll_area, title,
 };
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::platform::Wraps;
+use hamlet_ui::widgets::tabs;
+use hamlet_ui::{AnyView, Cx, View, built, with_cx};
+
+use super::papers::Papers;
+use crate::chat;
+use crate::convo::Convo;
+use crate::roll::rolled;
+use crate::status::Bar;
 use crate::world_menu::{self};
-use crate::{
-    AnyView, Cx, View, built, chat, markdown, tabs, with_cx,
-};
 
 /// The part of the selected agent the panel shows.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Default)]
@@ -162,13 +162,13 @@ fn header(agent: Entity, with: Option<String>) -> impl View {
             }));
         // Everything else that can be done to it, as a right click
         // on it in the world offers.
-        let more = button(crate::styles::raised(
-            crate::icons::glyph(Glyph::More, ICON),
+        let more = button(hamlet_ui::styles::raised(
+            hamlet_ui::widgets::icons::glyph(Glyph::More, ICON),
         ))
         .padding(UiRect::axes(px(10.0), px(0.0)))
-        .min_height(px(crate::styles::CONTROL))
+        .min_height(px(hamlet_ui::styles::CONTROL))
         .tooltip(|| note("More to do with it"))
-        .rules(crate::styles::button)
+        .rules(hamlet_ui::styles::button)
         .tagged(Variant::Default)
         .on_activate(move |world| {
             let mayor = hamlet_client::realm::mayor(world);
@@ -216,7 +216,7 @@ fn notes() -> impl View {
             if text.trim().is_empty() {
                 note("No notes yet.").boxed()
             } else {
-                markdown::fixed(text, Tone::Body).boxed()
+                hamlet_ui::markdown::fixed(text, Tone::Body).boxed()
             }
         })
         .within(bare());
@@ -244,7 +244,7 @@ fn character() -> impl View {
                 note("Write here how this agent behaves and speaks.")
                     .boxed()
             } else {
-                markdown::fixed(text, Tone::Body).boxed()
+                hamlet_ui::markdown::fixed(text, Tone::Body).boxed()
             }
         },
     )
@@ -304,8 +304,11 @@ fn prompt(cx: &Cx) -> impl View + use<> {
         keyed(resource::<Briefing, _>(|b| b.text.clone()), |text| {
             // Each line as the model is given it, where Markdown
             // would run them together.
-            markdown::fixed(&text.replace('\n', "  \n"), Tone::Body)
-                .boxed()
+            hamlet_ui::markdown::fixed(
+                &text.replace('\n', "  \n"),
+                Tone::Body,
+            )
+            .boxed()
         })
         .within(bare());
     column((
@@ -413,7 +416,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             living(),
         );
@@ -473,7 +476,7 @@ mod tests {
             Thing::Agent(agent),
         )));
         app.update();
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             crate::inspector::screen(),
         );
@@ -560,7 +563,7 @@ mod tests {
         press(&mut app, "NOTES");
         app.update();
         assert!(has_span(&mut app, "Received notes"));
-        bevy_fynix::mount::<crate::theme::HamletTheme>(
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             crate::inspector::skills_screen(),
         );
