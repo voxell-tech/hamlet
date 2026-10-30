@@ -4417,6 +4417,7 @@ dependencies = [
  "tokio",
  "toml",
  "unicode-segmentation",
+ "vt100",
 ]
 
 [[package]]

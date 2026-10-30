@@ -315,10 +315,6 @@ pub fn highlight_panel(
 
 /// A panel whose contents reach its edges, for a canvas or a picture
 /// that draws its own margins.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no panel is flush yet")
-)]
 pub fn flush_panel(view: impl View) -> AnyView {
     padded_panel(view, Highlight::default(), Some(0.0))
 }
