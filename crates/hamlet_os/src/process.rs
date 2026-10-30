@@ -1,6 +1,7 @@
 //! The processes of one command: started together, limited, and
 //! killed together.
 
+pub mod pty;
 mod sys;
 
 use std::collections::BTreeMap;

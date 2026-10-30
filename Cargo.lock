@@ -4513,6 +4513,7 @@ name = "hamlet_os"
 version = "0.1.0"
 dependencies = [
  "hamlet_testing",
+ "pty-process",
  "rustix 1.1.6",
  "thiserror 2.0.21",
  "tokio",
@@ -6789,6 +6790,16 @@ name = "profiling"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
+
+[[package]]
+name = "pty-process"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f0cff49b5194f464ce14bfaef7d6dba180889934e9bfa37ca5f2528ea515c0b"
+dependencies = [
+ "rustix 1.1.6",
+ "tokio",
+]
 
 [[package]]
 name = "pulldown-cmark"
