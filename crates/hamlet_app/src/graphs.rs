@@ -34,8 +34,8 @@ use bevy_fynix::{
 };
 use hamlet_blueprint::{
     Book, Constant, Does, Edit, Frame, GraphInput, GraphOutput,
-    Instance, Node, NodeId, Port, Registry, Ruleset, Seed, Seeds,
-    Setting, Sheet, Value, ValueType, evaluate,
+    Initial, Instance, Node, NodeId, Port, PortSpec, Registry,
+    Ruleset, Seed, Seeds, Setting, Sheet, Value, ValueType, evaluate,
 };
 use hamlet_ui::styles::{
     CONTROL, Fills, ICON, description, hairline, note, raised,
@@ -281,7 +281,7 @@ impl Editor {
     /// Applies `edit` and keeps the edit that undoes it. Edits of one
     /// input in a row, as a number dragged, are undone as one.
     pub fn apply(&mut self, edit: Edit) {
-        let reshapes = reshapes(&self.sheet, &edit);
+        let reshapes = reshapes(&self.sheet, &self.registry, &edit);
         let Ok(inverse) = self.sheet.apply(edit) else {
             return;
         };
@@ -432,15 +432,17 @@ impl Editor {
         self.run();
     }
 
-    /// Adds a node that does `does`, with its card at `at`.
-    pub fn add(&mut self, does: Does, at: Vec2) {
+    /// Adds a node that does `does`, set by `settings`, with its card
+    /// at `at`.
+    pub fn add(
+        &mut self,
+        does: Does,
+        settings: BTreeMap<String, Setting>,
+        at: Vec2,
+    ) {
         let id = self.sheet.graph.next_id();
         self.apply(Edit::AddNode {
-            node: Node {
-                id,
-                does,
-                settings: BTreeMap::new(),
-            },
+            node: Node { id, does, settings },
             at: Some(at),
         });
         self.selected = BTreeSet::from([id]);
@@ -622,19 +624,47 @@ impl Editor {
     }
 }
 
+/// The input that names `node`, as math's operation does, and the
+/// choice it is set to.
+pub(super) fn naming<'a>(
+    registry: &'a Registry,
+    node: &Node,
+) -> Option<(&'a PortSpec, String)> {
+    let Does::Kind(kind) = &node.does else {
+        return None;
+    };
+    let spec =
+        registry.get(kind)?.inputs.iter().find(|spec| spec.names)?;
+    let chosen = match node.settings.get(spec.name) {
+        Some(Setting::Fixed(Constant::Choice(choice))) => {
+            choice.clone()
+        }
+        _ => match spec.initial {
+            Some(Initial::Choice(choice)) => choice.to_owned(),
+            _ => (*spec.choices.first()?).to_owned(),
+        },
+    };
+    Some((spec, chosen))
+}
+
 /// Whether `edit` changes what the canvas or the parameters are built
 /// from, rather than only a value in them.
-fn reshapes(sheet: &Sheet, edit: &Edit) -> bool {
+fn reshapes(sheet: &Sheet, registry: &Registry, edit: &Edit) -> bool {
     match edit {
         Edit::Set {
             node,
             input,
             setting,
         } => {
-            let old = sheet
-                .graph
-                .node(*node)
-                .and_then(|node| node.settings.get(input));
+            let found = sheet.graph.node(*node);
+            // The input that names a node changes its title and rows.
+            if found
+                .and_then(|node| naming(registry, node))
+                .is_some_and(|(spec, _)| spec.name == input)
+            {
+                return true;
+            }
+            let old = found.and_then(|node| node.settings.get(input));
             // A default and a fixed value show the same controls.
             let kind = |setting: Option<&Setting>| match setting {
                 None | Some(Setting::Fixed(_)) => None,

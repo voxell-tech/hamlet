@@ -26,11 +26,17 @@ const MATH: NodeKind = NodeKind {
                 "max", "power", "modulo", "abs", "floor", "ceil",
                 "round", "sqrt", "sin", "cos", "tan", "hypot",
                 "angle", "less", "greater",
-            ]),
+            ])
+            .names(),
         PortSpec::new("a", ValueType::Field, "The first number")
             .initial(Initial::Number(0.0)),
         PortSpec::new("b", ValueType::Field, "The second number")
-            .initial(Initial::Number(0.0)),
+            .initial(Initial::Number(0.0))
+            .used_with(&[
+                "add", "subtract", "multiply", "divide", "min",
+                "max", "power", "modulo", "hypot", "angle", "less",
+                "greater",
+            ]),
     ],
     outputs: &[PortSpec::new(
         "value",

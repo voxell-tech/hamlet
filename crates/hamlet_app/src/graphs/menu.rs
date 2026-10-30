@@ -4,6 +4,8 @@
 //! every group, and Enter adds the first found. A right click on a
 //! card opens what can be done to it.
 
+use std::collections::BTreeMap;
+
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -105,11 +107,14 @@ struct SearchField;
 struct Layer;
 
 /// One row of the list of what can be added.
+#[derive(Clone)]
 struct Entry {
     group: &'static str,
     name: String,
     doc: String,
     does: Does,
+    /// How the node starts set, as by the choice that names it.
+    settings: BTreeMap<String, Setting>,
 }
 
 /// Opens the list of kinds at the pointer, adding where it is on the
@@ -163,11 +168,32 @@ fn entries(editor: &Editor) -> Vec<Entry> {
             .position(|g| *g == group)
             .unwrap_or(GROUPS.len())
     };
-    let kinds = editor.registry.kinds().map(|(group, kind)| Entry {
-        group,
-        name: kind.name.to_owned(),
-        doc: kind.doc.to_owned(),
-        does: Does::Kind(kind.name.to_owned()),
+    // A kind named by one of its inputs is listed once for each
+    // choice of it.
+    let kinds = editor.registry.kinds().flat_map(|(group, kind)| {
+        let entry = |name: &str, settings| Entry {
+            group,
+            name: name.to_owned(),
+            doc: kind.doc.to_owned(),
+            does: Does::Kind(kind.name.to_owned()),
+            settings,
+        };
+        match kind.inputs.iter().find(|spec| spec.names) {
+            Some(spec) => spec
+                .choices
+                .iter()
+                .map(|choice| {
+                    let set = Setting::Fixed(Constant::Choice(
+                        (*choice).to_owned(),
+                    ));
+                    entry(
+                        choice,
+                        BTreeMap::from([(spec.name.to_owned(), set)]),
+                    )
+                })
+                .collect(),
+            None => vec![entry(kind.name, BTreeMap::new())],
+        }
     });
     let graphs = editor
         .names()
@@ -177,6 +203,7 @@ fn entries(editor: &Editor) -> Vec<Entry> {
             group: GRAPHS,
             doc: format!("The graph {name} of this book"),
             does: Does::Graph(name.clone()),
+            settings: BTreeMap::new(),
             name,
         });
     let mut found = graphs.chain(kinds).collect::<Vec<_>>();
@@ -208,9 +235,13 @@ fn shown(editor: &Editor, search: &Search) -> Vec<Entry> {
         .collect()
 }
 
-fn add(world: &mut World, does: Does, on_sheet: Vec2) {
+fn add(world: &mut World, entry: Entry, on_sheet: Vec2) {
     close(world);
-    world.resource_mut::<Editor>().add(does, on_sheet);
+    world.resource_mut::<Editor>().add(
+        entry.does,
+        entry.settings,
+        on_sheet,
+    );
 }
 
 /// The open menu, over the panel.
@@ -394,7 +425,7 @@ fn add_first(world: &mut World) {
             .into_iter()
             .next();
     if let Some(entry) = first {
-        add(world, entry.does, on_sheet);
+        add(world, entry, on_sheet);
     }
 }
 
@@ -449,13 +480,13 @@ fn list(editor: &Editor, on_sheet: Vec2) -> AnyView {
 /// The row that adds `entry`.
 fn kind_row(entry: &Entry, on_sheet: Vec2) -> AnyView {
     let (group, name) = (entry.group, entry.name.clone());
-    let (doc, does) = (entry.doc.clone(), entry.does.clone());
+    let (doc, added) = (entry.doc.clone(), entry.clone());
     menu_item(label(entry.name.replace('_', " ")).wrap(false))
         .display(shown_while(move |search| {
             listed(group, &name, search)
         }))
         .tooltip(move || note(doc.clone()))
-        .on_activate(move |world| add(world, does.clone(), on_sheet))
+        .on_activate(move |world| add(world, added.clone(), on_sheet))
         .boxed()
 }
 
@@ -530,6 +561,28 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
             Some(Does::Graph(_))
         );
         let mut items = Vec::new();
+        let named = {
+            let editor = cx.world.resource::<Editor>();
+            editor.sheet.graph.node(node).and_then(|found| {
+                super::naming(&editor.registry, found)
+                    .map(|(spec, _)| (spec.name, spec.choices))
+            })
+        };
+        if let Some((input, choices)) = named {
+            items.push(
+                menu_item(label("Switch to…").wrap(false))
+                    .on_activate(move |world| {
+                        close(world);
+                        choose(
+                            world,
+                            node,
+                            input.to_owned(),
+                            choices,
+                        );
+                    })
+                    .boxed(),
+            );
+        }
         if runs_graph {
             items.push(item(
                 "Open graph",

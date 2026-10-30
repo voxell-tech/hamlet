@@ -267,7 +267,9 @@ fn height(rows: usize) -> f32 {
     BORDER * 2.0 + HEADER + PAD * 2.0 + rows as f32 * ROW
 }
 
-/// The inputs and outputs of each node, in the order drawn.
+/// The inputs and outputs of each node, in the order drawn. The input
+/// that names a node is its title instead, and an input its name does
+/// not use is left out unless wired.
 fn rows(
     editor: &Editor,
     node: &hamlet_blueprint::Node,
@@ -287,8 +289,34 @@ fn rows(
             value_type: info.value_type,
         }
     };
+    let named = super::naming(&editor.registry, node);
+    let kind = match &node.does {
+        Does::Kind(kind) => editor.registry.get(kind),
+        Does::Graph(_) => None,
+    };
+    let drawn = |name: &str| {
+        let Some((naming, chosen)) = &named else {
+            return true;
+        };
+        let used = kind
+            .and_then(|kind| {
+                kind.inputs.iter().find(|spec| spec.name == name)
+            })
+            .is_none_or(|spec| {
+                spec.used_with.is_empty()
+                    || spec.used_with.contains(&chosen.as_str())
+            });
+        let wired = editor.sheet.graph.wires.iter().any(|wire| {
+            wire.to.node == node.id && wire.to.name == name
+        });
+        name != naming.name && (used || wired)
+    };
     (
-        inputs.into_iter().map(dot(false)).collect(),
+        inputs
+            .into_iter()
+            .filter(|info| drawn(&info.name))
+            .map(dot(false))
+            .collect(),
         outputs.into_iter().map(dot(true)).collect(),
     )
 }
@@ -497,9 +525,16 @@ fn build(
         let (inputs, outputs) = rows(&editor, node);
         // A graph run as a node is marked by its header's colour.
         let (title, header_fill, title_colour) = match &node.does {
-            Does::Kind(kind) => {
-                (kind.replace('_', " "), palette.code, palette.gold_1)
-            }
+            Does::Kind(kind) => (
+                super::naming(&editor.registry, node)
+                    .map_or_else(
+                        || kind.clone(),
+                        |(_, chosen)| chosen,
+                    )
+                    .replace('_', " "),
+                palette.code,
+                palette.gold_1,
+            ),
             Does::Graph(graph) => (
                 graph.clone(),
                 palette.primary_low,
