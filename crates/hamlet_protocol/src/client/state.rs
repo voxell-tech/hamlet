@@ -5,7 +5,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::client::{
-    Limits, Period, Permission, ProviderView, SettingsView, Wait,
+    Limits, Period, Permission, ProviderView, SettingsView,
+    TerminalView, Wait,
 };
 
 #[derive(
@@ -27,6 +28,7 @@ pub struct State {
     pub revision: i64,
     pub settings: SettingsView,
     pub starters: Vec<Skill>,
+    pub terminals: Vec<TerminalView>,
     pub waits: Vec<Wait>,
 }
 
@@ -58,9 +60,10 @@ impl Confinement {
 impl State {
     /// Applies one change, as a client does between whole states.
     ///
-    /// A hamlet, an agent or a wait replaces the one with its id in
-    /// its place, or is added at the end when it is new. `AgentGone`
-    /// and `WaitClosed` remove theirs. Grants, settings and providers
+    /// A hamlet, an agent, a wait or a terminal replaces the one with
+    /// its id in its place, or is added at the end when it is new.
+    /// `AgentGone`, `WaitClosed` and `TerminalGone` remove theirs.
+    /// Grants, settings and providers
     /// replace the whole value. The epoch and the revision are the
     /// caller's to keep.
     pub fn apply(&mut self, update: &Update) {
@@ -90,6 +93,14 @@ impl State {
             }
             Update::Providers { providers } => {
                 self.providers.clone_from(providers);
+            }
+            Update::Terminal { terminal } => {
+                put(&mut self.terminals, terminal, |t| {
+                    t.id == terminal.id
+                });
+            }
+            Update::TerminalGone { id } => {
+                self.terminals.retain(|t| t.id != *id);
             }
         }
     }
@@ -146,6 +157,10 @@ pub enum Update {
     Settings { settings: SettingsView },
     #[serde(rename = "providers")]
     Providers { providers: Vec<ProviderView> },
+    #[serde(rename = "terminal")]
+    Terminal { terminal: TerminalView },
+    #[serde(rename = "terminal-gone")]
+    TerminalGone { id: String },
 }
 
 #[derive(

@@ -102,7 +102,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
-| `hello` (`Hello`) | `v: 2`, `token: string`; no `id` | Authenticate; full `state`. |
+| `hello` (`Hello`) | `v: 3`, `token: string`; no `id` | Authenticate; full `state`. |
 | `say` (`Say`) | `to: Address`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
 | `give` (`Give`) | `to: Address`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
 | `give` (`Give`) | `to: Address`, `skill: {starter: string}` | Give an installed starter skill; `reply`. |
@@ -122,6 +122,21 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `check` (`Check`) | `what: "connection"` | Check the configured model connection; `reply`. Connection state also changes through `change`. |
 | `read` (`Read`) | `what` and fields below | Fetch one document or list; `read` with `to`, or failure `reply`. |
 | `move-houses` (`MoveHouses`) | none | Copy every agent's house from the workspace the server works in to the one chosen in Settings, replacing the houses there; `reply` once done. Progress also changes through `change`. |
+
+| `terminal` (`Terminal`) | `op` and fields below | Open, type into, resize, watch or close a terminal. |
+
+`Terminal` is discriminated by `op`:
+
+| `op` | Fields | Answer |
+|---|---|---|
+| `open` | `id`, `hamlet?: string`, `cols`, `rows` | Opens a shell in the hamlet's folder under the sandbox, with its mayor's reach, or the chief's own login shell with no sandbox when `hamlet` is left out. The connection watches it: the first `terminal` message has `to` and names it. A refusal is a `reply`. |
+| `input` | `terminal`, `data: string`; no `id` | Types `data`, keys and pastes as the terminal reads them, into the shell. No answer. A `runs` terminal or an ended shell ignores it. |
+| `resize` | `terminal`, `cols`, `rows`; no `id` | No answer. |
+| `watch` | `id`, `terminal` | A `terminal` message with `to` and `reset: true` that redraws it, then its output as it comes. A `reply` when there is no such terminal. |
+| `unwatch` | `terminal`; no `id` | No answer. |
+| `close` | `id`, `terminal` | Ends its processes and removes it; `reply`. |
+
+Columns and rows are 1 to 1000; `data` holds at most 65536 bytes.
 
 `/new` and `/resume <number>` also exist as typed commands sent through
 `say`. They perform the same conversation changes as the `new` and `resume`
@@ -193,7 +208,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 
 | Type (schema) | Fields | Meaning | Who receives it |
 |---|---|---|---|
-| `state` (`State`) | `epoch`, `revision`, `chief: string`, `confinement: Confinement`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
+| `state` (`State`) | `epoch`, `revision`, `chief: string`, `confinement: Confinement`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]`, `terminals: TerminalView[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
 | `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
 | `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: TranscriptOperation[]` | Live transcript operations, in order. | Only clients watching that chat. |
@@ -201,11 +216,12 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 | `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `history`, `models`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
 | `login` (`LoginProgress`) | `login: string`, `to?: RequestId`, `step: LoginStep` | Sign-in session progress. | Only the connection that started the session. |
 | `fault` (`Fault`) | `text: string`, `to?: RequestId` | Protocol, watch or connection failure. | Only the affected connection. |
+| `terminal` (`TerminalOutput`) | `terminal: string`, `data: string`, `reset: boolean`, `to?: RequestId` | Bytes a terminal printed, in base64. With `reset`, they redraw it from a blank screen of its size: the answer to a watch, or a catch-up for a connection whose queue filled and that skipped output. | Only connections watching it. |
 
 `Update` replaces the named view or removes it. Its `type` is `hamlet`
 (`hamlet`), `agent` (`agent`), `agent-gone` (`ref`), `wait` (`wait`),
-`wait-closed` (`id`, `how`), `grants` (`grants`), `settings` (`settings`) or
-`providers` (`providers`). Library and closed-hamlet list changes, and hamlet
+`wait-closed` (`id`, `how`), `grants` (`grants`), `settings` (`settings`),
+`providers` (`providers`), `terminal` (`terminal`) or `terminal-gone` (`id`). Library and closed-hamlet list changes, and hamlet
 removal, send a whole `state` instead.
 
 `Confinement` says what keeps the agents' commands from the rest of
@@ -233,6 +249,16 @@ entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool 
 `exit`, `ms`, `failure` and `change`. A tool argument summary holds at most
 200 Unicode code points. A `Change` preview holds at most 200 lines, each
 at most 240 characters, plus total and added/removed counts.
+
+`TerminalView` is a terminal the server runs: `id`, `name`, `kind`,
+`hamlet` (null for the chief's own unbounded shell), `agent` (the agent
+that opened it, null when the chief did), `cols`, `rows`, `cwd`, `exit`
+(null while its shell runs), `sandboxed` and the `title` its programs set.
+`kind` is `shell`, which takes input, or `runs`: one per agent, showing
+each command its shell tool runs and that command's output as it comes,
+read-only. A terminal's agent or hamlet leaving removes it. The server
+keeps each terminal's last output across restarts; a shell that ran
+starts again below it.
 
 `TranscriptOperation` is discriminated by `op`, not `type`. Clients apply
 operations with `hamlet_protocol::client::transcript::apply`.

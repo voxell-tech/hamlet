@@ -21,7 +21,7 @@ pub fn state() -> protocol::State {
             "workspace": {"url": null, "running": null}
         },
         "houses": "/tmp/hamlet-test/houses", "library": [], "closed": [],
-        "deeds": [], "starters": []
+        "deeds": [], "starters": [], "terminals": []
     })).unwrap()
 }
 
