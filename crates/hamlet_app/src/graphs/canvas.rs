@@ -4,7 +4,7 @@
 //! is clicked to cut its wire. An unwired input's row holds the
 //! controls for its value, and a right click on it asks what sets it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bevy::app::{App, Update};
 use bevy::asset::Assets;
@@ -19,6 +19,8 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, If, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
+use bevy::input::ButtonInput;
+use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseScrollUnit;
 use bevy::math::Vec2;
 use bevy::picking::Pickable;
@@ -32,9 +34,9 @@ use bevy::text::{TextColor, TextFont};
 use bevy::ui::widget::Text;
 use bevy::ui::{
     AlignItems, BackgroundColor, BorderColor, BorderRadius,
-    ComputedNode, FlexDirection, JustifyContent, Node, Overflow,
-    PositionType, UiGlobalTransform, UiRect, UiTransform, Val, Val2,
-    ZIndex, px,
+    ComputedNode, Display, FlexDirection, JustifyContent, Node,
+    Overflow, PositionType, UiGlobalTransform, UiRect, UiTransform,
+    Val, Val2, ZIndex, px,
 };
 use bevy::ui_render::ui_material::MaterialNode;
 use bevy::window::SystemCursorIcon;
@@ -64,7 +66,7 @@ const MOST_ZOOM: f32 = 2.0;
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Sight>()
         .init_resource::<Gesture>()
-        .add_systems(Update, (build, place, paint).chain());
+        .add_systems(Update, (build, place, paint, lasso).chain());
 }
 
 /// Marks the frame the canvas is drawn in.
@@ -75,6 +77,11 @@ pub(super) struct Canvas;
 /// and zoom them as one.
 #[derive(Component)]
 struct Sheet;
+
+/// The box a Shift-drag on the bare canvas draws to select the cards
+/// it touches.
+#[derive(Component)]
+struct Lasso;
 
 /// A node's card.
 #[derive(Component)]
@@ -150,8 +157,11 @@ enum Gesture {
     #[default]
     None,
     Pan,
-    /// A card, and where it was when the drag began.
-    Card(NodeId, Vec2),
+    /// A box from one corner on the sheet to the other, and what was
+    /// selected before it.
+    Lasso(Vec2, Vec2, BTreeSet<NodeId>),
+    /// The cards dragged, each with where it was when the drag began.
+    Cards(Vec<(NodeId, Vec2)>),
     /// A wire out of an output's port, from where on the sheet, and
     /// how far the pointer has gone.
     Link(Port, ValueType, Vec2, Vec2),
@@ -441,7 +451,7 @@ fn build(
                 .observe(gesture_end)
                 .observe(zoom)
                 .observe(deselect);
-            commands
+            let sheet = commands
                 .spawn((
                     Sheet,
                     // A point at the canvas's corner, so it scales
@@ -458,7 +468,24 @@ fn build(
                     Pickable::IGNORE,
                     ChildOf(canvas),
                 ))
-                .id()
+                .id();
+            commands.spawn((
+                Lasso,
+                Node {
+                    position_type: PositionType::Absolute,
+                    display: Display::None,
+                    border: UiRect::all(px(1.0)),
+                    ..Node::default()
+                },
+                BackgroundColor(
+                    theme.0.palette.glow.with_alpha(0.08),
+                ),
+                BorderColor::all(theme.0.palette.glow),
+                ZIndex(1),
+                Pickable::IGNORE,
+                ChildOf(sheet),
+            ));
+            sheet
         }
     };
     *built = Some((canvas, sheet, editor.shape));
@@ -755,7 +782,7 @@ fn paint(
     }
     let palette = &theme.0.palette;
     for (card, hovered, mut border) in &mut cards {
-        let colour = if editor.selected == Some(card.0) {
+        let colour = if editor.selected.contains(&card.0) {
             palette.glow
         } else if hovered.get() {
             palette.gold_5
@@ -805,26 +832,47 @@ fn gesture_end(
     mut cursor: ResMut<OverrideCursor>,
 ) {
     end.propagate(false);
-    if let Gesture::Card(node, from) = &*gesture
-        && editor.sheet.layout.get(node) != Some(from)
-    {
-        editor.dropped(*node, *from);
+    if let Gesture::Cards(cards) = &*gesture {
+        let moved: Vec<_> = cards
+            .iter()
+            .filter(|(node, from)| {
+                editor.sheet.layout.get(node) != Some(from)
+            })
+            .copied()
+            .collect();
+        if !moved.is_empty() {
+            editor.dropped(moved);
+        }
     }
     *gesture = Gesture::None;
     cursor.0 = None;
 }
 
+/// Selects a card alone, or with Shift adds it to the selection or
+/// takes it out.
 fn select(
     mut click: On<PointerClick>,
     cards: Query<&Card>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
     mut editor: ResMut<Editor>,
 ) {
     click.propagate(false);
-    if let Ok(card) = cards.get(click.entity)
-        && editor.selected != Some(card.0)
-    {
-        editor.selected = Some(card.0);
+    let Ok(card) = cards.get(click.entity) else {
+        return;
+    };
+    if held_shift(keys.as_deref()) {
+        if !editor.selected.remove(&card.0) {
+            editor.selected.insert(card.0);
+        }
+    } else if editor.selected != BTreeSet::from([card.0]) {
+        editor.selected = BTreeSet::from([card.0]);
     }
+}
+
+fn held_shift(keys: Option<&ButtonInput<KeyCode>>) -> bool {
+    keys.is_some_and(|keys| {
+        keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
+    })
 }
 
 /// Opens the graph a card runs on a double press.
@@ -844,11 +892,16 @@ fn open_on_double(
     }
 }
 
-fn deselect(click: On<PointerClick>, mut editor: ResMut<Editor>) {
+fn deselect(
+    click: On<PointerClick>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mut editor: ResMut<Editor>,
+) {
     if click.entity == click.original_event_target()
-        && editor.selected.is_some()
+        && !held_shift(keys.as_deref())
+        && !editor.selected.is_empty()
     {
-        editor.selected = None;
+        editor.selected.clear();
     }
 }
 
@@ -864,8 +917,17 @@ fn grab(
         return;
     }
     if let Ok(card) = cards.get(start.entity) {
-        *gesture = Gesture::Card(card.0, card_at(&editor, card.0));
-        editor.selected = Some(card.0);
+        // A card dragged from outside the selection is dragged alone.
+        if !editor.selected.contains(&card.0) {
+            editor.selected = BTreeSet::from([card.0]);
+        }
+        *gesture = Gesture::Cards(
+            editor
+                .selected
+                .iter()
+                .map(|node| (*node, card_at(&editor, *node)))
+                .collect(),
+        );
         cursor.0 = Some(SystemCursorIcon::Grabbing);
     }
 }
@@ -877,17 +939,37 @@ fn drag_card(
     mut editor: ResMut<Editor>,
 ) {
     drag.propagate(false);
-    if let Gesture::Card(node, from) = &*gesture {
-        editor.drag(*node, *from + drag.distance / sight.zoom);
+    if let Gesture::Cards(cards) = &*gesture {
+        for (node, from) in cards {
+            editor.drag(*node, *from + drag.distance / sight.zoom);
+        }
     }
 }
 
+/// Pans on a drag of the bare canvas, or with Shift draws a box to
+/// select by.
 fn pan_start(
     start: On<PointerDragStart>,
+    canvas: Query<(&ComputedNode, &UiGlobalTransform), With<Canvas>>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    sight: Res<Sight>,
+    editor: Res<Editor>,
     mut gesture: ResMut<Gesture>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
-    if start.entity == start.original_event_target() {
+    if start.entity != start.original_event_target() {
+        return;
+    }
+    if held_shift(keys.as_deref())
+        && let Ok((node, transform)) = canvas.get(start.entity)
+    {
+        let at = (start.pointer.position
+            - corner(node, transform)
+            - sight.pan)
+            / sight.zoom;
+        *gesture = Gesture::Lasso(at, at, editor.selected.clone());
+        cursor.0 = Some(SystemCursorIcon::Crosshair);
+    } else {
         *gesture = Gesture::Pan;
         cursor.0 = Some(SystemCursorIcon::Move);
     }
@@ -895,11 +977,59 @@ fn pan_start(
 
 fn pan(
     drag: On<PointerDrag>,
-    gesture: Res<Gesture>,
+    mut gesture: ResMut<Gesture>,
+    mut editor: ResMut<Editor>,
     mut sight: ResMut<Sight>,
 ) {
-    if matches!(*gesture, Gesture::Pan) {
-        sight.pan += drag.delta;
+    match &mut *gesture {
+        Gesture::Pan => sight.pan += drag.delta,
+        Gesture::Lasso(from, to, before) => {
+            *to = *from + drag.distance / sight.zoom;
+            let (low, high) = (from.min(*to), from.max(*to));
+            let mut selected = before.clone();
+            for node in &editor.sheet.graph.nodes {
+                let at = card_at(&editor, node.id);
+                let (inputs, outputs) = rows(&editor, node);
+                let far = at
+                    + Vec2::new(
+                        WIDTH,
+                        height(inputs.len() + outputs.len()),
+                    );
+                if at.cmplt(high).all() && far.cmpgt(low).all() {
+                    selected.insert(node.id);
+                }
+            }
+            if editor.selected != selected {
+                editor.selected = selected;
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Shows the box of a Shift-drag where it is, and hides it after.
+fn lasso(
+    gesture: Res<Gesture>,
+    mut boxes: Query<&mut Node, With<Lasso>>,
+) {
+    if !gesture.is_changed() {
+        return;
+    }
+    for mut node in &mut boxes {
+        match &*gesture {
+            Gesture::Lasso(from, to, _) => {
+                let (low, high) = (from.min(*to), from.max(*to));
+                node.display = Display::Flex;
+                node.left = px(low.x);
+                node.top = px(low.y);
+                node.width = px(high.x - low.x);
+                node.height = px(high.y - low.y);
+            }
+            _ if node.display != Display::None => {
+                node.display = Display::None;
+            }
+            _ => {}
+        }
     }
 }
 
@@ -947,7 +1077,9 @@ fn ask(
     let card = up().find_map(|entity| cards.get(entity).ok());
     *menu = match (row, card) {
         (Some(row), _) => {
-            editor.selected = Some(row.node);
+            if !editor.selected.contains(&row.node) {
+                editor.selected = BTreeSet::from([row.node]);
+            }
             Menu::Input {
                 node: row.node,
                 input: row.input.clone(),
@@ -955,7 +1087,9 @@ fn ask(
             }
         }
         (None, Some(card)) => {
-            editor.selected = Some(card.0);
+            if !editor.selected.contains(&card.0) {
+                editor.selected = BTreeSet::from([card.0]);
+            }
             Menu::Card { node: card.0, at }
         }
         (None, None) => {

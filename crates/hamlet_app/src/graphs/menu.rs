@@ -543,14 +543,14 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
             item("Expose as output", "", |world, node| {
                 world.resource_mut::<Editor>().expose_output(node);
             }),
-            item("Duplicate", "Cmd+D", |world, node| {
-                world.resource_mut::<Editor>().duplicate(node);
+            item("Duplicate", "Cmd+D", |world, _| {
+                world.resource_mut::<Editor>().duplicate();
             }),
             item("Disconnect", "", |world, node| {
                 world.resource_mut::<Editor>().unwire(node);
             }),
-            item("Delete", "Delete", |world, node| {
-                world.resource_mut::<Editor>().remove(node);
+            item("Delete", "Delete", |world, _| {
+                world.resource_mut::<Editor>().remove();
             }),
         ]);
         cx.build(
@@ -760,7 +760,7 @@ fn keys(world: &mut World) {
     let save = command && pressed(KeyCode::KeyS);
     let open = command && pressed(KeyCode::KeyO);
     let fit = !command && pressed(KeyCode::KeyF);
-    let selected = world.resource::<Editor>().selected;
+    let selected = !world.resource::<Editor>().selected.is_empty();
     if space {
         create_at_pointer(world);
     } else if save && shift {
@@ -773,10 +773,10 @@ fn keys(world: &mut World) {
         world.resource_mut::<Editor>().redo();
     } else if undo {
         world.resource_mut::<Editor>().undo();
-    } else if let (true, Some(node)) = (duplicate, selected) {
-        world.resource_mut::<Editor>().duplicate(node);
-    } else if let (true, Some(node)) = (delete, selected) {
-        world.resource_mut::<Editor>().remove(node);
+    } else if duplicate && selected {
+        world.resource_mut::<Editor>().duplicate();
+    } else if delete && selected {
+        world.resource_mut::<Editor>().remove();
     } else if fit {
         canvas::fit(world);
     }

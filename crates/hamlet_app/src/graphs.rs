@@ -12,7 +12,7 @@ mod preview;
 mod split;
 mod wire;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::mem::discriminant;
 
 use bevy::app::App;
@@ -100,7 +100,8 @@ pub(crate) struct Editor {
     others: BTreeMap<String, Kept>,
     /// Every graph of the book, for the ports of nodes that run one.
     pub rules: Ruleset,
-    pub selected: Option<NodeId>,
+    /// The nodes picked to move, copy or delete together.
+    pub selected: BTreeSet<NodeId>,
     pub registry: Registry,
     pub seeds: Seeds,
     undo: Vec<Edit>,
@@ -122,7 +123,7 @@ impl Editor {
             name: String::new(),
             others: BTreeMap::new(),
             rules: Ruleset::default(),
-            selected: None,
+            selected: BTreeSet::new(),
             registry: Registry::builtin(),
             seeds: Seeds {
                 realm: Seed(1),
@@ -182,7 +183,7 @@ impl Editor {
             std::mem::replace(&mut self.name, name.to_owned()),
             was,
         );
-        self.selected = None;
+        self.selected.clear();
         self.changed(true);
     }
 
@@ -232,7 +233,7 @@ impl Editor {
         self.undo = kept.undo;
         self.redo = kept.redo;
         self.name = next;
-        self.selected = None;
+        self.selected.clear();
         self.changed(true);
         Ok(())
     }
@@ -271,7 +272,7 @@ impl Editor {
             .collect();
         self.sheet = entry;
         self.name = book.entry;
-        self.selected = None;
+        self.selected.clear();
         self.undo.clear();
         self.redo.clear();
         self.changed(true);
@@ -311,11 +312,18 @@ impl Editor {
     }
 
     /// Keeps the move of a finished drag that began at `from`.
-    pub fn dropped(&mut self, node: NodeId, from: Vec2) {
-        self.undo.push(Edit::Move {
-            node,
-            to: Some(from),
-        });
+    /// Keeps the moves of a finished drag, each node with where it
+    /// began, as one step.
+    pub fn dropped(&mut self, moved: Vec<(NodeId, Vec2)>) {
+        self.undo.push(Edit::Batch(
+            moved
+                .into_iter()
+                .map(|(node, from)| Edit::Move {
+                    node,
+                    to: Some(from),
+                })
+                .collect(),
+        ));
         self.redo.clear();
         self.revision += 1;
     }
@@ -343,12 +351,8 @@ impl Editor {
             self.shape += 1;
         }
         self.revision += 1;
-        if self
-            .selected
-            .is_some_and(|node| self.sheet.graph.node(node).is_none())
-        {
-            self.selected = None;
-        }
+        let graph = &self.sheet.graph;
+        self.selected.retain(|node| graph.node(*node).is_some());
         self.rules = Ruleset {
             entry: self.name.clone(),
             graphs: self
@@ -439,7 +443,7 @@ impl Editor {
             },
             at: Some(at),
         });
-        self.selected = Some(id);
+        self.selected = BTreeSet::from([id]);
     }
 
     /// Makes the first of `node`'s outputs that puts something down
@@ -541,25 +545,62 @@ impl Editor {
             .unwrap_or_default()
     }
 
-    /// Adds a copy of `node`, unwired, a little below and to the
-    /// right.
-    pub fn duplicate(&mut self, node: NodeId) {
-        let Some(original) = self.sheet.graph.node(node).cloned()
-        else {
+    /// Adds a copy of each selected node, a little below and to the
+    /// right, with the wires between them, and selects the copies.
+    pub fn duplicate(&mut self) {
+        let mut next = self.sheet.graph.next_id();
+        let mut copies = BTreeMap::new();
+        let mut edits = Vec::new();
+        for node in &self.selected {
+            let Some(original) =
+                self.sheet.graph.node(*node).cloned()
+            else {
+                continue;
+            };
+            let at = self
+                .sheet
+                .layout
+                .get(node)
+                .copied()
+                .unwrap_or_default();
+            copies.insert(*node, next);
+            edits.push(Edit::AddNode {
+                node: Node {
+                    id: next,
+                    ..original
+                },
+                at: Some(at + Vec2::splat(28.0)),
+            });
+            next = NodeId(next.0 + 1);
+        }
+        edits.extend(self.sheet.graph.wires.iter().filter_map(
+            |wire| {
+                let from = copies.get(&wire.from.node)?;
+                let to = copies.get(&wire.to.node)?;
+                let mut wire = wire.clone();
+                wire.from.node = *from;
+                wire.to.node = *to;
+                Some(Edit::Connect(wire))
+            },
+        ));
+        if edits.is_empty() {
             return;
-        };
-        let id = self.sheet.graph.next_id();
-        let at =
-            self.sheet.layout.get(&node).copied().unwrap_or_default();
-        self.apply(Edit::AddNode {
-            node: Node { id, ..original },
-            at: Some(at + Vec2::splat(28.0)),
-        });
-        self.selected = Some(id);
+        }
+        self.apply(Edit::Batch(edits));
+        self.selected = copies.into_values().collect();
     }
 
-    pub fn remove(&mut self, node: NodeId) {
-        self.apply(Edit::RemoveNode(node));
+    /// Deletes every selected node.
+    pub fn remove(&mut self) {
+        let edits: Vec<Edit> = self
+            .selected
+            .iter()
+            .copied()
+            .map(Edit::RemoveNode)
+            .collect();
+        if !edits.is_empty() {
+            self.apply(Edit::Batch(edits));
+        }
     }
 
     /// Cuts every wire into or out of `node`.
