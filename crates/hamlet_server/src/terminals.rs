@@ -18,8 +18,8 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use hamlet_os::process::pty::{self, Size};
 use hamlet_protocol::client::{
-    AgentRef, RequestId, ServerMessage, Terminal as Asked,
-    TerminalKind, TerminalOutput, TerminalView,
+    AgentRef, Replayed, RequestId, ServerMessage, Terminal as Asked,
+    TerminalKind, TerminalOutput, TerminalView, replayed, size_mark,
 };
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -79,7 +79,10 @@ struct Watcher {
 /// What a terminal printed, and what a window needs to draw it again.
 pub(crate) struct Screen {
     parser: vt100::Parser<Titled>,
+    /// What it printed, with a size mark where it was resized.
     replay: VecDeque<u8>,
+    /// Its size where `replay` starts.
+    start: Size,
     seq: u64,
     ended: Option<i64>,
 }
@@ -181,8 +184,21 @@ impl Screen {
                 Titled::default(),
             ),
             replay: VecDeque::new(),
+            start: size,
             seq: 0,
             ended: None,
+        }
+    }
+
+    /// Takes the bytes a redraw of it holds, at their sizes.
+    fn restore(&mut self, bytes: &[u8]) {
+        for part in replayed(bytes) {
+            match part {
+                Replayed::Printed(bytes) => self.take(bytes),
+                Replayed::Sized { cols, rows } => {
+                    self.resize(Size { rows, cols });
+                }
+            }
         }
     }
 
@@ -197,19 +213,43 @@ impl Screen {
                 .range(over..)
                 .position(|byte| *byte == b'\n')
                 .map_or(self.replay.len(), |at| over + at + 1);
-            self.replay.drain(..cut);
+            let dropped =
+                self.replay.drain(..cut).collect::<Vec<_>>();
+            let sized = replayed(&dropped)
+                .into_iter()
+                .rev()
+                .find_map(|part| match part {
+                    Replayed::Sized { cols, rows } => {
+                        Some(Size { rows, cols })
+                    }
+                    Replayed::Printed(_) => None,
+                });
+            if let Some(size) = sized {
+                self.start = size;
+            }
         }
         self.seq += 1;
     }
 
+    /// The bytes that draw it again from a blank screen, each at the
+    /// size it was printed at.
     fn replay(&self) -> Vec<u8> {
-        self.replay.iter().copied().collect()
+        let mut bytes = size_mark(self.start.cols, self.start.rows);
+        bytes.extend(self.replay.iter());
+        bytes
     }
 
     fn resize(&mut self, size: Size) {
-        self.parser
-            .screen_mut()
-            .set_size(cells(size.rows), cells(size.cols));
+        let (rows, cols) = self.parser.screen().size();
+        if (rows, cols) == (cells(size.rows), cells(size.cols)) {
+            return;
+        }
+        hamlet_protocol::screen::resize(
+            &mut self.parser,
+            cells(size.rows),
+            cells(size.cols),
+        );
+        self.replay.extend(size_mark(size.cols, size.rows));
     }
 
     /// The text it shows, with up to `above` lines of scrollback.
@@ -414,6 +454,7 @@ impl Terminals {
         };
         let screen = Arc::new(Mutex::new(Screen::new(size)));
         lock(&screen).ended = view.exit;
+        lock(&screen).restore(&replay);
         self.open.insert(
             id.clone(),
             Terminal {
@@ -425,7 +466,6 @@ impl Terminals {
             },
         );
         let feed = self.feed(&id).expect("just inserted");
-        feed.print(&replay);
         if let Some(launch) = launch {
             let (keys, tasks) = start(launch, size, feed);
             let terminal =
@@ -1040,9 +1080,47 @@ mod tests {
             screen.take(line.as_bytes());
         }
         let replay = screen.replay();
+        let mark = size_mark(20, 3);
+        assert!(replay.starts_with(&mark));
+        let replay = &replay[mark.len()..];
         assert!(replay.len() <= REPLAY, "{}", replay.len());
         assert!(replay.len() > REPLAY - 1024);
         assert_eq!(replay[0], b'x');
         assert_eq!(replay[replay.len() - 1], b'\n');
+    }
+
+    #[test]
+    fn a_redraw_draws_each_part_at_the_size_it_was_printed_at() {
+        let mut screen = Screen::new(Size { rows: 3, cols: 4 });
+        screen.take(b"abcdef");
+        screen.resize(Size { rows: 3, cols: 8 });
+        screen.resize(Size { rows: 3, cols: 8 });
+        screen.take(b"\r\ngh");
+        let replay = screen.replay();
+        assert_eq!(
+            replayed(&replay),
+            [
+                Replayed::Sized { cols: 4, rows: 3 },
+                Replayed::Printed(b"abcdef"),
+                Replayed::Sized { cols: 8, rows: 3 },
+                Replayed::Printed(b"\r\ngh"),
+            ]
+        );
+        let mut again = Screen::new(Size { rows: 3, cols: 8 });
+        again.restore(&replay);
+        assert_eq!(again.text(0), "abcdef\ngh");
+        assert_eq!(again.text(0), screen.text(0));
+    }
+
+    #[test]
+    fn a_trimmed_replay_starts_at_the_size_its_first_kept_byte_had() {
+        let mut screen = Screen::new(Size { rows: 3, cols: 20 });
+        screen.take(b"first\n");
+        screen.resize(Size { rows: 4, cols: 30 });
+        let line = format!("{}\n", "x".repeat(1023));
+        for _ in 0..(REPLAY / 1024 + 10) {
+            screen.take(line.as_bytes());
+        }
+        assert!(screen.replay().starts_with(&size_mark(30, 4)));
     }
 }

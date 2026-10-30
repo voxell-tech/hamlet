@@ -9,7 +9,9 @@ use base64::engine::general_purpose::STANDARD;
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bevy_log::warn;
-use hamlet_protocol::client as protocol;
+use hamlet_protocol::{
+    client as protocol, screen as protocol_screen,
+};
 pub use protocol::{TERMINAL_SIZE, TerminalKind, TerminalView};
 
 use crate::index::{self, Index};
@@ -88,7 +90,11 @@ impl TerminalScreen {
     fn set_size(&mut self, cols: u16, rows: u16) {
         let (now_rows, now_cols) = self.parser.screen().size();
         if (now_cols.get(), now_rows.get()) != (cols, rows) {
-            self.parser.screen_mut().set_size(fit(rows), fit(cols));
+            protocol_screen::resize(
+                &mut self.parser,
+                fit(rows),
+                fit(cols),
+            );
         }
     }
 }
@@ -348,8 +354,24 @@ pub(crate) fn receive(
                     let (cols, rows) =
                         size.unwrap_or((cols.get(), rows.get()));
                     screen.reset(cols, rows);
+                    // Each part at the size it was printed at, so the
+                    // screen is drawn as it was, not wrapped anew.
+                    for part in protocol::replayed(&bytes) {
+                        match part {
+                            protocol::Replayed::Printed(bytes) => {
+                                screen.process(bytes);
+                            }
+                            protocol::Replayed::Sized {
+                                cols,
+                                rows,
+                            } => {
+                                screen.set_size(cols, rows);
+                            }
+                        }
+                    }
+                } else {
+                    screen.process(&bytes);
                 }
-                screen.process(&bytes);
             }
         }
         Err(e) => warn!("terminal {}: {e}", output.terminal),
@@ -478,6 +500,31 @@ mod tests {
             )),
         );
         assert_eq!(row(&app, terminal, 0), "newer");
+    }
+
+    #[test]
+    fn a_redraw_draws_each_part_at_the_size_it_was_printed_at() {
+        let mut app = app(vec![view("t1", "shell")]);
+        let terminal = find(app.world(), "t1").unwrap();
+        watch(app.world_mut(), terminal);
+        let mut bytes = protocol::size_mark(4, 3);
+        bytes.extend_from_slice(b"abcdef");
+        bytes.extend(protocol::size_mark(8, 3));
+        receive(
+            app.world_mut(),
+            protocol::ServerMessage::Terminal(TerminalOutput {
+                data: STANDARD.encode(bytes),
+                reset: true,
+                terminal: "t1".into(),
+                to: None,
+            }),
+        );
+        // Printed at 4 columns, then wrapped again at 8.
+        assert_eq!(row(&app, terminal, 0), "abcdef");
+        assert_eq!(row(&app, terminal, 1), "");
+        let screen =
+            app.world().get::<TerminalScreen>(terminal).unwrap();
+        assert_eq!(screen.screen().size().1.get(), 8);
     }
 
     #[test]

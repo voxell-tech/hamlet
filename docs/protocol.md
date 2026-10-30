@@ -216,7 +216,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 | `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `history`, `models`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
 | `login` (`LoginProgress`) | `login: string`, `to?: RequestId`, `step: LoginStep` | Sign-in session progress. | Only the connection that started the session. |
 | `fault` (`Fault`) | `text: string`, `to?: RequestId` | Protocol, watch or connection failure. | Only the affected connection. |
-| `terminal` (`TerminalOutput`) | `terminal: string`, `data: string`, `reset: boolean`, `to?: RequestId` | Bytes a terminal printed, in base64. With `reset`, they redraw it from a blank screen of its size: the answer to a watch, or a catch-up for a connection whose queue filled and that skipped output. | Only connections watching it. |
+| `terminal` (`TerminalOutput`) | `terminal: string`, `data: string`, `reset: boolean`, `to?: RequestId` | Bytes a terminal printed, in base64. With `reset`, they redraw it from a blank screen of its size: the answer to a watch, or a catch-up for a connection whose queue filled and that skipped output. A redraw starts with the size its first byte was printed at and marks each resize after, as `ESC ] hamlet;size;<cols>;<rows> BEL`, so each part is drawn at the size it was printed at (`hamlet_protocol::client::replayed` splits them). Both ends resize a screen with `hamlet_protocol::screen::resize`, which wraps what was printed again at the new width, as a terminal window does. | Only connections watching it. |
 
 `Update` replaces the named view or removes it. Its `type` is `hamlet`
 (`hamlet`), `agent` (`agent`), `agent-gone` (`ref`), `wait` (`wait`),

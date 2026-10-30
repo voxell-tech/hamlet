@@ -111,7 +111,9 @@ pub enum Terminal {
 )]
 #[serde(deny_unknown_fields)]
 pub struct TerminalOutput {
-    /// The bytes, in base64.
+    /// The bytes, in base64. A redraw marks where the terminal
+    /// changed size, as [`size_mark`] writes it, so each part is
+    /// drawn at the size it was printed at.
     pub data: String,
     /// Whether `data` redraws the terminal from a blank one: the
     /// answer to a watch, or a catch-up after output was skipped.
@@ -122,4 +124,83 @@ pub struct TerminalOutput {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "RequestId")]
     pub to: Option<RequestId>,
+}
+
+/// The start of a size mark: an OSC no program is expected to print.
+const MARK: &[u8] = b"\x1b]hamlet;size;";
+
+/// The mark a redraw holds where its terminal became `cols` by
+/// `rows`.
+pub fn size_mark(cols: u16, rows: u16) -> Vec<u8> {
+    format!("\x1b]hamlet;size;{cols};{rows}\x07").into_bytes()
+}
+
+/// A part of a redraw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Replayed<'a> {
+    /// Bytes the terminal printed.
+    Printed(&'a [u8]),
+    /// The terminal became `cols` by `rows` here.
+    Sized { cols: u16, rows: u16 },
+}
+
+/// `bytes` in the parts [`size_mark`] splits them into. A mark that
+/// does not read as a size is left in the printed bytes.
+pub fn replayed(bytes: &[u8]) -> Vec<Replayed<'_>> {
+    let mut parts = Vec::new();
+    let mut from = 0;
+    let mut at = 0;
+    while let Some(found) = find(&bytes[at..], MARK) {
+        let start = at + found;
+        let rest = &bytes[start + MARK.len()..];
+        let size =
+            rest.iter().position(|b| *b == 0x07).and_then(|end| {
+                let text = std::str::from_utf8(&rest[..end]).ok()?;
+                let (cols, rows) = text.split_once(';')?;
+                Some((cols.parse().ok()?, rows.parse().ok()?, end))
+            });
+        let Some((cols, rows, end)) = size else {
+            at = start + 1;
+            continue;
+        };
+        if from < start {
+            parts.push(Replayed::Printed(&bytes[from..start]));
+        }
+        parts.push(Replayed::Sized { cols, rows });
+        from = start + MARK.len() + end + 1;
+        at = from;
+    }
+    if from < bytes.len() {
+        parts.push(Replayed::Printed(&bytes[from..]));
+    }
+    parts
+}
+
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_redraw_splits_at_its_size_marks_and_keeps_what_is_not_one() {
+        let mut bytes = size_mark(80, 24);
+        bytes.extend_from_slice(b"ab");
+        bytes.extend(size_mark(40, 10));
+        bytes.extend_from_slice(b"c\x1b]hamlet;size;x\x07d");
+        assert_eq!(
+            replayed(&bytes),
+            [
+                Replayed::Sized { cols: 80, rows: 24 },
+                Replayed::Printed(b"ab"),
+                Replayed::Sized { cols: 40, rows: 10 },
+                Replayed::Printed(b"c\x1b]hamlet;size;x\x07d"),
+            ]
+        );
+        assert_eq!(replayed(b""), []);
+    }
 }
