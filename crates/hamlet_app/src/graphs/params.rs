@@ -1,7 +1,7 @@
 //! The open graph's own inputs, as its parameters: each one's name
 //! and type, what it is when the graph above leaves it unset, and
 //! whether it is picked at random then, between which numbers and how
-//! often.
+//! often; and the graph's outputs. They float over the canvas.
 
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
@@ -10,11 +10,13 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
     icon_button, number_field, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, resource};
+use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_blueprint::{
     Constant, Edit, GraphInput, Scope, ValueType, Vary,
 };
-use hamlet_ui::styles::{ICON, command, note, text_input};
+use hamlet_ui::styles::{
+    ICON, command, description, note, section, text_input,
+};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, View, with_cx};
@@ -36,6 +38,72 @@ const PER: [(&str, Scope); 3] = [
     ("Per hamlet", Scope::Hamlet),
     ("Per realm", Scope::Realm),
 ];
+
+/// The open graph's parameters, the inputs the graph above sets, each
+/// with how it varies, and its outputs. Built again when the graph's
+/// shape changes.
+pub(super) fn view() -> impl View {
+    keyed(resource::<Editor, _>(|editor| editor.shape), |_| panel())
+        .within(column(()).gap(0.0))
+}
+
+fn panel() -> AnyView {
+    with_cx(|cx| {
+        let editor = cx.world.resource::<Editor>();
+        let gap = cx.theme().space.gap;
+        let mut parts: Vec<AnyView> = vec![
+            section("Parameters").boxed(),
+            description(
+                "What the graph above sets. Left unset, each takes \
+                 its default, or varies.",
+            )
+            .boxed(),
+        ];
+        for found in &editor.sheet.graph.inputs {
+            parts.push(input(found.name.clone()));
+        }
+        parts.push(add().boxed());
+        let port = |name: String,
+                    value_type: ValueType,
+                    edit: Edit| {
+            row((
+                column((note(format!("{name} ({value_type:?})")),))
+                    .width(percent(100.0))
+                    .min_width(px(0.0)),
+                button(glyph(Glyph::Cross, ICON))
+                    .rules(icon_button)
+                    .tooltip(|| note("Take it away"))
+                    .on_activate(move |world| {
+                        world
+                            .resource_mut::<Editor>()
+                            .apply(edit.clone());
+                    }),
+            ))
+            .gap(gap)
+            .align(AlignItems::Center)
+            .boxed()
+        };
+        parts.push(section("Outputs").boxed());
+        for output in &editor.sheet.graph.outputs {
+            let edit = Edit::RemoveOutput(output.name.clone());
+            parts.push(port(
+                output.name.clone(),
+                output.value_type,
+                edit,
+            ));
+        }
+        if editor.sheet.graph.outputs.is_empty() {
+            parts.push(
+                description(
+                    "None. Right-click a node and Expose as output.",
+                )
+                .boxed(),
+            );
+        }
+        column(parts).gap(gap)
+    })
+    .boxed()
+}
 
 fn find(editor: &Editor, name: &str) -> Option<GraphInput> {
     editor

@@ -40,7 +40,7 @@ struct WireUniform {
 
 impl UiMaterial for WireMaterial {
     fn fragment_shader() -> ShaderRef {
-        "embedded://hamlet_ui/graphs/wire.wesl".into()
+        "embedded://hamlet_app/graphs/wire.wesl".into()
     }
 }
 

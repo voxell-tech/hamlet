@@ -24,8 +24,10 @@ use hamlet_ui::View;
 
 use super::canvas::Canvas;
 
-/// The least and the most the preview is wide, in logical pixels.
-const PREVIEW: std::ops::RangeInclusive<f32> = 120.0..=480.0;
+/// The least the preview and the canvas are wide, in logical pixels.
+/// The preview grows as far as the canvas leaves it.
+const PREVIEW: f32 = 120.0;
+const CANVAS: f32 = 240.0;
 
 /// How far the properties sit from the canvas's edges.
 const MARGIN: f32 = 8.0;
@@ -203,11 +205,16 @@ fn drag(
     drag: On<PointerDrag>,
     dividers: Query<(), With<Divider>>,
     handles: Query<(), With<Handle>>,
+    canvas: Query<&ComputedNode, With<Canvas>>,
     mut layout: ResMut<Layout>,
 ) {
     if dividers.contains(drag.entity) {
-        layout.preview = (layout.preview - drag.delta.x)
-            .clamp(*PREVIEW.start(), *PREVIEW.end());
+        let canvas = canvas.iter().next().map_or(CANVAS, |node| {
+            node.size().x * node.inverse_scale_factor()
+        });
+        let most = (layout.preview + canvas - CANVAS).max(PREVIEW);
+        layout.preview =
+            (layout.preview - drag.delta.x).clamp(PREVIEW, most);
     } else if handles.contains(drag.entity)
         && let Some(at) = &mut layout.held
     {

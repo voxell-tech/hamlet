@@ -4,8 +4,8 @@
 //! properties.
 
 mod canvas;
+mod controls;
 mod files;
-mod inspect;
 mod menu;
 mod params;
 mod preview;
@@ -204,6 +204,39 @@ impl Editor {
         self.open(&name);
     }
 
+    /// Takes the open sheet out of the book and opens another, or
+    /// says why it stays: it is the only one, or another graph runs
+    /// it.
+    pub fn delete_graph(&mut self) -> Result<(), String> {
+        if let Some(user) =
+            self.others.iter().find_map(|(name, kept)| {
+                kept.sheet
+                    .graph
+                    .nodes
+                    .iter()
+                    .any(|node| {
+                        node.does == Does::Graph(self.name.clone())
+                    })
+                    .then_some(name)
+            })
+        {
+            return Err(format!("{user} uses {}", self.name));
+        }
+        let Some(next) = self.others.keys().next().cloned() else {
+            return Err("The only graph cannot be deleted".to_owned());
+        };
+        let Some(kept) = self.others.remove(&next) else {
+            return Ok(());
+        };
+        self.sheet = kept.sheet;
+        self.undo = kept.undo;
+        self.redo = kept.redo;
+        self.name = next;
+        self.selected = None;
+        self.changed(true);
+        Ok(())
+    }
+
     /// The book as it is now, its entry the open sheet.
     pub fn book(&self) -> Book {
         Book {
@@ -330,6 +363,10 @@ impl Editor {
                 )])
                 .collect(),
         };
+        // A sheet with no places, as an example, is laid out once.
+        if self.sheet.layout.is_empty() {
+            self.sheet.layout = canvas::arrange(self);
+        }
         self.run();
     }
 
@@ -544,7 +581,7 @@ impl Editor {
     }
 }
 
-/// Whether `edit` changes what the canvas or the inspector are built
+/// Whether `edit` changes what the canvas or the parameters are built
 /// from, rather than only a value in them.
 fn reshapes(sheet: &Sheet, edit: &Edit) -> bool {
     match edit {
@@ -557,12 +594,12 @@ fn reshapes(sheet: &Sheet, edit: &Edit) -> bool {
                 .graph
                 .node(*node)
                 .and_then(|node| node.settings.get(input));
-            match (old, setting) {
-                (Some(old), Some(new)) => {
-                    discriminant(old) != discriminant(new)
-                }
-                (old, new) => old.is_some() != new.is_some(),
-            }
+            // A default and a fixed value show the same controls.
+            let kind = |setting: Option<&Setting>| match setting {
+                None | Some(Setting::Fixed(_)) => None,
+                Some(other) => Some(discriminant(other)),
+            };
+            kind(old) != kind(setting.as_ref())
         }
         Edit::Move { .. } => false,
         // A new value is drawn where it is; a new name, type or way
@@ -681,14 +718,14 @@ fn properties() -> impl View {
                 .transition(Motion::Interact),
         )
         .rules(icon_button)
-        .tooltip(|| note("Fold or open the properties"))
+        .tooltip(|| note("Fold or open the parameters"))
         .on_activate(|world| {
             let mut layout = world.resource_mut::<Layout>();
             layout.properties = !layout.properties;
         });
         let header = row((
             glyph(Glyph::Sliders, ICON),
-            section("PROPERTIES"),
+            section("PARAMETERS"),
             frame().grow(1.0),
             fold,
         ))
@@ -697,15 +734,15 @@ fn properties() -> impl View {
         .tagged(Handle)
         .tagged(EntityCursor(SystemCursorIcon::Grab));
         let body =
-            column((inspect::view(),)).display(
-                resource::<Layout, _>(|layout| {
+            column((params::view(),)).display(resource::<Layout, _>(
+                |layout| {
                     if layout.properties {
                         Display::Flex
                     } else {
                         Display::None
                     }
-                }),
-            );
+                },
+            ));
         column((header, body))
             .position(PositionType::Absolute)
             .inset(resource::<Layout, _>(|layout| {
@@ -740,22 +777,14 @@ fn tool(
         .on_activate(act)
 }
 
-/// Tools side by side on one plate, apart from the next plate.
+/// Tools side by side, set apart from the next group.
 fn cluster(
     tools: impl ViewSeq<Bevy, HamletTheme> + 'static,
 ) -> impl View {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        row(tools)
-            .gap(2.0)
-            .padding(UiRect::all(px(3.0)))
-            .align(AlignItems::Center)
-            .fill(theme.palette.input)
-            .radius(theme.space.round)
-    })
+    row(tools).gap(2.0).align(AlignItems::Center)
 }
 
-/// The bar over the canvas: plates of tools for editing, for the
+/// The bar over the canvas: groups of tools for editing, for the
 /// graphs of the book and for its file, and what is known of both
 /// at the end.
 fn tools() -> impl View {
@@ -785,7 +814,23 @@ fn tools() -> impl View {
                     },
                 ),
             )),
-            cluster((switcher(),)),
+            cluster((
+                switcher(),
+                tool(Glyph::Plus, "New graph", |world| {
+                    world.resource_mut::<Editor>().new_graph();
+                    canvas::fit(world);
+                }),
+                tool(Glyph::Delete, "Delete this graph", |world| {
+                    let deleted =
+                        world.resource_mut::<Editor>().delete_graph();
+                    world.resource_mut::<files::Files>().note =
+                        match deleted {
+                            Ok(()) => String::new(),
+                            Err(why) => why,
+                        };
+                    canvas::fit(world);
+                }),
+            )),
             cluster((
                 tool(
                     Glyph::Folder,
@@ -840,8 +885,7 @@ fn tools() -> impl View {
     })
 }
 
-/// The graph open, chosen from every graph of the book, and a way to
-/// start a new one.
+/// The graph open, chosen from every graph of the book.
 fn switcher() -> impl View {
     keyed(
         resource::<Editor, _>(|editor| {
@@ -852,18 +896,15 @@ fn switcher() -> impl View {
                 .iter()
                 .position(|name| name == open)
                 .unwrap_or(0);
-            let mut options = names.clone();
-            options.push("New graph".to_owned());
+            let options = names.clone();
             let names = names.clone();
             dropdown(
                 options,
                 at,
                 Glyph::Chevron.image(ICON),
                 move |world: &mut World, chosen| {
-                    let mut editor = world.resource_mut::<Editor>();
-                    match names.get(chosen) {
-                        Some(name) => editor.go_to(name),
-                        None => editor.new_graph(),
+                    if let Some(name) = names.get(chosen) {
+                        world.resource_mut::<Editor>().go_to(name);
                     }
                     canvas::fit(world);
                 },

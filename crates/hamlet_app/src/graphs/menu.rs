@@ -31,12 +31,13 @@ use bevy_fynix::views::{
     menu_item, overlay, popup, row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, Signal, ViewExt, keyed, resource};
-use hamlet_blueprint::{Does, NodeId};
+use hamlet_blueprint::{Constant, Does, Edit, NodeId, Setting};
 use hamlet_ui::styles::{ICON, note, section, text_input};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
-use super::{Editor, canvas, files};
+use super::canvas::Input;
+use super::{Editor, canvas, controls, files};
 
 /// The group the book's other graphs are listed under.
 const GRAPHS: &str = "Graphs";
@@ -54,6 +55,8 @@ const GROUPS: [&str; 7] = [
 
 /// The most the list of what can be added grows before it scrolls.
 const TALLEST: f32 = 320.0;
+/// The room the caret takes before the search's hint.
+const CARET: f32 = 4.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Menu>()
@@ -70,6 +73,19 @@ pub(super) enum Menu {
     Create { at: Vec2, on_sheet: Vec2 },
     /// What can be done to a card.
     Card { node: NodeId, at: Vec2 },
+    /// What sets an input of a card.
+    Input {
+        node: NodeId,
+        input: Input,
+        at: Vec2,
+    },
+    /// The choices an input of a card can take.
+    Choice {
+        node: NodeId,
+        input: String,
+        choices: &'static [&'static str],
+        at: Vec2,
+    },
 }
 
 /// Where the list of kinds stands: what is typed, and the group open,
@@ -199,10 +215,19 @@ fn add(world: &mut World, does: Does, on_sheet: Vec2) {
 
 /// The open menu, over the panel.
 pub(super) fn view() -> impl View {
-    keyed(resource::<Menu, _>(Menu::clone), |menu| match *menu {
+    keyed(resource::<Menu, _>(Menu::clone), |menu| match menu {
         Menu::Closed => frame().boxed(),
-        Menu::Create { at, on_sheet } => create(at, on_sheet),
-        Menu::Card { node, at } => card(node, at),
+        Menu::Create { at, on_sheet } => create(*at, *on_sheet),
+        Menu::Card { node, at } => card(*node, *at),
+        Menu::Input { node, input, at } => {
+            input_menu(*node, input.clone(), *at)
+        }
+        Menu::Choice {
+            node,
+            input,
+            choices,
+            at,
+        } => choice_menu(*node, input.clone(), choices, *at),
     })
     .within(overlay(()).tagged(Layer))
 }
@@ -268,10 +293,12 @@ fn shown_with(
 fn search_bar() -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.gap;
+        // The hint starts past the caret, which blinks where typing
+        // begins.
         let hint = row((note("Search"),))
             .position(PositionType::Absolute)
             .inset(UiRect::new(
-                px(gap / 2.0),
+                px(gap / 2.0 + CARET),
                 Val::Auto,
                 px(0.0),
                 px(0.0),
@@ -530,6 +557,162 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
             popup(Rect::from_corners(at, at), items)
                 .on_dismiss(|world, _| close(world))
                 .min_width(px(width)),
+        )
+    })
+}
+
+/// Opens the choices of `node`'s `input` at the pointer.
+pub(super) fn choose(
+    world: &mut World,
+    node: NodeId,
+    input: String,
+    choices: &'static [&'static str],
+) {
+    let at = world
+        .query::<&Window>()
+        .iter(world)
+        .find_map(Window::cursor_position)
+        .unwrap_or_default();
+    open(
+        world,
+        Menu::Choice {
+            node,
+            input,
+            choices,
+            at,
+        },
+    );
+}
+
+fn choice_menu(
+    node: NodeId,
+    input: String,
+    choices: &'static [&'static str],
+    at: Vec2,
+) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let at = in_layer(cx.world, at);
+        let items = choices
+            .iter()
+            .map(|choice| {
+                let input = input.clone();
+                menu_item(label(choice.replace('_', " ")).wrap(false))
+                    .on_activate(move |world| {
+                        close(world);
+                        controls::put(
+                            world,
+                            node,
+                            &input,
+                            Some(Setting::Fixed(Constant::Choice(
+                                (*choice).to_owned(),
+                            ))),
+                        );
+                    })
+                    .boxed()
+            })
+            .collect::<Vec<_>>();
+        cx.build(
+            popup(Rect::from_corners(at, at), items)
+                .on_dismiss(|world, _| close(world))
+                .min_width(px(cx.theme().space.menu_width * 0.6)),
+        )
+    })
+}
+
+/// What can be done to how an input of `node` is set: made a
+/// parameter of the graph, given a value of its own again, or put
+/// back to its default, and its wire cut.
+fn input_menu(node: NodeId, input: Input, at: Vec2) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let at = in_layer(cx.world, at);
+        let editor = cx.world.resource::<Editor>();
+        let setting = controls::current(editor, node, &input.name);
+        let wired = editor.sheet.graph.wires.iter().any(|wire| {
+            wire.to.node == node && wire.to.name == input.name
+        });
+        let written = controls::written(input.value_type);
+        let mut items: Vec<AnyView> = Vec::new();
+        let mut item =
+            |text: &'static str,
+             act: Box<dyn Fn(&mut World) + Send + Sync>| {
+                items.push(
+                    menu_item(label(text).wrap(false))
+                        .on_activate(move |world| {
+                            close(world);
+                            act(world);
+                        })
+                        .boxed(),
+                );
+            };
+        let name = input.name.clone();
+        match (&setting, written) {
+            (Some(Setting::FromParent(_)), _) => {
+                item(
+                    "Use a value",
+                    Box::new(move |world| {
+                        controls::put(world, node, &name, None);
+                    }),
+                );
+            }
+            (_, Some(value_type)) if !wired => {
+                let read = input.clone();
+                item(
+                    "Make a parameter",
+                    Box::new(move |world| {
+                        let default = controls::value_of(
+                            world.resource::<Editor>(),
+                            node,
+                            &read,
+                        );
+                        world.resource_mut::<Editor>().expose_input(
+                            node, &read.name, value_type, default,
+                        );
+                    }),
+                );
+            }
+            _ => {}
+        }
+        if matches!(
+            setting,
+            Some(Setting::Fixed(_) | Setting::Random(_))
+        ) {
+            let name = input.name.clone();
+            item(
+                "Reset to default",
+                Box::new(move |world| {
+                    controls::put(world, node, &name, None);
+                }),
+            );
+        }
+        if wired {
+            let name = input.name.clone();
+            item(
+                "Disconnect",
+                Box::new(move |world| {
+                    let mut editor = world.resource_mut::<Editor>();
+                    let cut = editor
+                        .sheet
+                        .graph
+                        .wires
+                        .iter()
+                        .filter(|wire| {
+                            wire.to.node == node
+                                && wire.to.name == name
+                        })
+                        .cloned()
+                        .map(Edit::Disconnect)
+                        .collect::<Vec<_>>();
+                    editor.apply(Edit::Batch(cut));
+                }),
+            );
+        }
+        if items.is_empty() {
+            items.push(note("It can only be wired").boxed());
+        }
+        cx.build(
+            popup(Rect::from_corners(at, at), items)
+                .on_dismiss(|world, _| close(world))
+                .min_width(px(cx.theme().space.menu_width)),
         )
     })
 }
