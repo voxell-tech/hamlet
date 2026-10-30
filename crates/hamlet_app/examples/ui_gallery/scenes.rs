@@ -112,10 +112,10 @@ impl Plugin for GalleryPlugin {
             .add_plugins((
                 hamlet_app::world_menu::plugin,
                 hamlet_app::search::plugin,
-                hamlet_app::desk::plugin,
                 menu::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
+                hamlet_app::desk_still,
                 welcome::key_plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_app::screens::plugin,
