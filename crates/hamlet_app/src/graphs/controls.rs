@@ -2,7 +2,7 @@
 //! or each axis of a point, a switch, a choice that opens its list in
 //! the menu layer, and a mark that puts a fixed input back to its
 //! default. Changing a value fixes the input; until then it shows its
-//! default.
+//! default. A group's title is a field on its title bar.
 
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
@@ -108,10 +108,7 @@ pub(super) fn control(
 ) -> Option<AnyView> {
     let value = match setting {
         Some(Setting::FromParent(name)) => {
-            return Some(pill(format!(
-                "⟨{}⟩",
-                name.replace('_', " ")
-            )));
+            return Some(pill(name.replace('_', " ")));
         }
         Some(Setting::Random(_)) => {
             return Some(pill("random".into()));
@@ -269,6 +266,26 @@ fn words(node: NodeId, input: Input) -> AnyView {
         },
     )
     .width(px(NUMBER * 1.5))
+    .rules(text_input)
+    .boxed()
+}
+
+/// The field a group's title is written in.
+pub(super) fn title(at: usize) -> AnyView {
+    text_field(
+        resource::<Editor, _>(move |editor| {
+            editor
+                .sheet
+                .groups
+                .get(at)
+                .map(|group| group.title.clone())
+                .unwrap_or_default()
+        }),
+        move |world, text| {
+            world.resource_mut::<Editor>().retitle(at, text);
+        },
+    )
+    .width(px(NUMBER * 3.0))
     .rules(text_input)
     .boxed()
 }

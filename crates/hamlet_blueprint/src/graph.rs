@@ -1,6 +1,6 @@
 //! Graphs as their files hold them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use bevy_math::Vec2;
@@ -176,8 +176,8 @@ impl Graph {
     }
 }
 
-/// A graph as the editor keeps it: the graph and where each node is
-/// drawn.
+/// A graph as the editor keeps it: the graph, where each node is
+/// drawn, and the groups its nodes are framed in.
 #[derive(
     Clone, PartialEq, Debug, Default, Serialize, Deserialize,
 )]
@@ -185,6 +185,16 @@ pub struct Sheet {
     pub graph: Graph,
     #[serde(default)]
     pub layout: BTreeMap<NodeId, Vec2>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<Group>,
+}
+
+/// Nodes framed together under a title, for the one reading the
+/// sheet. A node is in one group at most.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct Group {
+    pub title: String,
+    pub nodes: BTreeSet<NodeId>,
 }
 
 impl Sheet {

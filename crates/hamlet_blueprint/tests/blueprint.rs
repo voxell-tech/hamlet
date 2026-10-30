@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bevy_math::{Vec2, Vec3};
 use hamlet_blueprint::{
-    Does, Edit, Instance, Node, NodeId, Problem, Registry, Ruleset,
-    Seed, Seeds, Setting, Sheet, Value, evaluate, validate,
+    Does, Edit, Group, Instance, Node, NodeId, Problem, Registry,
+    Ruleset, Seed, Seeds, Setting, Sheet, Value, evaluate, validate,
 };
 
 /// Posts along a line, each lifted and turned at random, per
@@ -276,6 +276,7 @@ fn renaming_an_input_carries_to_the_nodes_set_from_it_and_undoes() {
     let mut sheet = Sheet {
         graph: ruleset.graphs["tower"].clone(),
         layout: BTreeMap::new(),
+        groups: Vec::new(),
     };
     let mut renamed = sheet.graph.inputs[0].clone();
     renamed.name = "height".to_owned();
@@ -302,10 +303,32 @@ fn renaming_an_input_carries_to_the_nodes_set_from_it_and_undoes() {
 }
 
 #[test]
+fn removing_an_input_puts_the_nodes_set_from_it_back_and_undoes() {
+    let ruleset =
+        Ruleset::from_ron(RISE).expect("the fixture parses");
+    let mut sheet = Sheet {
+        graph: ruleset.graphs["tower"].clone(),
+        ..Sheet::default()
+    };
+    let before = sheet.clone();
+    let undo = sheet
+        .apply(Edit::RemoveInput("rise".to_owned()))
+        .expect("the input is there");
+    let node = sheet.graph.node(NodeId(1)).expect("node 1");
+    assert!(!node.settings.contains_key("y"));
+    sheet.apply(undo).expect("the undo applies");
+    assert_eq!(sheet, before);
+}
+
+#[test]
 fn sheet_round_trips_and_edits_undo() {
     let mut sheet = Sheet {
         graph: fence().graphs["fence"].clone(),
         layout: BTreeMap::from([(NodeId(1), Vec2::new(10.0, 20.0))]),
+        groups: vec![Group {
+            title: "posts".to_owned(),
+            nodes: BTreeSet::from([NodeId(1), NodeId(2)]),
+        }],
     };
     let text = sheet.to_ron().expect("the sheet writes");
     assert_eq!(
@@ -318,8 +341,10 @@ fn sheet_round_trips_and_edits_undo() {
         .apply(Edit::RemoveNode(NodeId(2)))
         .expect("the node is there");
     assert!(sheet.graph.wires.len() < before.graph.wires.len());
+    assert_eq!(sheet.groups[0].nodes, BTreeSet::from([NodeId(1)]));
     sheet.apply(undo).expect("the undo applies");
     assert_eq!(sheet.graph.nodes.len(), before.graph.nodes.len());
     assert_eq!(sheet.graph.wires.len(), before.graph.wires.len());
     assert_eq!(sheet.layout, before.layout);
+    assert_eq!(sheet.groups, before.groups);
 }

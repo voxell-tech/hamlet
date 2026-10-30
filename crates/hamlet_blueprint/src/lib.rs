@@ -22,8 +22,8 @@ pub use eval::{
 };
 pub use field::{Field, Measure, Noise, NoiseKind, Op, Random};
 pub use graph::{
-    Book, Does, Graph, GraphInput, GraphOutput, Node, NodeId, Port,
-    Roll, Ruleset, Scope, Setting, Sheet, Spread, Vary, Wire,
+    Book, Does, Graph, GraphInput, GraphOutput, Group, Node, NodeId,
+    Port, Roll, Ruleset, Scope, Setting, Sheet, Spread, Vary, Wire,
 };
 pub use node::{Initial, NodeKind, PortSpec, Registry};
 pub use seed::Seed;

@@ -4,7 +4,8 @@ use bevy_math::Vec2;
 use serde::{Deserialize, Serialize};
 
 use crate::graph::{
-    GraphInput, GraphOutput, Node, NodeId, Setting, Sheet, Wire,
+    GraphInput, GraphOutput, Group, Node, NodeId, Setting, Sheet,
+    Wire,
 };
 
 /// A change to a [`Sheet`].
@@ -32,6 +33,8 @@ pub enum Edit {
     },
     /// Gives the graph an input, set by the graph above.
     AddInput(GraphInput),
+    /// Takes an input from the graph, and puts every node set from
+    /// it back to its default.
     RemoveInput(String),
     /// Puts `input` in place of the input named `name`. A new name is
     /// carried to every node set from it.
@@ -42,6 +45,17 @@ pub enum Edit {
     /// Gives the graph an output, from a node's port.
     AddOutput(GraphOutput),
     RemoveOutput(String),
+    /// Puts a group at `at` among the sheet's groups.
+    AddGroup {
+        at: usize,
+        group: Group,
+    },
+    RemoveGroup(usize),
+    /// Puts `group` in place of the group at `at`.
+    ChangeGroup {
+        at: usize,
+        group: Group,
+    },
     /// Edits applied in order, all or none.
     Batch(Vec<Edit>),
 }
@@ -61,6 +75,8 @@ pub enum EditRefusal {
     NameTaken(String),
     #[error("the graph has no port named {0}")]
     NoName(String),
+    #[error("no group is at {0}")]
+    NoGroup(usize),
 }
 
 impl Sheet {
@@ -95,6 +111,16 @@ impl Sheet {
                 graph.wires = kept;
                 let mut undo = vec![Edit::AddNode { node, at }];
                 undo.extend(cut.into_iter().map(Edit::Connect));
+                for (at, group) in self.groups.iter_mut().enumerate()
+                {
+                    if group.nodes.contains(&id) {
+                        undo.push(Edit::ChangeGroup {
+                            at,
+                            group: group.clone(),
+                        });
+                        group.nodes.remove(&id);
+                    }
+                }
                 Ok(Edit::Batch(undo))
             }
             Edit::Connect(wire) => {
@@ -168,8 +194,26 @@ impl Sheet {
                     .inputs
                     .iter()
                     .position(|input| input.name == name)
-                    .ok_or(EditRefusal::NoName(name))?;
-                Ok(Edit::AddInput(graph.inputs.remove(index)))
+                    .ok_or_else(|| {
+                        EditRefusal::NoName(name.clone())
+                    })?;
+                let mut undo =
+                    vec![Edit::AddInput(graph.inputs.remove(index))];
+                let from = Setting::FromParent(name);
+                for node in &mut graph.nodes {
+                    node.settings.retain(|input, setting| {
+                        if *setting != from {
+                            return true;
+                        }
+                        undo.push(Edit::Set {
+                            node: node.id,
+                            input: input.clone(),
+                            setting: Some(setting.clone()),
+                        });
+                        false
+                    });
+                }
+                Ok(Edit::Batch(undo))
             }
             Edit::ChangeInput { name, input } => {
                 let index = graph
@@ -231,6 +275,32 @@ impl Sheet {
                     .position(|output| output.name == name)
                     .ok_or(EditRefusal::NoName(name))?;
                 Ok(Edit::AddOutput(graph.outputs.remove(index)))
+            }
+            Edit::AddGroup { at, group } => {
+                if at > self.groups.len() {
+                    return Err(EditRefusal::NoGroup(at));
+                }
+                self.groups.insert(at, group);
+                Ok(Edit::RemoveGroup(at))
+            }
+            Edit::RemoveGroup(at) => {
+                if at >= self.groups.len() {
+                    return Err(EditRefusal::NoGroup(at));
+                }
+                Ok(Edit::AddGroup {
+                    at,
+                    group: self.groups.remove(at),
+                })
+            }
+            Edit::ChangeGroup { at, group } => {
+                let old = self
+                    .groups
+                    .get_mut(at)
+                    .ok_or(EditRefusal::NoGroup(at))?;
+                Ok(Edit::ChangeGroup {
+                    at,
+                    group: std::mem::replace(old, group),
+                })
             }
             Edit::Batch(edits) => {
                 let mut undo = Vec::with_capacity(edits.len());

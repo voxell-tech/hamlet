@@ -34,7 +34,7 @@ use bevy_fynix::{
 };
 use hamlet_blueprint::{
     Book, Constant, Does, Edit, Frame, GraphInput, GraphOutput,
-    Initial, Instance, Node, NodeId, Port, PortSpec, Registry,
+    Group, Initial, Instance, Node, NodeId, Port, PortSpec, Registry,
     Ruleset, Seed, Seeds, Setting, Sheet, Value, ValueType, evaluate,
 };
 use hamlet_ui::styles::{
@@ -256,6 +256,22 @@ impl Editor {
     /// Puts `book` in place of the one being edited, with no history,
     /// open at its entry.
     pub fn load(&mut self, mut book: Book) {
+        // A book saved before removing an input cleared the nodes set
+        // from it may still name it.
+        for sheet in book.sheets.values_mut() {
+            let graph = &mut sheet.graph;
+            let names: BTreeSet<String> = graph
+                .inputs
+                .iter()
+                .map(|input| input.name.clone())
+                .collect();
+            for node in &mut graph.nodes {
+                node.settings.retain(|_, setting| match setting {
+                    Setting::FromParent(name) => names.contains(name),
+                    _ => true,
+                });
+            }
+        }
         let entry =
             book.sheets.remove(&book.entry).unwrap_or_default();
         self.others = book
@@ -297,6 +313,12 @@ impl Editor {
                 Edit::ChangeInput { name, .. },
                 Some(Edit::ChangeInput { name: last, .. }),
             ) if name == last
+        ) || matches!(
+            (&inverse, self.undo.last()),
+            (
+                Edit::ChangeGroup { at, group },
+                Some(Edit::ChangeGroup { at: last, group: was }),
+            ) if at == last && group.nodes == was.nodes
         );
         if !merges {
             self.undo.push(inverse);
@@ -592,16 +614,104 @@ impl Editor {
         self.selected = copies.into_values().collect();
     }
 
-    /// Deletes every selected node.
+    /// Deletes every selected node, and each group left empty.
     pub fn remove(&mut self) {
-        let edits: Vec<Edit> = self
+        let mut edits: Vec<Edit> = self
             .selected
             .iter()
             .copied()
             .map(Edit::RemoveNode)
             .collect();
+        if edits.is_empty() {
+            return;
+        }
+        edits.extend(
+            self.leave().1.into_iter().rev().map(Edit::RemoveGroup),
+        );
+        self.apply(Edit::Batch(edits));
+    }
+
+    /// Frames the selected nodes in a new group, out of any group
+    /// they were in.
+    pub fn group(&mut self) {
+        if self.selected.is_empty() {
+            return;
+        }
+        let (mut edits, emptied) = self.leave();
+        let at = self.sheet.groups.len() - emptied.len();
+        edits
+            .extend(emptied.into_iter().rev().map(Edit::RemoveGroup));
+        edits.push(Edit::AddGroup {
+            at,
+            group: Group {
+                title: "Group".to_owned(),
+                nodes: self.selected.clone(),
+            },
+        });
+        self.apply(Edit::Batch(edits));
+    }
+
+    /// Takes the selected nodes out of their groups.
+    pub fn ungroup_selected(&mut self) {
+        let (mut edits, emptied) = self.leave();
+        edits
+            .extend(emptied.into_iter().rev().map(Edit::RemoveGroup));
         if !edits.is_empty() {
             self.apply(Edit::Batch(edits));
+        }
+    }
+
+    /// The changes that take the selected nodes out of their groups,
+    /// and the groups that leaves empty, in order, to remove after.
+    fn leave(&self) -> (Vec<Edit>, Vec<usize>) {
+        let mut edits = Vec::new();
+        let mut emptied = Vec::new();
+        for (at, group) in self.sheet.groups.iter().enumerate() {
+            if group.nodes.is_disjoint(&self.selected) {
+                continue;
+            }
+            let nodes: BTreeSet<NodeId> = group
+                .nodes
+                .difference(&self.selected)
+                .copied()
+                .collect();
+            if nodes.is_empty() {
+                emptied.push(at);
+            } else {
+                edits.push(Edit::ChangeGroup {
+                    at,
+                    group: Group {
+                        title: group.title.clone(),
+                        nodes,
+                    },
+                });
+            }
+        }
+        (edits, emptied)
+    }
+
+    /// Whether any selected node is in a group.
+    pub fn any_grouped(&self) -> bool {
+        self.sheet
+            .groups
+            .iter()
+            .any(|group| !group.nodes.is_disjoint(&self.selected))
+    }
+
+    pub fn ungroup(&mut self, at: usize) {
+        self.apply(Edit::RemoveGroup(at));
+    }
+
+    pub fn retitle(&mut self, at: usize, title: String) {
+        let Some(group) = self.sheet.groups.get(at) else {
+            return;
+        };
+        if group.title != title {
+            let nodes = group.nodes.clone();
+            self.apply(Edit::ChangeGroup {
+                at,
+                group: Group { title, nodes },
+            });
         }
     }
 
@@ -673,6 +783,11 @@ fn reshapes(sheet: &Sheet, registry: &Registry, edit: &Edit) -> bool {
             kind(old) != kind(setting.as_ref())
         }
         Edit::Move { .. } => false,
+        // A title is drawn where it is.
+        Edit::ChangeGroup { at, group } => sheet
+            .groups
+            .get(*at)
+            .is_none_or(|old| old.nodes != group.nodes),
         // A new value is drawn where it is; a new name, type or way
         // of varying changes what is drawn.
         Edit::ChangeInput { name, input } => sheet

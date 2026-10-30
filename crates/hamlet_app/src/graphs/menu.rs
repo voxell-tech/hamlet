@@ -75,6 +75,8 @@ pub(super) enum Menu {
     Create { at: Vec2, on_sheet: Vec2 },
     /// What can be done to a card.
     Card { node: NodeId, at: Vec2 },
+    /// What can be done to the group at `group`.
+    Group { group: usize, at: Vec2 },
     /// What sets an input of a card.
     Input {
         node: NodeId,
@@ -250,6 +252,7 @@ pub(super) fn view() -> impl View {
         Menu::Closed => frame().boxed(),
         Menu::Create { at, on_sheet } => create(*at, *on_sheet),
         Menu::Card { node, at } => card(*node, *at),
+        Menu::Group { group, at } => group_menu(*group, *at),
         Menu::Input { node, input, at } => {
             input_menu(*node, input.clone(), *at)
         }
@@ -272,6 +275,7 @@ fn create(at: Vec2, on_sheet: Vec2) -> AnyView {
             popup(
                 Rect::from_corners(at, at),
                 vec![
+                    group_selection(),
                     column((
                         section("Create node"),
                         search_bar(),
@@ -296,6 +300,30 @@ fn create(at: Vec2, on_sheet: Vec2) -> AnyView {
         }
         root
     })
+}
+
+/// Groups the selected cards, shown while any are selected.
+fn group_selection() -> AnyView {
+    menu_item(
+        row((
+            label("Group selection").wrap(false),
+            frame().grow(1.0),
+            note("Cmd+G"),
+        ))
+        .gap(16.0),
+    )
+    .display(resource::<Editor, _>(|editor| {
+        if editor.selected.is_empty() {
+            Display::None
+        } else {
+            Display::Flex
+        }
+    }))
+    .on_activate(|world| {
+        close(world);
+        world.resource_mut::<Editor>().group();
+    })
+    .boxed()
 }
 
 /// Shown while `show` holds for where the list stands.
@@ -592,6 +620,18 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
                 },
             ));
         }
+        items.push(item("Group", "Cmd+G", |world, _| {
+            world.resource_mut::<Editor>().group();
+        }));
+        if cx.world.resource::<Editor>().any_grouped() {
+            items.push(item(
+                "Take out of group",
+                "Cmd+Shift+G",
+                |world, _| {
+                    world.resource_mut::<Editor>().ungroup_selected();
+                },
+            ));
+        }
         items.extend([
             item("Expose as output", "", |world, node| {
                 world.resource_mut::<Editor>().expose_output(node);
@@ -610,6 +650,26 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
             popup(Rect::from_corners(at, at), items)
                 .on_dismiss(|world, _| close(world))
                 .min_width(px(width)),
+        )
+    })
+}
+
+/// What can be done to a group: its cards taken out of it.
+fn group_menu(group: usize, at: Vec2) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let at = in_layer(cx.world, at);
+        let items = vec![
+            menu_item(label("Ungroup").wrap(false))
+                .on_activate(move |world| {
+                    close(world);
+                    world.resource_mut::<Editor>().ungroup(group);
+                })
+                .boxed(),
+        ];
+        cx.build(
+            popup(Rect::from_corners(at, at), items)
+                .on_dismiss(|world, _| close(world))
+                .min_width(px(cx.theme().space.menu_width * 0.6)),
         )
     })
 }
@@ -810,6 +870,7 @@ fn keys(world: &mut World) {
         pressed(KeyCode::Delete) || pressed(KeyCode::Backspace);
     let undo = command && pressed(KeyCode::KeyZ);
     let duplicate = command && pressed(KeyCode::KeyD);
+    let group = command && pressed(KeyCode::KeyG);
     let save = command && pressed(KeyCode::KeyS);
     let open = command && pressed(KeyCode::KeyO);
     let fit = !command && pressed(KeyCode::KeyF);
@@ -826,6 +887,10 @@ fn keys(world: &mut World) {
         world.resource_mut::<Editor>().redo();
     } else if undo {
         world.resource_mut::<Editor>().undo();
+    } else if group && shift {
+        world.resource_mut::<Editor>().ungroup_selected();
+    } else if group && selected {
+        world.resource_mut::<Editor>().group();
     } else if duplicate && selected {
         world.resource_mut::<Editor>().duplicate();
     } else if delete && selected {

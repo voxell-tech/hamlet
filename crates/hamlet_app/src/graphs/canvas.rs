@@ -3,6 +3,8 @@
 //! an output's dot onto an input's to wire them, and an input's dot
 //! is clicked to cut its wire. An unwired input's row holds the
 //! controls for its value, and a right click on it asks what sets it.
+//! A group is a titled frame around its cards, dragged by its title
+//! bar to move them all.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -60,6 +62,10 @@ const ROW: f32 = 28.0;
 const PAD: f32 = 4.0;
 const BORDER: f32 = 1.0;
 const DOT: f32 = 10.0;
+/// How far a group's frame stands off its cards, and its title bar's
+/// height.
+const MARGIN: f32 = 16.0;
+const TITLE: f32 = 28.0;
 const LEAST_ZOOM: f32 = 0.3;
 const MOST_ZOOM: f32 = 2.0;
 
@@ -86,6 +92,14 @@ struct Lasso;
 /// A node's card.
 #[derive(Component)]
 struct Card(NodeId);
+
+/// A group's frame, by its place among the sheet's groups.
+#[derive(Component)]
+struct Frame(usize);
+
+/// A group's title bar, which drags its cards.
+#[derive(Component)]
+struct TitleBar(usize);
 
 /// The node a wire is drawn on: the wire's, or none for one being
 /// dragged out of a port.
@@ -205,6 +219,12 @@ pub(super) fn fit(world: &mut World) {
                 height(inputs.len() + outputs.len()),
             ),
         );
+    }
+    for at in 0..editor.sheet.groups.len() {
+        if let Some((near, far)) = frame_bounds(editor, at) {
+            low = low.min(near);
+            high = high.max(far);
+        }
     }
     if low.x > high.x {
         return;
@@ -365,6 +385,36 @@ fn card_at(editor: &Editor, node: NodeId) -> Vec2 {
     editor.sheet.layout.get(&node).copied().unwrap_or_default()
 }
 
+/// The corners of the frame of the group at `at` on the sheet, around
+/// its cards and its title bar above them; none for a group with no
+/// cards.
+fn frame_bounds(editor: &Editor, at: usize) -> Option<(Vec2, Vec2)> {
+    let group = editor.sheet.groups.get(at)?;
+    let (mut low, mut high) =
+        (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
+    for node in &group.nodes {
+        let Some(found) = editor.sheet.graph.node(*node) else {
+            continue;
+        };
+        let corner = card_at(editor, *node);
+        let (inputs, outputs) = rows(editor, found);
+        low = low.min(corner);
+        high = high.max(
+            corner
+                + Vec2::new(
+                    WIDTH,
+                    height(inputs.len() + outputs.len()),
+                ),
+        );
+    }
+    (low.x <= high.x).then(|| {
+        (
+            low - Vec2::new(MARGIN, MARGIN + TITLE),
+            high + Vec2::splat(MARGIN),
+        )
+    })
+}
+
 /// A place for every card of the open sheet: a column for each step
 /// from the graph's start, each card beside the cards that feed it,
 /// and each column stacked by the cards' heights.
@@ -456,7 +506,7 @@ fn build(
     // The theme loads after the first frames.
     If(theme): If<Res<Theme<HamletTheme>>>,
     canvas: Query<Entity, With<Canvas>>,
-    cards: Query<Entity, With<Card>>,
+    cards: Query<Entity, Or<(With<Card>, With<Frame>)>>,
     mut built: Local<Option<(Entity, Entity, u64)>>,
 ) {
     let Some(canvas) = canvas.iter().next() else {
@@ -521,6 +571,58 @@ fn build(
         commands.entity(card).despawn();
     }
     let palette = &theme.0.palette;
+    for at in 0..editor.sheet.groups.len() {
+        let frame = commands
+            .spawn((
+                Frame(at),
+                Node {
+                    position_type: PositionType::Absolute,
+                    flex_direction: FlexDirection::Column,
+                    border: UiRect::all(px(BORDER)),
+                    border_radius: BorderRadius::all(px(8.0)),
+                    ..Node::default()
+                },
+                BackgroundColor(palette.glow.with_alpha(0.04)),
+                BorderColor::all(palette.border),
+                // Under the wires, which are under the cards.
+                ZIndex(-2),
+                Pickable::IGNORE,
+                ChildOf(sheet),
+            ))
+            .id();
+        let bar = commands
+            .spawn((
+                TitleBar(at),
+                Node {
+                    height: px(TITLE),
+                    padding: UiRect::horizontal(px(6.0)),
+                    align_items: AlignItems::Center,
+                    border_radius: BorderRadius::top(px(8.0)),
+                    ..Node::default()
+                },
+                BackgroundColor(palette.border.with_alpha(0.5)),
+                Hovered::default(),
+                EntityCursor(SystemCursorIcon::Grab),
+                ChildOf(frame),
+            ))
+            .observe(select_group)
+            .observe(grab_group)
+            .observe(drag_card)
+            .observe(gesture_end)
+            .id();
+        commands.queue(move |world: &mut World| {
+            let root = bevy_fynix::mount::<HamletTheme>(
+                world,
+                controls::title(at),
+            );
+            world
+                .entity_mut(root)
+                .insert(ChildOf(bar))
+                .observe(hold_drag_start)
+                .observe(hold_drag)
+                .observe(hold_drag_end);
+        });
+    }
     for node in &editor.sheet.graph.nodes {
         let (inputs, outputs) = rows(&editor, node);
         // A graph run as a node is marked by its header's colour.
@@ -695,9 +797,13 @@ fn place(
     If(theme): If<Res<Theme<HamletTheme>>>,
     mut sheets: Query<(Entity, &mut UiTransform), With<Sheet>>,
     mut cards: Query<(&Card, &mut Node), Without<Drawn>>,
+    mut frames: Query<
+        (&Frame, &mut Node),
+        (Without<Card>, Without<Drawn>),
+    >,
     mut drawn: Query<
         (Entity, &Drawn, &MaterialNode<WireMaterial>, &mut Node),
-        Without<Card>,
+        (Without<Card>, Without<Frame>),
     >,
     mut materials: ResMut<Assets<WireMaterial>>,
     added: Query<(), bevy::ecs::query::Added<Card>>,
@@ -722,6 +828,17 @@ fn place(
         let at = card_at(&editor, card.0);
         node.left = px(at.x);
         node.top = px(at.y);
+    }
+    for (frame, mut node) in &mut frames {
+        let Some((low, high)) = frame_bounds(&editor, frame.0) else {
+            node.display = Display::None;
+            continue;
+        };
+        node.display = Display::Flex;
+        node.left = px(low.x);
+        node.top = px(low.y);
+        node.width = px(high.x - low.x);
+        node.height = px(high.y - low.y);
     }
     let palette = &theme.0.palette;
     let graph = &editor.sheet.graph;
@@ -802,7 +919,11 @@ fn paint(
     >,
     mut dots: Query<
         (&Dot, &Hovered, &mut BorderColor, &mut BackgroundColor),
-        Without<Card>,
+        (Without<Card>, Without<TitleBar>),
+    >,
+    mut bars: Query<
+        (&TitleBar, &Hovered, &mut BackgroundColor),
+        (Without<Card>, Without<Dot>),
     >,
     changed: Query<
         (),
@@ -825,6 +946,20 @@ fn paint(
             palette.border
         };
         *border = BorderColor::all(colour);
+    }
+    for (bar, hovered, mut fill) in &mut bars {
+        let chosen =
+            editor.sheet.groups.get(bar.0).is_some_and(|group| {
+                !group.nodes.is_empty()
+                    && group.nodes == editor.selected
+            });
+        fill.0 = if chosen {
+            palette.glow.with_alpha(0.35)
+        } else if hovered.get() {
+            palette.gold_5.with_alpha(0.5)
+        } else {
+            palette.border.with_alpha(0.5)
+        };
     }
     let linking = match &*gesture {
         Gesture::Link(from, value_type, ..) => {
@@ -892,6 +1027,10 @@ fn select(
     mut editor: ResMut<Editor>,
 ) {
     click.propagate(false);
+    // A right click opens a menu on the selection as it is.
+    if click.button != PointerButton::Primary {
+        return;
+    }
     let Ok(card) = cards.get(click.entity) else {
         return;
     };
@@ -902,6 +1041,68 @@ fn select(
     } else if editor.selected != BTreeSet::from([card.0]) {
         editor.selected = BTreeSet::from([card.0]);
     }
+}
+
+/// Selects a group's cards, or with Shift adds them to the selection.
+fn select_group(
+    mut click: On<PointerClick>,
+    bars: Query<&TitleBar>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mut editor: ResMut<Editor>,
+) {
+    click.propagate(false);
+    if click.button != PointerButton::Primary {
+        return;
+    }
+    let Ok(bar) = bars.get(click.entity) else {
+        return;
+    };
+    let Some(nodes) = editor
+        .sheet
+        .groups
+        .get(bar.0)
+        .map(|group| group.nodes.clone())
+    else {
+        return;
+    };
+    if held_shift(keys.as_deref()) {
+        editor.selected.extend(nodes);
+    } else if editor.selected != nodes {
+        editor.selected = nodes;
+    }
+}
+
+/// Drags a group's cards by its title bar.
+fn grab_group(
+    mut start: On<PointerDragStart>,
+    bars: Query<&TitleBar>,
+    mut gesture: ResMut<Gesture>,
+    mut editor: ResMut<Editor>,
+    mut cursor: ResMut<OverrideCursor>,
+) {
+    start.propagate(false);
+    if start.button != PointerButton::Primary {
+        return;
+    }
+    let Ok(bar) = bars.get(start.entity) else {
+        return;
+    };
+    let Some(nodes) = editor
+        .sheet
+        .groups
+        .get(bar.0)
+        .map(|group| group.nodes.clone())
+    else {
+        return;
+    };
+    *gesture = Gesture::Cards(
+        nodes
+            .iter()
+            .map(|node| (*node, card_at(&editor, *node)))
+            .collect(),
+    );
+    editor.selected = nodes;
+    cursor.0 = Some(SystemCursorIcon::Grabbing);
 }
 
 fn held_shift(keys: Option<&ButtonInput<KeyCode>>) -> bool {
@@ -933,6 +1134,7 @@ fn deselect(
     mut editor: ResMut<Editor>,
 ) {
     if click.entity == click.original_event_target()
+        && click.button == PointerButton::Primary
         && !held_shift(keys.as_deref())
         && !editor.selected.is_empty()
     {
@@ -1095,6 +1297,7 @@ fn ask(
     press: On<PointerPress>,
     cards: Query<&Card>,
     rows: Query<&InputRow>,
+    bars: Query<&TitleBar>,
     parents: Query<&ChildOf>,
     canvas: Query<(&ComputedNode, &UiGlobalTransform), With<Canvas>>,
     sight: Res<Sight>,
@@ -1110,6 +1313,13 @@ fn ask(
         || std::iter::once(hit).chain(parents.iter_ancestors(hit));
     let row = up().find_map(|entity| rows.get(entity).ok());
     let card = up().find_map(|entity| cards.get(entity).ok());
+    if card.is_none()
+        && let Some(bar) =
+            up().find_map(|entity| bars.get(entity).ok())
+    {
+        *menu = Menu::Group { group: bar.0, at };
+        return;
+    }
     *menu = match (row, card) {
         (Some(row), _) => {
             if !editor.selected.contains(&row.node) {
