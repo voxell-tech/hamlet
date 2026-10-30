@@ -448,6 +448,7 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
         epoch: state.epoch,
         revision: state.revision,
     });
+    let terminals = state.terminals;
     let hamlet_values = state.hamlets;
     let hamlets = hamlet_values
         .iter()
@@ -485,6 +486,7 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
         // A hamlet's agents go with it, so one may be gone already.
         world.try_despawn(entity).ok();
     }
+    crate::terminals::state(world, terminals);
 }
 
 fn upsert_hamlet(
@@ -645,6 +647,12 @@ pub(crate) fn changes(world: &mut World, changes: protocol::Changes) {
                 if let Some(entity) = agent(world, &gone) {
                     world.despawn(entity);
                 }
+            }
+            protocol::Update::Terminal { terminal } => {
+                crate::terminals::upsert(world, terminal);
+            }
+            protocol::Update::TerminalGone { id } => {
+                crate::terminals::gone(world, &id);
             }
         }
     }
