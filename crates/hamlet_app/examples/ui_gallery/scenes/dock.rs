@@ -12,7 +12,7 @@ use bevy_fynix::dock::{
 use bevy_fynix::views::{FrameProps, column, frame, overlay};
 use hamlet_app::{
     Convo, chat, highlight_panel, inspector, menu, panel, petition,
-    settings, status_bar, toolbar, welcome,
+    settings, status_bar, terminal, toolbar, welcome,
 };
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::styles::ICON;
@@ -108,6 +108,13 @@ pub(super) fn seed_dock(world: &mut World) {
         if let Some(parent) = tree.parent_of(side) {
             tree.set_fraction(parent, 0.62);
         }
+        if matches!(scene, Scene::Terminal | Scene::TerminalShell)
+            && let Some((low, _)) =
+                tree.split(centre, Edge::Bottom, "terminal".into())
+            && let Some(parent) = tree.parent_of(low)
+        {
+            tree.set_fraction(parent, 0.4);
+        }
         if matches!(
             scene,
             Scene::Settings
@@ -160,6 +167,7 @@ fn shown(cx: &Cx) -> impl View {
             .gap(0.0),
         status_bar(),
         menu::open_menu(),
+        terminal::open_menu(),
         rewind_question(),
     ))
     .width(percent(100.0))

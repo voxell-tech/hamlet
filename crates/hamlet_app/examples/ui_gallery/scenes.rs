@@ -23,7 +23,7 @@ use hamlet_realm::sound::{Cue, SoundSettings};
 use hamlet_ui::theme::{self, HamletTheme};
 
 use self::dock::{panels, seed_dock};
-use self::sample::{first_run, setup};
+use self::sample::{first_run, print, setup};
 use self::sheets::{controls, hold, hold_message, icon_sheet};
 
 /// A view of the gallery, its type erased.
@@ -78,6 +78,7 @@ impl Plugin for GalleryPlugin {
                 Update,
                 (
                     hold,
+                    print,
                     hold_message.run_if(|scene: Res<Scene>| {
                         *scene == Scene::Rewind
                     }),
@@ -156,6 +157,10 @@ pub enum Scene {
     Menu,
     /// The panels with the VIEW menu open.
     ViewMenu,
+    /// The Terminal panel showing an agent's runs.
+    Terminal,
+    /// The Terminal panel showing the chief's shell, typed in.
+    TerminalShell,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
 }

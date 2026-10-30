@@ -7,6 +7,8 @@ mod menu;
 mod needs;
 mod overview;
 mod settings;
+mod terminal;
+pub(super) use terminal::print;
 mod welcome;
 
 use std::path::PathBuf;
@@ -28,6 +30,7 @@ pub(super) fn setup(world: &mut World) {
     state.agents[0].purpose =
         "Keeps the orchard's notes in order.".into();
     state.agents[0].spent.cost = "$0.10".into();
+    terminal::state(&mut state, scene);
     hamlet_client::receive(
         world,
         protocol::ServerMessage::State(state),
@@ -80,6 +83,7 @@ pub(super) fn setup(world: &mut World) {
     inspector::setup(world, scene);
     overview::setup(world, scene);
     needs::setup(world, scene);
+    terminal::setup(world, scene);
     if matches!(scene, Scene::History | Scene::Reading) {
         world
             .insert_resource(hamlet_app::inspector::Section::History);
