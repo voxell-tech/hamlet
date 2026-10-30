@@ -77,6 +77,7 @@ pub struct HamletTheme {
     pub space: Spacing,
     pub shadow: Shadow,
     pub motion: Timing,
+    pub terminal: TerminalLook,
 }
 
 impl Tuning for HamletTheme {
@@ -297,6 +298,91 @@ pub struct Timing {
     pub interact: f32,
     /// Something opening or folding away.
     pub expand: f32,
+}
+
+/// The look of a terminal.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalLook {
+    /// The size of its lettering, in logical pixels.
+    pub size: f32,
+    /// The height of a row, as a multiple of `size`.
+    pub line: f32,
+    /// The room between its edges and its cells, in logical pixels.
+    pub margin: f32,
+    /// The width of the list of terminals beside it, in logical
+    /// pixels.
+    pub list: f32,
+    /// The seconds a new size is held before the terminal takes it.
+    pub settle: f32,
+    /// Text with no colour of its own.
+    #[serde(with = "tint")]
+    pub foreground: Color,
+    /// Behind text with no colour of its own.
+    #[serde(with = "tint")]
+    pub background: Color,
+    #[serde(with = "tint")]
+    pub cursor: Color,
+    /// Behind the cells chosen with the pointer.
+    #[serde(with = "tint")]
+    pub selection: Color,
+    #[serde(with = "tint")]
+    pub black: Color,
+    #[serde(with = "tint")]
+    pub red: Color,
+    #[serde(with = "tint")]
+    pub green: Color,
+    #[serde(with = "tint")]
+    pub yellow: Color,
+    #[serde(with = "tint")]
+    pub blue: Color,
+    #[serde(with = "tint")]
+    pub magenta: Color,
+    #[serde(with = "tint")]
+    pub cyan: Color,
+    #[serde(with = "tint")]
+    pub white: Color,
+    #[serde(with = "tint")]
+    pub bright_black: Color,
+    #[serde(with = "tint")]
+    pub bright_red: Color,
+    #[serde(with = "tint")]
+    pub bright_green: Color,
+    #[serde(with = "tint")]
+    pub bright_yellow: Color,
+    #[serde(with = "tint")]
+    pub bright_blue: Color,
+    #[serde(with = "tint")]
+    pub bright_magenta: Color,
+    #[serde(with = "tint")]
+    pub bright_cyan: Color,
+    #[serde(with = "tint")]
+    pub bright_white: Color,
+}
+
+impl TerminalLook {
+    /// One of the 16 colours programs name by number: black to white,
+    /// then their bright forms.
+    pub fn ansi(&self, index: u8) -> Color {
+        [
+            self.black,
+            self.red,
+            self.green,
+            self.yellow,
+            self.blue,
+            self.magenta,
+            self.cyan,
+            self.white,
+            self.bright_black,
+            self.bright_red,
+            self.bright_green,
+            self.bright_yellow,
+            self.bright_blue,
+            self.bright_magenta,
+            self.bright_cyan,
+            self.bright_white,
+        ][usize::from(index % 16)]
+    }
 }
 
 /// A theme saved while the app runs has replaced the one the panels

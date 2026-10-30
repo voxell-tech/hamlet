@@ -89,3 +89,30 @@ blur = 18.0
 [motion]
 interact = 0.14
 expand = 0.22
+
+[terminal]
+size = 13.0
+line = 1.3
+margin = 10.0
+list = 230.0
+settle = 0.15
+foreground = "#e8dcc4ff"
+background = "#0b0806ff"
+cursor = "#f2b35aff"
+selection = "#f2b35a4d"
+black = "#2a2018ff"
+red = "#e0705aff"
+green = "#a9c97fff"
+yellow = "#e3b05aff"
+blue = "#7fa3c9ff"
+magenta = "#c58fb5ff"
+cyan = "#74c2bbff"
+white = "#d9cdb5ff"
+bright_black = "#7c6b55ff"
+bright_red = "#f4907aff"
+bright_green = "#c3e09eff"
+bright_yellow = "#f5cf7fff"
+bright_blue = "#a1c0e0ff"
+bright_magenta = "#ddabd0ff"
+bright_cyan = "#9adcd5ff"
+bright_white = "#f6eeddff"

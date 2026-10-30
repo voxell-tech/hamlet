@@ -67,6 +67,9 @@ pub mod fonts {
     pub const CINZEL: File = file!("fonts/CinzelVariable.ttf");
     /// Twemoji (CC-BY 4.0), for emoji.
     pub const TWEMOJI: File = file!("fonts/TwemojiMozilla.ttf");
+    /// JetBrains Mono (SIL Open Font License), for terminals.
+    pub const JETBRAINS_MONO: File =
+        file!("fonts/JetBrainsMonoVariable.ttf");
 }
 
 impl File {

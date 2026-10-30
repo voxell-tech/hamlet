@@ -37,7 +37,7 @@ use bevy::ui_widgets::{
 };
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
-use hamlet_assets::fonts::{CINZEL, INTER, TWEMOJI};
+use hamlet_assets::fonts::{CINZEL, INTER, JETBRAINS_MONO, TWEMOJI};
 
 use crate::theme::Themed;
 
@@ -88,8 +88,13 @@ pub struct Mono(pub Handle<Font>);
 #[derive(Component)]
 pub struct MonoText;
 
+/// The face of the terminals, with every weight.
+#[derive(Resource)]
+pub struct TerminalFace(pub Handle<Font>);
+
 /// Makes Inter the default font, so every label and field uses it,
-/// and keeps the bundled monospace face for [`MonoText`].
+/// and keeps the bundled monospace face for [`MonoText`] and the
+/// terminals' face.
 pub fn install_fonts(world: &mut World) {
     let mut fonts = world.resource_mut::<Assets<Font>>();
     let _ = fonts.insert(
@@ -99,7 +104,10 @@ pub fn install_fonts(world: &mut World) {
     let mono =
         fonts.add(Font::from_bytes(DEFAULT_FONT_DATA.to_vec()));
     let display = fonts.add(Font::from_bytes(CINZEL.bytes.to_vec()));
+    let terminal =
+        fonts.add(Font::from_bytes(JETBRAINS_MONO.bytes.to_vec()));
     world.insert_resource(Mono(mono));
+    world.insert_resource(TerminalFace(terminal));
     world.insert_resource(Display(display));
     install_emoji(&mut world.resource_mut::<FontCx>());
 }

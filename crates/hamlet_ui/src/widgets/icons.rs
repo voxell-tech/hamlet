@@ -130,6 +130,8 @@ pub enum Glyph {
     Drop,
     /// An arrow rising from the ground.
     Rise,
+    /// A prompt in a window: a terminal.
+    Terminal,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -158,7 +160,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 53] = [
+    pub const ALL: [Glyph; 54] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -212,6 +214,7 @@ impl Glyph {
         Glyph::Scatter,
         Glyph::Drop,
         Glyph::Rise,
+        Glyph::Terminal,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -589,6 +592,11 @@ impl Glyph {
                 Line(8.0, 11.0, 8.0, 2.25),
                 Path(&[[4.75, 5.5], [8.0, 2.25], [11.25, 5.5]]),
                 Line(3.0, 13.75, 13.0, 13.75),
+            ],
+            Glyph::Terminal => &[
+                Round(1.75, 2.75, 14.25, 13.25, 1.5),
+                Path(&[[4.5, 6.0], [6.75, 8.0], [4.5, 10.0]]),
+                Line(8.25, 10.25, 11.5, 10.25),
             ],
         }
     }
