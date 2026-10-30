@@ -4,9 +4,10 @@
 
 mod input;
 pub mod keys;
+mod list;
 mod screen;
 
-use bevy::app::{App, PreUpdate, Update};
+use bevy::app::{App, Update};
 use bevy::color::{Alpha, Color};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -20,35 +21,29 @@ use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::math::Rect;
 use bevy::picking::Pickable;
 use bevy::ui::{
-    AlignItems, JustifyContent, Outline, Overflow, PositionType,
-    UiRect, px,
+    AlignItems, Outline, Overflow, PositionType, UiRect, px,
 };
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, frame, label, menu_item,
+    BehaviorExt, FrameProps, column, frame, label, menu_item,
     overlay, popup, row,
 };
 use bevy_fynix::{
-    ScopedExt, Theme, ViewExt, derived, every_frame, keyed, resource,
+    Theme, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{self, HamletId};
-use hamlet_client::terminals::{
-    self, Terminal, TerminalKind, TerminalOpened, Watched,
-};
-use hamlet_ui::styles::{
-    Fills, ICON, caption, close_button, description, hairline,
-    link_row, scroll_area,
-};
+use hamlet_client::terminals::{self, TerminalOpened, Watched};
+use hamlet_ui::styles::{Fills, ICON, caption, description};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, View, with_cx};
 
+use self::list::Listed;
 pub use self::screen::Canvas;
 pub(crate) use self::screen::{Chosen, Room};
-use crate::PanelSystems;
 use crate::dock::{PanelAppExt, flush_panel, show_tab};
 
 /// The size a terminal opens at before its canvas has been measured.
@@ -62,13 +57,11 @@ pub fn plugin(app: &mut App) {
     )
     .init_resource::<Active>()
     .init_resource::<Handing>()
-    .init_resource::<Listed>()
     .init_resource::<Adding>()
     .init_resource::<Opening>()
     .init_resource::<Chosen>()
     .init_resource::<Room>()
     .add_observer(opened)
-    .add_systems(PreUpdate, list.in_set(PanelSystems::Bind))
     .add_systems(
         Update,
         (
@@ -77,7 +70,7 @@ pub fn plugin(app: &mut App) {
             light_edge,
         ),
     )
-    .add_plugins(input::plugin);
+    .add_plugins((input::plugin, list::plugin));
 }
 
 /// The terminal the panel shows.
@@ -132,126 +125,6 @@ struct Adding(Option<Rect>);
 /// The open the panel waits on, to show what it opens.
 #[derive(Resource, Default)]
 struct Opening(Option<RequestId>);
-
-/// The terminals as the list shows them.
-#[derive(Resource, Default, Clone, PartialEq)]
-struct Listed(Vec<Group>);
-
-/// The terminals of one hamlet, or the unbounded ones.
-#[derive(Clone, PartialEq)]
-struct Group {
-    title: String,
-    items: Vec<Item>,
-}
-
-#[derive(Clone, PartialEq)]
-struct Item {
-    terminal: Entity,
-    name: String,
-    /// The agent's name, or "chief".
-    owner: String,
-    sandboxed: bool,
-    exit: Option<i64>,
-    runs: bool,
-    active: bool,
-}
-
-impl Listed {
-    fn find(&self, terminal: Entity) -> Option<&Item> {
-        self.0
-            .iter()
-            .flat_map(|group| &group.items)
-            .find(|item| item.terminal == terminal)
-    }
-
-    fn first(&self) -> Option<Entity> {
-        self.0
-            .iter()
-            .flat_map(|group| &group.items)
-            .map(|item| item.terminal)
-            .next()
-    }
-}
-
-/// Lists the terminals by hamlet, the unbounded ones last. In a
-/// hamlet the agents' come first, by agent and each agent's runs
-/// before its shells, then the chief's.
-fn list(world: &mut World) {
-    let active = world.resource::<Active>().0;
-    let Some(views) =
-        world.try_query::<(Entity, &Terminal)>().map(|mut query| {
-            query
-                .iter(world)
-                .map(|(entity, view)| (entity, view.0.clone()))
-                .collect::<Vec<_>>()
-        })
-    else {
-        return;
-    };
-    let mut keyed = views
-        .into_iter()
-        .map(|(entity, view)| {
-            let hamlet = view.hamlet.clone();
-            let title = hamlet.as_deref().map_or_else(
-                || "Unbounded".to_owned(),
-                |id| {
-                    realm::hamlet(world, id)
-                        .map(|h| realm::name_of(world, h))
-                        .filter(|name| !name.is_empty())
-                        .unwrap_or_else(|| id.to_owned())
-                },
-            );
-            let owner = view.agent.map(|agent| {
-                realm::agent(world, agent)
-                    .map(|a| realm::name_of(world, a))
-                    .filter(|name| !name.is_empty())
-                    .unwrap_or_else(|| format!("agent {}", agent.0))
-            });
-            let runs = view.kind == TerminalKind::Commands;
-            let name = if view.title.is_empty() {
-                view.name.clone()
-            } else {
-                view.title.clone()
-            };
-            let order = (
-                hamlet.is_none(),
-                title.clone(),
-                owner.is_none(),
-                owner.clone(),
-                !runs,
-                view.name.clone(),
-                view.id.clone(),
-            );
-            let item = Item {
-                terminal: entity,
-                name,
-                owner: owner.unwrap_or_else(|| "chief".into()),
-                sandboxed: view.sandboxed,
-                exit: view.exit,
-                runs,
-                active: active == Some(entity),
-            };
-            (order, title, item)
-        })
-        .collect::<Vec<_>>();
-    keyed.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut groups = Vec::<Group>::new();
-    for (_, title, item) in keyed {
-        match groups.last_mut() {
-            Some(group) if group.title == title => {
-                group.items.push(item);
-            }
-            _ => groups.push(Group {
-                title,
-                items: vec![item],
-            }),
-        }
-    }
-    let listed = Listed(groups);
-    if *world.resource::<Listed>() != listed {
-        world.insert_resource(listed);
-    }
-}
 
 /// Watches the active terminal while the panel is shown, and no
 /// other. With none active, the first listed is.
@@ -335,18 +208,6 @@ fn activate(world: &mut World, terminal: Entity) {
     world.resource_mut::<Handing>().0 = true;
 }
 
-/// Closes `terminal`. Closing the one shown gives the keys to the
-/// one shown next.
-fn close(world: &mut World, terminal: Entity) {
-    let listed = world.resource::<Listed>();
-    let others =
-        listed.0.iter().flat_map(|group| &group.items).count() > 1;
-    if others && world.resource::<Active>().0 == Some(terminal) {
-        world.resource_mut::<Handing>().0 = true;
-    }
-    terminals::close(world, terminal);
-}
-
 /// The panel's contents.
 fn panel() -> impl View {
     with_cx(|cx| {
@@ -359,7 +220,7 @@ fn panel() -> impl View {
                 .gap(0.0)
                 .fill(look.background),
             frame().width(px(1.0)).fill(cx.theme().palette.border),
-            side(),
+            list::side(),
             frame()
                 .position(PositionType::Absolute)
                 .inset(UiRect::all(px(0.0)))
@@ -471,158 +332,6 @@ fn body() -> impl View {
     )
 }
 
-/// The list of terminals and the press that opens another.
-fn side() -> impl View {
-    with_cx(|cx| {
-        let space = &cx.theme().space;
-        column((
-            row((
-                row((caption("TERMINALS".to_string(), Tone::Faint),))
-                    .grow(1.0),
-                button(glyph(Glyph::Plus, ICON).tone(Tone::Dim))
-                    .padding(UiRect::all(px(4.0)))
-                    .rules(link_row)
-                    .on_activate_with(|world, node| {
-                        let anchor =
-                            crate::menu::rect_of(world, node);
-                        world.resource_mut::<Adding>().0 = anchor;
-                    }),
-            ))
-            .align(AlignItems::Center)
-            .justify(JustifyContent::SpaceBetween)
-            .padding(UiRect::new(
-                px(space.section),
-                px(space.gap),
-                px(6.0),
-                px(6.0),
-            )),
-            hairline(cx.theme().palette.border),
-            scroll_area((keyed(
-                resource::<Listed, _>(Clone::clone),
-                |listed| groups(listed).boxed(),
-            )
-            .within(column(()).gap(0.0)),)),
-        ))
-        .gap(0.0)
-        .width(px(cx.theme().terminal.list))
-        .shrink(0.0)
-        .fill(cx.theme().palette.card)
-    })
-}
-
-fn groups(listed: &Listed) -> impl View {
-    let groups = listed
-        .0
-        .iter()
-        .map(|group| {
-            let rows = group
-                .items
-                .iter()
-                .map(|item| entry(item.clone()))
-                .collect::<Vec<_>>();
-            let title = group.title.to_uppercase();
-            with_cx(move |cx| {
-                let space = &cx.theme().space;
-                column((
-                    row((caption(title, Tone::Dim),)).padding(
-                        UiRect::new(
-                            px(space.section),
-                            px(space.section),
-                            px(space.gap),
-                            px(2.0),
-                        ),
-                    ),
-                    column(rows).gap(0.0),
-                ))
-                .gap(0.0)
-            })
-            .boxed()
-        })
-        .collect::<Vec<_>>();
-    column(groups).gap(0.0).padding(UiRect::bottom(px(8.0)))
-}
-
-/// One terminal: its name and owner, what it is, and its close.
-fn entry(item: Item) -> AnyView {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        let small = theme.text.small;
-        let terminal = item.terminal;
-        let mut about = vec![item.owner.clone()];
-        if item.runs {
-            about.push("runs".into());
-        }
-        if !item.sandboxed {
-            about.push("unsandboxed".into());
-        }
-        if let Some(code) = item.exit {
-            about.push(format!("exit {code}"));
-        }
-        let mark = if item.runs {
-            Glyph::Play
-        } else {
-            Glyph::Terminal
-        };
-        let tone = if item.active { Tone::Accent } else { Tone::Dim };
-        let fill = if item.active {
-            theme.palette.button
-        } else {
-            Color::NONE
-        };
-        row((
-            button(
-                row((
-                    glyph(mark, ICON).tone(tone),
-                    column((
-                        label(item.name.clone())
-                            .size(small)
-                            .bold(item.active)
-                            .tone(if item.active {
-                                Tone::Body
-                            } else {
-                                Tone::Dim
-                            })
-                            .wrap(false),
-                        label(about.join(" \u{b7} "))
-                            .size(theme.text.small)
-                            .tone(
-                                if item
-                                    .exit
-                                    .is_some_and(|code| code != 0)
-                                {
-                                    Tone::Critical
-                                } else {
-                                    Tone::Faint
-                                },
-                            )
-                            .wrap(false),
-                    ))
-                    .gap(1.0)
-                    .min_width(px(0.0)),
-                ))
-                .gap(theme.space.gap)
-                .align(AlignItems::Center),
-            )
-            .grow(1.0)
-            .min_width(px(0.0))
-            .justify(JustifyContent::FlexStart)
-            .padding(UiRect::new(
-                px(theme.space.section),
-                px(4.0),
-                px(5.0),
-                px(5.0),
-            ))
-            .rules(link_row)
-            .on_activate(move |world| activate(world, terminal)),
-            close_button(move |world| close(world, terminal)),
-        ))
-        .align(AlignItems::Center)
-        .padding(UiRect::right(px(theme.space.gap)))
-        .fill(fill)
-    })
-    .boxed()
-}
-
 /// The hamlets a terminal can be opened in, by id and name.
 fn hamlets(world: &World) -> Vec<(String, String)> {
     let mut found = world
@@ -714,7 +423,7 @@ mod tests {
         kind: &str,
     ) -> terminals::TerminalView {
         serde_json::from_value(json!({
-            "agent": agent.map(|n| json!({"hamlet": hamlet, "number": n})),
+            "agent": agent,
             "cols": 80, "rows": 24, "cwd": "/", "exit": null,
             "hamlet": hamlet, "id": id, "kind": kind, "name": id,
             "sandboxed": hamlet.is_some(), "title": ""
@@ -750,7 +459,6 @@ mod tests {
         use bevy::input_focus::pointer_focus::PointerFocusPlugin;
         use bevy::input_focus::{AcquireFocus, InputFocusPlugin};
         use bevy::window::{PrimaryWindow, Window};
-        use hamlet_assets::Tuning;
 
         let mut app = App::new();
         app.add_plugins((
@@ -801,12 +509,12 @@ mod tests {
         let mut app = crate::testing::panel_app();
         let mut state = hamlet_testing::realm::state();
         state.revision = 1;
-        state.hamlets.push(hamlet_testing::realm::hamlet("mill", 4));
+        state.hamlets.push(hamlet_testing::realm::hamlet("mill", 3));
         state.terminals = vec![
             view("loose", None, None, "shell"),
             view("chief", Some("home"), None, "shell"),
-            view("shell", Some("home"), Some(0), "shell"),
-            view("runs", Some("home"), Some(0), "runs"),
+            view("shell", Some("home"), Some(2), "shell"),
+            view("runs", Some("home"), Some(2), "commands"),
             view("milled", Some("mill"), None, "shell"),
         ];
         hamlet_client::receive(
@@ -814,7 +522,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.init_resource::<Active>().init_resource::<Listed>();
-        list(app.world_mut());
+        list::list(app.world_mut());
         let listed = app
             .world()
             .resource::<Listed>()
@@ -842,7 +550,7 @@ mod tests {
             [
                 group(
                     "home",
-                    &["founder:runs", "founder:shell", "chief:chief"]
+                    &["home#0:runs", "home#0:shell", "chief:chief"]
                 ),
                 group("mill", &["chief:milled"]),
                 group("Unbounded", &["chief:loose"]),

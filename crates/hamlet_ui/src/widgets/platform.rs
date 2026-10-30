@@ -42,7 +42,9 @@ use bevy_fynix::EntityCursor;
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::RichField;
-use hamlet_assets::fonts::{FRAUNCES, INTER, JETBRAINS_MONO, TWEMOJI};
+use hamlet_assets::fonts::{
+    FRAUNCES, INTER, JETBRAINS_MONO, TWEMOJI,
+};
 
 use crate::theme::Themed;
 
