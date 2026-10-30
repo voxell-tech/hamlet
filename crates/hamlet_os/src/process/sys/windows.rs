@@ -69,6 +69,10 @@ impl Group {
     /// Returns once they have exited: the system ends them after the
     /// call, and until then they hold their working folders, which
     /// the job's list stops naming first.
+    pub(crate) fn hang_up(self) {
+        self.end();
+    }
+
     pub(crate) fn end(self) {
         let ending = self
             .job
@@ -340,4 +344,60 @@ pub(crate) fn unenforced(
 
 pub(crate) fn is_executable(path: &str) -> bool {
     std::fs::metadata(path).is_ok_and(|meta| meta.is_file())
+}
+
+/// Windows has no terminals yet, so no input or output of one exists.
+pub(crate) enum PtyInput {}
+
+pub(crate) enum PtyOutput {}
+
+impl tokio::io::AsyncWrite for PtyInput {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        _: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        match *self {}
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        match *self {}
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        match *self {}
+    }
+}
+
+impl tokio::io::AsyncRead for PtyOutput {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        _: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        match *self {}
+    }
+}
+
+pub(crate) fn spawn_pty(
+    _: crate::process::pty::Command<'_>,
+    _: crate::process::pty::Size,
+) -> io::Result<(Group, PtyInput, PtyOutput)> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Windows has no terminals yet",
+    ))
+}
+
+pub(crate) fn resize_pty(
+    input: &PtyInput,
+    _: crate::process::pty::Size,
+) -> io::Result<()> {
+    match *input {}
 }
