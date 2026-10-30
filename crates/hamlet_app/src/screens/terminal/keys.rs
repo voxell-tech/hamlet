@@ -42,6 +42,25 @@ pub struct Modes {
     pub alt_is_meta: bool,
 }
 
+/// The bytes a macOS editing chord types, as Terminal and VS Code
+/// send them: Command with an arrow goes to an end of the line and
+/// with Backspace clears it to the cursor, Option with an arrow goes
+/// by words and with Backspace takes the word behind.
+pub fn editing(key: &Key, mods: Mods) -> Option<&'static str> {
+    if mods.ctrl || mods.shift || mods.command == mods.alt {
+        return None;
+    }
+    match (mods.command, key) {
+        (true, Key::ArrowLeft) => Some("\x01"),
+        (true, Key::ArrowRight) => Some("\x05"),
+        (true, Key::Backspace) => Some("\x15"),
+        (false, Key::ArrowLeft) => Some("\x1bb"),
+        (false, Key::ArrowRight) => Some("\x1bf"),
+        (false, Key::Backspace) => Some("\x17"),
+        _ => None,
+    }
+}
+
 /// The bytes for `key` held with `mods`, given the `text` it typed.
 /// None for a key the terminal is not sent, such as a Command chord.
 pub fn encode(
@@ -195,6 +214,29 @@ mod tests {
             encode(&Key::F5, None, CTRL, app).unwrap(),
             "\x1b[15;5~"
         );
+    }
+
+    #[test]
+    fn command_and_option_edit_the_line_as_on_a_mac() {
+        let command = Mods {
+            command: true,
+            ..Mods::default()
+        };
+        let option = Mods {
+            alt: true,
+            ..Mods::default()
+        };
+        assert_eq!(editing(&Key::ArrowLeft, command), Some("\x01"));
+        assert_eq!(editing(&Key::Backspace, command), Some("\x15"));
+        assert_eq!(editing(&Key::ArrowRight, option), Some("\x1bf"));
+        assert_eq!(editing(&Key::Backspace, option), Some("\x17"));
+        assert_eq!(editing(&Key::ArrowLeft, Mods::default()), None);
+        let both = Mods {
+            command: true,
+            alt: true,
+            ..Mods::default()
+        };
+        assert_eq!(editing(&Key::ArrowLeft, both), None);
     }
 
     #[test]
