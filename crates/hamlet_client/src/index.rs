@@ -1,5 +1,5 @@
-//! The hamlets, agents, scholars, waits and chats by the ids the
-//! server names them with, kept by their components' hooks.
+//! The hamlets, agents, scholars, waits, chats and terminals by the
+//! ids the server names them with, kept by their components' hooks.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -14,6 +14,7 @@ use crate::chats::Chat;
 use crate::realm::{
     HamletId, Identity, Left, LivesIn, Mayor, Scholar,
 };
+use crate::terminals::TerminalId;
 use crate::waits::Waiting;
 
 /// The index and the observers keeping agents' names in it.
@@ -36,8 +37,8 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
-/// The entities of the server's hamlets, agents, scholars, waits and
-/// chats by their protocol ids.
+/// The entities of the server's hamlets, agents, scholars, waits,
+/// chats and terminals by their protocol ids.
 #[derive(Resource, Default)]
 pub(crate) struct Index {
     hamlets: HashMap<String, Entity>,
@@ -51,6 +52,7 @@ pub(crate) struct Index {
     waits: HashMap<String, Entity>,
     // `ChatRef` has no `Hash`, and a window watches few chats.
     chats: Vec<(Entity, protocol::ChatRef)>,
+    terminals: HashMap<String, Entity>,
 }
 
 /// What an agent is found by.
@@ -154,6 +156,17 @@ impl Index {
 
     pub(crate) fn waits(&self) -> impl Iterator<Item = Entity> + '_ {
         self.waits.values().copied()
+    }
+
+    /// A terminal by its server id.
+    pub(crate) fn terminal(&self, id: &str) -> Option<Entity> {
+        self.terminals.get(id).copied()
+    }
+
+    pub(crate) fn terminals(
+        &self,
+    ) -> impl Iterator<Item = Entity> + '_ {
+        self.terminals.values().copied()
     }
 
     /// Files `agent` as `now`.
@@ -419,6 +432,38 @@ pub(crate) fn unfile_chat(
 ) {
     if let Some(mut index) = world.get_resource_mut::<Index>() {
         index.chats.retain(|(chat, _)| *chat != context.entity);
+    }
+}
+
+pub(crate) fn file_terminal(
+    mut world: DeferredWorld,
+    context: HookContext,
+) {
+    let Some(id) = world
+        .get::<TerminalId>(context.entity)
+        .map(|id| id.0.clone())
+    else {
+        return;
+    };
+    if let Some(mut index) = world.get_resource_mut::<Index>() {
+        index.terminals.insert(id, context.entity);
+    }
+}
+
+pub(crate) fn unfile_terminal(
+    mut world: DeferredWorld,
+    context: HookContext,
+) {
+    let Some(id) = world
+        .get::<TerminalId>(context.entity)
+        .map(|id| id.0.clone())
+    else {
+        return;
+    };
+    if let Some(mut index) = world.get_resource_mut::<Index>()
+        && index.terminals.get(&id) == Some(&context.entity)
+    {
+        index.terminals.remove(&id);
     }
 }
 
