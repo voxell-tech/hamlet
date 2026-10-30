@@ -210,6 +210,8 @@ pub enum Glyph {
     Worker,
     /// A framed picture: an image to attach.
     Picture,
+    /// A prompt in a window: a terminal.
+    Terminal,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -238,7 +240,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 69] = [
+    pub const ALL: [Glyph; 70] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -308,6 +310,7 @@ impl Glyph {
         Glyph::Merge,
         Glyph::Worker,
         Glyph::Picture,
+        Glyph::Terminal,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -790,6 +793,11 @@ impl Glyph {
                     [11.0, 9.5],
                     [13.5, 12.0],
                 ]),
+            ],
+            Glyph::Terminal => &[
+                Round(1.75, 2.75, 14.25, 13.25, 1.5),
+                Path(&[[4.5, 6.0], [6.75, 8.0], [4.5, 10.0]]),
+                Line(8.25, 10.25, 11.5, 10.25),
             ],
         }
     }
