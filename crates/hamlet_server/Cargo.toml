@@ -51,6 +51,7 @@ tokio-tungstenite.workspace = true
 unicode-normalization = "0.1"
 url = "2"
 uuid.workspace = true
+vt100.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true

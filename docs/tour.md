@@ -47,7 +47,7 @@ view layer; the workspace excludes it, and it is not edited here.
 |---|---|
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
 | `hamlet_server` | `hamlet_server`: realm, permissions, tools, records, credentials and harness supervision |
-| `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name, and the tools' walk, path text and error words; `process`, a command's process tree, started inside its limits and killed whole |
+| `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name, and the tools' walk, path text and error words; `process`, a command's process tree, started inside its limits and killed whole, and `process::pty`, a command on a pseudo-terminal |
 | `hamlet_app` | `hamlet_app`, the window: its panels, menus, chat and pointer, and the seven examples that draw the world and the panels |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
@@ -158,6 +158,7 @@ fault points, signals, remote workspaces and the society) and
 | `starters.rs` | Shipped starter content from `crates/hamlet_server/assets/starters/` |
 | `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, the model each attempt runs (`Choices`), atomic credential files, sign-ins and secret removal before publication or harness persistence, and before a diagnostic is logged |
 | `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
+| `terminals.rs`, `terminals/` | `Terminals`: shells on pseudo-terminals, each a `vt100` screen and the bytes that redraw it, for the connections that watch them; the chief's `terminal` requests; each agent's runs terminal, which the shell tool prints to; `restore` and `keep_all`, which keep them under `terminals/` across restarts; `tool.rs`, the agents' `terminal_*` tools |
 | `society.rs`, `society/` | `SocietyTool` names each society tool, its role and schema, and `SocietyOutcome` is what one returns, which `once` keeps at its marker; letters/questions, instructions/objections, votes, library and recoverable merge/departure work. The sweeps run on the ticks that rebuild the state, and read only due votes and reviews; finished ones are kept under `votes-done` and `review-done` |
 | `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding, agreements and pending house moves |
 | `testing.rs` | For unit tests: `config`, a harness configuration that starts nothing, and `set_limits`, which writes a hamlet's limits |
@@ -216,6 +217,7 @@ ordinary tools.
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs`, `index.rs` |
 | Gifts of skills and files, their upload in parts | `hamlet_client/src/gifts.rs`; dropped files reach it through `hamlet_realm/src/orders.rs` |
+| Terminals: the server's shells, the agents' terminal tools, the panel | `hamlet_server/src/terminals.rs`, `terminals/tool.rs`; `hamlet_os/src/process/pty.rs`; `hamlet_client/src/terminals.rs`; `hamlet_app/src/screens/terminal.rs`, `screens/terminal/`; [`sandbox.md`](sandbox.md#terminals) |
 | A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
 | Panels' colors, controls and icons | `assets/theme.toml`, `effects.toml`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |

@@ -66,7 +66,7 @@ pub struct Outcome {
 }
 
 impl Outcome {
-    fn text(text: impl Into<String>) -> Self {
+    pub(crate) fn text(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             error: false,
@@ -75,7 +75,7 @@ impl Outcome {
         }
     }
 
-    fn failed(text: impl Into<String>) -> Self {
+    pub(crate) fn failed(text: impl Into<String>) -> Self {
         Self {
             error: true,
             ..Self::text(text)
@@ -227,6 +227,7 @@ pub fn specs(shells: &Shells) -> Vec<ToolSpec> {
         ),
     ];
     specs.extend(shells.specs());
+    specs.extend(crate::terminals::specs());
     specs.extend([
         spec(
             "search",
@@ -388,11 +389,25 @@ impl ToolSession {
 
     /// Runs `tool` with `arguments` and takes `secrets` out of all it
     /// gives. Dropping the future kills a command it runs.
+    #[cfg(test)]
     pub async fn run(
         &self,
         secrets: &[String],
         tool: &str,
         arguments: &Map<String, Value>,
+    ) -> Outcome {
+        self.run_shown(secrets, tool, arguments, None).await
+    }
+
+    /// Runs `tool` with `arguments` and takes `secrets` out of all it
+    /// gives, printing a shell's output to `shown` as it comes.
+    /// Dropping the future kills a command it runs.
+    pub async fn run_shown(
+        &self,
+        secrets: &[String],
+        tool: &str,
+        arguments: &Map<String, Value>,
+        shown: Option<&crate::terminals::Feed>,
     ) -> Outcome {
         let mut outcome = match self {
             Self::Local {
@@ -414,7 +429,7 @@ impl ToolSession {
                     Ok(mut env) => {
                         reach_run(
                             &mut env, shells, place, secrets, tool,
-                            arguments,
+                            arguments, shown,
                         )
                         .await
                     }
@@ -459,7 +474,7 @@ impl ToolSession {
                             environment::Remote::new(session);
                         reach_run(
                             &mut env, shells, place, secrets, tool,
-                            arguments,
+                            arguments, shown,
                         )
                         .await
                     }
@@ -489,10 +504,13 @@ async fn reach_run(
     secrets: &[String],
     tool: &str,
     arguments: &Map<String, Value>,
+    shown: Option<&crate::terminals::Feed>,
 ) -> Outcome {
     if let Some(shell) = shells.named(tool) {
-        return shell::run(shell, env, place, secrets, arguments)
-            .await;
+        return shell::run(
+            shell, env, place, secrets, arguments, shown,
+        )
+        .await;
     }
     match tool {
         "read" => files::read(env, arguments, shells.dialect()).await,

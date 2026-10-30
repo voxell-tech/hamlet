@@ -334,6 +334,7 @@ pub(crate) fn build(
         library: crate::society::library::views(service)?,
         closed,
         starters: crate::gifts::starters(),
+        terminals: service.terminals.views(),
         deeds: crate::chats::advertised_deeds(),
         settings: SettingsView {
             model: settings.model,
@@ -479,6 +480,22 @@ pub(crate) fn changed(
             changes.push(Update::WaitClosed {
                 how: endings(&wait.id),
                 id: wait.id.clone(),
+            });
+        }
+    }
+    for terminal in &after.terminals {
+        if before.terminals.iter().find(|t| t.id == terminal.id)
+            != Some(terminal)
+        {
+            changes.push(Update::Terminal {
+                terminal: terminal.clone(),
+            });
+        }
+    }
+    for terminal in &before.terminals {
+        if !after.terminals.iter().any(|t| t.id == terminal.id) {
+            changes.push(Update::TerminalGone {
+                id: terminal.id.clone(),
             });
         }
     }

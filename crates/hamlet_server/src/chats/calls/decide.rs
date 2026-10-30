@@ -481,7 +481,7 @@ pub(super) fn chat_of(place: &Place) -> Option<ChatPlace> {
 }
 
 /// Where the tools of `agent` work.
-pub(super) fn places(
+pub(crate) fn places(
     service: &mut Service,
     agent: &AgentRef,
 ) -> Result<tools::Place> {

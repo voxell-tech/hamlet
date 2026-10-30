@@ -17,6 +17,7 @@ use hamlet_protocol::runtime::{
 use serde_json::{Map, Value, json};
 
 pub(super) use self::answer::answer_words;
+pub(crate) use self::decide::places;
 use self::decide::{Decision, Gate, Reading, Unadmitted};
 pub(crate) use self::tasks::{Finished, Tasks};
 use self::tasks::{Join, Prepared};
@@ -587,7 +588,27 @@ fn run(
     if tools::runs_once(call.tool) || call.hand.is_some() {
         operation::begin(db, &call.id, request)?;
     }
-    let place = decide::places(service, &call.bound.agent)?;
+    if let Some(tool) = crate::terminals::Tool::named(call.tool) {
+        let work = crate::terminals::call(
+            service,
+            &call.bound.agent,
+            tool,
+            call.arguments,
+            net,
+        )?;
+        service.chats.calls.run(
+            call.id,
+            call.bound.id,
+            address.clone(),
+            work,
+        );
+        return Ok(());
+    }
+    let place = places(service, &call.bound.agent)?;
+    let runs = match tools::Dialect::of_tool(call.tool) {
+        Some(_) => Some(runs(service, &call, &place)?),
+        None => None,
+    };
     let tools = service.tools(&call.bound.agent, place, net)?;
     let secrets = service.credentials.secrets();
     let arguments =
@@ -598,8 +619,17 @@ fn run(
         call.bound.id,
         address.clone(),
         async move {
-            let mut outcome =
-                tools.run(&secrets, &name, &arguments).await;
+            let mut outcome = tools
+                .run_shown(&secrets, &name, &arguments, runs.as_ref())
+                .await;
+            if let Some(runs) = &runs {
+                let code = outcome
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("exitCode"))
+                    .and_then(Value::as_i64);
+                runs.ended_run(code);
+            }
             if let Some(change) = change {
                 outcome
                     .details
@@ -610,6 +640,44 @@ fn run(
         },
     );
     Ok(())
+}
+
+/// Where the shell call `call` shows its command and output as they
+/// come: its agent's runs terminal.
+fn runs(
+    service: &mut Service,
+    call: &decide::Admitted<'_>,
+    place: &tools::Place,
+) -> Result<crate::terminals::Feed> {
+    let agent = &call.bound.agent;
+    let name = service
+        .home
+        .store()
+        .record(&agent.hamlet)?
+        .and_then(|record| {
+            record
+                .agents
+                .into_iter()
+                .find(|a| a.number == agent.number)
+                .map(|a| a.name)
+        })
+        .unwrap_or_else(|| agent.number.to_string());
+    let cwd = place.folder.as_ref().unwrap_or(&place.house);
+    let feed = service.terminals.runs(
+        &hamlet_protocol::client::AgentRef {
+            hamlet: agent.hamlet.clone(),
+            number: agent.number,
+        },
+        &name,
+        &hamlet_os::fs::path::text(cwd),
+    );
+    let command = call
+        .arguments
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    feed.print_lines(&format!("\x1b[1;36m$\x1b[0m {command}\n"));
+    Ok(feed)
 }
 
 /// Stops the tool calls running for `binding`.

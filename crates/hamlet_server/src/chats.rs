@@ -25,7 +25,9 @@ use hamlet_protocol::client::{
 
 use self::activity::Activity;
 pub(crate) use self::activity::words;
-pub(crate) use self::calls::{Finished, finished, specs, stop_tools};
+pub(crate) use self::calls::{
+    Finished, finished, places, specs, stop_tools,
+};
 pub(crate) use self::deeds::stop_agent;
 use self::fold::Fold;
 use self::records::Place;

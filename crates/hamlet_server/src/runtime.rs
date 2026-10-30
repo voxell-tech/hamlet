@@ -212,6 +212,12 @@ impl Serving {
                     self.service.gifts.tasks.join_next() => {
                     self.on_given(given).await
                 }
+                Some(printed) = self.service.terminals.next() => {
+                    // Output alone changes no state; an end or a
+                    // title refreshes it here.
+                    timed = true;
+                    self.on_printed(printed)
+                }
                 Some(_) = self.tasks.join_next() => Ok(()),
             };
             since.stale |= !timed;
@@ -273,6 +279,7 @@ impl Serving {
         self.service.models.disconnect(id);
         self.service.chats.gone(id);
         self.service.gifts.gone(id);
+        self.service.terminals.gone(id);
         flush_models(&mut self.service, &mut self.harnesses).await
     }
 
@@ -312,6 +319,13 @@ impl Serving {
     /// in a house or the library by hand shows within a tick.
     async fn on_tick(&mut self, since: &mut Since) -> Result<()> {
         use crate::society::{merging, reviews, votes};
+        let clients = &self.clients;
+        let caught = self.service.terminals.catch_up(|id| {
+            clients.get(&id).map_or(0, |c| c.send.capacity())
+        });
+        for (id, message) in caught {
+            self.send_to(id, message)?;
+        }
         self.service.gifts.expire();
         let expired = self.service.models.expired();
         let due = since.stale
@@ -455,6 +469,27 @@ impl Serving {
         self.refresh()
     }
 
+    /// Sends the terminals' output to the connections that watch
+    /// them, with what else was printed by now.
+    fn on_printed(
+        &mut self,
+        first: crate::terminals::Printed,
+    ) -> Result<()> {
+        let mut printed = vec![first];
+        while let Some(more) = self.service.terminals.more() {
+            printed.push(more);
+        }
+        let clients = &self.clients;
+        let (out, changed) =
+            self.service.terminals.printed(printed, |id| {
+                clients.get(&id).map_or(0, |c| c.send.capacity())
+            });
+        for (id, message) in out {
+            self.send_to(id, message)?;
+        }
+        if changed { self.refresh() } else { Ok(()) }
+    }
+
     /// Frees the connections whose merge finished and sends what the
     /// chats hold, after each event.
     fn settle(&mut self) -> Result<()> {
@@ -590,6 +625,20 @@ impl Serving {
             self.state.revision,
         )?;
         let mut after = built.state;
+        let agents = after
+            .agents
+            .iter()
+            .filter(|agent| agent.left.is_none())
+            .map(|agent| agent.agent.clone())
+            .collect::<Vec<_>>();
+        let hamlets = after
+            .hamlets
+            .iter()
+            .map(|hamlet| hamlet.id.clone())
+            .collect::<Vec<_>>();
+        if self.service.terminals.prune(&agents, &hamlets) {
+            after.terminals = self.service.terminals.views();
+        }
         let mut endings = HashMap::new();
         for wait in &self.state.waits {
             if !after.waits.iter().any(|w| w.id == wait.id) {

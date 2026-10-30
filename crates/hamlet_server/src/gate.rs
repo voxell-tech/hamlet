@@ -60,6 +60,26 @@ pub(crate) fn call_of(tool: &str, args: &Value) -> Call {
             net: args.get("network") == Some(&Value::Bool(true)),
         };
     }
+    if let Some(terminal) = crate::terminals::Tool::named(tool) {
+        use crate::terminals::Tool;
+        let net = args.get("network") == Some(&Value::Bool(true));
+        let shell = |command: String| Call::Shell {
+            dialect: Dialect::Bash,
+            command,
+            net,
+        };
+        return match terminal {
+            Tool::Open => {
+                shell("bash (a terminal that stays open)".into())
+            }
+            Tool::Write => shell(crate::terminals::command(args)),
+            Tool::Read => Call::Read,
+            Tool::Close => Call::Other {
+                name: tool.into(),
+                args: args.clone(),
+            },
+        };
+    }
     match tool {
         "write" => Call::Edit {
             write: true,

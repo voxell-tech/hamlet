@@ -250,6 +250,21 @@ impl Env {
         })
     }
 
+    /// `argv` confined to the policy on a terminal, with no limits
+    /// but the sandbox's: a shell there runs for as long as it is
+    /// used.
+    pub(crate) fn terminal(
+        &self,
+        argv: &[String],
+    ) -> super::Confined {
+        self.sandbox.terminal(
+            &self.policy,
+            argv,
+            &self.cwd,
+            &self.tmp,
+        )
+    }
+
     pub(crate) fn cwd(&self) -> &str {
         &self.cwd
     }

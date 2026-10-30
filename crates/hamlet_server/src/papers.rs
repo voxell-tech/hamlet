@@ -244,6 +244,15 @@ impl Houses {
         })
     }
 
+    /// The sandbox commands run in on this machine. None for a
+    /// remote workspace.
+    pub(crate) fn sandbox(&self) -> Option<Sandbox> {
+        match &self.workspace {
+            Workspace::Local { sandbox, .. } => Some(*sandbox),
+            Workspace::Remote(_) => None,
+        }
+    }
+
     /// The shells the workspace offers.
     pub fn shells(&self) -> crate::tools::Shells {
         match &self.workspace {

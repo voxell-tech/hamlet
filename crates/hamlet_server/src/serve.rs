@@ -238,6 +238,14 @@ pub async fn serve(options: Options) -> Result<()> {
     );
     let (events, mut incoming) = mpsc::channel(128);
     let (shutdown, closing) = watch::channel(false);
+    if let Err(error) = crate::terminals::restore(&mut service) {
+        crate::diagnostic::tell(
+            crate::diagnostic::Secrets::Of(&service.credentials),
+            format_args!(
+                "could not open the kept terminals: {error:#}"
+            ),
+        );
+    }
     let epoch = crate::clock::now();
     let state = service.state(epoch, 0)?;
     let mut serving = Serving {
@@ -276,6 +284,7 @@ pub async fn serve(options: Options) -> Result<()> {
     serving.tasks.abort_all();
     while serving.tasks.join_next().await.is_some() {}
     serving.service.houses.end_leftovers();
+    serving.service.terminals.keep_all();
     serving.harnesses.close().await;
     drop(published);
     serving.service.home.close()?;

@@ -31,6 +31,7 @@ pub struct Service {
     pub(crate) moving: crate::papers::moving::Moving,
     pub(crate) house_work: crate::society::work::Work,
     pub(crate) merges: crate::society::merging::lane::Merges,
+    pub(crate) terminals: crate::terminals::Terminals,
 }
 
 impl Service {
@@ -148,6 +149,7 @@ impl Service {
             moving: crate::papers::moving::Moving::default(),
             house_work: crate::society::work::Work::default(),
             merges: crate::society::merging::lane::Merges::default(),
+            terminals: crate::terminals::Terminals::new(&root),
         })
     }
 

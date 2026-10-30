@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use futures::FutureExt;
 use hamlet_protocol::client::{
     Address, ClientMessage, Edit, MoveHouses, Read, RequestId,
-    ServerMessage,
+    ServerMessage, Terminal,
 };
 use tokio::task::JoinError;
 
@@ -86,6 +86,18 @@ impl Serving {
                 return Ok(false);
             }
         };
+        // Typing and resizing answer nothing and change no state, so
+        // they skip the rebuild every other request is followed by.
+        if client.welcomed
+            && let ClientMessage::Terminal(
+                asked @ (Terminal::Input { .. }
+                | Terminal::Resize { .. }
+                | Terminal::Unwatch { .. }),
+            ) = &message
+        {
+            crate::terminals::request(&mut self.service, id, asked)?;
+            return Ok(false);
+        }
         let request = message.id().cloned();
         let taken = self.take(id, message).await;
         taken.with_context(|| Asked {
@@ -252,6 +264,13 @@ impl Serving {
             }
             ClientMessage::Read(read @ Read::Charter { .. }) => {
                 vec![self.service.read(read.clone()).await?]
+            }
+            ClientMessage::Terminal(asked) => {
+                crate::terminals::request(
+                    &mut self.service,
+                    id,
+                    asked,
+                )?
             }
             ClientMessage::MoveHouses(MoveHouses { id: request }) => {
                 match self.service.start_move(id, request)? {

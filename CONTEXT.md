@@ -143,6 +143,14 @@ The judge of skills offered to the library, and the adviser on its shelves.
 What is kept of agents and hamlets that left, so a chief can restore them.
 _Avoid_: trash, deleted agents
 
+**Terminal**:
+A shell on a pseudo-terminal the server runs, which the chief and agents
+type into and the window shows. One of a hamlet runs under the sandbox;
+an unbounded one is the chief's own shell, with no sandbox. Each agent
+also has one terminal of its runs, showing the commands its shell tool
+runs as they run.
+_Avoid_: console, tty, pane
+
 ### The window
 
 **Desk**:

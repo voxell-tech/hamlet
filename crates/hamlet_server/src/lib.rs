@@ -42,6 +42,7 @@ mod spend;
 mod starters;
 mod state;
 mod store;
+mod terminals;
 #[cfg(test)]
 mod testing;
 mod tools;

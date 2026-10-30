@@ -17,6 +17,7 @@ development. `crates/hamlet_server/src/home.rs` defines `Home` and `Layout`.
 | `library/` | Shared skills, read-only to agent tools |
 | `librarian/NOTES.md` | Instructions included in librarian consultations |
 | `tools/` | Hand-added tool manifests and scripts |
+| `terminals/<id>.json` | Each terminal's view and its last output, kept across restarts, outside agents' reach |
 | `.gifts/`, `.society-files/`, `.library-staging/` | Private staging and recoverable file snapshots, outside agents' reach |
 
 The server reads `tools/` again every two seconds, so a tool a chief puts

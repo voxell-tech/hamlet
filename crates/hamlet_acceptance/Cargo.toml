@@ -70,3 +70,7 @@ required-features = ["acceptance"]
 [[test]]
 name = "oauth"
 required-features = ["acceptance"]
+
+[[test]]
+name = "terminals"
+required-features = ["acceptance"]
