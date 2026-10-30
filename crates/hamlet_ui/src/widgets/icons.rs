@@ -112,6 +112,8 @@ pub enum Glyph {
     Chevron,
     /// A chevron to the right: this opens a page of its own.
     Into,
+    /// A chevron that points down: a list that is open.
+    Down,
     /// Three dots: the rest of what can be done.
     More,
     /// Three lines: a list folded away.
@@ -160,7 +162,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 54] = [
+    pub const ALL: [Glyph; 55] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -203,6 +205,7 @@ impl Glyph {
         Glyph::Globe,
         Glyph::Chevron,
         Glyph::Into,
+        Glyph::Down,
         Glyph::More,
         Glyph::Menu,
         Glyph::Folder,
@@ -522,6 +525,9 @@ impl Glyph {
             }
             Glyph::Into => {
                 &[Path(&[[6.0, 4.0], [10.0, 8.0], [6.0, 12.0]])]
+            }
+            Glyph::Down => {
+                &[Path(&[[4.0, 6.0], [8.0, 10.0], [12.0, 6.0]])]
             }
             Glyph::More => &[
                 Dot(3.5, 8.0, 1.25),
