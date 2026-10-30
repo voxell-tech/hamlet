@@ -206,9 +206,26 @@ fn chord(key: &KeyboardInput, mods: Mods, letter: KeyCode) -> bool {
     held && key.key_code == letter
 }
 
+/// The bytes a chord the terminal answers in place of the window
+/// types: the macOS editing chords, and Command+K, which clears the
+/// screen as Ctrl+L does.
+fn edited(key: &KeyboardInput, mods: Mods) -> Option<&'static str> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let clear = mods.command
+        && !(mods.ctrl || mods.alt || mods.shift)
+        && key.key_code == KeyCode::KeyK;
+    if clear {
+        return Some("\x0c");
+    }
+    keys::editing(&key.logical_key, mods)
+}
+
 /// Sends the keys typed while the screen has them, and keeps them
-/// from the window. Command chords other than copy and paste still
-/// reach the window.
+/// from the window. Command chords other than copy, paste and the
+/// editing ones still reach the window, as does Ctrl+Tab, which goes
+/// round the desks.
 fn typed(
     mut key: On<FocusedInput<KeyboardInput>>,
     canvases: Query<(), With<Canvas>>,
@@ -224,10 +241,12 @@ fn typed(
         return;
     }
     let mods = held.as_deref().map_or_else(Mods::default, Mods::held);
-    if mods.command
+    let edit = edited(&key.input, mods);
+    let window = mods.command
+        && edit.is_none()
         && !chord(&key.input, mods, KeyCode::KeyC)
-        && !chord(&key.input, mods, KeyCode::KeyV)
-    {
+        && !chord(&key.input, mods, KeyCode::KeyV);
+    if window || (mods.ctrl && key.input.key_code == KeyCode::Tab) {
         return;
     }
     key.propagate(false);
@@ -236,6 +255,15 @@ fn typed(
         return;
     };
     if !input.state.is_pressed() {
+        return;
+    }
+    if let Some(bytes) = edit {
+        if chosen.0.is_some() {
+            chosen.0 = None;
+        }
+        commands.queue(move |world: &mut World| {
+            terminals::type_in(world, terminal, bytes);
+        });
         return;
     }
     if chord(&input, mods, KeyCode::KeyC) {

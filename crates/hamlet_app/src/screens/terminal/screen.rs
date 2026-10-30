@@ -38,9 +38,11 @@ const PROBE: &str = "0123456789012345678901234567890123456789";
 
 /// The node a terminal's screen is drawn in. A press gives it the
 /// keys only with a [`TabIndex`]: without one, the press's
-/// `AcquireFocus` reaches the window, which takes them back.
+/// `AcquireFocus` reaches the window, which takes them back. A
+/// negative one keeps it out of the Tab order, so Tab reaches the
+/// shell.
 #[derive(Component)]
-#[require(TabIndex)]
+#[require(TabIndex = TabIndex(-1))]
 pub struct Canvas;
 
 /// What is drawn in a [`Canvas`].
