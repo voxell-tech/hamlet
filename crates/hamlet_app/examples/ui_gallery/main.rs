@@ -42,7 +42,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 48] = [
+const SHOTS: [Shot; 50] = [
     Shot {
         name: "merged",
         scene: Scene::Merged,
@@ -292,6 +292,18 @@ const SHOTS: [Shot; 48] = [
     Shot {
         name: "field",
         scene: Scene::Field,
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "terminal",
+        scene: Scene::Terminal,
+        size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "terminal-shell",
+        scene: Scene::TerminalShell,
         size: UVec2::new(1440, 860),
         scale: 1.0,
     },
