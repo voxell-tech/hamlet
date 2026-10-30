@@ -69,6 +69,7 @@ fn root() -> impl View {
             column((
                 full(cx),
                 menu::open_menu(),
+                crate::screens::terminal::open_menu(),
                 desk::popups(),
                 world_menu::view(),
                 crate::saving::screen(),

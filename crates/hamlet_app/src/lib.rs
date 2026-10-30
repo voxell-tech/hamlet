@@ -55,6 +55,7 @@ pub use self::roll::Roll;
 pub use self::root::toolbar;
 pub use self::screens::{
     chat, inspector, links, overview, petition, pictures, settings,
+    terminal,
 };
 pub use self::status::{Bar, status_bar};
 pub use self::window::window_plugin;

@@ -223,6 +223,9 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
             items
         }
         Menu::View => vec![
+            item(Glyph::Terminal, "Terminal", |w| {
+                crate::dock::show_tab(w, "terminal");
+            }),
             item(Glyph::Aim, "Reset Camera", |w| {
                 *w.resource_mut::<Orbit>() = Orbit::default();
             }),

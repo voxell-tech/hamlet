@@ -7,6 +7,7 @@ pub mod overview;
 pub mod petition;
 pub mod pictures;
 pub mod settings;
+pub mod terminal;
 
 use bevy::app::App;
 
@@ -19,5 +20,6 @@ pub fn plugin(app: &mut App) {
         pictures::plugin,
         petition::plugin,
         settings::plugin,
+        terminal::plugin,
     ));
 }
