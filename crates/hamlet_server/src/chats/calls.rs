@@ -676,6 +676,7 @@ fn runs(
         .get("command")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    feed.command(command);
     feed.print_lines(&format!("\x1b[1;36m$\x1b[0m {command}\n"));
     Ok(feed)
 }

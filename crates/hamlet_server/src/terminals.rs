@@ -38,6 +38,8 @@ const REPLAY: usize = 512 * 1024;
 
 /// Lines an agent's read of a terminal can reach above its screen.
 const SCROLLBACK: usize = 2000;
+/// The most characters of a last command kept.
+const LAST: usize = 200;
 
 /// Messages a connection's queue keeps free before a terminal's
 /// output to it is skipped, to be caught up with later.
@@ -83,6 +85,15 @@ pub(crate) struct Screen {
     replay: VecDeque<u8>,
     /// Its size where `replay` starts.
     start: Size,
+    /// Where the line being typed starts: the cursor, as a row
+    /// counted from the top of the scrollback and a column, when
+    /// typing began after a prompt.
+    typing: Option<(usize, u16)>,
+    /// Where a line entered starts, read once the shell has echoed
+    /// it.
+    entered: Option<(usize, u16)>,
+    /// The last command typed into it or run in it.
+    last: Option<String>,
     seq: u64,
     ended: Option<i64>,
 }
@@ -142,6 +153,15 @@ impl Feed {
         });
     }
 
+    /// Notes `command` as the last its terminal ran.
+    pub(crate) fn command(&self, command: &str) {
+        let command = command.trim();
+        if !command.is_empty() {
+            lock(&self.screen).last =
+                Some(command.chars().take(LAST).collect());
+        }
+    }
+
     /// Prints the end of a command that ran, on a line of its own.
     pub(crate) fn ended_run(&self, code: Option<i64>) {
         let fresh =
@@ -185,6 +205,9 @@ impl Screen {
             ),
             replay: VecDeque::new(),
             start: size,
+            typing: None,
+            entered: None,
+            last: None,
             seq: 0,
             ended: None,
         }
@@ -203,7 +226,17 @@ impl Screen {
     }
 
     fn take(&mut self, bytes: &[u8]) {
-        self.parser.process(bytes);
+        let mut rest = bytes;
+        // The line entered is read at the echo of its Enter, before
+        // what the command prints scrolls it away.
+        if self.entered.is_some()
+            && let Some(at) = rest.iter().position(|b| *b == b'\n')
+        {
+            self.parser.process(&rest[..=at]);
+            self.read_entered();
+            rest = &rest[at + 1..];
+        }
+        self.parser.process(rest);
         self.replay.extend(bytes);
         if self.replay.len() > REPLAY {
             let over = self.replay.len() - REPLAY;
@@ -239,11 +272,88 @@ impl Screen {
         bytes
     }
 
+    /// The cursor, its row counted from the top of the scrollback.
+    fn cursor(&self) -> (usize, u16) {
+        let screen = self.parser.screen();
+        let (row, col) = screen.cursor_position();
+        (screen.scrollback_len() + usize::from(row), col)
+    }
+
+    /// Notes what `bytes` typed means for the last command: where the
+    /// line starts, as typing begins after a prompt, and the line
+    /// entered with Enter. A full-screen program's keys are not
+    /// commands.
+    fn typed(&mut self, bytes: &[u8]) {
+        if self.parser.screen().alternate_screen() {
+            self.typing = None;
+            return;
+        }
+        // Ctrl+C and Ctrl+L leave the line where it was.
+        if bytes.iter().any(|b| matches!(b, 0x03 | 0x0c)) {
+            self.typing = None;
+            return;
+        }
+        let cursor = self.cursor();
+        let start = *self.typing.get_or_insert(cursor);
+        if bytes.contains(&b'\r') {
+            self.entered = Some(start);
+            self.typing = None;
+        }
+    }
+
+    /// Reads the line entered once the cursor has left it.
+    fn read_entered(&mut self) {
+        let Some((row, col)) = self.entered else {
+            return;
+        };
+        if self.cursor().0 <= row {
+            return;
+        }
+        self.entered = None;
+        let line = self.line_from(row, col);
+        if !line.is_empty() {
+            self.last = Some(line);
+        }
+    }
+
+    /// The line that starts at `row` and `col`, its wrapped rows
+    /// joined, without what a prompt shows at its right.
+    fn line_from(&mut self, row: usize, col: u16) -> String {
+        let screen = self.parser.screen_mut();
+        let back = screen.scrollback_len();
+        let (rows, cols) = screen.size();
+        let (rows, cols) = (rows.get(), cols.get());
+        let mut at = if row >= back {
+            u16::try_from(row - back).unwrap_or(rows)
+        } else {
+            screen.set_scrollback(back - row);
+            0
+        };
+        let mut text = String::new();
+        let mut from = col;
+        while at < rows {
+            text.push_str(
+                &screen.contents_between(at, from, at, cols),
+            );
+            if !screen.row_wrapped(at) {
+                break;
+            }
+            at += 1;
+            from = 0;
+        }
+        screen.set_scrollback(0);
+        let text = text.split("    ").next().unwrap_or_default();
+        text.trim().chars().take(LAST).collect()
+    }
+
     fn resize(&mut self, size: Size) {
         let (rows, cols) = self.parser.screen().size();
         if (rows, cols) == (cells(size.rows), cells(size.cols)) {
             return;
         }
+        // Rewrapping moves the lines being typed.
+        self.typing = None;
+        self.entered = None;
         hamlet_protocol::screen::resize(
             &mut self.parser,
             cells(size.rows),
@@ -353,10 +463,26 @@ impl Terminals {
 
     /// Types `bytes` into terminal `id`. False when it takes none.
     pub(crate) fn type_in(&self, id: &str, bytes: Vec<u8>) -> bool {
-        self.open
-            .get(id)
-            .and_then(|t| t.keys.as_ref())
-            .is_some_and(|keys| keys.send(Key::Bytes(bytes)).is_ok())
+        let Some(terminal) = self.open.get(id) else {
+            return false;
+        };
+        let Some(keys) = &terminal.keys else {
+            return false;
+        };
+        lock(&terminal.screen).typed(&bytes);
+        keys.send(Key::Bytes(bytes)).is_ok()
+    }
+
+    /// Names terminal `id` `name`. False when there is no such
+    /// terminal.
+    pub(crate) fn rename(&mut self, id: &str, name: &str) -> bool {
+        let Some(terminal) = self.open.get_mut(id) else {
+            return false;
+        };
+        terminal.view.name = name.to_owned();
+        terminal.view.named = true;
+        self.keep(id);
+        true
     }
 
     /// Ends terminal `id`'s processes and forgets it.
@@ -420,7 +546,9 @@ impl Terminals {
                     hamlet: Some(agent.hamlet.clone()),
                     id: new_id(),
                     kind: TerminalKind::Runs,
+                    last: None,
                     name: format!("{name}'s runs"),
+                    named: false,
                     rows: 30,
                     sandboxed: true,
                     title: String::new(),
@@ -454,6 +582,7 @@ impl Terminals {
         };
         let screen = Arc::new(Mutex::new(Screen::new(size)));
         lock(&screen).ended = view.exit;
+        lock(&screen).last.clone_from(&view.last);
         lock(&screen).restore(&replay);
         self.open.insert(
             id.clone(),
@@ -549,6 +678,12 @@ impl Terminals {
                 && *title != terminal.view.title
             {
                 terminal.view.title = title.clone();
+                changed = true;
+            }
+            if screen.last.is_some()
+                && screen.last != terminal.view.last
+            {
+                terminal.view.last.clone_from(&screen.last);
                 changed = true;
             }
             for (connection, watcher) in &mut terminal.watchers {
@@ -878,6 +1013,8 @@ pub(crate) fn open(
         hamlet,
         id: new_id(),
         kind: TerminalKind::Shell,
+        last: None,
+        named: name.is_some(),
         name: name.unwrap_or_else(|| format!("{label} {number}")),
         rows: size.rows,
         sandboxed,
@@ -1032,6 +1169,19 @@ pub(crate) fn request(
             };
             vec![reply(id, result)]
         }
+        Asked::Rename { id, name, terminal } => {
+            let name = name.trim();
+            let result = if name.is_empty() {
+                Err(Refusal::Invalid(
+                    "A terminal needs a name.".into(),
+                ))
+            } else if service.terminals.rename(terminal, name) {
+                Ok("Renamed.".into())
+            } else {
+                Err(gone(terminal))
+            };
+            vec![reply(id, result)]
+        }
     })
 }
 
@@ -1110,6 +1260,40 @@ mod tests {
         again.restore(&replay);
         assert_eq!(again.text(0), "abcdef\ngh");
         assert_eq!(again.text(0), screen.text(0));
+    }
+
+    /// Types `keys` into `screen`, and has the shell echo `echo`.
+    fn typed(screen: &mut Screen, keys: &str, echo: &str) {
+        screen.typed(keys.as_bytes());
+        screen.take(echo.as_bytes());
+    }
+
+    #[test]
+    fn the_last_command_is_the_line_typed_after_the_prompt() {
+        let mut screen = Screen::new(Size { rows: 4, cols: 12 });
+        screen.take(b"$ ");
+        typed(&mut screen, "l", "l");
+        typed(&mut screen, "s -la /tmp", "s -la /tmp");
+        typed(&mut screen, "\r", "\r\n");
+        screen.take(b"total 0\r\n$ ");
+        assert_eq!(screen.last.as_deref(), Some("ls -la /tmp"));
+        // A prompt that hides what is typed shows no command.
+        screen.take(b"pass: ");
+        typed(&mut screen, "secret\r", "\r\n");
+        assert_eq!(screen.last.as_deref(), Some("ls -la /tmp"));
+        // Nor what is typed at a full-screen program.
+        screen.take(b"\x1b[?1049h");
+        typed(&mut screen, "q\r", "\r\n");
+        assert_eq!(screen.last.as_deref(), Some("ls -la /tmp"));
+    }
+
+    #[test]
+    fn the_last_command_leaves_out_what_a_prompt_shows_at_its_right()
+    {
+        let mut screen = Screen::new(Size { rows: 3, cols: 30 });
+        screen.take(b"% \x1b[s\x1b[1;25H~/src\x1b[u");
+        typed(&mut screen, "make\r", "make\r\n");
+        assert_eq!(screen.last.as_deref(), Some("make"));
     }
 
     #[test]

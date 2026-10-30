@@ -497,7 +497,8 @@ fn terminal_wire() -> Value {
     json!({
         "id": "t-1", "name": "dev", "kind": "shell", "hamlet": "home",
         "agent": {"hamlet": "home", "number": 0}, "cols": 80, "rows": 24,
-        "cwd": "/home/chief/work", "exit": null, "sandboxed": true, "title": ""
+        "cwd": "/home/chief/work", "exit": null, "sandboxed": true, "title": "",
+        "last": "cargo test", "named": true
     })
 }
 

@@ -123,7 +123,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `read` (`Read`) | `what` and fields below | Fetch one document or list; `read` with `to`, or failure `reply`. |
 | `move-houses` (`MoveHouses`) | none | Copy every agent's house from the workspace the server works in to the one chosen in Settings, replacing the houses there; `reply` once done. Progress also changes through `change`. |
 
-| `terminal` (`Terminal`) | `op` and fields below | Open, type into, resize, watch or close a terminal. |
+| `terminal` (`Terminal`) | `op` and fields below | Open, type into, resize, watch, rename or close a terminal. |
 
 `Terminal` is discriminated by `op`:
 
@@ -135,6 +135,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `watch` | `id`, `terminal` | A `terminal` message with `to` and `reset: true` that redraws it, then its output as it comes. A `reply` when there is no such terminal. |
 | `unwatch` | `terminal`; no `id` | No answer. |
 | `close` | `id`, `terminal` | Ends its processes and removes it; `reply`. |
+| `rename` | `id`, `terminal`, `name: string` (1–64) | Names it: its `name` changes and `named` becomes true, so the name shows over its `title`. `reply`; a blank name is refused. |
 
 Columns and rows are 1 to 1000; `data` holds at most 65536 bytes.
 
@@ -253,7 +254,13 @@ at most 240 characters, plus total and added/removed counts.
 `TerminalView` is a terminal the server runs: `id`, `name`, `kind`,
 `hamlet` (null for the chief's own unbounded shell), `agent` (the agent
 that opened it, null when the chief did), `cols`, `rows`, `cwd`, `exit`
-(null while its shell runs), `sandboxed` and the `title` its programs set.
+(null while its shell runs), `sandboxed`, the `title` its programs set,
+`named` (whether the chief or its agent named it, its name then shown over
+the title) and `last`, the last command typed into it or, for `runs`, the
+last its agent ran (null before one). A typed command is the line read
+from where typing began after a prompt, once the shell echoes its Enter;
+what a full-screen program is typed is not one, and nor is what a prompt
+does not echo.
 `kind` is `shell`, which takes input, or `runs`: one per agent, showing
 each command its shell tool runs and that command's output as it comes,
 read-only. A terminal's agent or hamlet leaving removes it. The server

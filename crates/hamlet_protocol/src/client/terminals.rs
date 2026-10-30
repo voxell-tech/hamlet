@@ -31,7 +31,14 @@ pub struct TerminalView {
     pub hamlet: Option<String>,
     pub id: String,
     pub kind: TerminalKind,
+    /// The last command typed into it, or that its agent ran in it.
+    #[serde(default)]
+    pub last: Option<String>,
     pub name: String,
+    /// Whether the chief named it: its name then shows over its
+    /// title.
+    #[serde(default)]
+    pub named: bool,
     pub rows: u16,
     /// Whether the sandbox holds its commands.
     pub sandboxed: bool,
@@ -103,6 +110,15 @@ pub enum Terminal {
     /// Ends a terminal's processes and removes it.
     #[serde(rename = "close")]
     Close { id: RequestId, terminal: String },
+    /// Names a terminal, its name then shown over the title its
+    /// programs set.
+    #[serde(rename = "rename")]
+    Rename {
+        id: RequestId,
+        #[schemars(length(min = 1, max = 64))]
+        name: String,
+        terminal: String,
+    },
 }
 
 /// Bytes a watched terminal printed.

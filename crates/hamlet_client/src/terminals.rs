@@ -273,6 +273,24 @@ pub fn close(
     }))
 }
 
+/// Names `terminal` `name`, shown over the title its programs set.
+pub fn rename(
+    world: &mut World,
+    terminal: Entity,
+    name: &str,
+) -> Option<RequestId> {
+    let terminal = id_of(world, terminal)?;
+    let name = name.trim().chars().take(64).collect::<String>();
+    if name.is_empty() {
+        return None;
+    }
+    Some(world.resource_mut::<Outbox>().send(|id| {
+        protocol::ClientMessage::Terminal(
+            protocol::Terminal::Rename { id, name, terminal },
+        )
+    }))
+}
+
 /// Puts every terminal of a whole state in, and takes out those it
 /// lacks.
 pub(crate) fn state(world: &mut World, terminals: Vec<TerminalView>) {

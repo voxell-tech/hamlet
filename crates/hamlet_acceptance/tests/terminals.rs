@@ -155,6 +155,45 @@ async fn a_hamlet_terminal_runs_in_the_house_under_the_sandbox() {
 }
 
 #[tokio::test]
+async fn a_terminal_keeps_its_last_command_and_the_name_the_chief_gives_it()
+ {
+    let mut s = Session::start(Script::new()).await;
+    let id = open(&mut s.chief, Some("home")).await;
+    // The prompt, its word dimmed.
+    shows(&mut s.chief, &id, "sandboxed\x1b[0m $ ").await;
+    type_in(&mut s.chief, &id, "echo last-$((1 + 1))\r").await;
+    shows(&mut s.chief, &id, "last-2").await;
+    s.chief
+        .until("the last command in the state", |c| {
+            c.realm().terminals.iter().any(|t| {
+                t.id == id
+                    && t.last.as_deref()
+                        == Some("echo last-$((1 + 1))")
+            })
+        })
+        .await;
+    let named = s
+        .chief
+        .request(|request| {
+            ClientMessage::Terminal(Terminal::Rename {
+                id: request,
+                name: " builds ".into(),
+                terminal: id.clone(),
+            })
+        })
+        .await;
+    assert_eq!(named.kind, ReplyKind::Notice, "{named:?}");
+    s.chief
+        .until("the name in the state", |c| {
+            c.realm()
+                .terminals
+                .iter()
+                .any(|t| t.id == id && t.named && t.name == "builds")
+        })
+        .await;
+}
+
+#[tokio::test]
 async fn an_agent_opens_and_types_into_a_terminal_and_its_bash_runs_show()
  {
     let script = Script::new().responses([
