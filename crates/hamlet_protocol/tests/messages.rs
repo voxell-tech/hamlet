@@ -572,7 +572,17 @@ fn state_wire() -> Value {
         "hamlets": [hamlet_wire()], "agents": [hand_wire(), agent_wire()], "waits": [wait_wire()],
         "grants": grants_wire(), "settings": settings_wire(), "providers": providers_wire(),
         "realm": "/home/chief/.hamlet", "hand": 1, "scholars": [scholar_wire()], "limits": {"roadsBetween": true, "budget": {"period": "day", "cost": 5.0, "minutes": null}}, "library": [], "closed": [],
-        "deeds": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}]
+        "deeds": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}],
+        "terminals": [terminal_wire()]
+    })
+}
+
+fn terminal_wire() -> Value {
+    json!({
+        "id": "t-1", "name": "dev", "kind": "shell", "hamlet": "home",
+        "agent": 2, "cols": 80, "rows": 24,
+        "cwd": "/home/chief/work", "exit": null, "sandboxed": true, "title": "",
+        "last": "cargo test", "named": true
     })
 }
 
@@ -613,6 +623,8 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
         json!({"type": "grants", "grants": grants_wire()}),
         json!({"type": "settings", "settings": settings_wire()}),
         json!({"type": "providers", "providers": providers_wire()}),
+        json!({"type": "terminal", "terminal": terminal_wire()}),
+        json!({"type": "terminal-gone", "id": "t-1"}),
     ];
     for update in updates {
         let ServerMessage::Change(changes) = server(
@@ -622,6 +634,32 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
         };
         assert_eq!(changes.changes.len(), 1);
     }
+}
+
+#[test]
+fn terminal_output_and_requests_keep_their_shape() {
+    server(
+        json!({"type": "terminal", "terminal": "t-1", "data": "aGk=", "reset": true, "to": ID}),
+    );
+    server(
+        json!({"type": "terminal", "terminal": "t-1", "data": "aGk=", "reset": false}),
+    );
+    client(
+        ClientMessage::Terminal(Terminal::Open {
+            cols: 80,
+            hamlet: None,
+            id: id(),
+            rows: 24,
+        }),
+        json!({"type": "terminal", "op": "open", "cols": 80, "rows": 24, "id": ID}),
+    );
+    client(
+        ClientMessage::Terminal(Terminal::Input {
+            data: "ls\r".into(),
+            terminal: "t-1".into(),
+        }),
+        json!({"type": "terminal", "op": "input", "data": "ls\r", "terminal": "t-1"}),
+    );
 }
 
 #[test]
