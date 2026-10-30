@@ -28,6 +28,16 @@ pub(super) fn plugin(app: &mut App) {
         );
 }
 
+/// The way from what a camera looks at to the camera, for a turn of
+/// `yaw` and a height of `pitch` over the horizon, in radians.
+pub fn backward(yaw: f32, pitch: f32) -> Vec3 {
+    Vec3::new(
+        yaw.sin() * pitch.cos(),
+        pitch.sin(),
+        yaw.cos() * pitch.cos(),
+    )
+}
+
 /// The camera moved by hand, on top of the stage's view.
 #[derive(Resource, Clone, Copy, PartialEq)]
 pub struct Orbit {
@@ -92,6 +102,14 @@ impl Orbit {
                 (pixel, pixel * camera.slide_tilt)
             }
         }
+    }
+
+    /// A drag of `delta` pixels, slid by `scale` from
+    /// [`Orbit::slide_scale`], as a move along the ground for a
+    /// camera turned `yaw` radians in all.
+    pub fn slid(delta: Vec2, scale: (f32, f32), yaw: f32) -> Vec2 {
+        let slide = Vec2::new(-delta.x * scale.0, -delta.y * scale.1);
+        Vec2::from_angle(-yaw).rotate(slide)
     }
 
     /// This orbit zoomed by `lines` scrolled lines, kept between
@@ -388,13 +406,8 @@ pub(super) fn drag(
             let height = (node.size().y
                 * node.inverse_scale_factor())
             .max(1.0);
-            let (across, along) =
-                orbit.slide_scale(height, stance.0, &camera);
-            let slide = Vec2::new(
-                -drag.delta.x * across,
-                -drag.delta.y * along,
-            );
-            let turned = Vec2::from_angle(-orbit.yaw).rotate(slide);
+            let scale = orbit.slide_scale(height, stance.0, &camera);
+            let turned = Orbit::slid(drag.delta, scale, orbit.yaw);
             orbit.pan =
                 leash.held(&camera, centre.0, orbit.pan + turned);
         }

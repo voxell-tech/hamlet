@@ -21,7 +21,7 @@ use bevy::image::Image;
 use bevy::input::ButtonInput;
 use bevy::input::mouse::MouseButton;
 use bevy::light::DirectionalLight;
-use bevy::math::{Quat, Vec2, Vec3};
+use bevy::math::{Quat, Vec3};
 use bevy::mesh::{Mesh, Mesh3d};
 use bevy::pbr::{DistanceFog, MeshMaterial3d, StandardMaterial};
 use bevy::picking::events::{PointerDrag, PointerScroll};
@@ -38,7 +38,7 @@ use bevy_fynix::views::{BehaviorExt, frame};
 use hamlet_blueprint::Instance;
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
-use hamlet_realm::pick::{Orbit, Steer, scrolled_lines};
+use hamlet_realm::pick::{Orbit, Steer, backward, scrolled_lines};
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
 use hamlet_ui::styles::Fills;
 use hamlet_ui::{AnyView, Cx, View};
@@ -234,15 +234,17 @@ fn turn(
             let height = (node.size().y
                 * node.inverse_scale_factor())
             .max(1.0);
-            let (across, along) = seat.want.slide_scale(
+            let scale = seat.want.slide_scale(
                 height,
                 Some(seat.stance),
                 &set,
             );
-            let (right, forward) = ground(seat.shown);
             let pan = seat.want.pan
-                + right * (-drag.delta.x * across)
-                + forward * (drag.delta.y * along);
+                + Orbit::slid(
+                    drag.delta,
+                    scale,
+                    YAW + seat.shown.yaw,
+                );
             seat.want.pan =
                 pan.clamp_length_max(framing.reach * 1.5 + 4.0);
         }
@@ -252,14 +254,6 @@ fn turn(
         }
         PointerButton::Middle => {}
     }
-}
-
-/// Across the view and away from the camera, along the ground, for
-/// the orbit shown.
-fn ground(shown: Orbit) -> (Vec2, Vec2) {
-    let yaw = YAW + shown.yaw;
-    let forward = Vec2::new(-yaw.cos(), -yaw.sin());
-    (Vec2::new(-forward.y, forward.x), forward)
 }
 
 fn zoom(
@@ -431,11 +425,7 @@ fn aim(
     };
     let yaw = YAW + seat.shown.yaw;
     let pitch = (PITCH + seat.shown.pitch).clamp(0.1, 1.45);
-    let toward = Vec3::new(
-        yaw.cos() * pitch.cos(),
-        pitch.sin(),
-        yaw.sin() * pitch.cos(),
-    );
+    let toward = backward(yaw, pitch);
     let distance = (framing.reach * 2.2 + 2.0) * seat.shown.zoom;
     let slid = seat.shown.pan;
     let focus = framing.middle + Vec3::new(slid.x, 0.0, slid.y);
