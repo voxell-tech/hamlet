@@ -1,7 +1,7 @@
 //! The typefaces, the keyboard focus and the small rules of a node
 //! that fynix leaves to the app.
 
-use bevy::app::{App, Startup, Update};
+use bevy::app::{App, PostUpdate, Startup, Update};
 use bevy::asset::{AssetId, Assets, Handle};
 use bevy::color::Color;
 use bevy::ecs::change_detection::DetectChanges;
@@ -29,7 +29,8 @@ use bevy::text::{
 };
 use bevy::ui::{
     BackgroundGradient, ColorStop, FlexWrap, InteractionDisabled,
-    LinearGradient, Node, Outline, OverflowClipMargin, percent, px,
+    LinearGradient, Node, Outline, OverflowClipMargin, UiSystems,
+    percent, px,
 };
 use bevy::ui_widgets::{
     Activate, ActivateOnPress, Button as ButtonBehavior,
@@ -58,11 +59,15 @@ pub fn plugin(app: &mut App) {
         .add_observer(forget_press::<PointerDragEnd>)
         .add_observer(forget_press::<PointerCancel>)
         .add_systems(Startup, install_fonts)
+        // After every view this frame mounted, which fynix does in
+        // Update, so no new label is laid out in the default face.
+        .add_systems(
+            PostUpdate,
+            (apply_mono, apply_display).before(UiSystems::Prepare),
+        )
         .add_systems(
             Update,
             (
-                apply_mono,
-                apply_display,
                 apply_glow,
                 apply_clip,
                 apply_wrap,
