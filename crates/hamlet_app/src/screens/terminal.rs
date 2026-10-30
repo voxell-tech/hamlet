@@ -7,15 +7,22 @@ pub mod keys;
 mod screen;
 
 use bevy::app::{App, PreUpdate, Update};
+use bevy::color::{Alpha, Color};
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::math::Rect;
-use bevy::ui::{AlignItems, JustifyContent, Overflow, UiRect, px};
+use bevy::picking::Pickable;
+use bevy::ui::{
+    AlignItems, JustifyContent, Outline, Overflow, PositionType,
+    UiRect, px,
+};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -23,7 +30,7 @@ use bevy_fynix::views::{
     overlay, popup, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+    ScopedExt, Theme, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{self, HamletId};
@@ -34,6 +41,7 @@ use hamlet_ui::styles::{
     Fills, ICON, caption, close_button, description, hairline,
     link_row, scroll_area,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, View, with_cx};
@@ -53,6 +61,7 @@ pub fn plugin(app: &mut App) {
             .icon(Glyph::Terminal.image(ICON)),
     )
     .init_resource::<Active>()
+    .init_resource::<Handing>()
     .init_resource::<Listed>()
     .init_resource::<Adding>()
     .init_resource::<Opening>()
@@ -62,7 +71,11 @@ pub fn plugin(app: &mut App) {
     .add_systems(PreUpdate, list.in_set(PanelSystems::Bind))
     .add_systems(
         Update,
-        (keep_watching, screen::draw, screen::fit).chain(),
+        (
+            (hand_keys, keep_watching, screen::draw, screen::fit)
+                .chain(),
+            light_edge,
+        ),
     )
     .add_plugins(input::plugin);
 }
@@ -70,6 +83,47 @@ pub fn plugin(app: &mut App) {
 /// The terminal the panel shows.
 #[derive(Resource, Default, Clone, Copy, PartialEq)]
 pub struct Active(pub Option<Entity>);
+
+/// A faint line just inside the panel's edge, lit while its screen
+/// has the keys. It is the panel's last child, so drawn over the
+/// rest.
+#[derive(Component)]
+#[require(Pickable = Pickable::IGNORE)]
+struct Edge;
+
+/// How strongly the [`Edge`] shows the accent.
+const EDGE_ALPHA: f32 = 0.45;
+
+/// Lights each panel's [`Edge`] while a terminal's screen has the
+/// keys.
+fn light_edge(
+    focus: Option<Res<InputFocus>>,
+    canvases: Query<(), With<Canvas>>,
+    theme: Option<Res<Theme<HamletTheme>>>,
+    edges: Query<(Entity, Option<&Outline>), With<Edge>>,
+    mut commands: Commands,
+) {
+    let focused = focus
+        .and_then(|focus| focus.get())
+        .is_some_and(|node| canvases.contains(node));
+    let lit = theme.map_or(Color::NONE, |theme| {
+        theme.0.palette.gold_4.with_alpha(EDGE_ALPHA)
+    });
+    let color = if focused { lit } else { Color::NONE };
+    for (edge, outline) in &edges {
+        if outline.is_none_or(|outline| outline.color != color) {
+            commands.entity(edge).try_insert(Outline::new(
+                px(1.0),
+                px(-1.0),
+                color,
+            ));
+        }
+    }
+}
+
+/// Whether the screen is to be given the keys once it is there.
+#[derive(Resource, Default)]
+struct Handing(bool);
 
 /// Where the menu that opens a terminal hangs, while it is open.
 #[derive(Resource, Default, Clone, Copy, PartialEq)]
@@ -234,10 +288,7 @@ fn keep_watching(world: &mut World) {
 }
 
 /// Shows a terminal the panel opened, and gives it the keys.
-fn opened(
-    opened: On<TerminalOpened>,
-    mut commands: bevy::ecs::system::Commands,
-) {
+fn opened(opened: On<TerminalOpened>, mut commands: Commands) {
     let (request, terminal) =
         (opened.request.clone(), opened.terminal);
     commands.queue(move |world: &mut World| {
@@ -245,17 +296,28 @@ fn opened(
             return;
         }
         world.resource_mut::<Opening>().0 = None;
-        world.resource_mut::<Active>().0 = Some(terminal);
         show_tab(world, "terminal");
-        let canvas = world
-            .try_query_filtered::<Entity, With<Canvas>>()
-            .and_then(|mut query| query.iter(world).next());
-        if let Some(canvas) = canvas {
-            world
-                .resource_mut::<InputFocus>()
-                .set(canvas, FocusCause::Pressed);
-        }
+        activate(world, terminal);
     });
+}
+
+/// Gives the screen the keys once it is there: the first terminal's
+/// canvas is built only after the terminal arrives.
+fn hand_keys(world: &mut World) {
+    if !world.resource::<Handing>().0 {
+        return;
+    }
+    let canvas = world
+        .try_query_filtered::<Entity, With<Canvas>>()
+        .and_then(|mut query| query.iter(world).next());
+    if let Some(canvas) = canvas {
+        world.resource_mut::<Handing>().0 = false;
+        if let Some(mut focus) =
+            world.get_resource_mut::<InputFocus>()
+        {
+            focus.set(canvas, FocusCause::Pressed);
+        }
+    }
 }
 
 /// Opens a shell in `hamlet`, or an unbounded one, at the size the
@@ -268,8 +330,23 @@ fn open(world: &mut World, hamlet: Option<String>) {
     world.resource_mut::<Opening>().0 = Some(request);
 }
 
+/// Shows `terminal` and gives it the keys, as a press on its screen
+/// would.
 fn activate(world: &mut World, terminal: Entity) {
     world.resource_mut::<Active>().0 = Some(terminal);
+    world.resource_mut::<Handing>().0 = true;
+}
+
+/// Closes `terminal`. Closing the one shown gives the keys to the
+/// one shown next.
+fn close(world: &mut World, terminal: Entity) {
+    let listed = world.resource::<Listed>();
+    let others =
+        listed.0.iter().flat_map(|group| &group.items).count() > 1;
+    if others && world.resource::<Active>().0 == Some(terminal) {
+        world.resource_mut::<Handing>().0 = true;
+    }
+    terminals::close(world, terminal);
 }
 
 /// The panel's contents.
@@ -285,6 +362,10 @@ fn panel() -> impl View {
                 .fill(look.background),
             frame().width(px(1.0)).fill(cx.theme().palette.border),
             side(),
+            frame()
+                .position(PositionType::Absolute)
+                .inset(UiRect::all(px(0.0)))
+                .tagged(Edge),
         ))
         .fills_width()
         .fills_height()
@@ -426,6 +507,7 @@ fn side() -> impl View {
         ))
         .gap(0.0)
         .width(px(cx.theme().terminal.list))
+        .shrink(0.0)
         .fill(cx.theme().palette.card)
     })
 }
@@ -487,7 +569,7 @@ fn entry(item: Item) -> AnyView {
         let fill = if item.active {
             theme.palette.button
         } else {
-            bevy::color::Color::NONE
+            Color::NONE
         };
         row((
             button(
@@ -534,9 +616,7 @@ fn entry(item: Item) -> AnyView {
             ))
             .rules(link_row)
             .on_activate(move |world| activate(world, terminal)),
-            close_button(move |world| {
-                terminals::close(world, terminal);
-            }),
+            close_button(move |world| close(world, terminal)),
         ))
         .align(AlignItems::Center)
         .padding(UiRect::right(px(theme.space.gap)))
@@ -642,6 +722,79 @@ mod tests {
             "sandboxed": hamlet.is_some(), "title": ""
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn a_terminal_shown_from_the_list_or_opened_gets_the_keys_once_its_screen_is_there()
+     {
+        let mut app = App::new();
+        app.add_plugins(bevy::input_focus::InputFocusPlugin)
+            .init_resource::<Active>()
+            .init_resource::<Handing>()
+            .add_systems(Update, hand_keys);
+        let terminal = app.world_mut().spawn_empty().id();
+        activate(app.world_mut(), terminal);
+        app.update();
+        assert!(app.world().resource::<Handing>().0);
+        let canvas = app.world_mut().spawn(Canvas).id();
+        app.update();
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(canvas)
+        );
+        assert!(!app.world().resource::<Handing>().0);
+    }
+
+    #[test]
+    fn a_press_on_the_screen_keeps_the_keys_there_and_lights_the_edge()
+     {
+        use bevy::ecs::hierarchy::ChildOf;
+        use bevy::input_focus::pointer_focus::PointerFocusPlugin;
+        use bevy::input_focus::{AcquireFocus, InputFocusPlugin};
+        use bevy::window::{PrimaryWindow, Window};
+        use hamlet_assets::Tuning;
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::input::InputPlugin,
+            InputFocusPlugin,
+            PointerFocusPlugin,
+        ))
+        .add_systems(Update, light_edge);
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        app.update();
+        let panel = app.world_mut().spawn(ChildOf(window)).id();
+        let canvas =
+            app.world_mut().spawn((Canvas, ChildOf(panel))).id();
+        let edge = app.world_mut().spawn((Edge, ChildOf(panel))).id();
+        app.world_mut().trigger(AcquireFocus {
+            focused_entity: canvas,
+            window,
+        });
+        app.update();
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(canvas)
+        );
+        app.world_mut()
+            .insert_resource(Theme(HamletTheme::designed()));
+        app.update();
+        let lit = |app: &App| {
+            app.world()
+                .get::<Outline>(edge)
+                .is_some_and(|outline| outline.color != Color::NONE)
+        };
+        assert!(lit(&app));
+        app.world_mut().trigger(AcquireFocus {
+            focused_entity: panel,
+            window,
+        });
+        app.update();
+        assert_eq!(app.world().resource::<InputFocus>().get(), None);
+        assert!(!lit(&app));
     }
 
     #[test]

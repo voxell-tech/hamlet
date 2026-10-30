@@ -11,6 +11,7 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::input_focus::InputFocus;
+use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::math::Vec2;
 use bevy::picking::Pickable;
 use bevy::text::{
@@ -35,8 +36,11 @@ use super::Active;
 /// The letters the width of a cell is measured over.
 const PROBE: &str = "0123456789012345678901234567890123456789";
 
-/// The node a terminal's screen is drawn in.
+/// The node a terminal's screen is drawn in. A press gives it the
+/// keys only with a [`TabIndex`]: without one, the press's
+/// `AcquireFocus` reaches the window, which takes them back.
 #[derive(Component)]
+#[require(TabIndex)]
 pub struct Canvas;
 
 /// What is drawn in a [`Canvas`].
@@ -465,6 +469,15 @@ fn redraw(
         })
         .collect::<Vec<_>>();
     let cell = drawn.cell;
+    let margin = drawn.margin;
+    let place = |at: usize| Node {
+        position_type: PositionType::Absolute,
+        left: px(margin),
+        top: px(margin + at as f32 * cell.y),
+        width: percent(100.0),
+        height: px(cell.y),
+        ..Node::default()
+    };
     while drawn.rows.len() > lines.len() {
         if let Some(row) = drawn.rows.pop() {
             world.despawn(row);
@@ -472,9 +485,11 @@ fn redraw(
         drawn.lines.pop();
     }
     while drawn.rows.len() < lines.len() {
+        // A row added as the screen grows is placed now, since the
+        // others are placed again only when the cell changes.
         let row = world
             .spawn((
-                Node::default(),
+                place(drawn.rows.len()),
                 Pickable::IGNORE,
                 ChildOf(canvas),
             ))
@@ -485,14 +500,7 @@ fn redraw(
     for (at, line) in lines.into_iter().enumerate() {
         let row = drawn.rows[at];
         if moved && let Some(mut node) = world.get_mut::<Node>(row) {
-            *node = Node {
-                position_type: PositionType::Absolute,
-                left: px(drawn.margin),
-                top: px(drawn.margin + at as f32 * cell.y),
-                width: percent(100.0),
-                height: px(cell.y),
-                ..Node::default()
-            };
+            *node = place(at);
         }
         if drawn.lines[at].as_ref() == Some(&line) {
             continue;
