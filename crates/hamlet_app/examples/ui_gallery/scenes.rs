@@ -85,6 +85,7 @@ impl Plugin for GalleryPlugin {
             )
             .add_plugins((
                 hamlet_app::secret::plugin,
+                hamlet_app::desk_still,
                 hamlet_ui::widgets::plugin,
                 hamlet_app::screens::plugin,
                 asking::plugin,

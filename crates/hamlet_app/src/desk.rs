@@ -44,6 +44,15 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
+/// The desk switcher over one desk, for a still drawn without a
+/// window: the dock is left as it was laid out.
+pub fn still(app: &mut App) {
+    app.init_resource::<DeskSettings>()
+        .init_resource::<Desks>()
+        .init_resource::<Shown>()
+        .add_plugins(switcher::plugin);
+}
+
 /// The tuning of the desk switcher.
 #[derive(Resource, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
