@@ -736,17 +736,36 @@ fn paint(
 fn aim(
     mut commands: Commands,
     preview: Option<Res<Preview>>,
+    editor: Res<Editor>,
     mut seat: ResMut<Seat>,
     framing: Res<Framing>,
     set: Res<CameraSettings>,
     mut cameras: Query<(&mut Transform, &mut DistanceFog)>,
+    mut anchor: Local<Option<(String, Vec3, f32)>>,
 ) {
     let Some(preview) = preview else {
         return;
     };
-    if !seat.is_changed() && !framing.is_changed() {
+    // Framed once for each graph opened, then moved only by the hand,
+    // so what is drawn and the grid under it keep their size while
+    // the graph is edited.
+    let framed = anchor
+        .as_ref()
+        .is_some_and(|(name, ..)| *name == editor.name);
+    if !framed && framing.reach > 0.0 {
+        *anchor = Some((
+            editor.name.clone(),
+            framing.middle,
+            framing.reach,
+        ));
+        seat.want = Orbit::default();
+        seat.shown = Orbit::default();
+    } else if !seat.is_changed() {
         return;
     }
+    let Some((_, middle, reach)) = anchor.clone() else {
+        return;
+    };
     let Ok((mut transform, mut fog)) =
         cameras.get_mut(preview.camera)
     else {
@@ -755,9 +774,9 @@ fn aim(
     let yaw = YAW + seat.shown.yaw;
     let pitch = (PITCH + seat.shown.pitch).clamp(0.1, 1.45);
     let toward = backward(yaw, pitch);
-    let distance = (framing.reach * 2.2 + 2.0) * seat.shown.zoom;
+    let distance = (reach * 2.2 + 2.0) * seat.shown.zoom;
     let slid = seat.shown.pan;
-    let focus = framing.middle + Vec3::new(slid.x, 0.0, slid.y);
+    let focus = middle + Vec3::new(slid.x, 0.0, slid.y);
     *transform =
         Transform::from_translation(focus + toward * distance)
             .looking_at(focus, Vec3::Y);
