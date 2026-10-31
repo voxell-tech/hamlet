@@ -5,7 +5,8 @@
 // unset, the rise varies from house to house.
 // "window" is a pane in a frame over a stone sill. "house" puts four
 // walls on each storey, the roof on top, windows along the front and a
-// flower box under some upper windows, by chance.
+// flower box under some upper windows, by chance. Each graph's nodes
+// are grouped by the part they make.
 (
     entry: "house",
     sheets: {
@@ -75,6 +76,12 @@
                     (from: (node: 24, name: "geometry"), to: (node: 25, name: "d")),
                 ],
             ),
+            groups: [
+                (title: "Plaster panel", nodes: [1, 2, 3]),
+                (title: "Where the posts go", nodes: [4, 5, 6, 7, 8, 9, 10, 11, 12]),
+                (title: "Leaning posts", nodes: [13, 14, 15, 16, 26]),
+                (title: "Rails, foot and head", nodes: [17, 18, 19, 20, 21, 22, 23, 24]),
+            ],
         ),
         "roof": (
             graph: (
@@ -143,6 +150,13 @@
                     (from: (node: 23, name: "geometry"), to: (node: 24, name: "c")),
                 ],
             ),
+            groups: [
+                (title: "Slope size and pitch", nodes: [1, 2, 3, 4, 10, 11]),
+                (title: "Where each slope sits", nodes: [5, 6, 7, 8, 9]),
+                (title: "Front slope", nodes: [12, 13, 14]),
+                (title: "Back slope", nodes: [15, 16, 17]),
+                (title: "Ridge beam", nodes: [18, 19, 20, 21, 22, 23]),
+            ],
         ),
         "window": (
             graph: (
@@ -181,6 +195,11 @@
                     (from: (node: 12, name: "geometry"), to: (node: 13, name: "c")),
                 ],
             ),
+            groups: [
+                (title: "Pane", nodes: [1, 2, 3]),
+                (title: "Frame", nodes: [4, 5, 6, 7, 8]),
+                (title: "Sill", nodes: [9, 10, 11, 12]),
+            ],
         ),
         "house": (
             graph: (
@@ -288,6 +307,18 @@
                     (from: (node: 47, name: "placements"), to: (node: 48, name: "placements")),
                 ],
             ),
+            groups: [
+                (title: "Stone base", nodes: [1, 2]),
+                (title: "Ground floor walls", nodes: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]),
+                (title: "Floor beam", nodes: [16, 17]),
+                (title: "Upper floor walls", nodes: [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]),
+                (title: "Roof", nodes: [31, 32, 33]),
+                (title: "Chimney", nodes: [34, 35]),
+                (title: "Door", nodes: [36, 37]),
+                (title: "Ground floor windows", nodes: [38, 39, 40, 41]),
+                (title: "Upper floor windows", nodes: [42, 43, 44, 45]),
+                (title: "Flower boxes, by chance", nodes: [46, 47, 48, 49, 50]),
+            ],
         ),
     },
 )
