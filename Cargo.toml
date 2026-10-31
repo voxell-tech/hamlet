@@ -58,6 +58,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # same noise on every platform.
 fastnoise-lite = { version = "1.1", default-features = false, features = ["libm"] }
 futures = "0.3"
+gltf = { version = "1.4", default-features = false, features = ["names", "utils"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 interprocess = "2"
 keyring = "4"

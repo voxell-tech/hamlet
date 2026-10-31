@@ -1,6 +1,8 @@
 //! Where the book of graphs is kept: in the window's folder, at
 //! `graphs/book.ron`, written a moment after each change and read
 //! again at launch; and in any file it is opened from or saved to.
+//! The files of the assets the book adds sit beside it, and go with
+//! it to a file it is saved to and from one it is opened from.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,10 +16,11 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
-use hamlet_blueprint::Book;
+use hamlet_blueprint::{Book, Shape};
 use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 
+use super::assets::Meshes;
 use super::{Editor, canvas, example};
 
 /// How long the book is left as it is before it is written.
@@ -58,9 +61,42 @@ impl Files {
     }
 }
 
+/// The folder the window keeps the book in, with its assets' files.
+pub(super) fn book_folder(folder: &Path) -> PathBuf {
+    folder.join("graphs")
+}
+
 /// Where the window keeps the book.
 fn kept_at(folder: &Path) -> PathBuf {
-    folder.join("graphs").join("book.ron")
+    book_folder(folder).join("book.ron")
+}
+
+/// Copies the file of each asset `book` adds from the folder `from`
+/// to the folder `to`.
+fn carry(book: &Book, from: &Path, to: &Path) -> anyhow::Result<()> {
+    if from == to {
+        return Ok(());
+    }
+    for asset in book.assets.0.values() {
+        let Shape::Mesh(path) = &asset.shape else {
+            continue;
+        };
+        let (source, target) = (from.join(path), to.join(path));
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("making {}", parent.display())
+            })?;
+        }
+        fs::copy(&source, &target).with_context(|| {
+            format!("copying {}", source.display())
+        })?;
+    }
+    Ok(())
+}
+
+/// The folder a book's file is in.
+fn beside(path: &Path) -> &Path {
+    path.parent().unwrap_or(Path::new("."))
 }
 
 fn write(path: &Path, book: &Book) -> anyhow::Result<()> {
@@ -149,7 +185,13 @@ pub(super) fn save(world: &mut World) {
         return save_as(world);
     };
     let book = world.resource::<Editor>().book();
-    let note = match write(&path, &book) {
+    let kept = world
+        .get_resource::<ViewFolder>()
+        .map(|folder| book_folder(&folder.0));
+    let note = match kept
+        .map_or(Ok(()), |kept| carry(&book, &kept, beside(&path)))
+        .and_then(|()| write(&path, &book))
+    {
         Ok(()) => {
             format!("Saved {}", world.resource::<Files>().name())
         }
@@ -192,13 +234,16 @@ fn ask(world: &mut World, mode: FileMode, title: &str) {
 /// Opens or saves the book with the file the chief chose.
 fn chosen(
     chosen: On<FileChosen>,
+    folder: Option<Res<ViewFolder>>,
     mut files: ResMut<Files>,
     mut editor: ResMut<Editor>,
+    mut meshes: ResMut<Meshes>,
     mut commands: Commands,
 ) {
     if files.asker != Some(chosen.asker) {
         return;
     }
+    let kept = folder.map(|folder| book_folder(&folder.0));
     let path = match chosen.mode {
         FileMode::Save if chosen.path.extension().is_none() => {
             chosen.path.with_extension("ron")
@@ -206,13 +251,23 @@ fn chosen(
         _ => chosen.path.clone(),
     };
     let done = match chosen.mode {
-        FileMode::Open => read(&path).map(|book| {
+        FileMode::Open => read(&path).and_then(|book| {
+            if let Some(kept) = &kept {
+                carry(&book, beside(&path), kept)?;
+            }
+            meshes.forget();
             editor.load(book);
             commands.queue(canvas::fit);
-            "Opened"
+            Ok("Opened")
         }),
         FileMode::Save => {
-            write(&path, &editor.book()).map(|()| "Saved")
+            let book = editor.book();
+            kept.as_ref()
+                .map_or(Ok(()), |kept| {
+                    carry(&book, kept, beside(&path))
+                })
+                .and_then(|()| write(&path, &book))
+                .map(|()| "Saved")
         }
     };
     match done {

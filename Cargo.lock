@@ -3369,6 +3369,7 @@ dependencies = [
  "bevy_app",
  "bevy_fynix",
  "chrono",
+ "gltf",
  "hamlet_assets",
  "hamlet_blueprint",
  "hamlet_client",

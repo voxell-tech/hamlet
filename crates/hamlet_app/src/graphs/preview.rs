@@ -35,7 +35,8 @@ use bevy::ui::widget::ViewportNode;
 use bevy::ui::{ComputedNode, Overflow, percent};
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
 use bevy_fynix::views::{BehaviorExt, frame};
-use hamlet_blueprint::{BODY, Catalogue, Instance, Paint};
+use hamlet_blueprint::{Asset, BODY, Paint, Shape};
+use hamlet_client::ViewFolder;
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::pick::{Orbit, Steer, backward, scrolled_lines};
@@ -43,7 +44,8 @@ use hamlet_realm::sky::{self, CameraSettings, Hourly};
 use hamlet_ui::styles::Fills;
 use hamlet_ui::{AnyView, Cx, View};
 
-use super::Editor;
+use super::assets::{Meshes, palette_colour};
+use super::{Editor, files};
 
 /// The asset name a placement is shown as when nothing is put there.
 pub(super) const MARKER: &str = "marker";
@@ -292,6 +294,8 @@ fn rebuild(
     editor: Res<Editor>,
     preview: Option<Res<Preview>>,
     colours: Option<Res<Colours>>,
+    folder: Option<Res<ViewFolder>>,
+    mut models: ResMut<Meshes>,
     pieces: Query<Entity, With<Piece>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut framing: ResMut<Framing>,
@@ -320,18 +324,43 @@ fn rebuild(
         let lift = if marker { 0.0 } else { size.y * 0.5 };
         let middle = instance.frame.translation
             + instance.frame.rotation * Vec3::new(0.0, lift, 0.0);
-        meshing.rbox(
-            middle,
-            size * 0.5,
-            0.04,
-            instance.frame.rotation,
-            colour(
-                colours.as_deref(),
-                &editor.rules.assets,
-                instance,
-            ),
-            if marker { 0.0 } else { 0.25 },
-        );
+        let asset = editor.rules.assets.get(&instance.asset);
+        let model =
+            match (asset.as_ref().map(|asset| &asset.shape), &folder)
+            {
+                (Some(Shape::Mesh(path)), Some(folder)) => models
+                    .get(&files::book_folder(&folder.0), path)
+                    .ok(),
+                _ => None,
+            };
+        let colours = colours.as_deref();
+        if let Some(model) = model {
+            model.draw(
+                &mut meshing,
+                middle,
+                size,
+                instance.frame.rotation,
+                |slot, own| paint(colours, asset.as_ref(), slot, own),
+            );
+        } else {
+            let colour = match colours {
+                Some(c) if marker => c.ochre,
+                _ => paint(
+                    colours,
+                    asset.as_ref(),
+                    BODY,
+                    Vec3::splat(0.7),
+                ),
+            };
+            meshing.rbox(
+                middle,
+                size * 0.5,
+                0.04,
+                instance.frame.rotation,
+                colour,
+                if marker { 0.0 } else { 0.25 },
+            );
+        }
         low = low.min(middle - size);
         high = high.max(middle + size);
     }
@@ -363,51 +392,24 @@ fn rebuild(
     ));
 }
 
-/// The colour of an asset: the palette colour its catalogue entry
-/// gives its body, ochre for a marker.
-fn colour(
+/// The colour of an asset's material slot, as its catalogue entry
+/// paints it: a palette colour, or `own`, the one its file gives.
+fn paint(
     colours: Option<&Colours>,
-    catalogue: &Catalogue,
-    instance: &Instance,
+    asset: Option<&Asset>,
+    slot: &str,
+    own: Vec3,
 ) -> Vec3 {
     let Some(c) = colours else {
         return Vec3::splat(0.7);
     };
-    if instance.asset == MARKER {
-        return c.ochre;
-    }
-    let named = catalogue
-        .get(&instance.asset)
-        .and_then(|asset| asset.slots.get(BODY).cloned());
-    match named {
+    match asset.and_then(|asset| asset.slots.get(slot)) {
         Some(Paint::Palette(name)) => {
-            palette_colour(c, &name).unwrap_or(c.plaster)
+            palette_colour(c, name).unwrap_or(c.plaster)
         }
-        _ => c.plaster,
+        Some(Paint::Own) => own,
+        None => c.plaster,
     }
-}
-
-/// The palette's colour named `name`, of those a building is made of.
-fn palette_colour(c: &Colours, name: &str) -> Option<Vec3> {
-    Some(match name {
-        "limestone" => c.limestone,
-        "limestone_shade" => c.limestone_shade,
-        "plaster" => c.plaster,
-        "plaster_worn" => c.plaster_worn,
-        "whitewash" => c.whitewash,
-        "ochre" => c.ochre,
-        "timber" => c.timber,
-        "timber_dark" => c.timber_dark,
-        "log" => c.log,
-        "terracotta" => c.terracotta,
-        "tile_drift" => c.tile_drift,
-        "moss" => c.moss,
-        "slate_roof" => c.slate_roof,
-        "rock" => c.rock,
-        "rock_dark" => c.rock_dark,
-        "bark" => c.bark,
-        _ => return None,
-    })
 }
 
 /// Points the camera at what is drawn, from the way it is turned,

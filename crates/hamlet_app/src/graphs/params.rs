@@ -1,7 +1,8 @@
 //! The open graph's own inputs, as its parameters: each one's name
 //! and type, what it is when the graph above leaves it unset, and
 //! whether it is picked at random then, between which numbers and how
-//! often; and the graph's outputs. They float over the canvas.
+//! often; the graph's outputs; and the assets the book adds. They
+//! float over the canvas.
 
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
@@ -100,6 +101,7 @@ fn panel() -> AnyView {
                 .boxed(),
             );
         }
+        parts.extend(super::assets::part());
         column(parts).gap(gap)
     })
     .boxed()
@@ -197,11 +199,12 @@ pub(super) fn input(name: String) -> AnyView {
 }
 
 /// `control` after a word on what it sets.
-fn labelled(word: &'static str, control: AnyView) -> AnyView {
+pub(super) fn labelled(word: &str, control: AnyView) -> AnyView {
+    let word = word.to_owned();
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
         row((
-            column((note(word),)).width(px(64.0)).shrink(0.0),
+            column((note(word.clone()),)).width(px(64.0)).shrink(0.0),
             column((control,))
                 .width(percent(100.0))
                 .min_width(px(0.0)),

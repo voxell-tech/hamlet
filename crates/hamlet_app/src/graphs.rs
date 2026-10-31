@@ -3,6 +3,7 @@
 //! down, run again on every change, and the selected node's
 //! properties.
 
+mod assets;
 mod canvas;
 mod controls;
 mod files;
@@ -33,9 +34,10 @@ use bevy_fynix::{
     Bevy, EntityCursor, ScopedExt, ViewExt, ViewSeq, keyed, resource,
 };
 use hamlet_blueprint::{
-    Book, Constant, Does, Edit, Frame, GraphInput, GraphOutput,
-    Group, Initial, Instance, Node, NodeId, Port, PortSpec, Registry,
-    Ruleset, Seed, Seeds, Setting, Sheet, Value, ValueType, evaluate,
+    Asset, Book, Constant, Does, Edit, Frame, GraphInput,
+    GraphOutput, Group, Initial, Instance, Node, NodeId, Port,
+    PortSpec, Registry, Ruleset, Seed, Seeds, Setting, Sheet, Value,
+    ValueType, evaluate,
 };
 use hamlet_ui::styles::{
     CONTROL, Fills, ICON, description, hairline, note, raised,
@@ -73,6 +75,7 @@ pub(crate) fn plugin(app: &mut App) {
     )
     .insert_resource(Editor::new())
     .add_plugins((
+        assets::plugin,
         canvas::plugin,
         menu::plugin,
         preview::plugin,
@@ -633,6 +636,16 @@ impl Editor {
             self.leave().1.into_iter().rev().map(Edit::RemoveGroup),
         );
         self.apply(Edit::Batch(edits));
+    }
+
+    /// Puts `asset` in the book's catalogue as `name`, or takes the
+    /// one named `name` out. Not undone.
+    pub fn set_asset(&mut self, name: String, asset: Option<Asset>) {
+        match asset {
+            Some(asset) => self.rules.assets.0.insert(name, asset),
+            None => self.rules.assets.0.remove(&name),
+        };
+        self.changed(true);
     }
 
     /// Frames the selected nodes in a new group, out of any group

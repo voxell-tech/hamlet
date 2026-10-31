@@ -34,6 +34,7 @@ bevy = { workspace = true, features = ["2d", "3d", "ui", "mesh_picking", "defaul
 bevy_app.workspace = true
 bevy_fynix.workspace = true
 chrono.workspace = true
+gltf.workspace = true
 image.workspace = true
 parley.workspace = true
 pulldown-cmark.workspace = true
