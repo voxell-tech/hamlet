@@ -849,6 +849,7 @@ fn build(
                         ..Node::default()
                     },
                     Hovered::default(),
+                    EntityCursor(SystemCursorIcon::Grab),
                     ChildOf(row),
                 ))
                 .id();
@@ -1463,6 +1464,7 @@ fn start_link(
     dots: Query<&Dot>,
     editor: Res<Editor>,
     mut gesture: ResMut<Gesture>,
+    mut cursor: ResMut<OverrideCursor>,
 ) {
     start.propagate(false);
     let Ok(dot) = dots.get(start.entity) else {
@@ -1488,6 +1490,8 @@ fn start_link(
         at,
         Vec2::ZERO,
     );
+    // The wire is held, as a card is.
+    cursor.0 = Some(SystemCursorIcon::Grabbing);
 }
 
 fn drag_link(
