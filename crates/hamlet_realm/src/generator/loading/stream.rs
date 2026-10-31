@@ -140,7 +140,7 @@ pub(in crate::generator) fn stream(
     if !land.shores().eq(loading.shores.iter().copied()) {
         let shores = land.shores().collect::<Vec<_>>();
         let set = &land.set.land;
-        let reach = set.island + set.coast.1 + set.shore;
+        let reach = set.island + set.coast.1 + set.rim.1 + 30.0;
         for at in shores.iter().chain(&loading.shores) {
             if shores.contains(at) && loading.shores.contains(at) {
                 continue;

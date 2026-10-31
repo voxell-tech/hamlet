@@ -71,12 +71,18 @@ struct ReliefInput {
     /// The height of the `grain`, the reach of the `plains` and the
     /// `edge` of them.
     rise: Vec4,
-    /// `mounds`.
+    /// `mounds`, `mound_length` and `ragged`.
     mounds: Vec4,
-    /// `mound_height`, the `island`'s reach and the `shore`.
+    /// `mound_height` and the `island`'s reach.
     tops: Vec4,
+    /// `mound_size` and `mound_skirt`.
+    sizes: Vec4,
     /// `coast`, `sea_floor` and `water_y`.
     sea: Vec4,
+    /// `shelf` and `rim`.
+    rim: Vec4,
+    /// `stacks`.
+    stacks: Vec4,
     /// `site_y`, the towns' radius, and the way the rivers run.
     town: Vec4,
     /// `river_gap`, `bends` and the scale of the `kinks`.
@@ -126,20 +132,33 @@ impl ReliefInput {
             mounds: Vec4::new(
                 set.mounds.0,
                 set.mounds.1,
-                set.mounds.2,
-                0.0,
+                set.mound_length,
+                set.ragged,
             ),
             tops: Vec4::new(
                 set.mound_height.0,
                 set.mound_height.1,
                 set.island,
-                set.shore,
+                0.0,
+            ),
+            sizes: Vec4::new(
+                set.mound_size.0,
+                set.mound_size.1,
+                set.mound_skirt.0,
+                set.mound_skirt.1,
             ),
             sea: Vec4::new(
                 set.coast.0,
                 set.coast.1,
                 set.sea_floor,
                 set.water_y,
+            ),
+            rim: Vec4::new(set.shelf, set.rim.0, set.rim.1, 0.0),
+            stacks: Vec4::new(
+                set.stacks.0,
+                set.stacks.1,
+                set.stacks.2,
+                0.0,
             ),
             town: Vec4::new(
                 set.site_y,
@@ -192,7 +211,7 @@ fn ask(
         return;
     };
     for reader in &readers {
-        commands.entity(reader).despawn();
+        commands.entity(reader).try_despawn();
     }
     let corner = Vec2::splat(-(SIDE as f32) * TEXEL * 0.5);
     let mut bytes = StorageBuffer::new(Vec::<u8>::new());
@@ -244,11 +263,14 @@ fn check(
     job: Res<Job>,
     frame: Res<FrameCount>,
     pages: Query<&Page>,
+    mut checked: Local<Option<u32>>,
 ) {
-    // A page asked for before the land last changed is let go.
+    // A page asked for before the land last changed is let go, and
+    // so is one that comes back again before its reader is gone.
     if pages
         .get(back.entity)
         .is_ok_and(|page| page.0 != job.number)
+        || *checked == Some(job.number)
     {
         return;
     }
@@ -262,7 +284,8 @@ fn check(
     if heights.first().is_none_or(|h| h.is_nan()) {
         return;
     }
-    commands.entity(back.entity).despawn();
+    *checked = Some(job.number);
+    commands.entity(back.entity).try_despawn();
     let (since, from) = job.asked;
     let (mut worst, mut sum) = (0f32, 0f32);
     let cpu = Instant::now();

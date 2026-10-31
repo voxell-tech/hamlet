@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use hamlet_vfx::ground::SoilUniform;
 
 use super::{HOLD_EASE, LandData, Unfit};
-use crate::generator::noise::{fbm, key, perlin};
+use crate::generator::noise::{fbm, key, perlin, unit};
 use crate::meshes::{lerp, smoothstep};
 
 impl LandData {
@@ -87,20 +87,90 @@ impl LandData {
         }
     }
 
-    /// 0 on low ground, 1 on the level top of a hill. The plains
-    /// about the middle have none.
+    /// 0 on low ground, 1 where a hill stands as tall as hills go.
     pub(crate) fn mound(&self, p: Vec2) -> f32 {
-        let seed = self.seed;
+        (self.hill(p) / self.set.land.mound_height.1.max(0.1))
+            .min(1.0)
+    }
+
+    /// The hills at `p`: how high the tallest of them lifts the
+    /// ground there. Each hill is a stroke: a short line with a level
+    /// top about it, its sides falling away in a skirt as steep as
+    /// the stroke's own angle. Where two meet, the taller wins. One
+    /// may stand in each cell of a grid, beyond the plains about the
+    /// middle and clear of the towns.
+    pub(crate) fn hill(&self, p: Vec2) -> f32 {
         let set = &self.set.land;
+        let (side, share) = set.mounds;
         let edge = p.length()
-            + set.edge.1 * perlin(p * set.edge.0, seed + 50);
-        let out = smoothstep(set.plains, set.plains + 105.0, edge);
-        if out <= 0.0 {
+            + set.edge.1 * perlin(p * set.edge.0, self.seed + 50);
+        if edge < set.plains {
             return 0.0;
         }
-        let (scale, foot, top) = set.mounds;
-        let n = fbm(p * scale, 3, seed + 53);
-        out * smoothstep(foot, top, n)
+        let cell = (p / side).floor();
+        let ragged = self.ragged(p);
+        let mut top = 0f32;
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                let (x, z) = (cell.x as i32 + dx, cell.y as i32 + dz);
+                let h = |k: u32| {
+                    unit(key(&[
+                        self.seed + 55,
+                        x as u32,
+                        z as u32,
+                        k,
+                    ]))
+                };
+                if h(0) > share {
+                    continue;
+                }
+                let mid = (Vec2::new(x as f32, z as f32)
+                    + 0.2
+                    + Vec2::new(h(1), h(2)) * 0.6)
+                    * side;
+                let half = Vec2::from_angle(h(3) * TAU)
+                    * set.mound_length
+                    * h(4)
+                    * 0.5;
+                let lerp_by =
+                    |(a, b): (f32, f32), t: f32| lerp(a, b, t);
+                let tall = lerp_by(set.mound_height, h(5));
+                let flat = lerp_by(set.mound_size, h(6));
+                let skirt =
+                    lerp_by(set.mound_skirt, h(7)).to_radians();
+                let run = tall / skirt.tan().max(0.05);
+                if self
+                    .near_town(mid, flat + run + half.length() + 8.0)
+                {
+                    continue;
+                }
+                let along = segment_dist(p, mid - half, mid + half);
+                let rise = stroke(along + ragged, flat, run);
+                top = top.max(tall * rise);
+            }
+        }
+        if top <= 0.0 {
+            return 0.0;
+        }
+        // Lumps over the tops, so that no top is quite level.
+        let lumps = 0.35 * perlin(p / 16.0, self.seed + 56)
+            + 0.15 * perlin(p / 8.0, self.seed + 57);
+        top + lumps * (top / set.mound_height.1.max(0.1)).min(1.0)
+    }
+
+    /// How far the edges of strokes are pushed in or out at `p`, so
+    /// that a hill's foot and the coast wander.
+    fn ragged(&self, p: Vec2) -> f32 {
+        let amount = self.set.land.ragged;
+        amount
+            * (0.7 * perlin(p / 5.0, self.seed + 58)
+                + 0.3 * perlin(p / 2.0, self.seed + 59))
+    }
+
+    /// True when a town stands within `reach` of `p`.
+    fn near_town(&self, p: Vec2, reach: f32) -> bool {
+        let clear = reach + self.set.town.radius;
+        self.shores().any(|at| at.distance(p) < clear)
     }
 
     /// The ground as it lies before any site levels it or a river
@@ -108,21 +178,10 @@ impl LandData {
     fn wild(&self, p: Vec2, d: f32) -> f32 {
         let (seed, set) = (self.seed, &self.set.land);
         // Rolling plains, four octaves.
-        let mut h = set.plain_y
+        let h = set.plain_y
             + set.hills.1 * fbm(p * set.hills.0, 4, seed + 20)
             + set.grain.1 * perlin(p * set.grain.0, seed + 30);
-        let m = self.mound(p);
-        if m > 0.0 {
-            // Each hill's top at a height of its own, so that they
-            // step rather than stand all alike.
-            let (least, most) = set.mound_height;
-            let tall =
-                0.5 + 0.5 * perlin(p * set.mounds.0, seed + 54);
-            h += m
-                * lerp(least, most, tall)
-                * smoothstep(8.0, 40.0, d);
-        }
-        h
+        h + self.hill(p) * smoothstep(8.0, 40.0, d)
     }
 
     pub fn height(&self, p: Vec2) -> f32 {
@@ -168,10 +227,10 @@ impl LandData {
         }
     }
 
-    /// 1 on the island, 0 out at sea, falling between over the
-    /// shore. The island is the land within reach of the middle and
-    /// of every town, the reaches run smoothly together.
-    pub(crate) fn inland(&self, p: Vec2) -> f32 {
+    /// How far `p` lies inside the island's coast, below zero out at
+    /// sea. The island is the land within reach of the middle and of
+    /// every town, the reaches run smoothly together.
+    pub(crate) fn inside(&self, p: Vec2) -> f32 {
         let set = &self.set.land;
         let near = self
             .shores()
@@ -179,9 +238,76 @@ impl LandData {
             .fold(f32::MAX, |a, b| {
                 smooth_min(a, b, set.island * 0.3)
             });
-        let coast = near - set.island
-            + set.coast.1 * perlin(p * set.coast.0, self.seed + 40);
-        smoothstep(set.shore, -set.shore, coast)
+        set.island
+            - near
+            - set.coast.1 * perlin(p * set.coast.0, self.seed + 40)
+    }
+
+    /// The ground `h` high at `p` as the coast leaves it. The island
+    /// is one stroke: level inland, its rim falling in a skirt to the
+    /// sea floor, steep in some stretches and gentle in others. Out
+    /// at sea the floor shelves away from the shore, and here and
+    /// there a small stroke stands out of the water.
+    fn shore(&self, p: Vec2, h: f32) -> f32 {
+        let set = &self.set.land;
+        let water = set.water_y;
+        let inside = self.inside(p) + self.ragged(p);
+        let run = lerp(
+            set.rim.0,
+            set.rim.1,
+            0.5 + 0.5 * perlin(p * 0.012, self.seed + 41),
+        );
+        let floor = lerp(
+            water - set.shelf,
+            water - set.sea_floor,
+            smoothstep(0.0, -40.0, inside),
+        );
+        let ground =
+            floor + (h - floor) * stroke(run - inside, 0.0, run);
+        if (-30.0..run).contains(&inside) {
+            ground.max(self.stack(p, floor))
+        } else {
+            ground
+        }
+    }
+
+    /// The rock standing out of the sea at `p`, if one does, over a
+    /// floor `floor` high: a small stroke with a narrow top and steep
+    /// sides. Far under the floor where none stands.
+    fn stack(&self, p: Vec2, floor: f32) -> f32 {
+        let set = &self.set.land;
+        let (side, share, tall) = set.stacks;
+        let cell = (p / side).floor();
+        let mut top = f32::MIN;
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                let (x, z) = (cell.x as i32 + dx, cell.y as i32 + dz);
+                let h = |k: u32| {
+                    unit(key(&[
+                        self.seed + 43,
+                        x as u32,
+                        z as u32,
+                        k,
+                    ]))
+                };
+                if h(0) > share {
+                    continue;
+                }
+                let at = (Vec2::new(x as f32, z as f32)
+                    + 0.2
+                    + Vec2::new(h(1), h(2)) * 0.6)
+                    * side;
+                if !(-24.0..=-5.0).contains(&self.inside(at)) {
+                    continue;
+                }
+                let flat = 0.8 + 1.4 * h(3);
+                let height = set.water_y + tall * (0.4 + 0.6 * h(4));
+                let rise =
+                    stroke(at.distance(p), flat, 2.5 + 1.5 * h(5));
+                top = top.max(floor + (height - floor) * rise);
+            }
+        }
+        top
     }
 
     /// The height with every river `wide` wider on each side, for
@@ -206,9 +332,7 @@ impl LandData {
         let d = (d - wide).max(0.0);
         h = lerp(0.3, h, smoothstep(4.0, 22.0, d));
         h = lerp(h, -1.3, smoothstep(5.2, 2.2, d));
-        // Beyond the island's coast, the sea floor.
-        let floor = self.set.land.water_y - self.set.land.sea_floor;
-        h = lerp(floor, h, self.inland(p));
+        h = self.shore(p, h);
         for hold in &self.holds {
             let away = hold.at.distance(p);
             h = lerp(
@@ -354,6 +478,22 @@ impl LandData {
             seed: self.seed,
         }
     }
+}
+
+/// How much of a stroke's height stands `dist` from its line: all of
+/// it on its level top, `flat` wide, then a skirt that falls away as
+/// a gaussian and is nearly gone `run` further out.
+fn stroke(dist: f32, flat: f32, run: f32) -> f32 {
+    let u = (dist - flat).max(0.0) / run.max(0.01);
+    (-5.5 * u * u).exp()
+}
+
+/// The distance from `p` to the segment from `a` to `b`.
+fn segment_dist(p: Vec2, a: Vec2, b: Vec2) -> f32 {
+    let ab = b - a;
+    let t = ((p - a).dot(ab) / ab.length_squared().max(1e-6))
+        .clamp(0.0, 1.0);
+    p.distance(a + ab * t)
 }
 
 /// The lesser of `a` and `b`, rounded off where they are within `k`

@@ -46,25 +46,39 @@ pub struct LandSettings {
     pub grain: (f32, f32),
     /// The island: how far its land reaches from the middle and from
     /// every town, the wobble of its coast as the scale of its noise
-    /// and how far it reaches, the width over which the shore falls
-    /// to the sea, and the depth of the sea floor under the water.
+    /// and how far it reaches, and the depth under the water of the
+    /// floor off the shore and far out.
     pub island: f32,
     pub coast: (f32, f32),
-    pub shore: f32,
+    pub shelf: f32,
     pub sea_floor: f32,
+    /// The least and the most width of the skirt the island's rim
+    /// falls to the sea floor in: steep where narrow, gentle where
+    /// wide.
+    pub rim: (f32, f32),
+    /// How far the edges of hills and of the coast are pushed in and
+    /// out, so that they wander.
+    pub ragged: f32,
+    /// Rocks standing in the sea off the coast: the side of the
+    /// cells each may stand in, the share of cells with one, and the
+    /// most height one stands over the water.
+    pub stacks: (f32, f32, f32),
     /// Reach of the home plains from the middle. Hills stand only
     /// beyond.
     pub plains: f32,
     /// The wobble of the home plains' edge, as the scale of its
     /// noise and how far it reaches.
     pub edge: (f32, f32),
-    /// The flat-topped hills beyond the plains: the scale of their
-    /// noise, the noise at which a hill's side begins to rise, and
-    /// that at which its top is reached. Above that it is level.
-    pub mounds: (f32, f32, f32),
-    /// The least and the most height of a hill's top over the land
-    /// about it.
+    /// The hills beyond the plains, each a stroke: the side of the
+    /// cells one may stand in and the share of cells with one; the
+    /// most length of its line; the least and the most height of its
+    /// top, width of its level top about the line, and angle of its
+    /// skirt, in degrees.
+    pub mounds: (f32, f32),
+    pub mound_length: f32,
     pub mound_height: (f32, f32),
+    pub mound_size: (f32, f32),
+    pub mound_skirt: (f32, f32),
     /// Distance between one river and the next.
     pub river_gap: f32,
     /// A river's bends, as the scale of the noise and how far it

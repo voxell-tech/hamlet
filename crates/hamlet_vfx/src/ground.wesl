@@ -64,7 +64,7 @@ fn ground_colour(p: vec2<f32>, y: f32, n: vec3<f32>, woods: f32, heath: f32) -> 
     c = mix(c, soil.grass_high.rgb, heath);
     c = mix(c, soil.grass_shade.rgb * 0.9, 0.55 * woods);
     // Thinner, duller grass with height, then rock, then snow.
-    c = mix(c, soil.grass_high.rgb, smoothstep(5.0, 18.0, y));
+    c = mix(c, soil.grass_high.rgb, smoothstep(10.0, 23.0, y));
     let grain = perlin(p * 0.21, soil.seed + 82u);
     let steep = 1.0 - n.y;
     let rock = max(

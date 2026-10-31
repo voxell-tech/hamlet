@@ -4,7 +4,7 @@
 // and held ground kept level. The two must give the same land, so a
 // change to one is a change to the other.
 
-import hamlet_vfx::noise::{fbm, key1, perlin, smooth_step};
+import hamlet_vfx::noise::{fbm, key1, perlin, scramble, smooth_step};
 
 // The fields are `ReliefInput`'s in `relief.rs`, where each is explained.
 struct Relief {
@@ -13,7 +13,10 @@ struct Relief {
     rise: vec4<f32>,
     mounds: vec4<f32>,
     tops: vec4<f32>,
+    sizes: vec4<f32>,
     sea: vec4<f32>,
+    rim: vec4<f32>,
+    stacks: vec4<f32>,
     town: vec4<f32>,
     river: vec4<f32>,
     drift: vec4<f32>,
@@ -34,28 +37,86 @@ fn seed() -> u32 {
     return relief.counts.x;
 }
 
-// `mound` in `terrain.rs`.
-fn mound(p: vec2<f32>) -> f32 {
+// `stroke` in `terrain.rs`.
+fn stroke(dist: f32, flat: f32, run: f32) -> f32 {
+    let u = max(dist - flat, 0.0) / max(run, 0.01);
+    return exp(-5.5 * u * u);
+}
+
+// `segment_dist` in `terrain.rs`.
+fn segment_dist(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
+    let ab = b - a;
+    let t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+    return distance(p, a + ab * t);
+}
+
+// `ragged` in `terrain.rs`.
+fn ragged(p: vec2<f32>) -> f32 {
+    return relief.mounds.w
+        * (0.7 * perlin(p / 5.0, seed() + 58u) + 0.3 * perlin(p / 2.0, seed() + 59u));
+}
+
+// `near_town` in `terrain.rs`.
+fn near_town(p: vec2<f32>, reach: f32) -> bool {
+    let clear = reach + relief.town.y;
+    let first = relief.counts.y;
+    for (var i = first; i < first + relief.counts.z; i++) {
+        if distance(relief.points[i].xy, p) < clear {
+            return true;
+        }
+    }
+    return false;
+}
+
+// `hill` in `terrain.rs`.
+fn hill(p: vec2<f32>) -> f32 {
+    let side = relief.mounds.x;
+    let share = relief.mounds.y;
     let edge = length(p) + relief.rise.w * perlin(p * relief.rise.z, seed() + 50u);
-    let out = smooth_step(relief.rise.y, relief.rise.y + 105.0, edge);
-    if out <= 0.0 {
+    if edge < relief.rise.y {
         return 0.0;
     }
-    let n = fbm(p * relief.mounds.x, 3u, seed() + 53u);
-    return out * smooth_step(relief.mounds.y, relief.mounds.z, n);
+    let cell = floor(p / side);
+    let rag = ragged(p);
+    var top = 0.0;
+    let s = seed() + 55u;
+    for (var dz = -1; dz <= 1; dz++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let xi = i32(cell.x) + dx;
+            let zi = i32(cell.y) + dz;
+            let x = bitcast<u32>(xi);
+            let z = bitcast<u32>(zi);
+            if unit_of(s, x, z, 0u) > share {
+                continue;
+            }
+            let mid = (vec2<f32>(f32(xi), f32(zi)) + 0.2
+                + vec2<f32>(unit_of(s, x, z, 1u), unit_of(s, x, z, 2u)) * 0.6) * side;
+            let a = unit_of(s, x, z, 3u) * 6.2831855;
+            let half = vec2<f32>(cos(a), sin(a)) * relief.mounds.z * unit_of(s, x, z, 4u) * 0.5;
+            let tall = mix(relief.tops.x, relief.tops.y, unit_of(s, x, z, 5u));
+            let flat = mix(relief.sizes.x, relief.sizes.y, unit_of(s, x, z, 6u));
+            let skirt = radians(mix(relief.sizes.z, relief.sizes.w, unit_of(s, x, z, 7u)));
+            let run = tall / max(tan(skirt), 0.05);
+            if near_town(mid, flat + run + length(half) + 8.0) {
+                continue;
+            }
+            let along = segment_dist(p, mid - half, mid + half);
+            top = max(top, tall * stroke(along + rag, flat, run));
+        }
+    }
+    if top <= 0.0 {
+        return 0.0;
+    }
+    let lumps = 0.35 * perlin(p / 16.0, seed() + 56u) + 0.15 * perlin(p / 8.0, seed() + 57u);
+    return top + lumps * min(top / max(relief.tops.y, 0.1), 1.0);
 }
 
 // `wild` in `terrain.rs`.
 fn wild(p: vec2<f32>, d: f32) -> f32 {
-    var h = relief.plains.x
+    let h = relief.plains.x
         + relief.plains.z * fbm(p * relief.plains.y, 4u, seed() + 20u)
         + relief.rise.x * perlin(p * relief.plains.w, seed() + 30u);
-    let m = mound(p);
-    if m > 0.0 {
-        let tall = 0.5 + 0.5 * perlin(p * relief.mounds.x, seed() + 54u);
-        h += m * mix(relief.tops.x, relief.tops.y, tall) * smooth_step(8.0, 40.0, d);
-    }
-    return h;
+    return h + hill(p) * smooth_step(8.0, 40.0, d);
 }
 
 // `river_centre` in `terrain.rs`.
@@ -110,16 +171,69 @@ fn smooth_min(a: f32, b: f32, k: f32) -> f32 {
     return mix(b, a, h) - k * h * (1.0 - h);
 }
 
-// `inland` in `terrain.rs`.
-fn inland(p: vec2<f32>) -> f32 {
+// `inside` in `terrain.rs`.
+fn inside(p: vec2<f32>) -> f32 {
     let island = relief.tops.z;
     var near = FAR;
     let first = relief.counts.y;
     for (var i = first; i < first + relief.counts.z; i++) {
         near = smooth_min(near, distance(relief.points[i].xy, p), island * 0.3);
     }
-    let coast = near - island + relief.sea.y * perlin(p * relief.sea.x, seed() + 40u);
-    return smooth_step(relief.tops.w, -relief.tops.w, coast);
+    return island - near - relief.sea.y * perlin(p * relief.sea.x, seed() + 40u);
+}
+
+// `unit(key(&[a, b, c, d]))` in `noise.rs`.
+fn unit_of(a: u32, b: u32, c: u32, d: u32) -> f32 {
+    var h = scramble(0x51ed270bu ^ a);
+    h = scramble(h ^ b);
+    h = scramble(h ^ c);
+    h = scramble(h ^ d);
+    return f32(h >> 8u) * (1.0 / 16777216.0);
+}
+
+// `stack` in `terrain.rs`.
+fn stack(p: vec2<f32>, bed: f32) -> f32 {
+    let side = relief.stacks.x;
+    let share = relief.stacks.y;
+    let tall = relief.stacks.z;
+    let cell = floor(p / side);
+    var top = -FAR;
+    let s = seed() + 43u;
+    for (var dz = -1; dz <= 1; dz++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let xi = i32(cell.x) + dx;
+            let zi = i32(cell.y) + dz;
+            let x = bitcast<u32>(xi);
+            let z = bitcast<u32>(zi);
+            if unit_of(s, x, z, 0u) > share {
+                continue;
+            }
+            let at = (vec2<f32>(f32(xi), f32(zi)) + 0.2
+                + vec2<f32>(unit_of(s, x, z, 1u), unit_of(s, x, z, 2u)) * 0.6) * side;
+            let off = inside(at);
+            if off < -24.0 || off > -5.0 {
+                continue;
+            }
+            let flat = 0.8 + 1.4 * unit_of(s, x, z, 3u);
+            let height = relief.sea.w + tall * (0.4 + 0.6 * unit_of(s, x, z, 4u));
+            let rise = stroke(distance(at, p), flat, 2.5 + 1.5 * unit_of(s, x, z, 5u));
+            top = max(top, bed + (height - bed) * rise);
+        }
+    }
+    return top;
+}
+
+// `shore` in `terrain.rs`.
+fn shore(p: vec2<f32>, h: f32) -> f32 {
+    let water = relief.sea.w;
+    let into = inside(p) + ragged(p);
+    let run = mix(relief.rim.y, relief.rim.z, 0.5 + 0.5 * perlin(p * 0.012, seed() + 41u));
+    let bed = mix(water - relief.rim.x, water - relief.sea.z, smooth_step(0.0, -40.0, into));
+    let ground = bed + (h - bed) * stroke(run - into, 0.0, run);
+    if into >= -30.0 && into < run {
+        return max(ground, stack(p, bed));
+    }
+    return ground;
 }
 
 // `height_wide` in `terrain.rs`.
@@ -137,8 +251,7 @@ fn height(p: vec2<f32>, wide: f32) -> f32 {
     let dw = max(d - wide, 0.0);
     h = mix(0.3, h, smooth_step(4.0, 22.0, dw));
     h = mix(h, -1.3, smooth_step(5.2, 2.2, dw));
-    let floor = relief.sea.w - relief.sea.z;
-    h = mix(floor, h, inland(p));
+    h = shore(p, h);
 
     let first = relief.counts.y + relief.counts.z;
     for (var i = first; i < first + relief.counts.w; i++) {
