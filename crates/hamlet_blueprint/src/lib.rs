@@ -21,8 +21,8 @@ pub use bundle::Bundle;
 pub use catalogue::{Asset, BODY, Catalogue, Paint, Shape, Socket};
 pub use edit::{Edit, EditRefusal};
 pub use eval::{
-    GraphProblem, PortInfo, Problem, Run, Seeds, evaluate, ports,
-    validate,
+    GraphProblem, PortInfo, Problem, Run, Seeds, evaluate,
+    evaluate_partly, ports, validate,
 };
 pub use field::{Field, Measure, Noise, NoiseKind, Op, Random};
 pub use graph::{

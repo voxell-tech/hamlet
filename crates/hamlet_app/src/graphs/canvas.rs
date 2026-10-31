@@ -1069,11 +1069,20 @@ fn paint(
         return;
     }
     let palette = &theme.0.palette;
+    // The cards that did not run in the last run, lit as a warning.
+    let failed: BTreeSet<NodeId> = editor
+        .problems
+        .iter()
+        .filter(|found| found.graph == editor.name)
+        .filter_map(|found| found.problem.node())
+        .collect();
     for (card, hovered, mut border) in &mut cards {
         let at =
             editor.selected.iter().position(|node| *node == card.0);
         let colour = if let Some(at) = at {
             picked(palette, at)
+        } else if failed.contains(&card.0) {
+            palette.danger
         } else if hovered.get() {
             palette.gold_5
         } else {

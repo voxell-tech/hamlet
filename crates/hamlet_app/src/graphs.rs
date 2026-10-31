@@ -37,8 +37,9 @@ use bevy_fynix::{
 };
 use hamlet_blueprint::{
     Asset, Book, Constant, Does, Edit, GraphInput, GraphOutput,
-    Group, Initial, Node, NodeId, Object, Port, PortSpec, Registry,
-    Ruleset, Seed, Seeds, Setting, Sheet, Value, ValueType, evaluate,
+    GraphProblem, Group, Initial, Node, NodeId, Object, Port,
+    PortSpec, Registry, Ruleset, Seed, Seeds, Setting, Sheet, Value,
+    ValueType, evaluate_partly,
 };
 use hamlet_ui::styles::{
     CONTROL, Fills, ICON, description, hairline, note, raised,
@@ -141,8 +142,11 @@ pub(crate) struct Editor {
     pub shape: u64,
     /// Changes with every change to the book, so it is saved again.
     pub revision: u64,
-    /// What the open graph put down, or why it could not.
+    /// What the open graph put down, or why it could not run at all.
     pub outcome: Result<Vec<Object>, String>,
+    /// The nodes that failed in the last run, each with its problem;
+    /// the rest of the graph ran without them.
+    pub problems: Vec<GraphProblem>,
     /// What each selected node gave in the last run, each output by
     /// name, for the preview to show.
     pub watched: BTreeMap<NodeId, Vec<(String, Value)>>,
@@ -169,6 +173,7 @@ impl Editor {
             shape: 0,
             revision: 0,
             outcome: Ok(Vec::new()),
+            problems: Vec::new(),
             watched: BTreeMap::new(),
             watching: BTreeSet::new(),
         };
@@ -504,13 +509,17 @@ impl Editor {
         }
         let mut ruleset = self.rules.clone();
         ruleset.graphs.insert(self.name.clone(), graph);
-        self.outcome = evaluate(
+        // A node that fails stops only what needs it, so the rest is
+        // still drawn while a graph is half built.
+        self.problems.clear();
+        self.outcome = evaluate_partly(
             &self.registry,
             &ruleset,
             self.seeds,
             &BTreeMap::new(),
         )
-        .map(|outputs| {
+        .map(|(outputs, problems)| {
+            self.problems = problems;
             let mut put = Vec::new();
             for (name, value) in outputs {
                 match watch.get(&name) {
@@ -1133,14 +1142,19 @@ fn tools() -> impl View {
                     files.note.clone()
                 }
             })),
-            description(resource::<Editor, _>(
-                |editor| match &editor.outcome {
-                    Ok(objects) => {
+            description(resource::<Editor, _>(|editor| {
+                match (&editor.outcome, editor.problems.first()) {
+                    (Ok(objects), None) => {
                         format!("{} put down", objects.len())
                     }
-                    Err(problem) => problem.clone(),
-                },
-            )),
+                    (Ok(objects), Some(problem)) => format!(
+                        "{} put down; {} did not run: {problem}",
+                        objects.len(),
+                        editor.problems.len()
+                    ),
+                    (Err(problem), _) => problem.clone(),
+                }
+            })),
         ))
         .width(percent(100.0))
         .min_width(px(0.0))

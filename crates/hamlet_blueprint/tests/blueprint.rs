@@ -4,7 +4,7 @@ use bevy_math::{Vec2, Vec3};
 use hamlet_blueprint::{
     Bundle, Does, Edit, Group, Node, NodeId, Object, Problem,
     Registry, Ruleset, Seed, Seeds, Setting, Sheet, Value, evaluate,
-    validate,
+    evaluate_partly, validate,
 };
 
 /// A post copied along a line, each copy lifted and turned at random
@@ -384,4 +384,49 @@ fn a_bundle_round_trips_with_its_files() {
         Bundle::from_ron(&text).expect("the bundle reads"),
         bundle
     );
+}
+
+#[test]
+fn a_node_left_unwired_stops_only_what_needs_it() {
+    let ruleset = Ruleset::from_ron(
+        r#"(
+            entry: "half",
+            graphs: {"half": (
+                nodes: [
+                    (id: 1, does: Kind("object")),
+                    (id: 2, does: Kind("along_curve")),
+                    (id: 3, does: Kind("cull")),
+                    (id: 4, does: Kind("object"), settings: {"asset": Fixed(Choice("post"))}),
+                ],
+                outputs: [
+                    (name: "copied", value_type: Objects, from: (node: 3, name: "objects")),
+                    (name: "alone", value_type: Objects, from: (node: 4, name: "objects")),
+                ],
+                wires: [
+                    (from: (node: 1, name: "objects"), to: (node: 2, name: "objects")),
+                    (from: (node: 2, name: "objects"), to: (node: 3, name: "objects")),
+                ],
+            )},
+        )"#,
+    )
+    .expect("the fixture parses");
+    let (made, problems) = evaluate_partly(
+        &Registry::builtin(),
+        &ruleset,
+        seeds(1),
+        &BTreeMap::new(),
+    )
+    .expect("it validates");
+    // The curve is not wired, so along_curve fails, and cull after it
+    // is skipped without a problem of its own.
+    assert_eq!(objects(&made, "alone").len(), 1);
+    assert!(!made.contains_key("copied"));
+    assert_eq!(problems.len(), 1);
+    assert!(matches!(
+        problems[0].problem,
+        Problem::Unset {
+            node: NodeId(2),
+            ..
+        }
+    ));
 }

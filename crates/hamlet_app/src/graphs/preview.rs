@@ -169,18 +169,28 @@ pub(super) fn view() -> impl View {
 fn problem() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let shown =
-            resource::<Editor, _>(|editor| match editor.outcome {
-                Ok(_) => Display::None,
-                Err(_) => Display::Flex,
-            });
+        let shown = resource::<Editor, _>(|editor| {
+            if editor.outcome.is_ok() && editor.problems.is_empty() {
+                Display::None
+            } else {
+                Display::Flex
+            }
+        });
         cx.build(
-            column((description(resource::<Editor, _>(|editor| {
-                match &editor.outcome {
-                    Ok(_) => String::new(),
-                    Err(problem) => format!("Not drawn: {problem}"),
-                }
-            })),))
+            column((description(resource::<Editor, _>(
+                |editor| match (
+                    &editor.outcome,
+                    editor.problems.first(),
+                ) {
+                    (Err(problem), _) => {
+                        format!("Not drawn: {problem}")
+                    }
+                    (Ok(_), Some(problem)) => {
+                        format!("Not all drawn: {problem}")
+                    }
+                    (Ok(_), None) => String::new(),
+                },
+            )),))
             .position(PositionType::Absolute)
             .inset(UiRect {
                 left: px(8.0),

@@ -1,5 +1,6 @@
 //! Checking a ruleset and running it.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bevy_math::Vec3;
@@ -75,6 +76,25 @@ pub enum Problem {
     RunsItself,
     #[error("{node} puts down {asset}, which is in no catalogue")]
     UnknownAsset { node: NodeId, asset: String },
+}
+
+impl Problem {
+    /// The node the problem is with, when it is with one.
+    pub fn node(&self) -> Option<NodeId> {
+        match self {
+            Problem::UnknownKind { node, .. }
+            | Problem::UnknownPort { node, .. }
+            | Problem::WrongType { node, .. }
+            | Problem::TwoWires { node, .. }
+            | Problem::Unset { node, .. }
+            | Problem::Invalid { node, .. }
+            | Problem::UnknownAsset { node, .. } => Some(*node),
+            Problem::UnknownNode(node) | Problem::SameId(node) => {
+                Some(*node)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// A [`Problem`] and the graph it is in.
@@ -406,14 +426,47 @@ pub fn evaluate(
         registry,
         ruleset,
         seeds,
+        partial: None,
     };
     runner.run(&ruleset.entry, Seed::default(), inputs)
+}
+
+/// Runs `ruleset` as [`evaluate`] does, but a node that fails, as one
+/// with an input left unset, only stops the nodes that need what it
+/// would have made: the rest still run. Gives what was made, and the
+/// problem of each node that failed. A ruleset that does not validate
+/// still gives its problem alone.
+pub fn evaluate_partly(
+    registry: &Registry,
+    ruleset: &Ruleset,
+    seeds: Seeds,
+    inputs: &BTreeMap<String, Value>,
+) -> Result<(BTreeMap<String, Value>, Vec<GraphProblem>), GraphProblem>
+{
+    if let Some(problem) =
+        validate(registry, ruleset).into_iter().next()
+    {
+        return Err(problem);
+    }
+    let runner = Runner {
+        registry,
+        ruleset,
+        seeds,
+        partial: Some(RefCell::new(Vec::new())),
+    };
+    let made = runner.run(&ruleset.entry, Seed::default(), inputs)?;
+    let problems =
+        runner.partial.map(RefCell::into_inner).unwrap_or_default();
+    Ok((made, problems))
 }
 
 struct Runner<'a> {
     registry: &'a Registry,
     ruleset: &'a Ruleset,
     seeds: Seeds,
+    /// The problems of the nodes that failed, for a run that goes on
+    /// past them; none for a run that stops at the first.
+    partial: Option<RefCell<Vec<GraphProblem>>>,
 }
 
 impl Runner<'_> {
@@ -464,91 +517,30 @@ impl Runner<'_> {
         let given = &given;
         let mut made: BTreeMap<(NodeId, String), Value> =
             BTreeMap::new();
+        // The nodes that failed or need what one failed to make, in a
+        // run that goes on past them.
+        let mut skipped = BTreeSet::new();
         for index in order(graph).map_err(fail)? {
             let node = &graph.nodes[index];
-            let seed = path.mix(u64::from(node.id.0));
-            let (inputs, _) =
-                ports(self.registry, self.ruleset, node)
-                    .map_err(fail)?;
-            let mut bound = BTreeMap::new();
-            for port in &inputs {
-                if let Some(binding) =
-                    bind(graph, node, &port.name, &made, given)
-                        .map_err(fail)?
-                {
-                    bound.insert(port.name.clone(), binding);
-                }
+            if graph.wires.iter().any(|wire| {
+                wire.to.node == node.id
+                    && skipped.contains(&wire.from.node)
+            }) {
+                skipped.insert(node.id);
+                continue;
             }
-            let outputs = match &node.does {
-                Does::Kind(kind_name) => {
-                    let Some(kind) = self.registry.get(kind_name)
-                    else {
-                        return Err(fail(Problem::UnknownKind {
-                            node: node.id,
-                            kind: kind_name.clone(),
-                        }));
-                    };
-                    for spec in kind.inputs {
-                        if let Some(initial) = spec.initial {
-                            bound
-                                .entry(spec.name.to_owned())
-                                .or_insert_with(|| {
-                                    Binding::Value(initial.into())
-                                });
-                        }
+            let outputs = match self
+                .node(name, graph, node, path, &made, given)
+            {
+                Ok(outputs) => outputs,
+                Err(problem) => match &self.partial {
+                    Some(problems) => {
+                        problems.borrow_mut().push(problem);
+                        skipped.insert(node.id);
+                        continue;
                     }
-                    let mut run = Run {
-                        kind,
-                        assets: &self.ruleset.assets,
-                        node: node.id,
-                        seed,
-                        seeds: self.seeds,
-                        inputs: bound,
-                        outputs: BTreeMap::new(),
-                    };
-                    (kind.run)(&mut run).map_err(fail)?;
-                    // Only a kind's node puts down a new asset; a
-                    // graph's gives back what its own nodes did.
-                    for value in run.outputs.values() {
-                        let Value::Objects(objects) = value else {
-                            continue;
-                        };
-                        if let Some(unknown) =
-                            objects.iter().find(|object| {
-                                self.ruleset
-                                    .assets
-                                    .get(&object.asset)
-                                    .is_none()
-                            })
-                        {
-                            return Err(fail(
-                                Problem::UnknownAsset {
-                                    node: node.id,
-                                    asset: unknown.asset.clone(),
-                                },
-                            ));
-                        }
-                    }
-                    run.outputs
-                }
-                Does::Graph(child) => {
-                    let mut child_given = BTreeMap::new();
-                    for (port, binding) in bound {
-                        let value = match binding {
-                            Binding::Value(value) => value,
-                            Binding::Roll(roll) => {
-                                let key = self
-                                    .seeds
-                                    .of(roll.scope)
-                                    .mix(seed.0)
-                                    .mix_str(&port);
-                                roll_value(&roll.spread, key)
-                            }
-                        };
-                        child_given.insert(port, value);
-                    }
-                    self.run(child, seed, &child_given)?
-                }
+                    None => return Err(problem),
+                },
             };
             for (port, value) in outputs {
                 made.insert((node.id, port), value);
@@ -557,6 +549,10 @@ impl Runner<'_> {
         graph
             .outputs
             .iter()
+            .filter(|output| {
+                self.partial.is_none()
+                    || !skipped.contains(&output.from.node)
+            })
             .map(|output| {
                 made.get(&(
                     output.from.node,
@@ -572,6 +568,103 @@ impl Runner<'_> {
                 })
             })
             .collect()
+    }
+
+    /// Runs one node of `graph`, giving what it makes by output.
+    fn node(
+        &self,
+        name: &str,
+        graph: &Graph,
+        node: &Node,
+        path: Seed,
+        made: &BTreeMap<(NodeId, String), Value>,
+        given: &BTreeMap<String, Value>,
+    ) -> Result<BTreeMap<String, Value>, GraphProblem> {
+        let fail = |problem| GraphProblem {
+            graph: name.to_owned(),
+            problem,
+        };
+        let seed = path.mix(u64::from(node.id.0));
+        let (inputs, _) =
+            ports(self.registry, self.ruleset, node).map_err(fail)?;
+        let mut bound = BTreeMap::new();
+        for port in &inputs {
+            if let Some(binding) =
+                bind(graph, node, &port.name, made, given)
+                    .map_err(fail)?
+            {
+                bound.insert(port.name.clone(), binding);
+            }
+        }
+        let outputs = match &node.does {
+            Does::Kind(kind_name) => {
+                let Some(kind) = self.registry.get(kind_name) else {
+                    return Err(fail(Problem::UnknownKind {
+                        node: node.id,
+                        kind: kind_name.clone(),
+                    }));
+                };
+                for spec in kind.inputs {
+                    if let Some(initial) = spec.initial {
+                        bound
+                            .entry(spec.name.to_owned())
+                            .or_insert_with(|| {
+                                Binding::Value(initial.into())
+                            });
+                    }
+                }
+                let mut run = Run {
+                    kind,
+                    assets: &self.ruleset.assets,
+                    node: node.id,
+                    seed,
+                    seeds: self.seeds,
+                    inputs: bound,
+                    outputs: BTreeMap::new(),
+                };
+                (kind.run)(&mut run).map_err(fail)?;
+                // Only a kind's node puts down a new asset; a
+                // graph's gives back what its own nodes did.
+                for value in run.outputs.values() {
+                    let Value::Objects(objects) = value else {
+                        continue;
+                    };
+                    if let Some(unknown) =
+                        objects.iter().find(|object| {
+                            self.ruleset
+                                .assets
+                                .get(&object.asset)
+                                .is_none()
+                        })
+                    {
+                        return Err(fail(Problem::UnknownAsset {
+                            node: node.id,
+                            asset: unknown.asset.clone(),
+                        }));
+                    }
+                }
+                run.outputs
+            }
+            Does::Graph(child) => {
+                let mut child_given = BTreeMap::new();
+                for (port, binding) in bound {
+                    let value = match binding {
+                        Binding::Value(value) => value,
+                        Binding::Roll(roll) => {
+                            let key = self
+                                .seeds
+                                .of(roll.scope)
+                                .mix(seed.0)
+                                .mix_str(&port);
+                            roll_value(&roll.spread, key)
+                        }
+                    };
+                    child_given.insert(port, value);
+                }
+                self.run(child, seed, &child_given)?
+            }
+        };
+        Ok(outputs)
     }
 }
 
