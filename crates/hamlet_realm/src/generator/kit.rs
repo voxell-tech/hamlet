@@ -5,9 +5,12 @@ use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
 use hamlet_vfx::ground::{self, GroundMaterial, GroundSettings};
 use hamlet_vfx::inlay::{InlayExt, InlayMaterial, InlayUniform};
+use hamlet_vfx::water::{
+    self, WaterMaterial, WaterSettings, WaterUniform, Waves,
+};
 
 use super::land::Land;
-use super::loading::Bed;
+use super::loading::{Bed, Sea};
 use super::{Tally, flora, traffic, yard};
 use crate::Stock;
 use crate::keeper::KeeperState;
@@ -34,9 +37,8 @@ pub(super) struct Kit {
     pub(super) engine: Handle<Mesh>,
     /// The cart of the roads between towns.
     pub(super) cart: Handle<Mesh>,
-    /// The water of a tile, and a square for it to be drawn on.
-    pub(super) water: Handle<StandardMaterial>,
-    pub(super) pond: Handle<Mesh>,
+    /// The water: the sea, the rivers and every pool.
+    pub(super) water: Handle<WaterMaterial>,
     pub(super) trees: Vec<Handle<Mesh>>,
     pub(super) groove: Handle<InlayMaterial>,
 }
@@ -54,11 +56,13 @@ pub(super) fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut inlays: ResMut<Assets<InlayMaterial>>,
     mut grounds: ResMut<Assets<GroundMaterial>>,
+    mut waters: ResMut<Assets<WaterMaterial>>,
     mut images: ResMut<Assets<Image>>,
     land: Res<Land>,
     pal: Res<Palette>,
     stock: Res<Stock>,
     bumps: Res<GroundSettings>,
+    flow: Res<WaterSettings>,
 ) {
     let ground = grounds.add(ground::material(
         &mut images,
@@ -85,18 +89,32 @@ pub(super) fn setup(
         ),
     });
 
-    let water = materials.add(StandardMaterial {
-        base_color: pal.river,
-        perceptual_roughness: 0.22,
-        reflectance: 0.4,
-        ..default()
-    });
-    // The sea under everything, kept under the camera: it shows
-    // where the ground has yet to come, and all about the island.
+    // One surface of water under the camera, for the sea, the rivers
+    // and every pool: wherever the ground dips under it, it shows.
+    let water = waters
+        .add(water::material(paint(&pal, &flow), flow.roughness));
+    let plane = meshes.add(Plane3d::new(Vec3::Y, Vec2::ONE).mesh());
+    commands.spawn((
+        Sea,
+        Waves,
+        Mesh3d(plane.clone()),
+        MeshMaterial3d(water.clone()),
+        Transform::from_xyz(0.0, land.set.land.water_y, 0.0),
+        NotShadowCaster,
+    ));
+    // The deep sea's floor under it, where the ground has yet to
+    // come and all about the island.
     commands.spawn((
         Bed,
-        Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::ONE).mesh())),
-        MeshMaterial3d(water.clone()),
+        Mesh3d(plane),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::LinearRgba(LinearRgba::from_vec3(
+                pal.water_shade * 0.5,
+            )),
+            perceptual_roughness: 0.92,
+            reflectance: 0.18,
+            ..default()
+        })),
         Transform::from_xyz(0.0, land.set.land.water_y, 0.0),
         NotShadowCaster,
     ));
@@ -120,24 +138,37 @@ pub(super) fn setup(
             .add(yard::engine(&land.pal, &land.set.yard).build()),
         cart: meshes.add(traffic::cart(&land.pal).build()),
         water,
-        pond: meshes
-            .add(Plane3d::new(Vec3::Y, Vec2::splat(0.5)).mesh()),
         trees: kinds,
         groove,
     });
 }
 
-/// Paints the ground as the land now has it, when its palette or
-/// water changes.
+/// The water's look in the palette's colours.
+fn paint(pal: &Palette, set: &WaterSettings) -> WaterUniform {
+    WaterUniform::new(set, pal.water, pal.water_shade, pal.foam)
+}
+
+/// Paints the ground and the water as the land and the water's
+/// settings now have them.
 pub(super) fn repaint(
     land: Res<Land>,
+    flow: Res<WaterSettings>,
     kit: Res<Kit>,
     mut grounds: ResMut<Assets<GroundMaterial>>,
+    mut waters: ResMut<Assets<WaterMaterial>>,
 ) {
     let soil = land.soil();
     if let Some(mut ground) = grounds.get_mut(&kit.ground)
         && ground.extension.soil != soil
     {
         ground.extension.soil = soil;
+    }
+    let look = paint(&land.pal, &flow);
+    if let Some(mut water) = waters.get_mut(&kit.water)
+        && (water.extension.water != look
+            || water.base.perceptual_roughness != flow.roughness)
+    {
+        water.extension.water = look;
+        water.base.perceptual_roughness = flow.roughness;
     }
 }

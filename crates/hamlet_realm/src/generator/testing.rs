@@ -40,7 +40,6 @@ pub(super) fn kit(world: &mut World) {
         engine: Handle::default(),
         cart: Handle::default(),
         water: Handle::default(),
-        pond: Handle::default(),
         trees: vec![Handle::default(); flora::KINDS],
         groove: Handle::default(),
     });

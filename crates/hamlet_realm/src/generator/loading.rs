@@ -89,3 +89,7 @@ pub(super) struct Standing;
 /// The plain ground that shows where no tile is drawn yet.
 #[derive(Component)]
 pub(super) struct Bed;
+
+/// The water over everything that lies under its height.
+#[derive(Component)]
+pub(super) struct Sea;

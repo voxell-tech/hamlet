@@ -8,7 +8,7 @@ use bevy::tasks::AsyncComputeTaskPool;
 use bevy::window::RequestRedraw;
 
 use super::lanes::Lanes;
-use super::{Bed, Ground, Loading, Standing, Wood};
+use super::{Bed, Ground, Loading, Sea, Standing, Wood};
 use crate::WorldCamera;
 use crate::generator::building::mesh_bytes;
 use crate::generator::ground::{self, Recipe, Sight, Stand};
@@ -69,8 +69,12 @@ pub(in crate::generator) fn stream(
         (With<WorldCamera>, Without<Ground>),
     >,
     mut bed: Query<
-        &mut Transform,
-        (With<Bed>, Without<WorldCamera>, Without<Ground>),
+        (&mut Transform, Has<Sea>),
+        (
+            Or<(With<Bed>, With<Sea>)>,
+            Without<WorldCamera>,
+            Without<Ground>,
+        ),
     >,
     mut places: Query<&mut Transform, With<Ground>>,
     standing: Query<(), With<Standing>>,
@@ -90,10 +94,11 @@ pub(in crate::generator) fn stream(
         _ => 4000.0,
     };
     let sight = sight(&land, &detail, at, fog, far);
-    for mut bed in &mut bed {
+    for (mut bed, is_sea) in &mut bed {
+        let below = if is_sea { 0.0 } else { detail.bed };
         let next = Transform::from_xyz(
             sight.centre.x,
-            land.set.land.water_y - detail.bed,
+            land.set.land.water_y - below,
             sight.centre.y,
         )
         .with_scale(Vec3::splat(far * 2.0));
@@ -200,23 +205,6 @@ pub(in crate::generator) fn stream(
                     Visibility::Inherited,
                 ))
                 .id();
-            // Water lies only where the ground dips under it.
-            if sod.wet {
-                let (mid, side) =
-                    (tile.middle(chunk), tile.side(chunk));
-                commands.spawn((
-                    Mesh3d(kit.pond.clone()),
-                    MeshMaterial3d(kit.water.clone()),
-                    Transform::from_xyz(
-                        mid.x,
-                        land.set.land.water_y,
-                        mid.y,
-                    )
-                    .with_scale(Vec3::new(side, 1.0, side)),
-                    NotShadowCaster,
-                    ChildOf(entity),
-                ));
-            }
             (entity, bytes, true)
         });
     let waiting = &mut loading.waiting;

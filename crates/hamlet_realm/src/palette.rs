@@ -104,10 +104,13 @@ pub struct Palette {
     pub rock_warm: Vec3,
     #[serde(with = "tint::linear")]
     pub snow: Vec3,
+    /// Water where it is shallow and where it is deep, and its foam.
     #[serde(with = "tint::linear")]
     pub water: Vec3,
     #[serde(with = "tint::linear")]
     pub water_shade: Vec3,
+    #[serde(with = "tint::linear")]
+    pub foam: Vec3,
     /// The slate bed of a groove, and the pewter strip down its
     /// middle.
     #[serde(with = "tint::linear")]

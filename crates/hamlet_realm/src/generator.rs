@@ -34,6 +34,7 @@ pub mod yard;
 use bevy::prelude::*;
 use hamlet_vfx::magic::MagicSettings;
 pub(crate) use hamlet_vfx::magic::glow;
+use hamlet_vfx::water::WaterSettings;
 use hamlet_vfx::{Density, Now, Tints, VfxPlugin, VfxSystems};
 
 pub use self::ground::DetailSettings;
@@ -146,7 +147,10 @@ pub fn plugin(app: &mut App) {
                     .or_eager(resource_changed::<GeneratorOptions>),
             ),
             tell_states.run_if(resource_changed::<Society>),
-            repaint.run_if(resource_changed::<Land>),
+            repaint.run_if(
+                resource_changed::<Land>
+                    .or_else(resource_changed::<WaterSettings>),
+            ),
             settle.run_if(resource_changed::<Society>),
             shift_houses,
             magic::charm,
