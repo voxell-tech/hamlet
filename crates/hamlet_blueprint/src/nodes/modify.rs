@@ -20,10 +20,10 @@ const REPEAT: NodeKind = NodeKind {
         PLACEMENTS_IN,
         PortSpec::new(
             "count",
-            ValueType::Number,
+            ValueType::Integer,
             "How many copies, the first included",
         )
-        .initial(Initial::Number(2.0)),
+        .initial(Initial::Integer(2)),
         PortSpec::new(
             "step",
             ValueType::Point,
@@ -40,8 +40,7 @@ fn repeat(run: &mut Run) -> Result<(), Problem> {
     let mut placed = Vec::new();
     for original in run.placements("placements")? {
         let count =
-            run.number("count", Some(original))?.round().max(0.0)
-                as u32;
+            run.integer("count", Some(original))?.max(0) as u32;
         for index in 0..count {
             let mut copy = original.clone();
             copy.id = run.id(original.id, index);

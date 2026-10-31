@@ -7,7 +7,7 @@ use crate::node::{Initial, NodeKind, PortSpec};
 use crate::turn;
 use crate::value::{Curve, Value, ValueType};
 
-pub(super) const KINDS: &[NodeKind] = &[LINE, RECTANGLE, CIRCLE];
+pub(super) const KINDS: &[NodeKind] = &[LINE, RECTANGLE, POLYGON];
 
 const CURVE_OUT: PortSpec =
     PortSpec::new("curve", ValueType::Curve, "The curve");
@@ -71,29 +71,29 @@ fn rectangle(run: &mut Run) -> Result<(), Problem> {
     Ok(())
 }
 
-const CIRCLE: NodeKind = NodeKind {
-    name: "circle",
-    doc: "A closed curve round a circle on the ground, as straight \
-          edges",
+const POLYGON: NodeKind = NodeKind {
+    name: "polygon",
+    doc: "A closed curve of equal straight edges round a middle on \
+          the ground, near a circle with many sides",
     inputs: &[
         CENTER,
         PortSpec::new("radius", ValueType::Number, "Its radius")
             .initial(Initial::Number(3.0)),
         PortSpec::new(
             "sides",
-            ValueType::Number,
+            ValueType::Integer,
             "How many edges, at least 3",
         )
-        .initial(Initial::Number(16.0)),
+        .initial(Initial::Integer(16)),
     ],
     outputs: &[CURVE_OUT],
-    run: circle,
+    run: polygon,
 };
 
-fn circle(run: &mut Run) -> Result<(), Problem> {
+fn polygon(run: &mut Run) -> Result<(), Problem> {
     let center = run.point("center")?;
     let radius = run.number("radius", None)?;
-    let sides = run.number("sides", None)?.round().max(3.0) as u32;
+    let sides = run.integer("sides", None)?.max(3) as u32;
     let points = (0..sides)
         .map(|i| {
             let turn = turn::about(

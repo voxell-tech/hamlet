@@ -141,6 +141,7 @@ impl Input {
             value_type: spec.value_type,
             initial: spec.initial.map(|initial| match initial {
                 Initial::Number(n) => Constant::Number(n),
+                Initial::Integer(n) => Constant::Integer(n),
                 Initial::Bool(on) => Constant::Bool(on),
                 Initial::Point(p) => Constant::Point(p),
                 Initial::Choice(c) => Constant::Choice(c.to_owned()),
@@ -547,6 +548,7 @@ pub(super) fn picked(palette: &Palette, index: usize) -> Color {
 fn tint(palette: &Palette, value_type: ValueType) -> Color {
     match value_type {
         ValueType::Number => palette.gold_3,
+        ValueType::Integer => palette.gold_1,
         ValueType::Bool => palette.green,
         ValueType::Point | ValueType::Curve => palette.agent,
         ValueType::Choice => palette.grey_1,

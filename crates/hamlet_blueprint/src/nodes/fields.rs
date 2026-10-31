@@ -35,10 +35,10 @@ const NOISE: NodeKind = NodeKind {
         .initial(Initial::Number(0.2)),
         PortSpec::new(
             "octaves",
-            ValueType::Number,
+            ValueType::Integer,
             "Layers of finer detail, from 1 to 8",
         )
-        .initial(Initial::Number(1.0)),
+        .initial(Initial::Integer(1)),
         PortSpec::new(
             "scope",
             ValueType::Choice,
@@ -68,8 +68,7 @@ fn noise(run: &mut Run) -> Result<(), Problem> {
     let noise = Noise {
         kind,
         frequency: run.number("frequency", None)?,
-        octaves: run.number("octaves", None)?.round().clamp(1.0, 8.0)
-            as u8,
+        octaves: run.integer("octaves", None)?.clamp(1, 8) as u8,
         seed: run.chance(scope),
     };
     run.put("field", Value::Field(Field::Noise(noise)));

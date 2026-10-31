@@ -11,6 +11,8 @@ use crate::field::Field;
 )]
 pub enum ValueType {
     Number,
+    /// A whole number, such as a count.
+    Integer,
     Bool,
     Point,
     Choice,
@@ -31,7 +33,13 @@ impl ValueType {
                 (
                     ValueType::Number | ValueType::Bool,
                     ValueType::Field
-                ) | (ValueType::Field, ValueType::Number)
+                ) | (
+                    ValueType::Field | ValueType::Number,
+                    ValueType::Number | ValueType::Integer
+                ) | (
+                    ValueType::Integer,
+                    ValueType::Number | ValueType::Field
+                )
             )
     }
 }
@@ -40,6 +48,7 @@ impl ValueType {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Value {
     Number(f32),
+    Integer(i32),
     Bool(bool),
     Point(Vec3),
     Choice(String),
@@ -53,6 +62,7 @@ impl Value {
     pub fn value_type(&self) -> ValueType {
         match self {
             Value::Number(_) => ValueType::Number,
+            Value::Integer(_) => ValueType::Integer,
             Value::Bool(_) => ValueType::Bool,
             Value::Point(_) => ValueType::Point,
             Value::Choice(_) => ValueType::Choice,
@@ -68,6 +78,7 @@ impl Value {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Constant {
     Number(f32),
+    Integer(i32),
     Bool(bool),
     Point(Vec3),
     Choice(String),
@@ -77,6 +88,7 @@ impl Constant {
     pub fn value_type(&self) -> ValueType {
         match self {
             Constant::Number(_) => ValueType::Number,
+            Constant::Integer(_) => ValueType::Integer,
             Constant::Bool(_) => ValueType::Bool,
             Constant::Point(_) => ValueType::Point,
             Constant::Choice(_) => ValueType::Choice,
@@ -88,6 +100,7 @@ impl From<Constant> for Value {
     fn from(constant: Constant) -> Self {
         match constant {
             Constant::Number(number) => Value::Number(number),
+            Constant::Integer(whole) => Value::Integer(whole),
             Constant::Bool(flag) => Value::Bool(flag),
             Constant::Point(point) => Value::Point(point),
             Constant::Choice(choice) => Value::Choice(choice),

@@ -25,8 +25,9 @@ use hamlet_ui::{AnyView, View, with_cx};
 use super::Editor;
 
 /// The types an input can take, as offered.
-const TYPES: [(&str, ValueType); 4] = [
+const TYPES: [(&str, ValueType); 5] = [
     ("Number", ValueType::Number),
+    ("Whole number", ValueType::Integer),
     ("Switch", ValueType::Bool),
     ("Point", ValueType::Point),
     ("Text", ValueType::Choice),
@@ -140,6 +141,7 @@ fn blank(value_type: ValueType) -> Constant {
         ValueType::Bool => Constant::Bool(true),
         ValueType::Point => Constant::Point(Vec3::ZERO),
         ValueType::Choice => Constant::Choice(String::new()),
+        ValueType::Integer => Constant::Integer(0),
         _ => Constant::Number(0.0),
     }
 }
@@ -181,7 +183,10 @@ pub(super) fn input(name: String) -> AnyView {
             "default",
             default(name.clone(), found.value_type),
         ));
-        if found.value_type == ValueType::Number {
+        if matches!(
+            found.value_type,
+            ValueType::Number | ValueType::Integer
+        ) {
             parts.push(labelled("varies", varies(name.clone())));
             if found.vary.is_some() {
                 parts
@@ -359,6 +364,17 @@ fn default(name: String, value_type: ValueType) -> AnyView {
             .rules(text_input)
             .boxed()
         }
+        ValueType::Integer => number(
+            name,
+            |input| match input.default {
+                Some(Constant::Integer(n)) => n as f32,
+                _ => 0.0,
+            },
+            |input, value| {
+                input.default =
+                    Some(Constant::Integer(value.round() as i32));
+            },
+        ),
         _ => number(
             name,
             |input| match input.default {
@@ -392,21 +408,24 @@ fn varies(name: String) -> AnyView {
         Glyph::Chevron.image(ICON),
         move |world, at| {
             change(world, &name, |input| {
-                input.vary =
-                    match at.checked_sub(1).map(|at| PER[at].1) {
-                        None => None,
-                        Some(per) => {
-                            let start = match input.default {
-                                Some(Constant::Number(n)) => n,
-                                _ => 0.0,
-                            };
-                            let (low, high) = match input.vary {
-                                Some(vary) => (vary.low, vary.high),
-                                None => (start, start + 1.0),
-                            };
-                            Some(Vary { low, high, per })
-                        }
-                    };
+                input.vary = match at
+                    .checked_sub(1)
+                    .map(|at| PER[at].1)
+                {
+                    None => None,
+                    Some(per) => {
+                        let start = match input.default {
+                            Some(Constant::Number(n)) => n,
+                            Some(Constant::Integer(n)) => n as f32,
+                            _ => 0.0,
+                        };
+                        let (low, high) = match input.vary {
+                            Some(vary) => (vary.low, vary.high),
+                            None => (start, start + 1.0),
+                        };
+                        Some(Vary { low, high, per })
+                    }
+                };
             });
         },
     )

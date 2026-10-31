@@ -161,7 +161,10 @@ fn show(
                 );
             }
         }
-        Value::Number(_) | Value::Bool(_) | Value::Choice(_) => {}
+        Value::Number(_)
+        | Value::Integer(_)
+        | Value::Bool(_)
+        | Value::Choice(_) => {}
     }
 }
 

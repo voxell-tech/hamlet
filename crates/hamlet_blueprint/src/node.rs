@@ -107,6 +107,7 @@ pub enum Listed {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Initial {
     Number(f32),
+    Integer(i32),
     Bool(bool),
     Point(Vec3),
     Choice(&'static str),
@@ -116,6 +117,7 @@ impl From<Initial> for Value {
     fn from(initial: Initial) -> Self {
         match initial {
             Initial::Number(number) => Value::Number(number),
+            Initial::Integer(whole) => Value::Integer(whole),
             Initial::Bool(flag) => Value::Bool(flag),
             Initial::Point(point) => Value::Point(point),
             Initial::Choice(choice) => {

@@ -447,10 +447,14 @@ impl Runner<'_> {
                         .of(vary.per)
                         .mix(path.0)
                         .mix_str(&input.name);
-                    Value::Number(
-                        vary.low
-                            + (vary.high - vary.low) * key.unit(),
-                    )
+                    let picked = vary.low
+                        + (vary.high - vary.low) * key.unit();
+                    // A whole number varies between whole numbers.
+                    if input.value_type == ValueType::Integer {
+                        Value::Integer(picked.round() as i32)
+                    } else {
+                        Value::Number(picked)
+                    }
                 }
                 (None, Some(default)) => default.clone().into(),
                 (None, None) => continue,
@@ -741,6 +745,9 @@ impl Run<'_> {
     ) -> Result<f32, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Number(number)) => Ok(*number),
+            Binding::Value(Value::Integer(whole)) => {
+                Ok(*whole as f32)
+            }
             Binding::Value(Value::Field(field)) => {
                 Ok(field.sample(at.unwrap_or(&ORIGIN)))
             }
@@ -753,6 +760,21 @@ impl Run<'_> {
             Binding::Value(_) => {
                 Err(self.wrong(port, ValueType::Number))
             }
+        }
+    }
+
+    /// The whole number on `port`, a number or field there rounded.
+    pub fn integer(
+        &self,
+        port: &str,
+        at: Option<&Placement>,
+    ) -> Result<i32, Problem> {
+        match self.binding(port)? {
+            Binding::Value(Value::Integer(whole)) => Ok(*whole),
+            _ => self
+                .number(port, at)
+                .map(|number| number.round() as i32)
+                .map_err(|_| self.wrong(port, ValueType::Integer)),
         }
     }
 
@@ -861,6 +883,9 @@ impl Run<'_> {
             Binding::Value(Value::Field(field)) => Ok(field.clone()),
             Binding::Value(Value::Number(number)) => {
                 Ok(Field::Constant(*number))
+            }
+            Binding::Value(Value::Integer(whole)) => {
+                Ok(Field::Constant(*whole as f32))
             }
             _ => Err(self.wrong(port, ValueType::Field)),
         }

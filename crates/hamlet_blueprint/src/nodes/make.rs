@@ -119,12 +119,12 @@ const GRID: NodeKind = NodeKind {
             .initial(Initial::Point(Vec3::ZERO)),
         PortSpec::new(
             "columns",
-            ValueType::Number,
+            ValueType::Integer,
             "How many along x",
         )
-        .initial(Initial::Number(3.0)),
-        PortSpec::new("rows", ValueType::Number, "How many along z")
-            .initial(Initial::Number(3.0)),
+        .initial(Initial::Integer(3)),
+        PortSpec::new("rows", ValueType::Integer, "How many along z")
+            .initial(Initial::Integer(3)),
         PortSpec::new(
             "spacing",
             ValueType::Number,
@@ -138,9 +138,8 @@ const GRID: NodeKind = NodeKind {
 
 fn grid(run: &mut Run) -> Result<(), Problem> {
     let at = run.point("at")?;
-    let columns =
-        run.number("columns", None)?.round().max(0.0) as u32;
-    let rows = run.number("rows", None)?.round().max(0.0) as u32;
+    let columns = run.integer("columns", None)?.max(0) as u32;
+    let rows = run.integer("rows", None)?.max(0) as u32;
     let spacing = run.number("spacing", None)?;
     let corner = at
         - Vec3::new(

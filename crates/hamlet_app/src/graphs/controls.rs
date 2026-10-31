@@ -1,8 +1,9 @@
-//! The controls on a card's unwired input rows: a field for a number
-//! or each axis of a point, a switch, a choice that opens its list in
-//! the menu layer, and a mark that puts a fixed input back to its
-//! default. Changing a value fixes the input; until then it shows its
-//! default. A group's title is a field on its title bar.
+//! The controls on a card's unwired input rows: a field for a number,
+//! a whole number or each axis of a point, a switch, a choice that
+//! opens its list in the menu layer, and a mark that puts a fixed
+//! input back to its default. Changing a value fixes the input; until
+//! then it shows its default. A group's title is a field on its title
+//! bar.
 
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
@@ -49,6 +50,7 @@ pub(super) fn written(value_type: ValueType) -> Option<ValueType> {
         ValueType::Field | ValueType::Number => {
             Some(ValueType::Number)
         }
+        ValueType::Integer => Some(ValueType::Integer),
         ValueType::Bool => Some(ValueType::Bool),
         ValueType::Point => Some(ValueType::Point),
         ValueType::Choice => Some(ValueType::Choice),
@@ -76,6 +78,7 @@ fn default_of(input: &Input) -> Option<Constant> {
     Some(match written(input.value_type)? {
         ValueType::Bool => Constant::Bool(true),
         ValueType::Point => Constant::Point(Vec3::ZERO),
+        ValueType::Integer => Constant::Integer(0),
         ValueType::Choice => Constant::Choice(
             input
                 .choices
@@ -116,7 +119,9 @@ pub(super) fn control(
             return Some(pill("random".into()));
         }
         _ => match written(input.value_type)? {
-            ValueType::Number => number(node, input.clone(), None),
+            ValueType::Number | ValueType::Integer => {
+                number(node, input.clone(), None)
+            }
             ValueType::Point => row((
                 number(node, input.clone(), Some(0)),
                 number(node, input.clone(), Some(1)),
@@ -147,17 +152,19 @@ fn pill(text: String) -> AnyView {
     label(text).wrap(false).tone(Tone::Accent).boxed()
 }
 
-/// A field for a number, or for one axis of a point.
+/// A field for a number, whole or not, or for one axis of a point.
 fn number(
     node: NodeId,
     input: Input,
     axis: Option<usize>,
 ) -> AnyView {
     let read = input.clone();
+    let whole = input.value_type == ValueType::Integer;
     number_field(
         resource::<Editor, _>(move |editor| {
             match (value_of(editor, node, &read), axis) {
                 (Some(Constant::Number(n)), None) => f64::from(n),
+                (Some(Constant::Integer(n)), None) => f64::from(n),
                 (Some(Constant::Point(p)), Some(axis)) => {
                     f64::from(p[axis])
                 }
@@ -167,6 +174,7 @@ fn number(
         move |world: &mut World, n: f64| {
             let n = n as f32;
             let constant = match axis {
+                None if whole => Constant::Integer(n.round() as i32),
                 None => Constant::Number(n),
                 Some(axis) => {
                     let mut point = match value_of(
@@ -189,8 +197,8 @@ fn number(
             );
         },
     )
-    .step(0.05)
-    .precision(2)
+    .step(if whole { 1.0 } else { 0.05 })
+    .precision(if whole { 0 } else { 2 })
     .width(px(if axis.is_some() { AXIS } else { NUMBER }))
     .rules(text_input)
     .boxed()
