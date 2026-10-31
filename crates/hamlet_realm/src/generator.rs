@@ -20,6 +20,7 @@ pub mod noise;
 mod relief;
 pub mod road;
 mod shift;
+mod shore;
 pub mod society;
 mod sounds;
 mod sync;
@@ -34,6 +35,7 @@ pub mod yard;
 use bevy::prelude::*;
 use hamlet_vfx::magic::MagicSettings;
 pub(crate) use hamlet_vfx::magic::glow;
+use hamlet_vfx::water::WaterSettings;
 use hamlet_vfx::{Density, Now, Tints, VfxPlugin, VfxSystems};
 
 pub use self::ground::DetailSettings;
@@ -99,6 +101,7 @@ pub fn plugin(app: &mut App) {
         lights::plugin,
         sounds::plugin,
         relief::plugin,
+        shore::plugin,
     ))
     // An effect a house is given plays the frame it is given.
     .configure_sets(
@@ -146,7 +149,11 @@ pub fn plugin(app: &mut App) {
                     .or_eager(resource_changed::<GeneratorOptions>),
             ),
             tell_states.run_if(resource_changed::<Society>),
-            repaint.run_if(resource_changed::<Land>),
+            repaint.run_if(
+                resource_changed::<Land>
+                    .or_else(resource_changed::<WaterSettings>)
+                    .or_else(resource_changed::<Sky>),
+            ),
             settle.run_if(resource_changed::<Society>),
             shift_houses,
             magic::charm,

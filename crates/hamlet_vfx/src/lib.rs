@@ -7,6 +7,7 @@ pub mod inlay;
 pub mod magic;
 pub mod mark;
 pub mod sparks;
+pub mod water;
 pub mod wind;
 
 use bevy::prelude::*;
@@ -17,6 +18,7 @@ use self::ground::GroundSettings;
 use self::inlay::InlayPlugin;
 use self::magic::MagicSettings;
 use self::sparks::SparkSettings;
+use self::water::WaterSettings;
 use self::wind::WindSettings;
 
 /// Every effect. Insert [`Tints`] before adding it.
@@ -35,6 +37,7 @@ impl Plugin for VfxPlugin {
             wind::plugin,
             flag::plugin,
             ground::plugin,
+            water::plugin,
         ))
         .init_resource::<Now>();
     }
@@ -79,6 +82,7 @@ pub(crate) struct VfxTuning {
     pub wind: WindSettings,
     pub flag: FlagSettings,
     pub ground: GroundSettings,
+    pub water: WaterSettings,
 }
 
 impl Tuning for VfxTuning {
@@ -90,6 +94,7 @@ impl Tuning for VfxTuning {
         follow(world, &was.wind, &self.wind);
         follow(world, &was.flag, &self.flag);
         follow(world, &was.ground, &self.ground);
+        follow(world, &was.water, &self.water);
     }
 }
 
@@ -99,4 +104,5 @@ designed!(VfxTuning {
     WindSettings => wind,
     FlagSettings => flag,
     GroundSettings => ground,
+    WaterSettings => water,
 });
