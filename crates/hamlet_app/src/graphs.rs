@@ -285,6 +285,9 @@ impl Editor {
     /// Puts `book` in place of the one being edited, with no history,
     /// open at its entry.
     pub fn load(&mut self, mut book: Book) {
+        for sheet in book.sheets.values_mut() {
+            rename_old_words(&mut sheet.graph);
+        }
         // A book saved before removing an input cleared the nodes set
         // from it may still name it.
         for sheet in book.sheets.values_mut() {
@@ -818,6 +821,38 @@ impl Editor {
     }
 }
 
+/// Puts the words nodes and ports had before for the ones they have
+/// now, so a book saved before reads: `box` is `spot`, `instance` is
+/// `put`, `circle` is `polygon`, and a `placements` port is `spots`.
+fn rename_old_words(graph: &mut hamlet_blueprint::Graph) {
+    let port = |name: &mut String| {
+        if name == "placements" {
+            *name = "spots".to_owned();
+        }
+    };
+    for node in &mut graph.nodes {
+        if let Does::Kind(kind) = &mut node.does {
+            let now = match kind.as_str() {
+                "box" => "spot",
+                "instance" => "put",
+                "circle" => "polygon",
+                _ => continue,
+            };
+            *kind = now.to_owned();
+        }
+        if let Some(setting) = node.settings.remove("placements") {
+            node.settings.insert("spots".to_owned(), setting);
+        }
+    }
+    for wire in &mut graph.wires {
+        port(&mut wire.from.name);
+        port(&mut wire.to.name);
+    }
+    for output in &mut graph.outputs {
+        port(&mut output.from.name);
+    }
+}
+
 /// The input that names `node`, as math's operation does, and the
 /// choice it is set to.
 pub(super) fn naming<'a>(
@@ -1195,6 +1230,20 @@ fn switcher() -> impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_book_in_the_old_words_still_runs() {
+        let old = EXAMPLES[1]
+            .1
+            .replace("Kind(\"spot\")", "Kind(\"box\")")
+            .replace("Kind(\"put\")", "Kind(\"instance\")")
+            .replace("name: \"spots\"", "name: \"placements\"");
+        let mut editor = Editor::new();
+        editor.load(example(&old).expect("the old book parses"));
+        assert!(
+            editor.outcome.as_ref().is_ok_and(|put| !put.is_empty())
+        );
+    }
 
     #[test]
     fn every_example_opens_and_puts_something_down() {

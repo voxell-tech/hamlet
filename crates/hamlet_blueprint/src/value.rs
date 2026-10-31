@@ -17,6 +17,7 @@ pub enum ValueType {
     Point,
     Choice,
     Curve,
+    #[serde(alias = "Placements")]
     Spots,
     Field,
     Geometry,
