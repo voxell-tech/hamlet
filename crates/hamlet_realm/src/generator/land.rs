@@ -44,23 +44,27 @@ pub struct LandSettings {
     /// the scale of its noise and its height.
     pub hills: (f32, f32),
     pub grain: (f32, f32),
-    /// Reach of the home plains from the middle. Mountains stand
-    /// only beyond.
+    /// The island: how far its land reaches from the middle and from
+    /// every town, the wobble of its coast as the scale of its noise
+    /// and how far it reaches, the width over which the shore falls
+    /// to the sea, and the depth of the sea floor under the water.
+    pub island: f32,
+    pub coast: (f32, f32),
+    pub shore: f32,
+    pub sea_floor: f32,
+    /// Reach of the home plains from the middle. Hills stand only
+    /// beyond.
     pub plains: f32,
-    /// Share of the far land that is mountain: the range noise at
-    /// which the ground begins to rise and at which it is all range.
-    pub ranges: (f32, f32),
     /// The wobble of the home plains' edge, as the scale of its
     /// noise and how far it reaches.
     pub edge: (f32, f32),
-    /// The scale of the noise the ranges lie by.
-    pub range_scale: f32,
-    /// The warp that bends the ridges, as the scale of its noise and
-    /// how far it reaches.
-    pub ridge_warp: (f32, f32),
-    /// The peaks: the scale of their noise, and the least and the
-    /// most height they add.
-    pub peaks: (f32, f32, f32),
+    /// The flat-topped hills beyond the plains: the scale of their
+    /// noise, the noise at which a hill's side begins to rise, and
+    /// that at which its top is reached. Above that it is level.
+    pub mounds: (f32, f32, f32),
+    /// The least and the most height of a hill's top over the land
+    /// about it.
+    pub mound_height: (f32, f32),
     /// Distance between one river and the next.
     pub river_gap: f32,
     /// A river's bends, as the scale of the noise and how far it
@@ -110,7 +114,7 @@ impl Site {
 pub enum Unfit {
     /// On water, or with a house in it.
     Water,
-    /// In the mountains.
+    /// On a hill.
     Steep,
     /// On top of another town, or of something else that holds its
     /// ground.
@@ -198,6 +202,15 @@ impl Land {
             })
             .collect();
     }
+
+    /// Grows the island about the sites in `settled`, which have
+    /// towns, and lets go of the land about any others.
+    pub fn settle(&mut self, settled: &[usize]) {
+        if self.settled == settled {
+            return;
+        }
+        Arc::make_mut(&mut self.0).settled = settled.to_vec();
+    }
 }
 
 impl Deref for Land {
@@ -219,6 +232,8 @@ pub struct LandData {
     near: HashMap<Cell, Vec<u32>>,
     /// Ground held level by something that is not a town.
     holds: Vec<Hold>,
+    /// The sites that have a town, which the island reaches about.
+    settled: Vec<usize>,
     pub pal: Palette,
 }
 
@@ -257,6 +272,7 @@ impl LandData {
             river_dir: Vec2::new(a.cos(), a.sin()),
             near: HashMap::default(),
             holds: Vec::new(),
+            settled: Vec::new(),
             pal,
         };
         // Outward from the middle, so the first towns are neighbours.
@@ -373,6 +389,19 @@ impl LandData {
             rr = -rq - rs;
         }
         (rq as i32, rr as i32)
+    }
+
+    /// The sites that have a town.
+    pub fn settled(&self) -> &[usize] {
+        &self.settled
+    }
+
+    /// The points the island reaches about: the middle, and every
+    /// site that has a town.
+    pub fn shores(&self) -> impl Iterator<Item = Vec2> + '_ {
+        let towns =
+            self.settled.iter().filter_map(|&i| self.sites.get(i));
+        std::iter::once(Vec2::ZERO).chain(towns.map(|site| site.at))
     }
 
     /// The rounds of ground that are held, each with its radius.

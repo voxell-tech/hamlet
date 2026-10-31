@@ -131,6 +131,21 @@ pub(in crate::generator) fn stream(
         loading.sites = sites;
         changed = true;
     }
+    // So is the coast about a town that came, went or moved.
+    if !land.shores().eq(loading.shores.iter().copied()) {
+        let shores = land.shores().collect::<Vec<_>>();
+        let set = &land.set.land;
+        let reach = set.island + set.coast.1 + set.shore;
+        for at in shores.iter().chain(&loading.shores) {
+            if shores.contains(at) && loading.shores.contains(at) {
+                continue;
+            }
+            loading.ground.redo(chunk, *at, reach);
+            loading.groves.redo(chunk, *at, reach);
+        }
+        loading.shores = shores;
+        changed = true;
+    }
     // So is ground that came to be held or was let go.
     if !land.rounds().eq(loading.holds.iter().copied()) {
         let holds = land.held();

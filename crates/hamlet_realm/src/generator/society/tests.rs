@@ -269,7 +269,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
     );
     let peak = (0..4000)
         .map(|i| Vec2::from_angle(i as f32) * (300.0 + i as f32))
-        .find(|&p| land.mountain(p) > 0.5)
+        .find(|&p| land.mound(p) > 0.5)
         .unwrap();
     refused(&mut s, &mut land, peak, Unfit::Steep);
 

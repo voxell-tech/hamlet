@@ -275,14 +275,17 @@ fn shared(chunk: f32, a: Tile, b: Tile) -> Option<(Vec2, Vec2)> {
 }
 
 #[test]
-fn tiles_drawn_together_meet_at_one_height_in_the_ranges() {
+fn tiles_drawn_together_meet_at_one_height_in_the_hills() {
     let land = land();
     let detail = DetailSettings::default();
     let chunk = land.set.land.chunk;
-    // Ranges with rivers through them, where a coarse tile lies
+    // Hills with rivers through them, where a coarse tile lies
     // furthest from the ground and tiles of both grains meet.
-    let sight = sight(Vec2::new(-4000.0, -300.0), 600.0);
-    assert!(land.mountain(sight.centre) > 0.9);
+    let centre = (0..4000)
+        .map(|i| Vec2::new(-4000.0, -300.0 + i as f32))
+        .find(|&p| land.mound(p) > 0.9)
+        .unwrap();
+    let sight = sight(centre, 600.0);
     let tiles = wanted(&land, &detail, &sight, true, |_| false);
     let drawn = tiles.iter().copied().collect::<HashSet<_>>();
     let built = tiles

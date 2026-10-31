@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use hamlet_vfx::ground::SoilUniform;
 
 use super::{HOLD_EASE, LandData, Unfit};
-use crate::generator::noise::{fbm, key, perlin, ridged};
+use crate::generator::noise::{fbm, key, perlin};
 use crate::meshes::{lerp, smoothstep};
 
 impl LandData {
@@ -87,9 +87,9 @@ impl LandData {
         }
     }
 
-    /// 0 on the plains, 1 in the high ranges. The plains about the
-    /// middle have none.
-    pub(crate) fn mountain(&self, p: Vec2) -> f32 {
+    /// 0 on low ground, 1 on the level top of a hill. The plains
+    /// about the middle have none.
+    pub(crate) fn mound(&self, p: Vec2) -> f32 {
         let seed = self.seed;
         let set = &self.set.land;
         let edge = p.length()
@@ -98,8 +98,9 @@ impl LandData {
         if out <= 0.0 {
             return 0.0;
         }
-        let range = fbm(p * set.range_scale, 2, seed + 53);
-        out * smoothstep(set.ranges.0, set.ranges.1, range)
+        let (scale, foot, top) = set.mounds;
+        let n = fbm(p * scale, 3, seed + 53);
+        out * smoothstep(foot, top, n)
     }
 
     /// The ground as it lies before any site levels it or a river
@@ -110,18 +111,16 @@ impl LandData {
         let mut h = set.plain_y
             + set.hills.1 * fbm(p * set.hills.0, 4, seed + 20)
             + set.grain.1 * perlin(p * set.grain.0, seed + 30);
-        let m = self.mountain(p);
+        let m = self.mound(p);
         if m > 0.0 {
-            // Ridged noise, five octaves, warped so the ridges bend.
-            let warp = Vec2::new(
-                perlin(p * set.ridge_warp.0, seed + 51),
-                perlin(p * set.ridge_warp.0, seed + 52),
-            ) * set.ridge_warp.1;
-            let peaks =
-                ridged((p + warp) * set.peaks.0, 5, seed + 60);
-            h += m.powf(1.4)
-                * (set.peaks.1 + set.peaks.2 * peaks)
-                * smoothstep(8.0, 70.0, d);
+            // Each hill's top at a height of its own, so that they
+            // step rather than stand all alike.
+            let (least, most) = set.mound_height;
+            let tall =
+                0.5 + 0.5 * perlin(p * set.mounds.0, seed + 54);
+            h += m
+                * lerp(least, most, tall)
+                * smoothstep(8.0, 40.0, d);
         }
         h
     }
@@ -169,6 +168,22 @@ impl LandData {
         }
     }
 
+    /// 1 on the island, 0 out at sea, falling between over the
+    /// shore. The island is the land within reach of the middle and
+    /// of every town, the reaches run smoothly together.
+    pub(crate) fn inland(&self, p: Vec2) -> f32 {
+        let set = &self.set.land;
+        let near = self
+            .shores()
+            .map(|at| at.distance(p))
+            .fold(f32::MAX, |a, b| {
+                smooth_min(a, b, set.island * 0.3)
+            });
+        let coast = near - set.island
+            + set.coast.1 * perlin(p * set.coast.0, self.seed + 40);
+        smoothstep(set.shore, -set.shore, coast)
+    }
+
     /// The height with every river `wide` wider on each side, for
     /// ground drawn too coarsely to hold a river's true bed.
     pub(crate) fn height_wide(&self, p: Vec2, wide: f32) -> f32 {
@@ -191,6 +206,9 @@ impl LandData {
         let d = (d - wide).max(0.0);
         h = lerp(0.3, h, smoothstep(4.0, 22.0, d));
         h = lerp(h, -1.3, smoothstep(5.2, 2.2, d));
+        // Beyond the island's coast, the sea floor.
+        let floor = self.set.land.water_y - self.set.land.sea_floor;
+        h = lerp(floor, h, self.inland(p));
         for hold in &self.holds {
             let away = hold.at.distance(p);
             h = lerp(
@@ -239,7 +257,7 @@ impl LandData {
     }
 
     /// `Ok` when the ground at `at` suits a town: dry, clear of the
-    /// rivers and out of the mountains.
+    /// rivers and off the hills.
     pub(crate) fn suits(&self, at: Vec2) -> Result<(), Unfit> {
         let (town, water) = (&self.set.town, self.set.land.water_y);
         // A little nearer than the land's own sites keep, so that
@@ -251,7 +269,7 @@ impl LandData {
             at + Vec2::from_angle(i as f32 / 8.0 * TAU) * town.radius
         });
         for p in rim.chain([at]) {
-            if self.mountain(p) > 0.03 {
+            if self.mound(p) > 0.03 {
                 return Err(Unfit::Steep);
             }
             if self.wild(p, self.river_dist(p)) < water + 0.6 {
@@ -336,4 +354,11 @@ impl LandData {
             seed: self.seed,
         }
     }
+}
+
+/// The lesser of `a` and `b`, rounded off where they are within `k`
+/// of each other, so that two rounds of land join in one coast.
+fn smooth_min(a: f32, b: f32, k: f32) -> f32 {
+    let h = (0.5 + 0.5 * (b - a) / k).clamp(0.0, 1.0);
+    lerp(b, a, h) - k * h * (1.0 - h)
 }

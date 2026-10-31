@@ -31,6 +31,8 @@ pub struct Loading {
     /// held.
     sites: Vec<Vec2>,
     holds: Vec<(Vec2, f32)>,
+    /// The points the island then reached about.
+    shores: Vec<Vec2>,
     /// Trees found and not yet planted, each with its tile's
     /// entity.
     waiting: Vec<(Entity, flora::Tree)>,

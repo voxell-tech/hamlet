@@ -39,7 +39,7 @@ pub struct RoadSettings {
     /// The longest a cart takes one way, in seconds. It goes faster
     /// on a road too long for its speed.
     pub ride_time: f32,
-    /// Most a stretch through the mountains counts longer than its
+    /// Most a stretch over the hills counts longer than its
     /// length when a road between towns picks its way.
     pub climb: f32,
     /// The most crossings looked at for a way between two towns
