@@ -1,9 +1,13 @@
-//! The ground's material: the vertex colours of `StandardMaterial`,
-//! shaded lighter and darker in brush strokes and lit through soft
-//! bumps that the strokes bring out. Strokes and bumps are one baked
-//! texture that the shader lays down in hexagons, each moved and
-//! turned at random and blended by height, so that it never shows as
-//! repeating.
+//! The ground's material: coloured by its shader point by point, as
+//! [`SoilUniform`] and the vertex colours direct, then shaded lighter
+//! and darker in brush strokes and lit through soft bumps that the
+//! strokes bring out. Strokes and bumps are one baked texture that
+//! the shader lays down in hexagons, each moved and turned at random
+//! and blended by height, so that it never shows as repeating.
+//!
+//! A ground mesh's vertex colours are not colours: red is the share
+//! of woods there, green the share of heath, and blue how far the
+//! ground stands above where the vertex is drawn.
 
 use std::f32::consts::TAU;
 
@@ -17,12 +21,13 @@ use bevy::render::render_resource::{
     AsBindGroup, Extent3d, ShaderType, TextureDimension,
     TextureFormat,
 };
-use bevy::shader::ShaderRef;
+use bevy::shader::{ShaderRef, load_shader_library};
 
 pub type GroundMaterial =
     ExtendedMaterial<StandardMaterial, GroundExt>;
 
 pub(crate) fn plugin(app: &mut App) {
+    load_shader_library!(app, "noise.wesl");
     embedded_asset!(app, "ground.wesl");
     app.add_plugins(MaterialPlugin::<GroundMaterial>::default())
         .init_resource::<GroundSettings>()
@@ -90,6 +95,28 @@ pub struct GroundExt {
     #[texture(101)]
     #[sampler(102)]
     pub bumps: Handle<Image>,
+    #[uniform(103)]
+    pub soil: SoilUniform,
+}
+
+/// Mirrors `Soil` in `ground.wesl`: the colours the ground is painted
+/// with, linear, the height of the water, which the shore follows,
+/// and the seed of the land's noise.
+#[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
+pub struct SoilUniform {
+    pub grass_shade: Vec4,
+    pub grass: Vec4,
+    pub grass_sun: Vec4,
+    pub grass_high: Vec4,
+    pub rock_dark: Vec4,
+    pub rock: Vec4,
+    pub rock_warm: Vec4,
+    pub snow: Vec4,
+    pub dirt: Vec4,
+    pub dirt_shade: Vec4,
+    pub mud: Vec4,
+    pub water: f32,
+    pub seed: u32,
 }
 
 impl MaterialExtension for GroundExt {
@@ -129,10 +156,12 @@ impl From<&GroundSettings> for GroundUniform {
     }
 }
 
-/// The ground's material over `base`, with its texture baked anew.
+/// The ground's material over `base`, painted with `soil`, with its
+/// texture baked anew.
 pub fn material(
     images: &mut Assets<Image>,
     set: &GroundSettings,
+    soil: SoilUniform,
     base: StandardMaterial,
 ) -> GroundMaterial {
     ExtendedMaterial {
@@ -140,6 +169,7 @@ pub fn material(
         extension: GroundExt {
             u: set.into(),
             bumps: images.add(bumps(&set.strokes)),
+            soil,
         },
     }
 }

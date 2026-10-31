@@ -63,6 +63,7 @@ pub(super) fn setup(
     let ground = grounds.add(ground::material(
         &mut images,
         &bumps,
+        land.soil(),
         materials.get(&stock.matte).cloned().unwrap_or_default(),
     ));
     let lamps = KeeperState::ALL.map(|_| {
@@ -132,4 +133,19 @@ pub(super) fn setup(
         trees: kinds,
         groove,
     });
+}
+
+/// Paints the ground as the land now has it, when its palette or
+/// water changes.
+pub(super) fn repaint(
+    land: Res<Land>,
+    kit: Res<Kit>,
+    mut grounds: ResMut<Assets<GroundMaterial>>,
+) {
+    let soil = land.soil();
+    if let Some(mut ground) = grounds.get_mut(&kit.ground)
+        && ground.extension.soil != soil
+    {
+        ground.extension.soil = soil;
+    }
 }

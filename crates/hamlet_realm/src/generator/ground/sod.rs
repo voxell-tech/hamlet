@@ -435,9 +435,6 @@ pub fn sod(
             let y = under.at(i, j, high);
             wet |= y < water + 0.15;
             let n = land.normal_wide(p, grain, recipe.wide);
-            // Coloured as the ground it stands for, not as the
-            // height it is lowered to.
-            let colour = land.ground_colour(p, high, n);
             let edge = i == 0 || j == 0 || i == cells || j == cells;
             let sunk = match edge
                 .then(|| stitch.master(&recipe, i, j))
@@ -447,6 +444,12 @@ pub fn sod(
                 None => recipe.sunk(land, y),
             };
             let at = Vec3::new(p.x, sunk, p.y);
+            // What the ground's shader cannot know alone, as
+            // `hamlet_vfx::ground` reads it. It is coloured as the
+            // ground it stands for, not as the height it is lowered
+            // to.
+            let colour =
+                Vec3::new(land.forest(p), land.heath(p), high - sunk);
             *id = meshing.v(at, n, colour);
             if edge {
                 rim.push(((i, j), at, n, colour));
@@ -471,8 +474,14 @@ pub fn sod(
         rim.iter()
             .find(|(at, ..)| *at == (i, j))
             .map(|&(_, at, n, colour)| {
+                // Coloured as the ground above it.
                 let low = recipe.hem(land, side, at.y);
-                meshing.v(Vec3::new(at.x, low, at.z), n, colour)
+                let lift = Vec3::Z * (at.y - low);
+                meshing.v(
+                    Vec3::new(at.x, low, at.z),
+                    n,
+                    colour + lift,
+                )
             })
             .unwrap()
     };

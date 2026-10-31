@@ -3,6 +3,7 @@
 use std::f32::consts::TAU;
 
 use bevy::prelude::*;
+use hamlet_vfx::ground::SoilUniform;
 
 use super::{HOLD_EASE, LandData, Unfit};
 use crate::generator::noise::{fbm, key, perlin, ridged};
@@ -288,6 +289,9 @@ impl LandData {
             )
     }
 
+    /// The grass at `p`, for what is coloured on its vertices beside
+    /// the ground, as the edge of a road. The ground's own shader
+    /// paints the same grass.
     pub fn grass(&self, p: Vec2) -> Vec3 {
         let pal = &self.pal;
         let broad = 0.5 + 0.5 * fbm(p * 0.035, 3, self.seed + 80);
@@ -301,49 +305,35 @@ impl LandData {
         )
     }
 
-    pub fn ground_colour(&self, p: Vec2, y: f32, n: Vec3) -> Vec3 {
-        let pal = &self.pal;
-        let mut c = self.grass(p);
-        // Far out, some regions are heath.
+    /// The share of heath in the grass at `p`: none near the middle,
+    /// and far out in some regions.
+    pub(crate) fn heath(&self, p: Vec2) -> f32 {
         let afar = self.afar(p);
-        if afar > 0.0 {
-            let heath = fbm(p * 0.0016, 2, self.seed + 73);
-            c = c.lerp(
-                pal.grass_high,
-                self.set.land.heath
-                    * afar
-                    * smoothstep(0.05, 0.4, heath),
-            );
+        if afar <= 0.0 {
+            return 0.0;
         }
-        c = c.lerp(pal.grass_shade * 0.9, 0.55 * self.forest(p));
-        // Thinner, duller grass with height, then rock, then snow.
-        c = c.lerp(pal.grass_high, smoothstep(5.0, 18.0, y));
-        let grain = perlin(p * 0.21, self.seed + 82);
-        let steep = 1.0 - n.y;
-        let rock = smoothstep(0.1, 0.24, steep + 0.03 * grain)
-            .max(smoothstep(20.0, 34.0, y + 4.0 * grain));
-        let stone = pal
-            .rock_dark
-            .lerp(pal.rock, 0.5 + 0.5 * grain)
-            .lerp(pal.rock_warm, smoothstep(-0.3, 0.6, n.x));
-        c = c.lerp(stone, rock);
-        let snow = smoothstep(36.0, 44.0, y + 5.0 * grain)
-            * smoothstep(0.5, 0.25, steep);
-        c = c.lerp(pal.snow, snow);
-        // A sandy shore, wet at the waterline.
-        let shore = smoothstep(
-            self.set.land.water_y + 0.75,
-            self.set.land.water_y + 0.2,
-            y,
-        );
-        c = c.lerp(pal.dirt.lerp(pal.dirt_shade, 0.4), shore * 0.8);
-        c.lerp(
-            pal.mud,
-            smoothstep(
-                self.set.land.water_y + 0.2,
-                self.set.land.water_y - 0.3,
-                y,
-            ),
-        )
+        let heath = fbm(p * 0.0016, 2, self.seed + 73);
+        self.set.land.heath * afar * smoothstep(0.05, 0.4, heath)
+    }
+
+    /// What the ground's shader paints the ground with.
+    pub fn soil(&self) -> SoilUniform {
+        let pal = &self.pal;
+        let c = |colour: Vec3| colour.extend(1.0);
+        SoilUniform {
+            grass_shade: c(pal.grass_shade),
+            grass: c(pal.grass),
+            grass_sun: c(pal.grass_sun),
+            grass_high: c(pal.grass_high),
+            rock_dark: c(pal.rock_dark),
+            rock: c(pal.rock),
+            rock_warm: c(pal.rock_warm),
+            snow: c(pal.snow),
+            dirt: c(pal.dirt),
+            dirt_shade: c(pal.dirt_shade),
+            mud: c(pal.mud),
+            water: self.set.land.water_y,
+            seed: self.seed,
+        }
     }
 }
