@@ -77,7 +77,7 @@ pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Sight>()
         .init_resource::<Gesture>()
         .add_systems(Update, (build, place, paint, lasso).chain())
-        .add_systems(Update, faint);
+        .add_systems(Update, (cancel, faint).chain());
 }
 
 /// Marks the frame the canvas is drawn in.
@@ -1343,6 +1343,33 @@ fn pan(
         }
         _ => {}
     }
+}
+
+/// Lets Escape take back a drag: a wire is let go unwired, cards go
+/// back where they were, and a box gives back the selection it began
+/// with. The rest of the drag then does nothing.
+fn cancel(
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mut gesture: ResMut<Gesture>,
+    mut editor: ResMut<Editor>,
+    mut cursor: ResMut<OverrideCursor>,
+) {
+    if matches!(*gesture, Gesture::None)
+        || !keys
+            .is_some_and(|keys| keys.just_pressed(KeyCode::Escape))
+    {
+        return;
+    }
+    match std::mem::take(&mut *gesture) {
+        Gesture::Cards(cards) => {
+            for (node, from) in cards {
+                editor.drag(node, from);
+            }
+        }
+        Gesture::Lasso(_, _, before) => editor.selected = before,
+        _ => {}
+    }
+    cursor.0 = None;
 }
 
 /// Draws the cursor faint while a wire is dragged, so what it is
