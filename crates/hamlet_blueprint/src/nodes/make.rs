@@ -1,16 +1,16 @@
-//! Nodes that make spots.
+//! Nodes that make transforms.
 
 use bevy_math::Vec3;
 
-use super::{SPOTS_IN, SPOTS_OUT};
+use super::{TRANSFORMS_IN, TRANSFORMS_OUT};
 use crate::eval::{Problem, Run};
 use crate::graph::Scope;
 use crate::node::{Initial, Listed, NodeKind, PortSpec};
 use crate::turn;
-use crate::value::{Frame, Spot, SpotId, Value, ValueType};
+use crate::value::{Frame, Transform, TransformId, Value, ValueType};
 
 pub(super) const KINDS: &[NodeKind] = &[
-    SPOT,
+    TRANSFORM,
     GRID,
     ALONG_CURVE,
     CURVE_CORNERS,
@@ -24,40 +24,46 @@ const CURVE_IN: PortSpec =
 const ALIGN: PortSpec = PortSpec::new(
     "align",
     ValueType::Bool,
-    "Whether each spot turns to point along the curve",
+    "Whether each transform turns to point along the curve",
 )
 .initial(Initial::Bool(true));
 
-const SPOT: NodeKind = NodeKind {
-    name: "spot",
-    doc: "One spot of a given size: where a part stands, and how \
-          big it is",
+const TRANSFORM: NodeKind = NodeKind {
+    name: "transform",
+    doc: "Where something stands, how it is turned, and its scale, \
+          which is its size",
     inputs: &[
         PortSpec::new(
-            "at",
+            "translation",
             ValueType::Point,
-            "The middle of its base",
+            "Where it stands: the middle of its base",
         )
         .initial(Initial::Point(Vec3::ZERO)),
         PortSpec::new(
-            "size",
+            "rotation",
+            ValueType::Point,
+            "Degrees about x, y and z, turned about y first",
+        )
+        .initial(Initial::Point(Vec3::ZERO)),
+        PortSpec::new(
+            "scale",
             ValueType::Point,
             "Its size on each axis",
         )
-        .initial(Initial::Point(Vec3::new(4.0, 3.0, 3.0))),
+        .initial(Initial::Point(Vec3::ONE)),
     ],
-    outputs: &[SPOTS_OUT],
-    run: spot,
+    outputs: &[TRANSFORMS_OUT],
+    run: transform,
 };
 
 const ON_SOCKETS: NodeKind = NodeKind {
     name: "on_sockets",
-    doc: "A spot at a socket of each asset that has it, turned as \
-          the socket is",
+    doc: "A transform at a socket of each asset that has it, turned \
+          as the socket is",
     inputs: &[
         PortSpec::new(
-            "geometry",
-            ValueType::Geometry,
+            "objects",
+            ValueType::Objects,
             "The assets whose sockets to place on",
         ),
         PortSpec::new(
@@ -68,55 +74,60 @@ const ON_SOCKETS: NodeKind = NodeKind {
         .listed(Listed::Sockets)
         .initial(Initial::Choice("lamp")),
     ],
-    outputs: &[SPOTS_OUT],
+    outputs: &[TRANSFORMS_OUT],
     run: on_sockets,
 };
 
 fn on_sockets(run: &mut Run) -> Result<(), Problem> {
     let name = run.choice("socket", None)?;
-    let mut spots = Vec::new();
-    for instance in run.geometry("geometry")? {
+    let mut transforms = Vec::new();
+    for object in run.objects("objects")? {
         let Some(socket) = run
-            .asset(&instance.asset)
+            .asset(&object.asset)
             .and_then(|asset| asset.sockets.get(&name).copied())
         else {
             continue;
         };
         // An asset stands on its frame, its box above it.
-        let size = instance.size * instance.frame.scale;
-        let rotation = instance.frame.rotation;
+        let size = object.frame.scale;
+        let rotation = object.frame.rotation;
         let frame = Frame {
-            translation: instance.frame.translation
+            translation: object.frame.translation
                 + rotation * ((socket.at + Vec3::Y * 0.5) * size),
             rotation: rotation * socket.turn,
             scale: Vec3::ONE,
         };
-        let index = spots.len() as u32;
-        let mut spot = Spot::new(run.id(SpotId::ROOT, index), frame);
-        spot.index = index;
-        spots.push(spot);
+        let index = transforms.len() as u32;
+        let mut transform =
+            Transform::new(run.id(TransformId::ROOT, index), frame);
+        transform.index = index;
+        transforms.push(transform);
     }
-    let count = spots.len() as u32;
-    for spot in &mut spots {
-        spot.count = count;
+    let count = transforms.len() as u32;
+    for transform in &mut transforms {
+        transform.count = count;
     }
-    run.put("spots", Value::Spots(spots));
+    run.put("transforms", Value::Transforms(transforms));
     Ok(())
 }
 
-fn spot(run: &mut Run) -> Result<(), Problem> {
-    let mut spot = Spot::new(
-        run.id(SpotId::ROOT, 0),
-        Frame::at(run.point("at")?),
-    );
-    spot.size = run.point("size")?;
-    run.put("spots", Value::Spots(vec![spot]));
+fn transform(run: &mut Run) -> Result<(), Problem> {
+    let turn = run.point("rotation")?;
+    let frame = Frame {
+        translation: run.point("translation")?,
+        rotation: turn::euler(turn.y, turn.x, turn.z),
+        scale: run.point("scale")?,
+    };
+    let transform =
+        Transform::new(run.id(TransformId::ROOT, 0), frame);
+    run.put("transforms", Value::Transforms(vec![transform]));
     Ok(())
 }
 
 const GRID: NodeKind = NodeKind {
     name: "grid",
-    doc: "Spots in rows and columns on the ground, about a middle",
+    doc: "Transforms in rows and columns on the ground, about a \
+          middle",
     inputs: &[
         PortSpec::new("at", ValueType::Point, "Its middle")
             .initial(Initial::Point(Vec3::ZERO)),
@@ -135,7 +146,7 @@ const GRID: NodeKind = NodeKind {
         )
         .initial(Initial::Number(2.0)),
     ],
-    outputs: &[SPOTS_OUT],
+    outputs: &[TRANSFORMS_OUT],
     run: grid,
 };
 
@@ -158,35 +169,35 @@ fn grid(run: &mut Run) -> Result<(), Problem> {
             let index = row * columns + column;
             let offset =
                 Vec3::new(column as f32, 0.0, row as f32) * spacing;
-            let mut spot = Spot::new(
+            let mut transform = Transform::new(
                 // Keyed by row and column, so adding columns keeps
                 // the rest.
-                run.id(SpotId(u64::from(row)), column),
+                run.id(TransformId(u64::from(row)), column),
                 Frame::at(corner + offset),
             );
-            spot.index = index;
-            spot.count = count;
-            placed.push(spot);
+            transform.index = index;
+            transform.count = count;
+            placed.push(transform);
         }
     }
-    run.put("spots", Value::Spots(placed));
+    run.put("transforms", Value::Transforms(placed));
     Ok(())
 }
 
 const ALONG_CURVE: NodeKind = NodeKind {
     name: "along_curve",
-    doc: "Spots along a curve, one every spacing from its start",
+    doc: "Transforms along a curve, one every spacing from its start",
     inputs: &[
         CURVE_IN,
         PortSpec::new(
             "spacing",
             ValueType::Number,
-            "Metres between spots",
+            "Metres between transforms",
         )
         .initial(Initial::Number(1.0)),
         ALIGN,
     ],
-    outputs: &[SPOTS_OUT],
+    outputs: &[TRANSFORMS_OUT],
     run: along_curve,
 };
 
@@ -199,7 +210,7 @@ fn along_curve(run: &mut Run) -> Result<(), Problem> {
     let curve = run.curve("curve")?;
     let length = curve.length();
     // Spacing is kept exact, not stretched to fit, so a longer curve
-    // keeps the spots a shorter one had.
+    // keeps the transforms a shorter one had.
     let steps = (length / spacing + 1e-4).floor() as u32;
     let count = if curve.closed { steps } else { steps + 1 };
     let mut placed = Vec::with_capacity(count as usize);
@@ -212,21 +223,22 @@ fn along_curve(run: &mut Run) -> Result<(), Problem> {
         if align {
             frame.rotation = turn::yaw_toward(direction);
         }
-        let mut spot = Spot::new(run.id(SpotId::ROOT, index), frame);
-        spot.index = index;
-        spot.count = count;
-        spot.along = distance / length;
-        placed.push(spot);
+        let mut transform =
+            Transform::new(run.id(TransformId::ROOT, index), frame);
+        transform.index = index;
+        transform.count = count;
+        transform.along = distance / length;
+        placed.push(transform);
     }
-    run.put("spots", Value::Spots(placed));
+    run.put("transforms", Value::Transforms(placed));
     Ok(())
 }
 
 const CURVE_CORNERS: NodeKind = NodeKind {
     name: "curve_corners",
-    doc: "A spot at each point of a curve",
+    doc: "A transform at each point of a curve",
     inputs: &[CURVE_IN, ALIGN],
-    outputs: &[SPOTS_OUT],
+    outputs: &[TRANSFORMS_OUT],
     run: curve_corners,
 };
 
@@ -253,31 +265,32 @@ fn curve_corners(run: &mut Run) -> Result<(), Problem> {
             frame.rotation = turn::yaw_toward(direction);
         }
         let index = index as u32;
-        let mut spot = Spot::new(run.id(SpotId::ROOT, index), frame);
-        spot.index = index;
-        spot.count = count;
-        spot.along = if length > 0.0 {
+        let mut transform =
+            Transform::new(run.id(TransformId::ROOT, index), frame);
+        transform.index = index;
+        transform.count = count;
+        transform.along = if length > 0.0 {
             travelled / length
         } else {
             0.0
         };
         travelled += next.map_or(0.0, |&next| point.distance(next));
-        placed.push(spot);
+        placed.push(transform);
     }
-    run.put("spots", Value::Spots(placed));
+    run.put("transforms", Value::Transforms(placed));
     Ok(())
 }
 
 const ON_SURFACE: NodeKind = NodeKind {
     name: "on_surface",
-    doc: "Spots at random on the top face of each spot, as many as \
-          its area times the density",
+    doc: "Transforms at random on the top face of each transform, \
+          as many as its area times the density",
     inputs: &[
-        SPOTS_IN,
+        TRANSFORMS_IN,
         PortSpec::new(
             "density",
             ValueType::Number,
-            "Spots per square metre",
+            "Transforms per square metre",
         )
         .initial(Initial::Number(1.0)),
         PortSpec::new(
@@ -287,7 +300,7 @@ const ON_SURFACE: NodeKind = NodeKind {
         )
         .initial(Initial::Bool(true)),
     ],
-    outputs: &[SPOTS_OUT],
+    outputs: &[TRANSFORMS_OUT],
     run: on_surface,
 };
 
@@ -295,46 +308,48 @@ fn on_surface(run: &mut Run) -> Result<(), Problem> {
     let align = run.flag("align", None)?;
     let chance = run.chance(Scope::House);
     let mut placed = Vec::new();
-    for surface in run.spots("spots")? {
+    for surface in run.transforms("transforms")? {
         let density = run.number("density", Some(surface))?.max(0.0);
-        let size = surface.size * surface.frame.scale;
+        let size = surface.frame.scale;
         let expected = size.x * size.z * density;
         let key = chance.mix(surface.id.0);
         let count = expected.floor() as u32
             + u32::from(key.unit() < expected.fract());
         for index in 0..count {
             let point = key.mix(u64::from(index) + 1);
+            // On its top, in its own frame, where its scale is its
+            // size.
             let local = Vec3::new(
-                (point.mix(1).unit() - 0.5) * surface.size.x,
-                surface.size.y * 0.5,
-                (point.mix(2).unit() - 0.5) * surface.size.z,
+                point.mix(1).unit() - 0.5,
+                1.0,
+                point.mix(2).unit() - 0.5,
             );
             let mut frame = Frame::at(surface.frame.point(local));
             if align {
                 frame.rotation = surface.frame.rotation;
             }
-            let mut spot =
-                Spot::new(run.id(surface.id, index), frame);
-            spot.index = index;
-            spot.count = count;
-            spot.tags.clone_from(&surface.tags);
-            placed.push(spot);
+            let mut transform =
+                Transform::new(run.id(surface.id, index), frame);
+            transform.index = index;
+            transform.count = count;
+            transform.tags.clone_from(&surface.tags);
+            placed.push(transform);
         }
     }
-    run.put("spots", Value::Spots(placed));
+    run.put("transforms", Value::Transforms(placed));
     Ok(())
 }
 
 const SPLIT: NodeKind = NodeKind {
     name: "split",
-    doc: "Cuts each spot along an axis into equal pieces of about a \
-          size",
+    doc: "Cuts each transform along an axis into equal pieces of \
+          about a size",
     inputs: &[
-        SPOTS_IN,
+        TRANSFORMS_IN,
         PortSpec::new(
             "axis",
             ValueType::Choice,
-            "The axis to cut along, in the spot's frame",
+            "The axis to cut along, in the transform's frame",
         )
         .initial(Initial::Choice("x"))
         .choices(&["x", "y", "z"]),
@@ -345,7 +360,7 @@ const SPLIT: NodeKind = NodeKind {
         )
         .initial(Initial::Number(1.2)),
     ],
-    outputs: &[SPOTS_OUT],
+    outputs: &[TRANSFORMS_OUT],
     run: split,
 };
 
@@ -356,26 +371,28 @@ fn split(run: &mut Run) -> Result<(), Problem> {
         _ => Vec3::Z,
     };
     let mut placed = Vec::new();
-    for whole in run.spots("spots")? {
+    for whole in run.transforms("transforms")? {
         let size = run.number("size", Some(whole))?;
         if size <= 0.0 {
             return Err(run.invalid("size", "must be above zero"));
         }
-        let length = whole.size.dot(axis);
+        let length = whole.frame.scale.dot(axis);
         let count = (length / size).round().max(1.0) as u32;
-        let piece = length / count as f32;
         for index in 0..count {
+            // In its own frame, where its scale is its size, a piece
+            // is a share of one along the axis.
             let offset =
-                axis * (-length * 0.5 + piece * (index as f32 + 0.5));
-            let mut spot = whole.clone();
-            spot.id = run.id(whole.id, index);
-            spot.frame.translation = whole.frame.point(offset);
-            spot.size = whole.size - axis * (length - piece);
-            spot.index = index;
-            spot.count = count;
-            placed.push(spot);
+                axis * (-0.5 + (index as f32 + 0.5) / count as f32);
+            let mut transform = whole.clone();
+            transform.id = run.id(whole.id, index);
+            transform.frame.translation = whole.frame.point(offset);
+            transform.frame.scale = whole.frame.scale
+                - axis * (length - length / count as f32);
+            transform.index = index;
+            transform.count = count;
+            placed.push(transform);
         }
     }
-    run.put("spots", Value::Spots(placed));
+    run.put("transforms", Value::Transforms(placed));
     Ok(())
 }

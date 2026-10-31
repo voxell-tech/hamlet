@@ -36,18 +36,18 @@ pub struct Socket {
 }
 
 /// How an asset is drawn. Each built-in shape has one slot,
-/// [`BODY`], and stands on its spot, its box above the frame.
+/// [`BODY`], and stands on its transform, its box above the frame.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Shape {
-    /// A rounded box filling the spot.
+    /// A rounded box filling the transform.
     Box,
     /// A triangle across x, its peak at the top `peak` along x from
-    /// the middle (from -0.5 to 0.5), as thick as the spot is
+    /// the middle (from -0.5 to 0.5), as thick as the transform is
     /// along z: a gable's end. Two with their peaks at an end meet
     /// under a ridge that is not in the middle.
     Wedge { peak: f32 },
-    /// Lapped roof tiles over the spot's frame, from its eave
-    /// along x at +z, as wide as the spot, to its ridge at -z,
+    /// Lapped roof tiles over the transform's frame, from its eave
+    /// along x at +z, as wide as the transform, to its ridge at -z,
     /// `taper` times as wide. A hip's end has a taper of 0.
     Tiles { taper: f32 },
     /// A glTF file in the folder beside the book, by its path there.

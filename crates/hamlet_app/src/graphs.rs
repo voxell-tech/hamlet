@@ -37,7 +37,7 @@ use bevy_fynix::{
 };
 use hamlet_blueprint::{
     Asset, Book, Constant, Does, Edit, Frame, GraphInput,
-    GraphOutput, Group, Initial, Instance, Node, NodeId, Port,
+    GraphOutput, Group, Initial, Node, NodeId, Object, Port,
     PortSpec, Registry, Ruleset, Seed, Seeds, Setting, Sheet, Value,
     ValueType, evaluate,
 };
@@ -134,7 +134,7 @@ pub(crate) struct Editor {
     /// Changes with every change to the book, so it is saved again.
     pub revision: u64,
     /// What the open graph put down, or why it could not.
-    pub outcome: Result<Vec<Instance>, String>,
+    pub outcome: Result<Vec<Object>, String>,
     /// What each selected node gave in the last run, each output by
     /// name, for the preview to show.
     pub watched: BTreeMap<NodeId, Vec<(String, Value)>>,
@@ -285,9 +285,6 @@ impl Editor {
     /// Puts `book` in place of the one being edited, with no history,
     /// open at its entry.
     pub fn load(&mut self, mut book: Book) {
-        for sheet in book.sheets.values_mut() {
-            rename_old_words(&mut sheet.graph);
-        }
         // A book saved before removing an input cleared the nodes set
         // from it may still name it.
         for sheet in book.sheets.values_mut() {
@@ -478,7 +475,7 @@ impl Editor {
             for output in outputs {
                 let shown = matches!(
                     output.value_type,
-                    ValueType::Geometry | ValueType::Spots
+                    ValueType::Objects | ValueType::Transforms
                 );
                 let wired = graph.wires.iter().any(|wire| {
                     wire.from.node == node.id
@@ -563,7 +560,7 @@ impl Editor {
         let Some(port) = outputs.into_iter().find(|port| {
             matches!(
                 port.value_type,
-                ValueType::Geometry | ValueType::Spots
+                ValueType::Objects | ValueType::Transforms
             )
         }) else {
             return;
@@ -821,38 +818,6 @@ impl Editor {
     }
 }
 
-/// Puts the words nodes and ports had before for the ones they have
-/// now, so a book saved before reads: `box` is `spot`, `instance` is
-/// `put`, `circle` is `polygon`, and a `placements` port is `spots`.
-fn rename_old_words(graph: &mut hamlet_blueprint::Graph) {
-    let port = |name: &mut String| {
-        if name == "placements" {
-            *name = "spots".to_owned();
-        }
-    };
-    for node in &mut graph.nodes {
-        if let Does::Kind(kind) = &mut node.does {
-            let now = match kind.as_str() {
-                "box" => "spot",
-                "instance" => "put",
-                "circle" => "polygon",
-                _ => continue,
-            };
-            *kind = now.to_owned();
-        }
-        if let Some(setting) = node.settings.remove("placements") {
-            node.settings.insert("spots".to_owned(), setting);
-        }
-    }
-    for wire in &mut graph.wires {
-        port(&mut wire.from.name);
-        port(&mut wire.to.name);
-    }
-    for output in &mut graph.outputs {
-        port(&mut output.from.name);
-    }
-}
-
 /// The input that names `node`, as math's operation does, and the
 /// choice it is set to.
 pub(super) fn naming<'a>(
@@ -924,19 +889,18 @@ fn reshapes(sheet: &Sheet, registry: &Registry, edit: &Edit) -> bool {
 }
 
 /// The assets an output shows: its own, or a marker at each
-/// spot.
-fn shown(value: Value) -> Vec<Instance> {
+/// transform.
+fn shown(value: Value) -> Vec<Object> {
     match value {
-        Value::Geometry(instances) => instances,
-        Value::Spots(spots) => spots
+        Value::Objects(objects) => objects,
+        Value::Transforms(transforms) => transforms
             .into_iter()
-            .map(|spot| Instance {
+            .map(|transform| Object {
                 asset: preview::MARKER.to_owned(),
                 frame: Frame {
-                    scale: Vec3::ONE,
-                    ..spot.frame
+                    scale: Vec3::splat(0.25),
+                    ..transform.frame
                 },
-                size: Vec3::splat(0.25),
             })
             .collect(),
         _ => Vec::new(),
@@ -1179,8 +1143,8 @@ fn tools() -> impl View {
             })),
             description(resource::<Editor, _>(
                 |editor| match &editor.outcome {
-                    Ok(instances) => {
-                        format!("{} put down", instances.len())
+                    Ok(objects) => {
+                        format!("{} put down", objects.len())
                     }
                     Err(problem) => problem.clone(),
                 },
@@ -1232,20 +1196,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_book_in_the_old_words_still_runs() {
-        let old = EXAMPLES[1]
-            .1
-            .replace("Kind(\"spot\")", "Kind(\"box\")")
-            .replace("Kind(\"put\")", "Kind(\"instance\")")
-            .replace("name: \"spots\"", "name: \"placements\"");
-        let mut editor = Editor::new();
-        editor.load(example(&old).expect("the old book parses"));
-        assert!(
-            editor.outcome.as_ref().is_ok_and(|put| !put.is_empty())
-        );
-    }
-
-    #[test]
     fn every_example_opens_and_puts_something_down() {
         let mut editor = Editor::new();
         for (name, text) in EXAMPLES {
@@ -1257,9 +1207,9 @@ mod tests {
             for graph in editor.names() {
                 editor.go_to(&graph);
                 match &editor.outcome {
-                    Ok(instances) => {
+                    Ok(objects) => {
                         assert!(
-                            !instances.is_empty(),
+                            !objects.is_empty(),
                             "{name}: {graph}"
                         );
                     }
@@ -1269,8 +1219,8 @@ mod tests {
                 }
             }
             match &editor.outcome {
-                Ok(instances) => {
-                    assert!(!instances.is_empty(), "{name}");
+                Ok(objects) => {
+                    assert!(!objects.is_empty(), "{name}");
                 }
                 Err(problem) => panic!("{name}: {problem}"),
             }

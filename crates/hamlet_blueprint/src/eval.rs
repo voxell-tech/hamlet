@@ -12,11 +12,11 @@ use crate::graph::{
 use crate::node::{NodeKind, Registry};
 use crate::seed::Seed;
 use crate::value::{
-    Curve, Frame, Instance, Spot, SpotId, Value, ValueType,
+    Curve, Frame, Object, Transform, TransformId, Value, ValueType,
 };
 
 /// The seeds a ruleset runs with, one for each scope above a
-/// spot.
+/// transform.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Seeds {
     pub realm: Seed,
@@ -29,7 +29,7 @@ impl Seeds {
         match scope {
             Scope::Realm => self.realm,
             Scope::Hamlet => self.hamlet,
-            Scope::House | Scope::Spot => self.house,
+            Scope::House | Scope::Transform => self.house,
         }
     }
 }
@@ -418,7 +418,7 @@ struct Runner<'a> {
 
 impl Runner<'_> {
     /// Runs the graph `name`. `path` names where it runs, so the same
-    /// graph run from two nodes gives two sets of spot ids.
+    /// graph run from two nodes gives two sets of transform ids.
     fn run(
         &self,
         name: &str,
@@ -510,14 +510,14 @@ impl Runner<'_> {
                     // Only a kind's node puts down a new asset; a
                     // graph's gives back what its own nodes did.
                     for value in run.outputs.values() {
-                        let Value::Geometry(instances) = value else {
+                        let Value::Objects(objects) = value else {
                             continue;
                         };
                         if let Some(unknown) =
-                            instances.iter().find(|instance| {
+                            objects.iter().find(|object| {
                                 self.ruleset
                                     .assets
-                                    .get(&instance.asset)
+                                    .get(&object.asset)
                                     .is_none()
                             })
                         {
@@ -646,12 +646,11 @@ fn pick(weights: &[(String, f32)], key: Seed) -> &str {
     weights.last().map_or("", |(choice, _)| choice)
 }
 
-/// A spot at the origin, for reading a field outside any
-/// spot.
-const ORIGIN: Spot = Spot {
-    id: SpotId::ROOT,
+/// A transform at the origin, for reading a field outside any
+/// transform.
+const ORIGIN: Transform = Transform {
+    id: TransformId::ROOT,
     frame: Frame::IDENTITY,
-    size: Vec3::ONE,
     index: 0,
     count: 1,
     along: 0.0,
@@ -711,16 +710,18 @@ impl Run<'_> {
     }
 
     /// The seed of a roll of `port` at `scope`, at `at` when it is
-    /// rolled per spot.
+    /// rolled per transform.
     fn roll_key(
         &self,
         port: &str,
         scope: Scope,
-        at: Option<&Spot>,
+        at: Option<&Transform>,
     ) -> Seed {
         let key = self.seeds.of(scope).mix(self.seed.0).mix_str(port);
         match (scope, at) {
-            (Scope::Spot, Some(spot)) => key.mix(spot.id.0),
+            (Scope::Transform, Some(transform)) => {
+                key.mix(transform.id.0)
+            }
             _ => key,
         }
     }
@@ -729,17 +730,17 @@ impl Run<'_> {
         &self,
         port: &str,
         roll: &Roll,
-        at: Option<&Spot>,
+        at: Option<&Transform>,
     ) -> Value {
         roll_value(&roll.spread, self.roll_key(port, roll.scope, at))
     }
 
     /// The number on `port`, at `at` when it is a field or rolled per
-    /// spot.
+    /// transform.
     pub fn number(
         &self,
         port: &str,
-        at: Option<&Spot>,
+        at: Option<&Transform>,
     ) -> Result<f32, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Number(number)) => Ok(*number),
@@ -765,7 +766,7 @@ impl Run<'_> {
     pub fn integer(
         &self,
         port: &str,
-        at: Option<&Spot>,
+        at: Option<&Transform>,
     ) -> Result<i32, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Integer(whole)) => Ok(*whole),
@@ -777,11 +778,11 @@ impl Run<'_> {
     }
 
     /// The bool on `port`, at `at` when it is a field or rolled per
-    /// spot. A field is true above one half.
+    /// transform. A field is true above one half.
     pub fn flag(
         &self,
         port: &str,
-        at: Option<&Spot>,
+        at: Option<&Transform>,
     ) -> Result<bool, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Bool(flag)) => Ok(*flag),
@@ -804,7 +805,7 @@ impl Run<'_> {
     pub fn choice(
         &self,
         port: &str,
-        at: Option<&Spot>,
+        at: Option<&Transform>,
     ) -> Result<String, Problem> {
         let choice = match self.binding(port)? {
             Binding::Value(Value::Choice(choice)) => choice.clone(),
@@ -851,22 +852,22 @@ impl Run<'_> {
         }
     }
 
-    pub fn spots(&self, port: &str) -> Result<&[Spot], Problem> {
+    pub fn transforms(
+        &self,
+        port: &str,
+    ) -> Result<&[Transform], Problem> {
         match self.binding(port)? {
-            Binding::Value(Value::Spots(spots)) => Ok(spots),
-            _ => Err(self.wrong(port, ValueType::Spots)),
+            Binding::Value(Value::Transforms(transforms)) => {
+                Ok(transforms)
+            }
+            _ => Err(self.wrong(port, ValueType::Transforms)),
         }
     }
 
-    pub fn geometry(
-        &self,
-        port: &str,
-    ) -> Result<&[Instance], Problem> {
+    pub fn objects(&self, port: &str) -> Result<&[Object], Problem> {
         match self.binding(port)? {
-            Binding::Value(Value::Geometry(instances)) => {
-                Ok(instances)
-            }
-            _ => Err(self.wrong(port, ValueType::Geometry)),
+            Binding::Value(Value::Objects(objects)) => Ok(objects),
+            _ => Err(self.wrong(port, ValueType::Objects)),
         }
     }
 
@@ -884,15 +885,15 @@ impl Run<'_> {
         }
     }
 
-    /// The id of the `index`th spot this node makes from
+    /// The id of the `index`th transform this node makes from
     /// `parent`.
     /// The asset named `name`, as the ruleset's catalogue has it.
     pub fn asset(&self, name: &str) -> Option<Asset> {
         self.assets.get(name)
     }
 
-    pub fn id(&self, parent: SpotId, index: u32) -> SpotId {
-        SpotId(self.seed.mix(parent.0).mix(u64::from(index)).0)
+    pub fn id(&self, parent: TransformId, index: u32) -> TransformId {
+        TransformId(self.seed.mix(parent.0).mix(u64::from(index)).0)
     }
 
     /// A seed of this node that changes as often as `scope` does.

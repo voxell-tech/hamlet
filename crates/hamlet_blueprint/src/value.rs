@@ -17,15 +17,14 @@ pub enum ValueType {
     Point,
     Choice,
     Curve,
-    #[serde(alias = "Placements")]
-    Spots,
+    Transforms,
     Field,
-    Geometry,
+    Objects,
 }
 
 impl ValueType {
     /// Whether a port of this type takes a wire carrying `from`. A
-    /// number or bool port reads a field where each spot is; a
+    /// number or bool port reads a field where each transform is; a
     /// field port takes a number as the same value everywhere.
     pub fn accepts(self, from: ValueType) -> bool {
         self == from
@@ -54,9 +53,9 @@ pub enum Value {
     Point(Vec3),
     Choice(String),
     Curve(Curve),
-    Spots(Vec<Spot>),
+    Transforms(Vec<Transform>),
     Field(Field),
-    Geometry(Vec<Instance>),
+    Objects(Vec<Object>),
 }
 
 impl Value {
@@ -68,9 +67,9 @@ impl Value {
             Value::Point(_) => ValueType::Point,
             Value::Choice(_) => ValueType::Choice,
             Value::Curve(_) => ValueType::Curve,
-            Value::Spots(_) => ValueType::Spots,
+            Value::Transforms(_) => ValueType::Transforms,
             Value::Field(_) => ValueType::Field,
-            Value::Geometry(_) => ValueType::Geometry,
+            Value::Objects(_) => ValueType::Objects,
         }
     }
 }
@@ -143,26 +142,26 @@ impl Default for Frame {
     }
 }
 
-/// An id of a [`Spot`], made from what made it, so it holds
+/// An id of a [`Transform`], made from what made it, so it holds
 /// while others are added or removed around it. Its random values are
 /// seeded from it.
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default,
 )]
-pub struct SpotId(pub u64);
+pub struct TransformId(pub u64);
 
-impl SpotId {
-    /// The parent of spots made from nothing.
+impl TransformId {
+    /// The parent of transforms made from nothing.
     pub const ROOT: Self = Self(0);
 }
 
 /// A box in a frame, with tags and what made it.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Spot {
-    pub id: SpotId,
-    /// The middle of the box.
+pub struct Transform {
+    pub id: TransformId,
+    /// Where it is, how it is turned, and its scale, which is the
+    /// size of what stands on it.
     pub frame: Frame,
-    pub size: Vec3,
     /// Its place among those made with it, and how many they were.
     pub index: u32,
     pub count: u32,
@@ -171,12 +170,11 @@ pub struct Spot {
     pub tags: Vec<String>,
 }
 
-impl Spot {
-    pub fn new(id: SpotId, frame: Frame) -> Self {
+impl Transform {
+    pub fn new(id: TransformId, frame: Frame) -> Self {
         Self {
             id,
             frame,
-            size: Vec3::ONE,
             index: 0,
             count: 1,
             along: 0.0,
@@ -187,10 +185,10 @@ impl Spot {
 
 /// A named asset put down by a graph.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Instance {
+pub struct Object {
     pub asset: String,
+    /// Where it stands, turned, and scaled to its size.
     pub frame: Frame,
-    pub size: Vec3,
 }
 
 /// Points joined in order by straight edges, open or closed.

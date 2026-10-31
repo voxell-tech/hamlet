@@ -46,13 +46,13 @@ const GRAPHS: &str = "Graphs";
 
 /// The groups in the order they are listed, before any others.
 const GROUPS: [&str; 7] = [
-    GRAPHS,
-    "Curves",
-    "Spots",
+    "Objects",
+    "Transforms",
     "Modifiers",
+    "Curves",
     "Fields",
     "Math",
-    "Output",
+    GRAPHS,
 ];
 
 /// The most the list of what can be added grows before it scrolls.

@@ -1,5 +1,5 @@
 //! What each selected node gives, drawn over the preview in the
-//! colour its card is lit in: spots as outlined boxes with their
+//! colour its card is lit in: transforms as outlined boxes with their
 //! axes, assets as their boxes, curves as lines through their points
 //! with an arrow the way they run, points as dots, and a field as a
 //! wash on the ground, brighter where it is higher.
@@ -15,7 +15,7 @@ use bevy::math::{Isometry3d, Quat, Vec2, Vec3};
 use bevy::reflect::Reflect;
 use bevy::transform::components::Transform;
 use bevy_fynix::Theme;
-use hamlet_blueprint::{Frame, Spot, SpotId, Value};
+use hamlet_blueprint::{Frame, TransformId, Value};
 use hamlet_ui::theme::HamletTheme;
 
 use super::Editor;
@@ -66,26 +66,21 @@ fn show(
     framing: &Framing,
 ) {
     match value {
-        Value::Spots(spots) => {
-            for spot in spots {
-                outline(gizmos, &spot.frame, spot.size, colour);
+        Value::Transforms(transforms) => {
+            for transform in transforms {
+                outline(gizmos, &transform.frame, colour);
                 gizmos.axes(
                     Transform::from_translation(
-                        spot.frame.translation,
+                        transform.frame.translation,
                     )
-                    .with_rotation(spot.frame.rotation),
+                    .with_rotation(transform.frame.rotation),
                     0.35,
                 );
             }
         }
-        Value::Geometry(instances) => {
-            for instance in instances {
-                outline(
-                    gizmos,
-                    &instance.frame,
-                    instance.size,
-                    colour,
-                );
+        Value::Objects(objects) => {
+            for object in objects {
+                outline(gizmos, &object.frame, colour);
             }
         }
         Value::Curve(curve) => {
@@ -131,9 +126,11 @@ fn show(
                 .flat_map(|i| (0..WASH).map(move |j| (i, j)))
                 .map(|(i, j)| {
                     let point = at(i, j);
-                    let spot =
-                        Spot::new(SpotId::ROOT, Frame::at(point));
-                    (point, field.sample(&spot))
+                    let transform = hamlet_blueprint::Transform::new(
+                        TransformId::ROOT,
+                        Frame::at(point),
+                    );
+                    (point, field.sample(&transform))
                 })
                 .collect();
             let (low, high) = samples.iter().fold(
@@ -161,14 +158,13 @@ fn show(
     }
 }
 
-/// The box an asset of `size` standing on `frame` fills.
+/// The box an asset standing on `frame` fills, its scale its size.
 fn outline(
     gizmos: &mut Gizmos<Overlay>,
     frame: &Frame,
-    size: Vec3,
     colour: Color,
 ) {
-    let size = size * frame.scale;
+    let size = frame.scale;
     gizmos.cube(
         Transform {
             translation: frame.translation

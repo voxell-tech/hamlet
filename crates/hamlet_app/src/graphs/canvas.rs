@@ -552,9 +552,9 @@ fn tint(palette: &Palette, value_type: ValueType) -> Color {
         ValueType::Bool => palette.green,
         ValueType::Point | ValueType::Curve => palette.agent,
         ValueType::Choice => palette.grey_1,
-        ValueType::Spots => palette.glow,
+        ValueType::Transforms => palette.glow,
         ValueType::Field => palette.particle,
-        ValueType::Geometry => palette.glow_core,
+        ValueType::Objects => palette.glow_core,
     }
 }
 
@@ -817,7 +817,7 @@ fn build(
             }
             // The dot sits on the card's edge, half outside it.
             let edge = px(-DOT * 0.5 - BORDER);
-            let mut spot = commands.spawn((
+            let mut transform = commands.spawn((
                 Node {
                     position_type: PositionType::Absolute,
                     top: px((ROW - DOT) * 0.5),
@@ -836,13 +836,14 @@ fn build(
                 ChildOf(row),
             ));
             if dot.output {
-                spot.observe(start_link)
+                transform
+                    .observe(start_link)
                     .observe(drag_link)
                     .observe(gesture_end);
             } else {
-                spot.observe(link).observe(cut);
+                transform.observe(link).observe(cut);
             }
-            spot.insert(dot);
+            transform.insert(dot);
         }
     }
 }

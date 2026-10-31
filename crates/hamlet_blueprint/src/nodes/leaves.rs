@@ -1,26 +1,23 @@
-//! Nodes that put assets down.
+//! Nodes that put assets down as objects, and work on objects.
 
 use bevy_math::Vec3;
 
-use super::SPOTS_IN;
 use crate::eval::{Problem, Run};
 use crate::node::{Initial, Listed, NodeKind, PortSpec};
-use crate::turn;
-use crate::value::{Frame, Instance, Value, ValueType};
+use crate::value::{Frame, Object, Value, ValueType};
 
-pub(super) const KINDS: &[NodeKind] = &[PART, PUT, PLACE, JOIN];
+pub(super) const KINDS: &[NodeKind] =
+    &[OBJECT, MOVE_OBJECTS, COMBINE];
 
-const GEOMETRY_OUT: PortSpec = PortSpec::new(
-    "geometry",
-    ValueType::Geometry,
-    "The assets put down",
-);
+const OBJECTS_OUT: PortSpec =
+    PortSpec::new("objects", ValueType::Objects, "The objects");
 
-const PUT: NodeKind = NodeKind {
-    name: "put",
-    doc: "An asset at each spot, sized to it",
+const OBJECT: NodeKind = NodeKind {
+    name: "object",
+    doc: "An asset, at its transform, or one at each of the \
+          transforms wired in. Its transform's scale is its size: a \
+          built-in box is a metre on each side",
     inputs: &[
-        SPOTS_IN,
         PortSpec::new(
             "asset",
             ValueType::Choice,
@@ -29,181 +26,113 @@ const PUT: NodeKind = NodeKind {
         .listed(Listed::Assets)
         .initial(Initial::Choice("box")),
         PortSpec::new(
-            "size",
+            "transform",
+            ValueType::Transforms,
+            "Where it stands, turned and scaled. Left unwired, it \
+             is at the origin",
+        ),
+        PortSpec::new(
+            "scale",
             ValueType::Point,
-            "Its size, times the spot's",
+            "Times each transform's scale, so one size goes on many \
+             transforms",
         )
         .initial(Initial::Point(Vec3::ONE)),
     ],
-    outputs: &[GEOMETRY_OUT],
-    run: put,
+    outputs: &[OBJECTS_OUT],
+    run: object,
 };
 
-fn put(run: &mut Run) -> Result<(), Problem> {
-    let size = run.point("size")?;
-    let mut instances = Vec::new();
-    for spot in run.spots("spots")? {
-        instances.push(Instance {
-            asset: run.choice("asset", Some(spot))?,
-            frame: spot.frame,
-            size: spot.size * size,
+fn object(run: &mut Run) -> Result<(), Problem> {
+    let scale = run.point("scale")?;
+    let mut objects = Vec::new();
+    if run.is_set("transform") {
+        for transform in run.transforms("transform")? {
+            let mut frame = transform.frame;
+            frame.scale *= scale;
+            objects.push(Object {
+                asset: run.choice("asset", Some(transform))?,
+                frame,
+            });
+        }
+    } else {
+        objects.push(Object {
+            asset: run.choice("asset", None)?,
+            frame: Frame {
+                scale,
+                ..Frame::IDENTITY
+            },
         });
     }
-    run.put("geometry", Value::Geometry(instances));
+    run.put("objects", Value::Objects(objects));
     Ok(())
 }
 
-const PART: NodeKind = NodeKind {
-    name: "part",
-    doc: "One asset where it is put, as big as it is given and \
-          turned, or one at each spot it is put on",
+const MOVE_OBJECTS: NodeKind = NodeKind {
+    name: "move_objects",
+    doc: "The objects moved, turned and scaled as one by each \
+          transform, a copy for each: a window built once, at every \
+          window",
     inputs: &[
         PortSpec::new(
-            "asset",
-            ValueType::Choice,
-            "The asset's name in the catalogue",
-        )
-        .listed(Listed::Assets)
-        .initial(Initial::Choice("box")),
-        PortSpec::new("at", ValueType::Point, "Where its anchor is")
-            .initial(Initial::Point(Vec3::ZERO)),
+            "objects",
+            ValueType::Objects,
+            "The objects, about their own origin",
+        ),
         PortSpec::new(
-            "anchor",
-            ValueType::Choice,
-            "Which point of it is at: the middle of its base, its \
-             middle, or the middle of its top",
-        )
-        .initial(Initial::Choice("base"))
-        .choices(&["base", "middle", "top"]),
-        PortSpec::new(
-            "size",
-            ValueType::Point,
-            "Its size on each axis",
-        )
-        .initial(Initial::Point(Vec3::ONE)),
-        PortSpec::new("yaw", ValueType::Number, "Degrees about y")
-            .initial(Initial::Number(0.0)),
-        PortSpec::new("pitch", ValueType::Number, "Degrees about x")
-            .initial(Initial::Number(0.0)),
-        PortSpec::new("roll", ValueType::Number, "Degrees about z")
-            .initial(Initial::Number(0.0)),
-        PortSpec::new(
-            "on",
-            ValueType::Spots,
-            "Spots to put one on each of, where it is in each \
-             spot's own frame. Left unwired, there is one",
+            "transform",
+            ValueType::Transforms,
+            "Where each copy goes",
         ),
     ],
-    outputs: &[GEOMETRY_OUT],
-    run: part,
+    outputs: &[OBJECTS_OUT],
+    run: move_objects,
 };
 
-fn part(run: &mut Run) -> Result<(), Problem> {
-    let asset = run.choice("asset", None)?;
-    let size = run.point("size")?;
-    let rotation = turn::euler(
-        run.number("yaw", None)?,
-        run.number("pitch", None)?,
-        run.number("roll", None)?,
-    );
-    // The asset stands on its frame; an anchor above its base moves
-    // the frame down, turned with it.
-    let lift = match run.choice("anchor", None)?.as_str() {
-        "middle" => 0.5,
-        "top" => 1.0,
-        _ => 0.0,
-    };
-    let own = Frame {
-        translation: run.point("at")?
-            - rotation * Vec3::new(0.0, size.y * lift, 0.0),
-        rotation,
-        scale: Vec3::ONE,
-    };
-    let frames = if run.is_set("on") {
-        run.spots("on")?
-            .iter()
-            .map(|spot| Frame {
-                translation: spot.frame.point(own.translation),
-                rotation: spot.frame.rotation * own.rotation,
-                scale: spot.frame.scale,
-            })
-            .collect()
-    } else {
-        vec![own]
-    };
-    let instances = frames
-        .into_iter()
-        .map(|frame| Instance {
-            asset: asset.clone(),
-            frame,
-            size,
-        })
-        .collect();
-    run.put("geometry", Value::Geometry(instances));
-    Ok(())
-}
-
-const PLACE: NodeKind = NodeKind {
-    name: "place",
-    doc: "A copy of the assets at each spot, moved, turned and \
-          scaled with it, such as a window graph at every window",
-    inputs: &[
-        PortSpec::new(
-            "geometry",
-            ValueType::Geometry,
-            "The assets, about their own origin",
-        ),
-        SPOTS_IN,
-    ],
-    outputs: &[GEOMETRY_OUT],
-    run: place,
-};
-
-fn place(run: &mut Run) -> Result<(), Problem> {
-    let shape = run.geometry("geometry")?;
-    let mut instances = Vec::new();
-    for spot in run.spots("spots")? {
-        let at = spot.frame;
-        instances.extend(shape.iter().map(|instance| Instance {
-            asset: instance.asset.clone(),
+fn move_objects(run: &mut Run) -> Result<(), Problem> {
+    let shape = run.objects("objects")?;
+    let mut objects = Vec::new();
+    for transform in run.transforms("transform")? {
+        let at = transform.frame;
+        objects.extend(shape.iter().map(|object| Object {
+            asset: object.asset.clone(),
             frame: Frame {
-                translation: at.point(instance.frame.translation),
-                rotation: at.rotation * instance.frame.rotation,
-                scale: at.scale * instance.frame.scale,
+                translation: at.point(object.frame.translation),
+                rotation: at.rotation * object.frame.rotation,
+                scale: at.scale * object.frame.scale,
             },
-            size: instance.size,
         }));
     }
-    run.put("geometry", Value::Geometry(instances));
+    run.put("objects", Value::Objects(objects));
     Ok(())
 }
 
-/// The inputs of [`JOIN`], in the order their assets are listed.
-const PARTS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
+/// The inputs of [`COMBINE`], in the order their objects are listed.
+const SETS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
 
-const JOIN: NodeKind = NodeKind {
-    name: "join",
-    doc: "Up to six sets of assets as one. Unwired inputs add \
+const COMBINE: NodeKind = NodeKind {
+    name: "combine",
+    doc: "Up to six sets of objects as one. Unwired inputs add \
           nothing",
     inputs: &[
-        PortSpec::new("a", ValueType::Geometry, "A set"),
-        PortSpec::new("b", ValueType::Geometry, "A set"),
-        PortSpec::new("c", ValueType::Geometry, "A set"),
-        PortSpec::new("d", ValueType::Geometry, "A set"),
-        PortSpec::new("e", ValueType::Geometry, "A set"),
-        PortSpec::new("f", ValueType::Geometry, "A set"),
+        PortSpec::new("a", ValueType::Objects, "A set"),
+        PortSpec::new("b", ValueType::Objects, "A set"),
+        PortSpec::new("c", ValueType::Objects, "A set"),
+        PortSpec::new("d", ValueType::Objects, "A set"),
+        PortSpec::new("e", ValueType::Objects, "A set"),
+        PortSpec::new("f", ValueType::Objects, "A set"),
     ],
-    outputs: &[GEOMETRY_OUT],
-    run: join,
+    outputs: &[OBJECTS_OUT],
+    run: combine,
 };
 
-fn join(run: &mut Run) -> Result<(), Problem> {
-    let mut instances = Vec::new();
-    for part in PARTS {
-        if run.is_set(part) {
-            instances.extend_from_slice(run.geometry(part)?);
+fn combine(run: &mut Run) -> Result<(), Problem> {
+    let mut objects = Vec::new();
+    for set in SETS {
+        if run.is_set(set) {
+            objects.extend_from_slice(run.objects(set)?);
         }
     }
-    run.put("geometry", Value::Geometry(instances));
+    run.put("objects", Value::Objects(objects));
     Ok(())
 }

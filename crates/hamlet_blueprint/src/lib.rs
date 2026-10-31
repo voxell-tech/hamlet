@@ -3,7 +3,7 @@
 //!
 //! An author edits a [`Sheet`] and exports a [`Ruleset`]. The game
 //! runs a ruleset with [`evaluate`] and a set of [`Seeds`], and gets
-//! back [`Instance`]s of named assets.
+//! back [`Object`]s of named assets.
 
 mod bundle;
 mod catalogue;
@@ -32,5 +32,6 @@ pub use graph::{
 pub use node::{Initial, Listed, NodeKind, PortSpec, Registry};
 pub use seed::Seed;
 pub use value::{
-    Constant, Curve, Frame, Instance, Spot, SpotId, Value, ValueType,
+    Constant, Curve, Frame, Object, Transform, TransformId, Value,
+    ValueType,
 };

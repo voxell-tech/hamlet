@@ -60,7 +60,7 @@ use hamlet_ui::{AnyView, Cx, View};
 use super::assets::{Meshes, palette_colour};
 use super::{Editor, files};
 
-/// The asset name a spot is shown as when nothing is put there.
+/// The asset name a transform is shown as when nothing is put there.
 pub(super) const MARKER: &str = "marker";
 
 /// The render layer only the preview's camera, lights and pieces are
@@ -455,7 +455,7 @@ fn rebuild(
     }
     // A graph that fails, as one with an input not yet wired, leaves
     // the last drawing as it was.
-    let Ok(instances) = &editor.outcome else {
+    let Ok(objects) = &editor.outcome else {
         return;
     };
     *drawn = true;
@@ -465,14 +465,14 @@ fn rebuild(
     let mut meshing = Meshing::new();
     let (mut low, mut high) =
         (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    for instance in instances {
-        let size = instance.size * instance.frame.scale;
-        let marker = instance.asset == MARKER;
-        // An asset stands on its spot; a marker sits on it.
+    for object in objects {
+        let size = object.frame.scale;
+        let marker = object.asset == MARKER;
+        // An asset stands on its transform; a marker sits on it.
         let lift = if marker { 0.0 } else { size.y * 0.5 };
-        let middle = instance.frame.translation
-            + instance.frame.rotation * Vec3::new(0.0, lift, 0.0);
-        let asset = editor.rules.assets.get(&instance.asset);
+        let middle = object.frame.translation
+            + object.frame.rotation * Vec3::new(0.0, lift, 0.0);
+        let asset = editor.rules.assets.get(&object.asset);
         let model =
             match (asset.as_ref().map(|asset| &asset.shape), &folder)
             {
@@ -494,13 +494,13 @@ fn rebuild(
                 &mut meshing,
                 middle,
                 size,
-                instance.frame.rotation,
+                object.frame.rotation,
                 |slot, own| paint(colours, asset.as_ref(), slot, own),
             ),
             (None, Some(Shape::Wedge { peak }), _) => {
                 wedge(
                     &mut meshing,
-                    &instance.frame,
+                    &object.frame,
                     size,
                     *peak,
                     colour,
@@ -508,7 +508,7 @@ fn rebuild(
             }
             (None, Some(Shape::Tiles { taper }), Some(c)) => tiles(
                 &mut meshing,
-                &instance.frame,
+                &object.frame,
                 size,
                 *taper,
                 colour,
@@ -518,7 +518,7 @@ fn rebuild(
                 middle,
                 size * 0.5,
                 0.04,
-                instance.frame.rotation,
+                object.frame.rotation,
                 colour,
                 if marker { 0.0 } else { 0.25 },
             ),
@@ -526,7 +526,7 @@ fn rebuild(
         low = low.min(middle - size);
         high = high.max(middle + size);
     }
-    if instances.is_empty() {
+    if objects.is_empty() {
         (low, high) = (Vec3::splat(-2.0), Vec3::splat(2.0));
     }
     let ground =

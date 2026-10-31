@@ -2,38 +2,38 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bevy_math::{Vec2, Vec3};
 use hamlet_blueprint::{
-    Bundle, Does, Edit, Group, Instance, Node, NodeId, Problem,
+    Bundle, Does, Edit, Group, Node, NodeId, Object, Problem,
     Registry, Ruleset, Seed, Seeds, Setting, Sheet, Value, evaluate,
     validate,
 };
 
 /// Posts along a line, each lifted and turned at random, per
-/// spot.
+/// transform.
 const FENCE: &str = r#"(
     entry: "fence",
     graphs: {
         "fence": (
             inputs: [(name: "end", value_type: Point, default: Some(Point((10.0, 0.0, 0.0))))],
-            outputs: [(name: "geometry", value_type: Geometry, from: (node: 4, name: "geometry"))],
+            outputs: [(name: "objects", value_type: Objects, from: (node: 4, name: "objects"))],
             nodes: [
                 (id: 1, does: Kind("line"), settings: {"to": FromParent("end")}),
                 (id: 2, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(1.0))}),
-                (id: 3, does: Kind("transform"), settings: {
-                    "move_y": Random((spread: Range(0.0, 0.5), scope: Spot)),
-                    "yaw": Random((spread: Range(-10.0, 10.0), scope: Spot)),
+                (id: 3, does: Kind("offset"), settings: {
+                    "move_y": Random((spread: Range(0.0, 0.5), scope: Transform)),
+                    "yaw": Random((spread: Range(-10.0, 10.0), scope: Transform)),
                 }),
-                (id: 4, does: Kind("put"), settings: {"asset": Fixed(Choice("post"))}),
+                (id: 4, does: Kind("object"), settings: {"asset": Fixed(Choice("post"))}),
             ],
             wires: [
                 (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
-                (from: (node: 2, name: "spots"), to: (node: 3, name: "spots")),
-                (from: (node: 3, name: "spots"), to: (node: 4, name: "spots")),
+                (from: (node: 2, name: "transforms"), to: (node: 3, name: "transforms")),
+                (from: (node: 3, name: "transforms"), to: (node: 4, name: "transform")),
             ],
         ),
         "yard": (
             outputs: [
-                (name: "near", value_type: Geometry, from: (node: 1, name: "geometry")),
-                (name: "far", value_type: Geometry, from: (node: 2, name: "geometry")),
+                (name: "near", value_type: Objects, from: (node: 1, name: "objects")),
+                (name: "far", value_type: Objects, from: (node: 2, name: "objects")),
             ],
             nodes: [
                 (id: 1, does: Graph("fence")),
@@ -55,12 +55,12 @@ fn seeds(house: u64) -> Seeds {
     }
 }
 
-fn geometry(
+fn objects(
     outputs: &BTreeMap<String, Value>,
     name: &str,
-) -> Vec<Instance> {
+) -> Vec<Object> {
     match &outputs[name] {
-        Value::Geometry(instances) => instances.clone(),
+        Value::Objects(objects) => objects.clone(),
         other => panic!("{name} is {other:?}"),
     }
 }
@@ -78,18 +78,18 @@ fn run(
 fn longer_curve_keeps_earlier_posts_and_their_rolls() {
     let ruleset = fence();
     let short =
-        geometry(&run(&ruleset, 7, &BTreeMap::new()), "geometry");
+        objects(&run(&ruleset, 7, &BTreeMap::new()), "objects");
     let long_end = BTreeMap::from([(
         "end".to_owned(),
         Value::Point(Vec3::new(20.0, 0.0, 0.0)),
     )]);
-    let long = geometry(&run(&ruleset, 7, &long_end), "geometry");
+    let long = objects(&run(&ruleset, 7, &long_end), "objects");
     assert_eq!(short.len(), 11);
     assert_eq!(long.len(), 21);
     assert_eq!(short, long[..11]);
 
     let other_house =
-        geometry(&run(&ruleset, 8, &BTreeMap::new()), "geometry");
+        objects(&run(&ruleset, 8, &BTreeMap::new()), "objects");
     assert_ne!(short, other_house);
 }
 
@@ -98,7 +98,7 @@ fn a_graph_run_twice_differs_and_an_added_node_changes_nothing() {
     let mut ruleset = fence();
     ruleset.entry = "yard".to_owned();
     let before = run(&ruleset, 7, &BTreeMap::new());
-    assert_ne!(geometry(&before, "near"), geometry(&before, "far"));
+    assert_ne!(objects(&before, "near"), objects(&before, "far"));
 
     let yard =
         ruleset.graphs.get_mut("yard").expect("the yard graph");
@@ -119,7 +119,7 @@ fn closed_rectangle_places_on_its_corners() {
         r#"(
             entry: "ring",
             graphs: {"ring": (
-                outputs: [(name: "spots", value_type: Spots, from: (node: 2, name: "spots"))],
+                outputs: [(name: "transforms", value_type: Transforms, from: (node: 2, name: "transforms"))],
                 nodes: [
                     (id: 1, does: Kind("rectangle")),
                     (id: 2, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(2.0))}),
@@ -130,28 +130,28 @@ fn closed_rectangle_places_on_its_corners() {
     )
     .expect("the fixture parses");
     let outputs = run(&ruleset, 1, &BTreeMap::new());
-    let Value::Spots(spots) = &outputs["spots"] else {
-        panic!("not spots");
+    let Value::Transforms(transforms) = &outputs["transforms"] else {
+        panic!("not transforms");
     };
     // A 6 by 4 rectangle is 20 round: ten posts, none doubled at the
     // start.
-    assert_eq!(spots.len(), 10);
+    assert_eq!(transforms.len(), 10);
     assert!(
-        spots[3]
+        transforms[3]
             .frame
             .translation
             .abs_diff_eq(Vec3::new(3.0, 0.0, -2.0), 1e-5)
     );
     assert!(
-        spots[8]
+        transforms[8]
             .frame
             .translation
             .abs_diff_eq(Vec3::new(-3.0, 0.0, 2.0), 1e-5)
     );
     // On a corner a post faces along the edge that starts there.
-    let facing = spots[3].frame.rotation * Vec3::X;
+    let facing = transforms[3].frame.rotation * Vec3::X;
     assert!(facing.abs_diff_eq(Vec3::Z, 1e-5));
-    assert!((spots[5].along - 0.5).abs() < 1e-6);
+    assert!((transforms[5].along - 0.5).abs() < 1e-6);
 }
 
 #[test]
@@ -168,9 +168,9 @@ fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
                     (id: 4, does: Graph("bad")),
                 ],
                 wires: [
-                    (from: (node: 1, name: "curve"), to: (node: 2, name: "spots")),
-                    (from: (node: 2, name: "spots"), to: (node: 3, name: "spots")),
-                    (from: (node: 3, name: "spots"), to: (node: 2, name: "keep")),
+                    (from: (node: 1, name: "curve"), to: (node: 2, name: "transforms")),
+                    (from: (node: 2, name: "transforms"), to: (node: 3, name: "transform")),
+                    (from: (node: 3, name: "transforms"), to: (node: 2, name: "keep")),
                 ],
             )},
         )"#,
@@ -182,7 +182,7 @@ fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
         .collect::<Vec<_>>();
     assert!(problems.iter().any(|problem| matches!(
         problem,
-        Problem::WrongType { node: NodeId(2), port, .. } if port == "spots"
+        Problem::WrongType { node: NodeId(2), port, .. } if port == "transforms"
     )));
     assert!(
         problems
@@ -198,7 +198,7 @@ fn math_on_a_random_field_is_worked_out_at_each_spot() {
         r#"(
             entry: "thin",
             graphs: {"thin": (
-                outputs: [(name: "spots", value_type: Spots, from: (node: 5, name: "spots"))],
+                outputs: [(name: "transforms", value_type: Transforms, from: (node: 5, name: "transforms"))],
                 nodes: [
                     (id: 1, does: Kind("line"), settings: {"to": Fixed(Point((99.0, 0.0, 0.0)))}),
                     (id: 2, does: Kind("along_curve")),
@@ -209,7 +209,7 @@ fn math_on_a_random_field_is_worked_out_at_each_spot() {
                 wires: [
                     (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
                     (from: (node: 3, name: "field"), to: (node: 4, name: "a")),
-                    (from: (node: 2, name: "spots"), to: (node: 5, name: "spots")),
+                    (from: (node: 2, name: "transforms"), to: (node: 5, name: "transforms")),
                     (from: (node: 4, name: "value"), to: (node: 5, name: "keep")),
                 ],
             )},
@@ -217,8 +217,8 @@ fn math_on_a_random_field_is_worked_out_at_each_spot() {
     )
     .expect("the fixture parses");
     let outputs = run(&ruleset, 1, &BTreeMap::new());
-    let Value::Spots(kept) = &outputs["spots"] else {
-        panic!("not spots");
+    let Value::Transforms(kept) = &outputs["transforms"] else {
+        panic!("not transforms");
     };
     // Rolled once for all, all 100 would stay or go together.
     assert!((25..75).contains(&kept.len()), "{} kept", kept.len());
@@ -231,15 +231,15 @@ const RISE: &str = r#"(
     graphs: {"tower": (
         inputs: [(name: "rise", value_type: Number, default: Some(Number(5.0)),
                   vary: Some((low: 1.0, high: 2.0, per: House)))],
-        outputs: [(name: "geometry", value_type: Geometry, from: (node: 3, name: "geometry"))],
+        outputs: [(name: "objects", value_type: Objects, from: (node: 3, name: "objects"))],
         nodes: [
             (id: 1, does: Kind("point"), settings: {"x": Fixed(Number(1.0)), "y": FromParent("rise"), "z": Fixed(Number(1.0))}),
-            (id: 2, does: Kind("spot")),
-            (id: 3, does: Kind("put")),
+            (id: 2, does: Kind("transform")),
+            (id: 3, does: Kind("object")),
         ],
         wires: [
-            (from: (node: 1, name: "point"), to: (node: 2, name: "size")),
-            (from: (node: 2, name: "spots"), to: (node: 3, name: "spots")),
+            (from: (node: 1, name: "point"), to: (node: 2, name: "scale")),
+            (from: (node: 2, name: "transforms"), to: (node: 3, name: "transform")),
         ],
     )},
 )"#;
@@ -249,10 +249,10 @@ fn an_unset_input_varies_within_its_range_once_per_house() {
     let ruleset =
         Ruleset::from_ron(RISE).expect("the fixture parses");
     let height = |house| {
-        geometry(&run(&ruleset, house, &BTreeMap::new()), "geometry")
-            [0]
-        .size
-        .y
+        objects(&run(&ruleset, house, &BTreeMap::new()), "objects")[0]
+            .frame
+            .scale
+            .y
     };
     let heights = (1..20).map(height).collect::<Vec<_>>();
     assert!(
@@ -265,7 +265,10 @@ fn an_unset_input_varies_within_its_range_once_per_house() {
     let given =
         BTreeMap::from([("rise".to_owned(), Value::Number(3.0))]);
     assert_eq!(
-        geometry(&run(&ruleset, 7, &given), "geometry")[0].size.y,
+        objects(&run(&ruleset, 7, &given), "objects")[0]
+            .frame
+            .scale
+            .y,
         3.0
     );
 }
