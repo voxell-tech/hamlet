@@ -59,7 +59,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use super::assets::{Meshes, palette_colour};
-use super::handles::{self, Held};
+use super::gizmo::{self, Dragging, GizmoMode};
 use super::{Editor, files};
 
 /// The asset name a transform is shown as when nothing is put there.
@@ -81,7 +81,6 @@ pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Seat>()
         .init_resource::<Framing>()
         .init_resource::<Backdrop>()
-        .init_resource::<Held>()
         .add_systems(Startup, spawn)
         .add_systems(
             Update,
@@ -212,6 +211,26 @@ fn problem() -> AnyView {
 /// the random values picked per hamlet and per item, in the preview's
 /// lower corner.
 fn switches() -> AnyView {
+    // What a transform's gizmo edits, the one it edits now marked.
+    let mode =
+        |word: &'static str, key: &'static str, picked: GizmoMode| {
+            button(label(resource::<GizmoMode, _>(move |mode| {
+                if *mode == picked {
+                    format!("• {word}")
+                } else {
+                    word.to_owned()
+                }
+            })))
+            .padding(UiRect::axes(px(8.0), px(2.0)))
+            .tooltip(move || {
+                note(format!("What a transform's gizmo does ({key})"))
+            })
+            .rules(styles::button)
+            .tagged(Variant::Default)
+            .on_activate(move |world| {
+                world.insert_resource(picked);
+            })
+        };
     let dice = |word: &'static str,
                 tip: &'static str,
                 roll: fn(&mut Editor)| {
@@ -254,6 +273,9 @@ fn switches() -> AnyView {
             "Roll again what is picked once per item",
             Editor::roll_item,
         ),
+        mode("Move", "W", GizmoMode::Translate),
+        mode("Turn", "E", GizmoMode::Rotate),
+        mode("Scale", "R", GizmoMode::Scale),
     ))
     .gap(4.0)
     .position(PositionType::Absolute)
@@ -390,9 +412,9 @@ fn open(
     {
         commands
             .entity(frame)
-            .observe(handles::grab)
-            .observe(handles::drag)
-            .observe(handles::release)
+            .observe(gizmo::grab)
+            .observe(gizmo::steer)
+            .observe(gizmo::release)
             .observe(turn)
             .observe(zoom);
         *watched = Some(frame);
@@ -413,13 +435,13 @@ fn turn(
     framing: Res<Framing>,
     mut steer: ResMut<Steer>,
     mut seat: ResMut<Seat>,
-    held: Res<Held>,
+    held: Res<Dragging>,
 ) {
     let Ok(node) = frames.get(drag.event_target()) else {
         return;
     };
     // A drag that took hold of a handle moves the handle instead.
-    if held.0.is_some() {
+    if held.under_way() {
         return;
     }
     match drag.button {

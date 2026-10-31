@@ -1,64 +1,44 @@
-//! Handles in the preview for the inputs of the selected cards: a
-//! point for a transform's translation, a curve's ends or middle,
-//! and a mark on a polygon's rim or a rectangle's sides for its size.
-//! A press near one takes hold of it; dragging moves it on the
-//! ground, or up and down with Shift, and sets the input as typing it
-//! would. An input set from a parameter moves the parameter's
-//! default; a wired one has no handle.
+//! What the selected cards offer the gizmo: a transform node's
+//! translation, rotation and scale; a curve's ends or middle to move;
+//! and a polygon's radius or a rectangle's sides to pull. An input
+//! set from a parameter moves the parameter's default; a wired one
+//! offers nothing.
 
-use bevy::camera::Camera;
-use bevy::ecs::observer::On;
-use bevy::ecs::query::With;
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Query, Res, ResMut};
-use bevy::input::ButtonInput;
-use bevy::input::keyboard::KeyCode;
-use bevy::math::{Dir3, Vec2, Vec3};
-use bevy::picking::events::{
-    PointerDrag, PointerDragEnd, PointerDragStart,
-};
-use bevy::picking::pointer::PointerButton;
-use bevy::shape::InfinitePlane3d;
-use bevy::transform::components::GlobalTransform;
-use bevy::ui::{ComputedNode, UiGlobalTransform};
+use bevy::math::{EulerRot, Quat, Vec3};
 use hamlet_blueprint::{
     Constant, Does, Edit, Initial, NodeId, Setting,
 };
 
 use super::Editor;
-use super::canvas::corner;
-use super::preview::{Preview, Shown};
 
-/// How near a press must be to a handle on screen to take hold of it,
-/// in pixels.
-const REACH: f32 = 14.0;
-
-/// One handle: the input of a node it sets, where it is, and how it
-/// sets it.
+/// One thing the gizmo can take hold of: where it is, and what it
+/// sets.
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct Handle {
+pub(super) struct Target {
     pub(super) node: NodeId,
-    pub(super) input: &'static str,
     pub(super) at: Vec3,
     pub(super) kind: Kind,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum Kind {
-    /// The input is the handle's point.
-    Point,
-    /// The input is the handle's distance from `middle`, along the
-    /// ground, times `times`: a radius, or a side twice as far.
-    Distance { middle: Vec3, times: f32 },
+    /// A transform node: its translation is `at`, and it turns and
+    /// scales.
+    Transform { rotation: Quat, scale: Vec3 },
+    /// A point input, which only moves.
+    Point { input: &'static str },
+    /// A number that is the distance along `axis` from `middle` to
+    /// `at`, times `times`: a radius, or a side twice as far.
+    Distance {
+        input: &'static str,
+        middle: Vec3,
+        axis: Vec3,
+        times: f32,
+    },
 }
 
-/// The handle held, and the height its drag on the ground is at.
-#[derive(Resource, Default)]
-pub(super) struct Held(pub(super) Option<(Handle, f32)>);
-
-/// The handles of every selected card, in the order they are
-/// selected.
-pub(super) fn handles(editor: &Editor) -> Vec<Handle> {
+/// What every selected card offers, in the order they are selected.
+pub(super) fn targets(editor: &Editor) -> Vec<Target> {
     let mut found = Vec::new();
     for node in &editor.selected {
         let Some(card) = editor.sheet.graph.node(*node) else {
@@ -71,10 +51,9 @@ pub(super) fn handles(editor: &Editor) -> Vec<Handle> {
             |input: &'static str| point_of(editor, *node, input);
         let number =
             |input: &'static str| number_of(editor, *node, input);
-        let mut add = |input: &'static str, at: Vec3, kind: Kind| {
-            found.push(Handle {
+        let mut add = |at: Vec3, kind: Kind| {
+            found.push(Target {
                 node: *node,
-                input,
                 at,
                 kind,
             });
@@ -82,56 +61,75 @@ pub(super) fn handles(editor: &Editor) -> Vec<Handle> {
         match kind.as_str() {
             "transform" => {
                 if let Some(at) = point("translation") {
-                    add("translation", at, Kind::Point);
+                    let turn =
+                        point("rotation").unwrap_or(Vec3::ZERO);
+                    add(
+                        at,
+                        Kind::Transform {
+                            rotation: rotation_of(turn),
+                            scale: point("scale")
+                                .unwrap_or(Vec3::ONE),
+                        },
+                    );
                 }
             }
             "line" => {
-                for end in ["from", "to"] {
-                    if let Some(at) = point(end) {
-                        add(end, at, Kind::Point);
+                for input in ["from", "to"] {
+                    if let Some(at) = point(input) {
+                        add(at, Kind::Point { input });
                     }
                 }
             }
-            "polygon" => {
-                let middle = point("center").unwrap_or(Vec3::ZERO);
-                if point("center").is_some() {
-                    add("center", middle, Kind::Point);
+            "polygon" | "rectangle" => {
+                let middle = point("center");
+                if let Some(at) = middle {
+                    add(at, Kind::Point { input: "center" });
                 }
-                if let Some(radius) = number("radius") {
-                    let distance =
-                        Kind::Distance { middle, times: 1.0 };
-                    add(
-                        "radius",
-                        middle + Vec3::X * radius,
-                        distance,
-                    );
-                }
-            }
-            "rectangle" => {
-                let middle = point("center").unwrap_or(Vec3::ZERO);
-                if point("center").is_some() {
-                    add("center", middle, Kind::Point);
-                }
-                let side = Kind::Distance { middle, times: 2.0 };
-                if let Some(width) = number("width") {
-                    add(
-                        "width",
-                        middle + Vec3::X * width * 0.5,
-                        side,
-                    );
-                }
-                if let Some(depth) = number("depth") {
-                    add(
-                        "depth",
-                        middle + Vec3::Z * depth * 0.5,
-                        side,
-                    );
+                let middle = middle.unwrap_or(Vec3::ZERO);
+                let sides: &[(&'static str, Vec3, f32)] =
+                    if kind == "polygon" {
+                        &[("radius", Vec3::X, 1.0)]
+                    } else {
+                        &[
+                            ("width", Vec3::X, 2.0),
+                            ("depth", Vec3::Z, 2.0),
+                        ]
+                    };
+                for &(input, axis, times) in sides {
+                    if let Some(length) = number(input) {
+                        add(
+                            middle + axis * length / times,
+                            Kind::Distance {
+                                input,
+                                middle,
+                                axis,
+                                times,
+                            },
+                        );
+                    }
                 }
             }
             _ => {}
         }
     }
     found
+}
+
+/// A rotation input's degrees about x, y and z as a turn, about y
+/// first as the transform node reads them.
+pub(super) fn rotation_of(degrees: Vec3) -> Quat {
+    Quat::from_euler(
+        EulerRot::YXZ,
+        degrees.y.to_radians(),
+        degrees.x.to_radians(),
+        degrees.z.to_radians(),
+    )
+}
+
+/// A turn as a rotation input's degrees about x, y and z.
+pub(super) fn degrees_of(rotation: Quat) -> Vec3 {
+    let (yaw, pitch, roll) = rotation.to_euler(EulerRot::YXZ);
+    Vec3::new(pitch.to_degrees(), yaw.to_degrees(), roll.to_degrees())
 }
 
 /// What an input of `node` is set to, as a constant: fixed, its
@@ -204,14 +202,20 @@ fn number_of(
     }
 }
 
-/// Sets what `handle` sets to `value`: the input itself, or the
-/// default of the parameter it is set from.
-fn set(editor: &mut Editor, handle: &Handle, value: Constant) {
+/// Sets `input` of `node` to `value`: the input itself, or the
+/// default of the parameter it is set from. Writes one after another
+/// of the same input are undone as one.
+pub(super) fn set(
+    editor: &mut Editor,
+    node: NodeId,
+    input: &str,
+    value: Constant,
+) {
     let from = editor
         .sheet
         .graph
-        .node(handle.node)
-        .and_then(|card| card.settings.get(handle.input))
+        .node(node)
+        .and_then(|card| card.settings.get(input))
         .and_then(|setting| match setting {
             Setting::FromParent(name) => Some(name.clone()),
             _ => None,
@@ -235,132 +239,9 @@ fn set(editor: &mut Editor, handle: &Handle, value: Constant) {
             });
         }
         None => editor.apply(Edit::Set {
-            node: handle.node,
-            input: handle.input.to_owned(),
+            node,
+            input: input.to_owned(),
             setting: Some(Setting::Fixed(value)),
         }),
     }
-}
-
-/// Where the pointer at `at` in the window is in the preview, in its
-/// own pixels from its corner.
-fn in_preview(
-    at: Vec2,
-    frames: &Query<(&ComputedNode, &UiGlobalTransform), With<Shown>>,
-) -> Option<Vec2> {
-    let (node, transform) = frames.iter().next()?;
-    Some(at - corner(node, transform))
-}
-
-/// Takes hold of the handle nearest the press, if one is near enough;
-/// otherwise the press slides the view.
-pub(super) fn grab(
-    start: On<PointerDragStart>,
-    editor: Res<Editor>,
-    preview: Option<Res<Preview>>,
-    frames: Query<(&ComputedNode, &UiGlobalTransform), With<Shown>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
-    mut held: ResMut<Held>,
-) {
-    if start.button != PointerButton::Primary {
-        return;
-    }
-    let (Some(preview), Some(at)) =
-        (preview, in_preview(start.pointer.position, &frames))
-    else {
-        return;
-    };
-    let Ok((camera, eye)) = cameras.get(preview.camera) else {
-        return;
-    };
-    let nearest = handles(&editor)
-        .into_iter()
-        .filter_map(|handle| {
-            let seen =
-                camera.world_to_viewport(eye, handle.at).ok()?;
-            let off = seen.distance(at);
-            (off <= REACH).then_some((handle, off))
-        })
-        .min_by(|a, b| a.1.total_cmp(&b.1));
-    if let Some((handle, _)) = nearest {
-        let height = handle.at.y;
-        held.0 = Some((handle, height));
-    }
-}
-
-/// Moves the held handle to where the pointer is: on the ground at
-/// its height, or with Shift up and down, facing the camera.
-pub(super) fn drag(
-    drag: On<PointerDrag>,
-    preview: Option<Res<Preview>>,
-    frames: Query<(&ComputedNode, &UiGlobalTransform), With<Shown>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
-    keys: Option<Res<ButtonInput<KeyCode>>>,
-    mut held: ResMut<Held>,
-    mut editor: ResMut<Editor>,
-) {
-    let Some((handle, height)) = held.0.clone() else {
-        return;
-    };
-    let (Some(preview), Some(at)) =
-        (preview, in_preview(drag.pointer.position, &frames))
-    else {
-        return;
-    };
-    let Ok((camera, eye)) = cameras.get(preview.camera) else {
-        return;
-    };
-    let Ok(ray) = camera.viewport_to_world(eye, at) else {
-        return;
-    };
-    let up = keys.is_some_and(|keys| {
-        keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
-    }) && handle.kind == Kind::Point;
-    let plane = if up {
-        // Upright, facing the camera across the ground.
-        let facing = (eye.translation() - handle.at)
-            * Vec3::new(1.0, 0.0, 1.0);
-        let normal = Dir3::new(facing).unwrap_or(Dir3::Z);
-        (handle.at, InfinitePlane3d::new(normal))
-    } else {
-        (Vec3::new(0.0, height, 0.0), InfinitePlane3d::new(Dir3::Y))
-    };
-    let Some(distance) = ray.intersect_plane(plane.0, plane.1) else {
-        return;
-    };
-    let hit = ray.get_point(distance);
-    let moved = match handle.kind {
-        Kind::Point if up => {
-            Vec3::new(handle.at.x, hit.y, handle.at.z)
-        }
-        Kind::Point => Vec3::new(hit.x, handle.at.y, hit.z),
-        Kind::Distance { .. } => hit,
-    };
-    let value = match handle.kind {
-        Kind::Point => Constant::Point(round(moved)),
-        Kind::Distance { middle, times } => {
-            let along = (moved - middle) * Vec3::new(1.0, 0.0, 1.0);
-            Constant::Number(round_one(along.length() * times))
-        }
-    };
-    set(&mut editor, &handle, value);
-    let mut handle = handle;
-    if handle.kind == Kind::Point {
-        handle.at = moved;
-    }
-    held.0 = Some((handle, height));
-}
-
-/// Lets go of the handle.
-pub(super) fn release(_: On<PointerDragEnd>, mut held: ResMut<Held>) {
-    held.0 = None;
-}
-
-/// A point to the centimetre, so dragged values stay readable.
-fn round(point: Vec3) -> Vec3 {
-    (point * 100.0).round() / 100.0
-}
-
-fn round_one(value: f32) -> f32 {
-    (value * 100.0).round() / 100.0
 }

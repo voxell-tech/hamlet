@@ -7,6 +7,7 @@ mod assets;
 mod canvas;
 mod controls;
 mod files;
+mod gizmo;
 mod handles;
 mod menu;
 mod overlay;
@@ -100,6 +101,7 @@ pub(crate) fn plugin(app: &mut App) {
         preview::plugin,
         split::plugin,
         files::plugin,
+        gizmo::plugin,
         wire::plugin,
     ));
 }
