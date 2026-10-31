@@ -6,7 +6,7 @@ use hamlet_blueprint::{
 };
 
 use crate::compile::compile;
-use crate::wrap::BALL;
+use crate::wrap::SPHERE;
 use crate::{Compiled, registry};
 
 /// A node of every kind, each math kind on vectors or colours too.
@@ -71,7 +71,7 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {{
     let s = surface(SurfaceIn(in.uv, vec3<f32>(0.0), vec3<f32>(0.0, \
          1.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), vec4<f32>(1.0), 0.0));
     if s.unlit > 2.0 {{ return s.base_color; }}
-    {BALL}
+    {SPHERE}
 }}
 "
     );

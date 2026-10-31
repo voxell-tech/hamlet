@@ -32,7 +32,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, with_cx};
 
 use super::files::{self, Files};
-use super::{Editor, params};
+use super::{Blueprint, Editor, params};
 
 /// The palette's colours a material slot can take, of those a
 /// building is made of.
@@ -344,7 +344,7 @@ pub(super) fn part() -> Vec<AnyView> {
     ];
     parts.push(
         with_cx(|cx| {
-            let editor = cx.world.resource::<Editor>();
+            let editor = cx.world.resource::<Editor<Blueprint>>();
             let gap = cx.theme().space.gap;
             let cards: Vec<AnyView> = editor
                 .rules
@@ -380,7 +380,7 @@ fn card(name: String, asset: Asset) -> AnyView {
                     })
                     .on_activate(move |world| {
                         world
-                            .resource_mut::<Editor>()
+                            .resource_mut::<Editor<Blueprint>>()
                             .set_asset(remove.clone(), None);
                     }),
             ))
@@ -437,7 +437,7 @@ fn colour(name: String, asset: Asset, slot: String) -> AnyView {
                 });
             asset.slots.insert(slot.clone(), paint);
             world
-                .resource_mut::<Editor>()
+                .resource_mut::<Editor<Blueprint>>()
                 .set_asset(name.clone(), Some(asset));
         },
     )
@@ -475,8 +475,8 @@ fn chosen(
     importer: Res<Importer>,
     folder: Option<Res<ViewFolder>>,
     mut meshes: ResMut<Meshes>,
-    mut files: ResMut<Files>,
-    mut editor: ResMut<Editor>,
+    mut files: ResMut<Files<Blueprint>>,
+    mut editor: ResMut<Editor<Blueprint>>,
 ) {
     if importer.0 != Some(chosen.asker) {
         return;
@@ -484,7 +484,7 @@ fn chosen(
     let Some(folder) = folder else {
         return;
     };
-    let book = files::book_folder(&folder.0);
+    let book = files::book_folder::<Blueprint>(&folder.0);
     match add(&book, &chosen.path, &editor, &mut meshes) {
         Ok((name, asset)) => {
             files.note = format!("Added {name}");
@@ -499,7 +499,7 @@ fn chosen(
 fn add(
     book: &Path,
     from: &Path,
-    editor: &Editor,
+    editor: &Editor<Blueprint>,
     meshes: &mut Meshes,
 ) -> anyhow::Result<(String, Asset)> {
     let stem = from

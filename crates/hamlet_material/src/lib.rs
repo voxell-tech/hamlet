@@ -1,5 +1,6 @@
-//! Material graphs: what a surface looks like, written as nodes and
-//! wires, compiled to a shader the realm lights like everything else.
+//! Material graphs: a surface's base colour, roughness, metallic,
+//! emission and normal as nodes and wires, compiled to a fragment
+//! shader that extends the realm's PBR standard material.
 //!
 //! A material graph is a [`hamlet_blueprint::Graph`] of the kinds in
 //! [`registry`]. [`compile`] turns it into WGSL, and

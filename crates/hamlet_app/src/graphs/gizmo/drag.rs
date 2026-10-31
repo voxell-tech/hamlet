@@ -20,10 +20,10 @@ use bevy_fynix::Theme;
 use hamlet_blueprint::{Constant, NodeId};
 use hamlet_ui::theme::HamletTheme;
 
-use super::super::Editor;
 use super::super::canvas::corner;
 use super::super::handles::{Kind, Target, degrees_of, set, targets};
 use super::super::preview::{Preview, Shown as PreviewFrame};
+use super::super::{Blueprint, Editor};
 use super::{Arc, Frame, GizmoMode, Handle, Hot, Style, look_of};
 
 /// The least a scale drag scales by.
@@ -298,7 +298,7 @@ fn written(
 )]
 pub(crate) fn grab(
     start: On<PointerDragStart>,
-    editor: Res<Editor>,
+    editor: Res<Editor<Blueprint>>,
     mode: Res<GizmoMode>,
     hot: Res<Hot>,
     preview: Option<Res<Preview>>,
@@ -366,7 +366,7 @@ pub(crate) fn steer(
     >,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mut dragging: ResMut<Dragging>,
-    mut editor: ResMut<Editor>,
+    mut editor: ResMut<Editor<Blueprint>>,
 ) {
     let (Some(held), Some(preview)) = (dragging.0.as_mut(), preview)
     else {
@@ -454,7 +454,7 @@ pub(crate) fn release(
 pub(crate) fn cancel(
     keys: Res<ButtonInput<KeyCode>>,
     mut dragging: ResMut<Dragging>,
-    mut editor: ResMut<Editor>,
+    mut editor: ResMut<Editor<Blueprint>>,
 ) {
     if dragging.0.is_none() || !keys.just_pressed(KeyCode::Escape) {
         return;

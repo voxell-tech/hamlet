@@ -5,6 +5,8 @@
 //! card opens what can be done to it.
 
 use std::collections::BTreeMap;
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -39,6 +41,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use super::canvas::Input;
+use super::flavor::Flavor;
 use super::{Editor, canvas, controls, files};
 
 /// The group the book's other graphs are listed under.
@@ -60,15 +63,39 @@ const TALLEST: f32 = 320.0;
 /// The room the caret takes before the search's hint.
 const CARET: f32 = 4.0;
 
-pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Menu>()
-        .init_resource::<Search>()
-        .add_systems(Update, keys);
+pub(super) fn plugin<F: Flavor>(app: &mut App) {
+    app.init_resource::<Menu<F>>()
+        .init_resource::<Search<F>>()
+        .add_systems(Update, keys::<F>);
+}
+
+/// The menu open over one editor's graph.
+#[derive(Resource)]
+pub(super) struct Menu<F: Flavor>(Which, PhantomData<F>);
+
+impl<F: Flavor> Default for Menu<F> {
+    fn default() -> Self {
+        Self(Which::Closed, PhantomData)
+    }
+}
+
+impl<F: Flavor> Deref for Menu<F> {
+    type Target = Which;
+
+    fn deref(&self) -> &Which {
+        &self.0
+    }
+}
+
+impl<F: Flavor> DerefMut for Menu<F> {
+    fn deref_mut(&mut self) -> &mut Which {
+        &mut self.0
+    }
 }
 
 /// The menu open over the graph, at its place in the window.
-#[derive(Resource, Default, Clone, PartialEq, Debug)]
-pub(super) enum Menu {
+#[derive(Default, Clone, PartialEq, Debug)]
+pub(super) enum Which {
     #[default]
     Closed,
     /// The list of kinds, adding a card at `on_sheet`.
@@ -94,19 +121,43 @@ pub(super) enum Menu {
 
 /// Where the list of kinds stands: what is typed, and the group open,
 /// none for the list of groups.
-#[derive(Resource, Default, Clone, PartialEq)]
-struct Search {
+#[derive(Default, Clone, PartialEq)]
+struct Lookup {
     typed: String,
     group: Option<&'static str>,
 }
 
+/// The lookup in one editor's list of kinds.
+#[derive(Resource)]
+struct Search<F: Flavor>(Lookup, PhantomData<F>);
+
+impl<F: Flavor> Default for Search<F> {
+    fn default() -> Self {
+        Self(Lookup::default(), PhantomData)
+    }
+}
+
+impl<F: Flavor> Deref for Search<F> {
+    type Target = Lookup;
+
+    fn deref(&self) -> &Lookup {
+        &self.0
+    }
+}
+
+impl<F: Flavor> DerefMut for Search<F> {
+    fn deref_mut(&mut self) -> &mut Lookup {
+        &mut self.0
+    }
+}
+
 /// On the search field of the list of kinds.
 #[derive(Component)]
-struct SearchField;
+struct SearchField<F: Flavor>(PhantomData<F>);
 
 /// On the layer the menus are placed in.
 #[derive(Component)]
-struct Layer;
+struct Layer<F: Flavor>(PhantomData<F>);
 
 /// One row of the list of what can be added.
 #[derive(Clone)]
@@ -121,31 +172,31 @@ struct Entry {
 
 /// Opens the list of kinds at the pointer, adding where it is on the
 /// canvas, or in the middle of what is in sight when it is elsewhere.
-pub(super) fn create_at_pointer(world: &mut World) {
+pub(super) fn create_at_pointer<F: Flavor>(world: &mut World) {
     let at = world
         .query::<&Window>()
         .iter(world)
         .find_map(Window::cursor_position)
         .unwrap_or_default();
-    let on_sheet = canvas::on_sheet(world, at)
-        .unwrap_or_else(|| canvas::middle(world));
-    open(world, Menu::Create { at, on_sheet });
+    let on_sheet = canvas::on_sheet::<F>(world, at)
+        .unwrap_or_else(|| canvas::middle::<F>(world));
+    open::<F>(world, Which::Create { at, on_sheet });
 }
 
-pub(super) fn open(world: &mut World, menu: Menu) {
-    *world.resource_mut::<Search>() = Search::default();
-    *world.resource_mut::<Menu>() = menu;
+pub(super) fn open<F: Flavor>(world: &mut World, menu: Which) {
+    **world.resource_mut::<Search<F>>() = Lookup::default();
+    **world.resource_mut::<Menu<F>>() = menu;
 }
 
-fn close(world: &mut World) {
-    *world.resource_mut::<Menu>() = Menu::Closed;
+fn close<F: Flavor>(world: &mut World) {
+    **world.resource_mut::<Menu<F>>() = Which::Closed;
 }
 
 /// Where the window's point `at` is in the layer the menus are
 /// placed in.
-fn in_layer(world: &mut World, at: Vec2) -> Vec2 {
+fn in_layer<F: Flavor>(world: &mut World, at: Vec2) -> Vec2 {
     world
-        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Layer>>()
+        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Layer<F>>>()
         .iter(world)
         .next()
         .map_or(at, |(node, transform)| {
@@ -163,7 +214,7 @@ fn holds(group: &str, name: &str, search: &str) -> bool {
 
 /// Everything that can be added, by group. A graph that runs the
 /// open one is left out, as it would run itself.
-fn entries(editor: &Editor) -> Vec<Entry> {
+fn entries<F: Flavor>(editor: &Editor<F>) -> Vec<Entry> {
     let rank = |group: &str| {
         GROUPS
             .iter()
@@ -221,7 +272,7 @@ fn entries(editor: &Editor) -> Vec<Entry> {
 
 /// Whether the kind `name` of `group` is in the list where it
 /// stands: found by what is typed, else in the open group.
-fn listed(group: &'static str, name: &str, search: &Search) -> bool {
+fn listed(group: &'static str, name: &str, search: &Lookup) -> bool {
     if search.typed.trim().is_empty() {
         search.group == Some(group)
     } else {
@@ -230,16 +281,19 @@ fn listed(group: &'static str, name: &str, search: &Search) -> bool {
 }
 
 /// What the list shows, in order.
-fn shown(editor: &Editor, search: &Search) -> Vec<Entry> {
+fn shown<F: Flavor>(
+    editor: &Editor<F>,
+    search: &Lookup,
+) -> Vec<Entry> {
     entries(editor)
         .into_iter()
         .filter(|entry| listed(entry.group, &entry.name, search))
         .collect()
 }
 
-fn add(world: &mut World, entry: Entry, on_sheet: Vec2) {
-    close(world);
-    world.resource_mut::<Editor>().add(
+fn add<F: Flavor>(world: &mut World, entry: Entry, on_sheet: Vec2) {
+    close::<F>(world);
+    world.resource_mut::<Editor<F>>().add(
         entry.does,
         entry.settings,
         on_sheet,
@@ -247,38 +301,49 @@ fn add(world: &mut World, entry: Entry, on_sheet: Vec2) {
 }
 
 /// The open menu, over the panel.
-pub(super) fn view() -> impl View {
-    keyed(resource::<Menu, _>(Menu::clone), |menu| match menu {
-        Menu::Closed => frame().boxed(),
-        Menu::Create { at, on_sheet } => create(*at, *on_sheet),
-        Menu::Card { node, at } => card(*node, *at),
-        Menu::Group { group, at } => group_menu(*group, *at),
-        Menu::Input { node, input, at } => {
-            input_menu(*node, input.clone(), *at)
+pub(super) fn view<F: Flavor>() -> impl View {
+    keyed(resource::<Menu<F>, _>(|menu| menu.0.clone()), |menu| {
+        match menu {
+            Which::Closed => frame().boxed(),
+            Which::Create { at, on_sheet } => {
+                create::<F>(*at, *on_sheet)
+            }
+            Which::Card { node, at } => card::<F>(*node, *at),
+            Which::Group { group, at } => {
+                group_menu::<F>(*group, *at)
+            }
+            Which::Input { node, input, at } => {
+                input_menu::<F>(*node, input.clone(), *at)
+            }
+            Which::Choice {
+                node,
+                input,
+                choices,
+                at,
+            } => choice_menu::<F>(
+                *node,
+                input.clone(),
+                choices.clone(),
+                *at,
+            ),
         }
-        Menu::Choice {
-            node,
-            input,
-            choices,
-            at,
-        } => choice_menu(*node, input.clone(), choices.clone(), *at),
     })
-    .within(overlay(()).tagged(Layer))
+    .within(overlay(()).tagged(Layer::<F>(PhantomData)))
 }
 
-fn create(at: Vec2, on_sheet: Vec2) -> AnyView {
+fn create<F: Flavor>(at: Vec2, on_sheet: Vec2) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let at = in_layer(cx.world, at);
+        let at = in_layer::<F>(cx.world, at);
         let width = cx.theme().space.menu_width + 60.0;
-        let list = list(cx.world.resource::<Editor>(), on_sheet);
+        let list = list(cx.world.resource::<Editor<F>>(), on_sheet);
         let root = cx.build(
             popup(
                 Rect::from_corners(at, at),
                 vec![
-                    group_selection(),
+                    group_selection::<F>(),
                     column((
                         section("Create node"),
-                        search_bar(),
+                        search_bar::<F>(),
                         scroll((list,))
                             .gap(0.0)
                             .max_height(px(TALLEST)),
@@ -287,23 +352,23 @@ fn create(at: Vec2, on_sheet: Vec2) -> AnyView {
                     .boxed(),
                 ],
             )
-            .on_dismiss(|world, _| close(world))
+            .on_dismiss(|world, _| close::<F>(world))
             .min_width(px(width))
             .max_width(px(width)),
         );
-        if let Some(input) = search_input(cx.world) {
+        if let Some(input) = search_input::<F>(cx.world) {
             cx.world
                 .entity_mut(input)
-                .observe(edited)
-                .observe(pressed);
-            focus_search(cx.world);
+                .observe(edited::<F>)
+                .observe(pressed::<F>);
+            focus_search::<F>(cx.world);
         }
         root
     })
 }
 
 /// Groups the selected cards, shown while any are selected.
-fn group_selection() -> AnyView {
+fn group_selection<F: Flavor>() -> AnyView {
     menu_item(
         row((
             label("Group selection").wrap(false),
@@ -312,7 +377,7 @@ fn group_selection() -> AnyView {
         ))
         .gap(16.0),
     )
-    .display(resource::<Editor, _>(|editor| {
+    .display(resource::<Editor<F>, _>(|editor| {
         if editor.selected.is_empty() {
             Display::None
         } else {
@@ -320,17 +385,17 @@ fn group_selection() -> AnyView {
         }
     }))
     .on_activate(|world| {
-        close(world);
-        world.resource_mut::<Editor>().group();
+        close::<F>(world);
+        world.resource_mut::<Editor<F>>().group();
     })
     .boxed()
 }
 
 /// Shown while `show` holds for where the list stands.
-fn shown_while(
-    show: impl Fn(&Search) -> bool + Send + Sync + 'static,
+fn shown_while<F: Flavor>(
+    show: impl Fn(&Lookup) -> bool + Send + Sync + 'static,
 ) -> Signal<Display> {
-    resource::<Search, _>(move |search| {
+    resource::<Search<F>, _>(move |search| {
         if show(search) {
             Display::Flex
         } else {
@@ -340,16 +405,19 @@ fn shown_while(
 }
 
 /// `view`, shown while `show` holds for where the list stands.
-fn shown_with(
+fn shown_with<F: Flavor>(
     view: impl View + 'static,
-    show: impl Fn(&Search) -> bool + Send + Sync + 'static,
+    show: impl Fn(&Lookup) -> bool + Send + Sync + 'static,
 ) -> AnyView {
-    row((view,)).gap(0.0).display(shown_while(show)).boxed()
+    row((view,))
+        .gap(0.0)
+        .display(shown_while::<F>(show))
+        .boxed()
 }
 
 /// The search field, over what it is for while nothing is typed in
 /// it.
-fn search_bar() -> AnyView {
+fn search_bar<F: Flavor>() -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.gap;
         // The hint starts past the caret, which blinks where typing
@@ -363,7 +431,9 @@ fn search_bar() -> AnyView {
                 px(0.0),
             ))
             .align(AlignItems::Center)
-            .display(shown_while(|search| search.typed.is_empty()))
+            .display(shown_while::<F>(|search| {
+                search.typed.is_empty()
+            }))
             .with(Pickable::IGNORE);
         cx.build(
             row((
@@ -371,7 +441,7 @@ fn search_bar() -> AnyView {
                 row((
                     text_field(String::new(), |_, _| {})
                         .grow(1.0)
-                        .tagged(SearchField)
+                        .tagged(SearchField::<F>(PhantomData))
                         .rules(text_input),
                     hint,
                 ))
@@ -385,17 +455,17 @@ fn search_bar() -> AnyView {
 }
 
 /// The search field's input, while the list of kinds is open.
-fn search_input(world: &mut World) -> Option<Entity> {
+fn search_input<F: Flavor>(world: &mut World) -> Option<Entity> {
     world
-        .query_filtered::<&Children, With<SearchField>>()
+        .query_filtered::<&Children, With<SearchField<F>>>()
         .iter(world)
         .next()
         .and_then(|kids| kids.first().copied())
 }
 
 /// Gives the search field the keys, with the caret at its end.
-fn focus_search(world: &mut World) {
-    let Some(input) = search_input(world) else {
+fn focus_search<F: Flavor>(world: &mut World) {
+    let Some(input) = search_input::<F>(world) else {
         return;
     };
     world
@@ -407,10 +477,10 @@ fn focus_search(world: &mut World) {
 }
 
 /// Searches by what is in the search field as it is typed.
-fn edited(
+fn edited<F: Flavor>(
     change: On<TextEditChange>,
     texts: Query<&EditableText>,
-    mut search: ResMut<Search>,
+    mut search: ResMut<Search<F>>,
 ) {
     let Ok(text) = texts.get(change.event_target()) else {
         return;
@@ -423,7 +493,7 @@ fn edited(
 
 /// Adds the first found on Enter in the search field, and goes back
 /// to the groups on Backspace with nothing in it.
-fn pressed(
+fn pressed<F: Flavor>(
     key: On<FocusedInput<KeyboardInput>>,
     mut commands: Commands,
 ) {
@@ -431,9 +501,9 @@ fn pressed(
         return;
     }
     match key.input.logical_key {
-        Key::Enter => commands.queue(add_first),
+        Key::Enter => commands.queue(add_first::<F>),
         Key::Backspace => commands.queue(|world: &mut World| {
-            let mut search = world.resource_mut::<Search>();
+            let mut search = world.resource_mut::<Search<F>>();
             if search.typed.is_empty() {
                 search.group = None;
             }
@@ -443,24 +513,27 @@ fn pressed(
 }
 
 /// Adds the first kind the list shows.
-fn add_first(world: &mut World) {
-    let Menu::Create { on_sheet, .. } = *world.resource::<Menu>()
+fn add_first<F: Flavor>(world: &mut World) {
+    let Which::Create { on_sheet, .. } =
+        **world.resource::<Menu<F>>()
     else {
         return;
     };
-    let first =
-        shown(world.resource::<Editor>(), world.resource::<Search>())
-            .into_iter()
-            .next();
+    let first = shown(
+        world.resource::<Editor<F>>(),
+        world.resource::<Search<F>>(),
+    )
+    .into_iter()
+    .next();
     if let Some(entry) = first {
-        add(world, entry, on_sheet);
+        add::<F>(world, entry, on_sheet);
     }
 }
 
 /// Every row the list can show, built once, each shown while it
 /// belongs where the list stands: the groups' doors, then each
 /// group's way back, its name over what is found and its kinds.
-fn list(editor: &Editor, on_sheet: Vec2) -> AnyView {
+fn list<F: Flavor>(editor: &Editor<F>, on_sheet: Vec2) -> AnyView {
     let entries = entries(editor);
     let mut groups: Vec<&'static str> = Vec::new();
     for entry in &entries {
@@ -469,15 +542,15 @@ fn list(editor: &Editor, on_sheet: Vec2) -> AnyView {
         }
     }
     let mut items: Vec<AnyView> =
-        groups.iter().copied().map(door).collect();
+        groups.iter().copied().map(door::<F>).collect();
     for &group in &groups {
-        items.push(back(group));
+        items.push(back::<F>(group));
         let names = entries
             .iter()
             .filter(|entry| entry.group == group)
             .map(|entry| entry.name.clone())
             .collect::<Vec<_>>();
-        items.push(shown_with(note(group), move |search| {
+        items.push(shown_with::<F>(note(group), move |search| {
             !search.typed.trim().is_empty()
                 && names
                     .iter()
@@ -486,14 +559,14 @@ fn list(editor: &Editor, on_sheet: Vec2) -> AnyView {
         for entry in
             entries.iter().filter(|entry| entry.group == group)
         {
-            items.push(kind_row(entry, on_sheet));
+            items.push(kind_row::<F>(entry, on_sheet));
         }
     }
     let names = entries
         .iter()
         .map(|entry| (entry.group, entry.name.clone()))
         .collect::<Vec<_>>();
-    items.push(shown_with(
+    items.push(shown_with::<F>(
         note("Nothing is called that"),
         move |search| {
             !search.typed.trim().is_empty()
@@ -506,20 +579,22 @@ fn list(editor: &Editor, on_sheet: Vec2) -> AnyView {
 }
 
 /// The row that adds `entry`.
-fn kind_row(entry: &Entry, on_sheet: Vec2) -> AnyView {
+fn kind_row<F: Flavor>(entry: &Entry, on_sheet: Vec2) -> AnyView {
     let (group, name) = (entry.group, entry.name.clone());
     let (doc, added) = (entry.doc.clone(), entry.clone());
     menu_item(label(entry.name.replace('_', " ")).wrap(false))
-        .display(shown_while(move |search| {
+        .display(shown_while::<F>(move |search| {
             listed(group, &name, search)
         }))
         .tooltip(move || note(doc.clone()))
-        .on_activate(move |world| add(world, added.clone(), on_sheet))
+        .on_activate(move |world| {
+            add::<F>(world, added.clone(), on_sheet);
+        })
         .boxed()
 }
 
 /// The row that opens `group`'s page, shown with the other groups.
-fn door(group: &'static str) -> AnyView {
+fn door<F: Flavor>(group: &'static str) -> AnyView {
     menu_item(
         row((
             label(group).wrap(false),
@@ -528,18 +603,18 @@ fn door(group: &'static str) -> AnyView {
         ))
         .align(AlignItems::Center),
     )
-    .display(shown_while(|search| {
+    .display(shown_while::<F>(|search| {
         search.typed.trim().is_empty() && search.group.is_none()
     }))
     .on_activate(move |world| {
-        world.resource_mut::<Search>().group = Some(group);
-        focus_search(world);
+        world.resource_mut::<Search<F>>().group = Some(group);
+        focus_search::<F>(world);
     })
     .boxed()
 }
 
 /// The row at the head of `group`'s page, back to the groups.
-fn back(group: &'static str) -> AnyView {
+fn back<F: Flavor>(group: &'static str) -> AnyView {
     menu_item(
         row((
             glyph(Glyph::Back, ICON).tone(Tone::Dim),
@@ -548,17 +623,17 @@ fn back(group: &'static str) -> AnyView {
         .gap(6.0)
         .align(AlignItems::Center),
     )
-    .display(shown_while(move |search| {
+    .display(shown_while::<F>(move |search| {
         search.typed.trim().is_empty() && search.group == Some(group)
     }))
     .on_activate(|world| {
-        world.resource_mut::<Search>().group = None;
-        focus_search(world);
+        world.resource_mut::<Search<F>>().group = None;
+        focus_search::<F>(world);
     })
     .boxed()
 }
 
-fn card(node: NodeId, at: Vec2) -> AnyView {
+fn card<F: Flavor>(node: NodeId, at: Vec2) -> AnyView {
     let item = move |text: &'static str,
                      keys: &'static str,
                      act: fn(&mut World, NodeId)| {
@@ -571,17 +646,17 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
             .gap(16.0),
         )
         .on_activate(move |world| {
-            close(world);
+            close::<F>(world);
             act(world, node);
         })
         .boxed()
     };
     AnyView::new(move |cx: &mut Cx| {
-        let at = in_layer(cx.world, at);
+        let at = in_layer::<F>(cx.world, at);
         let width = cx.theme().space.menu_width;
         let runs_graph = matches!(
             cx.world
-                .resource::<Editor>()
+                .resource::<Editor<F>>()
                 .sheet
                 .graph
                 .node(node)
@@ -590,7 +665,7 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
         );
         let mut items = Vec::new();
         let named = {
-            let editor = cx.world.resource::<Editor>();
+            let editor = cx.world.resource::<Editor<F>>();
             editor.sheet.graph.node(node).and_then(|found| {
                 super::naming(&editor.registry, found)
                     .map(|(spec, _)| (spec.name, spec.choices))
@@ -600,8 +675,8 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
             items.push(
                 menu_item(label("Switch to…").wrap(false))
                     .on_activate(move |world| {
-                        close(world);
-                        choose(
+                        close::<F>(world);
+                        choose::<F>(
                             world,
                             node,
                             input.to_owned(),
@@ -619,66 +694,68 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
                 "Open graph",
                 "Double-click",
                 |world, node| {
-                    open_graph(world, node);
+                    open_graph::<F>(world, node);
                 },
             ));
         }
         items.push(item("Group", "Cmd+G", |world, _| {
-            world.resource_mut::<Editor>().group();
+            world.resource_mut::<Editor<F>>().group();
         }));
-        if cx.world.resource::<Editor>().any_grouped() {
+        if cx.world.resource::<Editor<F>>().any_grouped() {
             items.push(item(
                 "Take out of group",
                 "Cmd+Shift+G",
                 |world, _| {
-                    world.resource_mut::<Editor>().ungroup_selected();
+                    world
+                        .resource_mut::<Editor<F>>()
+                        .ungroup_selected();
                 },
             ));
         }
         items.extend([
             item("Expose as output", "", |world, node| {
-                world.resource_mut::<Editor>().expose_output(node);
+                world.resource_mut::<Editor<F>>().expose_output(node);
             }),
             item("Duplicate", "Cmd+D", |world, _| {
-                world.resource_mut::<Editor>().duplicate();
+                world.resource_mut::<Editor<F>>().duplicate();
             }),
             item("Disconnect", "", |world, node| {
-                world.resource_mut::<Editor>().unwire(node);
+                world.resource_mut::<Editor<F>>().unwire(node);
             }),
             item("Delete", "Delete", |world, _| {
-                world.resource_mut::<Editor>().remove();
+                world.resource_mut::<Editor<F>>().remove();
             }),
         ]);
         cx.build(
             popup(Rect::from_corners(at, at), items)
-                .on_dismiss(|world, _| close(world))
+                .on_dismiss(|world, _| close::<F>(world))
                 .min_width(px(width)),
         )
     })
 }
 
 /// What can be done to a group: its cards taken out of it.
-fn group_menu(group: usize, at: Vec2) -> AnyView {
+fn group_menu<F: Flavor>(group: usize, at: Vec2) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let at = in_layer(cx.world, at);
+        let at = in_layer::<F>(cx.world, at);
         let items = vec![
             menu_item(label("Ungroup").wrap(false))
                 .on_activate(move |world| {
-                    close(world);
-                    world.resource_mut::<Editor>().ungroup(group);
+                    close::<F>(world);
+                    world.resource_mut::<Editor<F>>().ungroup(group);
                 })
                 .boxed(),
         ];
         cx.build(
             popup(Rect::from_corners(at, at), items)
-                .on_dismiss(|world, _| close(world))
+                .on_dismiss(|world, _| close::<F>(world))
                 .min_width(px(cx.theme().space.menu_width * 0.6)),
         )
     })
 }
 
 /// Opens the choices of `node`'s `input` at the pointer.
-pub(super) fn choose(
+pub(super) fn choose<F: Flavor>(
     world: &mut World,
     node: NodeId,
     input: String,
@@ -689,9 +766,9 @@ pub(super) fn choose(
         .iter(world)
         .find_map(Window::cursor_position)
         .unwrap_or_default();
-    open(
+    open::<F>(
         world,
-        Menu::Choice {
+        Which::Choice {
             node,
             input,
             choices,
@@ -700,14 +777,14 @@ pub(super) fn choose(
     );
 }
 
-fn choice_menu(
+fn choice_menu<F: Flavor>(
     node: NodeId,
     input: String,
     choices: Vec<String>,
     at: Vec2,
 ) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let at = in_layer(cx.world, at);
+        let at = in_layer::<F>(cx.world, at);
         let items = choices
             .iter()
             .cloned()
@@ -715,8 +792,8 @@ fn choice_menu(
                 let input = input.clone();
                 menu_item(label(choice.replace('_', " ")).wrap(false))
                     .on_activate(move |world| {
-                        close(world);
-                        controls::put(
+                        close::<F>(world);
+                        controls::put::<F>(
                             world,
                             node,
                             &input,
@@ -730,7 +807,7 @@ fn choice_menu(
             .collect::<Vec<_>>();
         cx.build(
             popup(Rect::from_corners(at, at), items)
-                .on_dismiss(|world, _| close(world))
+                .on_dismiss(|world, _| close::<F>(world))
                 .min_width(px(cx.theme().space.menu_width * 0.6)),
         )
     })
@@ -739,15 +816,19 @@ fn choice_menu(
 /// What can be done to how an input of `node` is set: made a
 /// parameter of the graph, given a value of its own again, or put
 /// back to its default, and its wire cut.
-fn input_menu(node: NodeId, input: Input, at: Vec2) -> AnyView {
+fn input_menu<F: Flavor>(
+    node: NodeId,
+    input: Input,
+    at: Vec2,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let at = in_layer(cx.world, at);
-        let editor = cx.world.resource::<Editor>();
+        let at = in_layer::<F>(cx.world, at);
+        let editor = cx.world.resource::<Editor<F>>();
         let setting = controls::current(editor, node, &input.name);
         let wired = editor.sheet.graph.wires.iter().any(|wire| {
             wire.to.node == node && wire.to.name == input.name
         });
-        let written = controls::written(input.value_type);
+        let written = controls::written(&input);
         let mut items: Vec<AnyView> = Vec::new();
         let mut item =
             |text: &'static str,
@@ -755,7 +836,7 @@ fn input_menu(node: NodeId, input: Input, at: Vec2) -> AnyView {
                 items.push(
                     menu_item(label(text).wrap(false))
                         .on_activate(move |world| {
-                            close(world);
+                            close::<F>(world);
                             act(world);
                         })
                         .boxed(),
@@ -767,7 +848,7 @@ fn input_menu(node: NodeId, input: Input, at: Vec2) -> AnyView {
                 item(
                     "Use a value",
                     Box::new(move |world| {
-                        controls::put(world, node, &name, None);
+                        controls::put::<F>(world, node, &name, None);
                     }),
                 );
             }
@@ -777,13 +858,15 @@ fn input_menu(node: NodeId, input: Input, at: Vec2) -> AnyView {
                     "Make a parameter",
                     Box::new(move |world| {
                         let default = controls::value_of(
-                            world.resource::<Editor>(),
+                            world.resource::<Editor<F>>(),
                             node,
                             &read,
                         );
-                        world.resource_mut::<Editor>().expose_input(
-                            node, &read.name, value_type, default,
-                        );
+                        world
+                            .resource_mut::<Editor<F>>()
+                            .expose_input(
+                                node, &read.name, value_type, default,
+                            );
                     }),
                 );
             }
@@ -797,7 +880,7 @@ fn input_menu(node: NodeId, input: Input, at: Vec2) -> AnyView {
             item(
                 "Reset to default",
                 Box::new(move |world| {
-                    controls::put(world, node, &name, None);
+                    controls::put::<F>(world, node, &name, None);
                 }),
             );
         }
@@ -806,7 +889,8 @@ fn input_menu(node: NodeId, input: Input, at: Vec2) -> AnyView {
             item(
                 "Disconnect",
                 Box::new(move |world| {
-                    let mut editor = world.resource_mut::<Editor>();
+                    let mut editor =
+                        world.resource_mut::<Editor<F>>();
                     let cut = editor
                         .sheet
                         .graph
@@ -828,15 +912,15 @@ fn input_menu(node: NodeId, input: Input, at: Vec2) -> AnyView {
         }
         cx.build(
             popup(Rect::from_corners(at, at), items)
-                .on_dismiss(|world, _| close(world))
+                .on_dismiss(|world, _| close::<F>(world))
                 .min_width(px(cx.theme().space.menu_width)),
         )
     })
 }
 
 /// Opens the graph `node` runs, if it runs one.
-pub(super) fn open_graph(world: &mut World, node: NodeId) {
-    let mut editor = world.resource_mut::<Editor>();
+pub(super) fn open_graph<F: Flavor>(world: &mut World, node: NodeId) {
+    let mut editor = world.resource_mut::<Editor<F>>();
     let name = match editor
         .sheet
         .graph
@@ -847,15 +931,15 @@ pub(super) fn open_graph(world: &mut World, node: NodeId) {
         _ => return,
     };
     editor.go_to(&name);
-    canvas::fit(world);
+    canvas::fit::<F>(world);
 }
 
-/// The graph's keys, while the pointer is on the canvas and nothing
+/// The graph's keys, while the pointer is on this canvas and nothing
 /// is being typed in.
-fn keys(world: &mut World) {
-    if *world.resource::<Menu>() != Menu::Closed
+fn keys<F: Flavor>(world: &mut World) {
+    if **world.resource::<Menu<F>>() != Which::Closed
         || world.resource::<InputFocus>().get().is_some()
-        || !canvas::is_hovered(world)
+        || !canvas::is_hovered::<F>(world)
     {
         return;
     }
@@ -878,28 +962,28 @@ fn keys(world: &mut World) {
     let save = command && pressed(KeyCode::KeyS);
     let open = command && pressed(KeyCode::KeyO);
     let fit = !command && pressed(KeyCode::KeyF);
-    let selected = !world.resource::<Editor>().selected.is_empty();
+    let selected = !world.resource::<Editor<F>>().selected.is_empty();
     if space {
-        create_at_pointer(world);
+        create_at_pointer::<F>(world);
     } else if save && shift {
-        files::save_as(world);
+        files::save_as::<F>(world);
     } else if save {
-        files::save(world);
+        files::save::<F>(world);
     } else if open {
-        files::open(world);
+        files::open::<F>(world);
     } else if undo && shift {
-        world.resource_mut::<Editor>().redo();
+        world.resource_mut::<Editor<F>>().redo();
     } else if undo {
-        world.resource_mut::<Editor>().undo();
+        world.resource_mut::<Editor<F>>().undo();
     } else if group && shift {
-        world.resource_mut::<Editor>().ungroup_selected();
+        world.resource_mut::<Editor<F>>().ungroup_selected();
     } else if group && selected {
-        world.resource_mut::<Editor>().group();
+        world.resource_mut::<Editor<F>>().group();
     } else if duplicate && selected {
-        world.resource_mut::<Editor>().duplicate();
+        world.resource_mut::<Editor<F>>().duplicate();
     } else if delete && selected {
-        world.resource_mut::<Editor>().remove();
+        world.resource_mut::<Editor<F>>().remove();
     } else if fit {
-        canvas::fit(world);
+        canvas::fit::<F>(world);
     }
 }

@@ -18,9 +18,9 @@ use bevy_fynix::Theme;
 use hamlet_blueprint::{Frame, Object, ObjectId, Value};
 use hamlet_ui::theme::HamletTheme;
 
-use super::Editor;
 use super::canvas::picked;
 use super::preview::{Framing, LAYER};
+use super::{Blueprint, Editor};
 
 /// How many squares a field is sampled in, on each side.
 const WASH: usize = 24;
@@ -45,7 +45,7 @@ fn setup(mut store: ResMut<GizmoConfigStore>) {
 
 fn draw(
     mut gizmos: Gizmos<Overlay>,
-    editor: Res<Editor>,
+    editor: Res<Editor<Blueprint>>,
     framing: Res<Framing>,
     If(theme): If<Res<Theme<HamletTheme>>>,
 ) {
@@ -53,7 +53,7 @@ fn draw(
     for (at, node) in editor.selected.iter().enumerate() {
         let colour = picked(palette, at);
         for (_, value) in
-            editor.watched.get(node).into_iter().flatten()
+            editor.got.watched.get(node).into_iter().flatten()
         {
             show(&mut gizmos, value, colour, &framing);
         }

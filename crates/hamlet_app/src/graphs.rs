@@ -4,11 +4,14 @@
 //! properties.
 
 mod assets;
+mod blueprint;
 mod canvas;
 mod controls;
 mod files;
+mod flavor;
 mod gizmo;
 mod handles;
+mod material;
 mod menu;
 mod overlay;
 mod params;
@@ -19,14 +22,14 @@ mod wire;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::discriminant;
 
-use bevy::app::{App, Update};
+use bevy::app::App;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use bevy::ui::{
     AlignItems, Display, Overflow, PositionType, UiRect, percent, px,
 };
+use bevy::ui_render::UiMaterialPlugin;
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Motion;
@@ -39,9 +42,8 @@ use bevy_fynix::{
 };
 use hamlet_blueprint::{
     Asset, Book, Constant, Does, Edit, GraphInput, GraphOutput,
-    GraphProblem, Group, Initial, Node, NodeId, Object, Port,
-    PortSpec, Registry, Ruleset, Seed, Seeds, Setting, Sheet, Value,
-    ValueType, evaluate_partly,
+    GraphProblem, Group, Initial, Node, NodeId, Port, PortSpec,
+    Registry, Ruleset, Setting, Sheet, ValueType,
 };
 use hamlet_ui::styles::{
     CONTROL, Fills, ICON, description, hairline, note, raised,
@@ -52,29 +54,11 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{View, styles, with_cx};
 
+pub(crate) use self::blueprint::Blueprint;
+use self::flavor::Flavor;
+pub(crate) use self::material::Material;
 use self::split::{Floating, Handle, Layout, divider, inset_at};
 use crate::dock::{PanelAppExt, flush_panel};
-
-/// The book the editor opens with.
-const START: &str = include_str!("graphs/examples/fence.ron");
-
-/// Books to start from, by name: a sheet alone, or a book of sheets.
-/// The small ones first, each one idea; the house puts several
-/// together.
-const EXAMPLES: [(&str, &str); 6] = [
-    ("Fence", START),
-    ("Stone wall", include_str!("graphs/examples/stone_wall.ron")),
-    ("Window", include_str!("graphs/examples/window.ron")),
-    (
-        "Stone tower",
-        include_str!("graphs/examples/stone_tower.ron"),
-    ),
-    ("Garden bed", include_str!("graphs/examples/garden_bed.ron")),
-    (
-        "Medieval house",
-        include_str!("graphs/examples/medieval_house.ron"),
-    ),
-];
 
 /// The book an example's text holds.
 fn example(text: &str) -> Option<Book> {
@@ -85,33 +69,27 @@ fn example(text: &str) -> Option<Book> {
     })
 }
 
-pub(crate) fn plugin(app: &mut App) {
+/// Adds the editor for `F`: its dock panel, its book and what the
+/// editing needs, and whatever `F` adds itself.
+pub(crate) fn plugin<F: Flavor>(app: &mut App) {
     app.add_panel(
-        "graphs",
-        DockWindowKind::new("BLUEPRINT", || flush_panel(screen()))
-            .icon(Glyph::Signpost.image(ICON)),
+        F::PANEL,
+        DockWindowKind::new(F::TITLE, || flush_panel(screen::<F>()))
+            .icon(F::ICON.image(ICON)),
     )
-    .insert_resource(Editor::new())
-    .add_systems(Update, watch)
+    .insert_resource(Editor::<F>::new())
     .add_plugins((
-        assets::plugin,
-        canvas::plugin,
-        menu::plugin,
-        overlay::plugin,
-        preview::plugin,
-        split::plugin,
-        files::plugin,
-        gizmo::plugin,
-        wire::plugin,
+        canvas::plugin::<F>,
+        menu::plugin::<F>,
+        split::plugin::<F>,
+        files::plugin::<F>,
     ));
-}
-
-/// Runs the graph again when the selection is not what the last run
-/// watched, so the preview shows what the selected nodes give.
-fn watch(mut editor: ResMut<Editor>) {
-    if editor.watching != editor.selected {
-        editor.run();
+    // The wires' material is shared by every editor.
+    if !app.is_plugin_added::<UiMaterialPlugin<wire::WireMaterial>>()
+    {
+        app.add_plugins(wire::plugin);
     }
+    F::plugin(app);
 }
 
 /// A sheet that is not open, with its history.
@@ -124,7 +102,7 @@ struct Kept {
 /// The book being edited: the open sheet with its history, the others
 /// it may use as nodes, and what the open one last gave.
 #[derive(Resource)]
-pub(crate) struct Editor {
+pub(crate) struct Editor<F: Flavor> {
     /// The open sheet.
     pub sheet: Sheet,
     /// Its name in the book.
@@ -136,7 +114,6 @@ pub(crate) struct Editor {
     /// The nodes picked to move, copy or delete together.
     pub selected: BTreeSet<NodeId>,
     pub registry: Registry,
-    pub seeds: Seeds,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
     /// Changes whenever the nodes, the wires or the way an input is
@@ -145,19 +122,14 @@ pub(crate) struct Editor {
     pub shape: u64,
     /// Changes with every change to the book, so it is saved again.
     pub revision: u64,
-    /// What the open graph put down, or why it could not run at all.
-    pub outcome: Result<Vec<Object>, String>,
     /// The nodes that failed in the last run, each with its problem;
     /// the rest of the graph ran without them.
     pub problems: Vec<GraphProblem>,
-    /// What each selected node gave in the last run, each output by
-    /// name, for the preview to show.
-    pub watched: BTreeMap<NodeId, Vec<(String, Value)>>,
-    /// The nodes the last run watched.
-    watching: BTreeSet<NodeId>,
+    /// What the flavor keeps of the last run.
+    pub got: F::Got,
 }
 
-impl Editor {
+impl<F: Flavor> Editor<F> {
     fn new() -> Self {
         let mut editor = Self {
             sheet: Sheet::default(),
@@ -165,22 +137,19 @@ impl Editor {
             others: BTreeMap::new(),
             rules: Ruleset::default(),
             selected: BTreeSet::new(),
-            registry: Registry::builtin(),
-            seeds: Seeds {
-                realm: Seed(1),
-                hamlet: Seed(2),
-                item: Seed(3),
-            },
+            registry: F::registry(),
             undo: Vec::new(),
             redo: Vec::new(),
             shape: 0,
             revision: 0,
-            outcome: Ok(Vec::new()),
             problems: Vec::new(),
-            watched: BTreeMap::new(),
-            watching: BTreeSet::new(),
+            got: F::Got::default(),
         };
-        editor.load(example(START).unwrap_or_default());
+        let start = F::EXAMPLES
+            .first()
+            .and_then(|(_, text)| example(text))
+            .unwrap_or_default();
+        editor.load(start);
         editor
     }
 
@@ -440,118 +409,7 @@ impl Editor {
         if self.sheet.layout.is_empty() {
             self.sheet.layout = canvas::arrange(self);
         }
-        self.run();
-    }
-
-    /// Runs the open graph with every output nothing is wired to
-    /// shown too, so a graph is seen as it is built. Its inputs take
-    /// their defaults.
-    fn run(&mut self) {
-        let mut graph = self.sheet.graph.clone();
-        // Each selected node's outputs too, by names kept apart, so
-        // the preview can show what it gives.
-        let mut watch = BTreeMap::new();
-        for node in &self.selected {
-            let Some(found) = self.sheet.graph.node(*node) else {
-                continue;
-            };
-            let Ok((_, outputs)) = hamlet_blueprint::ports(
-                &self.registry,
-                &self.rules,
-                found,
-            ) else {
-                continue;
-            };
-            for output in outputs {
-                let name = format!("watch {node}.{}", output.name);
-                watch.insert(
-                    name.clone(),
-                    (*node, output.name.clone()),
-                );
-                graph.outputs.push(GraphOutput {
-                    name,
-                    value_type: output.value_type,
-                    from: Port {
-                        node: *node,
-                        name: output.name,
-                    },
-                });
-            }
-        }
-        self.watching = self.selected.clone();
-        self.watched.clear();
-        for node in &self.sheet.graph.nodes {
-            let Ok((_, outputs)) = hamlet_blueprint::ports(
-                &self.registry,
-                &self.rules,
-                node,
-            ) else {
-                continue;
-            };
-            for output in outputs {
-                let shown = output.value_type == ValueType::Objects;
-                let wired = graph.wires.iter().any(|wire| {
-                    wire.from.node == node.id
-                        && wire.from.name == output.name
-                });
-                let declared = graph.outputs.iter().any(|declared| {
-                    declared.from.node == node.id
-                        && declared.from.name == output.name
-                });
-                if shown && !wired && !declared {
-                    graph.outputs.push(GraphOutput {
-                        name: format!("{}.{}", node.id, output.name),
-                        value_type: output.value_type,
-                        from: Port {
-                            node: node.id,
-                            name: output.name,
-                        },
-                    });
-                }
-            }
-        }
-        let mut ruleset = self.rules.clone();
-        ruleset.graphs.insert(self.name.clone(), graph);
-        // A node that fails stops only what needs it, so the rest is
-        // still drawn while a graph is half built.
-        self.problems.clear();
-        self.outcome = evaluate_partly(
-            &self.registry,
-            &ruleset,
-            self.seeds,
-            &BTreeMap::new(),
-        )
-        .map(|(outputs, problems)| {
-            self.problems = problems;
-            let mut put = Vec::new();
-            for (name, value) in outputs {
-                match watch.get(&name) {
-                    Some((node, port)) => self
-                        .watched
-                        .entry(*node)
-                        .or_default()
-                        .push((port.clone(), value)),
-                    None => put.extend(shown(value)),
-                }
-            }
-            put
-        })
-        .map_err(|problem| problem.to_string());
-    }
-
-    /// Rolls every random value of the house again.
-    /// Rolls again every random value picked once per item, as if
-    /// this were another of them.
-    pub fn roll_item(&mut self) {
-        self.seeds.item = self.seeds.item.mix(1);
-        self.run();
-    }
-
-    /// Rolls again every random value picked once per hamlet, as if
-    /// the item were in another hamlet.
-    pub fn roll_hamlet(&mut self) {
-        self.seeds.hamlet = self.seeds.hamlet.mix(1);
-        self.run();
+        F::run(self);
     }
 
     /// Adds a node that does `does`, set by `settings`, with its card
@@ -912,14 +770,6 @@ fn reshapes(sheet: &Sheet, registry: &Registry, edit: &Edit) -> bool {
     }
 }
 
-/// The objects an output shows.
-fn shown(value: Value) -> Vec<Object> {
-    match value {
-        Value::Objects(objects) => objects,
-        _ => Vec::new(),
-    }
-}
-
 /// The width of the properties floating over the canvas.
 const FLOATING: f32 = 300.0;
 
@@ -927,32 +777,36 @@ const FLOATING: f32 = 300.0;
 /// properties floating over the canvas's corner, and the preview
 /// beside it, sized by dragging the line between them. The canvas and
 /// the preview fill their sides edge to edge.
-fn screen() -> impl View {
+fn screen<F: Flavor>() -> impl View {
     // Not `fills_height`: its grow would be along the row, sharing
     // the width with the canvas.
-    let preview = column((preview::view(),))
+    let preview = column((F::preview(),))
         .gap(0.0)
         .min_height(px(0.0))
-        .width(resource::<Layout, _>(|layout| px(layout.preview)))
+        .width(resource::<Layout<F>, _>(|layout| px(layout.preview)))
         .shrink(0.0);
     column((
-        tools(),
+        tools::<F>(),
         with_cx(|cx| hairline(cx.theme().palette.border)),
         row((
             // The properties are placed over the canvas, in its
             // frame.
-            column((canvas::view(), dock_outline(), properties()))
-                .fills_width()
-                .fills_height()
-                .min_width(px(0.0))
-                .gap(0.0),
-            divider(),
+            column((
+                canvas::view::<F>(),
+                dock_outline::<F>(),
+                properties::<F>(),
+            ))
+            .fills_width()
+            .fills_height()
+            .min_width(px(0.0))
+            .gap(0.0),
+            divider::<F>(),
             preview,
         ))
         .width(percent(100.0))
         .fills_height()
         .gap(0.0),
-        menu::view(),
+        menu::view::<F>(),
     ))
     .fills_width()
     .fills_height()
@@ -960,17 +814,19 @@ fn screen() -> impl View {
 }
 
 /// A lit outline of the corner dragged properties will settle in.
-fn dock_outline() -> impl View {
+fn dock_outline<F: Flavor>() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         frame()
             .position(PositionType::Absolute)
-            .inset(resource::<Layout, _>(|layout| {
+            .inset(resource::<Layout<F>, _>(|layout| {
                 inset_at(layout.ghost.unwrap_or(layout.shown))
             }))
             .width(px(FLOATING))
-            .height(resource::<Layout, _>(|layout| px(layout.size.y)))
-            .display(resource::<Layout, _>(|layout| {
+            .height(resource::<Layout<F>, _>(|layout| {
+                px(layout.size.y)
+            }))
+            .display(resource::<Layout<F>, _>(|layout| {
                 if layout.ghost.is_some() {
                     Display::Flex
                 } else {
@@ -986,7 +842,7 @@ fn dock_outline() -> impl View {
 
 /// The selected node's properties, floating over a corner of the
 /// canvas. Its header drags it and its chevron folds it.
-fn properties() -> impl View {
+fn properties<F: Flavor>() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let gap = theme.space.gap;
@@ -994,7 +850,7 @@ fn properties() -> impl View {
         // point on.
         let fold = button(
             glyph(Glyph::Chevron, ICON)
-                .rotation(resource::<Layout, _>(|layout| {
+                .rotation(resource::<Layout<F>, _>(|layout| {
                     if layout.properties { 0.0 } else { 90.0 }
                 }))
                 .transition(Motion::Interact),
@@ -1002,7 +858,7 @@ fn properties() -> impl View {
         .rules(icon_button)
         .tooltip(|| note("Fold or open the parameters"))
         .on_activate(|world| {
-            let mut layout = world.resource_mut::<Layout>();
+            let mut layout = world.resource_mut::<Layout<F>>();
             layout.properties = !layout.properties;
         });
         let header = row((
@@ -1013,10 +869,13 @@ fn properties() -> impl View {
         ))
         .gap(gap / 2.0)
         .align(AlignItems::Center)
-        .tagged(Handle)
+        .tagged(Handle::<F>::new())
         .tagged(EntityCursor(SystemCursorIcon::Grab));
         let body =
-            column((params::view(),)).display(resource::<Layout, _>(
+            column((params::view::<F>(),)).display(resource::<
+                Layout<F>,
+                _,
+            >(
                 |layout| {
                     if layout.properties {
                         Display::Flex
@@ -1027,7 +886,7 @@ fn properties() -> impl View {
             ));
         column((header, body))
             .position(PositionType::Absolute)
-            .inset(resource::<Layout, _>(|layout| {
+            .inset(resource::<Layout<F>, _>(|layout| {
                 inset_at(layout.shown)
             }))
             .width(px(FLOATING))
@@ -1039,7 +898,7 @@ fn properties() -> impl View {
             .border(theme.space.border)
             .border_color(theme.palette.border)
             .radius(theme.space.round)
-            .tagged(Floating)
+            .tagged(Floating::<F>::new())
     })
 }
 
@@ -1069,95 +928,88 @@ fn cluster(
 /// The bar over the canvas: groups of tools for editing, for the
 /// graphs of the book and for its file, and what is known of both
 /// at the end.
-fn tools() -> impl View {
+fn tools<F: Flavor>() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let gap = theme.space.gap;
+        let own = F::tools();
+        let own_shown = if own.is_empty() {
+            Display::None
+        } else {
+            Display::Flex
+        };
         row((
             cluster((
                 tool(Glyph::Undo, "Undo (Cmd+Z)", |world| {
-                    world.resource_mut::<Editor>().undo();
+                    world.resource_mut::<Editor<F>>().undo();
                 }),
                 tool(Glyph::Redo, "Redo (Shift+Cmd+Z)", |world| {
-                    world.resource_mut::<Editor>().redo();
+                    world.resource_mut::<Editor<F>>().redo();
                 }),
             )),
             cluster((tool(
                 Glyph::Aim,
                 "Fit every node in sight (F)",
-                canvas::fit,
+                canvas::fit::<F>,
             ),)),
             cluster((
-                switcher(),
+                switcher::<F>(),
                 tool(Glyph::Plus, "New graph", |world| {
-                    world.resource_mut::<Editor>().new_graph();
-                    canvas::fit(world);
+                    world.resource_mut::<Editor<F>>().new_graph();
+                    canvas::fit::<F>(world);
                 }),
                 tool(Glyph::Delete, "Delete this graph", |world| {
-                    let deleted =
-                        world.resource_mut::<Editor>().delete_graph();
-                    world.resource_mut::<files::Files>().note =
+                    let deleted = world
+                        .resource_mut::<Editor<F>>()
+                        .delete_graph();
+                    world.resource_mut::<files::Files<F>>().note =
                         match deleted {
                             Ok(()) => String::new(),
                             Err(why) => why,
                         };
-                    canvas::fit(world);
+                    canvas::fit::<F>(world);
                 }),
             )),
             cluster((
                 tool(
                     Glyph::Folder,
                     "Open a graph book (Cmd+O)",
-                    files::open,
+                    files::open::<F>,
                 ),
                 tool(
                     Glyph::Save,
                     "Save the graph book (Cmd+S; Shift for Save as)",
-                    files::save,
-                ),
-                tool(
-                    Glyph::Book,
-                    "Export a bundle: the ruleset and its assets' \
-                     files",
-                    files::export,
+                    files::save::<F>,
                 ),
                 dropdown(
-                    EXAMPLES.map(|(name, _)| name),
+                    F::EXAMPLES.iter().map(|(name, _)| *name),
                     usize::MAX,
                     Glyph::Chevron.image(ICON),
                     |world: &mut World, at| {
-                        let Some(book) = example(EXAMPLES[at].1)
+                        let Some(book) = example(F::EXAMPLES[at].1)
                         else {
                             return;
                         };
-                        world.resource_mut::<Editor>().load(book);
-                        canvas::fit(world);
+                        world.resource_mut::<Editor<F>>().load(book);
+                        canvas::fit::<F>(world);
                     },
                 )
                 .placeholder("Open an example")
                 .width(px(190.0)),
             )),
+            row(own)
+                .gap(2.0)
+                .align(AlignItems::Center)
+                .display(own_shown),
             frame().grow(1.0),
-            description(resource::<files::Files, _>(|files| {
+            description(resource::<files::Files<F>, _>(|files| {
                 if files.note.is_empty() {
                     files.name()
                 } else {
                     files.note.clone()
                 }
             })),
-            description(resource::<Editor, _>(|editor| {
-                match (&editor.outcome, editor.problems.first()) {
-                    (Ok(objects), None) => {
-                        format!("{} put down", objects.len())
-                    }
-                    (Ok(objects), Some(problem)) => format!(
-                        "{} put down; {} did not run: {problem}",
-                        objects.len(),
-                        editor.problems.len()
-                    ),
-                    (Err(problem), _) => problem.clone(),
-                }
-            })),
+            description(resource::<Editor<F>, _>(F::status)),
         ))
         .width(percent(100.0))
         .min_width(px(0.0))
@@ -1170,9 +1022,9 @@ fn tools() -> impl View {
 }
 
 /// The graph open, chosen from every graph of the book.
-fn switcher() -> impl View {
+fn switcher<F: Flavor>() -> impl View {
     keyed(
-        resource::<Editor, _>(|editor| {
+        resource::<Editor<F>, _>(|editor| {
             (editor.names(), editor.name.clone())
         }),
         |(names, open)| {
@@ -1188,9 +1040,9 @@ fn switcher() -> impl View {
                 Glyph::Chevron.image(ICON),
                 move |world: &mut World, chosen| {
                     if let Some(name) = names.get(chosen) {
-                        world.resource_mut::<Editor>().go_to(name);
+                        world.resource_mut::<Editor<F>>().go_to(name);
                     }
-                    canvas::fit(world);
+                    canvas::fit::<F>(world);
                 },
             )
             .width(px(150.0))
@@ -1198,41 +1050,4 @@ fn switcher() -> impl View {
         },
     )
     .within(row(()).gap(0.0))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_example_opens_and_puts_something_down() {
-        let mut editor = Editor::new();
-        for (name, text) in EXAMPLES {
-            let book = example(text)
-                .unwrap_or_else(|| panic!("{name} does not parse"));
-            editor.load(book);
-            // Each graph also runs alone, its inputs at their
-            // defaults.
-            for graph in editor.names() {
-                editor.go_to(&graph);
-                match &editor.outcome {
-                    Ok(objects) => {
-                        assert!(
-                            !objects.is_empty(),
-                            "{name}: {graph}"
-                        );
-                    }
-                    Err(problem) => {
-                        panic!("{name}: {graph}: {problem}")
-                    }
-                }
-            }
-            match &editor.outcome {
-                Ok(objects) => {
-                    assert!(!objects.is_empty(), "{name}");
-                }
-                Err(problem) => panic!("{name}: {problem}"),
-            }
-        }
-    }
 }

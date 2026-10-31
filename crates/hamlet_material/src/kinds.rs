@@ -108,7 +108,7 @@ const BLACK: Vec4 = Vec4::new(0.0, 0.0, 0.0, 1.0);
 const GREY: Vec4 = Vec4::new(0.8, 0.8, 0.8, 1.0);
 
 /// The surface `surface` gives when the graph has no surface node:
-/// the mesh's own colour, lit.
+/// the mesh's own colour, shaded.
 pub(crate) const PLAIN: &str =
     "Surface(i.color, 0.5, 0.0, vec3<f32>(0.0), i.normal, 0.0)";
 
@@ -165,8 +165,8 @@ const INPUTS: &[MaterialKind] = &[
     ),
     kind(
         "surface colour",
-        "The colour the mesh gives: its palette colour, which keeps \
-         the hamlet's look",
+        "The colour the mesh gives: its palette colour, so a \
+         material keeps the hamlet's palette",
         &[],
         &[out("colour", Color, "The mesh's colour")],
         |emit| {
@@ -1015,12 +1015,13 @@ const COLOURS: &[MaterialKind] = &[
     ),
 ];
 
-/// The surface the material gives, lit by the realm's light.
+/// The surface the material gives, shaded by the realm's PBR
+/// lighting.
 pub(crate) const SURFACE: MaterialKind = kind(
     "surface",
-    "What the material gives: its colour, how rough and metallic it \
-     is, its glow, and the way it faces. Unlit shows the colour and \
-     glow as they are, for effects",
+    "What the material gives to PBR shading: base colour, \
+     roughness, metallic, emission and normal. Unlit writes base \
+     colour plus emission unshaded",
     &[
         color("base colour", "Its colour", GREY),
         number("roughness", "From 0, a mirror, to 1, chalk", 0.5),
@@ -1029,14 +1030,22 @@ pub(crate) const SURFACE: MaterialKind = kind(
             "From 0, paint or stone, to 1, metal",
             0.0,
         ),
-        color("emission", "The light it gives off", BLACK),
+        color(
+            "emission",
+            "Light it emits, added after shading",
+            BLACK,
+        ),
         PortSpec::new(
             "normal",
             Vector3,
             "The way it faces, in the world; the mesh's when unwired",
         ),
-        PortSpec::new("unlit", Bool, "Shown without light")
-            .initial(Initial::Bool(false)),
+        PortSpec::new(
+            "unlit",
+            Bool,
+            "Written unshaded, without PBR lighting",
+        )
+        .initial(Initial::Bool(false)),
     ],
     &[],
     |emit| {

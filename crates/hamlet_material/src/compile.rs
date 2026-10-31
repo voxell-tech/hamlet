@@ -41,6 +41,9 @@ pub struct Compiled {
     /// The nodes that could not be compiled, each with why. What
     /// needs them takes its default.
     pub problems: Vec<Problem>,
+    /// Whether what it gives changes with the time, so its slots are
+    /// filled again every frame.
+    reads_time: bool,
 }
 
 impl Compiled {
@@ -64,6 +67,10 @@ impl Compiled {
             values[at + 1] = constant.map_or(Vec4::ZERO, as_slot);
         }
         values
+    }
+
+    pub fn reads_time(&self) -> bool {
+        self.reads_time
     }
 
     /// The number `preview` shows `node` for, if it shows it.
@@ -261,6 +268,7 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Problem> {
         problems,
         ..
     } = compiler;
+    let reads_time = body.contains("i.time");
     let mut code = String::from(LIBRARY);
     code.push_str(
         "\n// The graph.\n\n@group(GROUP) @binding(SLOTS_BINDING) \
@@ -310,6 +318,7 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Problem> {
         code,
         sources,
         problems,
+        reads_time,
     })
 }
 

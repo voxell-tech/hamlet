@@ -41,10 +41,10 @@ use self::drag::cancel;
 pub(super) use self::drag::{Dragging, grab, release, steer};
 use self::fills::{FillMaterial, Fills, HandleFills, spawn_fills};
 use self::paint::{Shown, paint};
-use super::Editor;
 use super::canvas::corner;
 use super::handles::{Kind, Target, targets};
 use super::preview::{LAYER, Preview, Shown as PreviewFrame};
+use super::{Blueprint, Editor};
 
 /// Segments a rotation ring is drawn and picked by.
 const RING_STEPS: usize = 48;
@@ -524,7 +524,7 @@ fn pick(
 )]
 fn handles(
     mut gizmos: Gizmos<HandleGizmos>,
-    editor: Res<Editor>,
+    editor: Res<Editor<Blueprint>>,
     mode: Res<GizmoMode>,
     dragging: Res<Dragging>,
     buttons: Res<ButtonInput<MouseButton>>,

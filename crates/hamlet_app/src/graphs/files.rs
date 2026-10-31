@@ -1,12 +1,11 @@
-//! Where the book of graphs is kept: in the window's folder, at
-//! `graphs/book.ron`, written a moment after each change and read
+//! Where a book of graphs is kept: in the window's folder, at
+//! `<FOLDER>/book.ron`, written a moment after each change and read
 //! again at launch; and in any file it is opened from or saved to.
 //! The files of the assets the book adds sit beside it, and go with
-//! it to a file it is saved to and from one it is opened from. Export
-//! writes the ruleset with those files as one bundle.
+//! it to a file it is saved to and from one it is opened from.
 
-use std::collections::BTreeMap;
 use std::fs;
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -18,25 +17,25 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
-use hamlet_blueprint::{Book, Bundle, Shape};
+use hamlet_blueprint::{Book, Shape};
 use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 
-use super::assets::Meshes;
+use super::flavor::Flavor;
 use super::{Editor, canvas, example};
 
 /// How long the book is left as it is before it is written.
 const SETTLE: Duration = Duration::from_secs(1);
 
-pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Files>()
-        .add_observer(chosen)
-        .add_systems(Update, (restore, keep));
+pub(super) fn plugin<F: Flavor>(app: &mut App) {
+    app.init_resource::<Files<F>>()
+        .add_observer(chosen::<F>)
+        .add_systems(Update, (restore::<F>, keep::<F>));
 }
 
-/// What the book is kept in, and the last word on it.
-#[derive(Resource, Default)]
-pub(super) struct Files {
+/// What a book is kept in, and the last word on it.
+#[derive(Resource)]
+pub(super) struct Files<F: Flavor> {
     /// The file the book was last opened from or saved to.
     pub path: Option<PathBuf>,
     /// The last thing done with a file, or what went wrong.
@@ -49,11 +48,30 @@ pub(super) struct Files {
     restored: bool,
     /// What the dialogs answer to.
     asker: Option<Entity>,
-    /// What the export dialog answers to.
-    exporter: Option<Entity>,
+    flavor: PhantomData<F>,
 }
 
-impl Files {
+impl<F: Flavor> Default for Files<F> {
+    fn default() -> Self {
+        Self {
+            path: None,
+            note: String::new(),
+            kept: 0,
+            seen: None,
+            restored: false,
+            asker: None,
+            flavor: PhantomData,
+        }
+    }
+}
+
+impl<F: Flavor> Files<F> {
+    /// Whether `asker` is the entity the open and save dialogs answer
+    /// to.
+    pub fn asks(&self, asker: Entity) -> bool {
+        self.asker == Some(asker)
+    }
+
     /// The file's name, empty when there is none.
     pub fn name(&self) -> String {
         self.path
@@ -66,13 +84,13 @@ impl Files {
 }
 
 /// The folder the window keeps the book in, with its assets' files.
-pub(super) fn book_folder(folder: &Path) -> PathBuf {
-    folder.join("graphs")
+pub(super) fn book_folder<F: Flavor>(folder: &Path) -> PathBuf {
+    folder.join(F::FOLDER)
 }
 
 /// Where the window keeps the book.
-fn kept_at(folder: &Path) -> PathBuf {
-    book_folder(folder).join("book.ron")
+fn kept_at<F: Flavor>(folder: &Path) -> PathBuf {
+    book_folder::<F>(folder).join("book.ron")
 }
 
 /// Copies the file of each asset `book` adds from the folder `from`
@@ -124,10 +142,10 @@ fn read(path: &Path) -> anyhow::Result<Book> {
 
 /// Opens the book the window kept, once, as soon as its folder is
 /// known.
-fn restore(
+fn restore<F: Flavor>(
     folder: Option<Res<ViewFolder>>,
-    mut files: ResMut<Files>,
-    mut editor: ResMut<Editor>,
+    mut files: ResMut<Files<F>>,
+    mut editor: ResMut<Editor<F>>,
 ) {
     let Some(folder) = folder else {
         return;
@@ -136,7 +154,7 @@ fn restore(
         return;
     }
     files.restored = true;
-    let path = kept_at(&folder.0);
+    let path = kept_at::<F>(&folder.0);
     if path.exists() {
         match read(&path) {
             Ok(book) => editor.load(book),
@@ -148,11 +166,11 @@ fn restore(
 
 /// Writes the book to the window's folder once it has stayed the same
 /// for a moment.
-fn keep(
+fn keep<F: Flavor>(
     time: Res<Time>,
     folder: Option<Res<ViewFolder>>,
-    editor: Res<Editor>,
-    mut files: ResMut<Files>,
+    editor: Res<Editor<F>>,
+    mut files: ResMut<Files<F>>,
 ) {
     let Some(folder) = folder else {
         return;
@@ -172,107 +190,63 @@ fn keep(
             return;
         }
     }
-    if let Err(error) = write(&kept_at(&folder.0), &editor.book()) {
+    if let Err(error) =
+        write(&kept_at::<F>(&folder.0), &editor.book())
+    {
         files.note = format!("Could not keep the graphs: {error:#}");
     }
     files.kept = editor.revision;
 }
 
 /// Asks for a file to open the book from.
-pub(super) fn open(world: &mut World) {
-    ask(world, FileMode::Open, "Open a graph book");
+pub(super) fn open<F: Flavor>(world: &mut World) {
+    ask::<F>(world, FileMode::Open, "Open a graph book");
 }
 
 /// Saves the book to the file it came from, or asks for one.
-pub(super) fn save(world: &mut World) {
-    let Some(path) = world.resource::<Files>().path.clone() else {
-        return save_as(world);
+pub(super) fn save<F: Flavor>(world: &mut World) {
+    let Some(path) = world.resource::<Files<F>>().path.clone() else {
+        return save_as::<F>(world);
     };
-    let book = world.resource::<Editor>().book();
+    let book = world.resource::<Editor<F>>().book();
     let kept = world
         .get_resource::<ViewFolder>()
-        .map(|folder| book_folder(&folder.0));
+        .map(|folder| book_folder::<F>(&folder.0));
     let note = match kept
         .map_or(Ok(()), |kept| carry(&book, &kept, beside(&path)))
         .and_then(|()| write(&path, &book))
     {
         Ok(()) => {
-            format!("Saved {}", world.resource::<Files>().name())
+            format!("Saved {}", world.resource::<Files<F>>().name())
         }
         Err(error) => format!("{error:#}"),
     };
-    world.resource_mut::<Files>().note = note;
+    world.resource_mut::<Files<F>>().note = note;
 }
 
 /// Asks for a file to save the book to.
-pub(super) fn save_as(world: &mut World) {
-    ask(world, FileMode::Save, "Save the graph book");
+pub(super) fn save_as<F: Flavor>(world: &mut World) {
+    ask::<F>(world, FileMode::Save, "Save the graph book");
 }
 
-/// Asks for a file to export the bundle to.
-pub(super) fn export(world: &mut World) {
-    let exporter = match world.resource::<Files>().exporter {
-        Some(exporter) => exporter,
-        None => {
-            let exporter = world.spawn_empty().id();
-            world.resource_mut::<Files>().exporter = Some(exporter);
-            exporter
-        }
-    };
-    let name =
-        format!("{}-bundle.ron", world.resource::<Editor>().name);
-    world.trigger(ChooseFile {
-        asker: exporter,
-        mode: FileMode::Save,
-        title: "Export a bundle".to_owned(),
-        extension: "ron".to_owned(),
-        name,
-    });
-}
-
-/// Writes the bundle of `editor`'s book to `path`, with the files of
-/// its assets read from `kept`. A graph that fails is not exported.
-fn write_bundle(
-    path: &Path,
-    editor: &Editor,
-    kept: &Path,
-) -> anyhow::Result<()> {
-    if let Err(problem) = &editor.outcome {
-        anyhow::bail!("Not exported, the graph fails: {problem}");
-    }
-    let ruleset = editor.book().export();
-    let mut files = BTreeMap::new();
-    for asset in ruleset.assets.0.values() {
-        let Shape::Mesh(file) = &asset.shape else {
-            continue;
-        };
-        let bytes = fs::read(kept.join(file))
-            .with_context(|| format!("reading {file}"))?;
-        files.insert(file.clone(), bytes);
-    }
-    let text = Bundle { ruleset, files }
-        .to_ron()
-        .context("writing the bundle")?;
-    fs::write(path, text)
-        .with_context(|| format!("writing {}", path.display()))
-}
-
-fn ask(world: &mut World, mode: FileMode, title: &str) {
-    let asker = match world.resource::<Files>().asker {
+fn ask<F: Flavor>(world: &mut World, mode: FileMode, title: &str) {
+    let asker = match world.resource::<Files<F>>().asker {
         Some(asker) => asker,
         None => {
             let asker = world.spawn_empty().id();
-            world.resource_mut::<Files>().asker = Some(asker);
+            world.resource_mut::<Files<F>>().asker = Some(asker);
             asker
         }
     };
-    let name = match &world.resource::<Files>().path {
+    let name = match &world.resource::<Files<F>>().path {
         Some(path) => {
             path.file_name().map_or_else(String::new, |name| {
                 name.to_string_lossy().into_owned()
             })
         }
-        None => format!("{}.ron", world.resource::<Editor>().name),
+        None => {
+            format!("{}.ron", world.resource::<Editor<F>>().name)
+        }
     };
     world.trigger(ChooseFile {
         asker,
@@ -284,33 +258,14 @@ fn ask(world: &mut World, mode: FileMode, title: &str) {
 }
 
 /// Opens or saves the book with the file the chief chose.
-fn chosen(
+fn chosen<F: Flavor>(
     chosen: On<FileChosen>,
     folder: Option<Res<ViewFolder>>,
-    mut files: ResMut<Files>,
-    mut editor: ResMut<Editor>,
-    mut meshes: ResMut<Meshes>,
+    mut files: ResMut<Files<F>>,
+    mut editor: ResMut<Editor<F>>,
     mut commands: Commands,
 ) {
-    let kept = folder.map(|folder| book_folder(&folder.0));
-    if files.exporter == Some(chosen.asker) {
-        let path = match chosen.path.extension() {
-            None => chosen.path.with_extension("ron"),
-            Some(_) => chosen.path.clone(),
-        };
-        let name = path.file_name().map_or(String::new(), |name| {
-            name.to_string_lossy().into_owned()
-        });
-        files.note = match kept
-            .as_deref()
-            .map(|kept| write_bundle(&path, &editor, kept))
-        {
-            Some(Ok(())) => format!("Exported {name}"),
-            Some(Err(error)) => format!("{error:#}"),
-            None => String::new(),
-        };
-        return;
-    }
+    let kept = folder.map(|folder| book_folder::<F>(&folder.0));
     if files.asker != Some(chosen.asker) {
         return;
     }
@@ -325,9 +280,8 @@ fn chosen(
             if let Some(kept) = &kept {
                 carry(&book, beside(&path), kept)?;
             }
-            meshes.forget();
             editor.load(book);
-            commands.queue(canvas::fit);
+            commands.queue(canvas::fit::<F>);
             Ok("Opened")
         }),
         FileMode::Save => {
@@ -354,15 +308,15 @@ mod tests {
     use hamlet_testing::Scratch;
 
     use super::*;
-    use crate::graphs::{EXAMPLES, example};
+    use crate::graphs::Blueprint;
 
     #[test]
     fn a_book_written_where_the_window_keeps_it_reads_back_the_same()
     {
         let folder = Scratch::new("graph-book");
-        let book =
-            example(EXAMPLES[0].1).expect("the example parses");
-        let path = kept_at(&folder);
+        let book = example(Blueprint::EXAMPLES[0].1)
+            .expect("the example parses");
+        let path = kept_at::<Blueprint>(&folder);
         write(&path, &book).expect("the book writes");
         assert_eq!(read(&path).expect("the book reads"), book);
     }

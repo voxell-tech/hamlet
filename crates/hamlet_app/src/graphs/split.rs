@@ -4,6 +4,8 @@
 //! they are, an outline shows the corner they will settle in when let
 //! go, and they glide there.
 
+use std::marker::PhantomData;
+
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
@@ -23,6 +25,7 @@ use bevy_fynix::views::{self, Axis, BehaviorExt};
 use hamlet_ui::View;
 
 use super::canvas::Canvas;
+use super::flavor::Flavor;
 
 /// The least the preview and the canvas are wide, in logical pixels.
 /// The preview grows as far as the canvas leaves it.
@@ -35,12 +38,12 @@ const MARGIN: f32 = 8.0;
 /// How fast the properties close on where they are going, per second.
 const GLIDE: f32 = 14.0;
 
-pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Layout>()
-        .add_observer(grab)
-        .add_observer(drag)
-        .add_observer(drop)
-        .add_systems(Update, glide);
+pub(super) fn plugin<F: Flavor>(app: &mut App) {
+    app.init_resource::<Layout<F>>()
+        .add_observer(grab::<F>)
+        .add_observer(drag::<F>)
+        .add_observer(drop::<F>)
+        .add_systems(Update, glide::<F>);
 }
 
 /// A corner of the canvas.
@@ -79,7 +82,7 @@ impl Corner {
 /// How the Graph panel is laid out. Places are in logical pixels from
 /// the canvas's top left corner.
 #[derive(Resource)]
-pub(super) struct Layout {
+pub(super) struct Layout<F: Flavor> {
     /// The width of the preview.
     pub preview: f32,
     /// Whether the properties are open, or folded to their header.
@@ -98,9 +101,10 @@ pub(super) struct Layout {
     /// Whether the properties have been placed once, after which
     /// they glide.
     placed: bool,
+    flavor: PhantomData<F>,
 }
 
-impl Default for Layout {
+impl<F: Flavor> Default for Layout<F> {
     fn default() -> Self {
         Self {
             preview: 360.0,
@@ -111,6 +115,7 @@ impl Default for Layout {
             size: Vec2::ZERO,
             held: None,
             placed: false,
+            flavor: PhantomData,
         }
     }
 }
@@ -122,19 +127,31 @@ pub(super) fn inset_at(at: Vec2) -> UiRect {
 
 /// Marks the line between the canvas and the preview.
 #[derive(Component)]
-struct Divider;
+struct Divider<F: Flavor>(PhantomData<F>);
 
 /// Marks the properties floating over the canvas.
 #[derive(Component)]
-pub(super) struct Floating;
+pub(super) struct Floating<F: Flavor>(PhantomData<F>);
+
+impl<F: Flavor> Floating<F> {
+    pub(super) fn new() -> Self {
+        Self(PhantomData)
+    }
+}
 
 /// Marks the header the properties are dragged by.
 #[derive(Component)]
-pub(super) struct Handle;
+pub(super) struct Handle<F: Flavor>(PhantomData<F>);
+
+impl<F: Flavor> Handle<F> {
+    pub(super) fn new() -> Self {
+        Self(PhantomData)
+    }
+}
 
 /// The line the dock's panels are parted by, grabbed the same way.
-pub(super) fn divider() -> impl View {
-    views::divider(Axis::Vertical).tagged(Divider)
+pub(super) fn divider<F: Flavor>() -> impl View {
+    views::divider(Axis::Vertical).tagged(Divider::<F>(PhantomData))
 }
 
 fn logical(node: &ComputedNode) -> Vec2 {
@@ -144,11 +161,11 @@ fn logical(node: &ComputedNode) -> Vec2 {
 /// Moves the properties toward where they belong: under the pointer
 /// while dragged, else their corner, easing there from where they
 /// are.
-fn glide(
+fn glide<F: Flavor>(
     time: Res<Time>,
-    floating: Query<&ComputedNode, With<Floating>>,
-    canvas: Query<&ComputedNode, With<Canvas>>,
-    mut layout: ResMut<Layout>,
+    floating: Query<&ComputedNode, With<Floating<F>>>,
+    canvas: Query<&ComputedNode, With<Canvas<F>>>,
+    mut layout: ResMut<Layout<F>>,
 ) {
     let (Some(panel), Some(area)) =
         (floating.iter().next(), canvas.iter().next())
@@ -186,11 +203,11 @@ fn glide(
     }
 }
 
-fn grab(
+fn grab<F: Flavor>(
     start: On<PointerDragStart>,
-    dividers: Query<(), With<Divider>>,
-    handles: Query<(), With<Handle>>,
-    mut layout: ResMut<Layout>,
+    dividers: Query<(), With<Divider<F>>>,
+    handles: Query<(), With<Handle<F>>>,
+    mut layout: ResMut<Layout<F>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
     if dividers.contains(start.entity) {
@@ -201,12 +218,12 @@ fn grab(
     }
 }
 
-fn drag(
+fn drag<F: Flavor>(
     drag: On<PointerDrag>,
-    dividers: Query<(), With<Divider>>,
-    handles: Query<(), With<Handle>>,
-    canvas: Query<&ComputedNode, With<Canvas>>,
-    mut layout: ResMut<Layout>,
+    dividers: Query<(), With<Divider<F>>>,
+    handles: Query<(), With<Handle<F>>>,
+    canvas: Query<&ComputedNode, With<Canvas<F>>>,
+    mut layout: ResMut<Layout<F>>,
 ) {
     if dividers.contains(drag.entity) {
         let canvas = canvas.iter().next().map_or(CANVAS, |node| {
@@ -224,12 +241,12 @@ fn drag(
 
 /// Settles dragged properties in the corner of the canvas nearest
 /// their middle.
-fn drop(
+fn drop<F: Flavor>(
     end: On<PointerDragEnd>,
-    dividers: Query<(), With<Divider>>,
-    handles: Query<(), With<Handle>>,
-    canvas: Query<&ComputedNode, With<Canvas>>,
-    mut layout: ResMut<Layout>,
+    dividers: Query<(), With<Divider<F>>>,
+    handles: Query<(), With<Handle<F>>>,
+    canvas: Query<&ComputedNode, With<Canvas<F>>>,
+    mut layout: ResMut<Layout<F>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
     if handles.contains(end.entity)

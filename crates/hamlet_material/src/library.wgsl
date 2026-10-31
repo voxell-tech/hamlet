@@ -1,6 +1,6 @@
 // What every compiled material shares: the values its graph is set
 // to, what a surface is read from and gives, and the patterns its
-// nodes draw. Plain WGSL, so the realm's lit shader and the editor's
+// nodes draw. Plain WGSL, so the realm's PBR shader and the editor's
 // swatches both take it as it is.
 
 // Every value set on the graph, one to a slot. Slot 0 holds the time
@@ -30,7 +30,7 @@ struct Surface {
     metallic: f32,
     emission: vec3<f32>,
     normal: vec3<f32>,
-    // Above 0.5, the colour is shown as it is, without light.
+    // Above 0.5, base colour plus emission is written unshaded.
     unlit: f32,
 }
 

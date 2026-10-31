@@ -60,7 +60,7 @@ use hamlet_ui::{AnyView, Cx, View};
 
 use super::assets::{Meshes, palette_colour};
 use super::gizmo::{self, Dragging, GizmoMode};
-use super::{Editor, files};
+use super::{Blueprint, Editor, files};
 
 /// The asset name a transform is shown as when nothing is put there.
 pub(super) const MARKER: &str = "marker";
@@ -170,17 +170,19 @@ pub(super) fn view() -> impl View {
 fn problem() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let shown = resource::<Editor, _>(|editor| {
-            if editor.outcome.is_ok() && editor.problems.is_empty() {
+        let shown = resource::<Editor<Blueprint>, _>(|editor| {
+            if editor.got.outcome.is_ok()
+                && editor.problems.is_empty()
+            {
                 Display::None
             } else {
                 Display::Flex
             }
         });
         cx.build(
-            column((description(resource::<Editor, _>(
+            column((description(resource::<Editor<Blueprint>, _>(
                 |editor| match (
-                    &editor.outcome,
+                    &editor.got.outcome,
                     editor.problems.first(),
                 ) {
                     (Err(problem), _) => {
@@ -233,14 +235,14 @@ fn switches() -> AnyView {
         };
     let dice = |word: &'static str,
                 tip: &'static str,
-                roll: fn(&mut Editor)| {
+                roll: fn(&mut Editor<Blueprint>)| {
         button(row((glyph(Glyph::Dice, ICON), label(word))).gap(4.0))
             .padding(UiRect::axes(px(8.0), px(2.0)))
             .tooltip(move || note(tip))
             .rules(styles::button)
             .tagged(Variant::Default)
             .on_activate(move |world| {
-                roll(&mut world.resource_mut::<Editor>());
+                roll(&mut world.resource_mut::<Editor<Blueprint>>());
             })
     };
     let switch = |word: &'static str, flip: fn(&mut Backdrop)| {
@@ -266,12 +268,12 @@ fn switches() -> AnyView {
         dice(
             "Hamlet",
             "Roll again what is picked once per hamlet",
-            Editor::roll_hamlet,
+            Editor::<Blueprint>::roll_hamlet,
         ),
         dice(
             "Item",
             "Roll again what is picked once per item",
-            Editor::roll_item,
+            Editor::<Blueprint>::roll_item,
         ),
         mode("Move", "W", GizmoMode::Translate),
         mode("Turn", "E", GizmoMode::Rotate),
@@ -505,7 +507,7 @@ fn glide(
 /// Draws what the graph put down again when it changes.
 fn rebuild(
     mut commands: Commands,
-    editor: Res<Editor>,
+    editor: Res<Editor<Blueprint>>,
     preview: Option<Res<Preview>>,
     colours: Option<Res<Colours>>,
     folder: Option<Res<ViewFolder>>,
@@ -524,7 +526,7 @@ fn rebuild(
     }
     // A graph that fails, as one with an input not yet wired, leaves
     // the last drawing as it was.
-    let Ok(objects) = &editor.outcome else {
+    let Ok(objects) = &editor.got.outcome else {
         return;
     };
     *drawn = true;
@@ -546,7 +548,10 @@ fn rebuild(
             match (asset.as_ref().map(|asset| &asset.shape), &folder)
             {
                 (Some(Shape::Mesh(path)), Some(folder)) => models
-                    .get(&files::book_folder(&folder.0), path)
+                    .get(
+                        &files::book_folder::<Blueprint>(&folder.0),
+                        path,
+                    )
                     .ok(),
                 _ => None,
             };
@@ -736,7 +741,7 @@ fn paint(
 fn aim(
     mut commands: Commands,
     preview: Option<Res<Preview>>,
-    editor: Res<Editor>,
+    editor: Res<Editor<Blueprint>>,
     mut seat: ResMut<Seat>,
     framing: Res<Framing>,
     set: Res<CameraSettings>,

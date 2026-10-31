@@ -7,7 +7,7 @@
 use bevy::math::{EulerRot, Quat, Vec3};
 use hamlet_blueprint::{Constant, Does, Edit, NodeId, Setting};
 
-use super::Editor;
+use super::{Blueprint, Editor};
 
 /// One thing the gizmo can take hold of: where it is, and what it
 /// sets.
@@ -36,7 +36,7 @@ pub(super) enum Kind {
 }
 
 /// What every selected card offers, in the order they are selected.
-pub(super) fn targets(editor: &Editor) -> Vec<Target> {
+pub(super) fn targets(editor: &Editor<Blueprint>) -> Vec<Target> {
     let mut found = Vec::new();
     for node in &editor.selected {
         let Some(card) = editor.sheet.graph.node(*node) else {
@@ -134,7 +134,7 @@ pub(super) fn degrees_of(rotation: Quat) -> Vec3 {
 /// parameter's default, or its kind's initial value. None for one
 /// that is wired, or set otherwise.
 fn constant_of(
-    editor: &Editor,
+    editor: &Editor<Blueprint>,
     node: NodeId,
     input: &str,
 ) -> Option<Constant> {
@@ -171,7 +171,7 @@ fn constant_of(
 }
 
 fn point_of(
-    editor: &Editor,
+    editor: &Editor<Blueprint>,
     node: NodeId,
     input: &str,
 ) -> Option<Vec3> {
@@ -182,7 +182,7 @@ fn point_of(
 }
 
 fn number_of(
-    editor: &Editor,
+    editor: &Editor<Blueprint>,
     node: NodeId,
     input: &str,
 ) -> Option<f32> {
@@ -196,7 +196,7 @@ fn number_of(
 /// default of the parameter it is set from. Writes one after another
 /// of the same input are undone as one.
 pub(super) fn set(
-    editor: &mut Editor,
+    editor: &mut Editor<Blueprint>,
     node: NodeId,
     input: &str,
     value: Constant,

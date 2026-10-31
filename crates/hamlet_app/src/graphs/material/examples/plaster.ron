@@ -1,0 +1,24 @@
+// Plaster: the mesh's palette colour, darkened and brightened in soft
+// patches by layered noise, with a high roughness.
+(
+    entry: "plaster",
+    sheets: {
+        "plaster": (
+            graph: (
+                nodes: [
+                    (id: 1, does: Kind("surface colour")),
+                    (id: 2, does: Kind("noise"), settings: {"scale": Fixed(Number(6.0)), "detail": Fixed(Integer(5))}),
+                    (id: 3, does: Kind("remap"), settings: {"from low": Fixed(Number(0.3)), "from high": Fixed(Number(0.7)), "to low": Fixed(Number(0.82)), "to high": Fixed(Number(1.08))}),
+                    (id: 4, does: Kind("math"), settings: {"op": Fixed(Choice("multiply"))}),
+                    (id: 5, does: Kind("surface"), settings: {"roughness": Fixed(Number(0.92))}),
+                ],
+                wires: [
+                    (from: (node: 1, name: "colour"), to: (node: 4, name: "a")),
+                    (from: (node: 2, name: "value"), to: (node: 3, name: "value")),
+                    (from: (node: 3, name: "value"), to: (node: 4, name: "b")),
+                    (from: (node: 4, name: "value"), to: (node: 5, name: "base colour")),
+                ],
+            ),
+        ),
+    },
+)

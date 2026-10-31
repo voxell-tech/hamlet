@@ -1,4 +1,4 @@
-//! A compiled graph wrapped as a whole shader: the realm's lit
+//! A compiled graph wrapped as a whole shader: the realm's PBR
 //! surface, or a card's swatch.
 
 use crate::compile::Compiled;
@@ -8,9 +8,9 @@ use crate::compile::Compiled;
 pub const SURFACE_BINDING: u32 = 100;
 
 /// `compiled` as a WESL fragment shader extending the standard
-/// material: what the graph gives is lit as the realm lights
-/// everything, with its shadows, fog and time of day. Its slots are
-/// a uniform at [`SURFACE_BINDING`].
+/// material: the graph's surface goes through the realm's PBR
+/// lighting, shadows and fog, or is written unlit. Its slots are a
+/// uniform at [`SURFACE_BINDING`].
 pub fn surface_shader(compiled: &Compiled) -> String {
     let code = compiled
         .code
@@ -58,8 +58,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) \
 }
 
 /// `compiled` as a WESL fragment shader for a UI node: what the node
-/// numbered in the `shown` uniform gives, on a ball lit from the top
-/// left. Its slots are at binding 0 and `shown` at 1.
+/// numbered in the `shown` uniform gives, on a sphere shaded by a
+/// light from the top left. Its slots are at binding 0 and `shown` at
+/// 1.
 pub fn swatch_shader(compiled: &Compiled) -> String {
     let code = compiled
         .code
@@ -73,15 +74,15 @@ pub fn swatch_shader(compiled: &Compiled) -> String {
 
 @fragment
 fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {{
-    {BALL}
+    {SPHERE}
 }}
 "
     )
 }
 
-/// The body of a swatch's fragment: the ball's surface at the pixel,
-/// and what `preview` shows there.
-pub(crate) const BALL: &str =
+/// The body of a swatch's fragment: the sphere's surface at the
+/// pixel, and what `preview` shows there.
+pub(crate) const SPHERE: &str =
     "let p = vec2<f32>(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0);
     let r = length(p);
     let edge = max(fwidth(r), 1e-3);
@@ -92,6 +93,6 @@ pub(crate) const BALL: &str =
     let i = SurfaceIn(uv, n * 0.5, n, vec3<f32>(0.0, 0.0, 1.0), \
      vec4<f32>(0.8, 0.8, 0.8, 1.0), slots.v[0].x);
     let c = preview(shown.x, i);
-    let light = 0.7 + 0.3 * max(dot(n, normalize(vec3<f32>(-0.4, \
+    let shade = 0.7 + 0.3 * max(dot(n, normalize(vec3<f32>(-0.4, \
      0.5, 0.8))), 0.0);
-    return vec4<f32>(c.rgb * light, c.a * cover);";
+    return vec4<f32>(c.rgb * shade, c.a * cover);";
