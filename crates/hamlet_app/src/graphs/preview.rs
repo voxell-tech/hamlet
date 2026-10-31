@@ -5,8 +5,12 @@
 
 use bevy::app::{App, Startup, Update};
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
-use bevy::camera::visibility::RenderLayers;
+use bevy::camera::visibility::{RenderLayers, Visibility};
 use bevy::camera::{Camera, ImageRenderTarget, RenderTarget};
+use bevy::color::Alpha;
+use bevy::dev_tools::infinite_grid::{
+    InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings,
+};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -16,7 +20,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, If, Local, Query, Res, ResMut};
 use bevy::image::Image;
 use bevy::input::ButtonInput;
 use bevy::input::mouse::MouseButton;
@@ -32,9 +36,15 @@ use bevy::render::render_resource::{
 use bevy::time::Time;
 use bevy::transform::components::Transform;
 use bevy::ui::widget::ViewportNode;
-use bevy::ui::{ComputedNode, Overflow, percent};
+use bevy::ui::{
+    ComputedNode, Display, Overflow, PositionType, UiRect, Val,
+    percent, px,
+};
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
-use bevy_fynix::views::{BehaviorExt, frame};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, button, column, label, row,
+};
+use bevy_fynix::{ScopedExt, Theme, ViewExt, resource};
 use hamlet_blueprint::{Asset, BODY, Frame, Paint, Shape};
 use hamlet_client::ViewFolder;
 use hamlet_realm::generator::house::slope;
@@ -42,7 +52,9 @@ use hamlet_realm::meshes::{Meshing, Rng};
 use hamlet_realm::palette::{Palette as Colours, TownStyle};
 use hamlet_realm::pick::{Orbit, Steer, backward, scrolled_lines};
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
-use hamlet_ui::styles::Fills;
+use hamlet_ui::styles::{self, Fills, description};
+use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{AnyView, Cx, View};
 
 use super::assets::{Meshes, palette_colour};
@@ -61,11 +73,39 @@ const YAW: f32 = 0.8;
 const PITCH: f32 = 0.55;
 
 pub(super) fn plugin(app: &mut App) {
+    if !app.is_plugin_added::<InfiniteGridPlugin>() {
+        app.add_plugins(InfiniteGridPlugin);
+    }
     app.init_resource::<Seat>()
         .init_resource::<Framing>()
+        .init_resource::<Backdrop>()
         .add_systems(Startup, spawn)
-        .add_systems(Update, (open, rebuild, glide, aim).chain());
+        .add_systems(
+            Update,
+            (open, rebuild, grid, glide, aim).chain(),
+        );
 }
+
+/// What is drawn behind what the graph puts down: a ground under it,
+/// and a grid on the ground plane.
+#[derive(Resource)]
+struct Backdrop {
+    ground: bool,
+    grid: bool,
+}
+
+impl Default for Backdrop {
+    fn default() -> Self {
+        Self {
+            ground: false,
+            grid: true,
+        }
+    }
+}
+
+/// The preview's grid, seen only by its camera.
+#[derive(Component)]
+struct Grid;
 
 /// Marks the frame the preview is drawn in.
 #[derive(Component)]
@@ -104,7 +144,7 @@ pub(super) struct Framing {
 pub(super) fn view() -> impl View {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let panel = frame()
+        let panel = column((problem(), switches()))
             .width(percent(100.0))
             .fills_height()
             .overflow(Overflow::clip())
@@ -121,6 +161,110 @@ pub(super) fn view() -> impl View {
             None => cx.build(panel),
         }
     })
+}
+
+/// Why the graph does not run, over the preview's corner, while it
+/// shows the last drawing that did.
+fn problem() -> AnyView {
+    AnyView::new(|cx: &mut Cx| {
+        let theme = cx.theme();
+        let shown =
+            resource::<Editor, _>(|editor| match editor.outcome {
+                Ok(_) => Display::None,
+                Err(_) => Display::Flex,
+            });
+        cx.build(
+            column((description(resource::<Editor, _>(|editor| {
+                match &editor.outcome {
+                    Ok(_) => String::new(),
+                    Err(problem) => format!("Not drawn: {problem}"),
+                }
+            })),))
+            .position(PositionType::Absolute)
+            .inset(UiRect {
+                left: px(8.0),
+                right: px(8.0),
+                top: px(8.0),
+                bottom: Val::Auto,
+            })
+            .padding(UiRect::axes(px(8.0), px(4.0)))
+            .fill(theme.palette.card)
+            .radius(theme.space.round)
+            .display(shown),
+        )
+    })
+}
+
+/// The switches for the ground and the grid, in the preview's lower
+/// corner.
+fn switches() -> AnyView {
+    let switch = |word: &'static str, flip: fn(&mut Backdrop)| {
+        button(label(resource::<Backdrop, _>(move |backdrop| {
+            let on = match word {
+                "Ground" => backdrop.ground,
+                _ => backdrop.grid,
+            };
+            format!("{word}: {}", if on { "on" } else { "off" })
+        })))
+        .padding(UiRect::axes(px(8.0), px(2.0)))
+        .rules(styles::button)
+        .tagged(Variant::Default)
+        .on_activate(move |world| {
+            flip(&mut world.resource_mut::<Backdrop>());
+        })
+    };
+    row((
+        switch("Grid", |backdrop| backdrop.grid = !backdrop.grid),
+        switch("Ground", |backdrop| {
+            backdrop.ground = !backdrop.ground;
+        }),
+    ))
+    .gap(4.0)
+    .position(PositionType::Absolute)
+    .inset(UiRect {
+        left: px(8.0),
+        bottom: px(8.0),
+        right: Val::Auto,
+        top: Val::Auto,
+    })
+    .boxed()
+}
+
+/// Shows or hides the grid, spawning it once the theme gives its
+/// colours.
+fn grid(
+    mut commands: Commands,
+    backdrop: Res<Backdrop>,
+    If(theme): If<Res<Theme<HamletTheme>>>,
+    mut grids: Query<&mut Visibility, With<Grid>>,
+) {
+    let shown = if backdrop.grid {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    if grids.is_empty() {
+        let palette = &theme.0.palette;
+        commands.spawn((
+            Grid,
+            InfiniteGrid,
+            InfiniteGridSettings {
+                x_axis_color: palette.red,
+                z_axis_color: palette.agent,
+                minor_line_color: palette.border,
+                major_line_color: palette.grey_1.with_alpha(0.5),
+                ..InfiniteGridSettings::default()
+            },
+            shown,
+            RenderLayers::layer(LAYER),
+        ));
+        return;
+    }
+    if backdrop.is_changed() {
+        for mut visibility in &mut grids {
+            *visibility = shown;
+        }
+    }
 }
 
 fn spawn(
@@ -300,21 +444,24 @@ fn rebuild(
     pieces: Query<Entity, With<Piece>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut framing: ResMut<Framing>,
+    backdrop: Res<Backdrop>,
     mut drawn: Local<bool>,
 ) {
     let Some(preview) = preview else {
         return;
     };
-    if !editor.is_changed() && *drawn {
+    if !editor.is_changed() && !backdrop.is_changed() && *drawn {
         return;
     }
+    // A graph that fails, as one with an input not yet wired, leaves
+    // the last drawing as it was.
+    let Ok(instances) = &editor.outcome else {
+        return;
+    };
     *drawn = true;
     for piece in &pieces {
         commands.entity(piece).despawn();
     }
-    let Ok(instances) = &editor.outcome else {
-        return;
-    };
     let mut meshing = Meshing::new();
     let (mut low, mut high) =
         (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
@@ -385,18 +532,20 @@ fn rebuild(
     let ground =
         colours.as_deref().map_or(Vec3::splat(0.3), |c| c.grass);
     let span = (high - low).max(Vec3::splat(1.0));
-    meshing.rbox(
-        Vec3::new(
-            (low.x + high.x) * 0.5,
-            -0.05,
-            (low.z + high.z) * 0.5,
-        ),
-        Vec3::new(span.x * 0.5 + 0.5, 0.05, span.z * 0.5 + 0.5),
-        0.02,
-        Quat::IDENTITY,
-        ground,
-        0.0,
-    );
+    if backdrop.ground {
+        meshing.rbox(
+            Vec3::new(
+                (low.x + high.x) * 0.5,
+                -0.05,
+                (low.z + high.z) * 0.5,
+            ),
+            Vec3::new(span.x * 0.5 + 0.5, 0.05, span.z * 0.5 + 0.5),
+            0.02,
+            Quat::IDENTITY,
+            ground,
+            0.0,
+        );
+    }
     framing.middle = (low + high) * 0.5;
     framing.reach = (high - low).length() * 0.5;
     commands.spawn((
