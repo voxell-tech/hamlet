@@ -46,17 +46,27 @@ pub(super) fn gusts(
         + (set.gap.0 + (set.gap.1 - set.gap.0) * roll(0.1))
             / density.0;
 
-    // Somewhere in what the camera sees, larger from further off so
-    // that it still shows.
+    // Where a band of strong wind is passing, of a few places in what
+    // the camera sees, so that the line and the flags under it agree.
+    // Larger from further off so that it still shows.
     let size = (view.dist / 70.0).clamp(0.7, 7.0);
     let reach = view.dist * 0.55;
-    let over = view.focus
-        + Vec2::new(roll(0.2) - 0.5, roll(0.3) - 0.5) * 2.0 * reach;
+    let (over, strong) = (0..PLACES)
+        .map(|i| {
+            let salt = 0.2 + i as f32 * 0.17;
+            let over = view.focus
+                + Vec2::new(
+                    roll(salt) - 0.5,
+                    roll(salt + 0.08) - 0.5,
+                ) * 2.0
+                    * reach;
+            (over, set.strength(over, clock.t))
+        })
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .unwrap_or((view.focus, 1.0));
     let height =
-        set.height.0 + (set.height.1 - set.height.0) * roll(0.4);
+        set.height.0 + (set.height.1 - set.height.0) * roll(0.04);
     let at = land.on_ground(over) + Vec3::Y * height * size;
-    let yaw = (set.heading + set.veer * (roll(0.5) * 2.0 - 1.0))
-        .to_radians();
     let day = sky_set.daylight(sky.hour);
     gust(
         &mut commands,
@@ -65,8 +75,12 @@ pub(super) fn gusts(
         &set,
         clock.t,
         at,
-        yaw,
-        size * (0.8 + 0.4 * roll(0.6)),
-        set.night + (1.0 - set.night) * day,
+        set.blowing(clock.t),
+        size * (0.8 + 0.4 * roll(0.06)),
+        strong * (set.night + (1.0 - set.night) * day),
     );
 }
+
+/// The places a gust may set off from, of which it takes the
+/// windiest.
+const PLACES: usize = 6;
