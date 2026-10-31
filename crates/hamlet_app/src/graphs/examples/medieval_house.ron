@@ -3,12 +3,12 @@
 // little, and a rail at its foot and head. "roof" is two tiled slopes
 // and a ridge beam, worked out from a width, a depth and a rise; left
 // unset, the rise varies from house to house.
-// "window" is a pane in a frame over a stone sill. "house" puts four
+// "window" is a pane in a frame over a stone sill. "item" puts four
 // walls on each storey, the roof on top, windows along the front and a
 // flower box under some upper windows, by chance. Each graph's nodes
 // are grouped by the part they make.
 (
-    entry: "house",
+    entry: "item",
     sheets: {
         "wall": (
             graph: (
@@ -44,11 +44,15 @@
                     (id: 23, does: Kind("transform"), settings: {"translation": Fixed(Point((0.0, 0.0, 0.1)))}),
                     (id: 24, does: Kind("object"), settings: {"asset": Fixed(Choice("beam_timber"))}),
                     (id: 25, does: Kind("combine")),
-                    (id: 26, does: Kind("random_transform"), settings: {"turn_low": Fixed(Point((0.0, 0.0, -2.0))), "turn_high": Fixed(Point((0.0, 0.0, 2.0)))}),
+                    (id: 26, does: Kind("transform")),
+                    (id: 27, does: Kind("point")),
+                    (id: 28, does: Kind("random"), settings: {"low": Fixed(Number(-2.0)), "high": Fixed(Number(2.0))}),
                 ],
                 wires: [
                     (from: (node: 26, name: "transforms"), to: (node: 14, name: "b")),
                     (from: (node: 13, name: "transforms"), to: (node: 26, name: "for")),
+                    (from: (node: 28, name: "field"), to: (node: 27, name: "z")),
+                    (from: (node: 27, name: "point"), to: (node: 26, name: "rotation")),
                     (from: (node: 1, name: "point"), to: (node: 2, name: "scale")),
                     (from: (node: 2, name: "transforms"), to: (node: 3, name: "transform")),
                     (from: (node: 4, name: "value"), to: (node: 5, name: "b")),
@@ -80,7 +84,7 @@
             groups: [
                 (title: "Plaster panel", nodes: [1, 2, 3]),
                 (title: "Where the posts go", nodes: [4, 5, 6, 7, 8, 9, 10, 11, 12]),
-                (title: "Leaning posts", nodes: [13, 14, 15, 16, 26]),
+                (title: "Leaning posts", nodes: [13, 14, 15, 16, 26, 27, 28]),
                 (title: "Rails, foot and head", nodes: [17, 18, 19, 20, 21, 22, 23, 24]),
             ],
         ),
@@ -90,7 +94,7 @@
                     (name: "width", value_type: Number, default: Some(Number(7.0))),
                     (name: "depth", value_type: Number, default: Some(Number(4.4))),
                     (name: "rise", value_type: Number, default: Some(Number(2.2)),
-                     vary: Some((low: 1.8, high: 2.8, per: House))),
+                     vary: Some((low: 1.8, high: 2.8, per: Item))),
                 ],
                 outputs: [(name: "objects", value_type: Objects, from: (node: 24, name: "objects"))],
                 nodes: [
@@ -202,7 +206,7 @@
                 (title: "Sill", nodes: [9, 10, 11, 12]),
             ],
         ),
-        "house": (
+        "item": (
             graph: (
                 nodes: [
                     (id: 1, does: Kind("transform"), settings: {"scale": Fixed(Point((6.2, 0.35, 4.2)))}),

@@ -42,7 +42,7 @@ use bevy::ui::{
 };
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, label, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
 };
 use bevy_fynix::{ScopedExt, Theme, ViewExt, resource};
 use hamlet_blueprint::{Asset, BODY, Frame, Paint, Shape};
@@ -52,9 +52,10 @@ use hamlet_realm::meshes::{Meshing, Rng};
 use hamlet_realm::palette::{Palette as Colours, TownStyle};
 use hamlet_realm::pick::{Orbit, Steer, backward, scrolled_lines};
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
-use hamlet_ui::styles::{self, Fills, description};
+use hamlet_ui::styles::{self, Fills, ICON, description, note};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use super::assets::{Meshes, palette_colour};
@@ -195,9 +196,22 @@ fn problem() -> AnyView {
     })
 }
 
-/// The switches for the ground and the grid, in the preview's lower
-/// corner.
+/// The switches for the ground and the grid, and the dice that roll
+/// the random values picked per hamlet and per item, in the preview's
+/// lower corner.
 fn switches() -> AnyView {
+    let dice = |word: &'static str,
+                tip: &'static str,
+                roll: fn(&mut Editor)| {
+        button(row((glyph(Glyph::Dice, ICON), label(word))).gap(4.0))
+            .padding(UiRect::axes(px(8.0), px(2.0)))
+            .tooltip(move || note(tip))
+            .rules(styles::button)
+            .tagged(Variant::Default)
+            .on_activate(move |world| {
+                roll(&mut world.resource_mut::<Editor>());
+            })
+    };
     let switch = |word: &'static str, flip: fn(&mut Backdrop)| {
         button(label(resource::<Backdrop, _>(move |backdrop| {
             let on = match word {
@@ -218,6 +232,16 @@ fn switches() -> AnyView {
         switch("Ground", |backdrop| {
             backdrop.ground = !backdrop.ground;
         }),
+        dice(
+            "Hamlet",
+            "Roll again what is picked once per hamlet",
+            Editor::roll_hamlet,
+        ),
+        dice(
+            "Item",
+            "Roll again what is picked once per item",
+            Editor::roll_item,
+        ),
     ))
     .gap(4.0)
     .position(PositionType::Absolute)

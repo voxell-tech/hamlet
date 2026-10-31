@@ -36,7 +36,7 @@ const TYPES: [(&str, ValueType); 5] = [
 /// How often a varying input is picked again, as offered, after
 /// "Never".
 const PER: [(&str, Scope); 3] = [
-    ("Per house", Scope::House),
+    ("Per item", Scope::Item),
     ("Per hamlet", Scope::Hamlet),
     ("Per realm", Scope::Realm),
 ];

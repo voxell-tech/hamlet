@@ -6,11 +6,10 @@ use super::{TRANSFORMS_IN, TRANSFORMS_OUT};
 use crate::eval::{Problem, Run};
 use crate::graph::Scope;
 use crate::node::{Initial, NodeKind, PortSpec};
-use crate::turn;
 use crate::value::{Frame, Transform, Value, ValueType};
 
 pub(super) const KINDS: &[NodeKind] =
-    &[MATMUL, RANDOM_TRANSFORM, REPEAT, CULL, KEEP_APART, MERGE];
+    &[MATMUL, REPEAT, CULL, KEEP_APART, MERGE];
 
 const REPEAT: NodeKind = NodeKind {
     name: "repeat",
@@ -112,100 +111,6 @@ fn matmul(run: &mut Run) -> Result<(), Problem> {
     Ok(())
 }
 
-const RANDOM_TRANSFORM: NodeKind = NodeKind {
-    name: "random_transform",
-    doc: "A random transform for each transform of a list, between \
-          the lowest and highest move, turn and scale, picked anew \
-          for each house: wire both into matmul to jitter the list",
-    inputs: &[
-        PortSpec::new(
-            "for",
-            ValueType::Transforms,
-            "The list to give one to each of",
-        ),
-        PortSpec::new("move_low", ValueType::Point, "The least move")
-            .initial(Initial::Point(Vec3::ZERO)),
-        PortSpec::new("move_high", ValueType::Point, "The most move")
-            .initial(Initial::Point(Vec3::ZERO)),
-        PortSpec::new(
-            "turn_low",
-            ValueType::Point,
-            "The least turn, in degrees about x, y and z",
-        )
-        .initial(Initial::Point(Vec3::ZERO)),
-        PortSpec::new(
-            "turn_high",
-            ValueType::Point,
-            "The most turn, in degrees about x, y and z",
-        )
-        .initial(Initial::Point(Vec3::ZERO)),
-        PortSpec::new(
-            "scale_low",
-            ValueType::Point,
-            "The least scale",
-        )
-        .initial(Initial::Point(Vec3::ONE)),
-        PortSpec::new(
-            "scale_high",
-            ValueType::Point,
-            "The most scale",
-        )
-        .initial(Initial::Point(Vec3::ONE)),
-        PortSpec::new(
-            "scale_evenly",
-            ValueType::Bool,
-            "Whether one pick scales every axis alike",
-        )
-        .initial(Initial::Bool(true)),
-    ],
-    outputs: &[TRANSFORMS_OUT],
-    run: random_transform,
-};
-
-fn random_transform(run: &mut Run) -> Result<(), Problem> {
-    let span = |low: Vec3, high: Vec3, at: [f32; 3]| {
-        low + (high - low) * Vec3::from(at)
-    };
-    let (move_low, move_high) =
-        (run.point("move_low")?, run.point("move_high")?);
-    let (turn_low, turn_high) =
-        (run.point("turn_low")?, run.point("turn_high")?);
-    let (scale_low, scale_high) =
-        (run.point("scale_low")?, run.point("scale_high")?);
-    let evenly = run.flag("scale_evenly", None)?;
-    let chance = run.chance(Scope::House);
-    let made = run
-        .transforms("for")?
-        .iter()
-        .map(|item| {
-            let key = chance.mix(item.id.0);
-            let pick = |part: u64| {
-                let key = key.mix(part);
-                [
-                    key.mix(1).unit(),
-                    key.mix(2).unit(),
-                    key.mix(3).unit(),
-                ]
-            };
-            let turn = span(turn_low, turn_high, pick(2));
-            let scale = if evenly {
-                span(scale_low, scale_high, [key.mix(3).unit(); 3])
-            } else {
-                span(scale_low, scale_high, pick(3))
-            };
-            let mut made = item.clone();
-            made.frame = Frame {
-                translation: span(move_low, move_high, pick(1)),
-                rotation: turn::euler(turn.y, turn.x, turn.z),
-                scale,
-            };
-            made
-        })
-        .collect();
-    run.put("transforms", Value::Transforms(made));
-    Ok(())
-}
-
 const CULL: NodeKind = NodeKind {
     name: "cull",
     doc: "Keeps the transforms whose keep is true. A random chance \
@@ -253,7 +158,7 @@ const KEEP_APART: NodeKind = NodeKind {
 
 fn keep_apart(run: &mut Run) -> Result<(), Problem> {
     let distance = run.number("distance", None)?;
-    let chance = run.chance(Scope::House);
+    let chance = run.chance(Scope::Item);
     let mut order =
         run.transforms("transforms")?.iter().collect::<Vec<_>>();
     order.sort_by_key(|transform| chance.mix(transform.id.0));

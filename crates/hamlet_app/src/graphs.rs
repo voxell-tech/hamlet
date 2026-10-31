@@ -163,7 +163,7 @@ impl Editor {
             seeds: Seeds {
                 realm: Seed(1),
                 hamlet: Seed(2),
-                house: Seed(3),
+                item: Seed(3),
             },
             undo: Vec::new(),
             redo: Vec::new(),
@@ -532,8 +532,17 @@ impl Editor {
     }
 
     /// Rolls every random value of the house again.
-    fn reroll(&mut self) {
-        self.seeds.house = self.seeds.house.mix(1);
+    /// Rolls again every random value picked once per item, as if
+    /// this were another of them.
+    pub fn roll_item(&mut self) {
+        self.seeds.item = self.seeds.item.mix(1);
+        self.run();
+    }
+
+    /// Rolls again every random value picked once per hamlet, as if
+    /// the item were in another hamlet.
+    pub fn roll_hamlet(&mut self) {
+        self.seeds.hamlet = self.seeds.hamlet.mix(1);
         self.run();
     }
 
@@ -1078,20 +1087,11 @@ fn tools() -> impl View {
                     world.resource_mut::<Editor>().redo();
                 }),
             )),
-            cluster((
-                tool(
-                    Glyph::Aim,
-                    "Fit every node in sight (F)",
-                    canvas::fit,
-                ),
-                tool(
-                    Glyph::Dice,
-                    "Roll the house's random values again",
-                    |world| {
-                        world.resource_mut::<Editor>().reroll();
-                    },
-                ),
-            )),
+            cluster((tool(
+                Glyph::Aim,
+                "Fit every node in sight (F)",
+                canvas::fit,
+            ),)),
             cluster((
                 switcher(),
                 tool(Glyph::Plus, "New graph", |world| {

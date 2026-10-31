@@ -152,6 +152,7 @@ fn show(
             }
         }
         Value::Number(_)
+        | Value::PointField(_)
         | Value::Integer(_)
         | Value::Bool(_)
         | Value::Choice(_) => {}

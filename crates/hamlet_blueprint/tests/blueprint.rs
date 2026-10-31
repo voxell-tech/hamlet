@@ -7,8 +7,8 @@ use hamlet_blueprint::{
     validate,
 };
 
-/// Posts along a line, each lifted and turned at random by a random
-/// transform of its own.
+/// Posts along a line, each lifted and turned at random by a
+/// transform made for it from random fields.
 const FENCE: &str = r#"(
     entry: "fence",
     graphs: {
@@ -18,16 +18,20 @@ const FENCE: &str = r#"(
             nodes: [
                 (id: 1, does: Kind("line"), settings: {"to": FromParent("end")}),
                 (id: 2, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(1.0))}),
-                (id: 3, does: Kind("random_transform"), settings: {
-                    "move_high": Fixed(Point((0.0, 0.5, 0.0))),
-                    "turn_low": Fixed(Point((0.0, -10.0, 0.0))),
-                    "turn_high": Fixed(Point((0.0, 10.0, 0.0))),
-                }),
+                (id: 3, does: Kind("transform")),
                 (id: 4, does: Kind("object"), settings: {"asset": Fixed(Choice("post"))}),
                 (id: 5, does: Kind("matmul")),
+                (id: 6, does: Kind("point")),
+                (id: 7, does: Kind("point")),
+                (id: 8, does: Kind("random"), settings: {"high": Fixed(Number(0.5))}),
+                (id: 9, does: Kind("random"), settings: {"low": Fixed(Number(-10.0)), "high": Fixed(Number(10.0))}),
             ],
             wires: [
                 (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
+                (from: (node: 8, name: "field"), to: (node: 6, name: "y")),
+                (from: (node: 9, name: "field"), to: (node: 7, name: "y")),
+                (from: (node: 6, name: "point"), to: (node: 3, name: "translation")),
+                (from: (node: 7, name: "point"), to: (node: 3, name: "rotation")),
                 (from: (node: 2, name: "transforms"), to: (node: 3, name: "for")),
                 (from: (node: 2, name: "transforms"), to: (node: 5, name: "a")),
                 (from: (node: 3, name: "transforms"), to: (node: 5, name: "b")),
@@ -55,7 +59,7 @@ fn seeds(house: u64) -> Seeds {
     Seeds {
         realm: Seed(1),
         hamlet: Seed(2),
-        house: Seed(house),
+        item: Seed(house),
     }
 }
 
@@ -234,7 +238,7 @@ const RISE: &str = r#"(
     entry: "tower",
     graphs: {"tower": (
         inputs: [(name: "rise", value_type: Number, default: Some(Number(5.0)),
-                  vary: Some((low: 1.0, high: 2.0, per: House)))],
+                  vary: Some((low: 1.0, high: 2.0, per: Item)))],
         outputs: [(name: "objects", value_type: Objects, from: (node: 3, name: "objects"))],
         nodes: [
             (id: 1, does: Kind("point"), settings: {"x": Fixed(Number(1.0)), "y": FromParent("rise"), "z": Fixed(Number(1.0))}),

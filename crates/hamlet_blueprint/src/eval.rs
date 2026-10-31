@@ -21,7 +21,7 @@ use crate::value::{
 pub struct Seeds {
     pub realm: Seed,
     pub hamlet: Seed,
-    pub house: Seed,
+    pub item: Seed,
 }
 
 impl Seeds {
@@ -29,7 +29,7 @@ impl Seeds {
         match scope {
             Scope::Realm => self.realm,
             Scope::Hamlet => self.hamlet,
-            Scope::House | Scope::Transform => self.house,
+            Scope::Item | Scope::Transform => self.item,
         }
     }
 }
@@ -839,8 +839,24 @@ impl Run<'_> {
     }
 
     pub fn point(&self, port: &str) -> Result<Vec3, Problem> {
+        self.point_at(port, None)
+    }
+
+    /// The point on `port`, at `at` when its axes are fields.
+    pub fn point_at(
+        &self,
+        port: &str,
+        at: Option<&Transform>,
+    ) -> Result<Vec3, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Point(point)) => Ok(*point),
+            Binding::Value(Value::PointField(axes)) => {
+                Ok(Vec3::from(
+                    axes.each_ref().map(|axis| {
+                        axis.sample(at.unwrap_or(&ORIGIN))
+                    }),
+                ))
+            }
             _ => Err(self.wrong(port, ValueType::Point)),
         }
     }

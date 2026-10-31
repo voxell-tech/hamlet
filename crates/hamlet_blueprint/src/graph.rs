@@ -96,7 +96,7 @@ impl Spread {
 pub enum Scope {
     Realm,
     Hamlet,
-    House,
+    Item,
     Transform,
 }
 

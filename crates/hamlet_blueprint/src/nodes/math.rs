@@ -80,11 +80,21 @@ const POINT: NodeKind = NodeKind {
 };
 
 fn point(run: &mut Run) -> Result<(), Problem> {
-    let point = Vec3::new(
-        run.number("x", None)?,
-        run.number("y", None)?,
-        run.number("z", None)?,
-    );
-    run.put("point", Value::Point(point));
+    // An axis wired from a field, such as noise or random, makes a
+    // point that is its own at each transform it is read at.
+    let axis = |port: &str| match run.field(port) {
+        Ok(field) => Ok(field),
+        Err(_) => run.number(port, None).map(Field::Constant),
+    };
+    let axes = [axis("x")?, axis("y")?, axis("z")?];
+    let value = match &axes {
+        [
+            Field::Constant(x),
+            Field::Constant(y),
+            Field::Constant(z),
+        ] => Value::Point(Vec3::new(*x, *y, *z)),
+        _ => Value::PointField(Box::new(axes)),
+    };
+    run.put("point", value);
     Ok(())
 }

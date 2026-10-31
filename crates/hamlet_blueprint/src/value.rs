@@ -51,6 +51,9 @@ pub enum Value {
     Integer(i32),
     Bool(bool),
     Point(Vec3),
+    /// A point whose axes are fields, so it is its own at each
+    /// transform it is read at.
+    PointField(Box<[Field; 3]>),
     Choice(String),
     Curve(Curve),
     Transforms(Vec<Transform>),
@@ -64,7 +67,9 @@ impl Value {
             Value::Number(_) => ValueType::Number,
             Value::Integer(_) => ValueType::Integer,
             Value::Bool(_) => ValueType::Bool,
-            Value::Point(_) => ValueType::Point,
+            Value::Point(_) | Value::PointField(_) => {
+                ValueType::Point
+            }
             Value::Choice(_) => ValueType::Choice,
             Value::Curve(_) => ValueType::Curve,
             Value::Transforms(_) => ValueType::Transforms,

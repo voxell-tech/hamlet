@@ -45,7 +45,7 @@ const NOISE: NodeKind = NodeKind {
             "How often its pattern changes",
         )
         .initial(Initial::Choice("realm"))
-        .choices(&["realm", "hamlet", "house"]),
+        .choices(&["realm", "hamlet", "item"]),
     ],
     outputs: &[FIELD_OUT],
     run: noise,
@@ -62,7 +62,7 @@ fn noise(run: &mut Run) -> Result<(), Problem> {
     };
     let scope = match run.choice("scope", None)?.as_str() {
         "hamlet" => Scope::Hamlet,
-        "house" => Scope::House,
+        "item" => Scope::Item,
         _ => Scope::Realm,
     };
     let noise = Noise {
@@ -175,7 +175,7 @@ const RANDOM: NodeKind = NodeKind {
             "How often it is picked again",
         )
         .initial(Initial::Choice("transform"))
-        .choices(&["transform", "house", "hamlet", "realm"]),
+        .choices(&["transform", "item", "hamlet", "realm"]),
     ],
     outputs: &[FIELD_OUT],
     run: random,
@@ -183,7 +183,7 @@ const RANDOM: NodeKind = NodeKind {
 
 fn random(run: &mut Run) -> Result<(), Problem> {
     let (scope, each) = match run.choice("per", None)?.as_str() {
-        "house" => (Scope::House, false),
+        "item" => (Scope::Item, false),
         "hamlet" => (Scope::Hamlet, false),
         "realm" => (Scope::Realm, false),
         _ => (Scope::Transform, true),

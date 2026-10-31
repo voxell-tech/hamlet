@@ -51,6 +51,13 @@ const TRANSFORM: NodeKind = NodeKind {
             "Its size on each axis",
         )
         .initial(Initial::Point(Vec3::ONE)),
+        PortSpec::new(
+            "for",
+            ValueType::Transforms,
+            "A list to make one for each of, its inputs read at \
+             each, so noise or random make each its own. Left \
+             unwired, there is one",
+        ),
     ],
     outputs: &[TRANSFORMS_OUT],
     run: transform,
@@ -112,15 +119,31 @@ fn on_sockets(run: &mut Run) -> Result<(), Problem> {
 }
 
 fn transform(run: &mut Run) -> Result<(), Problem> {
-    let turn = run.point("rotation")?;
-    let frame = Frame {
-        translation: run.point("translation")?,
-        rotation: turn::euler(turn.y, turn.x, turn.z),
-        scale: run.point("scale")?,
+    let frame = |at: Option<&Transform>| -> Result<Frame, Problem> {
+        let turn = run.point_at("rotation", at)?;
+        Ok(Frame {
+            translation: run.point_at("translation", at)?,
+            rotation: turn::euler(turn.y, turn.x, turn.z),
+            scale: run.point_at("scale", at)?,
+        })
     };
-    let transform =
-        Transform::new(run.id(TransformId::ROOT, 0), frame);
-    run.put("transforms", Value::Transforms(vec![transform]));
+    let made = if run.is_set("for") {
+        // Each keeps the item it was made for, so matmul pairs them.
+        run.transforms("for")?
+            .iter()
+            .map(|item| {
+                let mut made = item.clone();
+                made.frame = frame(Some(item))?;
+                Ok(made)
+            })
+            .collect::<Result<Vec<_>, Problem>>()?
+    } else {
+        vec![Transform::new(
+            run.id(TransformId::ROOT, 0),
+            frame(None)?,
+        )]
+    };
+    run.put("transforms", Value::Transforms(made));
     Ok(())
 }
 
@@ -306,7 +329,7 @@ const ON_SURFACE: NodeKind = NodeKind {
 
 fn on_surface(run: &mut Run) -> Result<(), Problem> {
     let align = run.flag("align", None)?;
-    let chance = run.chance(Scope::House);
+    let chance = run.chance(Scope::Item);
     let mut placed = Vec::new();
     for surface in run.transforms("transforms")? {
         let density = run.number("density", Some(surface))?.max(0.0);
