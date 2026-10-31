@@ -1,0 +1,36 @@
+// A round stone tower: a ring of stones round a polygon, each laid along
+// its edge and turned a little by chance, stacked course upon course. Change its radius, its sides or
+// its courses in the parameters; more sides make it rounder.
+(
+    entry: "stone_tower",
+    sheets: {
+        "stone_tower": (
+            graph: (
+                inputs: [
+                    (name: "radius", value_type: Number, default: Some(Number(1.4))),
+                    (name: "sides", value_type: Integer, default: Some(Integer(14))),
+                    (name: "courses", value_type: Integer, default: Some(Integer(8))),
+                ],
+                nodes: [
+                    (id: 1, does: Kind("polygon"), settings: {"radius": FromParent("radius"), "sides": FromParent("sides")}),
+                    (id: 2, does: Kind("curve_corners"), settings: {"align": Fixed(Bool(true))}),
+                    (id: 3, does: Kind("repeat"), settings: {"count": FromParent("courses"), "step": Fixed(Point((0.0, 0.3, 0.0)))}),
+                    (id: 4, does: Kind("random"), settings: {"low": Fixed(Number(-3.0)), "high": Fixed(Number(3.0))}),
+                    (id: 5, does: Kind("offset")),
+                    (id: 6, does: Kind("object"), settings: {"asset": Fixed(Choice("quoin")), "scale": Fixed(Point((0.62, 0.28, 0.4)))}),
+                ],
+                wires: [
+                    (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
+                    (from: (node: 2, name: "transforms"), to: (node: 3, name: "transforms")),
+                    (from: (node: 3, name: "transforms"), to: (node: 5, name: "transforms")),
+                    (from: (node: 4, name: "field"), to: (node: 5, name: "yaw")),
+                    (from: (node: 5, name: "transforms"), to: (node: 6, name: "transform")),
+                ],
+            ),
+            groups: [
+                (title: "A ring of stones round a polygon, each along its edge", nodes: [1, 2]),
+                (title: "Course upon course", nodes: [3, 4, 5, 6]),
+            ],
+        ),
+    },
+)

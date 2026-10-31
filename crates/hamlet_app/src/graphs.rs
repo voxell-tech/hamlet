@@ -54,11 +54,25 @@ use self::split::{Floating, Handle, Layout, divider, inset_at};
 use crate::dock::{PanelAppExt, flush_panel};
 
 /// The book the editor opens with.
-const START: &str =
-    include_str!("graphs/examples/medieval_house.ron");
+const START: &str = include_str!("graphs/examples/fence.ron");
 
 /// Books to start from, by name: a sheet alone, or a book of sheets.
-const EXAMPLES: [(&str, &str); 1] = [("Medieval house", START)];
+/// The small ones first, each one idea; the house puts several
+/// together.
+const EXAMPLES: [(&str, &str); 6] = [
+    ("Fence", START),
+    ("Stone wall", include_str!("graphs/examples/stone_wall.ron")),
+    ("Window", include_str!("graphs/examples/window.ron")),
+    (
+        "Stone tower",
+        include_str!("graphs/examples/stone_tower.ron"),
+    ),
+    ("Garden bed", include_str!("graphs/examples/garden_bed.ron")),
+    (
+        "Medieval house",
+        include_str!("graphs/examples/medieval_house.ron"),
+    ),
+];
 
 /// The book an example's text holds.
 fn example(text: &str) -> Option<Book> {
