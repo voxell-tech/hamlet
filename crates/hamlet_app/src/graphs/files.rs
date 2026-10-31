@@ -2,8 +2,10 @@
 //! `graphs/book.ron`, written a moment after each change and read
 //! again at launch; and in any file it is opened from or saved to.
 //! The files of the assets the book adds sit beside it, and go with
-//! it to a file it is saved to and from one it is opened from.
+//! it to a file it is saved to and from one it is opened from. Export
+//! writes the ruleset with those files as one bundle.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -16,7 +18,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
-use hamlet_blueprint::{Book, Shape};
+use hamlet_blueprint::{Book, Bundle, Shape};
 use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 
@@ -47,6 +49,8 @@ pub(super) struct Files {
     restored: bool,
     /// What the dialogs answer to.
     asker: Option<Entity>,
+    /// What the export dialog answers to.
+    exporter: Option<Entity>,
 }
 
 impl Files {
@@ -205,6 +209,54 @@ pub(super) fn save_as(world: &mut World) {
     ask(world, FileMode::Save, "Save the graph book");
 }
 
+/// Asks for a file to export the bundle to.
+pub(super) fn export(world: &mut World) {
+    let exporter = match world.resource::<Files>().exporter {
+        Some(exporter) => exporter,
+        None => {
+            let exporter = world.spawn_empty().id();
+            world.resource_mut::<Files>().exporter = Some(exporter);
+            exporter
+        }
+    };
+    let name =
+        format!("{}-bundle.ron", world.resource::<Editor>().name);
+    world.trigger(ChooseFile {
+        asker: exporter,
+        mode: FileMode::Save,
+        title: "Export a bundle".to_owned(),
+        extension: "ron".to_owned(),
+        name,
+    });
+}
+
+/// Writes the bundle of `editor`'s book to `path`, with the files of
+/// its assets read from `kept`. A graph that fails is not exported.
+fn write_bundle(
+    path: &Path,
+    editor: &Editor,
+    kept: &Path,
+) -> anyhow::Result<()> {
+    if let Err(problem) = &editor.outcome {
+        anyhow::bail!("Not exported, the graph fails: {problem}");
+    }
+    let ruleset = editor.book().export();
+    let mut files = BTreeMap::new();
+    for asset in ruleset.assets.0.values() {
+        let Shape::Mesh(file) = &asset.shape else {
+            continue;
+        };
+        let bytes = fs::read(kept.join(file))
+            .with_context(|| format!("reading {file}"))?;
+        files.insert(file.clone(), bytes);
+    }
+    let text = Bundle { ruleset, files }
+        .to_ron()
+        .context("writing the bundle")?;
+    fs::write(path, text)
+        .with_context(|| format!("writing {}", path.display()))
+}
+
 fn ask(world: &mut World, mode: FileMode, title: &str) {
     let asker = match world.resource::<Files>().asker {
         Some(asker) => asker,
@@ -240,10 +292,28 @@ fn chosen(
     mut meshes: ResMut<Meshes>,
     mut commands: Commands,
 ) {
+    let kept = folder.map(|folder| book_folder(&folder.0));
+    if files.exporter == Some(chosen.asker) {
+        let path = match chosen.path.extension() {
+            None => chosen.path.with_extension("ron"),
+            Some(_) => chosen.path.clone(),
+        };
+        let name = path.file_name().map_or(String::new(), |name| {
+            name.to_string_lossy().into_owned()
+        });
+        files.note = match kept
+            .as_deref()
+            .map(|kept| write_bundle(&path, &editor, kept))
+        {
+            Some(Ok(())) => format!("Exported {name}"),
+            Some(Err(error)) => format!("{error:#}"),
+            None => String::new(),
+        };
+        return;
+    }
     if files.asker != Some(chosen.asker) {
         return;
     }
-    let kept = folder.map(|folder| book_folder(&folder.0));
     let path = match chosen.mode {
         FileMode::Save if chosen.path.extension().is_none() => {
             chosen.path.with_extension("ron")

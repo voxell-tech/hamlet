@@ -22,7 +22,7 @@ use bevy_fynix::views::{
     icon_button, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
-use hamlet_blueprint::{Asset, Paint, Shape};
+use hamlet_blueprint::{Asset, Paint, Shape, Socket};
 use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_realm::meshes::Meshing;
@@ -93,6 +93,7 @@ pub(super) struct Model {
     parts: Vec<Part>,
     low: Vec3,
     high: Vec3,
+    sockets: BTreeMap<String, Socket>,
 }
 
 struct Part {
@@ -162,9 +163,9 @@ fn read(bytes: &[u8]) -> anyhow::Result<Model> {
         .default_scene()
         .or_else(|| gltf.scenes().next())
         .context("the file has no scene")?;
-    let mut parts = Vec::new();
+    let (mut parts, mut marks) = (Vec::new(), Vec::new());
     for node in scene.nodes() {
-        walk(&node, Mat4::IDENTITY, blob, &mut parts);
+        walk(&node, Mat4::IDENTITY, blob, &mut parts, &mut marks);
     }
     let (mut low, mut high) =
         (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
@@ -173,17 +174,51 @@ fn read(bytes: &[u8]) -> anyhow::Result<Model> {
         high = high.max(*p);
     }
     anyhow::ensure!(low.x <= high.x, "the file has no triangles");
-    Ok(Model { parts, low, high })
+    let (centre, extent) = ((low + high) * 0.5, high - low);
+    let sockets = marks
+        .into_iter()
+        .map(|(name, transform)| {
+            let (_, turn, at) =
+                transform.to_scale_rotation_translation();
+            // On an axis the asset is flat along, the socket is on
+            // it.
+            let at = Vec3::select(
+                extent.cmpgt(Vec3::splat(1e-4)),
+                (at - centre) / extent.max(Vec3::splat(1e-4)),
+                Vec3::ZERO,
+            );
+            (name, Socket { at, turn })
+        })
+        .collect();
+    Ok(Model {
+        parts,
+        low,
+        high,
+        sockets,
+    })
 }
 
+/// Reads the triangles of `node` and those below it into `parts`. A
+/// node named `socket_<name>` marks a socket, kept in `marks`, and
+/// its own mesh is not drawn.
 fn walk(
     node: &gltf::Node,
     above: Mat4,
     blob: Option<&[u8]>,
     parts: &mut Vec<Part>,
+    marks: &mut Vec<(String, Mat4)>,
 ) {
     let transform =
         above * Mat4::from_cols_array_2d(&node.transform().matrix());
+    if let Some(name) =
+        node.name().and_then(|name| name.strip_prefix("socket_"))
+    {
+        marks.push((name.to_owned(), transform));
+        for child in node.children() {
+            walk(&child, transform, blob, parts, marks);
+        }
+        return;
+    }
     let turn = transform.inverse().transpose();
     for primitive in
         node.mesh().iter().flat_map(gltf::Mesh::primitives)
@@ -232,7 +267,7 @@ fn walk(
         });
     }
     for child in node.children() {
-        walk(&child, transform, blob, parts);
+        walk(&child, transform, blob, parts, marks);
     }
 }
 
@@ -344,6 +379,14 @@ fn card(name: String, asset: Asset) -> AnyView {
             rows.push(params::labelled(
                 &slot.replace('_', " "),
                 colour(name.clone(), asset.clone(), slot.clone()),
+            ));
+        }
+        if !asset.sockets.is_empty() {
+            let names: Vec<&str> =
+                asset.sockets.keys().map(String::as_str).collect();
+            rows.push(params::labelled(
+                "sockets",
+                note(names.join(", ")).boxed(),
             ));
         }
         column(rows)
@@ -490,6 +533,7 @@ fn add(
         Asset {
             shape: Shape::Mesh(path),
             slots,
+            sockets: model.sockets.clone(),
         },
     ))
 }
@@ -526,9 +570,9 @@ mod tests {
     use super::*;
 
     /// A `.glb` of one triangle in the material `roof_tiles`, with no
-    /// normals, lifted by its node.
+    /// normals, lifted by its node, and a socket at its top corner.
     fn triangle() -> Vec<u8> {
-        let json = r#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0,"translation":[0,1,0]}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"material":0}]}],"materials":[{"name":"roof_tiles"}],"buffers":[{"byteLength":36}],"bufferViews":[{"buffer":0,"byteLength":36}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[2,1,0]}]}"#;
+        let json = r#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0,1]}],"nodes":[{"mesh":0,"translation":[0,1,0]},{"name":"socket_lamp","translation":[2,2,0]}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"material":0}]}],"materials":[{"name":"roof_tiles"}],"buffers":[{"byteLength":36}],"bufferViews":[{"buffer":0,"byteLength":36}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[2,1,0]}]}"#;
         let mut json = json.as_bytes().to_vec();
         json.resize(json.len().next_multiple_of(4), b' ');
         let bin: Vec<u8> =
@@ -550,7 +594,7 @@ mod tests {
     }
 
     #[test]
-    fn a_glb_reads_as_its_triangles_in_their_slots_where_its_nodes_put_them()
+    fn a_glb_reads_as_its_triangles_and_sockets_where_its_nodes_put_them()
      {
         let model = read(&triangle()).expect("the file reads");
         assert_eq!(model.slots(), ["roof_tiles"]);
@@ -559,5 +603,10 @@ mod tests {
             (Vec3::new(0.0, 1.0, 0.0), Vec3::new(2.0, 2.0, 0.0))
         );
         assert_eq!(model.parts[0].normals, [Vec3::Z; 3]);
+        // Flat along z, the socket sits on the triangle.
+        assert_eq!(
+            model.sockets["lamp"].at,
+            Vec3::new(0.5, 0.5, 0.0)
+        );
     }
 }

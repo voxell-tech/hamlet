@@ -13,7 +13,9 @@ use bevy_fynix::views::{
     number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, Signal, ViewExt, resource};
-use hamlet_blueprint::{Constant, Edit, NodeId, Setting, ValueType};
+use hamlet_blueprint::{
+    Constant, Edit, Listed, NodeId, Setting, ValueType,
+};
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{note, text_input};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -123,7 +125,9 @@ pub(super) fn control(
             .gap(2.0)
             .boxed(),
             ValueType::Bool => flag(node, input.clone()),
-            _ if !input.choices.is_empty() || input.assets => {
+            _ if !input.choices.is_empty()
+                || input.listed.is_some() =>
+            {
                 choice(node, input.clone())
             }
             _ => words(node, input.clone()),
@@ -236,10 +240,15 @@ fn choice(node: NodeId, input: Input) -> AnyView {
     .padding(bevy::ui::UiRect::axes(px(6.0), px(0.0)))
     .rules(text_input)
     .on_activate(move |world| {
-        let choices = if input.assets {
-            world.resource::<Editor>().rules.assets.names()
-        } else {
-            input.choices.iter().map(|c| (*c).to_owned()).collect()
+        let catalogue = &world.resource::<Editor>().rules.assets;
+        let choices = match input.listed {
+            Some(Listed::Assets) => catalogue.names(),
+            Some(Listed::Sockets) => catalogue.socket_names(),
+            None => input
+                .choices
+                .iter()
+                .map(|c| (*c).to_owned())
+                .collect(),
         };
         super::menu::choose(world, node, input.name.clone(), choices);
     })

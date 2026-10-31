@@ -45,8 +45,8 @@ use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{BehaviorExt, frame};
 use bevy_fynix::{EntityCursor, OverrideCursor, Theme};
 use hamlet_blueprint::{
-    Constant, Does, Edit, Initial, NodeId, Port, PortSpec, ValueType,
-    Wire, ports,
+    Constant, Does, Edit, Initial, Listed, NodeId, Port, PortSpec,
+    ValueType, Wire, ports,
 };
 use hamlet_ui::styles::Fills;
 use hamlet_ui::theme::{HamletTheme, Palette};
@@ -130,8 +130,8 @@ pub(super) struct Input {
     pub(super) initial: Option<Constant>,
     /// The choices a choice takes. Empty for any text.
     pub(super) choices: &'static [&'static str],
-    /// Whether it names an asset, its choices the catalogue's.
-    pub(super) assets: bool,
+    /// What of the catalogue it names, its choices the catalogue's.
+    pub(super) listed: Option<Listed>,
 }
 
 impl Input {
@@ -146,7 +146,7 @@ impl Input {
                 Initial::Choice(c) => Constant::Choice(c.to_owned()),
             }),
             choices: spec.choices,
-            assets: spec.assets,
+            listed: spec.listed,
         }
     }
 }
@@ -368,7 +368,7 @@ fn specs(editor: &Editor, node: NodeId) -> Vec<Input> {
                         value_type: input.value_type,
                         initial: input.default.clone(),
                         choices: &[],
-                        assets: false,
+                        listed: None,
                     })
                     .collect()
             })
@@ -421,7 +421,9 @@ fn frame_bounds(editor: &Editor, at: usize) -> Option<(Vec2, Vec2)> {
 
 /// A place for every card of the open sheet: a column for each step
 /// from the graph's start, each card beside the cards that feed it,
-/// and each column stacked by the cards' heights.
+/// and each column stacked by the cards' heights. Each group is a
+/// band of its own, below the one before, so no two frames overlap;
+/// the cards in no group are the last band.
 pub(super) fn arrange(editor: &Editor) -> BTreeMap<NodeId, Vec2> {
     const ACROSS: f32 = 72.0;
     const DOWN: f32 = 24.0;
@@ -442,49 +444,87 @@ pub(super) fn arrange(editor: &Editor) -> BTreeMap<NodeId, Vec2> {
             break;
         }
     }
-    let mut columns = BTreeMap::<usize, Vec<NodeId>>::new();
-    for node in &graph.nodes {
-        columns
-            .entry(step.get(&node.id).copied().unwrap_or_default())
-            .or_default()
-            .push(node.id);
-    }
-    let mut placed = BTreeMap::new();
-    for (column, nodes) in columns {
-        // Each card goes as near as it can to the middle of the cards
-        // that feed it, all in columns already placed.
-        let mut wanted: Vec<(NodeId, f32)> = nodes
-            .into_iter()
-            .map(|node| {
-                let ys: Vec<f32> = graph
-                    .wires
-                    .iter()
-                    .filter(|wire| wire.to.node == node)
-                    .filter_map(|wire| placed.get(&wire.from.node))
-                    .map(|at: &Vec2| at.y)
-                    .collect();
-                let y = if ys.is_empty() {
-                    f32::MAX
-                } else {
-                    ys.iter().sum::<f32>() / ys.len() as f32
-                };
-                (node, y)
+    let groups = &editor.sheet.groups;
+    let mut bands: Vec<(bool, Vec<NodeId>)> = groups
+        .iter()
+        .map(|group| {
+            let nodes = graph
+                .nodes
+                .iter()
+                .map(|node| node.id)
+                .filter(|id| group.nodes.contains(id))
+                .collect();
+            (true, nodes)
+        })
+        .collect();
+    bands.push((
+        false,
+        graph
+            .nodes
+            .iter()
+            .map(|node| node.id)
+            .filter(|id| {
+                !groups.iter().any(|group| group.nodes.contains(id))
             })
-            .collect();
-        wanted.sort_by(|a, b| a.1.total_cmp(&b.1));
-        let x = column as f32 * (WIDTH + ACROSS);
-        let mut y = 0.0_f32;
-        for (id, want) in wanted {
-            let Some(node) = graph.node(id) else {
-                continue;
-            };
-            if want < f32::MAX {
-                y = y.max(want);
-            }
-            placed.insert(id, Vec2::new(x, y));
-            let (inputs, outputs) = rows(editor, node);
-            y += height(inputs.len() + outputs.len()) + DOWN;
+            .collect(),
+    ));
+    let mut placed = BTreeMap::new();
+    let mut top = 0.0_f32;
+    for (framed, band) in bands {
+        if band.is_empty() {
+            continue;
         }
+        // A frame stands off its cards, its title above them.
+        let start = if framed { top + MARGIN + TITLE } else { top };
+        let mut bottom = start;
+        let mut columns = BTreeMap::<usize, Vec<NodeId>>::new();
+        for node in band {
+            columns
+                .entry(step.get(&node).copied().unwrap_or_default())
+                .or_default()
+                .push(node);
+        }
+        for (column, nodes) in columns {
+            // Each card goes as near as it can to the middle of the
+            // cards that feed it, all in columns already placed.
+            let mut wanted: Vec<(NodeId, f32)> = nodes
+                .into_iter()
+                .map(|node| {
+                    let ys: Vec<f32> = graph
+                        .wires
+                        .iter()
+                        .filter(|wire| wire.to.node == node)
+                        .filter_map(|wire| {
+                            placed.get(&wire.from.node)
+                        })
+                        .map(|at: &Vec2| at.y)
+                        .collect();
+                    let y = if ys.is_empty() {
+                        f32::MAX
+                    } else {
+                        ys.iter().sum::<f32>() / ys.len() as f32
+                    };
+                    (node, y)
+                })
+                .collect();
+            wanted.sort_by(|a, b| a.1.total_cmp(&b.1));
+            let x = column as f32 * (WIDTH + ACROSS);
+            let mut y = start;
+            for (id, want) in wanted {
+                let Some(node) = graph.node(id) else {
+                    continue;
+                };
+                if want < f32::MAX {
+                    y = y.max(want);
+                }
+                placed.insert(id, Vec2::new(x, y));
+                let (inputs, outputs) = rows(editor, node);
+                y += height(inputs.len() + outputs.len());
+                bottom = bottom.max(y);
+                y += DOWN;
+            }
+        }
+        top = bottom + if framed { MARGIN } else { 0.0 } + DOWN * 2.0;
     }
     placed
 }

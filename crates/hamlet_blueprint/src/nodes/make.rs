@@ -5,12 +5,19 @@ use bevy_math::Vec3;
 use super::{PLACEMENTS_IN, PLACEMENTS_OUT};
 use crate::eval::{Problem, Run};
 use crate::graph::Scope;
-use crate::node::{Initial, NodeKind, PortSpec};
+use crate::node::{Initial, Listed, NodeKind, PortSpec};
 use crate::turn;
 use crate::value::{Frame, Placement, PlacementId, Value, ValueType};
 
-pub(super) const KINDS: &[NodeKind] =
-    &[BOX, GRID, ALONG_CURVE, CURVE_CORNERS, ON_SURFACE, SPLIT];
+pub(super) const KINDS: &[NodeKind] = &[
+    BOX,
+    GRID,
+    ALONG_CURVE,
+    CURVE_CORNERS,
+    ON_SURFACE,
+    SPLIT,
+    ON_SOCKETS,
+];
 
 const CURVE_IN: PortSpec =
     PortSpec::new("curve", ValueType::Curve, "The curve to follow");
@@ -37,6 +44,61 @@ const BOX: NodeKind = NodeKind {
     outputs: &[PLACEMENTS_OUT],
     run: make_box,
 };
+
+const ON_SOCKETS: NodeKind = NodeKind {
+    name: "on_sockets",
+    doc: "A placement at a socket of each asset that has it, turned \
+          as the socket is",
+    inputs: &[
+        PortSpec::new(
+            "geometry",
+            ValueType::Geometry,
+            "The assets whose sockets to place on",
+        ),
+        PortSpec::new(
+            "socket",
+            ValueType::Choice,
+            "The socket's name, as its asset's file has it",
+        )
+        .listed(Listed::Sockets)
+        .initial(Initial::Choice("lamp")),
+    ],
+    outputs: &[PLACEMENTS_OUT],
+    run: on_sockets,
+};
+
+fn on_sockets(run: &mut Run) -> Result<(), Problem> {
+    let name = run.choice("socket", None)?;
+    let mut placements = Vec::new();
+    for instance in run.geometry("geometry")? {
+        let Some(socket) = run
+            .asset(&instance.asset)
+            .and_then(|asset| asset.sockets.get(&name).copied())
+        else {
+            continue;
+        };
+        // An asset stands on its frame, its box above it.
+        let size = instance.size * instance.frame.scale;
+        let rotation = instance.frame.rotation;
+        let frame = Frame {
+            translation: instance.frame.translation
+                + rotation * ((socket.at + Vec3::Y * 0.5) * size),
+            rotation: rotation * socket.turn,
+            scale: Vec3::ONE,
+        };
+        let index = placements.len() as u32;
+        let mut placement =
+            Placement::new(run.id(PlacementId::ROOT, index), frame);
+        placement.index = index;
+        placements.push(placement);
+    }
+    let count = placements.len() as u32;
+    for placement in &mut placements {
+        placement.count = count;
+    }
+    run.put("placements", Value::Placements(placements));
+    Ok(())
+}
 
 fn make_box(run: &mut Run) -> Result<(), Problem> {
     let mut placement = Placement::new(

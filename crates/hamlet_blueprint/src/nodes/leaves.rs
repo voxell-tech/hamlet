@@ -4,7 +4,7 @@ use bevy_math::Vec3;
 
 use super::PLACEMENTS_IN;
 use crate::eval::{Problem, Run};
-use crate::node::{Initial, NodeKind, PortSpec};
+use crate::node::{Initial, Listed, NodeKind, PortSpec};
 use crate::value::{Frame, Instance, Value, ValueType};
 
 pub(super) const KINDS: &[NodeKind] = &[INSTANCE, PLACE, JOIN];
@@ -25,7 +25,7 @@ const INSTANCE: NodeKind = NodeKind {
             ValueType::Choice,
             "The asset's name in the catalogue",
         )
-        .assets()
+        .listed(Listed::Assets)
         .initial(Initial::Choice("box")),
         PortSpec::new(
             "size",

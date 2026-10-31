@@ -5,6 +5,7 @@
 //! runs a ruleset with [`evaluate`] and a set of [`Seeds`], and gets
 //! back [`Instance`]s of named assets.
 
+mod bundle;
 mod catalogue;
 mod edit;
 mod eval;
@@ -16,7 +17,8 @@ mod seed;
 mod turn;
 mod value;
 
-pub use catalogue::{Asset, BODY, Catalogue, Paint, Shape};
+pub use bundle::Bundle;
+pub use catalogue::{Asset, BODY, Catalogue, Paint, Shape, Socket};
 pub use edit::{Edit, EditRefusal};
 pub use eval::{
     GraphProblem, PortInfo, Problem, Run, Seeds, evaluate, ports,
@@ -27,7 +29,7 @@ pub use graph::{
     Book, Does, Graph, GraphInput, GraphOutput, Group, Node, NodeId,
     Port, Roll, Ruleset, Scope, Setting, Sheet, Spread, Vary, Wire,
 };
-pub use node::{Initial, NodeKind, PortSpec, Registry};
+pub use node::{Initial, Listed, NodeKind, PortSpec, Registry};
 pub use seed::Seed;
 pub use value::{
     Constant, Curve, Frame, Instance, Placement, PlacementId, Value,

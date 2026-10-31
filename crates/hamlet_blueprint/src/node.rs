@@ -29,9 +29,9 @@ pub struct PortSpec {
     pub initial: Option<Initial>,
     /// The choices a choice input takes. Empty for any text.
     pub choices: &'static [&'static str],
-    /// Whether this choice input names an asset, its choices those
-    /// of the catalogue.
-    pub assets: bool,
+    /// What of the catalogue this choice input names, its choices
+    /// those the catalogue has.
+    pub listed: Option<Listed>,
     /// Whether this choice input names its node: an editor shows
     /// each choice as a node of its own, titled by it, and not the
     /// input.
@@ -53,7 +53,7 @@ impl PortSpec {
             doc,
             initial: None,
             choices: &[],
-            assets: false,
+            listed: None,
             names: false,
             used_with: &[],
         }
@@ -73,9 +73,9 @@ impl PortSpec {
         Self { choices, ..self }
     }
 
-    pub const fn assets(self) -> Self {
+    pub const fn listed(self, listed: Listed) -> Self {
         Self {
-            assets: true,
+            listed: Some(listed),
             ..self
         }
     }
@@ -93,6 +93,14 @@ impl PortSpec {
     ) -> Self {
         Self { used_with, ..self }
     }
+}
+
+/// What of the catalogue a choice input names.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Listed {
+    Assets,
+    /// A socket of any asset.
+    Sockets,
 }
 
 /// The initial value of an input.

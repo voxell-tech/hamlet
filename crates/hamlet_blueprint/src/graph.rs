@@ -291,7 +291,9 @@ impl Book {
     }
 }
 
-fn to_ron(value: &impl Serialize) -> Result<String, ron::Error> {
+pub(crate) fn to_ron(
+    value: &impl Serialize,
+) -> Result<String, ron::Error> {
     let pretty = ron::ser::PrettyConfig::new()
         .struct_names(false)
         .compact_arrays(true);

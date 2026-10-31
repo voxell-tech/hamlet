@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bevy_math::Vec3;
 
+use crate::catalogue::{Asset, Catalogue};
 use crate::field::Field;
 use crate::graph::{
     Does, Graph, Node, NodeId, Roll, Ruleset, Scope, Setting, Spread,
@@ -494,6 +495,7 @@ impl Runner<'_> {
                     }
                     let mut run = Run {
                         kind,
+                        assets: &self.ruleset.assets,
                         node: node.id,
                         seed,
                         seeds: self.seeds,
@@ -656,6 +658,7 @@ const ORIGIN: Placement = Placement {
 /// read and its outputs to give.
 pub struct Run<'a> {
     kind: &'a NodeKind,
+    assets: &'a Catalogue,
     node: NodeId,
     seed: Seed,
     seeds: Seeds,
@@ -865,6 +868,11 @@ impl Run<'_> {
 
     /// The id of the `index`th placement this node makes from
     /// `parent`.
+    /// The asset named `name`, as the ruleset's catalogue has it.
+    pub fn asset(&self, name: &str) -> Option<Asset> {
+        self.assets.get(name)
+    }
+
     pub fn id(&self, parent: PlacementId, index: u32) -> PlacementId {
         PlacementId(self.seed.mix(parent.0).mix(u64::from(index)).0)
     }

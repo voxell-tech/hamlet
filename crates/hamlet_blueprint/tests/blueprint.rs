@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bevy_math::{Vec2, Vec3};
 use hamlet_blueprint::{
-    Does, Edit, Group, Instance, Node, NodeId, Problem, Registry,
-    Ruleset, Seed, Seeds, Setting, Sheet, Value, evaluate, validate,
+    Bundle, Does, Edit, Group, Instance, Node, NodeId, Problem,
+    Registry, Ruleset, Seed, Seeds, Setting, Sheet, Value, evaluate,
+    validate,
 };
 
 /// Posts along a line, each lifted and turned at random, per
@@ -347,4 +348,20 @@ fn sheet_round_trips_and_edits_undo() {
     assert_eq!(sheet.graph.wires.len(), before.graph.wires.len());
     assert_eq!(sheet.layout, before.layout);
     assert_eq!(sheet.groups, before.groups);
+}
+
+#[test]
+fn a_bundle_round_trips_with_its_files() {
+    let bundle = Bundle {
+        ruleset: fence(),
+        files: BTreeMap::from([(
+            "assets/lamp.glb".to_owned(),
+            vec![0, 255, 10, 13],
+        )]),
+    };
+    let text = bundle.to_ron().expect("the bundle writes");
+    assert_eq!(
+        Bundle::from_ron(&text).expect("the bundle reads"),
+        bundle
+    );
 }

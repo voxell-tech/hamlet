@@ -1045,6 +1045,12 @@ fn tools() -> impl View {
                     "Save the graph book (Cmd+S; Shift for Save as)",
                     files::save,
                 ),
+                tool(
+                    Glyph::Book,
+                    "Export a bundle: the ruleset and its assets' \
+                     files",
+                    files::export,
+                ),
                 dropdown(
                     EXAMPLES.map(|(name, _)| name),
                     usize::MAX,
