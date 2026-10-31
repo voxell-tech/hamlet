@@ -36,7 +36,7 @@ use super::{Editor, params};
 
 /// The palette's colours a material slot can take, of those a
 /// building is made of.
-pub(super) const COLOURS: [&str; 16] = [
+pub(super) const COLOURS: [&str; 20] = [
     "plaster",
     "plaster_worn",
     "whitewash",
@@ -53,6 +53,10 @@ pub(super) const COLOURS: [&str; 16] = [
     "tile_drift",
     "slate_roof",
     "moss",
+    "roof",
+    "livery",
+    "pane",
+    "brass",
 ];
 
 pub(super) fn plugin(app: &mut App) {
@@ -83,6 +87,15 @@ pub(super) fn palette_colour(
         "tile_drift" => c.tile_drift,
         "slate_roof" => c.slate_roof,
         "moss" => c.moss,
+        // The first hamlet's roof and the first agent's livery, in
+        // place of the ones the realm picks for each.
+        "roof" => c.towns[0].roof,
+        "livery" => c.livery[0],
+        "pane" => {
+            let lit = c.pane_lit.to_linear();
+            Vec3::new(lit.red, lit.green, lit.blue)
+        }
+        "brass" => c.brass,
         _ => return None,
     })
 }

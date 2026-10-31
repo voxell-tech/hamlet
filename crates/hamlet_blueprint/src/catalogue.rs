@@ -35,11 +35,21 @@ pub struct Socket {
     pub turn: Quat,
 }
 
+/// How an asset is drawn. Each built-in shape has one slot,
+/// [`BODY`], and stands on its placement, its box above the frame.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Shape {
-    /// A rounded box filling the placement, with one slot,
-    /// [`BODY`].
+    /// A rounded box filling the placement.
     Box,
+    /// A triangle across x, its peak at the top `peak` along x from
+    /// the middle (from -0.5 to 0.5), as thick as the placement is
+    /// along z: a gable's end. Two with their peaks at an end meet
+    /// under a ridge that is not in the middle.
+    Wedge { peak: f32 },
+    /// Lapped roof tiles over the placement's frame, from its eave
+    /// along x at +z, as wide as the placement, to its ridge at -z,
+    /// `taper` times as wide. A hip's end has a taper of 0.
+    Tiles { taper: f32 },
     /// A glTF file in the folder beside the book, by its path there.
     Mesh(String),
 }
@@ -54,25 +64,52 @@ pub enum Paint {
     Own,
 }
 
-/// The slot of a [`Shape::Box`].
+/// The slot of a built-in shape.
 pub const BODY: &str = "body";
 
-/// The built-in assets: boxes, each in a colour of the palette.
-const BUILTIN: &[(&str, &str)] = &[
-    ("box", "plaster"),
-    ("wall_plaster", "plaster"),
-    ("post", "timber"),
-    ("post_timber", "timber"),
-    ("beam_timber", "timber_dark"),
-    ("frame_timber", "timber_dark"),
-    ("door", "timber_dark"),
-    ("stone_base", "limestone"),
-    ("stone_chimney", "limestone"),
-    ("sill_stone", "limestone"),
-    ("roof_tiles", "terracotta"),
-    ("roof_slate", "slate_roof"),
-    ("window", "slate_roof"),
-    ("flower_box", "moss"),
+const BOX: Shape = Shape::Box;
+const WEDGE: Shape = Shape::Wedge { peak: 0.0 };
+const HALF: Shape = Shape::Wedge { peak: 0.5 };
+
+/// The built-in assets, each a shape in a colour of the palette.
+const BUILTIN: &[(&str, Shape, &str)] = &[
+    ("box", BOX, "plaster"),
+    ("wall_plaster", BOX, "plaster"),
+    ("wall_ochre", BOX, "ochre"),
+    ("wall_whitewash", BOX, "whitewash"),
+    ("wall_stone", BOX, "limestone"),
+    ("gable_plaster", WEDGE, "plaster"),
+    ("gable_ochre", WEDGE, "ochre"),
+    ("gable_whitewash", WEDGE, "whitewash"),
+    ("gable_stone", WEDGE, "limestone"),
+    ("gable_plaster_half", HALF, "plaster"),
+    ("gable_ochre_half", HALF, "ochre"),
+    ("gable_whitewash_half", HALF, "whitewash"),
+    ("gable_stone_half", HALF, "limestone"),
+    ("plinth", BOX, "limestone_shade"),
+    ("quoin", BOX, "limestone_shade"),
+    ("flagstone", BOX, "limestone"),
+    ("jamb_stone", BOX, "limestone"),
+    ("chimney_cap", BOX, "limestone_shade"),
+    ("door_leaf", BOX, "livery"),
+    ("shutter", BOX, "livery"),
+    ("pane", BOX, "pane"),
+    ("ridge_cap", BOX, "roof"),
+    ("tiles", Shape::Tiles { taper: 1.0 }, "roof"),
+    ("tiles_hip", Shape::Tiles { taper: 0.3 }, "roof"),
+    ("tiles_hip_end", Shape::Tiles { taper: 0.0 }, "roof"),
+    ("post", BOX, "timber"),
+    ("post_timber", BOX, "timber"),
+    ("beam_timber", BOX, "timber_dark"),
+    ("frame_timber", BOX, "timber_dark"),
+    ("door", BOX, "timber_dark"),
+    ("stone_base", BOX, "limestone"),
+    ("stone_chimney", BOX, "limestone"),
+    ("sill_stone", BOX, "limestone"),
+    ("roof_tiles", BOX, "terracotta"),
+    ("roof_slate", BOX, "slate_roof"),
+    ("window", BOX, "slate_roof"),
+    ("flower_box", BOX, "moss"),
 ];
 
 impl Catalogue {
@@ -81,10 +118,10 @@ impl Catalogue {
         if let Some(asset) = self.0.get(name) {
             return Some(asset.clone());
         }
-        let (_, colour) =
-            BUILTIN.iter().find(|(builtin, _)| *builtin == name)?;
+        let (_, shape, colour) =
+            BUILTIN.iter().find(|(builtin, ..)| *builtin == name)?;
         Some(Asset {
-            shape: Shape::Box,
+            shape: shape.clone(),
             slots: BTreeMap::from([(
                 BODY.to_owned(),
                 Paint::Palette((*colour).to_owned()),
@@ -97,7 +134,7 @@ impl Catalogue {
     pub fn names(&self) -> Vec<String> {
         let mut names: Vec<String> = BUILTIN
             .iter()
-            .map(|(name, _)| (*name).to_owned())
+            .map(|(name, ..)| (*name).to_owned())
             .chain(self.0.keys().cloned())
             .collect();
         names.sort();

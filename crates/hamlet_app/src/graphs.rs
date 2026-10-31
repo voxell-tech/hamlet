@@ -51,12 +51,17 @@ use hamlet_ui::{View, styles, with_cx};
 use self::split::{Floating, Handle, Layout, divider, inset_at};
 use crate::dock::{PanelAppExt, flush_panel};
 
-/// The book the editor opens with.
-const START: &str =
-    include_str!("graphs/examples/medieval_house.ron");
+/// The book the editor opens with: the house the game builds.
+const START: &str = include_str!("graphs/examples/game_house.ron");
 
 /// Books to start from, by name: a sheet alone, or a book of sheets.
-const EXAMPLES: [(&str, &str); 1] = [("Medieval house", START)];
+const EXAMPLES: [(&str, &str); 2] = [
+    ("Game house", START),
+    (
+        "Medieval house",
+        include_str!("graphs/examples/medieval_house.ron"),
+    ),
+];
 
 /// The book an example's text holds.
 fn example(text: &str) -> Option<Book> {

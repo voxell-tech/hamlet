@@ -35,10 +35,11 @@ use bevy::ui::widget::ViewportNode;
 use bevy::ui::{ComputedNode, Overflow, percent};
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
 use bevy_fynix::views::{BehaviorExt, frame};
-use hamlet_blueprint::{Asset, BODY, Paint, Shape};
+use hamlet_blueprint::{Asset, BODY, Frame, Paint, Shape};
 use hamlet_client::ViewFolder;
-use hamlet_realm::meshes::Meshing;
-use hamlet_realm::palette::Palette as Colours;
+use hamlet_realm::generator::house::slope;
+use hamlet_realm::meshes::{Meshing, Rng};
+use hamlet_realm::palette::{Palette as Colours, TownStyle};
 use hamlet_realm::pick::{Orbit, Steer, backward, scrolled_lines};
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
 use hamlet_ui::styles::Fills;
@@ -334,32 +335,46 @@ fn rebuild(
                 _ => None,
             };
         let colours = colours.as_deref();
-        if let Some(model) = model {
-            model.draw(
+        let colour = match colours {
+            Some(c) if marker => c.ochre,
+            _ => {
+                paint(colours, asset.as_ref(), BODY, Vec3::splat(0.7))
+            }
+        };
+        let shape = asset.as_ref().map(|asset| &asset.shape);
+        match (model, shape, colours) {
+            (Some(model), ..) => model.draw(
                 &mut meshing,
                 middle,
                 size,
                 instance.frame.rotation,
                 |slot, own| paint(colours, asset.as_ref(), slot, own),
-            );
-        } else {
-            let colour = match colours {
-                Some(c) if marker => c.ochre,
-                _ => paint(
-                    colours,
-                    asset.as_ref(),
-                    BODY,
-                    Vec3::splat(0.7),
-                ),
-            };
-            meshing.rbox(
+            ),
+            (None, Some(Shape::Wedge { peak }), _) => {
+                wedge(
+                    &mut meshing,
+                    &instance.frame,
+                    size,
+                    *peak,
+                    colour,
+                );
+            }
+            (None, Some(Shape::Tiles { taper }), Some(c)) => tiles(
+                &mut meshing,
+                &instance.frame,
+                size,
+                *taper,
+                colour,
+                c,
+            ),
+            _ => meshing.rbox(
                 middle,
                 size * 0.5,
                 0.04,
                 instance.frame.rotation,
                 colour,
                 if marker { 0.0 } else { 0.25 },
-            );
+            ),
         }
         low = low.min(middle - size);
         high = high.max(middle + size);
@@ -390,6 +405,92 @@ fn rebuild(
         MeshMaterial3d(preview.material.clone()),
         RenderLayers::layer(LAYER),
     ));
+}
+
+/// A triangle across x on `frame`, `size.y` high at `peak` along x
+/// and `size.z` thick: a gable's end.
+fn wedge(
+    meshing: &mut Meshing,
+    frame: &Frame,
+    size: Vec3,
+    peak: f32,
+    colour: Vec3,
+) {
+    let at = |x: f32, y: f32, z: f32| {
+        frame.translation
+            + frame.rotation * (Vec3::new(x, y, z) * size)
+    };
+    let turn = |v: Vec3| frame.rotation * v;
+    let (front, back) = (0.5, -0.5);
+    let corner = |x: f32, z: f32| at(x, 0.0, z);
+    let top = |z: f32| at(peak, 1.0, z);
+    meshing.face(
+        [
+            corner(-0.5, front),
+            corner(0.5, front),
+            top(front),
+            top(front),
+        ],
+        turn(Vec3::Z),
+        colour,
+    );
+    meshing.face(
+        [corner(0.5, back), corner(-0.5, back), top(back), top(back)],
+        turn(-Vec3::Z),
+        colour,
+    );
+    // Each sloping side faces out and up, steeper the nearer the
+    // peak.
+    let sides = [
+        (-0.5, Vec3::new(-size.y, (peak + 0.5) * size.x, 0.0)),
+        (0.5, Vec3::new(size.y, (0.5 - peak) * size.x, 0.0)),
+    ];
+    for (x, toward) in sides {
+        meshing.face(
+            [
+                corner(x, back),
+                corner(x, front),
+                top(front),
+                top(back),
+            ],
+            turn(toward),
+            colour * 0.95,
+        );
+    }
+}
+
+/// Lapped tiles over `frame` as the game lays a roof's slope, from
+/// the eave at +z to the ridge at -z, `taper` times as wide. The
+/// roof's own colour drifts as the hamlet's roofs do.
+fn tiles(
+    meshing: &mut Meshing,
+    frame: &Frame,
+    size: Vec3,
+    taper: f32,
+    colour: Vec3,
+    c: &Colours,
+) {
+    let at = |x: f32, z: f32| {
+        frame.translation
+            + frame.rotation
+                * (Vec3::new(x * size.x, 0.0, z * size.z))
+    };
+    let eave = [at(-0.5, 0.5), at(0.5, 0.5)];
+    let ridge = [at(-0.5 * taper, -0.5), at(0.5 * taper, -0.5)];
+    let town = &c.towns[0];
+    let style = TownStyle {
+        roof: colour,
+        drift: if colour == town.roof {
+            town.drift
+        } else {
+            colour * 1.15
+        },
+        banner: town.banner,
+    };
+    // Seeded by where it is, so a slope keeps its tiles from run to
+    // run.
+    let mut rng = Rng::seeded(&format!("{:?}", frame.translation));
+    slope(meshing, &mut rng, eave, ridge, &style, c);
 }
 
 /// The colour of an asset's material slot, as its catalogue entry
