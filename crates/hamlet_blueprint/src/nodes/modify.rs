@@ -7,10 +7,10 @@ use crate::eval::{Problem, Run};
 use crate::graph::Scope;
 use crate::node::{Initial, NodeKind, PortSpec};
 use crate::turn;
-use crate::value::{Transform, Value, ValueType};
+use crate::value::{Frame, Transform, Value, ValueType};
 
 pub(super) const KINDS: &[NodeKind] =
-    &[REPEAT, OFFSET, CULL, KEEP_APART, MERGE];
+    &[MATMUL, RANDOM_TRANSFORM, REPEAT, CULL, KEEP_APART, MERGE];
 
 const REPEAT: NodeKind = NodeKind {
     name: "repeat",
@@ -53,64 +53,156 @@ fn repeat(run: &mut Run) -> Result<(), Problem> {
     Ok(())
 }
 
-const OFFSET: NodeKind = NodeKind {
-    name: "offset",
-    doc: "Moves, turns and scales each transform. Random or field \
-          values make it a jitter",
+const MATMUL: NodeKind = NodeKind {
+    name: "matmul",
+    doc: "Each transform of a times b, as matrices: b done in a's \
+          own frame. One b goes on every a, one a takes every b, \
+          and lists of the same length go pair by pair",
     inputs: &[
-        TRANSFORMS_IN,
-        PortSpec::new("move_x", ValueType::Number, "Metres along x")
-            .initial(Initial::Number(0.0)),
-        PortSpec::new("move_y", ValueType::Number, "Metres along y")
-            .initial(Initial::Number(0.0)),
-        PortSpec::new("move_z", ValueType::Number, "Metres along z")
-            .initial(Initial::Number(0.0)),
-        PortSpec::new("yaw", ValueType::Number, "Degrees about y")
-            .initial(Initial::Number(0.0)),
-        PortSpec::new("pitch", ValueType::Number, "Degrees about x")
-            .initial(Initial::Number(0.0)),
-        PortSpec::new("roll", ValueType::Number, "Degrees about z")
-            .initial(Initial::Number(0.0)),
-        PortSpec::new("scale", ValueType::Number, "Times its size")
-            .initial(Initial::Number(1.0)),
         PortSpec::new(
-            "space",
-            ValueType::Choice,
-            "Whether moves follow each transform's turn",
-        )
-        .initial(Initial::Choice("local"))
-        .choices(&["local", "world"]),
+            "a",
+            ValueType::Transforms,
+            "The outer transforms",
+        ),
+        PortSpec::new(
+            "b",
+            ValueType::Transforms,
+            "The transforms done in each a's frame",
+        ),
     ],
     outputs: &[TRANSFORMS_OUT],
-    run: offset,
+    run: matmul,
 };
 
-fn offset(run: &mut Run) -> Result<(), Problem> {
-    let local = run.choice("space", None)? == "local";
-    let mut placed = Vec::new();
-    for original in run.transforms("transforms")? {
-        let at = Some(original);
-        let mut moved = original.clone();
-        let offset = Vec3::new(
-            run.number("move_x", at)?,
-            run.number("move_y", at)?,
-            run.number("move_z", at)?,
-        );
-        moved.frame.translation += if local {
-            original.frame.rotation * offset
-        } else {
-            offset
+fn matmul(run: &mut Run) -> Result<(), Problem> {
+    let (a, b) = (run.transforms("a")?, run.transforms("b")?);
+    // Each result keeps the item of the list it was one of, so ids
+    // and counts hold for what comes after.
+    let times = |outer: &Transform,
+                 inner: &Transform,
+                 keep: &Transform| {
+        let mut made = keep.clone();
+        made.frame = Frame {
+            translation: outer.frame.point(inner.frame.translation),
+            rotation: outer.frame.rotation * inner.frame.rotation,
+            scale: outer.frame.scale * inner.frame.scale,
         };
-        moved.frame.rotation = original.frame.rotation
-            * turn::euler(
-                run.number("yaw", at)?,
-                run.number("pitch", at)?,
-                run.number("roll", at)?,
-            );
-        moved.frame.scale *= run.number("scale", at)?;
-        placed.push(moved);
-    }
-    run.put("transforms", Value::Transforms(placed));
+        made
+    };
+    let made: Vec<Transform> = match (a.len(), b.len()) {
+        (_, 1) => {
+            a.iter().map(|outer| times(outer, &b[0], outer)).collect()
+        }
+        (1, _) => {
+            b.iter().map(|inner| times(&a[0], inner, inner)).collect()
+        }
+        (left, right) if left == right => a
+            .iter()
+            .zip(b)
+            .map(|(outer, inner)| times(outer, inner, outer))
+            .collect(),
+        _ => {
+            return Err(run.invalid(
+                "b",
+                "must be one transform, or as many as a",
+            ));
+        }
+    };
+    run.put("transforms", Value::Transforms(made));
+    Ok(())
+}
+
+const RANDOM_TRANSFORM: NodeKind = NodeKind {
+    name: "random_transform",
+    doc: "A random transform for each transform of a list, between \
+          the lowest and highest move, turn and scale, picked anew \
+          for each house: wire both into matmul to jitter the list",
+    inputs: &[
+        PortSpec::new(
+            "for",
+            ValueType::Transforms,
+            "The list to give one to each of",
+        ),
+        PortSpec::new("move_low", ValueType::Point, "The least move")
+            .initial(Initial::Point(Vec3::ZERO)),
+        PortSpec::new("move_high", ValueType::Point, "The most move")
+            .initial(Initial::Point(Vec3::ZERO)),
+        PortSpec::new(
+            "turn_low",
+            ValueType::Point,
+            "The least turn, in degrees about x, y and z",
+        )
+        .initial(Initial::Point(Vec3::ZERO)),
+        PortSpec::new(
+            "turn_high",
+            ValueType::Point,
+            "The most turn, in degrees about x, y and z",
+        )
+        .initial(Initial::Point(Vec3::ZERO)),
+        PortSpec::new(
+            "scale_low",
+            ValueType::Point,
+            "The least scale",
+        )
+        .initial(Initial::Point(Vec3::ONE)),
+        PortSpec::new(
+            "scale_high",
+            ValueType::Point,
+            "The most scale",
+        )
+        .initial(Initial::Point(Vec3::ONE)),
+        PortSpec::new(
+            "scale_evenly",
+            ValueType::Bool,
+            "Whether one pick scales every axis alike",
+        )
+        .initial(Initial::Bool(true)),
+    ],
+    outputs: &[TRANSFORMS_OUT],
+    run: random_transform,
+};
+
+fn random_transform(run: &mut Run) -> Result<(), Problem> {
+    let span = |low: Vec3, high: Vec3, at: [f32; 3]| {
+        low + (high - low) * Vec3::from(at)
+    };
+    let (move_low, move_high) =
+        (run.point("move_low")?, run.point("move_high")?);
+    let (turn_low, turn_high) =
+        (run.point("turn_low")?, run.point("turn_high")?);
+    let (scale_low, scale_high) =
+        (run.point("scale_low")?, run.point("scale_high")?);
+    let evenly = run.flag("scale_evenly", None)?;
+    let chance = run.chance(Scope::House);
+    let made = run
+        .transforms("for")?
+        .iter()
+        .map(|item| {
+            let key = chance.mix(item.id.0);
+            let pick = |part: u64| {
+                let key = key.mix(part);
+                [
+                    key.mix(1).unit(),
+                    key.mix(2).unit(),
+                    key.mix(3).unit(),
+                ]
+            };
+            let turn = span(turn_low, turn_high, pick(2));
+            let scale = if evenly {
+                span(scale_low, scale_high, [key.mix(3).unit(); 3])
+            } else {
+                span(scale_low, scale_high, pick(3))
+            };
+            let mut made = item.clone();
+            made.frame = Frame {
+                translation: span(move_low, move_high, pick(1)),
+                rotation: turn::euler(turn.y, turn.x, turn.z),
+                scale,
+            };
+            made
+        })
+        .collect();
+    run.put("transforms", Value::Transforms(made));
     Ok(())
 }
 

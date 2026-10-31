@@ -7,8 +7,8 @@ use hamlet_blueprint::{
     validate,
 };
 
-/// Posts along a line, each lifted and turned at random, per
-/// transform.
+/// Posts along a line, each lifted and turned at random by a random
+/// transform of its own.
 const FENCE: &str = r#"(
     entry: "fence",
     graphs: {
@@ -18,16 +18,20 @@ const FENCE: &str = r#"(
             nodes: [
                 (id: 1, does: Kind("line"), settings: {"to": FromParent("end")}),
                 (id: 2, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(1.0))}),
-                (id: 3, does: Kind("offset"), settings: {
-                    "move_y": Random((spread: Range(0.0, 0.5), scope: Transform)),
-                    "yaw": Random((spread: Range(-10.0, 10.0), scope: Transform)),
+                (id: 3, does: Kind("random_transform"), settings: {
+                    "move_high": Fixed(Point((0.0, 0.5, 0.0))),
+                    "turn_low": Fixed(Point((0.0, -10.0, 0.0))),
+                    "turn_high": Fixed(Point((0.0, 10.0, 0.0))),
                 }),
                 (id: 4, does: Kind("object"), settings: {"asset": Fixed(Choice("post"))}),
+                (id: 5, does: Kind("matmul")),
             ],
             wires: [
                 (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
-                (from: (node: 2, name: "transforms"), to: (node: 3, name: "transforms")),
-                (from: (node: 3, name: "transforms"), to: (node: 4, name: "transform")),
+                (from: (node: 2, name: "transforms"), to: (node: 3, name: "for")),
+                (from: (node: 2, name: "transforms"), to: (node: 5, name: "a")),
+                (from: (node: 3, name: "transforms"), to: (node: 5, name: "b")),
+                (from: (node: 5, name: "transforms"), to: (node: 4, name: "transform")),
             ],
         ),
         "yard": (
