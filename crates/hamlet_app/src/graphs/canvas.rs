@@ -14,7 +14,7 @@ use bevy::color::{Alpha, Color};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Changed, Or, With, Without};
 use bevy::ecs::resource::Resource;
@@ -24,6 +24,7 @@ use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseScrollUnit;
+use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::math::Vec2;
 use bevy::picking::Pickable;
 use bevy::picking::events::{
@@ -32,7 +33,9 @@ use bevy::picking::events::{
 };
 use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
-use bevy::text::{TextColor, TextFont};
+use bevy::text::{
+    EditableText, FontSize, TextColor, TextEdit, TextFont, TextLayout,
+};
 use bevy::ui::widget::Text;
 use bevy::ui::{
     AlignItems, BackgroundColor, BorderColor, BorderRadius,
@@ -70,6 +73,9 @@ const DOT_HIT: f32 = DOT * 2.0;
 /// height.
 const MARGIN: f32 = 16.0;
 const TITLE: f32 = 28.0;
+/// The size a group's title is drawn at on screen, however far the
+/// sheet is zoomed out.
+const TITLE_FONT: f32 = 15.0;
 const LEAST_ZOOM: f32 = 0.3;
 const MOST_ZOOM: f32 = 2.0;
 
@@ -77,7 +83,8 @@ pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Sight>()
         .init_resource::<Gesture>()
         .add_systems(Update, (build, place, paint, lasso).chain())
-        .add_systems(Update, (cancel, faint).chain());
+        .add_systems(Update, (cancel, faint).chain())
+        .add_systems(Update, (titles, retitled));
 }
 
 /// Marks the frame the canvas is drawn in.
@@ -105,6 +112,19 @@ struct Frame(usize);
 /// A group's title bar, which drags its cards.
 #[derive(Component)]
 struct TitleBar(usize);
+
+/// A group's title, drawn on its bar.
+#[derive(Component)]
+struct TitleText(usize);
+
+/// The group whose title is being written, and the field it is
+/// written in.
+#[derive(Resource)]
+struct Retitling {
+    text: Entity,
+    field: Entity,
+    focused: bool,
+}
 
 /// The node a wire is drawn on: the wire's, or none for one being
 /// dragged out of a port.
@@ -667,6 +687,9 @@ fn build(
                     padding: UiRect::horizontal(px(6.0)),
                     align_items: AlignItems::Center,
                     border_radius: BorderRadius::top(px(8.0)),
+                    // A title no wider than its group; as it grows
+                    // when zoomed out, it still rises above the bar.
+                    overflow: Overflow::clip_x(),
                     ..Node::default()
                 },
                 BackgroundColor(palette.border.with_alpha(0.5)),
@@ -678,19 +701,32 @@ fn build(
             .observe(grab_group)
             .observe(drag_card)
             .observe(gesture_end)
+            .observe(retitle)
             .id();
-        commands.queue(move |world: &mut World| {
-            let root = bevy_fynix::mount::<HamletTheme>(
-                world,
-                controls::title(at),
-            );
-            world
-                .entity_mut(root)
-                .insert(ChildOf(bar))
-                .observe(hold_drag_start)
-                .observe(hold_drag)
-                .observe(hold_drag_end);
-        });
+        // Its foot on the bar, so as it grows it grows up, off the
+        // cards; never cut short or wrapped.
+        commands.spawn((
+            TitleText(at),
+            Text::new(
+                editor
+                    .sheet
+                    .groups
+                    .get(at)
+                    .map(|group| group.title.clone())
+                    .unwrap_or_default(),
+            ),
+            TextFont::from_font_size(TITLE_FONT),
+            TextColor(palette.gold_1),
+            TextLayout::no_wrap(),
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(8.0),
+                bottom: px(5.0),
+                ..Node::default()
+            },
+            Pickable::IGNORE,
+            ChildOf(bar),
+        ));
     }
     for node in &editor.sheet.graph.nodes {
         let (inputs, outputs) = rows(&editor, node);
@@ -1210,6 +1246,144 @@ fn held_shift(keys: Option<&ButtonInput<KeyCode>>) -> bool {
     keys.is_some_and(|keys| {
         keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
     })
+}
+
+/// Opens a group's title to be written in on a double press of its
+/// bar: the title gives way to a field with the keys in it.
+fn retitle(
+    press: On<PointerPress>,
+    bars: Query<(&TitleBar, &Children)>,
+    texts: Query<(), With<TitleText>>,
+    mut commands: Commands,
+) {
+    if press.button != PointerButton::Primary || press.count != 2 {
+        return;
+    }
+    let Ok((bar, children)) = bars.get(press.entity) else {
+        return;
+    };
+    let Some(text) = children
+        .iter()
+        .find(|child| texts.contains(**child))
+        .copied()
+    else {
+        return;
+    };
+    let (at, bar) = (bar.0, press.entity);
+    commands.queue(move |world: &mut World| {
+        if world.contains_resource::<Retitling>() {
+            return;
+        }
+        let field = bevy_fynix::mount::<HamletTheme>(
+            world,
+            controls::title(at),
+        );
+        world
+            .entity_mut(field)
+            .insert(ChildOf(bar))
+            .observe(hold_drag_start)
+            .observe(hold_drag)
+            .observe(hold_drag_end);
+        if let Some(mut node) = world.get_mut::<Node>(text) {
+            node.display = Display::None;
+        }
+        world.insert_resource(Retitling {
+            text,
+            field,
+            focused: false,
+        });
+    });
+}
+
+/// Gives the title's field the keys once it is built, and puts the
+/// title back when the field loses them or Enter or Escape is
+/// pressed.
+fn retitled(world: &mut World) {
+    let Some(&Retitling {
+        text,
+        field,
+        focused,
+    }) = world.get_resource::<Retitling>()
+    else {
+        return;
+    };
+    let input = editable_under(world, field);
+    if !focused {
+        if let Some(input) = input {
+            world
+                .resource_mut::<InputFocus>()
+                .set(input, FocusCause::Pressed);
+            if let Some(mut edit) =
+                world.get_mut::<EditableText>(input)
+            {
+                edit.queue_edit(TextEdit::SelectAll);
+            }
+            world.resource_mut::<Retitling>().focused = true;
+        }
+        return;
+    }
+    let keys = world.resource::<ButtonInput<KeyCode>>();
+    let done = keys.any_just_pressed([
+        KeyCode::Enter,
+        KeyCode::NumpadEnter,
+        KeyCode::Escape,
+    ]);
+    let held = input.is_some()
+        && world.resource::<InputFocus>().get() == input;
+    if held && !done {
+        return;
+    }
+    if held {
+        world.resource_mut::<InputFocus>().clear();
+    }
+    if let Ok(field) = world.get_entity_mut(field) {
+        field.despawn();
+    }
+    if let Some(mut node) = world.get_mut::<Node>(text) {
+        node.display = Display::Flex;
+    }
+    world.remove_resource::<Retitling>();
+}
+
+/// The text field under `root`, if it is built.
+fn editable_under(world: &mut World, root: Entity) -> Option<Entity> {
+    let mut found = None;
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if world.get::<EditableText>(entity).is_some() {
+            found = Some(entity);
+            break;
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter());
+        }
+    }
+    found
+}
+
+/// Keeps each group's title what the group says, and as large on
+/// screen however far the sheet is zoomed out.
+fn titles(
+    editor: Res<Editor>,
+    sight: Res<Sight>,
+    mut texts: Query<(&TitleText, &mut Text, &mut TextFont)>,
+    added: Query<(), bevy::ecs::query::Added<TitleText>>,
+) {
+    if !editor.is_changed() && !sight.is_changed() && added.is_empty()
+    {
+        return;
+    }
+    let size = TITLE_FONT / sight.zoom.min(1.0);
+    for (title, mut text, mut font) in &mut texts {
+        if let Some(group) = editor.sheet.groups.get(title.0)
+            && text.0 != group.title
+        {
+            text.0.clone_from(&group.title);
+        }
+        if font.font_size != FontSize::Px(size) {
+            font.font_size = FontSize::Px(size);
+        }
+    }
 }
 
 /// Opens the graph a card runs on a double press.
