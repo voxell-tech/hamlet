@@ -130,6 +130,8 @@ pub(super) struct Input {
     pub(super) initial: Option<Constant>,
     /// The choices a choice takes. Empty for any text.
     pub(super) choices: &'static [&'static str],
+    /// Whether it names an asset, its choices the catalogue's.
+    pub(super) assets: bool,
 }
 
 impl Input {
@@ -144,6 +146,7 @@ impl Input {
                 Initial::Choice(c) => Constant::Choice(c.to_owned()),
             }),
             choices: spec.choices,
+            assets: spec.assets,
         }
     }
 }
@@ -365,6 +368,7 @@ fn specs(editor: &Editor, node: NodeId) -> Vec<Input> {
                         value_type: input.value_type,
                         initial: input.default.clone(),
                         choices: &[],
+                        assets: false,
                     })
                     .collect()
             })

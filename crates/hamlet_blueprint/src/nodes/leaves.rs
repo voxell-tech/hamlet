@@ -25,6 +25,7 @@ const INSTANCE: NodeKind = NodeKind {
             ValueType::Choice,
             "The asset's name in the catalogue",
         )
+        .assets()
         .initial(Initial::Choice("box")),
         PortSpec::new(
             "size",

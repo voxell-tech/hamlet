@@ -72,6 +72,8 @@ pub enum Problem {
     Loop(Vec<NodeId>),
     #[error("the graph runs itself")]
     RunsItself,
+    #[error("{node} puts down {asset}, which is in no catalogue")]
+    UnknownAsset { node: NodeId, asset: String },
 }
 
 /// A [`Problem`] and the graph it is in.
@@ -499,6 +501,28 @@ impl Runner<'_> {
                         outputs: BTreeMap::new(),
                     };
                     (kind.run)(&mut run).map_err(fail)?;
+                    // Only a kind's node puts down a new asset; a
+                    // graph's gives back what its own nodes did.
+                    for value in run.outputs.values() {
+                        let Value::Geometry(instances) = value else {
+                            continue;
+                        };
+                        if let Some(unknown) =
+                            instances.iter().find(|instance| {
+                                self.ruleset
+                                    .assets
+                                    .get(&instance.asset)
+                                    .is_none()
+                            })
+                        {
+                            return Err(fail(
+                                Problem::UnknownAsset {
+                                    node: node.id,
+                                    asset: unknown.asset.clone(),
+                                },
+                            ));
+                        }
+                    }
                     run.outputs
                 }
                 Does::Graph(child) => {

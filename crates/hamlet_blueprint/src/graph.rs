@@ -6,6 +6,7 @@ use std::fmt;
 use bevy_math::Vec2;
 use serde::{Deserialize, Serialize};
 
+use crate::catalogue::Catalogue;
 use crate::value::{Constant, ValueType};
 
 /// An id of a node, unique in its graph and kept in the file, so
@@ -210,13 +211,15 @@ impl Sheet {
 }
 
 /// What the game runs: graphs by name, without the editor's layout,
-/// and the one that makes a house.
+/// the one that makes a house, and the assets they add.
 #[derive(
     Clone, PartialEq, Debug, Default, Serialize, Deserialize,
 )]
 pub struct Ruleset {
     pub entry: String,
     pub graphs: BTreeMap<String, Graph>,
+    #[serde(default, skip_serializing_if = "Catalogue::is_empty")]
+    pub assets: Catalogue,
 }
 
 impl Ruleset {
@@ -224,6 +227,7 @@ impl Ruleset {
     pub fn export(
         entry: &str,
         sheets: &BTreeMap<String, Sheet>,
+        assets: &Catalogue,
     ) -> Self {
         Self {
             entry: entry.to_owned(),
@@ -233,6 +237,7 @@ impl Ruleset {
                     (name.clone(), sheet.graph.clone())
                 })
                 .collect(),
+            assets: assets.clone(),
         }
     }
 
@@ -248,13 +253,16 @@ impl Ruleset {
 }
 
 /// The sheets an author edits together, by name: a graph and those it
-/// uses as nodes. The one named `entry` makes the thing.
+/// uses as nodes. The one named `entry` makes the thing. The assets
+/// the book adds are its, shared by every sheet.
 #[derive(
     Clone, PartialEq, Debug, Default, Serialize, Deserialize,
 )]
 pub struct Book {
     pub entry: String,
     pub sheets: BTreeMap<String, Sheet>,
+    #[serde(default, skip_serializing_if = "Catalogue::is_empty")]
+    pub assets: Catalogue,
 }
 
 impl Book {
@@ -263,12 +271,13 @@ impl Book {
         Self {
             entry: name.to_owned(),
             sheets: BTreeMap::from([(name.to_owned(), sheet)]),
+            assets: Catalogue::default(),
         }
     }
 
     /// The ruleset the game runs from this book.
     pub fn export(&self) -> Ruleset {
-        Ruleset::export(&self.entry, &self.sheets)
+        Ruleset::export(&self.entry, &self.sheets, &self.assets)
     }
 
     pub fn to_ron(&self) -> Result<String, ron::Error> {

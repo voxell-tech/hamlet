@@ -5,6 +5,7 @@
 //! runs a ruleset with [`evaluate`] and a set of [`Seeds`], and gets
 //! back [`Instance`]s of named assets.
 
+mod catalogue;
 mod edit;
 mod eval;
 mod field;
@@ -15,6 +16,7 @@ mod seed;
 mod turn;
 mod value;
 
+pub use catalogue::{Asset, BODY, Catalogue, Paint, Shape};
 pub use edit::{Edit, EditRefusal};
 pub use eval::{
     GraphProblem, PortInfo, Problem, Run, Seeds, evaluate, ports,

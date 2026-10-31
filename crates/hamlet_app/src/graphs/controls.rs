@@ -123,7 +123,7 @@ pub(super) fn control(
             .gap(2.0)
             .boxed(),
             ValueType::Bool => flag(node, input.clone()),
-            _ if !input.choices.is_empty() => {
+            _ if !input.choices.is_empty() || input.assets => {
                 choice(node, input.clone())
             }
             _ => words(node, input.clone()),
@@ -236,12 +236,12 @@ fn choice(node: NodeId, input: Input) -> AnyView {
     .padding(bevy::ui::UiRect::axes(px(6.0), px(0.0)))
     .rules(text_input)
     .on_activate(move |world| {
-        super::menu::choose(
-            world,
-            node,
-            input.name.clone(),
-            input.choices,
-        );
+        let choices = if input.assets {
+            world.resource::<Editor>().rules.assets.names()
+        } else {
+            input.choices.iter().map(|c| (*c).to_owned()).collect()
+        };
+        super::menu::choose(world, node, input.name.clone(), choices);
     })
     .boxed()
 }

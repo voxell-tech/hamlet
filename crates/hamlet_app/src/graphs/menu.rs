@@ -87,7 +87,7 @@ pub(super) enum Menu {
     Choice {
         node: NodeId,
         input: String,
-        choices: &'static [&'static str],
+        choices: Vec<String>,
         at: Vec2,
     },
 }
@@ -261,7 +261,7 @@ pub(super) fn view() -> impl View {
             input,
             choices,
             at,
-        } => choice_menu(*node, input.clone(), choices, *at),
+        } => choice_menu(*node, input.clone(), choices.clone(), *at),
     })
     .within(overlay(()).tagged(Layer))
 }
@@ -605,7 +605,10 @@ fn card(node: NodeId, at: Vec2) -> AnyView {
                             world,
                             node,
                             input.to_owned(),
-                            choices,
+                            choices
+                                .iter()
+                                .map(|c| (*c).to_owned())
+                                .collect(),
                         );
                     })
                     .boxed(),
@@ -679,7 +682,7 @@ pub(super) fn choose(
     world: &mut World,
     node: NodeId,
     input: String,
-    choices: &'static [&'static str],
+    choices: Vec<String>,
 ) {
     let at = world
         .query::<&Window>()
@@ -700,13 +703,14 @@ pub(super) fn choose(
 fn choice_menu(
     node: NodeId,
     input: String,
-    choices: &'static [&'static str],
+    choices: Vec<String>,
     at: Vec2,
 ) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let at = in_layer(cx.world, at);
         let items = choices
             .iter()
+            .cloned()
             .map(|choice| {
                 let input = input.clone();
                 menu_item(label(choice.replace('_', " ")).wrap(false))
@@ -717,7 +721,7 @@ fn choice_menu(
                             node,
                             &input,
                             Some(Setting::Fixed(Constant::Choice(
-                                (*choice).to_owned(),
+                                choice.clone(),
                             ))),
                         );
                     })

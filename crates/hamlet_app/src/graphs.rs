@@ -98,7 +98,8 @@ pub(crate) struct Editor {
     /// Its name in the book.
     pub name: String,
     others: BTreeMap<String, Kept>,
-    /// Every graph of the book, for the ports of nodes that run one.
+    /// Every graph of the book, for the ports of nodes that run one,
+    /// and the assets the book adds.
     pub rules: Ruleset,
     /// The nodes picked to move, copy or delete together.
     pub selected: BTreeSet<NodeId>,
@@ -250,6 +251,7 @@ impl Editor {
                 })
                 .chain([(self.name.clone(), self.sheet.clone())])
                 .collect(),
+            assets: self.rules.assets.clone(),
         }
     }
 
@@ -288,6 +290,7 @@ impl Editor {
             .collect();
         self.sheet = entry;
         self.name = book.entry;
+        self.rules.assets = book.assets;
         self.selected.clear();
         self.undo.clear();
         self.redo.clear();
@@ -388,6 +391,7 @@ impl Editor {
                     self.sheet.graph.clone(),
                 )])
                 .collect(),
+            assets: std::mem::take(&mut self.rules.assets),
         };
         // A sheet with no places, as an example, is laid out once.
         if self.sheet.layout.is_empty() {

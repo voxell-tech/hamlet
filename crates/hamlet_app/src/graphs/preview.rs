@@ -35,7 +35,7 @@ use bevy::ui::widget::ViewportNode;
 use bevy::ui::{ComputedNode, Overflow, percent};
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
 use bevy_fynix::views::{BehaviorExt, frame};
-use hamlet_blueprint::Instance;
+use hamlet_blueprint::{BODY, Catalogue, Instance, Paint};
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::pick::{Orbit, Steer, backward, scrolled_lines};
@@ -325,7 +325,11 @@ fn rebuild(
             size * 0.5,
             0.04,
             instance.frame.rotation,
-            colour(colours.as_deref(), instance),
+            colour(
+                colours.as_deref(),
+                &editor.rules.assets,
+                instance,
+            ),
             if marker { 0.0 } else { 0.25 },
         );
         low = low.min(middle - size);
@@ -359,47 +363,51 @@ fn rebuild(
     ));
 }
 
-/// The colour of an asset: the world's colour its name suggests, or
-/// one picked from its name.
-fn colour(colours: Option<&Colours>, instance: &Instance) -> Vec3 {
+/// The colour of an asset: the palette colour its catalogue entry
+/// gives its body, ochre for a marker.
+fn colour(
+    colours: Option<&Colours>,
+    catalogue: &Catalogue,
+    instance: &Instance,
+) -> Vec3 {
     let Some(c) = colours else {
         return Vec3::splat(0.7);
     };
-    let name = instance.asset.as_str();
-    let named = [
-        ("marker", c.ochre),
-        ("pillar", c.limestone),
-        ("stone", c.limestone),
-        ("wall", c.plaster),
-        ("roof", c.terracotta),
-        ("tile", c.terracotta),
-        ("post", c.timber),
-        ("rail", c.timber),
-        ("beam", c.timber_dark),
-        ("frame", c.timber_dark),
-        ("door", c.timber_dark),
-        ("moss", c.moss),
-        ("flower", c.moss),
-        ("window", c.slate_roof * 0.6),
-        ("slate", c.slate_roof),
-    ];
-    if let Some((_, colour)) =
-        named.iter().find(|(word, _)| name.contains(word))
-    {
-        return *colour;
+    if instance.asset == MARKER {
+        return c.ochre;
     }
-    let others = [
-        c.plaster,
-        c.ochre,
-        c.whitewash,
-        c.limestone,
-        c.terracotta,
-        c.moss,
-    ];
-    let hash = name.bytes().fold(0usize, |hash, byte| {
-        hash.wrapping_mul(31).wrapping_add(usize::from(byte))
-    });
-    others[hash % others.len()]
+    let named = catalogue
+        .get(&instance.asset)
+        .and_then(|asset| asset.slots.get(BODY).cloned());
+    match named {
+        Some(Paint::Palette(name)) => {
+            palette_colour(c, &name).unwrap_or(c.plaster)
+        }
+        _ => c.plaster,
+    }
+}
+
+/// The palette's colour named `name`, of those a building is made of.
+fn palette_colour(c: &Colours, name: &str) -> Option<Vec3> {
+    Some(match name {
+        "limestone" => c.limestone,
+        "limestone_shade" => c.limestone_shade,
+        "plaster" => c.plaster,
+        "plaster_worn" => c.plaster_worn,
+        "whitewash" => c.whitewash,
+        "ochre" => c.ochre,
+        "timber" => c.timber,
+        "timber_dark" => c.timber_dark,
+        "log" => c.log,
+        "terracotta" => c.terracotta,
+        "tile_drift" => c.tile_drift,
+        "moss" => c.moss,
+        "slate_roof" => c.slate_roof,
+        "rock" => c.rock,
+        "rock_dark" => c.rock_dark,
+        "bark" => c.bark,
+        _ => return None,
+    })
 }
 
 /// Points the camera at what is drawn, from the way it is turned,
