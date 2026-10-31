@@ -59,6 +59,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use super::assets::{Meshes, palette_colour};
+use super::handles::{self, Held};
 use super::{Editor, files};
 
 /// The asset name a transform is shown as when nothing is put there.
@@ -80,6 +81,7 @@ pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Seat>()
         .init_resource::<Framing>()
         .init_resource::<Backdrop>()
+        .init_resource::<Held>()
         .add_systems(Startup, spawn)
         .add_systems(
             Update,
@@ -110,7 +112,7 @@ struct Grid;
 
 /// Marks the frame the preview is drawn in.
 #[derive(Component)]
-struct Shown;
+pub(super) struct Shown;
 
 /// What the graph put down, drawn.
 #[derive(Component)]
@@ -118,8 +120,8 @@ struct Piece;
 
 /// The camera that draws the preview, and the material of its pieces.
 #[derive(Resource)]
-struct Preview {
-    camera: Entity,
+pub(super) struct Preview {
+    pub(super) camera: Entity,
     key: Entity,
     material: Handle<StandardMaterial>,
 }
@@ -386,7 +388,13 @@ fn open(
     if let Some(frame) = frame
         && *watched != Some(frame)
     {
-        commands.entity(frame).observe(turn).observe(zoom);
+        commands
+            .entity(frame)
+            .observe(handles::grab)
+            .observe(handles::drag)
+            .observe(handles::release)
+            .observe(turn)
+            .observe(zoom);
         *watched = Some(frame);
     }
     if let Ok(mut camera) = cameras.get_mut(preview.camera)
@@ -405,10 +413,15 @@ fn turn(
     framing: Res<Framing>,
     mut steer: ResMut<Steer>,
     mut seat: ResMut<Seat>,
+    held: Res<Held>,
 ) {
     let Ok(node) = frames.get(drag.event_target()) else {
         return;
     };
+    // A drag that took hold of a handle moves the handle instead.
+    if held.0.is_some() {
+        return;
+    }
     match drag.button {
         PointerButton::Primary => {
             steer.set_if_neq(Steer::Slide);

@@ -7,6 +7,7 @@ mod assets;
 mod canvas;
 mod controls;
 mod files;
+mod handles;
 mod menu;
 mod overlay;
 mod params;

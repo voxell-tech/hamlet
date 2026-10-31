@@ -20,6 +20,7 @@ use hamlet_ui::theme::HamletTheme;
 
 use super::Editor;
 use super::canvas::picked;
+use super::handles::{Held, Kind, handles};
 use super::preview::{Framing, LAYER};
 
 /// How many squares a field is sampled in, on each side.
@@ -47,15 +48,44 @@ fn draw(
     mut gizmos: Gizmos<Overlay>,
     editor: Res<Editor>,
     framing: Res<Framing>,
+    held: Res<Held>,
     If(theme): If<Res<Theme<HamletTheme>>>,
 ) {
+    let palette = &theme.0.palette;
     for (at, node) in editor.selected.iter().enumerate() {
-        let colour = picked(&theme.0.palette, at);
+        let colour = picked(palette, at);
         for (_, value) in
             editor.watched.get(node).into_iter().flatten()
         {
             show(&mut gizmos, value, colour, &framing);
         }
+    }
+    // The handles, in their card's colour, the one held lit.
+    let size = (framing.reach * 0.02).clamp(0.05, 0.3);
+    for handle in handles(&editor) {
+        let at = editor
+            .selected
+            .iter()
+            .position(|node| *node == handle.node)
+            .unwrap_or_default();
+        let holding = held.0.as_ref().is_some_and(|(holding, _)| {
+            holding.node == handle.node
+                && holding.input == handle.input
+        });
+        let colour = if holding {
+            palette.glow_core
+        } else {
+            picked(palette, at)
+        };
+        if let Kind::Distance { middle, .. } = handle.kind {
+            gizmos.line(middle, handle.at, colour.with_alpha(0.6));
+        }
+        let radius = if holding { size * 1.4 } else { size };
+        gizmos.sphere(
+            Isometry3d::from_translation(handle.at),
+            radius,
+            colour,
+        );
     }
 }
 
