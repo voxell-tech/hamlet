@@ -7,15 +7,18 @@ use std::path::Path;
 
 use anyhow::Context;
 use bevy::app::{App, Update};
+use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
+use bevy::math::Vec2;
 use bevy_fynix::ViewExt;
 use hamlet_blueprint::{
-    Bundle, GraphOutput, NodeId, Object, Port, Registry, Seed, Seeds,
-    Shape, Value, ValueType, evaluate_partly,
+    Bundle, Catalogue, Constant, Does, GraphOutput, NodeId, Object,
+    Port, Registry, Seed, Seeds, Setting, Shape, Spread, Value,
+    ValueType, evaluate_partly,
 };
 use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
@@ -26,6 +29,7 @@ use super::assets::Meshes;
 use super::files::{self, Files};
 use super::flavor::Flavor;
 use super::{Editor, assets, gizmo, overlay, preview, tool};
+use crate::library::{Item, Kind, Library};
 
 /// Blueprint graphs.
 pub(crate) struct Blueprint;
@@ -63,6 +67,7 @@ impl Flavor for Blueprint {
     const TITLE: &'static str = "BLUEPRINT";
     const ICON: Glyph = Glyph::Signpost;
     const FOLDER: &'static str = "graphs";
+    const KIND: Kind = Kind::Blueprint;
     /// A sheet alone, or a book of sheets. The small ones first, each
     /// one idea; the house puts several together.
     const EXAMPLES: &'static [(&'static str, &'static str)] = &[
@@ -214,11 +219,32 @@ impl Flavor for Blueprint {
         assets::part()
     }
 
+    /// A mesh dropped on the canvas becomes an object node putting it
+    /// down.
+    fn dropped(
+        editor: &mut Editor<Self>,
+        item: &Item,
+        at: Vec2,
+    ) -> bool {
+        if item.kind != Kind::Mesh {
+            return false;
+        }
+        editor.add(
+            Does::Kind("object".to_owned()),
+            BTreeMap::from([(
+                "asset".to_owned(),
+                Setting::Fixed(Constant::Choice(item.name.clone())),
+            )]),
+            at,
+        );
+        true
+    }
+
     fn plugin(app: &mut App) {
         app.init_resource::<Exporter>()
             .add_observer(exported)
             .add_observer(forget)
-            .add_systems(Update, watch)
+            .add_systems(Update, (watch, mirror))
             .add_plugins((
                 assets::plugin,
                 overlay::plugin,
@@ -249,6 +275,28 @@ fn shown(value: Value) -> Vec<Object> {
     match value {
         Value::Objects(objects) => objects,
         _ => Vec::new(),
+    }
+}
+
+/// Gives the graphs the library's meshes, moving any the book opened
+/// carried into the library first.
+fn mirror(
+    folder: Option<Res<ViewFolder>>,
+    mut library: ResMut<Library>,
+    mut editor: ResMut<Editor<Blueprint>>,
+) {
+    if !editor.carried.is_empty()
+        && let Some(folder) = folder
+        && library.root().is_some()
+    {
+        let carried = std::mem::take(&mut editor.carried);
+        let from = files::book_folder::<Blueprint>(&folder.0);
+        if let Err(error) = library.adopt(&carried, &from) {
+            library.note = format!("{error:#}");
+        }
+    }
+    if library.is_changed() || editor.is_added() {
+        editor.set_catalogue(library.catalogue.clone());
     }
 }
 
@@ -287,23 +335,35 @@ fn export(world: &mut World) {
     });
 }
 
-/// Writes the bundle of `editor`'s book to `path`, with the files of
-/// its assets read from `kept`. A graph that fails is not exported.
+/// Writes the bundle of `editor`'s book to `path`, with the library's
+/// meshes it names, their files read from the library at `library`.
+/// A graph that fails is not exported.
 fn write_bundle(
     path: &Path,
     editor: &Editor<Blueprint>,
-    kept: &Path,
+    library: &Path,
 ) -> anyhow::Result<()> {
     if let Err(problem) = &editor.got.outcome {
         anyhow::bail!("Not exported, the graph fails: {problem}");
     }
-    let ruleset = editor.book().export();
+    let mut ruleset = editor.book().export();
+    let named = named(&ruleset.graphs);
+    ruleset.assets = Catalogue(
+        editor
+            .rules
+            .assets
+            .0
+            .iter()
+            .filter(|(name, _)| named.contains(name.as_str()))
+            .map(|(name, asset)| (name.clone(), asset.clone()))
+            .collect(),
+    );
     let mut files = BTreeMap::new();
     for asset in ruleset.assets.0.values() {
         let Shape::Mesh(file) = &asset.shape else {
             continue;
         };
-        let bytes = fs::read(kept.join(file))
+        let bytes = fs::read(library.join(file))
             .with_context(|| format!("reading {file}"))?;
         files.insert(file.clone(), bytes);
     }
@@ -312,6 +372,41 @@ fn write_bundle(
         .context("writing the bundle")?;
     fs::write(path, text)
         .with_context(|| format!("writing {}", path.display()))
+}
+
+/// Every choice the graphs are set to or may roll, which names the
+/// assets they put down among other things.
+fn named(
+    graphs: &BTreeMap<String, hamlet_blueprint::Graph>,
+) -> BTreeSet<&str> {
+    let mut named = BTreeSet::new();
+    for graph in graphs.values() {
+        for setting in
+            graph.nodes.iter().flat_map(|node| node.settings.values())
+        {
+            match setting {
+                Setting::Fixed(Constant::Choice(choice)) => {
+                    named.insert(choice.as_str());
+                }
+                Setting::Random(roll) => {
+                    if let Spread::Weights(weights) = &roll.spread {
+                        named.extend(
+                            weights
+                                .iter()
+                                .map(|(choice, _)| choice.as_str()),
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+        for input in &graph.inputs {
+            if let Some(Constant::Choice(choice)) = &input.default {
+                named.insert(choice.as_str());
+            }
+        }
+    }
+    named
 }
 
 /// Forgets the meshes read for the last book when another is opened.
@@ -331,15 +426,14 @@ fn forget(
 fn exported(
     chosen: On<FileChosen>,
     exporter: Res<Exporter>,
-    folder: Option<Res<ViewFolder>>,
+    library: Res<Library>,
     editor: Res<Editor<Blueprint>>,
     mut files: ResMut<Files<Blueprint>>,
 ) {
     if exporter.0 != Some(chosen.asker) {
         return;
     }
-    let kept = folder
-        .map(|folder| files::book_folder::<Blueprint>(&folder.0));
+    let kept = library.root();
     let path = match chosen.path.extension() {
         None => chosen.path.with_extension("ron"),
         Some(_) => chosen.path.clone(),
@@ -347,14 +441,12 @@ fn exported(
     let name = path.file_name().map_or(String::new(), |name| {
         name.to_string_lossy().into_owned()
     });
-    files.note = match kept
-        .as_deref()
-        .map(|kept| write_bundle(&path, &editor, kept))
-    {
-        Some(Ok(())) => format!("Exported {name}"),
-        Some(Err(error)) => format!("{error:#}"),
-        None => String::new(),
-    };
+    files.note =
+        match kept.map(|kept| write_bundle(&path, &editor, kept)) {
+            Some(Ok(())) => format!("Exported {name}"),
+            Some(Err(error)) => format!("{error:#}"),
+            None => String::new(),
+        };
 }
 
 #[cfg(test)]

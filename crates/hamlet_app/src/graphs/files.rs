@@ -23,6 +23,7 @@ use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 
 use super::flavor::Flavor;
 use super::{Editor, canvas, example};
+use crate::library::Library;
 
 /// How long the book is left as it is before it is written.
 const SETTLE: Duration = Duration::from_secs(1);
@@ -203,10 +204,11 @@ pub(super) fn open<F: Flavor>(world: &mut World) {
     ask::<F>(world, FileMode::Open, "Open a graph book");
 }
 
-/// Saves the book to the file it came from, or asks for one.
+/// Saves the book to the file it came from, or into the library under
+/// its entry's name.
 pub(super) fn save<F: Flavor>(world: &mut World) {
     let Some(path) = world.resource::<Files<F>>().path.clone() else {
-        return save_as::<F>(world);
+        return keep_in_library::<F>(world);
     };
     let book = world.resource::<Editor<F>>().book();
     let kept = world
@@ -222,6 +224,23 @@ pub(super) fn save<F: Flavor>(world: &mut World) {
         Err(error) => format!("{error:#}"),
     };
     world.resource_mut::<Files<F>>().note = note;
+}
+
+/// Writes the book into the library, as a book of its kind named
+/// after its entry, and saves it there from then on.
+fn keep_in_library<F: Flavor>(world: &mut World) {
+    let book = world.resource::<Editor<F>>().book();
+    let mut library = world.resource_mut::<Library>();
+    let name = library.free_name(F::KIND, &book.entry);
+    let saved = library.save_book(F::KIND, &name, &book);
+    let mut files = world.resource_mut::<Files<F>>();
+    match saved {
+        Ok(path) => {
+            files.path = Some(path);
+            files.note = format!("Saved {name} in the library");
+        }
+        Err(error) => files.note = format!("{error:#}"),
+    }
 }
 
 /// Asks for a file to save the book to.

@@ -46,7 +46,6 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, Theme, ViewExt, resource};
 use hamlet_blueprint::{Asset, BODY, Frame, Paint, Shape};
-use hamlet_client::ViewFolder;
 use hamlet_realm::generator::house::slope;
 use hamlet_realm::meshes::{Meshing, Rng};
 use hamlet_realm::palette::{Palette as Colours, TownStyle};
@@ -60,7 +59,8 @@ use hamlet_ui::{AnyView, Cx, View};
 
 use super::assets::{Meshes, palette_colour};
 use super::gizmo::{self, Dragging, GizmoMode};
-use super::{Blueprint, Editor, files};
+use super::{Blueprint, Editor};
+use crate::library::Library;
 
 /// The asset name a transform is shown as when nothing is put there.
 pub(super) const MARKER: &str = "marker";
@@ -510,7 +510,7 @@ fn rebuild(
     editor: Res<Editor<Blueprint>>,
     preview: Option<Res<Preview>>,
     colours: Option<Res<Colours>>,
-    folder: Option<Res<ViewFolder>>,
+    library: Res<Library>,
     mut models: ResMut<Meshes>,
     pieces: Query<Entity, With<Piece>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -544,17 +544,15 @@ fn rebuild(
         let middle = object.frame.translation
             + object.frame.rotation * Vec3::new(0.0, lift, 0.0);
         let asset = editor.rules.assets.get(&object.asset);
-        let model =
-            match (asset.as_ref().map(|asset| &asset.shape), &folder)
-            {
-                (Some(Shape::Mesh(path)), Some(folder)) => models
-                    .get(
-                        &files::book_folder::<Blueprint>(&folder.0),
-                        path,
-                    )
-                    .ok(),
-                _ => None,
-            };
+        let model = match (
+            asset.as_ref().map(|asset| &asset.shape),
+            library.root(),
+        ) {
+            (Some(Shape::Mesh(path)), Some(root)) => {
+                models.get(root, path).ok()
+            }
+            _ => None,
+        };
         let colours = colours.as_deref();
         let colour = match colours {
             Some(c) if marker => c.ochre,

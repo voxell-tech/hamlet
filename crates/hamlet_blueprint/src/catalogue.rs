@@ -157,4 +157,14 @@ impl Catalogue {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    pub fn to_ron(&self) -> Result<String, ron::Error> {
+        crate::graph::to_ron(self)
+    }
+
+    pub fn from_ron(
+        text: &str,
+    ) -> Result<Self, ron::error::SpannedError> {
+        ron::from_str(text)
+    }
 }

@@ -13,6 +13,7 @@ mod folder;
 mod graphs;
 pub mod history;
 mod hover;
+mod library;
 pub mod limits;
 pub mod lists;
 mod markdown;
@@ -133,6 +134,7 @@ impl Plugin for UiPlugin {
                 tuning::plugin,
                 graphs::plugin::<graphs::Blueprint>,
                 graphs::plugin::<graphs::Material>,
+                library::plugin,
                 cursor::plugin,
                 sounds::plugin,
             ),

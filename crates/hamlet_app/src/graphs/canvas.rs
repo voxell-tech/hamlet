@@ -677,6 +677,7 @@ fn build<F: Flavor>(
                 .entity(canvas)
                 .insert(Hovered::default())
                 .observe(ask::<F>)
+                .observe(received::<F>)
                 .observe(pan_start::<F>)
                 .observe(pan::<F>)
                 .observe(gesture_end::<F>)
@@ -1813,6 +1814,31 @@ fn drag_link<F: Flavor>(
     if let Gesture::Link(_, _, _, gone) = &mut **gesture {
         *gone = drag.distance / sight.zoom;
     }
+}
+
+/// Adds what a library tile dropped on the canvas is, where it is
+/// dropped.
+fn received<F: Flavor>(
+    drop: On<PointerDragDrop>,
+    mut commands: Commands,
+) {
+    let dropped = drop.dropped;
+    commands.queue(move |world: &mut World| {
+        let Some(item) =
+            crate::library::browser::tile_item(world, dropped)
+        else {
+            return;
+        };
+        let at = world
+            .query::<&bevy::window::Window>()
+            .iter(world)
+            .find_map(bevy::window::Window::cursor_position)
+            .unwrap_or_default();
+        let Some(at) = on_sheet::<F>(world, at) else {
+            return;
+        };
+        F::dropped(&mut world.resource_mut::<Editor<F>>(), &item, at);
+    });
 }
 
 /// Wires the output dropped on an input's dot to it, in place of any

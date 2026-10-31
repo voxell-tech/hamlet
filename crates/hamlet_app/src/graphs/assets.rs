@@ -1,8 +1,8 @@
-//! The meshes a book adds as assets. A chosen `.glb` is copied into
-//! the `assets/` folder beside the book the window keeps, and added
-//! to the book's catalogue with a palette colour for each of its
-//! materials. The preview reads each file once and draws it fitted
-//! to its transform, as a box fills one.
+//! The library's meshes as the blueprint editor shows them. A chosen
+//! `.glb` is copied into the library and added to its catalogue with
+//! a palette colour for each of its materials. The preview reads each
+//! file once and draws it fitted to its transform, as a box fills
+//! one.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -13,7 +13,7 @@ use bevy::app::App;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Res, ResMut};
+use bevy::ecs::system::{Commands, Res};
 use bevy::ecs::world::World;
 use bevy::math::{Mat4, Quat, Vec3};
 use bevy::ui::{AlignItems, UiRect, percent, px};
@@ -23,7 +23,6 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_blueprint::{Asset, Paint, Shape, Socket};
-use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
@@ -31,8 +30,8 @@ use hamlet_ui::styles::{ICON, command, description, note, section};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, with_cx};
 
-use super::files::{self, Files};
-use super::{Blueprint, Editor, params};
+use super::params;
+use crate::library::{Kind, Library, mesh_file};
 
 /// The palette's colours a material slot can take, of those a
 /// building is made of.
@@ -344,11 +343,10 @@ pub(super) fn part() -> Vec<AnyView> {
     ];
     parts.push(
         with_cx(|cx| {
-            let editor = cx.world.resource::<Editor<Blueprint>>();
+            let library = cx.world.resource::<Library>();
             let gap = cx.theme().space.gap;
-            let cards: Vec<AnyView> = editor
-                .rules
-                .assets
+            let cards: Vec<AnyView> = library
+                .catalogue
                 .0
                 .iter()
                 .map(|(name, asset)| {
@@ -376,12 +374,27 @@ fn card(name: String, asset: Asset) -> AnyView {
                 button(glyph(Glyph::Cross, ICON))
                     .rules(icon_button)
                     .tooltip(|| {
-                        note("Take this asset out of the book")
+                        note(
+                            "Move this mesh to the library's trash \
+                             folder",
+                        )
                     })
                     .on_activate(move |world| {
-                        world
-                            .resource_mut::<Editor<Blueprint>>()
-                            .set_asset(remove.clone(), None);
+                        let mut library =
+                            world.resource_mut::<Library>();
+                        let item = library
+                            .items
+                            .iter()
+                            .find(|item| {
+                                item.kind == Kind::Mesh
+                                    && item.name == remove
+                            })
+                            .cloned();
+                        if let Some(item) = item
+                            && let Err(error) = library.remove(&item)
+                        {
+                            library.note = format!("{error:#}");
+                        }
                     }),
             ))
             .gap(gap)
@@ -437,7 +450,7 @@ fn colour(name: String, asset: Asset, slot: String) -> AnyView {
                 });
             asset.slots.insert(slot.clone(), paint);
             world
-                .resource_mut::<Editor<Blueprint>>()
+                .resource_mut::<Library>()
                 .set_asset(name.clone(), Some(asset));
         },
     )
@@ -468,55 +481,42 @@ pub(super) fn import(world: &mut World) {
     });
 }
 
-/// Copies the chosen file beside the book and adds it to the
-/// catalogue, named for the file.
+/// Adds the chosen file to the library.
 fn chosen(
     chosen: On<FileChosen>,
     importer: Res<Importer>,
-    folder: Option<Res<ViewFolder>>,
-    mut meshes: ResMut<Meshes>,
-    mut files: ResMut<Files<Blueprint>>,
-    mut editor: ResMut<Editor<Blueprint>>,
+    mut commands: Commands,
 ) {
     if importer.0 != Some(chosen.asker) {
         return;
     }
-    let Some(folder) = folder else {
-        return;
-    };
-    let book = files::book_folder::<Blueprint>(&folder.0);
-    match add(&book, &chosen.path, &editor, &mut meshes) {
-        Ok((name, asset)) => {
-            files.note = format!("Added {name}");
-            editor.set_asset(name, Some(asset));
-        }
-        Err(error) => files.note = format!("{error:#}"),
-    }
+    let path = chosen.path.clone();
+    commands.queue(move |world: &mut World| {
+        let note = match add_mesh(world, &path) {
+            Ok(name) => format!("Added {name}"),
+            Err(error) => format!("{error:#}"),
+        };
+        world.resource_mut::<Library>().note = note;
+    });
 }
 
-/// Copies the file at `from` into `book`'s `assets/` folder, and the
-/// catalogue entry for it under a name no asset has.
-fn add(
-    book: &Path,
+/// Copies the `.glb` file at `from` into the library's meshes, under
+/// a name no mesh has, with a palette colour guessed for each of its
+/// materials, and gives the name.
+pub(crate) fn add_mesh(
+    world: &mut World,
     from: &Path,
-    editor: &Editor<Blueprint>,
-    meshes: &mut Meshes,
-) -> anyhow::Result<(String, Asset)> {
+) -> anyhow::Result<String> {
+    let library = world.resource::<Library>();
+    let root = library.root().context("no library yet")?.to_owned();
     let stem = from
         .file_stem()
         .map(|stem| stem.to_string_lossy().replace(' ', "_"))
         .filter(|stem| !stem.is_empty())
-        .unwrap_or_else(|| "asset".to_owned());
-    let taken = editor.rules.assets.names();
-    let name = std::iter::once(stem.clone())
-        .chain((2..).map(|n| format!("{stem}_{n}")))
-        .find(|name| {
-            !taken.contains(name)
-                && !book.join(file_of(name)).exists()
-        })
-        .unwrap_or_default();
-    let path = file_of(&name);
-    let to: PathBuf = book.join(&path);
+        .unwrap_or_else(|| "mesh".to_owned());
+    let name = library.free_name(Kind::Mesh, &stem);
+    let path = mesh_file(&name);
+    let to: PathBuf = root.join(&path);
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent).with_context(|| {
             format!("making {}", parent.display())
@@ -524,7 +524,8 @@ fn add(
     }
     fs::copy(from, &to)
         .with_context(|| format!("copying {}", from.display()))?;
-    let model = match meshes.get(book, &path) {
+    let mut meshes = world.resource_mut::<Meshes>();
+    let model = match meshes.get(&root, &path) {
         Ok(model) => model,
         Err(problem) => {
             let problem = problem.to_owned();
@@ -541,19 +542,15 @@ fn add(
             (slot, paint)
         })
         .collect();
-    Ok((
-        name,
-        Asset {
-            shape: Shape::Mesh(path),
-            slots,
-            sockets: model.sockets.clone(),
-        },
-    ))
-}
-
-/// Where the asset `name`'s file is kept, beside the book.
-fn file_of(name: &str) -> String {
-    format!("assets/{name}.glb")
+    let asset = Asset {
+        shape: Shape::Mesh(path),
+        slots,
+        sockets: model.sockets.clone(),
+    };
+    world
+        .resource_mut::<Library>()
+        .set_asset(name.clone(), Some(asset));
+    Ok(name)
 }
 
 /// The palette colour a material's name suggests.

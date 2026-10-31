@@ -41,7 +41,7 @@ use bevy_fynix::{
     Bevy, EntityCursor, ScopedExt, ViewExt, ViewSeq, keyed, resource,
 };
 use hamlet_blueprint::{
-    Asset, Book, Constant, Does, Edit, GraphInput, GraphOutput,
+    Book, Catalogue, Constant, Does, Edit, GraphInput, GraphOutput,
     GraphProblem, Group, Initial, Node, NodeId, Port, PortSpec,
     Registry, Ruleset, Setting, Sheet, ValueType,
 };
@@ -59,6 +59,7 @@ use self::flavor::Flavor;
 pub(crate) use self::material::Material;
 use self::split::{Floating, Handle, Layout, divider, inset_at};
 use crate::dock::{PanelAppExt, flush_panel};
+use crate::library::{Item, Kind, Source};
 
 /// The book an example's text holds.
 fn example(text: &str) -> Option<Book> {
@@ -90,6 +91,58 @@ pub(crate) fn plugin<F: Flavor>(app: &mut App) {
         app.add_plugins(wire::plugin);
     }
     F::plugin(app);
+}
+
+/// The blueprint examples, for the library to list.
+pub(crate) fn blueprint_examples()
+-> &'static [(&'static str, &'static str)] {
+    Blueprint::EXAMPLES
+}
+
+/// The material examples, for the library to list.
+pub(crate) fn material_examples()
+-> &'static [(&'static str, &'static str)] {
+    Material::EXAMPLES
+}
+
+pub(crate) use self::assets::add_mesh;
+
+/// Opens the library's `item` in the editor of its kind: a book in
+/// the blueprint or material editor, saved back to its file. A mesh
+/// or a texture is not opened; it is dragged onto a canvas.
+pub(crate) fn open_item(
+    world: &mut World,
+    item: &Item,
+) -> Result<(), String> {
+    match item.kind {
+        Kind::Blueprint => open_book::<Blueprint>(world, item),
+        Kind::Material => open_book::<Material>(world, item),
+        Kind::Mesh | Kind::Texture => {
+            Err(format!("Drag {} onto a canvas to use it", item.name))
+        }
+    }
+}
+
+fn open_book<F: Flavor>(
+    world: &mut World,
+    item: &Item,
+) -> Result<(), String> {
+    let (book, path) = match &item.source {
+        Source::Example(text) => (example(text), None),
+        Source::File(path) => (
+            std::fs::read_to_string(path)
+                .ok()
+                .and_then(|text| example(&text)),
+            Some(path.clone()),
+        ),
+        Source::BuiltIn => (None, None),
+    };
+    let book =
+        book.ok_or_else(|| format!("{} is not a book", item.name))?;
+    world.resource_mut::<Editor<F>>().load(book);
+    world.resource_mut::<files::Files<F>>().path = path;
+    canvas::fit::<F>(world);
+    Ok(())
 }
 
 /// A sheet that is not open, with its history.
@@ -127,6 +180,9 @@ pub(crate) struct Editor<F: Flavor> {
     pub problems: Vec<GraphProblem>,
     /// What the flavor keeps of the last run.
     pub got: F::Got,
+    /// The meshes the book last opened carried with it, not yet
+    /// moved into the library.
+    pub carried: Catalogue,
 }
 
 impl<F: Flavor> Editor<F> {
@@ -144,6 +200,7 @@ impl<F: Flavor> Editor<F> {
             revision: 0,
             problems: Vec::new(),
             got: F::Got::default(),
+            carried: Catalogue::default(),
         };
         let start = F::EXAMPLES
             .first()
@@ -263,7 +320,8 @@ impl<F: Flavor> Editor<F> {
                 })
                 .chain([(self.name.clone(), self.sheet.clone())])
                 .collect(),
-            assets: self.rules.assets.clone(),
+            // The meshes it uses are the library's.
+            assets: Catalogue::default(),
         }
     }
 
@@ -302,7 +360,7 @@ impl<F: Flavor> Editor<F> {
             .collect();
         self.sheet = entry;
         self.name = book.entry;
-        self.rules.assets = book.assets;
+        self.carried = book.assets;
         self.selected.clear();
         self.undo.clear();
         self.redo.clear();
@@ -587,14 +645,12 @@ impl<F: Flavor> Editor<F> {
         self.apply(Edit::Batch(edits));
     }
 
-    /// Puts `asset` in the book's catalogue as `name`, or takes the
-    /// one named `name` out. Not undone.
-    pub fn set_asset(&mut self, name: String, asset: Option<Asset>) {
-        match asset {
-            Some(asset) => self.rules.assets.0.insert(name, asset),
-            None => self.rules.assets.0.remove(&name),
-        };
-        self.changed(true);
+    /// Takes `catalogue` as the meshes the graphs may put down.
+    pub fn set_catalogue(&mut self, catalogue: Catalogue) {
+        if self.rules.assets != catalogue {
+            self.rules.assets = catalogue;
+            self.changed(true);
+        }
     }
 
     /// Frames the selected nodes in a new group, out of any group

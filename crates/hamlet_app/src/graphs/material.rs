@@ -15,6 +15,7 @@ use hamlet_ui::widgets::icons::Glyph;
 
 use super::Editor;
 use super::flavor::Flavor;
+use crate::library::Kind;
 
 /// Material graphs.
 pub(crate) struct Material;
@@ -41,6 +42,7 @@ impl Flavor for Material {
     const TITLE: &'static str = "MATERIAL";
     const ICON: Glyph = Glyph::Drop;
     const FOLDER: &'static str = "materials";
+    const KIND: Kind = Kind::Material;
     const EXAMPLES: &'static [(&'static str, &'static str)] = &[
         ("Plaster", include_str!("material/examples/plaster.ron")),
         (
