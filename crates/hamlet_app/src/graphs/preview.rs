@@ -53,7 +53,7 @@ pub(super) const MARKER: &str = "marker";
 
 /// The render layer only the preview's camera, lights and pieces are
 /// on. Not 7, which the realm's debug overlay puts its camera on.
-const LAYER: usize = 8;
+pub(super) const LAYER: usize = 8;
 
 /// The way the camera looks from before a hand has turned it, in
 /// radians.
@@ -96,9 +96,9 @@ struct Seat {
 
 /// The middle and the reach of what is drawn.
 #[derive(Resource, Default)]
-struct Framing {
-    middle: Vec3,
-    reach: f32,
+pub(super) struct Framing {
+    pub(super) middle: Vec3,
+    pub(super) reach: f32,
 }
 
 pub(super) fn view() -> impl View {

@@ -529,6 +529,20 @@ pub(super) fn arrange(editor: &Editor) -> BTreeMap<NodeId, Vec2> {
     placed
 }
 
+/// The colour a selected card, and what it gives in the preview, are
+/// shown in, by its place in the selection.
+pub(super) fn picked(palette: &Palette, index: usize) -> Color {
+    let colours = [
+        palette.glow,
+        palette.gold_3,
+        palette.green,
+        palette.agent,
+        palette.particle,
+        palette.glow_core,
+    ];
+    colours[index % colours.len()]
+}
+
 /// The colour of a wire or a dot of `value_type`.
 fn tint(palette: &Palette, value_type: ValueType) -> Color {
     match value_type {
@@ -982,8 +996,10 @@ fn paint(
     }
     let palette = &theme.0.palette;
     for (card, hovered, mut border) in &mut cards {
-        let colour = if editor.selected.contains(&card.0) {
-            palette.glow
+        let at =
+            editor.selected.iter().position(|node| *node == card.0);
+        let colour = if let Some(at) = at {
+            picked(palette, at)
         } else if hovered.get() {
             palette.gold_5
         } else {

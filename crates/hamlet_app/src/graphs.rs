@@ -8,6 +8,7 @@ mod canvas;
 mod controls;
 mod files;
 mod menu;
+mod overlay;
 mod params;
 mod preview;
 mod split;
@@ -16,8 +17,9 @@ mod wire;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::discriminant;
 
-use bevy::app::App;
+use bevy::app::{App, Update};
 use bevy::ecs::resource::Resource;
+use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
 use bevy::math::{Vec2, Vec3};
 use bevy::ui::{
@@ -79,15 +81,25 @@ pub(crate) fn plugin(app: &mut App) {
             .icon(Glyph::Signpost.image(ICON)),
     )
     .insert_resource(Editor::new())
+    .add_systems(Update, watch)
     .add_plugins((
         assets::plugin,
         canvas::plugin,
         menu::plugin,
+        overlay::plugin,
         preview::plugin,
         split::plugin,
         files::plugin,
         wire::plugin,
     ));
+}
+
+/// Runs the graph again when the selection is not what the last run
+/// watched, so the preview shows what the selected nodes give.
+fn watch(mut editor: ResMut<Editor>) {
+    if editor.watching != editor.selected {
+        editor.run();
+    }
 }
 
 /// A sheet that is not open, with its history.
@@ -123,6 +135,11 @@ pub(crate) struct Editor {
     pub revision: u64,
     /// What the open graph put down, or why it could not.
     pub outcome: Result<Vec<Instance>, String>,
+    /// What each selected node gave in the last run, each output by
+    /// name, for the preview to show.
+    pub watched: BTreeMap<NodeId, Vec<(String, Value)>>,
+    /// The nodes the last run watched.
+    watching: BTreeSet<NodeId>,
 }
 
 impl Editor {
@@ -144,6 +161,8 @@ impl Editor {
             shape: 0,
             revision: 0,
             outcome: Ok(Vec::new()),
+            watched: BTreeMap::new(),
+            watching: BTreeSet::new(),
         };
         editor.load(example(START).unwrap_or_default());
         editor
@@ -413,6 +432,38 @@ impl Editor {
     /// their defaults.
     fn run(&mut self) {
         let mut graph = self.sheet.graph.clone();
+        // Each selected node's outputs too, by names kept apart, so
+        // the preview can show what it gives.
+        let mut watch = BTreeMap::new();
+        for node in &self.selected {
+            let Some(found) = self.sheet.graph.node(*node) else {
+                continue;
+            };
+            let Ok((_, outputs)) = hamlet_blueprint::ports(
+                &self.registry,
+                &self.rules,
+                found,
+            ) else {
+                continue;
+            };
+            for output in outputs {
+                let name = format!("watch {node}.{}", output.name);
+                watch.insert(
+                    name.clone(),
+                    (*node, output.name.clone()),
+                );
+                graph.outputs.push(GraphOutput {
+                    name,
+                    value_type: output.value_type,
+                    from: Port {
+                        node: *node,
+                        name: output.name,
+                    },
+                });
+            }
+        }
+        self.watching = self.selected.clone();
+        self.watched.clear();
         for node in &self.sheet.graph.nodes {
             let Ok((_, outputs)) = hamlet_blueprint::ports(
                 &self.registry,
@@ -455,7 +506,18 @@ impl Editor {
             &BTreeMap::new(),
         )
         .map(|outputs| {
-            outputs.into_values().flat_map(shown).collect()
+            let mut put = Vec::new();
+            for (name, value) in outputs {
+                match watch.get(&name) {
+                    Some((node, port)) => self
+                        .watched
+                        .entry(*node)
+                        .or_default()
+                        .push((port.clone(), value)),
+                    None => put.extend(shown(value)),
+                }
+            }
+            put
         })
         .map_err(|problem| problem.to_string());
     }
