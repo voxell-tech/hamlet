@@ -2,11 +2,11 @@
 
 use std::collections::BTreeMap;
 
-use bevy_math::Vec3;
+use bevy_math::{Vec3, Vec4};
 
 use crate::eval::{Problem, Run};
 use crate::nodes;
-use crate::value::{Value, ValueType};
+use crate::value::{Constant, Value, ValueType};
 
 /// A kind of node. Its names and words describe it to the editor, to
 /// plugin authors and to agents.
@@ -111,6 +111,22 @@ pub enum Initial {
     Bool(bool),
     Point(Vec3),
     Choice(&'static str),
+    Color(Vec4),
+}
+
+impl From<Initial> for Constant {
+    fn from(initial: Initial) -> Self {
+        match initial {
+            Initial::Number(number) => Constant::Number(number),
+            Initial::Integer(whole) => Constant::Integer(whole),
+            Initial::Bool(flag) => Constant::Bool(flag),
+            Initial::Point(point) => Constant::Point(point),
+            Initial::Choice(choice) => {
+                Constant::Choice(choice.to_owned())
+            }
+            Initial::Color(color) => Constant::Color(color),
+        }
+    }
 }
 
 impl From<Initial> for Value {
@@ -123,6 +139,7 @@ impl From<Initial> for Value {
             Initial::Choice(choice) => {
                 Value::Choice(choice.to_owned())
             }
+            Initial::Color(color) => Value::Color(color),
         }
     }
 }

@@ -48,8 +48,8 @@ use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{BehaviorExt, frame};
 use bevy_fynix::{EntityCursor, OverrideCursor, Theme};
 use hamlet_blueprint::{
-    Constant, Does, Edit, Initial, Listed, NodeId, Port, PortSpec,
-    ValueType, Wire, ports,
+    Constant, Does, Edit, Listed, NodeId, Port, PortSpec, ValueType,
+    Wire, ports,
 };
 use hamlet_ui::styles::Fills;
 use hamlet_ui::theme::{HamletTheme, Palette};
@@ -168,13 +168,7 @@ impl Input {
         Self {
             name: spec.name.to_owned(),
             value_type: spec.value_type,
-            initial: spec.initial.map(|initial| match initial {
-                Initial::Number(n) => Constant::Number(n),
-                Initial::Integer(n) => Constant::Integer(n),
-                Initial::Bool(on) => Constant::Bool(on),
-                Initial::Point(p) => Constant::Point(p),
-                Initial::Choice(c) => Constant::Choice(c.to_owned()),
-            }),
+            initial: spec.initial.map(Constant::from),
             choices: spec.choices,
             listed: spec.listed,
         }
@@ -579,11 +573,15 @@ fn tint(palette: &Palette, value_type: ValueType) -> Color {
         ValueType::Number => palette.gold_3,
         ValueType::Integer => palette.gold_1,
         ValueType::Bool => palette.green,
-        ValueType::Point | ValueType::Curve => palette.agent,
+        ValueType::Point | ValueType::Curve | ValueType::Vector3 => {
+            palette.agent
+        }
         ValueType::Choice => palette.grey_1,
         ValueType::Transform => palette.glow,
         ValueType::Field => palette.particle,
         ValueType::Objects => palette.glow_core,
+        ValueType::Vector2 => palette.primary_high,
+        ValueType::Color => palette.red,
     }
 }
 

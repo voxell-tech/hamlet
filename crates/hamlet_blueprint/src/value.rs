@@ -1,6 +1,6 @@
 //! What travels on a wire.
 
-use bevy_math::{Quat, Vec3};
+use bevy_math::{Quat, Vec3, Vec4};
 use serde::{Deserialize, Serialize};
 
 use crate::field::Field;
@@ -21,6 +21,13 @@ pub enum ValueType {
     Transform,
     Field,
     Objects,
+    /// Two numbers on a material's surface, such as where it is in
+    /// its texture.
+    Vector2,
+    /// Three numbers on a material's surface, such as a direction.
+    Vector3,
+    /// Red, green, blue and how opaque, each from 0 to 1.
+    Color,
 }
 
 impl ValueType {
@@ -42,6 +49,20 @@ impl ValueType {
                     ValueType::Number | ValueType::Field
                 )
             )
+            // A material widens or narrows between numbers, vectors
+            // and colours, filling or dropping the last axes.
+            || (self.on_surface() && from.on_surface())
+    }
+
+    /// Whether a material's surface works out values of this type.
+    pub fn on_surface(self) -> bool {
+        matches!(
+            self,
+            ValueType::Number
+                | ValueType::Vector2
+                | ValueType::Vector3
+                | ValueType::Color
+        )
     }
 }
 
@@ -60,6 +81,7 @@ pub enum Value {
     Transform(Box<TransformValue>),
     Field(Field),
     Objects(Vec<Object>),
+    Color(Vec4),
 }
 
 impl Value {
@@ -76,6 +98,7 @@ impl Value {
             Value::Transform(_) => ValueType::Transform,
             Value::Field(_) => ValueType::Field,
             Value::Objects(_) => ValueType::Objects,
+            Value::Color(_) => ValueType::Color,
         }
     }
 }
@@ -88,6 +111,7 @@ pub enum Constant {
     Bool(bool),
     Point(Vec3),
     Choice(String),
+    Color(Vec4),
 }
 
 impl Constant {
@@ -98,6 +122,7 @@ impl Constant {
             Constant::Bool(_) => ValueType::Bool,
             Constant::Point(_) => ValueType::Point,
             Constant::Choice(_) => ValueType::Choice,
+            Constant::Color(_) => ValueType::Color,
         }
     }
 }
@@ -110,6 +135,7 @@ impl From<Constant> for Value {
             Constant::Bool(flag) => Value::Bool(flag),
             Constant::Point(point) => Value::Point(point),
             Constant::Choice(choice) => Value::Choice(choice),
+            Constant::Color(color) => Value::Color(color),
         }
     }
 }

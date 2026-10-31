@@ -5,9 +5,7 @@
 //! offers nothing.
 
 use bevy::math::{EulerRot, Quat, Vec3};
-use hamlet_blueprint::{
-    Constant, Does, Edit, Initial, NodeId, Setting,
-};
+use hamlet_blueprint::{Constant, Does, Edit, NodeId, Setting};
 
 use super::Editor;
 
@@ -167,15 +165,7 @@ fn constant_of(
                 .inputs
                 .iter()
                 .find(|spec| spec.name == input)?;
-            Some(match spec.initial? {
-                Initial::Point(point) => Constant::Point(point),
-                Initial::Number(number) => Constant::Number(number),
-                Initial::Integer(whole) => Constant::Integer(whole),
-                Initial::Bool(flag) => Constant::Bool(flag),
-                Initial::Choice(choice) => {
-                    Constant::Choice(choice.to_owned())
-                }
-            })
+            spec.initial.map(Constant::from)
         }
     }
 }

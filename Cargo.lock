@@ -3475,6 +3475,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_material"
+version = "0.1.0"
+dependencies = [
+ "bevy_math",
+ "hamlet_blueprint",
+ "naga",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "hamlet_os"
 version = "0.1.0"
 dependencies = [

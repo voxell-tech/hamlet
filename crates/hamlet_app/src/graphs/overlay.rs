@@ -160,7 +160,8 @@ fn show(
         | Value::PointField(_)
         | Value::Integer(_)
         | Value::Bool(_)
-        | Value::Choice(_) => {}
+        | Value::Choice(_)
+        | Value::Color(_) => {}
     }
 }
 

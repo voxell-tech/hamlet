@@ -1,0 +1,20 @@
+[package]
+name = "hamlet_material"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Material graphs: a surface's colour, roughness and glow as nodes and wires, compiled to a shader"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_blueprint.workspace = true
+bevy_math.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Checks the shader a graph compiles to is valid WGSL.
+naga = { workspace = true }
