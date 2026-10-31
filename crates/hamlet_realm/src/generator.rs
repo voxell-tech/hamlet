@@ -17,6 +17,7 @@ mod lights;
 mod loading;
 mod magic;
 pub mod noise;
+mod relief;
 pub mod road;
 mod shift;
 pub mod society;
@@ -97,6 +98,7 @@ pub fn plugin(app: &mut App) {
         VfxPlugin,
         lights::plugin,
         sounds::plugin,
+        relief::plugin,
     ))
     // An effect a house is given plays the frame it is given.
     .configure_sets(
@@ -145,6 +147,7 @@ pub fn plugin(app: &mut App) {
             ),
             tell_states.run_if(resource_changed::<Society>),
             repaint.run_if(resource_changed::<Land>),
+            settle.run_if(resource_changed::<Society>),
             shift_houses,
             magic::charm,
             run_traffic,
@@ -185,6 +188,17 @@ pub struct GeneratorSettings {
     pub house: HouseSettings,
     pub yard: YardSettings,
     pub road: RoadSettings,
+}
+
+/// Tells the land which sites have towns, so that the island reaches
+/// about them.
+fn settle(society: Res<Society>, mut land: ResMut<Land>) {
+    let mut settled =
+        society.towns.iter().map(|t| t.site).collect::<Vec<_>>();
+    settled.sort_unstable();
+    if land.settled() != settled {
+        land.settle(&settled);
+    }
 }
 
 /// Tells the effects the scene's time.

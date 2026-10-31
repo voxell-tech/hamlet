@@ -91,20 +91,12 @@ pub(super) fn setup(
         reflectance: 0.4,
         ..default()
     });
-    // Plain ground under everything, kept under the camera: it
-    // shows where the ground itself has yet to come.
-    let plain = pal.grass_shade.lerp(pal.grass, 0.85);
+    // The sea under everything, kept under the camera: it shows
+    // where the ground has yet to come, and all about the island.
     commands.spawn((
         Bed,
         Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::ONE).mesh())),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::LinearRgba(LinearRgba::from_vec3(
-                plain,
-            )),
-            perceptual_roughness: 0.92,
-            reflectance: 0.18,
-            ..default()
-        })),
+        MeshMaterial3d(water.clone()),
         Transform::from_xyz(0.0, land.set.land.water_y, 0.0),
         NotShadowCaster,
     ));

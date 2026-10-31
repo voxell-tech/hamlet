@@ -38,8 +38,8 @@ impl Default for GeneratorView {
 
 impl GeneratorView {
     /// The height the camera looks at: the lie of the land about
-    /// its focus, taken wide so that the camera crosses a mountain
-    /// without following every rock of it.
+    /// its focus, taken wide so that the camera crosses a hill
+    /// without following every bump of it.
     fn level(&self, land: &Land) -> f32 {
         const SPOKES: usize = 8;
         let reach = self.dist * 0.4;

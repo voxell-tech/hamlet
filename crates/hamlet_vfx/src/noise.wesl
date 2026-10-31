@@ -10,6 +10,18 @@ fn scramble(x: u32) -> u32 {
     return (word >> 22u) ^ word;
 }
 
+// `key(&[x])` in `noise.rs`.
+fn key1(x: u32) -> u32 {
+    return scramble(0x51ed270bu ^ x);
+}
+
+// `smoothstep` in `meshes.rs`: like WGSL's, but also falling when `a` is
+// above `b`, which WGSL leaves undefined.
+fn smooth_step(a: f32, b: f32, x: f32) -> f32 {
+    let t = clamp((x - a) / (b - a), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
 // `key(&[seed, x, z])` in `noise.rs`.
 fn key(seed: u32, x: i32, z: i32) -> u32 {
     var h = scramble(0x51ed270bu ^ seed);
