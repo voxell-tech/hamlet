@@ -1,5 +1,6 @@
 //! The meshes and materials everything of a kind shares.
 
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::light::NotShadowCaster;
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
@@ -12,10 +13,11 @@ use hamlet_vfx::water::{
 use super::land::Land;
 use super::loading::{Bed, Sea};
 use super::{Tally, flora, traffic, yard};
-use crate::Stock;
 use crate::keeper::KeeperState;
 use crate::lantern::lantern_glass;
 use crate::palette::Palette;
+use crate::sky::CameraSettings;
+use crate::{Sky, Stock};
 
 /// Handles shared by everything of a kind, so the renderer can batch
 /// them.
@@ -63,6 +65,7 @@ pub(super) fn setup(
     stock: Res<Stock>,
     bumps: Res<GroundSettings>,
     flow: Res<WaterSettings>,
+    lens: Option<Res<CameraSettings>>,
 ) {
     let ground = grounds.add(ground::material(
         &mut images,
@@ -91,16 +94,19 @@ pub(super) fn setup(
 
     // One surface of water under the camera, for the sea, the rivers
     // and every pool: wherever the ground dips under it, it shows.
-    let water = waters
-        .add(water::material(paint(&pal, &flow), flow.roughness));
+    let water = waters.add(water::material(&mut images, &flow));
     let plane = meshes.add(Plane3d::new(Vec3::Y, Vec2::ONE).mesh());
+    let far = lens.map_or(4000.0, |lens| lens.far);
     commands.spawn((
         Sea,
         Waves,
-        Mesh3d(plane.clone()),
+        Mesh3d(meshes.add(water::sea(far))),
         MeshMaterial3d(water.clone()),
         Transform::from_xyz(0.0, land.set.land.water_y, 0.0),
         NotShadowCaster,
+        // Its swells rise above the flat square its bounds are taken
+        // from, and it is about the camera wherever that looks.
+        NoFrustumCulling,
     ));
     // The deep sea's floor under it, where the ground has yet to
     // come and all about the island.
@@ -143,16 +149,13 @@ pub(super) fn setup(
     });
 }
 
-/// The water's look in the palette's colours.
-fn paint(pal: &Palette, set: &WaterSettings) -> WaterUniform {
-    WaterUniform::new(set, pal.water, pal.water_shade, pal.foam)
-}
-
-/// Paints the ground and the water as the land and the water's
-/// settings now have them.
+/// Paints the ground as the land has it, and the water as its settings
+/// and the sky have it, keeping where its foam and the shore's field
+/// lie, the wind and the time.
 pub(super) fn repaint(
     land: Res<Land>,
     flow: Res<WaterSettings>,
+    sky: Res<Sky>,
     kit: Res<Kit>,
     mut grounds: ResMut<Assets<GroundMaterial>>,
     mut waters: ResMut<Assets<WaterMaterial>>,
@@ -163,12 +166,21 @@ pub(super) fn repaint(
     {
         ground.extension.soil = soil;
     }
-    let look = paint(&land.pal, &flow);
+    let Some(now) = waters.get(&kit.water).map(|w| w.extension.water.clone())
+    else {
+        return;
+    };
+    let look = WaterUniform {
+        foam: now.foam,
+        time: now.time,
+        wind: now.wind,
+        field: now.field,
+        sky: LinearRgba::from(sky.look.haze).to_vec3().extend(flow.mirror),
+        ..WaterUniform::new(&flow)
+    };
     if let Some(mut water) = waters.get_mut(&kit.water)
-        && (water.extension.water != look
-            || water.base.perceptual_roughness != flow.roughness)
+        && water.extension.water != look
     {
         water.extension.water = look;
-        water.base.perceptual_roughness = flow.roughness;
     }
 }

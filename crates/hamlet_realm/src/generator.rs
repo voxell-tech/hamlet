@@ -20,6 +20,7 @@ pub mod noise;
 mod relief;
 pub mod road;
 mod shift;
+mod shore;
 pub mod society;
 mod sounds;
 mod sync;
@@ -100,6 +101,7 @@ pub fn plugin(app: &mut App) {
         lights::plugin,
         sounds::plugin,
         relief::plugin,
+        shore::plugin,
     ))
     // An effect a house is given plays the frame it is given.
     .configure_sets(
@@ -149,7 +151,8 @@ pub fn plugin(app: &mut App) {
             tell_states.run_if(resource_changed::<Society>),
             repaint.run_if(
                 resource_changed::<Land>
-                    .or_else(resource_changed::<WaterSettings>),
+                    .or_else(resource_changed::<WaterSettings>)
+                    .or_else(resource_changed::<Sky>),
             ),
             settle.run_if(resource_changed::<Society>),
             shift_houses,

@@ -2,6 +2,7 @@
 //! When and where one is set off is the world's business.
 
 pub mod flag;
+mod foam;
 pub mod ground;
 pub mod inlay;
 pub mod magic;
@@ -38,6 +39,7 @@ impl Plugin for VfxPlugin {
             flag::plugin,
             ground::plugin,
             water::plugin,
+            foam::plugin,
         ))
         .init_resource::<Now>();
     }

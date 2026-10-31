@@ -159,7 +159,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let bump = a * k.x + b * k.y + c * k.z;
     let stroke = bump.w;
 
-    let rough = mix(ground.calm, 1.0, noise(world / ground.patches));
+    // Under the water the bed is smooth: no strokes, no clods, which the
+    // clear water would show as a pattern repeating over the sea floor.
+    let dry = smooth_step(soil.water - 0.6, soil.water + 0.1, in.world_position.y + given.z);
+    let rough = mix(ground.calm, 1.0, noise(world / ground.patches)) * dry;
     let slope = bump.xy * ground.strength * rough * mix(ground.bare, 1.0, stroke);
 
     // The bumps' slope over x and z, laid along the surface, tilts the
@@ -169,7 +172,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     pbr_input.N = normalize(n - (rise - n * dot(n, rise)));
 
     let dip = mix(1.0 - ground.cavity * rough, 1.0, bump.z);
-    let tone = mix(ground.dark.rgb, ground.light.rgb, stroke);
+    let tone = mix(vec3<f32>(1.0), mix(ground.dark.rgb, ground.light.rgb, stroke), dry);
     pbr_input.material.base_color = vec4<f32>(colour * tone * dip, 1.0);
 
     var out: FragmentOutput;

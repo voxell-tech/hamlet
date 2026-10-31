@@ -95,13 +95,19 @@ pub(in crate::generator) fn stream(
     };
     let sight = sight(&land, &detail, at, fog, far);
     for (mut bed, is_sea) in &mut bed {
-        let below = if is_sea { 0.0 } else { detail.bed };
-        let next = Transform::from_xyz(
-            sight.centre.x,
-            land.set.land.water_y - below,
-            sight.centre.y,
-        )
-        .with_scale(Vec3::splat(far * 2.0));
+        // The sea is its own size, and moves a whole metre at a time,
+        // so that its swells stay where they are on the map.
+        let next = if is_sea {
+            let at = sight.centre.round();
+            Transform::from_xyz(at.x, land.set.land.water_y, at.y)
+        } else {
+            Transform::from_xyz(
+                sight.centre.x,
+                land.set.land.water_y - detail.bed,
+                sight.centre.y,
+            )
+            .with_scale(Vec3::splat(far * 2.0))
+        };
         if *bed != next {
             *bed = next;
         }
