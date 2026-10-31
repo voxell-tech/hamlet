@@ -396,6 +396,21 @@ impl LandData {
         &self.settled
     }
 
+    /// The way the rivers run.
+    pub(crate) fn river_dir(&self) -> Vec2 {
+        self.river_dir
+    }
+
+    /// Each round of held ground: its middle, its radius and the
+    /// height it is held at.
+    pub(crate) fn hold_levels(
+        &self,
+    ) -> impl Iterator<Item = Vec4> + '_ {
+        self.holds
+            .iter()
+            .map(|h| Vec4::new(h.at.x, h.at.y, h.radius, h.y))
+    }
+
     /// The points the island reaches about: the middle, and every
     /// site that has a town.
     pub fn shores(&self) -> impl Iterator<Item = Vec2> + '_ {

@@ -14,7 +14,7 @@ import bevy_pbr::render::{
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
     forward_io::{VertexOutput, FragmentOutput},
 };
-import hamlet_vfx::noise::{fbm, perlin};
+import hamlet_vfx::noise::{fbm, perlin, smooth_step};
 
 // The fields are explained on `GroundSettings` in `ground.rs`.
 struct Ground {
@@ -77,12 +77,12 @@ fn ground_colour(p: vec2<f32>, y: f32, n: vec3<f32>, woods: f32, heath: f32) -> 
         smoothstep(-0.3, 0.6, n.x),
     );
     c = mix(c, stone, rock);
-    let snow = smoothstep(36.0, 44.0, y + 5.0 * grain) * smoothstep(0.5, 0.25, steep);
+    let snow = smoothstep(36.0, 44.0, y + 5.0 * grain) * smooth_step(0.5, 0.25, steep);
     c = mix(c, soil.snow.rgb, snow);
     // A sandy shore, wet at the waterline.
-    let shore = smoothstep(soil.water + 0.75, soil.water + 0.2, y);
+    let shore = smooth_step(soil.water + 0.75, soil.water + 0.2, y);
     c = mix(c, mix(soil.dirt.rgb, soil.dirt_shade.rgb, 0.4), shore * 0.8);
-    return mix(c, soil.mud.rgb, smoothstep(soil.water + 0.2, soil.water - 0.3, y));
+    return mix(c, soil.mud.rgb, smooth_step(soil.water + 0.2, soil.water - 0.3, y));
 }
 
 fn hash2(p: vec2<f32>) -> vec2<f32> {

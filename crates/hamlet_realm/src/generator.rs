@@ -17,6 +17,7 @@ mod lights;
 mod loading;
 mod magic;
 pub mod noise;
+mod relief;
 pub mod road;
 mod shift;
 pub mod society;
@@ -97,6 +98,7 @@ pub fn plugin(app: &mut App) {
         VfxPlugin,
         lights::plugin,
         sounds::plugin,
+        relief::plugin,
     ))
     // An effect a house is given plays the frame it is given.
     .configure_sets(
