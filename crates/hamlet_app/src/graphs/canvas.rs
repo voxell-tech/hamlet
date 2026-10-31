@@ -55,6 +55,7 @@ use hamlet_ui::{View, with_cx};
 use super::menu::Menu;
 use super::wire::{Shape, WireMaterial};
 use super::{Editor, controls};
+use crate::cursor::Faint;
 
 const WIDTH: f32 = 236.0;
 const HEADER: f32 = 26.0;
@@ -75,7 +76,8 @@ const MOST_ZOOM: f32 = 2.0;
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Sight>()
         .init_resource::<Gesture>()
-        .add_systems(Update, (build, place, paint, lasso).chain());
+        .add_systems(Update, (build, place, paint, lasso).chain())
+        .add_systems(Update, faint);
 }
 
 /// Marks the frame the canvas is drawn in.
@@ -847,7 +849,6 @@ fn build(
                         ..Node::default()
                     },
                     Hovered::default(),
-                    EntityCursor(SystemCursorIcon::Crosshair),
                     ChildOf(row),
                 ))
                 .id();
@@ -1343,6 +1344,15 @@ fn pan(
     }
 }
 
+/// Draws the cursor faint while a wire is dragged, so what it is
+/// dragged over shows through.
+fn faint(gesture: Res<Gesture>, mut faint: ResMut<Faint>) {
+    let linking = matches!(*gesture, Gesture::Link(..));
+    if faint.0 != linking {
+        faint.0 = linking;
+    }
+}
+
 /// Shows the box of a Shift-drag where it is, and hides it after.
 fn lasso(
     gesture: Res<Gesture>,
@@ -1453,7 +1463,6 @@ fn start_link(
     dots: Query<&Dot>,
     editor: Res<Editor>,
     mut gesture: ResMut<Gesture>,
-    mut cursor: ResMut<OverrideCursor>,
 ) {
     start.propagate(false);
     let Ok(dot) = dots.get(start.entity) else {
@@ -1479,7 +1488,6 @@ fn start_link(
         at,
         Vec2::ZERO,
     );
-    cursor.0 = Some(SystemCursorIcon::Crosshair);
 }
 
 fn drag_link(
