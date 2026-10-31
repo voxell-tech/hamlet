@@ -61,7 +61,10 @@ const HEADER: f32 = 26.0;
 const ROW: f32 = 28.0;
 const PAD: f32 = 4.0;
 const BORDER: f32 = 1.0;
-const DOT: f32 = 10.0;
+const DOT: f32 = 20.0;
+/// The area a dot is pointed at in, twice the dot, so it is easy to
+/// hit.
+const DOT_HIT: f32 = DOT * 2.0;
 /// How far a group's frame stands off its cards, and its title bar's
 /// height.
 const MARGIN: f32 = 16.0;
@@ -106,13 +109,17 @@ struct TitleBar(usize);
 #[derive(Component)]
 struct Drawn(Option<Wire>);
 
-/// A port's dot on a card.
+/// A port's dot on a card: the area it is pointed at in.
 #[derive(Component, Clone)]
 struct Dot {
     port: Port,
     output: bool,
     value_type: ValueType,
 }
+
+/// The drawn dot inside a dot's area, which paint colours.
+#[derive(Component)]
+struct Look(Entity);
 
 /// An input's row on a card, which a right click asks about.
 #[derive(Component, Clone)]
@@ -815,35 +822,60 @@ fn build(
                     }
                 });
             }
-            // The dot sits on the card's edge, half outside it.
-            let edge = px(-DOT * 0.5 - BORDER);
-            let mut transform = commands.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    top: px((ROW - DOT) * 0.5),
-                    left: if dot.output { Val::Auto } else { edge },
-                    right: if dot.output { edge } else { Val::Auto },
-                    width: px(DOT),
-                    height: px(DOT),
-                    border: UiRect::all(px(1.5)),
-                    border_radius: BorderRadius::MAX,
-                    ..Node::default()
-                },
-                BackgroundColor(tint(palette, dot.value_type)),
-                BorderColor::all(palette.input),
-                Hovered::default(),
-                EntityCursor(SystemCursorIcon::Crosshair),
-                ChildOf(row),
-            ));
+            // The dot sits on the card's edge, half outside it, in
+            // the middle of the larger area it is pointed at in.
+            let edge = px(-DOT_HIT * 0.5 - BORDER);
+            let area = commands
+                .spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: px((ROW - DOT_HIT) * 0.5),
+                        left: if dot.output {
+                            Val::Auto
+                        } else {
+                            edge
+                        },
+                        right: if dot.output {
+                            edge
+                        } else {
+                            Val::Auto
+                        },
+                        width: px(DOT_HIT),
+                        height: px(DOT_HIT),
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        ..Node::default()
+                    },
+                    Hovered::default(),
+                    EntityCursor(SystemCursorIcon::Crosshair),
+                    ChildOf(row),
+                ))
+                .id();
+            let look = commands
+                .spawn((
+                    Node {
+                        width: px(DOT),
+                        height: px(DOT),
+                        border: UiRect::all(px(3.0)),
+                        border_radius: BorderRadius::MAX,
+                        ..Node::default()
+                    },
+                    BackgroundColor(tint(palette, dot.value_type)),
+                    BorderColor::all(palette.input),
+                    Pickable::IGNORE,
+                    ChildOf(area),
+                ))
+                .id();
+            let mut hit = commands.entity(area);
+            hit.insert(Look(look));
             if dot.output {
-                transform
-                    .observe(start_link)
+                hit.observe(start_link)
                     .observe(drag_link)
                     .observe(gesture_end);
             } else {
-                transform.observe(link).observe(cut);
+                hit.observe(link).observe(cut);
             }
-            transform.insert(dot);
+            hit.insert(dot);
         }
     }
 }
@@ -978,8 +1010,9 @@ fn paint(
         (&Card, &Hovered, &mut BorderColor),
         Without<Dot>,
     >,
-    mut dots: Query<
-        (&Dot, &Hovered, &mut BorderColor, &mut BackgroundColor),
+    dots: Query<(&Dot, &Hovered, &Look)>,
+    mut looks: Query<
+        (&mut BorderColor, &mut BackgroundColor),
         (Without<Card>, Without<TitleBar>),
     >,
     mut bars: Query<
@@ -1030,7 +1063,10 @@ fn paint(
         }
         _ => None,
     };
-    for (dot, hovered, mut border, mut fill) in &mut dots {
+    for (dot, hovered, look) in &dots {
+        let Ok((mut border, mut fill)) = looks.get_mut(look.0) else {
+            continue;
+        };
         let open = match linking {
             Some((from, value_type)) => {
                 (!dot.output && dot.value_type.accepts(value_type))
