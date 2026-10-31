@@ -1,23 +1,23 @@
-//! Nodes that change a list of placements.
+//! Nodes that change a list of spots.
 
 use bevy_math::Vec3;
 
-use super::{PLACEMENTS_IN, PLACEMENTS_OUT};
+use super::{SPOTS_IN, SPOTS_OUT};
 use crate::eval::{Problem, Run};
 use crate::graph::Scope;
 use crate::node::{Initial, NodeKind, PortSpec};
 use crate::turn;
-use crate::value::{Placement, Value, ValueType};
+use crate::value::{Spot, Value, ValueType};
 
 pub(super) const KINDS: &[NodeKind] =
     &[REPEAT, TRANSFORM, CULL, KEEP_APART, MERGE];
 
 const REPEAT: NodeKind = NodeKind {
     name: "repeat",
-    doc: "Each placement becomes copies, each a step further on in \
-          its own frame",
+    doc: "Each spot becomes copies, each a step further on in its \
+          own frame",
     inputs: &[
-        PLACEMENTS_IN,
+        SPOTS_IN,
         PortSpec::new(
             "count",
             ValueType::Integer,
@@ -31,14 +31,14 @@ const REPEAT: NodeKind = NodeKind {
         )
         .initial(Initial::Point(Vec3::new(0.0, 0.0, 1.0))),
     ],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: repeat,
 };
 
 fn repeat(run: &mut Run) -> Result<(), Problem> {
     let step = run.point("step")?;
     let mut placed = Vec::new();
-    for original in run.placements("placements")? {
+    for original in run.spots("spots")? {
         let count =
             run.integer("count", Some(original))?.max(0) as u32;
         for index in 0..count {
@@ -49,16 +49,16 @@ fn repeat(run: &mut Run) -> Result<(), Problem> {
             placed.push(copy);
         }
     }
-    run.put("placements", Value::Placements(placed));
+    run.put("spots", Value::Spots(placed));
     Ok(())
 }
 
 const TRANSFORM: NodeKind = NodeKind {
     name: "transform",
-    doc: "Moves, turns and scales each placement. Random or field \
-          values make it a jitter",
+    doc: "Moves, turns and scales each spot. Random or field values \
+          make it a jitter",
     inputs: &[
-        PLACEMENTS_IN,
+        SPOTS_IN,
         PortSpec::new("move_x", ValueType::Number, "Metres along x")
             .initial(Initial::Number(0.0)),
         PortSpec::new("move_y", ValueType::Number, "Metres along y")
@@ -76,19 +76,19 @@ const TRANSFORM: NodeKind = NodeKind {
         PortSpec::new(
             "space",
             ValueType::Choice,
-            "Whether moves follow each placement's turn",
+            "Whether moves follow each spot's turn",
         )
         .initial(Initial::Choice("local"))
         .choices(&["local", "world"]),
     ],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: transform,
 };
 
 fn transform(run: &mut Run) -> Result<(), Problem> {
     let local = run.choice("space", None)? == "local";
     let mut placed = Vec::new();
-    for original in run.placements("placements")? {
+    for original in run.spots("spots")? {
         let at = Some(original);
         let mut moved = original.clone();
         let offset = Vec3::new(
@@ -110,44 +110,44 @@ fn transform(run: &mut Run) -> Result<(), Problem> {
         moved.frame.scale *= run.number("scale", at)?;
         placed.push(moved);
     }
-    run.put("placements", Value::Placements(placed));
+    run.put("spots", Value::Spots(placed));
     Ok(())
 }
 
 const CULL: NodeKind = NodeKind {
     name: "cull",
-    doc: "Keeps the placements whose keep is true. A random chance \
-          or a field's threshold thins them",
+    doc: "Keeps the spots whose keep is true. A random chance or a \
+          field's threshold thins them",
     inputs: &[
-        PLACEMENTS_IN,
+        SPOTS_IN,
         PortSpec::new(
             "keep",
             ValueType::Bool,
-            "Whether each placement stays",
+            "Whether each spot stays",
         )
         .initial(Initial::Bool(true)),
     ],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: cull,
 };
 
 fn cull(run: &mut Run) -> Result<(), Problem> {
     let mut placed = Vec::new();
-    for placement in run.placements("placements")? {
-        if run.flag("keep", Some(placement))? {
-            placed.push(placement.clone());
+    for spot in run.spots("spots")? {
+        if run.flag("keep", Some(spot))? {
+            placed.push(spot.clone());
         }
     }
-    run.put("placements", Value::Placements(placed));
+    run.put("spots", Value::Spots(placed));
     Ok(())
 }
 
 const KEEP_APART: NodeKind = NodeKind {
     name: "keep_apart",
-    doc: "Removes placements nearer than a distance to one kept, \
-          kept in a seeded order",
+    doc: "Removes spots nearer than a distance to one kept, kept in \
+          a seeded order",
     inputs: &[
-        PLACEMENTS_IN,
+        SPOTS_IN,
         PortSpec::new(
             "distance",
             ValueType::Number,
@@ -155,58 +155,45 @@ const KEEP_APART: NodeKind = NodeKind {
         )
         .initial(Initial::Number(1.0)),
     ],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: keep_apart,
 };
 
 fn keep_apart(run: &mut Run) -> Result<(), Problem> {
     let distance = run.number("distance", None)?;
     let chance = run.chance(Scope::House);
-    let mut order =
-        run.placements("placements")?.iter().collect::<Vec<_>>();
-    order.sort_by_key(|placement| chance.mix(placement.id.0));
-    let mut kept: Vec<&Placement> = Vec::with_capacity(order.len());
-    for placement in order {
+    let mut order = run.spots("spots")?.iter().collect::<Vec<_>>();
+    order.sort_by_key(|spot| chance.mix(spot.id.0));
+    let mut kept: Vec<&Spot> = Vec::with_capacity(order.len());
+    for spot in order {
         let near = kept.iter().any(|other| {
-            other
-                .frame
-                .translation
-                .distance(placement.frame.translation)
+            other.frame.translation.distance(spot.frame.translation)
                 < distance
         });
         if !near {
-            kept.push(placement);
+            kept.push(spot);
         }
     }
-    kept.sort_by_key(|placement| (placement.index, placement.id));
+    kept.sort_by_key(|spot| (spot.index, spot.id));
     let kept = kept.into_iter().cloned().collect();
-    run.put("placements", Value::Placements(kept));
+    run.put("spots", Value::Spots(kept));
     Ok(())
 }
 
 const MERGE: NodeKind = NodeKind {
     name: "merge",
-    doc: "Two lists of placements as one, the first before the \
-          second",
+    doc: "Two lists of spots as one, the first before the second",
     inputs: &[
-        PortSpec::new(
-            "first",
-            ValueType::Placements,
-            "The first list",
-        ),
-        PortSpec::new(
-            "second",
-            ValueType::Placements,
-            "The second list",
-        ),
+        PortSpec::new("first", ValueType::Spots, "The first list"),
+        PortSpec::new("second", ValueType::Spots, "The second list"),
     ],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: merge,
 };
 
 fn merge(run: &mut Run) -> Result<(), Problem> {
-    let mut placed = run.placements("first")?.to_vec();
-    placed.extend_from_slice(run.placements("second")?);
-    run.put("placements", Value::Placements(placed));
+    let mut placed = run.spots("first")?.to_vec();
+    placed.extend_from_slice(run.spots("second")?);
+    run.put("spots", Value::Spots(placed));
     Ok(())
 }

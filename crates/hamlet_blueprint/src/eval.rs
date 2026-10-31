@@ -12,11 +12,11 @@ use crate::graph::{
 use crate::node::{NodeKind, Registry};
 use crate::seed::Seed;
 use crate::value::{
-    Curve, Frame, Instance, Placement, PlacementId, Value, ValueType,
+    Curve, Frame, Instance, Spot, SpotId, Value, ValueType,
 };
 
 /// The seeds a ruleset runs with, one for each scope above a
-/// placement.
+/// spot.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Seeds {
     pub realm: Seed,
@@ -29,7 +29,7 @@ impl Seeds {
         match scope {
             Scope::Realm => self.realm,
             Scope::Hamlet => self.hamlet,
-            Scope::House | Scope::Placement => self.house,
+            Scope::House | Scope::Spot => self.house,
         }
     }
 }
@@ -418,7 +418,7 @@ struct Runner<'a> {
 
 impl Runner<'_> {
     /// Runs the graph `name`. `path` names where it runs, so the same
-    /// graph run from two nodes gives two sets of placement ids.
+    /// graph run from two nodes gives two sets of spot ids.
     fn run(
         &self,
         name: &str,
@@ -646,10 +646,10 @@ fn pick(weights: &[(String, f32)], key: Seed) -> &str {
     weights.last().map_or("", |(choice, _)| choice)
 }
 
-/// A placement at the origin, for reading a field outside any
-/// placement.
-const ORIGIN: Placement = Placement {
-    id: PlacementId::ROOT,
+/// A spot at the origin, for reading a field outside any
+/// spot.
+const ORIGIN: Spot = Spot {
+    id: SpotId::ROOT,
     frame: Frame::IDENTITY,
     size: Vec3::ONE,
     index: 0,
@@ -711,18 +711,16 @@ impl Run<'_> {
     }
 
     /// The seed of a roll of `port` at `scope`, at `at` when it is
-    /// rolled per placement.
+    /// rolled per spot.
     fn roll_key(
         &self,
         port: &str,
         scope: Scope,
-        at: Option<&Placement>,
+        at: Option<&Spot>,
     ) -> Seed {
         let key = self.seeds.of(scope).mix(self.seed.0).mix_str(port);
         match (scope, at) {
-            (Scope::Placement, Some(placement)) => {
-                key.mix(placement.id.0)
-            }
+            (Scope::Spot, Some(spot)) => key.mix(spot.id.0),
             _ => key,
         }
     }
@@ -731,17 +729,17 @@ impl Run<'_> {
         &self,
         port: &str,
         roll: &Roll,
-        at: Option<&Placement>,
+        at: Option<&Spot>,
     ) -> Value {
         roll_value(&roll.spread, self.roll_key(port, roll.scope, at))
     }
 
     /// The number on `port`, at `at` when it is a field or rolled per
-    /// placement.
+    /// spot.
     pub fn number(
         &self,
         port: &str,
-        at: Option<&Placement>,
+        at: Option<&Spot>,
     ) -> Result<f32, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Number(number)) => Ok(*number),
@@ -767,7 +765,7 @@ impl Run<'_> {
     pub fn integer(
         &self,
         port: &str,
-        at: Option<&Placement>,
+        at: Option<&Spot>,
     ) -> Result<i32, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Integer(whole)) => Ok(*whole),
@@ -779,11 +777,11 @@ impl Run<'_> {
     }
 
     /// The bool on `port`, at `at` when it is a field or rolled per
-    /// placement. A field is true above one half.
+    /// spot. A field is true above one half.
     pub fn flag(
         &self,
         port: &str,
-        at: Option<&Placement>,
+        at: Option<&Spot>,
     ) -> Result<bool, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Bool(flag)) => Ok(*flag),
@@ -806,7 +804,7 @@ impl Run<'_> {
     pub fn choice(
         &self,
         port: &str,
-        at: Option<&Placement>,
+        at: Option<&Spot>,
     ) -> Result<String, Problem> {
         let choice = match self.binding(port)? {
             Binding::Value(Value::Choice(choice)) => choice.clone(),
@@ -853,15 +851,10 @@ impl Run<'_> {
         }
     }
 
-    pub fn placements(
-        &self,
-        port: &str,
-    ) -> Result<&[Placement], Problem> {
+    pub fn spots(&self, port: &str) -> Result<&[Spot], Problem> {
         match self.binding(port)? {
-            Binding::Value(Value::Placements(placements)) => {
-                Ok(placements)
-            }
-            _ => Err(self.wrong(port, ValueType::Placements)),
+            Binding::Value(Value::Spots(spots)) => Ok(spots),
+            _ => Err(self.wrong(port, ValueType::Spots)),
         }
     }
 
@@ -891,15 +884,15 @@ impl Run<'_> {
         }
     }
 
-    /// The id of the `index`th placement this node makes from
+    /// The id of the `index`th spot this node makes from
     /// `parent`.
     /// The asset named `name`, as the ruleset's catalogue has it.
     pub fn asset(&self, name: &str) -> Option<Asset> {
         self.assets.get(name)
     }
 
-    pub fn id(&self, parent: PlacementId, index: u32) -> PlacementId {
-        PlacementId(self.seed.mix(parent.0).mix(u64::from(index)).0)
+    pub fn id(&self, parent: SpotId, index: u32) -> SpotId {
+        SpotId(self.seed.mix(parent.0).mix(u64::from(index)).0)
     }
 
     /// A seed of this node that changes as often as `scope` does.

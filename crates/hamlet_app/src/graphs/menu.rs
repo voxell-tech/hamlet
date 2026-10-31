@@ -48,7 +48,7 @@ const GRAPHS: &str = "Graphs";
 const GROUPS: [&str; 7] = [
     GRAPHS,
     "Curves",
-    "Placements",
+    "Spots",
     "Modifiers",
     "Fields",
     "Math",

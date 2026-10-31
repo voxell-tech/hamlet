@@ -97,7 +97,7 @@ pub enum Scope {
     Realm,
     Hamlet,
     House,
-    Placement,
+    Spot,
 }
 
 /// One end of a wire: a node's port by name.

@@ -1,6 +1,6 @@
 //! Nodes that work out numbers and points, so a graph's inputs can
 //! size and place what it puts down. Math works on fields, so noise
-//! or a random number in it is worked out at each placement.
+//! or a random number in it is worked out at each spot.
 
 use bevy_math::Vec3;
 
@@ -13,7 +13,7 @@ pub(super) const KINDS: &[NodeKind] = &[MATH, POINT];
 
 const MATH: NodeKind = NodeKind {
     name: "math",
-    doc: "A number worked out from a and b, at each placement. Abs, \
+    doc: "A number worked out from a and b, at each spot. Abs, \
           floor, ceil, round, sqrt, sin, cos and tan take a alone, \
           in degrees for the last three. Angle is the angle in \
           degrees whose rise is a over a run of b. Less and greater \

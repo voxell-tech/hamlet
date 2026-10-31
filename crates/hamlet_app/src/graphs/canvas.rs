@@ -552,7 +552,7 @@ fn tint(palette: &Palette, value_type: ValueType) -> Color {
         ValueType::Bool => palette.green,
         ValueType::Point | ValueType::Curve => palette.agent,
         ValueType::Choice => palette.grey_1,
-        ValueType::Placements => palette.glow,
+        ValueType::Spots => palette.glow,
         ValueType::Field => palette.particle,
         ValueType::Geometry => palette.glow_core,
     }

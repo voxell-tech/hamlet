@@ -1,5 +1,5 @@
 //! What each selected node gives, drawn over the preview in the
-//! colour its card is lit in: placements as outlined boxes with their
+//! colour its card is lit in: spots as outlined boxes with their
 //! axes, assets as their boxes, curves as lines through their points
 //! with an arrow the way they run, points as dots, and a field as a
 //! wash on the ground, brighter where it is higher.
@@ -15,7 +15,7 @@ use bevy::math::{Isometry3d, Quat, Vec2, Vec3};
 use bevy::reflect::Reflect;
 use bevy::transform::components::Transform;
 use bevy_fynix::Theme;
-use hamlet_blueprint::{Frame, Placement, PlacementId, Value};
+use hamlet_blueprint::{Frame, Spot, SpotId, Value};
 use hamlet_ui::theme::HamletTheme;
 
 use super::Editor;
@@ -66,19 +66,14 @@ fn show(
     framing: &Framing,
 ) {
     match value {
-        Value::Placements(placements) => {
-            for placement in placements {
-                outline(
-                    gizmos,
-                    &placement.frame,
-                    placement.size,
-                    colour,
-                );
+        Value::Spots(spots) => {
+            for spot in spots {
+                outline(gizmos, &spot.frame, spot.size, colour);
                 gizmos.axes(
                     Transform::from_translation(
-                        placement.frame.translation,
+                        spot.frame.translation,
                     )
-                    .with_rotation(placement.frame.rotation),
+                    .with_rotation(spot.frame.rotation),
                     0.35,
                 );
             }
@@ -136,11 +131,9 @@ fn show(
                 .flat_map(|i| (0..WASH).map(move |j| (i, j)))
                 .map(|(i, j)| {
                     let point = at(i, j);
-                    let placement = Placement::new(
-                        PlacementId::ROOT,
-                        Frame::at(point),
-                    );
-                    (point, field.sample(&placement))
+                    let spot =
+                        Spot::new(SpotId::ROOT, Frame::at(point));
+                    (point, field.sample(&spot))
                 })
                 .collect();
             let (low, high) = samples.iter().fold(

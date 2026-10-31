@@ -2,7 +2,7 @@
 //! the `assets/` folder beside the book the window keeps, and added
 //! to the book's catalogue with a palette colour for each of its
 //! materials. The preview reads each file once and draws it fitted
-//! to its placement, as a box fills one.
+//! to its spot, as a box fills one.
 
 use std::collections::BTreeMap;
 use std::fs;

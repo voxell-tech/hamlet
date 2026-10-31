@@ -17,14 +17,14 @@ pub enum ValueType {
     Point,
     Choice,
     Curve,
-    Placements,
+    Spots,
     Field,
     Geometry,
 }
 
 impl ValueType {
     /// Whether a port of this type takes a wire carrying `from`. A
-    /// number or bool port reads a field where each placement is; a
+    /// number or bool port reads a field where each spot is; a
     /// field port takes a number as the same value everywhere.
     pub fn accepts(self, from: ValueType) -> bool {
         self == from
@@ -53,7 +53,7 @@ pub enum Value {
     Point(Vec3),
     Choice(String),
     Curve(Curve),
-    Placements(Vec<Placement>),
+    Spots(Vec<Spot>),
     Field(Field),
     Geometry(Vec<Instance>),
 }
@@ -67,7 +67,7 @@ impl Value {
             Value::Point(_) => ValueType::Point,
             Value::Choice(_) => ValueType::Choice,
             Value::Curve(_) => ValueType::Curve,
-            Value::Placements(_) => ValueType::Placements,
+            Value::Spots(_) => ValueType::Spots,
             Value::Field(_) => ValueType::Field,
             Value::Geometry(_) => ValueType::Geometry,
         }
@@ -142,23 +142,23 @@ impl Default for Frame {
     }
 }
 
-/// An id of a [`Placement`], made from what made it, so it holds
+/// An id of a [`Spot`], made from what made it, so it holds
 /// while others are added or removed around it. Its random values are
 /// seeded from it.
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default,
 )]
-pub struct PlacementId(pub u64);
+pub struct SpotId(pub u64);
 
-impl PlacementId {
-    /// The parent of placements made from nothing.
+impl SpotId {
+    /// The parent of spots made from nothing.
     pub const ROOT: Self = Self(0);
 }
 
 /// A box in a frame, with tags and what made it.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Placement {
-    pub id: PlacementId,
+pub struct Spot {
+    pub id: SpotId,
     /// The middle of the box.
     pub frame: Frame,
     pub size: Vec3,
@@ -170,8 +170,8 @@ pub struct Placement {
     pub tags: Vec<String>,
 }
 
-impl Placement {
-    pub fn new(id: PlacementId, frame: Frame) -> Self {
+impl Spot {
+    pub fn new(id: SpotId, frame: Frame) -> Self {
         Self {
             id,
             frame,

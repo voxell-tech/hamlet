@@ -7,9 +7,9 @@ use fastnoise_lite::{
 use serde::{Deserialize, Serialize};
 
 use crate::seed::Seed;
-use crate::value::Placement;
+use crate::value::Spot;
 
-/// A number read at each placement.
+/// A number read at each spot.
 // Boxed: a field is a tree of the fields its nodes were given.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Field {
@@ -26,26 +26,26 @@ pub enum Field {
 }
 
 impl Field {
-    pub fn sample(&self, placement: &Placement) -> f32 {
+    pub fn sample(&self, spot: &Spot) -> f32 {
         match self {
             Field::Constant(value) => *value,
             Field::Noise(noise) => {
-                noise.sample(placement.frame.translation)
+                noise.sample(spot.frame.translation)
             }
-            Field::Measure(measure) => measure.of(placement),
+            Field::Measure(measure) => measure.of(spot),
             Field::Remap { field, from, to } => {
                 let span = from[1] - from[0];
                 let t = if span == 0.0 {
                     0.0
                 } else {
-                    (field.sample(placement) - from[0]) / span
+                    (field.sample(spot) - from[0]) / span
                 };
                 to[0] + (to[1] - to[0]) * t
             }
             Field::Math(op, a, b) => {
-                op.apply(a.sample(placement), b.sample(placement))
+                op.apply(a.sample(spot), b.sample(spot))
             }
-            Field::Random(random) => random.sample(placement),
+            Field::Random(random) => random.sample(spot),
         }
     }
 }
@@ -138,21 +138,21 @@ impl Op {
     }
 }
 
-/// A number picked at random between two, again for each placement or
+/// A number picked at random between two, again for each spot or
 /// once for all of them.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Random {
     pub low: f32,
     pub high: f32,
     pub seed: Seed,
-    /// Whether each placement rolls its own.
+    /// Whether each spot rolls its own.
     pub each: bool,
 }
 
 impl Random {
-    fn sample(&self, placement: &Placement) -> f32 {
+    fn sample(&self, spot: &Spot) -> f32 {
         let key = if self.each {
-            self.seed.mix(placement.id.0)
+            self.seed.mix(spot.id.0)
         } else {
             self.seed
         };
@@ -160,7 +160,7 @@ impl Random {
     }
 }
 
-/// A fact of the placement itself.
+/// A fact of the spot itself.
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize,
 )]
@@ -173,13 +173,13 @@ pub enum Measure {
 }
 
 impl Measure {
-    fn of(self, placement: &Placement) -> f32 {
+    fn of(self, spot: &Spot) -> f32 {
         match self {
-            Measure::X => placement.frame.translation.x,
-            Measure::Height => placement.frame.translation.y,
-            Measure::Z => placement.frame.translation.z,
-            Measure::Along => placement.along,
-            Measure::Index => placement.index as f32,
+            Measure::X => spot.frame.translation.x,
+            Measure::Height => spot.frame.translation.y,
+            Measure::Z => spot.frame.translation.z,
+            Measure::Along => spot.along,
+            Measure::Index => spot.index as f32,
         }
     }
 }

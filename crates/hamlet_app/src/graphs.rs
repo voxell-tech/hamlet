@@ -475,7 +475,7 @@ impl Editor {
             for output in outputs {
                 let shown = matches!(
                     output.value_type,
-                    ValueType::Geometry | ValueType::Placements
+                    ValueType::Geometry | ValueType::Spots
                 );
                 let wired = graph.wires.iter().any(|wire| {
                     wire.from.node == node.id
@@ -560,7 +560,7 @@ impl Editor {
         let Some(port) = outputs.into_iter().find(|port| {
             matches!(
                 port.value_type,
-                ValueType::Geometry | ValueType::Placements
+                ValueType::Geometry | ValueType::Spots
             )
         }) else {
             return;
@@ -889,17 +889,17 @@ fn reshapes(sheet: &Sheet, registry: &Registry, edit: &Edit) -> bool {
 }
 
 /// The assets an output shows: its own, or a marker at each
-/// placement.
+/// spot.
 fn shown(value: Value) -> Vec<Instance> {
     match value {
         Value::Geometry(instances) => instances,
-        Value::Placements(placements) => placements
+        Value::Spots(spots) => spots
             .into_iter()
-            .map(|placement| Instance {
+            .map(|spot| Instance {
                 asset: preview::MARKER.to_owned(),
                 frame: Frame {
                     scale: Vec3::ONE,
-                    ..placement.frame
+                    ..spot.frame
                 },
                 size: Vec3::splat(0.25),
             })

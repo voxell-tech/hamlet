@@ -8,7 +8,7 @@ use hamlet_blueprint::{
 };
 
 /// Posts along a line, each lifted and turned at random, per
-/// placement.
+/// spot.
 const FENCE: &str = r#"(
     entry: "fence",
     graphs: {
@@ -19,15 +19,15 @@ const FENCE: &str = r#"(
                 (id: 1, does: Kind("line"), settings: {"to": FromParent("end")}),
                 (id: 2, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(1.0))}),
                 (id: 3, does: Kind("transform"), settings: {
-                    "move_y": Random((spread: Range(0.0, 0.5), scope: Placement)),
-                    "yaw": Random((spread: Range(-10.0, 10.0), scope: Placement)),
+                    "move_y": Random((spread: Range(0.0, 0.5), scope: Spot)),
+                    "yaw": Random((spread: Range(-10.0, 10.0), scope: Spot)),
                 }),
-                (id: 4, does: Kind("instance"), settings: {"asset": Fixed(Choice("post"))}),
+                (id: 4, does: Kind("put"), settings: {"asset": Fixed(Choice("post"))}),
             ],
             wires: [
                 (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
-                (from: (node: 2, name: "placements"), to: (node: 3, name: "placements")),
-                (from: (node: 3, name: "placements"), to: (node: 4, name: "placements")),
+                (from: (node: 2, name: "spots"), to: (node: 3, name: "spots")),
+                (from: (node: 3, name: "spots"), to: (node: 4, name: "spots")),
             ],
         ),
         "yard": (
@@ -119,7 +119,7 @@ fn closed_rectangle_places_on_its_corners() {
         r#"(
             entry: "ring",
             graphs: {"ring": (
-                outputs: [(name: "placements", value_type: Placements, from: (node: 2, name: "placements"))],
+                outputs: [(name: "spots", value_type: Spots, from: (node: 2, name: "spots"))],
                 nodes: [
                     (id: 1, does: Kind("rectangle")),
                     (id: 2, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(2.0))}),
@@ -130,28 +130,28 @@ fn closed_rectangle_places_on_its_corners() {
     )
     .expect("the fixture parses");
     let outputs = run(&ruleset, 1, &BTreeMap::new());
-    let Value::Placements(placements) = &outputs["placements"] else {
-        panic!("not placements");
+    let Value::Spots(spots) = &outputs["spots"] else {
+        panic!("not spots");
     };
     // A 6 by 4 rectangle is 20 round: ten posts, none doubled at the
     // start.
-    assert_eq!(placements.len(), 10);
+    assert_eq!(spots.len(), 10);
     assert!(
-        placements[3]
+        spots[3]
             .frame
             .translation
             .abs_diff_eq(Vec3::new(3.0, 0.0, -2.0), 1e-5)
     );
     assert!(
-        placements[8]
+        spots[8]
             .frame
             .translation
             .abs_diff_eq(Vec3::new(-3.0, 0.0, 2.0), 1e-5)
     );
     // On a corner a post faces along the edge that starts there.
-    let facing = placements[3].frame.rotation * Vec3::X;
+    let facing = spots[3].frame.rotation * Vec3::X;
     assert!(facing.abs_diff_eq(Vec3::Z, 1e-5));
-    assert!((placements[5].along - 0.5).abs() < 1e-6);
+    assert!((spots[5].along - 0.5).abs() < 1e-6);
 }
 
 #[test]
@@ -168,9 +168,9 @@ fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
                     (id: 4, does: Graph("bad")),
                 ],
                 wires: [
-                    (from: (node: 1, name: "curve"), to: (node: 2, name: "placements")),
-                    (from: (node: 2, name: "placements"), to: (node: 3, name: "placements")),
-                    (from: (node: 3, name: "placements"), to: (node: 2, name: "keep")),
+                    (from: (node: 1, name: "curve"), to: (node: 2, name: "spots")),
+                    (from: (node: 2, name: "spots"), to: (node: 3, name: "spots")),
+                    (from: (node: 3, name: "spots"), to: (node: 2, name: "keep")),
                 ],
             )},
         )"#,
@@ -182,7 +182,7 @@ fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
         .collect::<Vec<_>>();
     assert!(problems.iter().any(|problem| matches!(
         problem,
-        Problem::WrongType { node: NodeId(2), port, .. } if port == "placements"
+        Problem::WrongType { node: NodeId(2), port, .. } if port == "spots"
     )));
     assert!(
         problems
@@ -193,12 +193,12 @@ fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
 }
 
 #[test]
-fn math_on_a_random_field_is_worked_out_at_each_placement() {
+fn math_on_a_random_field_is_worked_out_at_each_spot() {
     let ruleset = Ruleset::from_ron(
         r#"(
             entry: "thin",
             graphs: {"thin": (
-                outputs: [(name: "placements", value_type: Placements, from: (node: 5, name: "placements"))],
+                outputs: [(name: "spots", value_type: Spots, from: (node: 5, name: "spots"))],
                 nodes: [
                     (id: 1, does: Kind("line"), settings: {"to": Fixed(Point((99.0, 0.0, 0.0)))}),
                     (id: 2, does: Kind("along_curve")),
@@ -209,7 +209,7 @@ fn math_on_a_random_field_is_worked_out_at_each_placement() {
                 wires: [
                     (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
                     (from: (node: 3, name: "field"), to: (node: 4, name: "a")),
-                    (from: (node: 2, name: "placements"), to: (node: 5, name: "placements")),
+                    (from: (node: 2, name: "spots"), to: (node: 5, name: "spots")),
                     (from: (node: 4, name: "value"), to: (node: 5, name: "keep")),
                 ],
             )},
@@ -217,8 +217,8 @@ fn math_on_a_random_field_is_worked_out_at_each_placement() {
     )
     .expect("the fixture parses");
     let outputs = run(&ruleset, 1, &BTreeMap::new());
-    let Value::Placements(kept) = &outputs["placements"] else {
-        panic!("not placements");
+    let Value::Spots(kept) = &outputs["spots"] else {
+        panic!("not spots");
     };
     // Rolled once for all, all 100 would stay or go together.
     assert!((25..75).contains(&kept.len()), "{} kept", kept.len());
@@ -234,12 +234,12 @@ const RISE: &str = r#"(
         outputs: [(name: "geometry", value_type: Geometry, from: (node: 3, name: "geometry"))],
         nodes: [
             (id: 1, does: Kind("point"), settings: {"x": Fixed(Number(1.0)), "y": FromParent("rise"), "z": Fixed(Number(1.0))}),
-            (id: 2, does: Kind("box")),
-            (id: 3, does: Kind("instance")),
+            (id: 2, does: Kind("spot")),
+            (id: 3, does: Kind("put")),
         ],
         wires: [
             (from: (node: 1, name: "point"), to: (node: 2, name: "size")),
-            (from: (node: 2, name: "placements"), to: (node: 3, name: "placements")),
+            (from: (node: 2, name: "spots"), to: (node: 3, name: "spots")),
         ],
     )},
 )"#;

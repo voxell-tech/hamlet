@@ -1,16 +1,16 @@
-//! Nodes that make placements.
+//! Nodes that make spots.
 
 use bevy_math::Vec3;
 
-use super::{PLACEMENTS_IN, PLACEMENTS_OUT};
+use super::{SPOTS_IN, SPOTS_OUT};
 use crate::eval::{Problem, Run};
 use crate::graph::Scope;
 use crate::node::{Initial, Listed, NodeKind, PortSpec};
 use crate::turn;
-use crate::value::{Frame, Placement, PlacementId, Value, ValueType};
+use crate::value::{Frame, Spot, SpotId, Value, ValueType};
 
 pub(super) const KINDS: &[NodeKind] = &[
-    BOX,
+    SPOT,
     GRID,
     ALONG_CURVE,
     CURVE_CORNERS,
@@ -24,16 +24,21 @@ const CURVE_IN: PortSpec =
 const ALIGN: PortSpec = PortSpec::new(
     "align",
     ValueType::Bool,
-    "Whether each placement turns to point along the curve",
+    "Whether each spot turns to point along the curve",
 )
 .initial(Initial::Bool(true));
 
-const BOX: NodeKind = NodeKind {
-    name: "box",
-    doc: "One placement of a given size",
+const SPOT: NodeKind = NodeKind {
+    name: "spot",
+    doc: "One spot of a given size: where a part stands, and how \
+          big it is",
     inputs: &[
-        PortSpec::new("at", ValueType::Point, "Its middle")
-            .initial(Initial::Point(Vec3::ZERO)),
+        PortSpec::new(
+            "at",
+            ValueType::Point,
+            "The middle of its base",
+        )
+        .initial(Initial::Point(Vec3::ZERO)),
         PortSpec::new(
             "size",
             ValueType::Point,
@@ -41,14 +46,14 @@ const BOX: NodeKind = NodeKind {
         )
         .initial(Initial::Point(Vec3::new(4.0, 3.0, 3.0))),
     ],
-    outputs: &[PLACEMENTS_OUT],
-    run: make_box,
+    outputs: &[SPOTS_OUT],
+    run: spot,
 };
 
 const ON_SOCKETS: NodeKind = NodeKind {
     name: "on_sockets",
-    doc: "A placement at a socket of each asset that has it, turned \
-          as the socket is",
+    doc: "A spot at a socket of each asset that has it, turned as \
+          the socket is",
     inputs: &[
         PortSpec::new(
             "geometry",
@@ -63,13 +68,13 @@ const ON_SOCKETS: NodeKind = NodeKind {
         .listed(Listed::Sockets)
         .initial(Initial::Choice("lamp")),
     ],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: on_sockets,
 };
 
 fn on_sockets(run: &mut Run) -> Result<(), Problem> {
     let name = run.choice("socket", None)?;
-    let mut placements = Vec::new();
+    let mut spots = Vec::new();
     for instance in run.geometry("geometry")? {
         let Some(socket) = run
             .asset(&instance.asset)
@@ -86,34 +91,32 @@ fn on_sockets(run: &mut Run) -> Result<(), Problem> {
             rotation: rotation * socket.turn,
             scale: Vec3::ONE,
         };
-        let index = placements.len() as u32;
-        let mut placement =
-            Placement::new(run.id(PlacementId::ROOT, index), frame);
-        placement.index = index;
-        placements.push(placement);
+        let index = spots.len() as u32;
+        let mut spot = Spot::new(run.id(SpotId::ROOT, index), frame);
+        spot.index = index;
+        spots.push(spot);
     }
-    let count = placements.len() as u32;
-    for placement in &mut placements {
-        placement.count = count;
+    let count = spots.len() as u32;
+    for spot in &mut spots {
+        spot.count = count;
     }
-    run.put("placements", Value::Placements(placements));
+    run.put("spots", Value::Spots(spots));
     Ok(())
 }
 
-fn make_box(run: &mut Run) -> Result<(), Problem> {
-    let mut placement = Placement::new(
-        run.id(PlacementId::ROOT, 0),
+fn spot(run: &mut Run) -> Result<(), Problem> {
+    let mut spot = Spot::new(
+        run.id(SpotId::ROOT, 0),
         Frame::at(run.point("at")?),
     );
-    placement.size = run.point("size")?;
-    run.put("placements", Value::Placements(vec![placement]));
+    spot.size = run.point("size")?;
+    run.put("spots", Value::Spots(vec![spot]));
     Ok(())
 }
 
 const GRID: NodeKind = NodeKind {
     name: "grid",
-    doc: "Placements in rows and columns on the ground, about a \
-          middle",
+    doc: "Spots in rows and columns on the ground, about a middle",
     inputs: &[
         PortSpec::new("at", ValueType::Point, "Its middle")
             .initial(Initial::Point(Vec3::ZERO)),
@@ -132,7 +135,7 @@ const GRID: NodeKind = NodeKind {
         )
         .initial(Initial::Number(2.0)),
     ],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: grid,
 };
 
@@ -155,35 +158,35 @@ fn grid(run: &mut Run) -> Result<(), Problem> {
             let index = row * columns + column;
             let offset =
                 Vec3::new(column as f32, 0.0, row as f32) * spacing;
-            let mut placement = Placement::new(
+            let mut spot = Spot::new(
                 // Keyed by row and column, so adding columns keeps
                 // the rest.
-                run.id(PlacementId(u64::from(row)), column),
+                run.id(SpotId(u64::from(row)), column),
                 Frame::at(corner + offset),
             );
-            placement.index = index;
-            placement.count = count;
-            placed.push(placement);
+            spot.index = index;
+            spot.count = count;
+            placed.push(spot);
         }
     }
-    run.put("placements", Value::Placements(placed));
+    run.put("spots", Value::Spots(placed));
     Ok(())
 }
 
 const ALONG_CURVE: NodeKind = NodeKind {
     name: "along_curve",
-    doc: "Placements along a curve, one every spacing from its start",
+    doc: "Spots along a curve, one every spacing from its start",
     inputs: &[
         CURVE_IN,
         PortSpec::new(
             "spacing",
             ValueType::Number,
-            "Metres between placements",
+            "Metres between spots",
         )
         .initial(Initial::Number(1.0)),
         ALIGN,
     ],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: along_curve,
 };
 
@@ -196,7 +199,7 @@ fn along_curve(run: &mut Run) -> Result<(), Problem> {
     let curve = run.curve("curve")?;
     let length = curve.length();
     // Spacing is kept exact, not stretched to fit, so a longer curve
-    // keeps the placements a shorter one had.
+    // keeps the spots a shorter one had.
     let steps = (length / spacing + 1e-4).floor() as u32;
     let count = if curve.closed { steps } else { steps + 1 };
     let mut placed = Vec::with_capacity(count as usize);
@@ -209,22 +212,21 @@ fn along_curve(run: &mut Run) -> Result<(), Problem> {
         if align {
             frame.rotation = turn::yaw_toward(direction);
         }
-        let mut placement =
-            Placement::new(run.id(PlacementId::ROOT, index), frame);
-        placement.index = index;
-        placement.count = count;
-        placement.along = distance / length;
-        placed.push(placement);
+        let mut spot = Spot::new(run.id(SpotId::ROOT, index), frame);
+        spot.index = index;
+        spot.count = count;
+        spot.along = distance / length;
+        placed.push(spot);
     }
-    run.put("placements", Value::Placements(placed));
+    run.put("spots", Value::Spots(placed));
     Ok(())
 }
 
 const CURVE_CORNERS: NodeKind = NodeKind {
     name: "curve_corners",
-    doc: "A placement at each point of a curve",
+    doc: "A spot at each point of a curve",
     inputs: &[CURVE_IN, ALIGN],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: curve_corners,
 };
 
@@ -251,32 +253,31 @@ fn curve_corners(run: &mut Run) -> Result<(), Problem> {
             frame.rotation = turn::yaw_toward(direction);
         }
         let index = index as u32;
-        let mut placement =
-            Placement::new(run.id(PlacementId::ROOT, index), frame);
-        placement.index = index;
-        placement.count = count;
-        placement.along = if length > 0.0 {
+        let mut spot = Spot::new(run.id(SpotId::ROOT, index), frame);
+        spot.index = index;
+        spot.count = count;
+        spot.along = if length > 0.0 {
             travelled / length
         } else {
             0.0
         };
         travelled += next.map_or(0.0, |&next| point.distance(next));
-        placed.push(placement);
+        placed.push(spot);
     }
-    run.put("placements", Value::Placements(placed));
+    run.put("spots", Value::Spots(placed));
     Ok(())
 }
 
 const ON_SURFACE: NodeKind = NodeKind {
     name: "on_surface",
-    doc: "Placements at random on the top face of each placement, \
-          as many as its area times the density",
+    doc: "Spots at random on the top face of each spot, as many as \
+          its area times the density",
     inputs: &[
-        PLACEMENTS_IN,
+        SPOTS_IN,
         PortSpec::new(
             "density",
             ValueType::Number,
-            "Placements per square metre",
+            "Spots per square metre",
         )
         .initial(Initial::Number(1.0)),
         PortSpec::new(
@@ -286,7 +287,7 @@ const ON_SURFACE: NodeKind = NodeKind {
         )
         .initial(Initial::Bool(true)),
     ],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: on_surface,
 };
 
@@ -294,7 +295,7 @@ fn on_surface(run: &mut Run) -> Result<(), Problem> {
     let align = run.flag("align", None)?;
     let chance = run.chance(Scope::House);
     let mut placed = Vec::new();
-    for surface in run.placements("placements")? {
+    for surface in run.spots("spots")? {
         let density = run.number("density", Some(surface))?.max(0.0);
         let size = surface.size * surface.frame.scale;
         let expected = size.x * size.z * density;
@@ -312,28 +313,28 @@ fn on_surface(run: &mut Run) -> Result<(), Problem> {
             if align {
                 frame.rotation = surface.frame.rotation;
             }
-            let mut placement =
-                Placement::new(run.id(surface.id, index), frame);
-            placement.index = index;
-            placement.count = count;
-            placement.tags.clone_from(&surface.tags);
-            placed.push(placement);
+            let mut spot =
+                Spot::new(run.id(surface.id, index), frame);
+            spot.index = index;
+            spot.count = count;
+            spot.tags.clone_from(&surface.tags);
+            placed.push(spot);
         }
     }
-    run.put("placements", Value::Placements(placed));
+    run.put("spots", Value::Spots(placed));
     Ok(())
 }
 
 const SPLIT: NodeKind = NodeKind {
     name: "split",
-    doc: "Cuts each placement along an axis into equal pieces of \
-          about a size",
+    doc: "Cuts each spot along an axis into equal pieces of about a \
+          size",
     inputs: &[
-        PLACEMENTS_IN,
+        SPOTS_IN,
         PortSpec::new(
             "axis",
             ValueType::Choice,
-            "The axis to cut along, in the placement's frame",
+            "The axis to cut along, in the spot's frame",
         )
         .initial(Initial::Choice("x"))
         .choices(&["x", "y", "z"]),
@@ -344,7 +345,7 @@ const SPLIT: NodeKind = NodeKind {
         )
         .initial(Initial::Number(1.2)),
     ],
-    outputs: &[PLACEMENTS_OUT],
+    outputs: &[SPOTS_OUT],
     run: split,
 };
 
@@ -355,7 +356,7 @@ fn split(run: &mut Run) -> Result<(), Problem> {
         _ => Vec3::Z,
     };
     let mut placed = Vec::new();
-    for whole in run.placements("placements")? {
+    for whole in run.spots("spots")? {
         let size = run.number("size", Some(whole))?;
         if size <= 0.0 {
             return Err(run.invalid("size", "must be above zero"));
@@ -366,15 +367,15 @@ fn split(run: &mut Run) -> Result<(), Problem> {
         for index in 0..count {
             let offset =
                 axis * (-length * 0.5 + piece * (index as f32 + 0.5));
-            let mut placement = whole.clone();
-            placement.id = run.id(whole.id, index);
-            placement.frame.translation = whole.frame.point(offset);
-            placement.size = whole.size - axis * (length - piece);
-            placement.index = index;
-            placement.count = count;
-            placed.push(placement);
+            let mut spot = whole.clone();
+            spot.id = run.id(whole.id, index);
+            spot.frame.translation = whole.frame.point(offset);
+            spot.size = whole.size - axis * (length - piece);
+            spot.index = index;
+            spot.count = count;
+            placed.push(spot);
         }
     }
-    run.put("placements", Value::Placements(placed));
+    run.put("spots", Value::Spots(placed));
     Ok(())
 }

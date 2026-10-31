@@ -32,6 +32,5 @@ pub use graph::{
 pub use node::{Initial, Listed, NodeKind, PortSpec, Registry};
 pub use seed::Seed;
 pub use value::{
-    Constant, Curve, Frame, Instance, Placement, PlacementId, Value,
-    ValueType,
+    Constant, Curve, Frame, Instance, Spot, SpotId, Value, ValueType,
 };

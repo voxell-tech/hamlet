@@ -60,7 +60,7 @@ use hamlet_ui::{AnyView, Cx, View};
 use super::assets::{Meshes, palette_colour};
 use super::{Editor, files};
 
-/// The asset name a placement is shown as when nothing is put there.
+/// The asset name a spot is shown as when nothing is put there.
 pub(super) const MARKER: &str = "marker";
 
 /// The render layer only the preview's camera, lights and pieces are
@@ -468,7 +468,7 @@ fn rebuild(
     for instance in instances {
         let size = instance.size * instance.frame.scale;
         let marker = instance.asset == MARKER;
-        // An asset stands on its placement; a marker sits on it.
+        // An asset stands on its spot; a marker sits on it.
         let lift = if marker { 0.0 } else { size.y * 0.5 };
         let middle = instance.frame.translation
             + instance.frame.rotation * Vec3::new(0.0, lift, 0.0);
