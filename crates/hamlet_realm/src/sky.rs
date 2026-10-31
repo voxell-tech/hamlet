@@ -12,8 +12,9 @@ use bevy::image::{
 };
 use bevy::light::atmosphere::ScatteringMedium;
 use bevy::light::{
-    Atmosphere, CascadeShadowConfig, DirectionalLightShadowMap,
-    FogVolume, ShadowFilteringMethod, VolumetricFog, VolumetricLight,
+    Atmosphere, CascadeShadowConfig, CascadeShadowConfigBuilder,
+    DirectionalLightShadowMap, FogVolume, ShadowFilteringMethod,
+    VolumetricFog, VolumetricLight,
 };
 use bevy::pbr::{AtmosphereSettings, ScreenSpaceAmbientOcclusion};
 use bevy::post_process::bloom::Bloom;
@@ -471,6 +472,71 @@ pub(crate) struct WorldFog {
     drawn: Option<(f32, f32, f32)>,
 }
 
+/// A camera that is lit and graded by the hour: the world's, and any
+/// other scene that wants the same sky.
+#[derive(Component)]
+pub struct SkyView;
+
+/// A light that takes the hour's look, in the world or in any other
+/// scene.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Hourly {
+    /// The key light: the sun by day, the moon by night.
+    Key,
+    /// The fill light, from the other side.
+    Fill,
+}
+
+/// What makes a camera a [`SkyView`]: its lens, its post processing
+/// and its grading, as the world's camera has them.
+pub fn view(settings: &CameraSettings) -> impl Bundle {
+    (
+        SkyView,
+        Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            fov: settings.fov.to_radians(),
+            near: settings.near,
+            far: settings.far,
+            ..default()
+        }),
+        Msaa::Sample4,
+        Tonemapping::TonyMcMapface,
+        Bloom::NATURAL,
+        ShadowFilteringMethod::Gaussian,
+        DistanceFog::default(),
+        ColorGrading::default(),
+    )
+}
+
+/// The fog that begins and ends at a distance, as the world's does.
+pub fn fog_for(settings: &CameraSettings, dist: f32) -> FogFalloff {
+    FogFalloff::Linear {
+        start: dist * settings.fog_start,
+        end: dist * settings.fog_end.0 + settings.fog_end.1,
+    }
+}
+
+/// The shadows of a key light for a camera `dist` from what it looks
+/// at, starting at the camera and split and ending by the zoom as the
+/// world's do.
+pub fn shadows_for(
+    settings: &CameraSettings,
+    dist: f32,
+) -> CascadeShadowConfig {
+    let (split, end) = settings.shadow_range;
+    let least = settings.near;
+    let most = (dist * end).max(least * 2.0);
+    CascadeShadowConfigBuilder {
+        num_cascades: 2,
+        minimum_distance: least,
+        first_cascade_far_bound: (dist * split)
+            .clamp(least * 1.5, most * 0.75),
+        maximum_distance: most,
+        ..default()
+    }
+    .build()
+}
+
 /// The part of the day.
 #[derive(
     States, Clone, Copy, PartialEq, Eq, Hash, Debug, Default,
@@ -669,26 +735,15 @@ pub(crate) fn tell(
 pub fn spawn(mut commands: Commands, settings: Res<CameraSettings>) {
     commands.spawn((
         WorldCamera,
-        Camera3d::default(),
+        view(&settings),
         // The marks of light on the ground are decals, which read
         // the depth of what they fall on.
         DepthPrepass,
-        Projection::Perspective(PerspectiveProjection {
-            fov: settings.fov.to_radians(),
-            near: settings.near,
-            far: settings.far,
-            ..default()
-        }),
-        Msaa::Sample4,
-        Tonemapping::TonyMcMapface,
-        Bloom::NATURAL,
-        ShadowFilteringMethod::Gaussian,
-        DistanceFog::default(),
-        ColorGrading::default(),
         Transform::default(),
     ));
     commands.spawn((
         Sun,
+        Hourly::Key,
         DirectionalLight {
             shadow_maps_enabled: true,
             ..default()
@@ -697,6 +752,7 @@ pub fn spawn(mut commands: Commands, settings: Res<CameraSettings>) {
     ));
     commands.spawn((
         FillLight,
+        Hourly::Fill,
         DirectionalLight {
             shadow_maps_enabled: false,
             ..default()
@@ -705,43 +761,52 @@ pub fn spawn(mut commands: Commands, settings: Res<CameraSettings>) {
     ));
 }
 
-/// Sets the lights, the sky and the grading for the hour.
+/// Sets the lights, the sky and the grading for the hour, in every
+/// scene that has them.
 pub(crate) fn light(
     sky: Res<Sky>,
     mut ambient: ResMut<GlobalAmbientLight>,
-    camera: Single<
+    mut cameras: Query<
         (&mut Camera, &mut DistanceFog, &mut ColorGrading),
-        With<WorldCamera>,
+        With<SkyView>,
     >,
-    mut sun: Single<
-        (&mut DirectionalLight, &mut Transform),
-        (With<Sun>, Without<FillLight>),
-    >,
-    mut fill: Single<
-        (&mut DirectionalLight, &mut Transform),
-        (With<FillLight>, Without<Sun>),
-    >,
+    mut lights: Query<(
+        &Hourly,
+        &mut DirectionalLight,
+        &mut Transform,
+    )>,
 ) {
     let look = &sky.look;
-    let (mut camera, mut fog, mut grading) = camera.into_inner();
-    // Its own clear colour, so a window that also shows panels keeps
-    // theirs.
-    camera.clear_color = ClearColorConfig::Custom(look.haze);
-    fog.color = look.haze;
-    grading.global = ColorGradingGlobal {
-        post_saturation: look.saturation,
-        exposure: look.exposure,
-        ..default()
-    };
+    for (mut camera, mut fog, mut grading) in &mut cameras {
+        // Its own clear colour, so a window that also shows panels
+        // keeps theirs.
+        camera.clear_color = ClearColorConfig::Custom(look.haze);
+        fog.color = look.haze;
+        grading.global = ColorGradingGlobal {
+            post_saturation: look.saturation,
+            exposure: look.exposure,
+            ..default()
+        };
+    }
     ambient.color = look.ambient;
     ambient.brightness = look.ambient_nits;
 
-    sun.0.color = look.sun;
-    sun.0.illuminance = look.sun_lux;
-    *sun.1 = Transform::default().looking_to(look.sun_dir, Vec3::Y);
-    fill.0.color = look.fill;
-    fill.0.illuminance = look.fill_lux;
-    *fill.1 = Transform::default().looking_to(sky.fill_dir, Vec3::Y);
+    for (which, mut light, mut at) in &mut lights {
+        match which {
+            Hourly::Key => {
+                light.color = look.sun;
+                light.illuminance = look.sun_lux;
+                *at = Transform::default()
+                    .looking_to(look.sun_dir, Vec3::Y);
+            }
+            Hourly::Fill => {
+                light.color = look.fill;
+                light.illuminance = look.fill_lux;
+                *at = Transform::default()
+                    .looking_to(sky.fill_dir, Vec3::Y);
+            }
+        }
+    }
 }
 
 /// Lights every window pane after dark.
@@ -769,18 +834,20 @@ pub(crate) fn spend(
     mut commands: Commands,
     quality: Res<Quality>,
     set: Res<CameraSettings>,
-    camera: Single<Entity, With<WorldCamera>>,
+    cameras: Query<Entity, With<SkyView>>,
     mut shadows: ResMut<DirectionalLightShadowMap>,
 ) {
     let side = (set.shadow_map as f32 * quality.shadows()) as usize;
     if shadows.size != side {
         shadows.size = side;
     }
-    let mut camera = commands.entity(*camera);
-    if *quality == Quality::Low {
-        camera.remove::<Bloom>();
-    } else {
-        camera.insert(Bloom::NATURAL);
+    for camera in &cameras {
+        let mut camera = commands.entity(camera);
+        if *quality == Quality::Low {
+            camera.remove::<Bloom>();
+        } else {
+            camera.insert(Bloom::NATURAL);
+        }
     }
 }
 
@@ -789,19 +856,21 @@ pub(crate) fn spend(
 pub(crate) fn occlude(
     mut commands: Commands,
     set: Res<SkySettings>,
-    camera: Single<Entity, With<WorldCamera>>,
+    cameras: Query<Entity, With<SkyView>>,
 ) {
-    let mut camera = commands.entity(*camera);
-    if set.occlusion {
-        camera.insert((
-            Msaa::Off,
-            ScreenSpaceAmbientOcclusion::default(),
-            Smaa::default(),
-        ));
-    } else {
-        camera
-            .remove::<(ScreenSpaceAmbientOcclusion, Smaa)>()
-            .insert(Msaa::Sample4);
+    for camera in &cameras {
+        let mut camera = commands.entity(camera);
+        if set.occlusion {
+            camera.insert((
+                Msaa::Off,
+                ScreenSpaceAmbientOcclusion::default(),
+                Smaa::default(),
+            ));
+        } else {
+            camera
+                .remove::<(ScreenSpaceAmbientOcclusion, Smaa)>()
+                .insert(Msaa::Sample4);
+        }
     }
 }
 

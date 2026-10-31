@@ -22,6 +22,7 @@ hamlet_protocol = { version = "0.1.0", path = "crates/hamlet_protocol" }
 hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
 hamlet_os = { version = "0.1.0", path = "crates/hamlet_os" }
 hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
+hamlet_blueprint = { version = "0.1.0", path = "crates/hamlet_blueprint" }
 hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
@@ -53,11 +54,17 @@ bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", rev = "d277555d4
 anyhow = "1"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Its maths is sqrt, trunc and abs through libm, so a seed gives the
+# same noise on every platform.
+fastnoise-lite = { version = "1.1", default-features = false, features = ["libm"] }
 futures = "0.3"
+gltf = { version = "1.4", default-features = false, features = ["names", "utils"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 interprocess = "2"
 keyring = "4"
 libc = "0.2"
+# Trigonometry that gives the same bits on every platform.
+libm = "0.2"
 # The text layout Bevy's text is built on, for selecting drawn words.
 # Held to the version `bevy_text` uses, so its layouts are this crate's.
 parley = { version = "0.11", default-features = false, features = ["std"] }
@@ -65,6 +72,7 @@ process-wrap = { version = "10.0.1", features = ["tokio1"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 rfd = "0.17"
+ron = "0.12"
 ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 rusqlite = { version = "0.40", features = ["bundled"] }

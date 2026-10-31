@@ -1,0 +1,68 @@
+// A fence: a post copied along a line, each copy leaning a little its own
+// way, and a rail repeated up the posts. Change its length, the spacing
+// of its posts or its height in the parameters.
+(
+    entry: "fence",
+    sheets: {
+        "fence": (
+            graph: (
+                inputs: [
+                    (name: "length", value_type: Number, default: Some(Number(6.0))),
+                    (name: "post_spacing", value_type: Number, default: Some(Number(1.5))),
+                    (name: "height", value_type: Number, default: Some(Number(1.1))),
+                ],
+                nodes: [
+                    (id: 1, does: Kind("point"), settings: {"x": Fixed(Number(0.12)), "y": FromParent("height"), "z": Fixed(Number(0.12))}),
+                    (id: 2, does: Kind("transform")),
+                    (id: 3, does: Kind("object"), settings: {"asset": Fixed(Choice("post_timber"))}),
+                    (id: 4, does: Kind("math"), settings: {"op": Fixed(Choice("multiply")), "a": FromParent("length"), "b": Fixed(Number(0.5))}),
+                    (id: 5, does: Kind("math"), settings: {"op": Fixed(Choice("multiply")), "b": Fixed(Number(-1.0))}),
+                    (id: 6, does: Kind("point"), settings: {"y": Fixed(Number(0.0)), "z": Fixed(Number(0.0))}),
+                    (id: 7, does: Kind("point"), settings: {"y": Fixed(Number(0.0)), "z": Fixed(Number(0.0))}),
+                    (id: 8, does: Kind("line")),
+                    (id: 9, does: Kind("along_curve"), settings: {"spacing": FromParent("post_spacing"), "align": Fixed(Bool(false))}),
+                    (id: 10, does: Kind("random"), settings: {"low": Fixed(Number(-3.0)), "high": Fixed(Number(3.0))}),
+                    (id: 11, does: Kind("point"), settings: {"x": Fixed(Number(0.0)), "y": Fixed(Number(0.0))}),
+                    (id: 12, does: Kind("transform")),
+                    (id: 13, does: Kind("matmul")),
+                    (id: 14, does: Kind("math"), settings: {"op": Fixed(Choice("add")), "a": FromParent("length"), "b": Fixed(Number(0.2))}),
+                    (id: 15, does: Kind("point"), settings: {"y": Fixed(Number(0.08)), "z": Fixed(Number(0.05))}),
+                    (id: 16, does: Kind("transform"), settings: {"translation": Fixed(Point((0.0, 0.35, 0.08)))}),
+                    (id: 17, does: Kind("object"), settings: {"asset": Fixed(Choice("beam_timber"))}),
+                    (id: 18, does: Kind("math"), settings: {"op": Fixed(Choice("subtract")), "a": FromParent("height"), "b": Fixed(Number(0.65))}),
+                    (id: 19, does: Kind("point"), settings: {"x": Fixed(Number(0.0)), "z": Fixed(Number(0.0))}),
+                    (id: 20, does: Kind("repeat"), settings: {"count": Fixed(Integer(2))}),
+                    (id: 21, does: Kind("combine")),
+                ],
+                wires: [
+                    (from: (node: 1, name: "point"), to: (node: 2, name: "scale")),
+                    (from: (node: 2, name: "transform"), to: (node: 3, name: "transform")),
+                    (from: (node: 4, name: "value"), to: (node: 5, name: "a")),
+                    (from: (node: 5, name: "value"), to: (node: 6, name: "x")),
+                    (from: (node: 4, name: "value"), to: (node: 7, name: "x")),
+                    (from: (node: 6, name: "point"), to: (node: 8, name: "from")),
+                    (from: (node: 7, name: "point"), to: (node: 8, name: "to")),
+                    (from: (node: 3, name: "objects"), to: (node: 9, name: "objects")),
+                    (from: (node: 8, name: "curve"), to: (node: 9, name: "curve")),
+                    (from: (node: 10, name: "field"), to: (node: 11, name: "z")),
+                    (from: (node: 11, name: "point"), to: (node: 12, name: "rotation")),
+                    (from: (node: 9, name: "objects"), to: (node: 13, name: "objects")),
+                    (from: (node: 12, name: "transform"), to: (node: 13, name: "transform")),
+                    (from: (node: 14, name: "value"), to: (node: 15, name: "x")),
+                    (from: (node: 15, name: "point"), to: (node: 16, name: "scale")),
+                    (from: (node: 16, name: "transform"), to: (node: 17, name: "transform")),
+                    (from: (node: 18, name: "value"), to: (node: 19, name: "y")),
+                    (from: (node: 17, name: "objects"), to: (node: 20, name: "objects")),
+                    (from: (node: 19, name: "point"), to: (node: 20, name: "step")),
+                    (from: (node: 13, name: "objects"), to: (node: 21, name: "a")),
+                    (from: (node: 20, name: "objects"), to: (node: 21, name: "b")),
+                ],
+            ),
+            groups: [
+                (title: "A post, copied along the fence's line", nodes: [1, 2, 3, 4, 5, 6, 7, 8, 9]),
+                (title: "Each post leaning a little, its own way", nodes: [10, 11, 12, 13]),
+                (title: "A rail across the front, repeated up the posts", nodes: [14, 15, 16, 17, 18, 19, 20]),
+            ],
+        ),
+    },
+)

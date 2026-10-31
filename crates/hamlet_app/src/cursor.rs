@@ -36,13 +36,20 @@ use crate::welcome::Welcome;
 const FAINT: f32 = 0.4;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(OnEnter(ThemeState::Ready), draw)
+    app.init_resource::<Faint>()
+        .add_systems(OnEnter(ThemeState::Ready), draw)
         .add_observer(lend)
         .add_systems(
             PostUpdate,
             dress.run_if(resource_exists::<Cursors>),
         );
 }
+
+/// Whether a panel holds something the cursor should be seen
+/// through, as a wire dragged out of a port: the cursor is drawn
+/// faint, as for a robot in the hand.
+#[derive(Resource, Default)]
+pub(crate) struct Faint(pub bool);
 
 /// The line a cursor that resizes lies along.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -273,6 +280,7 @@ pub(crate) fn dress(
     steer: Option<Res<Steer>>,
     hovered: Option<Res<Hovered>>,
     taken: Option<Res<Taken>>,
+    held: Res<Faint>,
     buttons: Option<Res<ButtonInput<MouseButton>>>,
     windows: Query<
         (Entity, Option<&CursorIcon>),
@@ -295,8 +303,9 @@ pub(crate) fn dress(
             _ => None,
         };
         let grip = hand.as_ref().and_then(|hand| hand.grip());
-        // A robot in the hand is seen through it.
-        let faint = grip == Some(Grip::Robot);
+        // A robot in the hand, or what a panel holds, is seen
+        // through it.
+        let faint = grip == Some(Grip::Robot) || held.0;
         let mode = Mode::choose(&Facts {
             busy: welcome
                 .as_ref()

@@ -10,6 +10,7 @@ pub mod cursor;
 mod desk;
 mod dock;
 mod folder;
+mod graphs;
 pub mod history;
 mod hover;
 pub mod limits;
@@ -130,6 +131,7 @@ impl Plugin for UiPlugin {
                 hover::plugin,
                 hamlet_ui::plugin,
                 tuning::plugin,
+                graphs::plugin,
                 cursor::plugin,
                 sounds::plugin,
             ),

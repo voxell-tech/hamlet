@@ -206,7 +206,7 @@ pub struct HouseMesh {
 
 /// One slope of tiles from an eave to a ridge, laid in lapped
 /// courses with each tile its own colour.
-fn slope(
+pub fn slope(
     meshing: &mut Meshing,
     rng: &mut Rng,
     eave: [Vec3; 2],

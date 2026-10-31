@@ -12,6 +12,7 @@ use super::shift::Folded;
 use super::society::Society;
 use super::sync::Drawn;
 use super::work::Robot;
+use crate::pick::backward;
 use crate::sky::{CameraSettings, DistanceFogSettings, Sun};
 use crate::{Clock, Stage, WorldCamera};
 
@@ -61,12 +62,7 @@ impl GeneratorView {
     fn eye(&self, land: &Land) -> (Vec3, Vec3) {
         let focus = self.focus.extend(self.level(land) + 0.5).xzy();
         let pitch = self.pitch.to_radians();
-        let back = Vec3::new(
-            self.yaw.sin() * pitch.cos(),
-            pitch.sin(),
-            self.yaw.cos() * pitch.cos(),
-        );
-        (focus + self.dist * back, focus)
+        (focus + self.dist * backward(self.yaw, pitch), focus)
     }
 
     /// The sight of the ground a camera aimed this way has.
