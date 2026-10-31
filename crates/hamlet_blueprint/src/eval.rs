@@ -12,7 +12,7 @@ use crate::graph::{
 use crate::node::{NodeKind, Registry};
 use crate::seed::Seed;
 use crate::value::{
-    Curve, Frame, Object, Transform, TransformId, Value, ValueType,
+    Curve, Frame, Object, ObjectId, TransformValue, Value, ValueType,
 };
 
 /// The seeds a ruleset runs with, one for each scope above a
@@ -29,7 +29,7 @@ impl Seeds {
         match scope {
             Scope::Realm => self.realm,
             Scope::Hamlet => self.hamlet,
-            Scope::Item | Scope::Transform => self.item,
+            Scope::Item | Scope::Object => self.item,
         }
     }
 }
@@ -646,10 +646,10 @@ fn pick(weights: &[(String, f32)], key: Seed) -> &str {
     weights.last().map_or("", |(choice, _)| choice)
 }
 
-/// A transform at the origin, for reading a field outside any
-/// transform.
-const ORIGIN: Transform = Transform {
-    id: TransformId::ROOT,
+/// An object at the origin, for reading a field outside any object.
+static ORIGIN: Object = Object {
+    asset: String::new(),
+    id: ObjectId::ROOT,
     frame: Frame::IDENTITY,
     index: 0,
     count: 1,
@@ -715,11 +715,11 @@ impl Run<'_> {
         &self,
         port: &str,
         scope: Scope,
-        at: Option<&Transform>,
+        at: Option<&Object>,
     ) -> Seed {
         let key = self.seeds.of(scope).mix(self.seed.0).mix_str(port);
         match (scope, at) {
-            (Scope::Transform, Some(transform)) => {
+            (Scope::Object, Some(transform)) => {
                 key.mix(transform.id.0)
             }
             _ => key,
@@ -730,7 +730,7 @@ impl Run<'_> {
         &self,
         port: &str,
         roll: &Roll,
-        at: Option<&Transform>,
+        at: Option<&Object>,
     ) -> Value {
         roll_value(&roll.spread, self.roll_key(port, roll.scope, at))
     }
@@ -740,7 +740,7 @@ impl Run<'_> {
     pub fn number(
         &self,
         port: &str,
-        at: Option<&Transform>,
+        at: Option<&Object>,
     ) -> Result<f32, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Number(number)) => Ok(*number),
@@ -766,7 +766,7 @@ impl Run<'_> {
     pub fn integer(
         &self,
         port: &str,
-        at: Option<&Transform>,
+        at: Option<&Object>,
     ) -> Result<i32, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Integer(whole)) => Ok(*whole),
@@ -782,7 +782,7 @@ impl Run<'_> {
     pub fn flag(
         &self,
         port: &str,
-        at: Option<&Transform>,
+        at: Option<&Object>,
     ) -> Result<bool, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Bool(flag)) => Ok(*flag),
@@ -805,7 +805,7 @@ impl Run<'_> {
     pub fn choice(
         &self,
         port: &str,
-        at: Option<&Transform>,
+        at: Option<&Object>,
     ) -> Result<String, Problem> {
         let choice = match self.binding(port)? {
             Binding::Value(Value::Choice(choice)) => choice.clone(),
@@ -843,10 +843,33 @@ impl Run<'_> {
     }
 
     /// The point on `port`, at `at` when its axes are fields.
+    /// The point on `port` as the fields its axes are read from, a
+    /// fixed point's as constants.
+    pub fn point_fields(
+        &self,
+        port: &str,
+    ) -> Result<[Field; 3], Problem> {
+        match self.binding(port)? {
+            Binding::Value(Value::Point(point)) => {
+                Ok(point.to_array().map(Field::Constant))
+            }
+            Binding::Value(Value::PointField(axes)) => {
+                Ok((**axes).clone())
+            }
+            _ => Err(self.wrong(port, ValueType::Point)),
+        }
+    }
+
+    /// The object at the origin, to read a field at outside any
+    /// object.
+    pub fn origin(&self) -> &Object {
+        &ORIGIN
+    }
+
     pub fn point_at(
         &self,
         port: &str,
-        at: Option<&Transform>,
+        at: Option<&Object>,
     ) -> Result<Vec3, Problem> {
         match self.binding(port)? {
             Binding::Value(Value::Point(point)) => Ok(*point),
@@ -868,15 +891,20 @@ impl Run<'_> {
         }
     }
 
-    pub fn transforms(
+    /// The transform on `port`, or none moving nothing when it is
+    /// unset.
+    pub fn transform(
         &self,
         port: &str,
-    ) -> Result<&[Transform], Problem> {
+    ) -> Result<TransformValue, Problem> {
+        if !self.is_set(port) {
+            return Ok(TransformValue::IDENTITY);
+        }
         match self.binding(port)? {
-            Binding::Value(Value::Transforms(transforms)) => {
-                Ok(transforms)
+            Binding::Value(Value::Transform(transform)) => {
+                Ok((**transform).clone())
             }
-            _ => Err(self.wrong(port, ValueType::Transforms)),
+            _ => Err(self.wrong(port, ValueType::Transform)),
         }
     }
 
@@ -908,8 +936,8 @@ impl Run<'_> {
         self.assets.get(name)
     }
 
-    pub fn id(&self, parent: TransformId, index: u32) -> TransformId {
-        TransformId(self.seed.mix(parent.0).mix(u64::from(index)).0)
+    pub fn id(&self, parent: ObjectId, index: u32) -> ObjectId {
+        ObjectId(self.seed.mix(parent.0).mix(u64::from(index)).0)
     }
 
     /// A seed of this node that changes as often as `scope` does.

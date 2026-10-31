@@ -17,7 +17,8 @@ pub enum ValueType {
     Point,
     Choice,
     Curve,
-    Transforms,
+    /// Where something stands, how it is turned, and its scale.
+    Transform,
     Field,
     Objects,
 }
@@ -56,7 +57,7 @@ pub enum Value {
     PointField(Box<[Field; 3]>),
     Choice(String),
     Curve(Curve),
-    Transforms(Vec<Transform>),
+    Transform(Box<TransformValue>),
     Field(Field),
     Objects(Vec<Object>),
 }
@@ -72,7 +73,7 @@ impl Value {
             }
             Value::Choice(_) => ValueType::Choice,
             Value::Curve(_) => ValueType::Curve,
-            Value::Transforms(_) => ValueType::Transforms,
+            Value::Transform(_) => ValueType::Transform,
             Value::Field(_) => ValueType::Field,
             Value::Objects(_) => ValueType::Objects,
         }
@@ -147,37 +148,40 @@ impl Default for Frame {
     }
 }
 
-/// An id of a [`Transform`], made from what made it, so it holds
-/// while others are added or removed around it. Its random values are
+/// An id of an [`Object`], made from what made it, so it holds while
+/// others are added or removed around it. Its random values are
 /// seeded from it.
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default,
 )]
-pub struct TransformId(pub u64);
+pub struct ObjectId(pub u64);
 
-impl TransformId {
-    /// The parent of transforms made from nothing.
+impl ObjectId {
+    /// The parent of objects made from nothing.
     pub const ROOT: Self = Self(0);
 }
 
-/// A box in a frame, with tags and what made it.
+/// An asset put down by a graph, and what made it: its place among
+/// the copies made with it, which fields read.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Transform {
-    pub id: TransformId,
-    /// Where it is, how it is turned, and its scale, which is the
-    /// size of what stands on it.
+pub struct Object {
+    pub asset: String,
+    pub id: ObjectId,
+    /// Where it stands, turned, and scaled to its size.
     pub frame: Frame,
-    /// Its place among those made with it, and how many they were.
+    /// Its place among the copies made with it, and how many they
+    /// were.
     pub index: u32,
     pub count: u32,
-    /// How far along the curve it was made on, from 0 to 1.
+    /// How far along the curve it was copied along, from 0 to 1.
     pub along: f32,
     pub tags: Vec<String>,
 }
 
-impl Transform {
-    pub fn new(id: TransformId, frame: Frame) -> Self {
+impl Object {
+    pub fn new(asset: String, id: ObjectId, frame: Frame) -> Self {
         Self {
+            asset,
             id,
             frame,
             index: 0,
@@ -186,14 +190,56 @@ impl Transform {
             tags: Vec::new(),
         }
     }
+
+    /// A copy of it moved by `at`, as one with the others `at`
+    /// moves: `at`, then the object in `at`'s frame.
+    pub fn copied(&self, at: &Frame, id: ObjectId) -> Self {
+        let mut copy = self.clone();
+        copy.id = id;
+        copy.frame = Frame {
+            translation: at.point(self.frame.translation),
+            rotation: at.rotation * self.frame.rotation,
+            scale: at.scale * self.frame.scale,
+        };
+        copy
+    }
 }
 
-/// A named asset put down by a graph.
+const ZERO: Field = Field::Constant(0.0);
+const ONE: Field = Field::Constant(1.0);
+
+/// A transform whose translation, rotation and scale may each be read
+/// from fields, so it is its own at each object it moves.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Object {
-    pub asset: String,
-    /// Where it stands, turned, and scaled to its size.
-    pub frame: Frame,
+pub struct TransformValue {
+    pub translation: [Field; 3],
+    /// Degrees about x, y and z, turned about y first.
+    pub rotation: [Field; 3],
+    pub scale: [Field; 3],
+}
+
+impl TransformValue {
+    /// The transform that moves nothing.
+    pub const IDENTITY: Self = Self {
+        translation: [ZERO, ZERO, ZERO],
+        rotation: [ZERO, ZERO, ZERO],
+        scale: [ONE, ONE, ONE],
+    };
+
+    /// The transform read at `at`.
+    pub fn at(&self, at: &Object) -> Frame {
+        let axes = |fields: &[Field; 3]| {
+            Vec3::from(
+                fields.each_ref().map(|field| field.sample(at)),
+            )
+        };
+        let turn = axes(&self.rotation);
+        Frame {
+            translation: axes(&self.translation),
+            rotation: crate::turn::euler(turn.y, turn.x, turn.z),
+            scale: axes(&self.scale),
+        }
+    }
 }
 
 /// Points joined in order by straight edges, open or closed.

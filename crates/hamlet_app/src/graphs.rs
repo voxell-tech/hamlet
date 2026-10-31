@@ -21,7 +21,7 @@ use bevy::app::{App, Update};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
-use bevy::math::{Vec2, Vec3};
+use bevy::math::Vec2;
 use bevy::ui::{
     AlignItems, Display, Overflow, PositionType, UiRect, percent, px,
 };
@@ -36,10 +36,9 @@ use bevy_fynix::{
     Bevy, EntityCursor, ScopedExt, ViewExt, ViewSeq, keyed, resource,
 };
 use hamlet_blueprint::{
-    Asset, Book, Constant, Does, Edit, Frame, GraphInput,
-    GraphOutput, Group, Initial, Node, NodeId, Object, Port,
-    PortSpec, Registry, Ruleset, Seed, Seeds, Setting, Sheet, Value,
-    ValueType, evaluate,
+    Asset, Book, Constant, Does, Edit, GraphInput, GraphOutput,
+    Group, Initial, Node, NodeId, Object, Port, PortSpec, Registry,
+    Ruleset, Seed, Seeds, Setting, Sheet, Value, ValueType, evaluate,
 };
 use hamlet_ui::styles::{
     CONTROL, Fills, ICON, description, hairline, note, raised,
@@ -482,10 +481,7 @@ impl Editor {
                 continue;
             };
             for output in outputs {
-                let shown = matches!(
-                    output.value_type,
-                    ValueType::Objects | ValueType::Transforms
-                );
+                let shown = output.value_type == ValueType::Objects;
                 let wired = graph.wires.iter().any(|wire| {
                     wire.from.node == node.id
                         && wire.from.name == output.name
@@ -575,12 +571,10 @@ impl Editor {
         ) else {
             return;
         };
-        let Some(port) = outputs.into_iter().find(|port| {
-            matches!(
-                port.value_type,
-                ValueType::Objects | ValueType::Transforms
-            )
-        }) else {
+        let Some(port) = outputs
+            .into_iter()
+            .find(|port| port.value_type == ValueType::Objects)
+        else {
             return;
         };
         let name = self.free_name(&port.name, |graph| {
@@ -906,21 +900,10 @@ fn reshapes(sheet: &Sheet, registry: &Registry, edit: &Edit) -> bool {
     }
 }
 
-/// The assets an output shows: its own, or a marker at each
-/// transform.
+/// The objects an output shows.
 fn shown(value: Value) -> Vec<Object> {
     match value {
         Value::Objects(objects) => objects,
-        Value::Transforms(transforms) => transforms
-            .into_iter()
-            .map(|transform| Object {
-                asset: preview::MARKER.to_owned(),
-                frame: Frame {
-                    scale: Vec3::splat(0.25),
-                    ..transform.frame
-                },
-            })
-            .collect(),
         _ => Vec::new(),
     }
 }

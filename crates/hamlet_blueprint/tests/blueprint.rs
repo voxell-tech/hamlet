@@ -7,14 +7,14 @@ use hamlet_blueprint::{
     validate,
 };
 
-/// Posts along a line, each lifted and turned at random by a
-/// transform made for it from random fields.
+/// A post copied along a line, each copy lifted and turned at random
+/// by a transform read from random fields at each.
 const FENCE: &str = r#"(
     entry: "fence",
     graphs: {
         "fence": (
             inputs: [(name: "end", value_type: Point, default: Some(Point((10.0, 0.0, 0.0))))],
-            outputs: [(name: "objects", value_type: Objects, from: (node: 4, name: "objects"))],
+            outputs: [(name: "objects", value_type: Objects, from: (node: 5, name: "objects"))],
             nodes: [
                 (id: 1, does: Kind("line"), settings: {"to": FromParent("end")}),
                 (id: 2, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(1.0))}),
@@ -28,14 +28,13 @@ const FENCE: &str = r#"(
             ],
             wires: [
                 (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
+                (from: (node: 4, name: "objects"), to: (node: 2, name: "objects")),
                 (from: (node: 8, name: "field"), to: (node: 6, name: "y")),
                 (from: (node: 9, name: "field"), to: (node: 7, name: "y")),
                 (from: (node: 6, name: "point"), to: (node: 3, name: "translation")),
                 (from: (node: 7, name: "point"), to: (node: 3, name: "rotation")),
-                (from: (node: 2, name: "transforms"), to: (node: 3, name: "for")),
-                (from: (node: 2, name: "transforms"), to: (node: 5, name: "a")),
-                (from: (node: 3, name: "transforms"), to: (node: 5, name: "b")),
-                (from: (node: 5, name: "transforms"), to: (node: 4, name: "transform")),
+                (from: (node: 2, name: "objects"), to: (node: 5, name: "objects")),
+                (from: (node: 3, name: "transform"), to: (node: 5, name: "transform")),
             ],
         ),
         "yard": (
@@ -94,7 +93,15 @@ fn longer_curve_keeps_earlier_posts_and_their_rolls() {
     let long = objects(&run(&ruleset, 7, &long_end), "objects");
     assert_eq!(short.len(), 11);
     assert_eq!(long.len(), 21);
-    assert_eq!(short, long[..11]);
+    // Where each post is and how it is turned hold; how far along the
+    // fence it is does not.
+    let placed = |objects: &[Object]| {
+        objects
+            .iter()
+            .map(|object| (object.id, object.frame))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(placed(&short), placed(&long[..11]));
 
     let other_house =
         objects(&run(&ruleset, 8, &BTreeMap::new()), "objects");
@@ -114,7 +121,7 @@ fn a_graph_run_twice_differs_and_an_added_node_changes_nothing() {
         0,
         Node {
             id: NodeId(9),
-            does: Does::Kind("grid".to_owned()),
+            does: Does::Kind("polygon".to_owned()),
             settings: BTreeMap::new(),
         },
     );
@@ -127,20 +134,22 @@ fn closed_rectangle_places_on_its_corners() {
         r#"(
             entry: "ring",
             graphs: {"ring": (
-                outputs: [(name: "transforms", value_type: Transforms, from: (node: 2, name: "transforms"))],
+                outputs: [(name: "objects", value_type: Objects, from: (node: 2, name: "objects"))],
                 nodes: [
                     (id: 1, does: Kind("rectangle")),
                     (id: 2, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(2.0))}),
+                    (id: 3, does: Kind("object")),
                 ],
-                wires: [(from: (node: 1, name: "curve"), to: (node: 2, name: "curve"))],
+                wires: [
+                    (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
+                    (from: (node: 3, name: "objects"), to: (node: 2, name: "objects")),
+                ],
             )},
         )"#,
     )
     .expect("the fixture parses");
     let outputs = run(&ruleset, 1, &BTreeMap::new());
-    let Value::Transforms(transforms) = &outputs["transforms"] else {
-        panic!("not transforms");
-    };
+    let transforms = objects(&outputs, "objects");
     // A 6 by 4 rectangle is 20 round: ten posts, none doubled at the
     // start.
     assert_eq!(transforms.len(), 10);
@@ -176,9 +185,9 @@ fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
                     (id: 4, does: Graph("bad")),
                 ],
                 wires: [
-                    (from: (node: 1, name: "curve"), to: (node: 2, name: "transforms")),
-                    (from: (node: 2, name: "transforms"), to: (node: 3, name: "transform")),
-                    (from: (node: 3, name: "transforms"), to: (node: 2, name: "keep")),
+                    (from: (node: 1, name: "curve"), to: (node: 2, name: "objects")),
+                    (from: (node: 2, name: "objects"), to: (node: 3, name: "objects")),
+                    (from: (node: 3, name: "objects"), to: (node: 2, name: "keep")),
                 ],
             )},
         )"#,
@@ -190,7 +199,7 @@ fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
         .collect::<Vec<_>>();
     assert!(problems.iter().any(|problem| matches!(
         problem,
-        Problem::WrongType { node: NodeId(2), port, .. } if port == "transforms"
+        Problem::WrongType { node: NodeId(2), port, .. } if port == "objects"
     )));
     assert!(
         problems
@@ -201,23 +210,25 @@ fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
 }
 
 #[test]
-fn math_on_a_random_field_is_worked_out_at_each_spot() {
+fn math_on_a_random_field_is_worked_out_at_each_object() {
     let ruleset = Ruleset::from_ron(
         r#"(
             entry: "thin",
             graphs: {"thin": (
-                outputs: [(name: "transforms", value_type: Transforms, from: (node: 5, name: "transforms"))],
+                outputs: [(name: "objects", value_type: Objects, from: (node: 5, name: "objects"))],
                 nodes: [
                     (id: 1, does: Kind("line"), settings: {"to": Fixed(Point((99.0, 0.0, 0.0)))}),
                     (id: 2, does: Kind("along_curve")),
                     (id: 3, does: Kind("random")),
                     (id: 4, does: Kind("math"), settings: {"op": Fixed(Choice("less")), "b": Fixed(Number(0.5))}),
                     (id: 5, does: Kind("cull")),
+                    (id: 6, does: Kind("object")),
                 ],
                 wires: [
                     (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
+                    (from: (node: 6, name: "objects"), to: (node: 2, name: "objects")),
                     (from: (node: 3, name: "field"), to: (node: 4, name: "a")),
-                    (from: (node: 2, name: "transforms"), to: (node: 5, name: "transforms")),
+                    (from: (node: 2, name: "objects"), to: (node: 5, name: "objects")),
                     (from: (node: 4, name: "value"), to: (node: 5, name: "keep")),
                 ],
             )},
@@ -225,9 +236,7 @@ fn math_on_a_random_field_is_worked_out_at_each_spot() {
     )
     .expect("the fixture parses");
     let outputs = run(&ruleset, 1, &BTreeMap::new());
-    let Value::Transforms(kept) = &outputs["transforms"] else {
-        panic!("not transforms");
-    };
+    let kept = objects(&outputs, "objects");
     // Rolled once for all, all 100 would stay or go together.
     assert!((25..75).contains(&kept.len()), "{} kept", kept.len());
 }
@@ -247,7 +256,7 @@ const RISE: &str = r#"(
         ],
         wires: [
             (from: (node: 1, name: "point"), to: (node: 2, name: "scale")),
-            (from: (node: 2, name: "transforms"), to: (node: 3, name: "transform")),
+            (from: (node: 2, name: "transform"), to: (node: 3, name: "transform")),
         ],
     )},
 )"#;

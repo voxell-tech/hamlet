@@ -1,21 +1,70 @@
-//! Nodes that put assets down as objects, and work on objects.
+//! Nodes that make a transform, put an asset down as an object on
+//! one, move objects by one, and join sets of objects.
 
 use bevy_math::Vec3;
 
+use super::{OBJECTS_IN, OBJECTS_OUT};
 use crate::eval::{Problem, Run};
 use crate::node::{Initial, Listed, NodeKind, PortSpec};
-use crate::value::{Frame, Object, Value, ValueType};
+use crate::value::{
+    Frame, Object, ObjectId, TransformValue, Value, ValueType,
+};
 
 pub(super) const KINDS: &[NodeKind] =
-    &[OBJECT, MOVE_OBJECTS, COMBINE];
+    &[TRANSFORM, OBJECT, MATMUL, COMBINE];
 
-const OBJECTS_OUT: PortSpec =
-    PortSpec::new("objects", ValueType::Objects, "The objects");
+const TRANSFORM_IN: PortSpec = PortSpec::new(
+    "transform",
+    ValueType::Transform,
+    "Where it stands, turned and scaled. Left unwired, nothing moves",
+);
+
+const TRANSFORM: NodeKind = NodeKind {
+    name: "transform",
+    doc: "Where something stands, how it is turned, and its scale, \
+          which is its size. An axis wired from noise or random \
+          makes it its own at each object it moves",
+    inputs: &[
+        PortSpec::new(
+            "translation",
+            ValueType::Point,
+            "Where it stands: the middle of its base",
+        )
+        .initial(Initial::Point(Vec3::ZERO)),
+        PortSpec::new(
+            "rotation",
+            ValueType::Point,
+            "Degrees about x, y and z, turned about y first",
+        )
+        .initial(Initial::Point(Vec3::ZERO)),
+        PortSpec::new(
+            "scale",
+            ValueType::Point,
+            "Its size on each axis",
+        )
+        .initial(Initial::Point(Vec3::ONE)),
+    ],
+    outputs: &[PortSpec::new(
+        "transform",
+        ValueType::Transform,
+        "The transform",
+    )],
+    run: transform,
+};
+
+fn transform(run: &mut Run) -> Result<(), Problem> {
+    let transform = TransformValue {
+        translation: run.point_fields("translation")?,
+        rotation: run.point_fields("rotation")?,
+        scale: run.point_fields("scale")?,
+    };
+    run.put("transform", Value::Transform(Box::new(transform)));
+    Ok(())
+}
 
 const OBJECT: NodeKind = NodeKind {
     name: "object",
-    doc: "An asset, at its transform, or one at each of the \
-          transforms wired in. Its transform's scale is its size: a \
+    doc: "An asset on a transform, whose scale is its size: a \
           built-in box is a metre on each side",
     inputs: &[
         PortSpec::new(
@@ -25,84 +74,69 @@ const OBJECT: NodeKind = NodeKind {
         )
         .listed(Listed::Assets)
         .initial(Initial::Choice("box")),
-        PortSpec::new(
-            "transform",
-            ValueType::Transforms,
-            "Where it stands, turned and scaled. Left unwired, it \
-             is at the origin",
-        ),
-        PortSpec::new(
-            "scale",
-            ValueType::Point,
-            "Times each transform's scale, so one size goes on many \
-             transforms",
-        )
-        .initial(Initial::Point(Vec3::ONE)),
+        TRANSFORM_IN,
     ],
     outputs: &[OBJECTS_OUT],
     run: object,
 };
 
 fn object(run: &mut Run) -> Result<(), Problem> {
-    let scale = run.point("scale")?;
-    let mut objects = Vec::new();
-    if run.is_set("transform") {
-        for transform in run.transforms("transform")? {
-            let mut frame = transform.frame;
-            frame.scale *= scale;
-            objects.push(Object {
-                asset: run.choice("asset", Some(transform))?,
-                frame,
-            });
-        }
-    } else {
-        objects.push(Object {
-            asset: run.choice("asset", None)?,
-            frame: Frame {
-                scale,
-                ..Frame::IDENTITY
-            },
-        });
-    }
-    run.put("objects", Value::Objects(objects));
+    let frame = run.transform("transform")?.at(run.origin());
+    let object = Object::new(
+        run.choice("asset", None)?,
+        run.id(ObjectId::ROOT, 0),
+        frame,
+    );
+    run.put("objects", Value::Objects(vec![object]));
     Ok(())
 }
 
-const MOVE_OBJECTS: NodeKind = NodeKind {
-    name: "move_objects",
-    doc: "The objects moved, turned and scaled as one by each \
-          transform, a copy for each: a window built once, at every \
-          window",
+const MATMUL: NodeKind = NodeKind {
+    name: "matmul",
+    doc: "Each object times the transform, as matrices. About each \
+          object's own base, a transform read from noise or random \
+          turns each its own way; about the origin, it moves them \
+          all as one",
     inputs: &[
+        OBJECTS_IN,
+        TRANSFORM_IN,
         PortSpec::new(
-            "objects",
-            ValueType::Objects,
-            "The objects, about their own origin",
-        ),
-        PortSpec::new(
-            "transform",
-            ValueType::Transforms,
-            "Where each copy goes",
-        ),
+            "about",
+            ValueType::Choice,
+            "Whether each object turns about its own base, or all \
+             of them about the origin",
+        )
+        .initial(Initial::Choice("each"))
+        .choices(&["each", "origin"]),
     ],
     outputs: &[OBJECTS_OUT],
-    run: move_objects,
+    run: matmul,
 };
 
-fn move_objects(run: &mut Run) -> Result<(), Problem> {
-    let shape = run.objects("objects")?;
-    let mut objects = Vec::new();
-    for transform in run.transforms("transform")? {
-        let at = transform.frame;
-        objects.extend(shape.iter().map(|object| Object {
-            asset: object.asset.clone(),
-            frame: Frame {
-                translation: at.point(object.frame.translation),
-                rotation: at.rotation * object.frame.rotation,
-                scale: at.scale * object.frame.scale,
-            },
-        }));
-    }
+fn matmul(run: &mut Run) -> Result<(), Problem> {
+    let transform = run.transform("transform")?;
+    let each = run.choice("about", None)? == "each";
+    let objects = run
+        .objects("objects")?
+        .iter()
+        .map(|object| {
+            let by = transform.at(object);
+            let mut moved = object.clone();
+            moved.frame = if each {
+                // In its own turned frame, but not its size: a move
+                // is metres, whatever the object's scale.
+                Frame {
+                    translation: object.frame.translation
+                        + object.frame.rotation * by.translation,
+                    rotation: object.frame.rotation * by.rotation,
+                    scale: object.frame.scale * by.scale,
+                }
+            } else {
+                object.copied(&by, object.id).frame
+            };
+            moved
+        })
+        .collect();
     run.put("objects", Value::Objects(objects));
     Ok(())
 }

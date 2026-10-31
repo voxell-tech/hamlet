@@ -14,8 +14,7 @@ const FIELD_OUT: PortSpec =
 
 const NOISE: NodeKind = NodeKind {
     name: "noise",
-    doc: "Noise from 0 to 1, read where each transform is in the \
-          world",
+    doc: "Noise from 0 to 1, read where each object is in the world",
     inputs: &[
         PortSpec::new("kind", ValueType::Choice, "Its look")
             .initial(Initial::Choice("gradient"))
@@ -77,7 +76,7 @@ fn noise(run: &mut Run) -> Result<(), Problem> {
 
 const MEASURE: NodeKind = NodeKind {
     name: "measure",
-    doc: "A fact of each transform as a field",
+    doc: "A fact of each object as a field",
     inputs: &[PortSpec::new("of", ValueType::Choice, "Which fact")
         .initial(Initial::Choice("height"))
         .choices(&["x", "height", "z", "along", "index"])],
@@ -155,7 +154,7 @@ fn remap(run: &mut Run) -> Result<(), Problem> {
 const RANDOM: NodeKind = NodeKind {
     name: "random",
     doc: "A number picked at random between low and high, again for \
-          each transform, or once for each house, hamlet or realm",
+          each object, or once for each item, hamlet or realm",
     inputs: &[
         PortSpec::new(
             "low",
@@ -174,8 +173,8 @@ const RANDOM: NodeKind = NodeKind {
             ValueType::Choice,
             "How often it is picked again",
         )
-        .initial(Initial::Choice("transform"))
-        .choices(&["transform", "item", "hamlet", "realm"]),
+        .initial(Initial::Choice("object"))
+        .choices(&["object", "item", "hamlet", "realm"]),
     ],
     outputs: &[FIELD_OUT],
     run: random,
@@ -186,7 +185,7 @@ fn random(run: &mut Run) -> Result<(), Problem> {
         "item" => (Scope::Item, false),
         "hamlet" => (Scope::Hamlet, false),
         "realm" => (Scope::Realm, false),
-        _ => (Scope::Transform, true),
+        _ => (Scope::Object, true),
     };
     let random = Random {
         low: run.number("low", None)?,

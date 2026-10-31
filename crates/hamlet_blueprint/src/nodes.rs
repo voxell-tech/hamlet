@@ -13,17 +13,14 @@ use crate::value::ValueType;
 /// The built-in kinds, by the group each is listed under.
 pub(crate) const KINDS: [(&str, &[NodeKind]); 6] = [
     ("Objects", leaves::KINDS),
-    ("Transforms", make::KINDS),
+    ("Copies", make::KINDS),
     ("Modifiers", modify::KINDS),
     ("Curves", curves::KINDS),
     ("Fields", fields::KINDS),
     ("Math", math::KINDS),
 ];
 
-const TRANSFORMS_IN: PortSpec = PortSpec::new(
-    "transforms",
-    ValueType::Transforms,
-    "The transforms to work on",
-);
-const TRANSFORMS_OUT: PortSpec =
-    PortSpec::new("transforms", ValueType::Transforms, "The result");
+const OBJECTS_IN: PortSpec =
+    PortSpec::new("objects", ValueType::Objects, "The objects");
+const OBJECTS_OUT: PortSpec =
+    PortSpec::new("objects", ValueType::Objects, "The objects made");

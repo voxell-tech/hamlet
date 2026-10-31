@@ -1,21 +1,22 @@
-//! Nodes that make transforms.
+//! Nodes that copy objects: each makes a copy of every object it is
+//! given at each of its places, so a group keeps its shape, and one
+//! copier after another copies the copies.
 
 use bevy_math::Vec3;
 
-use super::{TRANSFORMS_IN, TRANSFORMS_OUT};
+use super::{OBJECTS_IN, OBJECTS_OUT};
 use crate::eval::{Problem, Run};
 use crate::graph::Scope;
 use crate::node::{Initial, Listed, NodeKind, PortSpec};
 use crate::turn;
-use crate::value::{Frame, Transform, TransformId, Value, ValueType};
+use crate::value::{Frame, Object, Value, ValueType};
 
 pub(super) const KINDS: &[NodeKind] = &[
-    TRANSFORM,
+    REPEAT,
     GRID,
     ALONG_CURVE,
     CURVE_CORNERS,
     ON_SURFACE,
-    SPLIT,
     ON_SOCKETS,
 ];
 
@@ -24,136 +25,86 @@ const CURVE_IN: PortSpec =
 const ALIGN: PortSpec = PortSpec::new(
     "align",
     ValueType::Bool,
-    "Whether each transform turns to point along the curve",
+    "Whether each copy turns to point along the curve",
 )
 .initial(Initial::Bool(true));
 
-const TRANSFORM: NodeKind = NodeKind {
-    name: "transform",
-    doc: "Where something stands, how it is turned, and its scale, \
-          which is its size",
-    inputs: &[
-        PortSpec::new(
-            "translation",
-            ValueType::Point,
-            "Where it stands: the middle of its base",
-        )
-        .initial(Initial::Point(Vec3::ZERO)),
-        PortSpec::new(
-            "rotation",
-            ValueType::Point,
-            "Degrees about x, y and z, turned about y first",
-        )
-        .initial(Initial::Point(Vec3::ZERO)),
-        PortSpec::new(
-            "scale",
-            ValueType::Point,
-            "Its size on each axis",
-        )
-        .initial(Initial::Point(Vec3::ONE)),
-        PortSpec::new(
-            "for",
-            ValueType::Transforms,
-            "A list to make one for each of, its inputs read at \
-             each, so noise or random make each its own. Left \
-             unwired, there is one",
-        ),
-    ],
-    outputs: &[TRANSFORMS_OUT],
-    run: transform,
-};
-
-const ON_SOCKETS: NodeKind = NodeKind {
-    name: "on_sockets",
-    doc: "A transform at a socket of each asset that has it, turned \
-          as the socket is",
-    inputs: &[
-        PortSpec::new(
-            "objects",
-            ValueType::Objects,
-            "The assets whose sockets to place on",
-        ),
-        PortSpec::new(
-            "socket",
-            ValueType::Choice,
-            "The socket's name, as its asset's file has it",
-        )
-        .listed(Listed::Sockets)
-        .initial(Initial::Choice("lamp")),
-    ],
-    outputs: &[TRANSFORMS_OUT],
-    run: on_sockets,
-};
-
-fn on_sockets(run: &mut Run) -> Result<(), Problem> {
-    let name = run.choice("socket", None)?;
-    let mut transforms = Vec::new();
-    for object in run.objects("objects")? {
-        let Some(socket) = run
-            .asset(&object.asset)
-            .and_then(|asset| asset.sockets.get(&name).copied())
-        else {
-            continue;
-        };
-        // An asset stands on its frame, its box above it.
-        let size = object.frame.scale;
-        let rotation = object.frame.rotation;
-        let frame = Frame {
-            translation: object.frame.translation
-                + rotation * ((socket.at + Vec3::Y * 0.5) * size),
-            rotation: rotation * socket.turn,
-            scale: Vec3::ONE,
-        };
-        let index = transforms.len() as u32;
-        let mut transform =
-            Transform::new(run.id(TransformId::ROOT, index), frame);
-        transform.index = index;
-        transforms.push(transform);
-    }
-    let count = transforms.len() as u32;
-    for transform in &mut transforms {
-        transform.count = count;
-    }
-    run.put("transforms", Value::Transforms(transforms));
-    Ok(())
+/// One place a copier puts a copy of its objects, and how far along
+/// a curve it is, which fields of the copies read.
+struct Place {
+    frame: Frame,
+    along: f32,
 }
 
-fn transform(run: &mut Run) -> Result<(), Problem> {
-    let frame = |at: Option<&Transform>| -> Result<Frame, Problem> {
-        let turn = run.point_at("rotation", at)?;
-        Ok(Frame {
-            translation: run.point_at("translation", at)?,
-            rotation: turn::euler(turn.y, turn.x, turn.z),
-            scale: run.point_at("scale", at)?,
-        })
-    };
-    let made = if run.is_set("for") {
-        // Each keeps the item it was made for, so matmul pairs them.
-        run.transforms("for")?
-            .iter()
-            .map(|item| {
-                let mut made = item.clone();
-                made.frame = frame(Some(item))?;
-                Ok(made)
-            })
-            .collect::<Result<Vec<_>, Problem>>()?
-    } else {
-        vec![Transform::new(
-            run.id(TransformId::ROOT, 0),
-            frame(None)?,
-        )]
-    };
-    run.put("transforms", Value::Transforms(made));
+impl Place {
+    fn at(frame: Frame) -> Self {
+        Self { frame, along: 0.0 }
+    }
+}
+
+/// A copy of every object at each place, each keyed by the object it
+/// copies and its place's index, so adding places keeps the copies
+/// already made.
+fn copies(
+    run: &Run,
+    objects: &[Object],
+    places: &[Place],
+) -> Vec<Object> {
+    let count = places.len() as u32;
+    let mut made = Vec::with_capacity(objects.len() * places.len());
+    for (index, place) in places.iter().enumerate() {
+        let index = index as u32;
+        for object in objects {
+            let mut copy =
+                object.copied(&place.frame, run.id(object.id, index));
+            copy.index = index;
+            copy.count = count;
+            copy.along = place.along;
+            made.push(copy);
+        }
+    }
+    made
+}
+
+const REPEAT: NodeKind = NodeKind {
+    name: "repeat",
+    doc: "The objects again and again, each copy a step further on",
+    inputs: &[
+        OBJECTS_IN,
+        PortSpec::new(
+            "count",
+            ValueType::Integer,
+            "How many copies, the first included",
+        )
+        .initial(Initial::Integer(2)),
+        PortSpec::new(
+            "step",
+            ValueType::Point,
+            "The move from one copy to the next",
+        )
+        .initial(Initial::Point(Vec3::new(1.0, 0.0, 0.0))),
+    ],
+    outputs: &[OBJECTS_OUT],
+    run: repeat,
+};
+
+fn repeat(run: &mut Run) -> Result<(), Problem> {
+    let count = run.integer("count", None)?.max(0) as u32;
+    let step = run.point("step")?;
+    let places: Vec<Place> = (0..count)
+        .map(|index| Place::at(Frame::at(step * index as f32)))
+        .collect();
+    let made = copies(run, run.objects("objects")?, &places);
+    run.put("objects", Value::Objects(made));
     Ok(())
 }
 
 const GRID: NodeKind = NodeKind {
     name: "grid",
-    doc: "Transforms in rows and columns on the ground, about a \
-          middle",
+    doc: "The objects in rows and columns on the ground, about the \
+          origin",
     inputs: &[
-        PortSpec::new("at", ValueType::Point, "Its middle")
-            .initial(Initial::Point(Vec3::ZERO)),
+        OBJECTS_IN,
         PortSpec::new(
             "columns",
             ValueType::Integer,
@@ -169,58 +120,49 @@ const GRID: NodeKind = NodeKind {
         )
         .initial(Initial::Number(2.0)),
     ],
-    outputs: &[TRANSFORMS_OUT],
+    outputs: &[OBJECTS_OUT],
     run: grid,
 };
 
 fn grid(run: &mut Run) -> Result<(), Problem> {
-    let at = run.point("at")?;
     let columns = run.integer("columns", None)?.max(0) as u32;
     let rows = run.integer("rows", None)?.max(0) as u32;
     let spacing = run.number("spacing", None)?;
-    let corner = at
-        - Vec3::new(
-            (columns.max(1) - 1) as f32,
-            0.0,
-            (rows.max(1) - 1) as f32,
-        ) * spacing
-            * 0.5;
-    let count = columns * rows;
-    let mut placed = Vec::with_capacity(count as usize);
-    for row in 0..rows {
-        for column in 0..columns {
-            let index = row * columns + column;
+    let corner = -Vec3::new(
+        columns.saturating_sub(1) as f32,
+        0.0,
+        rows.saturating_sub(1) as f32,
+    ) * spacing
+        * 0.5;
+    let places: Vec<Place> = (0..rows)
+        .flat_map(|row| (0..columns).map(move |column| (row, column)))
+        .map(|(row, column)| {
             let offset =
                 Vec3::new(column as f32, 0.0, row as f32) * spacing;
-            let mut transform = Transform::new(
-                // Keyed by row and column, so adding columns keeps
-                // the rest.
-                run.id(TransformId(u64::from(row)), column),
-                Frame::at(corner + offset),
-            );
-            transform.index = index;
-            transform.count = count;
-            placed.push(transform);
-        }
-    }
-    run.put("transforms", Value::Transforms(placed));
+            Place::at(Frame::at(corner + offset))
+        })
+        .collect();
+    let made = copies(run, run.objects("objects")?, &places);
+    run.put("objects", Value::Objects(made));
     Ok(())
 }
 
 const ALONG_CURVE: NodeKind = NodeKind {
     name: "along_curve",
-    doc: "Transforms along a curve, one every spacing from its start",
+    doc: "The objects along a curve, a copy every spacing from its \
+          start",
     inputs: &[
+        OBJECTS_IN,
         CURVE_IN,
         PortSpec::new(
             "spacing",
             ValueType::Number,
-            "Metres between transforms",
+            "Metres between copies",
         )
         .initial(Initial::Number(1.0)),
         ALIGN,
     ],
-    outputs: &[TRANSFORMS_OUT],
+    outputs: &[OBJECTS_OUT],
     run: along_curve,
 };
 
@@ -233,10 +175,10 @@ fn along_curve(run: &mut Run) -> Result<(), Problem> {
     let curve = run.curve("curve")?;
     let length = curve.length();
     // Spacing is kept exact, not stretched to fit, so a longer curve
-    // keeps the transforms a shorter one had.
+    // keeps the copies a shorter one had.
     let steps = (length / spacing + 1e-4).floor() as u32;
     let count = if curve.closed { steps } else { steps + 1 };
-    let mut placed = Vec::with_capacity(count as usize);
+    let mut places = Vec::with_capacity(count as usize);
     for index in 0..count {
         let distance = index as f32 * spacing;
         let Some((at, direction)) = curve.at(distance) else {
@@ -246,32 +188,31 @@ fn along_curve(run: &mut Run) -> Result<(), Problem> {
         if align {
             frame.rotation = turn::yaw_toward(direction);
         }
-        let mut transform =
-            Transform::new(run.id(TransformId::ROOT, index), frame);
-        transform.index = index;
-        transform.count = count;
-        transform.along = distance / length;
-        placed.push(transform);
+        places.push(Place {
+            frame,
+            along: distance / length,
+        });
     }
-    run.put("transforms", Value::Transforms(placed));
+    let made = copies(run, run.objects("objects")?, &places);
+    run.put("objects", Value::Objects(made));
     Ok(())
 }
 
 const CURVE_CORNERS: NodeKind = NodeKind {
     name: "curve_corners",
-    doc: "A transform at each point of a curve",
-    inputs: &[CURVE_IN, ALIGN],
-    outputs: &[TRANSFORMS_OUT],
+    doc: "The objects at each point of a curve, such as each corner \
+          of a polygon",
+    inputs: &[OBJECTS_IN, CURVE_IN, ALIGN],
+    outputs: &[OBJECTS_OUT],
     run: curve_corners,
 };
 
 fn curve_corners(run: &mut Run) -> Result<(), Problem> {
     let align = run.flag("align", None)?;
     let curve = run.curve("curve")?;
-    let count = curve.points.len() as u32;
     let length = curve.length();
     let mut travelled = 0.0;
-    let mut placed = Vec::with_capacity(curve.points.len());
+    let mut places = Vec::with_capacity(curve.points.len());
     for (index, &point) in curve.points.iter().enumerate() {
         let next = curve
             .points
@@ -287,135 +228,135 @@ fn curve_corners(run: &mut Run) -> Result<(), Problem> {
         if align {
             frame.rotation = turn::yaw_toward(direction);
         }
-        let index = index as u32;
-        let mut transform =
-            Transform::new(run.id(TransformId::ROOT, index), frame);
-        transform.index = index;
-        transform.count = count;
-        transform.along = if length > 0.0 {
-            travelled / length
-        } else {
-            0.0
-        };
+        places.push(Place {
+            frame,
+            along: if length > 0.0 {
+                travelled / length
+            } else {
+                0.0
+            },
+        });
         travelled += next.map_or(0.0, |&next| point.distance(next));
-        placed.push(transform);
     }
-    run.put("transforms", Value::Transforms(placed));
+    let made = copies(run, run.objects("objects")?, &places);
+    run.put("objects", Value::Objects(made));
     Ok(())
 }
 
 const ON_SURFACE: NodeKind = NodeKind {
     name: "on_surface",
-    doc: "Transforms at random on the top face of each transform, \
-          as many as its area times the density",
+    doc: "The objects at random on the top of each object they are \
+          put on, as many as that top's area times the density",
     inputs: &[
-        TRANSFORMS_IN,
+        OBJECTS_IN,
+        PortSpec::new(
+            "on",
+            ValueType::Objects,
+            "The objects whose tops to scatter on",
+        ),
         PortSpec::new(
             "density",
             ValueType::Number,
-            "Transforms per square metre",
+            "Copies per square metre",
         )
         .initial(Initial::Number(1.0)),
         PortSpec::new(
             "align",
             ValueType::Bool,
-            "Whether each turns with the face it is on",
+            "Whether each copy turns with the top it is on",
         )
         .initial(Initial::Bool(true)),
     ],
-    outputs: &[TRANSFORMS_OUT],
+    outputs: &[OBJECTS_OUT],
     run: on_surface,
 };
 
 fn on_surface(run: &mut Run) -> Result<(), Problem> {
     let align = run.flag("align", None)?;
     let chance = run.chance(Scope::Item);
-    let mut placed = Vec::new();
-    for surface in run.transforms("transforms")? {
+    let objects = run.objects("objects")?;
+    let mut made = Vec::new();
+    for surface in run.objects("on")? {
         let density = run.number("density", Some(surface))?.max(0.0);
         let size = surface.frame.scale;
         let expected = size.x * size.z * density;
         let key = chance.mix(surface.id.0);
         let count = expected.floor() as u32
             + u32::from(key.unit() < expected.fract());
-        for index in 0..count {
-            let point = key.mix(u64::from(index) + 1);
-            // On its top, in its own frame, where its scale is its
-            // size.
-            let local = Vec3::new(
-                point.mix(1).unit() - 0.5,
-                1.0,
-                point.mix(2).unit() - 0.5,
-            );
-            let mut frame = Frame::at(surface.frame.point(local));
-            if align {
-                frame.rotation = surface.frame.rotation;
-            }
-            let mut transform =
-                Transform::new(run.id(surface.id, index), frame);
-            transform.index = index;
-            transform.count = count;
-            transform.tags.clone_from(&surface.tags);
-            placed.push(transform);
-        }
+        let places: Vec<Place> = (0..count)
+            .map(|index| {
+                let point = key.mix(u64::from(index) + 1);
+                // On its top, in its own frame, where its scale is
+                // its size.
+                let local = Vec3::new(
+                    point.mix(1).unit() - 0.5,
+                    1.0,
+                    point.mix(2).unit() - 0.5,
+                );
+                let mut frame = Frame::at(surface.frame.point(local));
+                if align {
+                    frame.rotation = surface.frame.rotation;
+                }
+                Place::at(frame)
+            })
+            .collect();
+        // Keyed by the surface too, so two surfaces' copies differ.
+        made.extend(copies(run, objects, &places).into_iter().map(
+            |mut copy| {
+                copy.id = run.id(surface.id, copy.id.0 as u32);
+                copy.tags.clone_from(&surface.tags);
+                copy
+            },
+        ));
     }
-    run.put("transforms", Value::Transforms(placed));
+    run.put("objects", Value::Objects(made));
     Ok(())
 }
 
-const SPLIT: NodeKind = NodeKind {
-    name: "split",
-    doc: "Cuts each transform along an axis into equal pieces of \
-          about a size",
+const ON_SOCKETS: NodeKind = NodeKind {
+    name: "on_sockets",
+    doc: "The objects at a socket of each object that has it, \
+          turned as the socket is",
     inputs: &[
-        TRANSFORMS_IN,
+        OBJECTS_IN,
         PortSpec::new(
-            "axis",
+            "on",
+            ValueType::Objects,
+            "The objects whose sockets to put them at",
+        ),
+        PortSpec::new(
+            "socket",
             ValueType::Choice,
-            "The axis to cut along, in the transform's frame",
+            "The socket's name, as its asset's file has it",
         )
-        .initial(Initial::Choice("x"))
-        .choices(&["x", "y", "z"]),
-        PortSpec::new(
-            "size",
-            ValueType::Number,
-            "About how long each piece is",
-        )
-        .initial(Initial::Number(1.2)),
+        .listed(Listed::Sockets)
+        .initial(Initial::Choice("lamp")),
     ],
-    outputs: &[TRANSFORMS_OUT],
-    run: split,
+    outputs: &[OBJECTS_OUT],
+    run: on_sockets,
 };
 
-fn split(run: &mut Run) -> Result<(), Problem> {
-    let axis = match run.choice("axis", None)?.as_str() {
-        "x" => Vec3::X,
-        "y" => Vec3::Y,
-        _ => Vec3::Z,
-    };
-    let mut placed = Vec::new();
-    for whole in run.transforms("transforms")? {
-        let size = run.number("size", Some(whole))?;
-        if size <= 0.0 {
-            return Err(run.invalid("size", "must be above zero"));
-        }
-        let length = whole.frame.scale.dot(axis);
-        let count = (length / size).round().max(1.0) as u32;
-        for index in 0..count {
-            // In its own frame, where its scale is its size, a piece
-            // is a share of one along the axis.
-            let offset =
-                axis * (-0.5 + (index as f32 + 0.5) / count as f32);
-            let mut transform = whole.clone();
-            transform.id = run.id(whole.id, index);
-            transform.frame.translation = whole.frame.point(offset);
-            transform.frame.scale = whole.frame.scale
-                - axis * (length - length / count as f32);
-            transform.index = index;
-            transform.count = count;
-            placed.push(transform);
-        }
+fn on_sockets(run: &mut Run) -> Result<(), Problem> {
+    let name = run.choice("socket", None)?;
+    let mut places = Vec::new();
+    for object in run.objects("on")? {
+        let Some(socket) = run
+            .asset(&object.asset)
+            .and_then(|asset| asset.sockets.get(&name).copied())
+        else {
+            continue;
+        };
+        // An asset stands on its frame, its box above it.
+        let size = object.frame.scale;
+        let rotation = object.frame.rotation;
+        places.push(Place::at(Frame {
+            translation: object.frame.translation
+                + rotation * ((socket.at + Vec3::Y * 0.5) * size),
+            rotation: rotation * socket.turn,
+            scale: Vec3::ONE,
+        }));
     }
-    run.put("transforms", Value::Transforms(placed));
+    let made = copies(run, run.objects("objects")?, &places);
+    run.put("objects", Value::Objects(made));
     Ok(())
 }

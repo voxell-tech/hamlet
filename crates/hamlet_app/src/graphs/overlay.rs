@@ -15,7 +15,7 @@ use bevy::math::{Isometry3d, Quat, Vec2, Vec3};
 use bevy::reflect::Reflect;
 use bevy::transform::components::Transform;
 use bevy_fynix::Theme;
-use hamlet_blueprint::{Frame, TransformId, Value};
+use hamlet_blueprint::{Frame, Object, ObjectId, Value};
 use hamlet_ui::theme::HamletTheme;
 
 use super::Editor;
@@ -66,17 +66,20 @@ fn show(
     framing: &Framing,
 ) {
     match value {
-        Value::Transforms(transforms) => {
-            for transform in transforms {
-                outline(gizmos, &transform.frame, colour);
-                gizmos.axes(
-                    Transform::from_translation(
-                        transform.frame.translation,
-                    )
-                    .with_rotation(transform.frame.rotation),
-                    0.35,
-                );
-            }
+        Value::Transform(transform) => {
+            // Read at the origin, as an object put on it alone
+            // stands.
+            let frame = transform.at(&Object::new(
+                String::new(),
+                ObjectId::ROOT,
+                Frame::IDENTITY,
+            ));
+            outline(gizmos, &frame, colour);
+            gizmos.axes(
+                Transform::from_translation(frame.translation)
+                    .with_rotation(frame.rotation),
+                0.35,
+            );
         }
         Value::Objects(objects) => {
             for object in objects {
@@ -126,11 +129,12 @@ fn show(
                 .flat_map(|i| (0..WASH).map(move |j| (i, j)))
                 .map(|(i, j)| {
                     let point = at(i, j);
-                    let transform = hamlet_blueprint::Transform::new(
-                        TransformId::ROOT,
+                    let at = Object::new(
+                        String::new(),
+                        ObjectId::ROOT,
                         Frame::at(point),
                     );
-                    (point, field.sample(&transform))
+                    (point, field.sample(&at))
                 })
                 .collect();
             let (low, high) = samples.iter().fold(

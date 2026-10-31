@@ -1,150 +1,49 @@
-//! Nodes that change a list of transforms.
+//! Nodes that thin or cut a set of objects.
 
 use bevy_math::Vec3;
 
-use super::{TRANSFORMS_IN, TRANSFORMS_OUT};
+use super::{OBJECTS_IN, OBJECTS_OUT};
 use crate::eval::{Problem, Run};
 use crate::graph::Scope;
 use crate::node::{Initial, NodeKind, PortSpec};
-use crate::value::{Frame, Transform, Value, ValueType};
+use crate::value::{Object, Value, ValueType};
 
-pub(super) const KINDS: &[NodeKind] =
-    &[MATMUL, REPEAT, CULL, KEEP_APART, MERGE];
-
-const REPEAT: NodeKind = NodeKind {
-    name: "repeat",
-    doc: "Each transform becomes copies, each a step further on in \
-          its own frame",
-    inputs: &[
-        TRANSFORMS_IN,
-        PortSpec::new(
-            "count",
-            ValueType::Integer,
-            "How many copies, the first included",
-        )
-        .initial(Initial::Integer(2)),
-        PortSpec::new(
-            "step",
-            ValueType::Point,
-            "The offset from one copy to the next",
-        )
-        .initial(Initial::Point(Vec3::new(0.0, 0.0, 1.0))),
-    ],
-    outputs: &[TRANSFORMS_OUT],
-    run: repeat,
-};
-
-fn repeat(run: &mut Run) -> Result<(), Problem> {
-    let step = run.point("step")?;
-    let mut placed = Vec::new();
-    for original in run.transforms("transforms")? {
-        let count =
-            run.integer("count", Some(original))?.max(0) as u32;
-        for index in 0..count {
-            let mut copy = original.clone();
-            copy.id = run.id(original.id, index);
-            copy.frame.translation =
-                original.frame.point(step * index as f32);
-            placed.push(copy);
-        }
-    }
-    run.put("transforms", Value::Transforms(placed));
-    Ok(())
-}
-
-const MATMUL: NodeKind = NodeKind {
-    name: "matmul",
-    doc: "Each transform of a times b, as matrices: b done in a's \
-          own frame. One b goes on every a, one a takes every b, \
-          and lists of the same length go pair by pair",
-    inputs: &[
-        PortSpec::new(
-            "a",
-            ValueType::Transforms,
-            "The outer transforms",
-        ),
-        PortSpec::new(
-            "b",
-            ValueType::Transforms,
-            "The transforms done in each a's frame",
-        ),
-    ],
-    outputs: &[TRANSFORMS_OUT],
-    run: matmul,
-};
-
-fn matmul(run: &mut Run) -> Result<(), Problem> {
-    let (a, b) = (run.transforms("a")?, run.transforms("b")?);
-    // Each result keeps the item of the list it was one of, so ids
-    // and counts hold for what comes after.
-    let times = |outer: &Transform,
-                 inner: &Transform,
-                 keep: &Transform| {
-        let mut made = keep.clone();
-        made.frame = Frame {
-            translation: outer.frame.point(inner.frame.translation),
-            rotation: outer.frame.rotation * inner.frame.rotation,
-            scale: outer.frame.scale * inner.frame.scale,
-        };
-        made
-    };
-    let made: Vec<Transform> = match (a.len(), b.len()) {
-        (_, 1) => {
-            a.iter().map(|outer| times(outer, &b[0], outer)).collect()
-        }
-        (1, _) => {
-            b.iter().map(|inner| times(&a[0], inner, inner)).collect()
-        }
-        (left, right) if left == right => a
-            .iter()
-            .zip(b)
-            .map(|(outer, inner)| times(outer, inner, outer))
-            .collect(),
-        _ => {
-            return Err(run.invalid(
-                "b",
-                "must be one transform, or as many as a",
-            ));
-        }
-    };
-    run.put("transforms", Value::Transforms(made));
-    Ok(())
-}
+pub(super) const KINDS: &[NodeKind] = &[CULL, KEEP_APART, SPLIT];
 
 const CULL: NodeKind = NodeKind {
     name: "cull",
-    doc: "Keeps the transforms whose keep is true. A random chance \
-          or a field's threshold thins them",
+    doc: "Keeps the objects whose keep is true. A random chance or \
+          a field's threshold thins them",
     inputs: &[
-        TRANSFORMS_IN,
+        OBJECTS_IN,
         PortSpec::new(
             "keep",
             ValueType::Bool,
-            "Whether each transform stays",
+            "Whether each object stays",
         )
         .initial(Initial::Bool(true)),
     ],
-    outputs: &[TRANSFORMS_OUT],
+    outputs: &[OBJECTS_OUT],
     run: cull,
 };
 
 fn cull(run: &mut Run) -> Result<(), Problem> {
-    let mut placed = Vec::new();
-    for transform in run.transforms("transforms")? {
-        if run.flag("keep", Some(transform))? {
-            placed.push(transform.clone());
+    let mut kept = Vec::new();
+    for object in run.objects("objects")? {
+        if run.flag("keep", Some(object))? {
+            kept.push(object.clone());
         }
     }
-    run.put("transforms", Value::Transforms(placed));
+    run.put("objects", Value::Objects(kept));
     Ok(())
 }
 
 const KEEP_APART: NodeKind = NodeKind {
     name: "keep_apart",
-    doc: "Removes transforms nearer than a distance to one kept, \
-          kept in a seeded order",
+    doc: "Removes objects nearer than a distance to one kept, kept \
+          in a seeded order",
     inputs: &[
-        TRANSFORMS_IN,
+        OBJECTS_IN,
         PortSpec::new(
             "distance",
             ValueType::Number,
@@ -152,7 +51,7 @@ const KEEP_APART: NodeKind = NodeKind {
         )
         .initial(Initial::Number(1.0)),
     ],
-    outputs: &[TRANSFORMS_OUT],
+    outputs: &[OBJECTS_OUT],
     run: keep_apart,
 };
 
@@ -160,50 +59,77 @@ fn keep_apart(run: &mut Run) -> Result<(), Problem> {
     let distance = run.number("distance", None)?;
     let chance = run.chance(Scope::Item);
     let mut order =
-        run.transforms("transforms")?.iter().collect::<Vec<_>>();
-    order.sort_by_key(|transform| chance.mix(transform.id.0));
-    let mut kept: Vec<&Transform> = Vec::with_capacity(order.len());
-    for transform in order {
+        run.objects("objects")?.iter().collect::<Vec<_>>();
+    order.sort_by_key(|object| chance.mix(object.id.0));
+    let mut kept: Vec<&Object> = Vec::with_capacity(order.len());
+    for object in order {
         let near = kept.iter().any(|other| {
-            other
-                .frame
-                .translation
-                .distance(transform.frame.translation)
+            other.frame.translation.distance(object.frame.translation)
                 < distance
         });
         if !near {
-            kept.push(transform);
+            kept.push(object);
         }
     }
-    kept.sort_by_key(|transform| (transform.index, transform.id));
+    kept.sort_by_key(|object| (object.index, object.id));
     let kept = kept.into_iter().cloned().collect();
-    run.put("transforms", Value::Transforms(kept));
+    run.put("objects", Value::Objects(kept));
     Ok(())
 }
 
-const MERGE: NodeKind = NodeKind {
-    name: "merge",
-    doc: "Two lists of transforms as one, the first before the \
-          second",
+const SPLIT: NodeKind = NodeKind {
+    name: "split",
+    doc: "Cuts each object along an axis into equal pieces of about \
+          a size, each the same asset",
     inputs: &[
+        OBJECTS_IN,
         PortSpec::new(
-            "first",
-            ValueType::Transforms,
-            "The first list",
-        ),
+            "axis",
+            ValueType::Choice,
+            "The axis to cut along, in the object's frame",
+        )
+        .initial(Initial::Choice("x"))
+        .choices(&["x", "y", "z"]),
         PortSpec::new(
-            "second",
-            ValueType::Transforms,
-            "The second list",
-        ),
+            "size",
+            ValueType::Number,
+            "About how long each piece is",
+        )
+        .initial(Initial::Number(1.2)),
     ],
-    outputs: &[TRANSFORMS_OUT],
-    run: merge,
+    outputs: &[OBJECTS_OUT],
+    run: split,
 };
 
-fn merge(run: &mut Run) -> Result<(), Problem> {
-    let mut placed = run.transforms("first")?.to_vec();
-    placed.extend_from_slice(run.transforms("second")?);
-    run.put("transforms", Value::Transforms(placed));
+fn split(run: &mut Run) -> Result<(), Problem> {
+    let axis = match run.choice("axis", None)?.as_str() {
+        "x" => Vec3::X,
+        "y" => Vec3::Y,
+        _ => Vec3::Z,
+    };
+    let mut pieces = Vec::new();
+    for whole in run.objects("objects")? {
+        let size = run.number("size", Some(whole))?;
+        if size <= 0.0 {
+            return Err(run.invalid("size", "must be above zero"));
+        }
+        let length = whole.frame.scale.dot(axis);
+        let count = (length / size).round().max(1.0) as u32;
+        for index in 0..count {
+            // In its own frame, where its scale is its size, a piece
+            // is a share of one along the axis.
+            let offset =
+                axis * (-0.5 + (index as f32 + 0.5) / count as f32);
+            let mut piece = whole.clone();
+            piece.id = run.id(whole.id, index);
+            piece.frame.translation = whole.frame.point(offset);
+            piece.frame.scale = whole.frame.scale
+                - axis * (length - length / count as f32);
+            piece.index = index;
+            piece.count = count;
+            pieces.push(piece);
+        }
+    }
+    run.put("objects", Value::Objects(pieces));
     Ok(())
 }

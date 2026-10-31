@@ -7,9 +7,9 @@ use fastnoise_lite::{
 use serde::{Deserialize, Serialize};
 
 use crate::seed::Seed;
-use crate::value::Transform;
+use crate::value::Object;
 
-/// A number read at each transform.
+/// A number read at each object.
 // Boxed: a field is a tree of the fields its nodes were given.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Field {
@@ -26,26 +26,26 @@ pub enum Field {
 }
 
 impl Field {
-    pub fn sample(&self, transform: &Transform) -> f32 {
+    pub fn sample(&self, object: &Object) -> f32 {
         match self {
             Field::Constant(value) => *value,
             Field::Noise(noise) => {
-                noise.sample(transform.frame.translation)
+                noise.sample(object.frame.translation)
             }
-            Field::Measure(measure) => measure.of(transform),
+            Field::Measure(measure) => measure.of(object),
             Field::Remap { field, from, to } => {
                 let span = from[1] - from[0];
                 let t = if span == 0.0 {
                     0.0
                 } else {
-                    (field.sample(transform) - from[0]) / span
+                    (field.sample(object) - from[0]) / span
                 };
                 to[0] + (to[1] - to[0]) * t
             }
             Field::Math(op, a, b) => {
-                op.apply(a.sample(transform), b.sample(transform))
+                op.apply(a.sample(object), b.sample(object))
             }
-            Field::Random(random) => random.sample(transform),
+            Field::Random(random) => random.sample(object),
         }
     }
 }
@@ -138,21 +138,21 @@ impl Op {
     }
 }
 
-/// A number picked at random between two, again for each transform or
+/// A number picked at random between two, again for each object or
 /// once for all of them.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Random {
     pub low: f32,
     pub high: f32,
     pub seed: Seed,
-    /// Whether each transform rolls its own.
+    /// Whether each object rolls its own.
     pub each: bool,
 }
 
 impl Random {
-    fn sample(&self, transform: &Transform) -> f32 {
+    fn sample(&self, object: &Object) -> f32 {
         let key = if self.each {
-            self.seed.mix(transform.id.0)
+            self.seed.mix(object.id.0)
         } else {
             self.seed
         };
@@ -160,7 +160,7 @@ impl Random {
     }
 }
 
-/// A fact of the transform itself.
+/// A fact of the object itself.
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize,
 )]
@@ -173,13 +173,13 @@ pub enum Measure {
 }
 
 impl Measure {
-    fn of(self, transform: &Transform) -> f32 {
+    fn of(self, object: &Object) -> f32 {
         match self {
-            Measure::X => transform.frame.translation.x,
-            Measure::Height => transform.frame.translation.y,
-            Measure::Z => transform.frame.translation.z,
-            Measure::Along => transform.along,
-            Measure::Index => transform.index as f32,
+            Measure::X => object.frame.translation.x,
+            Measure::Height => object.frame.translation.y,
+            Measure::Z => object.frame.translation.z,
+            Measure::Along => object.along,
+            Measure::Index => object.index as f32,
         }
     }
 }
