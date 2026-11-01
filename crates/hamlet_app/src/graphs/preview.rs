@@ -448,9 +448,9 @@ fn time_dial() -> AnyView {
 /// lit.
 fn modes() -> AnyView {
     const MODES: [(Glyph, &str, GizmoMode); 3] = [
-        (Glyph::Move, "Move (W)", GizmoMode::Translate),
-        (Glyph::Restore, "Turn (E)", GizmoMode::Rotate),
-        (Glyph::Scale, "Scale (R)", GizmoMode::Scale),
+        (Glyph::Move, "Move (G)", GizmoMode::Translate),
+        (Glyph::Restore, "Rotate (R)", GizmoMode::Rotate),
+        (Glyph::Scale, "Scale (S)", GizmoMode::Scale),
     ];
     keyed(resource::<GizmoMode, _>(|mode| *mode), |mode| {
         let buttons = MODES

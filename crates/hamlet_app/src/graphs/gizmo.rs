@@ -2,7 +2,7 @@
 //! arrows, squares and a centre to move, rings to turn, and boxes to
 //! scale, drawn the same size on screen however near, each fading as
 //! it comes to point at the viewer, the one under the pointer
-//! brighter. A transform node takes all three, W, E and R picking
+//! brighter. A transform node takes all three, G, R and S picking
 //! which; a point only moves; a radius or a side is one arrow along
 //! it.
 
@@ -82,22 +82,30 @@ pub(super) enum GizmoMode {
     Scale,
 }
 
-/// Picks the gizmo's mode with W, E and R while the pointer is on the
-/// preview and nothing is typed in.
+/// Picks the gizmo's mode with G, R and S while nothing is typed in.
+/// A key held with a modifier is a command's, as Cmd+S is saving.
 fn pick_mode(
     keys: Res<ButtonInput<KeyCode>>,
     focus: Res<bevy::input_focus::InputFocus>,
     dragging: Res<Dragging>,
     mut mode: ResMut<GizmoMode>,
 ) {
-    if focus.get().is_some() || dragging.0.is_some() {
+    let modified = keys.any_pressed([
+        KeyCode::SuperLeft,
+        KeyCode::SuperRight,
+        KeyCode::ControlLeft,
+        KeyCode::ControlRight,
+        KeyCode::AltLeft,
+        KeyCode::AltRight,
+    ]);
+    if focus.get().is_some() || dragging.0.is_some() || modified {
         return;
     }
-    let picked = if keys.just_pressed(KeyCode::KeyW) {
+    let picked = if keys.just_pressed(KeyCode::KeyG) {
         GizmoMode::Translate
-    } else if keys.just_pressed(KeyCode::KeyE) {
-        GizmoMode::Rotate
     } else if keys.just_pressed(KeyCode::KeyR) {
+        GizmoMode::Rotate
+    } else if keys.just_pressed(KeyCode::KeyS) {
         GizmoMode::Scale
     } else {
         return;
