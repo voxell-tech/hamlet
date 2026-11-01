@@ -28,8 +28,9 @@ use hamlet_graph_editor::files::{self, Files};
 use hamlet_graph_editor::library::{
     Item, Kind, Library, mesh_path, write_atomic,
 };
-use hamlet_graph_editor::{Editor, Flavor, tool};
+use hamlet_graph_editor::{Editor, Flavor};
 use hamlet_ui::AnyView;
+use hamlet_ui::styles::tool;
 use hamlet_ui::widgets::icons::Glyph;
 
 use super::assets::Meshes;

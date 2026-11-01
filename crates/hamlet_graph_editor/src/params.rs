@@ -10,14 +10,15 @@ use bevy::math::{Vec3, Vec4};
 use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, icon_button, number_field, row, text_field,
+    icon_button, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_graph::{
     Constant, Edit, GraphInput, Scope, ValueType, Vary,
 };
 use hamlet_ui::styles::{
-    ICON, command, description, note, section, text_input,
+    ICON, command, description, labelled, note, section, swatch,
+    text_input,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::switch;
@@ -255,23 +256,6 @@ pub(super) fn input<F: Flavor>(name: String) -> AnyView {
     .boxed()
 }
 
-/// `control` after a word on what it sets.
-pub fn labelled(word: &str, control: AnyView) -> AnyView {
-    let word = word.to_owned();
-    with_cx(move |cx| {
-        let gap = cx.theme().space.gap;
-        row((
-            column((note(word.clone()),)).width(px(64.0)).shrink(0.0),
-            column((control,))
-                .width(percent(100.0))
-                .min_width(px(0.0)),
-        ))
-        .gap(gap)
-        .align(AlignItems::Center)
-    })
-    .boxed()
-}
-
 /// The input's name, its type, and a way to take it away.
 fn head<F: Flavor>(name: String, value_type: ValueType) -> AnyView {
     let rename = name.clone();
@@ -401,13 +385,13 @@ fn axes<F: Flavor>(
     };
     let mut fields = (0..count).map(axis).collect::<Vec<_>>();
     if colour {
-        fields.push(swatch::<F>(name.clone()));
+        fields.push(swatch_of::<F>(name.clone()));
     }
     row(fields).gap(4.0).align(AlignItems::Center).boxed()
 }
 
 /// A small square of the colour the input's default is.
-fn swatch<F: Flavor>(name: String) -> AnyView {
+fn swatch_of<F: Flavor>(name: String) -> AnyView {
     let shown = resource::<Editor<F>, _>(move |editor| {
         match find(editor, &name).and_then(|input| input.default) {
             Some(Constant::Color(c)) => {
@@ -416,17 +400,7 @@ fn swatch<F: Flavor>(name: String) -> AnyView {
             _ => Color::NONE,
         }
     });
-    with_cx(move |cx| {
-        frame()
-            .width(px(SWATCH))
-            .height(px(SWATCH))
-            .shrink(0.0)
-            .radius(2.0)
-            .border(1.0)
-            .border_color(cx.theme().palette.border)
-            .fill(shown)
-    })
-    .boxed()
+    swatch(SWATCH, shown)
 }
 
 /// The control for what the input is when the graph above leaves it

@@ -10,7 +10,7 @@ pub mod files;
 mod flavor;
 pub mod library;
 mod menu;
-pub mod params;
+mod params;
 mod split;
 mod wire;
 
@@ -24,24 +24,19 @@ use bevy::math::Vec2;
 use bevy::ui::{AlignItems, Display, Overflow, UiRect, percent, px};
 use bevy::ui_render::UiMaterialPlugin;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, row, scroll,
+    FrameProps, column, dropdown, frame, row, scroll,
 };
-use bevy_fynix::{
-    Bevy, ScopedExt, ViewExt, ViewSeq, keyed, resource,
-};
+use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_graph::{
     Book, Catalogue, Constant, Does, Edit, GraphError, GraphInput,
     GraphOutput, Group, Initial, Node, NodeId, Port, PortSpec,
     Registry, Ruleset, Setting, Sheet, ValueType,
 };
 use hamlet_ui::styles::{
-    CONTROL, Fills, ICON, description, hairline, note, raised,
+    Fills, ICON, cluster, description, hairline, tool,
 };
-use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, View, styles, with_cx};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{AnyView, View, with_cx};
 
 pub use self::flavor::Flavor;
 use self::library::Library;
@@ -889,29 +884,6 @@ pub fn screen<F: Flavor>() -> impl View {
     .fills_width()
     .fills_height()
     .gap(0.0)
-}
-
-/// A button of one icon that runs `act`, named by `tip` under the
-/// pointer.
-pub fn tool(
-    which: Glyph,
-    tip: &'static str,
-    act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> impl View {
-    button(raised(glyph(which, ICON)))
-        .padding(UiRect::axes(px(9.0), px(0.0)))
-        .min_height(px(CONTROL))
-        .tooltip(move || note(tip))
-        .rules(styles::button)
-        .tagged(Variant::Default)
-        .on_activate(act)
-}
-
-/// Tools side by side, set apart from the next group.
-pub fn cluster(
-    tools: impl ViewSeq<Bevy, HamletTheme> + 'static,
-) -> impl View {
-    row(tools).gap(2.0).align(AlignItems::Center)
 }
 
 /// The bar over the canvas: groups of tools for editing, for the

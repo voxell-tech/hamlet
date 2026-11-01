@@ -25,10 +25,9 @@ use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_graph::{Asset, Paint, Shape, Socket};
 use hamlet_graph_editor::library::{Kind, Library, mesh_file};
-use hamlet_graph_editor::params;
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
-use hamlet_ui::styles::{ICON, command, description, note};
+use hamlet_ui::styles::{ICON, command, description, labelled, note};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, with_cx};
 
@@ -402,7 +401,7 @@ fn card(name: String, asset: Asset) -> AnyView {
             .boxed(),
         ];
         for slot in asset.slots.keys() {
-            rows.push(params::labelled(
+            rows.push(labelled(
                 &slot.replace('_', " "),
                 colour(name.clone(), asset.clone(), slot.clone()),
             ));
@@ -410,7 +409,7 @@ fn card(name: String, asset: Asset) -> AnyView {
         if !asset.sockets.is_empty() {
             let names: Vec<&str> =
                 asset.sockets.keys().map(String::as_str).collect();
-            rows.push(params::labelled(
+            rows.push(labelled(
                 "sockets",
                 note(names.join(", ")).boxed(),
             ));

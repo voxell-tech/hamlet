@@ -11,17 +11,17 @@ use bevy::math::Vec3;
 use bevy::ui::{AlignItems, Display, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, frame, icon_button,
-    label, number_field, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, icon_button, label,
+    number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, Signal, ViewExt, resource};
 use hamlet_graph::{
     Constant, Edit, Listed, NodeId, Setting, ValueType,
 };
-use hamlet_ui::styles::{note, text_input};
+use hamlet_ui::AnyView;
+use hamlet_ui::styles::{note, swatch, text_input};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::switch;
-use hamlet_ui::{AnyView, with_cx};
 
 use super::Editor;
 use super::canvas::Input;
@@ -141,7 +141,7 @@ pub(super) fn control<F: Flavor>(
             ValueType::Vector2 => axes::<F>(node, &input, 2),
             ValueType::Color => row((
                 axes::<F>(node, &input, 4),
-                swatch::<F>(node, input.clone()),
+                swatch_of::<F>(node, input.clone()),
             ))
             .gap(2.0)
             .align(AlignItems::Center)
@@ -284,7 +284,7 @@ fn number<F: Flavor>(
 }
 
 /// A small square of the colour an input is set to.
-fn swatch<F: Flavor>(node: NodeId, input: Input) -> AnyView {
+fn swatch_of<F: Flavor>(node: NodeId, input: Input) -> AnyView {
     let shown =
         resource::<Editor<F>, _>(move |editor| {
             match value_of(editor, node, &input) {
@@ -294,16 +294,7 @@ fn swatch<F: Flavor>(node: NodeId, input: Input) -> AnyView {
                 _ => Color::NONE,
             }
         });
-    with_cx(move |cx| {
-        frame()
-            .width(px(MARK))
-            .height(px(MARK))
-            .radius(2.0)
-            .border(1.0)
-            .border_color(cx.theme().palette.border)
-            .fill(shown)
-    })
-    .boxed()
+    swatch(MARK, shown)
 }
 
 fn flag<F: Flavor>(node: NodeId, input: Input) -> AnyView {

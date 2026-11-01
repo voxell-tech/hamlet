@@ -3,11 +3,11 @@
 
 use bevy::color::Color;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
+use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    self, BehaviorExt, Frame, FrameProps, Icon, Stack, column, frame,
-    label, row, scroll, tinted_icon,
+    self, BehaviorExt, Frame, FrameProps, Icon, Stack, TooltipExt,
+    column, frame, label, row, scroll, tinted_icon,
 };
 use bevy_fynix::{
     Bevy, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
@@ -566,6 +566,62 @@ pub fn command(text: &'static str, act: fn(&mut World)) -> impl View {
         .rules(button)
         .tagged(Variant::Default)
         .on_activate(act)
+}
+
+/// A button of one icon that runs `act`, named by `tip` under the
+/// pointer.
+pub fn tool(
+    which: Glyph,
+    tip: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> impl View {
+    views::button(raised(glyph(which, ICON)))
+        .padding(UiRect::axes(px(9.0), px(0.0)))
+        .min_height(px(CONTROL))
+        .tooltip(move || note(tip))
+        .rules(button)
+        .tagged(Variant::Default)
+        .on_activate(act)
+}
+
+/// Tools side by side, set apart from the next group.
+pub fn cluster(
+    tools: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    row(tools).gap(2.0).align(AlignItems::Center)
+}
+
+/// `control` after a word on what it sets.
+pub fn labelled(word: &str, control: AnyView) -> AnyView {
+    let word = word.to_owned();
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        row((
+            column((note(word.clone()),)).width(px(64.0)).shrink(0.0),
+            column((control,))
+                .width(percent(100.0))
+                .min_width(px(0.0)),
+        ))
+        .gap(gap)
+        .align(AlignItems::Center)
+    })
+    .boxed()
+}
+
+/// A square `side` wide filled with `colour`.
+pub fn swatch(side: f32, colour: impl Into<Prop<Color>>) -> AnyView {
+    let colour = colour.into();
+    with_cx(move |cx| {
+        frame()
+            .width(px(side))
+            .height(px(side))
+            .shrink(0.0)
+            .radius(2.0)
+            .border(1.0)
+            .border_color(cx.theme().palette.border)
+            .fill(colour)
+    })
+    .boxed()
 }
 
 /// The way back to `text`, which `act` takes.
