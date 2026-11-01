@@ -1,6 +1,5 @@
 //! Running a ruleset.
 
-use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bevy_math::Vec3;
@@ -49,7 +48,7 @@ pub fn evaluate(
     {
         return Err(error);
     }
-    let runner = Runner {
+    let mut runner = Runner {
         registry,
         ruleset,
         seeds,
@@ -74,15 +73,14 @@ pub fn evaluate_partly(
     {
         return Err(error);
     }
-    let runner = Runner {
+    let mut runner = Runner {
         registry,
         ruleset,
         seeds,
-        partial: Some(RefCell::new(Vec::new())),
+        partial: Some(Vec::new()),
     };
     let made = runner.run(&ruleset.entry, Seed::default(), inputs)?;
-    let errors =
-        runner.partial.map(RefCell::into_inner).unwrap_or_default();
+    let errors = runner.partial.unwrap_or_default();
     Ok((made, errors))
 }
 
@@ -92,14 +90,14 @@ struct Runner<'a> {
     seeds: Seeds,
     /// The errors of the nodes that failed, for a run that goes on
     /// past them; none for a run that stops at the first.
-    partial: Option<RefCell<Vec<GraphError>>>,
+    partial: Option<Vec<GraphError>>,
 }
 
 impl Runner<'_> {
     /// Runs the graph `name`. `path` names where it runs, so the same
     /// graph run from two nodes gives two sets of transform ids.
     fn run(
-        &self,
+        &mut self,
         name: &str,
         path: Seed,
         given: &BTreeMap<String, Value>,
@@ -159,9 +157,9 @@ impl Runner<'_> {
                 .node(name, graph, node, path, &made, given)
             {
                 Ok(outputs) => outputs,
-                Err(error) => match &self.partial {
+                Err(error) => match &mut self.partial {
                     Some(errors) => {
-                        errors.borrow_mut().push(error);
+                        errors.push(error);
                         skipped.insert(node.id);
                         continue;
                     }
@@ -198,7 +196,7 @@ impl Runner<'_> {
 
     /// Runs one node of `graph`, giving what it makes by output.
     fn node(
-        &self,
+        &mut self,
         name: &str,
         graph: &Graph,
         node: &Node,
@@ -426,7 +424,7 @@ impl Run<'_> {
         self.inputs.contains_key(port)
     }
 
-    /// A error with the value of `port`.
+    /// An error for the value of `port`.
     pub fn invalid(&self, port: &str, reason: &'static str) -> Error {
         Error::Invalid {
             node: self.node,
@@ -581,7 +579,6 @@ impl Run<'_> {
         self.point_at(port, None)
     }
 
-    /// The point on `port`, at `at` when its axes are fields.
     /// The point on `port` as the fields its axes are read from, a
     /// fixed point's as constants.
     pub fn point_fields(
@@ -605,6 +602,7 @@ impl Run<'_> {
         &ORIGIN
     }
 
+    /// The point on `port`, at `at` when its axes are fields.
     pub fn point_at(
         &self,
         port: &str,
@@ -668,13 +666,12 @@ impl Run<'_> {
         }
     }
 
-    /// The id of the `index`th transform this node makes from
-    /// `parent`.
     /// The asset named `name`, as the ruleset's catalogue has it.
     pub fn asset(&self, name: &str) -> Option<Asset> {
         self.assets.get(name)
     }
 
+    /// The id of the `index`th object this node makes from `parent`.
     pub fn id(
         &self,
         parent: ObjectId,

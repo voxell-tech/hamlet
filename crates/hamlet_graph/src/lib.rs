@@ -1,8 +1,6 @@
 //! Node graphs as data: the graphs a file holds, the edits an editor
 //! makes to them, the kinds of node they may use, and the checks that
 //! need no more than those kinds' descriptions.
-//!
-//! What a kind does is left to the crate that evaluates the graph.
 
 mod catalogue;
 mod check;

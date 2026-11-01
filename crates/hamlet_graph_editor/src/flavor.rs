@@ -1,5 +1,6 @@
-//! What differs between the graph editors, which share the canvas,
-//! the menus, the parameters, the files and the layout.
+//! The [`Flavor`] of a graph editor: the parts that differ between
+//! editors sharing the canvas, the menus, the parameters, the files
+//! and the layout.
 
 use bevy::app::App;
 use bevy::math::Vec2;
@@ -21,7 +22,7 @@ pub trait Flavor: Sized + Send + Sync + 'static {
     /// The folder in the window's folder the book is kept in, as
     /// `<FOLDER>/book.ron`, its assets beside it.
     const FOLDER: &'static str;
-    /// What its books are in the library.
+    /// The [`Kind`] of its books in the library.
     const KIND: Kind;
     /// Books to start from, by name; the first opens at launch.
     const EXAMPLES: &'static [(&'static str, &'static str)];
@@ -31,7 +32,7 @@ pub trait Flavor: Sized + Send + Sync + 'static {
     /// The room a card leaves under its header for the flavor to
     /// fill, in sheet pixels; 0 for none.
     const ROOM: f32 = 0.0;
-    /// What the flavor keeps of the last run, and any state of its
+    /// The result of the last run, and any state of the flavor's
     /// own.
     type Got: Default + Send + Sync + 'static;
     /// The kinds of node its graphs use.
@@ -39,7 +40,7 @@ pub trait Flavor: Sized + Send + Sync + 'static {
     /// Works the open graph out again, filling `editor.got` and
     /// `editor.errors`.
     fn run(editor: &mut Editor<Self>);
-    /// What the end of the toolbar says of the last run.
+    /// The text at the end of the toolbar about the last run.
     fn status(editor: &Editor<Self>) -> String;
     /// The view beside the canvas.
     fn preview() -> AnyView;
@@ -48,8 +49,8 @@ pub trait Flavor: Sized + Send + Sync + 'static {
         Vec::new()
     }
     /// Tabs of its own in the parameters card, after the parameters:
-    /// each an icon, a name and what builds its body, built again
-    /// when the graph's shape changes.
+    /// each an icon, a name and a builder of its body, which runs
+    /// again when the graph's shape changes.
     fn tabs() -> Vec<(Glyph, &'static str, fn() -> AnyView)> {
         Vec::new()
     }

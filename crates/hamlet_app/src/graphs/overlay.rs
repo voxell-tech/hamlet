@@ -1,5 +1,5 @@
-//! What each selected node gives, drawn over the preview in the
-//! colour its card is lit in: transforms as outlined boxes with their
+//! The output of each selected node, drawn over the preview in the
+//! colour of its card: transforms as outlined boxes with their
 //! axes, assets as their boxes, curves as lines through their points
 //! with an arrow the way they run, points as dots, and a field as a
 //! wash on the ground, brighter where it is higher.

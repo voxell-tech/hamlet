@@ -10,7 +10,6 @@ use crate::seed::Seed;
 use crate::value::Object;
 
 /// A number read at each object.
-// Boxed: a field is a tree of the fields its nodes were given.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Field {
     Constant(f32),
@@ -35,12 +34,12 @@ impl Field {
             Field::Measure(measure) => measure.of(object),
             Field::Remap { field, from, to } => {
                 let span = from[1] - from[0];
-                let t = if span == 0.0 {
+                let ratio = if span == 0.0 {
                     0.0
                 } else {
                     (field.sample(object) - from[0]) / span
                 };
-                to[0] + (to[1] - to[0]) * t
+                to[0] + (to[1] - to[0]) * ratio
             }
             Field::Math(op, a, b) => {
                 op.apply(a.sample(object), b.sample(object))
@@ -50,7 +49,7 @@ impl Field {
     }
 }
 
-/// What a math field works out from its two numbers, `a` and `b`.
+/// The arithmetic of a math field on its two numbers, `a` and `b`.
 /// Trigonometry and powers come from libm and square roots are exact,
 /// so a result is the same on every platform.
 #[derive(

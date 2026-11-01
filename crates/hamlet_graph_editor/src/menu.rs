@@ -1,8 +1,8 @@
 //! The graph's menus and keys. A right click on the canvas, or Space,
 //! opens the groups of what can be added, each a page of its own;
-//! its search field, which has the keys while it is open, searches
-//! every group, and Enter adds the first found. A right click on a
-//! card opens what can be done to it.
+//! its search field, which takes the keyboard focus while it is open,
+//! searches every group, and Enter adds the first found. A right
+//! click on a card opens the actions on it.
 
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
@@ -100,11 +100,11 @@ pub(super) enum Which {
     Closed,
     /// The list of kinds, adding a card at `on_sheet`.
     Create { at: Vec2, on_sheet: Vec2 },
-    /// What can be done to a card.
+    /// The actions on a card.
     Card { node: NodeId, at: Vec2 },
-    /// What can be done to the group at `group`.
+    /// The actions on the group at `group`.
     Group { group: usize, at: Vec2 },
-    /// What sets an input of a card.
+    /// The ways to set an input of a card.
     Input {
         node: NodeId,
         input: Input,
@@ -204,9 +204,8 @@ fn in_layer<F: Flavor>(world: &mut World, at: Vec2) -> Vec2 {
         })
 }
 
-/// Whether `search` finds the kind `name` of `group`: either holds
-/// it.
-fn holds(group: &str, name: &str, search: &str) -> bool {
+/// Whether `search` matches the name or the group of a kind.
+fn is_found(group: &str, name: &str, search: &str) -> bool {
     let search = search.trim().to_lowercase().replace(' ', "_");
     name.replace(' ', "_").to_lowercase().contains(&search)
         || group.to_lowercase().contains(&search)
@@ -272,22 +271,26 @@ fn entries<F: Flavor>(editor: &Editor<F>) -> Vec<Entry> {
 
 /// Whether the kind `name` of `group` is in the list where it
 /// stands: found by what is typed, else in the open group.
-fn listed(group: &'static str, name: &str, search: &Lookup) -> bool {
+fn is_listed(
+    group: &'static str,
+    name: &str,
+    search: &Lookup,
+) -> bool {
     if search.typed.trim().is_empty() {
         search.group == Some(group)
     } else {
-        holds(group, name, &search.typed)
+        is_found(group, name, &search.typed)
     }
 }
 
-/// What the list shows, in order.
+/// The entries the list shows, in order.
 fn shown<F: Flavor>(
     editor: &Editor<F>,
     search: &Lookup,
 ) -> Vec<Entry> {
     entries(editor)
         .into_iter()
-        .filter(|entry| listed(entry.group, &entry.name, search))
+        .filter(|entry| is_listed(entry.group, &entry.name, search))
         .collect()
 }
 
@@ -367,7 +370,8 @@ fn create<F: Flavor>(at: Vec2, on_sheet: Vec2) -> AnyView {
     })
 }
 
-/// Groups the selected cards, shown while any are selected.
+/// The item that groups the selected cards, shown while any are
+/// selected.
 fn group_selection<F: Flavor>() -> AnyView {
     menu_item(
         row((
@@ -391,7 +395,8 @@ fn group_selection<F: Flavor>() -> AnyView {
     .boxed()
 }
 
-/// Shown while `show` holds for where the list stands.
+/// A display that shows while `show` holds for where the list
+/// stands.
 fn shown_while<F: Flavor>(
     show: impl Fn(&Lookup) -> bool + Send + Sync + 'static,
 ) -> Signal<Display> {
@@ -415,8 +420,7 @@ fn shown_with<F: Flavor>(
         .boxed()
 }
 
-/// The search field, over what it is for while nothing is typed in
-/// it.
+/// The search field, with a hint over it while nothing is typed.
 fn search_bar<F: Flavor>() -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let gap = cx.theme().space.gap;
@@ -460,10 +464,10 @@ fn search_input<F: Flavor>(world: &mut World) -> Option<Entity> {
         .query_filtered::<&Children, With<SearchField<F>>>()
         .iter(world)
         .next()
-        .and_then(|kids| kids.first().copied())
+        .and_then(|children| children.first().copied())
 }
 
-/// Gives the search field the keys, with the caret at its end.
+/// Focuses the search field, with the caret at its end.
 fn focus_search<F: Flavor>(world: &mut World) {
     let Some(input) = search_input::<F>(world) else {
         return;
@@ -535,14 +539,14 @@ fn add_first<F: Flavor>(world: &mut World) {
 /// group's way back, its name over what is found and its kinds.
 fn list<F: Flavor>(editor: &Editor<F>, on_sheet: Vec2) -> AnyView {
     let entries = entries(editor);
-    let mut groups: Vec<&'static str> = Vec::new();
+    let mut groups = Vec::<&'static str>::new();
     for entry in &entries {
         if groups.last() != Some(&entry.group) {
             groups.push(entry.group);
         }
     }
-    let mut items: Vec<AnyView> =
-        groups.iter().copied().map(door::<F>).collect();
+    let mut items =
+        groups.iter().copied().map(door::<F>).collect::<Vec<_>>();
     for &group in &groups {
         items.push(back::<F>(group));
         let names = entries
@@ -554,7 +558,7 @@ fn list<F: Flavor>(editor: &Editor<F>, on_sheet: Vec2) -> AnyView {
             !search.typed.trim().is_empty()
                 && names
                     .iter()
-                    .any(|name| holds(group, name, &search.typed))
+                    .any(|name| is_found(group, name, &search.typed))
         }));
         for entry in
             entries.iter().filter(|entry| entry.group == group)
@@ -571,7 +575,7 @@ fn list<F: Flavor>(editor: &Editor<F>, on_sheet: Vec2) -> AnyView {
         move |search| {
             !search.typed.trim().is_empty()
                 && !names.iter().any(|(group, name)| {
-                    holds(group, name, &search.typed)
+                    is_found(group, name, &search.typed)
                 })
         },
     ));
@@ -584,7 +588,7 @@ fn kind_row<F: Flavor>(entry: &Entry, on_sheet: Vec2) -> AnyView {
     let (doc, added) = (entry.doc.clone(), entry.clone());
     menu_item(label(entry.name.replace('_', " ")).wrap(false))
         .display(shown_while::<F>(move |search| {
-            listed(group, &name, search)
+            is_listed(group, &name, search)
         }))
         .tooltip(move || note(doc.clone()))
         .on_activate(move |world| {
@@ -734,7 +738,7 @@ fn card<F: Flavor>(node: NodeId, at: Vec2) -> AnyView {
     })
 }
 
-/// What can be done to a group: its cards taken out of it.
+/// The menu on a group, which takes its cards out of it.
 fn group_menu<F: Flavor>(group: usize, at: Vec2) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let at = in_layer::<F>(cx.world, at);
@@ -813,9 +817,22 @@ fn choice_menu<F: Flavor>(
     })
 }
 
-/// What can be done to how an input of `node` is set: made a
-/// parameter of the graph, given a value of its own again, or put
-/// back to its default, and its wire cut.
+/// An item that closes the menu and runs `act`.
+fn action_item<F: Flavor>(
+    text: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    menu_item(label(text).wrap(false))
+        .on_activate(move |world| {
+            close::<F>(world);
+            act(world);
+        })
+        .boxed()
+}
+
+/// The menu on how an input of `node` is set, which exposes it as a
+/// parameter of the graph, gives it a value of its own, resets it to
+/// its default, or cuts its wire.
 fn input_menu<F: Flavor>(
     node: NodeId,
     input: Input,
@@ -829,34 +846,22 @@ fn input_menu<F: Flavor>(
             wire.to.node == node && wire.to.name == input.name
         });
         let written = controls::written(&input);
-        let mut items: Vec<AnyView> = Vec::new();
-        let mut item =
-            |text: &'static str,
-             act: Box<dyn Fn(&mut World) + Send + Sync>| {
-                items.push(
-                    menu_item(label(text).wrap(false))
-                        .on_activate(move |world| {
-                            close::<F>(world);
-                            act(world);
-                        })
-                        .boxed(),
-                );
-            };
+        let mut items = Vec::<AnyView>::new();
         let name = input.name.clone();
         match (&setting, written) {
             (Some(Setting::FromParent(_)), _) => {
-                item(
+                items.push(action_item::<F>(
                     "Use a value",
-                    Box::new(move |world| {
+                    move |world| {
                         controls::put::<F>(world, node, &name, None);
-                    }),
-                );
+                    },
+                ));
             }
             (_, Some(value_type)) if !wired => {
                 let read = input.clone();
-                item(
+                items.push(action_item::<F>(
                     "Make a parameter",
-                    Box::new(move |world| {
+                    move |world| {
                         let default = controls::value_of(
                             world.resource::<Editor<F>>(),
                             node,
@@ -867,8 +872,8 @@ fn input_menu<F: Flavor>(
                             .expose_input(
                                 node, &read.name, value_type, default,
                             );
-                    }),
-                );
+                    },
+                ));
             }
             _ => {}
         }
@@ -877,18 +882,18 @@ fn input_menu<F: Flavor>(
             Some(Setting::Fixed(_) | Setting::Random(_))
         ) {
             let name = input.name.clone();
-            item(
+            items.push(action_item::<F>(
                 "Reset to default",
-                Box::new(move |world| {
+                move |world| {
                     controls::put::<F>(world, node, &name, None);
-                }),
-            );
+                },
+            ));
         }
         if wired {
             let name = input.name.clone();
-            item(
+            items.push(action_item::<F>(
                 "Disconnect",
-                Box::new(move |world| {
+                move |world| {
                     let mut editor =
                         world.resource_mut::<Editor<F>>();
                     let cut = editor
@@ -904,8 +909,8 @@ fn input_menu<F: Flavor>(
                         .map(Edit::Disconnect)
                         .collect::<Vec<_>>();
                     editor.apply(Edit::Batch(cut));
-                }),
-            );
+                },
+            ));
         }
         if items.is_empty() {
             items.push(note("It can only be wired").boxed());

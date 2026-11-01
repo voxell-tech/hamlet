@@ -93,9 +93,9 @@ fn repeat(run: &mut Run) -> Result<(), Error> {
     let count =
         run.count("count", run.integer("count", None)? as f32)?;
     let step = run.point("step")?;
-    let places: Vec<Place> = (0..count)
+    let places = (0..count)
         .map(|index| Place::at(Frame::at(step * index as f32)))
-        .collect();
+        .collect::<Vec<_>>();
     let made = copies(run, run.objects("objects")?, &places);
     run.put("objects", Value::Objects(made));
     Ok(())
@@ -136,14 +136,14 @@ fn grid(run: &mut Run) -> Result<(), Error> {
         rows.saturating_sub(1) as f32,
     ) * spacing
         * 0.5;
-    let places: Vec<Place> = (0..rows)
+    let places = (0..rows)
         .flat_map(|row| (0..columns).map(move |column| (row, column)))
         .map(|(row, column)| {
             let offset =
                 Vec3::new(column as f32, 0.0, row as f32) * spacing;
             Place::at(Frame::at(corner + offset))
         })
-        .collect();
+        .collect::<Vec<_>>();
     let made = copies(run, run.objects("objects")?, &places);
     run.put("objects", Value::Objects(made));
     Ok(())
@@ -285,7 +285,7 @@ fn on_surface(run: &mut Run) -> Result<(), Error> {
         let key = chance.mix(surface.id.0);
         let count = run.count("density", expected.floor())?
             + u32::from(key.unit() < expected.fract());
-        let places: Vec<Place> = (0..count)
+        let places = (0..count)
             .map(|index| {
                 let point = key.mix(u64::from(index) + 1);
                 // On its top, in its own frame, where its scale is
@@ -301,7 +301,7 @@ fn on_surface(run: &mut Run) -> Result<(), Error> {
                 }
                 Place::at(frame)
             })
-            .collect();
+            .collect::<Vec<_>>();
         // Keyed by the surface too, so two surfaces' copies differ.
         made.extend(copies(run, objects, &places).into_iter().map(
             |mut copy| {

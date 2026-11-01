@@ -44,8 +44,8 @@ impl UiMaterial for WireMaterial {
     }
 }
 
-/// Where a wire from `a` to `b` is drawn: the corner and size of the
-/// node over it, and its material, all in the sheet's units.
+/// Where a wire is drawn: the corner and size of the node over it,
+/// and its material, all in the sheet's units.
 pub(super) struct Shape {
     pub corner: Vec2,
     pub size: Vec2,
@@ -86,7 +86,7 @@ impl Shape {
 }
 
 impl WireMaterial {
-    /// Whether it draws the same as `other`.
+    /// Whether `other` draws the same.
     pub fn same_as(&self, other: &WireMaterial) -> bool {
         self.wire == other.wire
     }

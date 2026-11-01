@@ -472,13 +472,11 @@ pub(crate) struct WorldFog {
     drawn: Option<(f32, f32, f32)>,
 }
 
-/// A camera that is lit and graded by the hour: the world's, and any
-/// other scene that wants the same sky.
+/// A camera lit and graded by the hour.
 #[derive(Component)]
 pub struct SkyView;
 
-/// A light that takes the hour's look, in the world or in any other
-/// scene.
+/// A light set by the hour.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Hourly {
     /// The key light: the sun by day, the moon by night.
@@ -487,8 +485,8 @@ pub enum Hourly {
     Fill,
 }
 
-/// What makes a camera a [`SkyView`]: its lens, its post processing
-/// and its grading, as the world's camera has them.
+/// The components of a [`SkyView`]: lens, post processing and
+/// grading.
 pub fn view(settings: &CameraSettings) -> impl Bundle {
     (
         SkyView,
@@ -508,7 +506,7 @@ pub fn view(settings: &CameraSettings) -> impl Bundle {
     )
 }
 
-/// The fog that begins and ends at a distance, as the world's does.
+/// The fog of a camera `dist` from what it looks at.
 pub fn fog_for(settings: &CameraSettings, dist: f32) -> FogFalloff {
     FogFalloff::Linear {
         start: dist * settings.fog_start,
@@ -516,9 +514,8 @@ pub fn fog_for(settings: &CameraSettings, dist: f32) -> FogFalloff {
     }
 }
 
-/// The shadows of a key light for a camera `dist` from what it looks
-/// at, starting at the camera and split and ending by the zoom as the
-/// world's do.
+/// The shadow cascades of a key light for a camera `dist` from what
+/// it looks at.
 pub fn shadows_for(
     settings: &CameraSettings,
     dist: f32,
@@ -761,8 +758,7 @@ pub fn spawn(mut commands: Commands, settings: Res<CameraSettings>) {
     ));
 }
 
-/// Sets the lights, the sky and the grading for the hour, in every
-/// scene that has them.
+/// Sets the lights, the sky and the grading for the hour.
 pub(crate) fn light(
     sky: Res<Sky>,
     mut ambient: ResMut<GlobalAmbientLight>,
@@ -791,18 +787,18 @@ pub(crate) fn light(
     ambient.color = look.ambient;
     ambient.brightness = look.ambient_nits;
 
-    for (which, mut light, mut at) in &mut lights {
+    for (which, mut light, mut transform) in &mut lights {
         match which {
             Hourly::Key => {
                 light.color = look.sun;
                 light.illuminance = look.sun_lux;
-                *at = Transform::default()
+                *transform = Transform::default()
                     .looking_to(look.sun_dir, Vec3::Y);
             }
             Hourly::Fill => {
                 light.color = look.fill;
                 light.illuminance = look.fill_lux;
-                *at = Transform::default()
+                *transform = Transform::default()
                     .looking_to(sky.fill_dir, Vec3::Y);
             }
         }

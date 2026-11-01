@@ -65,7 +65,7 @@ fn keep_apart(run: &mut Run) -> Result<(), Error> {
     let mut order =
         run.objects("objects")?.iter().collect::<Vec<_>>();
     order.sort_by_key(|object| chance.mix(object.id.0));
-    let mut kept: Vec<&Object> = Vec::with_capacity(order.len());
+    let mut kept = Vec::<&Object>::with_capacity(order.len());
     for object in order {
         let near = kept.iter().any(|other| {
             other.frame.translation.distance(object.frame.translation)

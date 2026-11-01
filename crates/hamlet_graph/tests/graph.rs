@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bevy_math::Vec2;
 use hamlet_graph::{
-    Edit, Group, NodeId, Registry, Ruleset, Setting, Sheet, validate,
+    Does, Edit, Graph, Group, Node, NodeId, Port, Registry, Ruleset,
+    Setting, Sheet, Wire, order, validate,
 };
 
 /// One box whose height is the graph's input `rise`.
@@ -111,4 +112,26 @@ fn a_graph_of_kinds_no_registry_has_does_not_validate() {
         found.error,
         hamlet_graph::Error::UnknownKind { .. }
     )));
+}
+
+#[test]
+fn nodes_sharing_an_id_order_without_panicking() {
+    let node = |id| Node {
+        id: NodeId(id),
+        does: Does::Kind("any".to_owned()),
+        settings: BTreeMap::new(),
+    };
+    let port = |id| Port {
+        node: NodeId(id),
+        name: "x".to_owned(),
+    };
+    let graph = Graph {
+        nodes: vec![node(1), node(1), node(2)],
+        wires: vec![Wire {
+            from: port(1),
+            to: port(2),
+        }],
+        ..Graph::default()
+    };
+    assert_eq!(order(&graph).expect("no loop").len(), 3);
 }

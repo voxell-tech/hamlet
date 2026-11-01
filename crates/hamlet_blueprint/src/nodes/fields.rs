@@ -23,7 +23,7 @@ const NOISE: NodeKind = NodeKind {
     name: "noise",
     doc: "Noise from 0 to 1, read where each object is in the world",
     inputs: &[
-        PortSpec::new("kind", ValueType::Choice, "Its look")
+        PortSpec::new("kind", ValueType::Choice, "Its kind of noise")
             .initial(Initial::Choice("gradient"))
             .choices(&[
                 "value",

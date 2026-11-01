@@ -41,13 +41,13 @@ pub(super) fn plugin(app: &mut App) {
 /// Every slot of the graph, as the shader's `Slots`.
 #[derive(ShaderType, Debug, Clone)]
 pub(super) struct Slots {
-    v: [Vec4; SLOTS],
+    values: [Vec4; SLOTS],
 }
 
 impl Default for Slots {
     fn default() -> Self {
         Self {
-            v: [Vec4::ZERO; SLOTS],
+            values: [Vec4::ZERO; SLOTS],
         }
     }
 }
@@ -55,7 +55,7 @@ impl Default for Slots {
 impl Slots {
     pub(super) fn of(values: &[Vec4]) -> Self {
         let mut slots = Self::default();
-        for (slot, value) in slots.v.iter_mut().zip(values) {
+        for (slot, value) in slots.values.iter_mut().zip(values) {
             *slot = *value;
         }
         slots

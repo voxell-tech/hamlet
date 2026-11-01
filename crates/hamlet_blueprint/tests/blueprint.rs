@@ -362,7 +362,7 @@ fn a_node_left_unwired_stops_only_what_needs_it() {
     )
     .expect("it validates");
     // The curve is not wired, so along_curve fails, and cull after it
-    // is skipped without a error of its own.
+    // is skipped without an error of its own.
     assert_eq!(objects(&made, "alone").len(), 1);
     assert!(!made.contains_key("copied"));
     assert_eq!(errors.len(), 1);

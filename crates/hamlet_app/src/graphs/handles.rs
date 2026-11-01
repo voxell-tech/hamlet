@@ -1,4 +1,4 @@
-//! What the selected cards offer the gizmo: a transform node's
+//! The targets the selected cards offer the gizmo: a transform node's
 //! translation, rotation and scale; a curve's ends or middle to move;
 //! and a polygon's radius or a rectangle's sides to pull. An input
 //! set from a parameter moves the parameter's default; a wired one
@@ -36,7 +36,8 @@ pub(super) enum Kind {
     },
 }
 
-/// What every selected card offers, in the order they are selected.
+/// The targets of every selected card, in the order they are
+/// selected.
 pub(super) fn targets(editor: &Editor<Blueprint>) -> Vec<Target> {
     let mut found = Vec::new();
     for node in &editor.selected {
@@ -131,9 +132,9 @@ pub(super) fn degrees_of(rotation: Quat) -> Vec3 {
     Vec3::new(pitch.to_degrees(), yaw.to_degrees(), roll.to_degrees())
 }
 
-/// What an input of `node` is set to, as a constant: fixed, its
-/// parameter's default, or its kind's initial value. None for one
-/// that is wired, or set otherwise.
+/// The constant an input of `node` is set to: fixed, its parameter's
+/// default, or its kind's initial value. None for one that is wired,
+/// or set otherwise.
 fn constant_of(
     editor: &Editor<Blueprint>,
     node: NodeId,

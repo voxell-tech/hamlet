@@ -84,7 +84,7 @@ fn mesh_path<'de, D: Deserializer<'de>>(
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Paint {
     /// A colour of the world's palette, by name, so the asset takes
-    /// the hamlet's look and its grade by day and night.
+    /// the hamlet's colours and their grade by day and night.
     Palette(String),
     /// The colours and textures the asset's file gives it.
     Own,

@@ -3499,6 +3499,7 @@ dependencies = [
  "hamlet_graph",
  "hamlet_testing",
  "hamlet_ui",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

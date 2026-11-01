@@ -45,9 +45,8 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
-/// Whether a panel holds something the cursor should be seen
-/// through, as a wire dragged out of a port: the cursor is drawn
-/// faint, as for a robot in the hand.
+/// Whether the cursor is drawn faint because a panel holds something
+/// under it, such as a wire dragged out of a port.
 #[derive(Resource, Default)]
 pub(crate) struct Faint(pub bool);
 

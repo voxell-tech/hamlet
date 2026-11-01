@@ -65,35 +65,35 @@ pub(super) fn plugin(app: &mut App) {
 
 /// The palette's colour named `name`, of [`COLOURS`].
 pub(super) fn palette_colour(
-    c: &Colours,
+    colours: &Colours,
     name: &str,
 ) -> Option<Vec3> {
     Some(match name {
-        "plaster" => c.plaster,
-        "plaster_worn" => c.plaster_worn,
-        "whitewash" => c.whitewash,
-        "ochre" => c.ochre,
-        "limestone" => c.limestone,
-        "limestone_shade" => c.limestone_shade,
-        "rock" => c.rock,
-        "rock_dark" => c.rock_dark,
-        "timber" => c.timber,
-        "timber_dark" => c.timber_dark,
-        "log" => c.log,
-        "bark" => c.bark,
-        "terracotta" => c.terracotta,
-        "tile_drift" => c.tile_drift,
-        "slate_roof" => c.slate_roof,
-        "moss" => c.moss,
+        "plaster" => colours.plaster,
+        "plaster_worn" => colours.plaster_worn,
+        "whitewash" => colours.whitewash,
+        "ochre" => colours.ochre,
+        "limestone" => colours.limestone,
+        "limestone_shade" => colours.limestone_shade,
+        "rock" => colours.rock,
+        "rock_dark" => colours.rock_dark,
+        "timber" => colours.timber,
+        "timber_dark" => colours.timber_dark,
+        "log" => colours.log,
+        "bark" => colours.bark,
+        "terracotta" => colours.terracotta,
+        "tile_drift" => colours.tile_drift,
+        "slate_roof" => colours.slate_roof,
+        "moss" => colours.moss,
         // The first hamlet's roof and the first agent's livery, in
         // place of the ones the realm picks for each.
-        "roof" => c.towns[0].roof,
-        "livery" => c.livery[0],
+        "roof" => colours.towns[0].roof,
+        "livery" => colours.livery[0],
         "pane" => {
-            let lit = c.pane_lit.to_linear();
-            Vec3::new(lit.red, lit.green, lit.blue)
+            let pane = colours.pane_lit.to_linear();
+            Vec3::new(pane.red, pane.green, pane.blue)
         }
-        "brass" => c.brass,
+        "brass" => colours.brass,
         _ => return None,
     })
 }
@@ -308,7 +308,7 @@ fn smooth(positions: &[Vec3], indices: &[u32]) -> Vec<Vec3> {
 /// Each mesh file read, by its path beside the book, or why it could
 /// not be.
 #[derive(Resource, Default)]
-pub(super) struct Meshes(BTreeMap<String, Result<Model, String>>);
+pub(super) struct Meshes(BTreeMap<String, anyhow::Result<Model>>);
 
 impl Meshes {
     /// The model in the file at `path` beside the book in `folder`,
@@ -317,17 +317,16 @@ impl Meshes {
         &mut self,
         folder: &Path,
         path: &str,
-    ) -> Result<&Model, &str> {
+    ) -> Result<&Model, &anyhow::Error> {
         self.0
             .entry(path.to_owned())
             .or_insert_with(|| {
                 fs::read(folder.join(path))
                     .map_err(anyhow::Error::from)
                     .and_then(|bytes| read(&bytes))
-                    .map_err(|error| format!("{path}: {error:#}"))
+                    .with_context(|| path.to_owned())
             })
             .as_ref()
-            .map_err(String::as_str)
     }
 
     /// Forgets every file read, so each is read again.
@@ -459,7 +458,7 @@ fn colour(name: String, asset: Asset, slot: String) -> AnyView {
     .boxed()
 }
 
-/// What the dialog that chooses a file to add answers to.
+/// The entity the file dialog for adding an asset answers to.
 #[derive(Resource, Default)]
 struct Importer(Option<Entity>);
 
@@ -482,7 +481,6 @@ pub(super) fn import(world: &mut World) {
     });
 }
 
-/// Adds the chosen file to the library.
 fn chosen(
     chosen: On<FileChosen>,
     importer: Res<Importer>,
@@ -528,11 +526,11 @@ pub(crate) fn add_mesh(
     let mut meshes = world.resource_mut::<Meshes>();
     let model = match meshes.get(&root, &path) {
         Ok(model) => model,
-        Err(problem) => {
-            let problem = problem.to_owned();
+        Err(error) => {
+            let error = anyhow::anyhow!("{error:#}");
             meshes.0.remove(&path);
             let _ = fs::remove_file(&to);
-            anyhow::bail!(problem);
+            return Err(error);
         }
     };
     let slots = model

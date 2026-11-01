@@ -21,8 +21,8 @@ use hamlet_blueprint::{
 use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_graph::{
-    Catalogue, Constant, Does, GraphOutput, NodeId, Port, Registry,
-    Setting, Shape, Spread, ValueType,
+    Catalogue, Constant, Does, GraphError, GraphOutput, NodeId, Port,
+    Registry, Setting, Shape, Spread, ValueType,
 };
 use hamlet_graph_editor::files::{self, Files};
 use hamlet_graph_editor::library::{
@@ -38,14 +38,14 @@ use super::{assets, gizmo, overlay, preview};
 /// Blueprint graphs.
 pub(crate) struct Blueprint;
 
-/// What the last run of a blueprint graph gave.
+/// The result of the last run of a blueprint graph.
 pub(crate) struct Got {
     /// The seeds the random values are picked from.
     pub seeds: Seeds,
-    /// What the open graph put down, or why it could not run at all.
-    pub outcome: Result<Vec<Object>, String>,
-    /// What each selected node gave in the last run, each output by
-    /// name, for the preview to show.
+    /// The objects the open graph put down, or why it could not run
+    /// at all.
+    pub outcome: Result<Vec<Object>, GraphError>,
+    /// The outputs each selected node gave in the last run, by name.
     pub watched: BTreeMap<NodeId, Vec<(String, Value)>>,
     /// The nodes the last run watched.
     watching: BTreeSet<NodeId>,
@@ -72,8 +72,8 @@ impl Flavor for Blueprint {
     const ICON: Glyph = Glyph::Signpost;
     const FOLDER: &'static str = "graphs";
     const KIND: Kind = Kind::Blueprint;
-    /// A sheet alone, or a book of sheets. The small ones first, each
-    /// one idea; the house puts several together.
+    /// The small examples first, each one idea; the house puts
+    /// several together.
     const EXAMPLES: &'static [(&'static str, &'static str)] = &[
         ("Fence", include_str!("examples/fence.ron")),
         ("Stone wall", include_str!("examples/stone_wall.ron")),
@@ -92,9 +92,8 @@ impl Flavor for Blueprint {
         hamlet_blueprint::registry()
     }
 
-    /// Runs the open graph with every output nothing is wired to
-    /// shown too, so a graph is seen as it is built. Its inputs take
-    /// their defaults.
+    /// Runs the open graph with every unwired output shown too, and
+    /// its inputs at their defaults.
     fn run(editor: &mut Editor<Self>) {
         let mut graph = editor.sheet.graph.clone();
         // Each selected node's outputs too, by names kept apart, so
@@ -174,24 +173,22 @@ impl Flavor for Blueprint {
             editor.got.seeds,
             &BTreeMap::new(),
         );
-        editor.got.outcome = evaluated
-            .map(|(outputs, errors)| {
-                editor.errors = errors;
-                let mut put = Vec::new();
-                for (name, value) in outputs {
-                    match watch.get(&name) {
-                        Some((node, port)) => editor
-                            .got
-                            .watched
-                            .entry(*node)
-                            .or_default()
-                            .push((port.clone(), value)),
-                        None => put.extend(shown(value)),
-                    }
+        editor.got.outcome = evaluated.map(|(outputs, errors)| {
+            editor.errors = errors;
+            let mut put = Vec::new();
+            for (name, value) in outputs {
+                match watch.get(&name) {
+                    Some((node, port)) => editor
+                        .got
+                        .watched
+                        .entry(*node)
+                        .or_default()
+                        .push((port.clone(), value)),
+                    None => put.extend(shown(value)),
                 }
-                put
-            })
-            .map_err(|error| error.to_string());
+            }
+            put
+        });
     }
 
     fn status(editor: &Editor<Self>) -> String {
@@ -204,7 +201,7 @@ impl Flavor for Blueprint {
                 objects.len(),
                 editor.errors.len()
             ),
-            (Err(error), _) => error.clone(),
+            (Err(error), _) => error.to_string(),
         }
     }
 
@@ -314,7 +311,7 @@ fn watch(mut editor: ResMut<Editor<Blueprint>>) {
     }
 }
 
-/// What the export dialog answers to.
+/// The entity the export dialog answers to.
 #[derive(Resource, Default)]
 struct Exporter(Option<Entity>);
 

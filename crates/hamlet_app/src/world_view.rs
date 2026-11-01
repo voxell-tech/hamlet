@@ -266,18 +266,16 @@ pub(crate) fn follow_scale(
     }
 }
 
-/// Keeps the pictures of the world and the previews no larger than
-/// the window, and no flatter than bloom allows. Bevy sizes each from
-/// its panel's layout. A minimized window on Windows lays the panel
-/// out at a size far past what the GPU allows, and a panel laid out
-/// a pixel tall gives a picture that bloom, drawn 512 pixels tall,
-/// widens past it. Either fails the bloom texture and every pass
-/// after it, and closes the window.
+/// Keeps the picture of each [`SkyView`] within what the GPU and
+/// bloom allow, since a texture past them fails every pass after it
+/// and closes the window.
 pub(crate) fn cap_picture(
     window: Single<&Window, With<PrimaryWindow>>,
     targets: Query<&RenderTarget, With<SkyView>>,
     mut images: ResMut<Assets<Image>>,
 ) {
+    // A minimized window on Windows lays a panel out at a size far
+    // past what the GPU allows.
     let most =
         UVec2::new(window.physical_width(), window.physical_height())
             .max(UVec2::ONE);
@@ -289,7 +287,8 @@ pub(crate) fn cap_picture(
             continue;
         };
         let mut size = image.size().min(most);
-        // Bloom is at most 32768 wide: 64 times as wide as tall.
+        // Bloom is drawn 512 pixels tall and at most 32768 wide, so
+        // a panel a pixel tall gives a picture it widens too far.
         size.y = size.y.max(size.x.div_ceil(32));
         if size != image.size()
             && let Some(mut image) = images.get_mut(handle)

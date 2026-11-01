@@ -32,7 +32,6 @@ pub fn registry() -> Registry {
     registry
 }
 
-/// The built-in kind named `name`.
 pub(crate) fn get(name: &str) -> Option<&'static BlueprintKind> {
     nodes::KINDS
         .iter()

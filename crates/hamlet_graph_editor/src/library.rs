@@ -3,8 +3,7 @@
 //! in `catalogue.ron` with its slots' colours and its sockets;
 //! blueprint and material books are `.ron` files in `blueprints/` and
 //! `materials/`; textures are `.png` files in `textures/`. A book
-//! names the meshes it uses rather than carrying them. What is
-//! removed is moved to `.trash/`, not deleted.
+//! names the meshes it uses. A removed asset is moved to `.trash/`.
 
 use std::fs;
 use std::io::Write;
@@ -32,7 +31,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, (find, rescan));
 }
 
-/// What an asset is.
+/// The kind of an asset.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Kind {
     /// A book of blueprint graphs.
@@ -86,7 +85,7 @@ impl Kind {
     }
 }
 
-/// Where an asset comes from.
+/// The origin of an asset.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Source {
     /// A file in the library.
@@ -100,7 +99,7 @@ pub enum Source {
 /// One asset of the library.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Item {
-    /// What it is.
+    /// Its kind.
     pub kind: Kind,
     /// Its name among the assets of its kind.
     pub name: String,
@@ -108,8 +107,7 @@ pub struct Item {
     pub source: Source,
 }
 
-/// Marks a tile showing an asset, with the asset. A tile dropped on a
-/// canvas adds what it is there.
+/// Marks a tile showing an asset, with the asset.
 #[derive(Component, Clone)]
 pub struct Tile(pub Item);
 
@@ -120,7 +118,7 @@ impl Item {
     }
 }
 
-/// The library's folder and what is in it.
+/// The library's folder and its contents.
 #[derive(Resource, Default)]
 pub struct Library {
     root: Option<PathBuf>,
@@ -133,7 +131,7 @@ pub struct Library {
     pub items: Vec<Item>,
     /// Changes whenever what is in the library changes.
     pub revision: u64,
-    /// The last thing done, or what went wrong.
+    /// The last thing done, or its error.
     pub note: String,
     /// When the folder was last read.
     scanned: Duration,
@@ -396,14 +394,14 @@ impl Library {
         fs::create_dir_all(&trash)?;
         let file = from.file_name().context("a file with no name")?;
         let mut to = trash.join(file);
-        let mut n = 2;
+        let mut copy = 2;
         while to.exists() {
             to = trash.join(format!(
-                "{}_{n}.{}",
+                "{}_{copy}.{}",
                 item.name,
                 item.kind.extension()
             ));
-            n += 1;
+            copy += 1;
         }
         fs::rename(from, &to)
             .with_context(|| format!("moving {}", from.display()))?;

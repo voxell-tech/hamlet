@@ -6,8 +6,7 @@ use crate::graph::{Does, Graph, Node, NodeId, Ruleset, Setting};
 use crate::node::{PortSpec, Registry};
 use crate::value::{Constant, ValueType};
 
-/// Something wrong in a graph, found by [`validate`] or while running
-/// it.
+/// Something wrong in a graph.
 #[derive(Clone, PartialEq, Debug, thiserror::Error)]
 pub enum Error {
     #[error("no graph is named {0}")]
@@ -68,7 +67,7 @@ impl Error {
     }
 }
 
-/// A [`Error`] and the graph it is in.
+/// An [`Error`] and the graph it is in.
 #[derive(Clone, PartialEq, Debug, thiserror::Error)]
 #[error("{graph}: {error}")]
 pub struct GraphError {
@@ -181,8 +180,7 @@ fn check(
     }
     let port_type = |node: NodeId, name: &str, output: bool| {
         ports_of.get(&node).and_then(|(inputs, outputs)| {
-            let list: &Vec<PortInfo> =
-                if output { outputs } else { inputs };
+            let list = if output { outputs } else { inputs };
             list.iter()
                 .find(|port| port.name == name)
                 .map(|port| port.value_type)
@@ -333,12 +331,12 @@ fn runs_itself(
 
 /// The nodes in an order where each comes after those wired into it.
 pub fn order(graph: &Graph) -> Result<Vec<usize>, Error> {
-    let index: BTreeMap<NodeId, usize> = graph
+    let index = graph
         .nodes
         .iter()
         .enumerate()
-        .map(|(i, node)| (node.id, i))
-        .collect();
+        .map(|(at, node)| (node.id, at))
+        .collect::<BTreeMap<_, _>>();
     let mut waiting = vec![0usize; graph.nodes.len()];
     for wire in &graph.wires {
         if let (Some(_), Some(&to)) =
@@ -348,15 +346,20 @@ pub fn order(graph: &Graph) -> Result<Vec<usize>, Error> {
         }
     }
     let mut ready = (0..graph.nodes.len())
-        .filter(|&i| waiting[i] == 0)
+        .filter(|&at| waiting[at] == 0)
         .collect::<Vec<_>>();
     let mut sorted = Vec::with_capacity(graph.nodes.len());
-    while let Some(i) = ready.pop() {
-        sorted.push(i);
+    while let Some(at) = ready.pop() {
+        sorted.push(at);
+        // Of nodes sharing an id, only the one `index` holds has its
+        // wires counted, so only it frees what they lead to.
+        if index.get(&graph.nodes[at].id) != Some(&at) {
+            continue;
+        }
         for wire in graph
             .wires
             .iter()
-            .filter(|wire| wire.from.node == graph.nodes[i].id)
+            .filter(|wire| wire.from.node == graph.nodes[at].id)
         {
             if let Some(&to) = index.get(&wire.to.node) {
                 waiting[to] -= 1;
@@ -368,8 +371,8 @@ pub fn order(graph: &Graph) -> Result<Vec<usize>, Error> {
     }
     if sorted.len() < graph.nodes.len() {
         let stuck = (0..graph.nodes.len())
-            .filter(|&i| waiting[i] > 0)
-            .map(|i| graph.nodes[i].id)
+            .filter(|&at| waiting[at] > 0)
+            .map(|at| graph.nodes[at].id)
             .collect();
         return Err(Error::Loop(stuck));
     }

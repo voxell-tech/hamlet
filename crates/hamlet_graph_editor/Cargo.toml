@@ -18,6 +18,7 @@ hamlet_ui.workspace = true
 anyhow.workspace = true
 bevy = { workspace = true, features = ["bevy_asset", "bevy_color", "bevy_input_focus", "bevy_log", "bevy_picking", "bevy_render", "bevy_shader", "bevy_text", "bevy_ui", "bevy_ui_render", "bevy_window"] }
 bevy_fynix.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true

@@ -171,7 +171,7 @@ impl Graph {
         NodeId(
             self.nodes
                 .iter()
-                .map(|node| node.id.0 + 1)
+                .map(|node| node.id.0.saturating_add(1))
                 .max()
                 .unwrap_or(1),
         )

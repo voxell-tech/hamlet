@@ -30,8 +30,7 @@ pub struct PortSpec {
     /// those the catalogue has.
     pub listed: Option<Listed>,
     /// Whether this choice input names its node: an editor shows
-    /// each choice as a node of its own, titled by it, and not the
-    /// input.
+    /// each choice as a node of its own, titled by it.
     pub names: bool,
     /// The choices of the input that names the node this input is
     /// used with. Empty for every one.

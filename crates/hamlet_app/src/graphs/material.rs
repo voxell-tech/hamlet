@@ -8,7 +8,7 @@ mod preview;
 mod swatch;
 
 use bevy::app::App;
-use hamlet_graph::{GraphError, Registry};
+use hamlet_graph::{Error, GraphError, Registry};
 use hamlet_graph_editor::library::Kind;
 use hamlet_graph_editor::{Editor, Flavor};
 use hamlet_material::{Compiled, compile};
@@ -22,7 +22,7 @@ pub(crate) struct Material;
 #[derive(Default)]
 pub(crate) struct Got {
     /// The graph compiled, or why it could not be.
-    pub compiled: Option<Result<Compiled, String>>,
+    pub compiled: Option<Result<Compiled, Error>>,
     /// Changes when the shader's code changes, not when only a value
     /// does.
     pub version: u64,
@@ -80,7 +80,6 @@ impl Flavor for Material {
                 error: error.clone(),
             }],
         };
-        let compiled = compiled.map_err(|error| error.to_string());
         let new = compiled.as_ref().ok().map(|new| new.code.clone());
         if new.is_some() && new != old {
             editor.got.version += 1;
@@ -98,7 +97,7 @@ impl Flavor for Material {
                 "{} did not compile: {error}",
                 editor.errors.len()
             ),
-            (Some(Err(error)), None) => error.clone(),
+            (Some(Err(error)), None) => error.to_string(),
             (None, None) => String::new(),
         }
     }

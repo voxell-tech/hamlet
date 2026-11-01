@@ -6,8 +6,8 @@ use hamlet_graph::{
 };
 
 use crate::compile::compile;
+use crate::registry;
 use crate::wrap::SPHERE;
-use crate::{Compiled, registry};
 
 /// A node of every kind, each math kind on vectors or colours too.
 fn every_kind() -> Graph {
@@ -105,7 +105,7 @@ fn a_value_changed_is_a_slot_not_new_code() {
     );
     let after = compile(&graph).unwrap();
     assert_eq!(before.code, after.code);
-    let values: Vec<Vec4> = Compiled::values(&before, &graph, 2.5);
+    let values = before.values(&graph, 2.5);
     assert_eq!(values[0].x, 2.5);
     assert!(values.contains(&red));
 }

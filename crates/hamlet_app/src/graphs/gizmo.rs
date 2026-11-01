@@ -252,8 +252,8 @@ impl Arc {
     }
 }
 
-/// How much of a handle shows: none of it with `lean` at the first of
-/// `range` or under, all of it from the second up.
+/// How much of a handle shows: none of it with `lean` at `gone` or
+/// under, all of it from `full` up.
 fn fade(lean: f32, [gone, full]: [f32; 2]) -> f32 {
     ((lean - gone) / (full - gone)).clamp(0.0, 1.0)
 }
@@ -371,8 +371,9 @@ pub(super) struct Look {
     pub(super) only: Option<usize>,
 }
 
-/// How `target`'s gizmo looks in `mode`, and the turn of its axes: a
-/// transform node's own turn when it scales, the world's otherwise.
+/// The [`Look`] of `target`'s gizmo in `mode`, and the turn of its
+/// axes: a transform node's own turn when it scales, the world's
+/// otherwise.
 fn look_of(target: &Target, mode: GizmoMode) -> (Look, Quat) {
     match &target.kind {
         Kind::Transform { rotation, .. } => {
@@ -405,7 +406,7 @@ fn look_of(target: &Target, mode: GizmoMode) -> (Look, Quat) {
 }
 
 /// Whether `point` is inside the convex outline through `corners`.
-fn inside(point: Vec2, corners: &[Vec2]) -> bool {
+fn is_inside(point: Vec2, corners: &[Vec2]) -> bool {
     let turns = (0..corners.len()).map(|at| {
         let from = corners[at];
         let to = corners[(at + 1) % corners.len()];
@@ -422,8 +423,8 @@ fn segment_distance(point: Vec2, a: Vec2, b: Vec2) -> f32 {
     if length <= f32::EPSILON {
         return point.distance(a);
     }
-    let t = ((point - a).dot(along) / length).clamp(0.0, 1.0);
-    point.distance(a + along * t)
+    let fraction = ((point - a).dot(along) / length).clamp(0.0, 1.0);
+    point.distance(a + along * fraction)
 }
 
 /// The handle of the axis nearest by `distance`, of those within
@@ -500,7 +501,7 @@ fn pick(
                 .into_iter()
                 .map(&project)
                 .collect::<Option<Vec<_>>>()
-                .is_some_and(|corners| inside(cursor, &corners))
+                .is_some_and(|corners| is_inside(cursor, &corners))
     };
     nearest_axis(style.pick_radius, arrow)
         .or_else(|| {

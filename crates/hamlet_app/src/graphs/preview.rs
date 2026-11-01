@@ -72,9 +72,10 @@ pub(super) const MARKER: &str = "marker";
 /// on. Not 7, which the realm's debug overlay puts its camera on.
 pub(super) const LAYER: usize = 8;
 
-/// The way the camera looks from before a hand has turned it, in
-/// radians.
+/// The camera's yaw before a hand has turned it, in radians.
 const YAW: f32 = 0.8;
+
+/// The camera's pitch before a hand has turned it, in radians.
 const PITCH: f32 = 0.55;
 
 pub(super) fn plugin(app: &mut App) {
@@ -452,7 +453,7 @@ fn turn(
         return;
     };
     // A drag that took hold of a handle moves the handle instead.
-    if held.under_way() {
+    if held.is_under_way() {
         return;
     }
     match drag.button {
@@ -582,7 +583,7 @@ fn rebuild(
                     Ok(model) => Some(model),
                     Err(error) => {
                         failed =
-                            Some(format!("Could not read {error}"));
+                            Some(format!("Could not read {error:#}"));
                         None
                     }
                 }
@@ -596,7 +597,7 @@ fn rebuild(
         }
         let colours = colours.as_deref();
         let colour = match colours {
-            Some(c) if marker => c.ochre,
+            Some(palette) if marker => palette.ochre,
             _ => {
                 paint(colours, asset.as_ref(), BODY, Vec3::splat(0.7))
             }
@@ -619,14 +620,16 @@ fn rebuild(
                     colour,
                 );
             }
-            (None, Some(Shape::Tiles { taper }), Some(c)) => tiles(
-                &mut meshing,
-                &object.frame,
-                size,
-                *taper,
-                colour,
-                c,
-            ),
+            (None, Some(Shape::Tiles { taper }), Some(palette)) => {
+                tiles(
+                    &mut meshing,
+                    &object.frame,
+                    size,
+                    *taper,
+                    colour,
+                    palette,
+                );
+            }
             _ => meshing.rbox(
                 middle,
                 size * 0.5,
@@ -642,8 +645,9 @@ fn rebuild(
     if objects.is_empty() {
         (low, high) = (Vec3::splat(-2.0), Vec3::splat(2.0));
     }
-    let ground =
-        colours.as_deref().map_or(Vec3::splat(0.3), |c| c.grass);
+    let ground = colours
+        .as_deref()
+        .map_or(Vec3::splat(0.3), |palette| palette.grass);
     let span = (high - low).max(Vec3::splat(1.0));
     if backdrop.ground {
         meshing.rbox(
@@ -730,7 +734,7 @@ fn tiles(
     size: Vec3,
     taper: f32,
     colour: Vec3,
-    c: &Colours,
+    colours: &Colours,
 ) {
     // A slope flat along x or z has no eave or no run to lay on, and
     // `slope` would give its vertices NaN.
@@ -744,7 +748,7 @@ fn tiles(
     };
     let eave = [at(-0.5, 0.5), at(0.5, 0.5)];
     let ridge = [at(-0.5 * taper, -0.5), at(0.5 * taper, -0.5)];
-    let town = &c.towns[0];
+    let town = &colours.towns[0];
     let style = TownStyle {
         roof: colour,
         drift: if colour == town.roof {
@@ -757,7 +761,7 @@ fn tiles(
     // Seeded by where it is, so a slope keeps its tiles from run to
     // run.
     let mut rng = Rng::seeded(&format!("{:?}", frame.translation));
-    slope(meshing, &mut rng, eave, ridge, &style, c);
+    slope(meshing, &mut rng, eave, ridge, &style, colours);
 }
 
 /// The colour of an asset's material slot, as its catalogue entry
@@ -768,15 +772,15 @@ fn paint(
     slot: &str,
     own: Vec3,
 ) -> Vec3 {
-    let Some(c) = colours else {
+    let Some(colours) = colours else {
         return Vec3::splat(0.7);
     };
     match asset.and_then(|asset| asset.slots.get(slot)) {
         Some(Paint::Palette(name)) => {
-            palette_colour(c, name).unwrap_or(c.plaster)
+            palette_colour(colours, name).unwrap_or(colours.plaster)
         }
         Some(Paint::Own) => own,
-        None => c.plaster,
+        None => colours.plaster,
     }
 }
 

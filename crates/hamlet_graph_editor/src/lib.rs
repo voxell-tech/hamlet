@@ -47,15 +47,6 @@ pub use self::flavor::Flavor;
 use self::library::Library;
 use self::split::{Layout, Pane, divider, floating, outline};
 
-/// The book an example's text holds.
-pub fn example(text: &str) -> Option<Book> {
-    Book::from_ron(text).ok().or_else(|| {
-        Sheet::from_ron(text)
-            .ok()
-            .map(|sheet| Book::of("main", sheet))
-    })
-}
-
 /// Adds the editor for `F`: its book and what the editing needs,
 /// its examples in the library, and whatever `F` adds itself. The
 /// panel is [`screen`], which the caller puts in a dock.
@@ -80,11 +71,45 @@ pub fn plugin<F: Flavor>(app: &mut App) {
     F::plugin(app);
 }
 
+/// The book an example's text holds.
+pub fn example(text: &str) -> Option<Book> {
+    Book::from_ron(text).ok().or_else(|| {
+        Sheet::from_ron(text)
+            .ok()
+            .map(|sheet| Book::of("main", sheet))
+    })
+}
+
 /// A sheet that is not open, with its history.
 struct Kept {
     sheet: Sheet,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
+}
+
+/// How much of what is built from the sheet a change touches.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Change {
+    /// The nodes, the wires or the way an input is set.
+    Shape,
+    /// Only a value.
+    Value,
+}
+
+/// Why the open graph cannot be deleted.
+#[derive(Debug, thiserror::Error)]
+pub enum DeleteRefusal {
+    /// It is the only graph of the book.
+    #[error("The only graph cannot be deleted")]
+    Only,
+    /// Another graph runs it.
+    #[error("{user} uses {graph}")]
+    Used {
+        /// The graph that runs it.
+        user: String,
+        /// The graph that cannot be deleted.
+        graph: String,
+    },
 }
 
 /// The book being edited: the open sheet with its history, the others
@@ -165,12 +190,12 @@ impl<F: Flavor> Editor<F> {
     /// Whether the graph `name` runs `target`, itself or through
     /// others.
     pub fn runs(&self, name: &str, target: &str) -> bool {
-        self.runs_past(name, target, &mut BTreeSet::new())
+        self.can_reach(name, target, &mut BTreeSet::new())
     }
 
     /// [`Editor::runs`], passing over the graphs in `seen`, so a book
     /// read from a file whose graphs run each other still ends.
-    fn runs_past<'a>(
+    fn can_reach<'a>(
         &'a self,
         name: &'a str,
         target: &str,
@@ -186,7 +211,7 @@ impl<F: Flavor> Editor<F> {
             return false;
         };
         graph.nodes.iter().any(|node| match &node.does {
-            Does::Graph(child) => self.runs_past(child, target, seen),
+            Does::Graph(child) => self.can_reach(child, target, seen),
             Does::Kind(_) => false,
         })
     }
@@ -211,7 +236,7 @@ impl<F: Flavor> Editor<F> {
             was,
         );
         self.selected.clear();
-        self.changed(true);
+        self.changed(Change::Shape);
     }
 
     /// Adds an empty sheet to the book and opens it.
@@ -233,9 +258,8 @@ impl<F: Flavor> Editor<F> {
     }
 
     /// Takes the open sheet out of the book and opens another, or
-    /// says why it stays: it is the only one, or another graph runs
-    /// it.
-    pub fn delete_graph(&mut self) -> Result<(), String> {
+    /// refuses when it is the only one or another graph runs it.
+    pub fn delete_graph(&mut self) -> Result<(), DeleteRefusal> {
         if let Some(user) =
             self.others.iter().find_map(|(name, kept)| {
                 kept.sheet
@@ -248,10 +272,13 @@ impl<F: Flavor> Editor<F> {
                     .then_some(name)
             })
         {
-            return Err(format!("{user} uses {}", self.name));
+            return Err(DeleteRefusal::Used {
+                user: user.clone(),
+                graph: self.name.clone(),
+            });
         }
         let Some(next) = self.others.keys().next().cloned() else {
-            return Err("The only graph cannot be deleted".to_owned());
+            return Err(DeleteRefusal::Only);
         };
         let Some(kept) = self.others.remove(&next) else {
             return Ok(());
@@ -261,7 +288,7 @@ impl<F: Flavor> Editor<F> {
         self.redo = kept.redo;
         self.name = next;
         self.selected.clear();
-        self.changed(true);
+        self.changed(Change::Shape);
         Ok(())
     }
 
@@ -285,15 +312,14 @@ impl<F: Flavor> Editor<F> {
     /// Puts `book` in place of the one being edited, with no history,
     /// open at its entry.
     pub fn load(&mut self, mut book: Book) {
-        // A book saved before removing an input cleared the nodes set
-        // from it may still name it.
+        // A node's settings may still name an input removed earlier.
         for sheet in book.sheets.values_mut() {
             let graph = &mut sheet.graph;
-            let names: BTreeSet<String> = graph
+            let names = graph
                 .inputs
                 .iter()
                 .map(|input| input.name.clone())
-                .collect();
+                .collect::<BTreeSet<_>>();
             for node in &mut graph.nodes {
                 node.settings.retain(|_, setting| match setting {
                     Setting::FromParent(name) => names.contains(name),
@@ -321,13 +347,18 @@ impl<F: Flavor> Editor<F> {
         self.selected.clear();
         self.undo.clear();
         self.redo.clear();
-        self.changed(true);
+        self.changed(Change::Shape);
     }
 
     /// Applies `edit` and keeps the edit that undoes it. Edits of one
     /// input in a row, as a number dragged, are undone as one.
     pub fn apply(&mut self, edit: Edit) {
-        let reshapes = reshapes(&self.sheet, &self.registry, &edit);
+        let change =
+            if is_reshaping(&self.sheet, &self.registry, &edit) {
+                Change::Shape
+            } else {
+                Change::Value
+            };
         let Ok(inverse) = self.sheet.apply(edit) else {
             return;
         };
@@ -354,7 +385,7 @@ impl<F: Flavor> Editor<F> {
             self.undo.push(inverse);
         }
         self.redo.clear();
-        self.changed(reshapes);
+        self.changed(change);
     }
 
     /// Moves a node while it is dragged, kept out of the history
@@ -363,7 +394,6 @@ impl<F: Flavor> Editor<F> {
         self.sheet.layout.insert(node, to);
     }
 
-    /// Keeps the move of a finished drag that began at `from`.
     /// Keeps the moves of a finished drag, each node with where it
     /// began, as one step.
     pub fn dropped(&mut self, moved: Vec<(NodeId, Vec2)>) {
@@ -386,7 +416,7 @@ impl<F: Flavor> Editor<F> {
             && let Ok(inverse) = self.sheet.apply(edit)
         {
             self.redo.push(inverse);
-            self.changed(true);
+            self.changed(Change::Shape);
         }
     }
 
@@ -396,12 +426,12 @@ impl<F: Flavor> Editor<F> {
             && let Ok(inverse) = self.sheet.apply(edit)
         {
             self.undo.push(inverse);
-            self.changed(true);
+            self.changed(Change::Shape);
         }
     }
 
-    fn changed(&mut self, reshaped: bool) {
-        if reshaped {
+    fn changed(&mut self, change: Change) {
+        if change == Change::Shape {
             self.shape += 1;
         }
         self.revision += 1;
@@ -587,12 +617,12 @@ impl<F: Flavor> Editor<F> {
 
     /// Deletes every selected node, and each group left empty.
     pub fn remove(&mut self) {
-        let mut edits: Vec<Edit> = self
+        let mut edits = self
             .selected
             .iter()
             .copied()
             .map(Edit::RemoveNode)
-            .collect();
+            .collect::<Vec<_>>();
         if edits.is_empty() {
             return;
         }
@@ -606,7 +636,7 @@ impl<F: Flavor> Editor<F> {
     pub fn set_catalogue(&mut self, catalogue: Catalogue) {
         if self.rules.assets != catalogue {
             self.rules.assets = catalogue;
-            self.changed(true);
+            self.changed(Change::Shape);
         }
     }
 
@@ -649,11 +679,11 @@ impl<F: Flavor> Editor<F> {
             if group.nodes.is_disjoint(&self.selected) {
                 continue;
             }
-            let nodes: BTreeSet<NodeId> = group
+            let nodes = group
                 .nodes
                 .difference(&self.selected)
                 .copied()
-                .collect();
+                .collect::<BTreeSet<_>>();
             if nodes.is_empty() {
                 emptied.push(at);
             } else {
@@ -740,7 +770,11 @@ pub fn naming<'a>(
 
 /// Whether `edit` changes what the canvas or the parameters are built
 /// from, rather than only a value in them.
-fn reshapes(sheet: &Sheet, registry: &Registry, edit: &Edit) -> bool {
+fn is_reshaping(
+    sheet: &Sheet,
+    registry: &Registry,
+    edit: &Edit,
+) -> bool {
     match edit {
         Edit::Set {
             node,
@@ -920,7 +954,7 @@ fn tools<F: Flavor>() -> impl View {
                     world.resource_mut::<files::Files<F>>().note =
                         match deleted {
                             Ok(()) => String::new(),
-                            Err(why) => why,
+                            Err(refusal) => refusal.to_string(),
                         };
                     canvas::fit::<F>(world);
                 }),
@@ -941,7 +975,9 @@ fn tools<F: Flavor>() -> impl View {
                     usize::MAX,
                     Glyph::Chevron.image(ICON),
                     |world: &mut World, at| {
-                        let Some(book) = example(F::EXAMPLES[at].1)
+                        let Some(book) = F::EXAMPLES
+                            .get(at)
+                            .and_then(|(_, text)| example(text))
                         else {
                             return;
                         };

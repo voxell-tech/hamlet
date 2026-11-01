@@ -8,7 +8,7 @@
 use bevy::color::Color;
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
-use bevy::ui::{AlignItems, Display, px};
+use bevy::ui::{AlignItems, Display, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, frame, icon_button,
@@ -27,11 +27,13 @@ use super::Editor;
 use super::canvas::Input;
 use super::flavor::Flavor;
 
-/// The width of a number's field, and of each axis of a point's.
+/// The width of a number's field.
 const NUMBER: f32 = 58.0;
+/// The width of each axis of a point's fields.
 const AXIS: f32 = 38.0;
 /// The width of each of a colour's four fields.
 const CHANNEL: f32 = 32.0;
+/// The side of a swatch or a glyph beside a field.
 const MARK: f32 = 12.0;
 
 /// How an input of `node` is set now.
@@ -131,7 +133,7 @@ pub(super) fn control<F: Flavor>(
         }
         _ => match written(&input)? {
             ValueType::Number | ValueType::Integer => {
-                number::<F>(node, input.clone(), None)
+                number::<F>(node, input.clone(), Slot::Scalar)
             }
             ValueType::Point | ValueType::Vector3 => {
                 axes::<F>(node, &input, 3)
@@ -175,10 +177,21 @@ fn axes<F: Flavor>(
     count: usize,
 ) -> AnyView {
     row((0..count)
-        .map(|axis| number::<F>(node, input.clone(), Some(axis)))
+        .map(|axis| {
+            number::<F>(node, input.clone(), Slot::Axis(axis))
+        })
         .collect::<Vec<_>>())
     .gap(2.0)
     .boxed()
+}
+
+/// The part of an input's value a number field sets.
+#[derive(Clone, Copy)]
+enum Slot {
+    /// The whole value, a number or a whole number.
+    Scalar,
+    /// One axis of a point, a vector or a colour.
+    Axis(usize),
 }
 
 /// A field for a number, whole or not, or for one axis of a point, a
@@ -186,49 +199,68 @@ fn axes<F: Flavor>(
 fn number<F: Flavor>(
     node: NodeId,
     input: Input,
-    axis: Option<usize>,
+    slot: Slot,
 ) -> AnyView {
     let read = input.clone();
     let whole = input.value_type == ValueType::Integer;
     let colour = input.value_type == ValueType::Color;
     let field = number_field(
         resource::<Editor<F>, _>(move |editor| {
-            match (value_of(editor, node, &read), axis) {
-                (Some(Constant::Number(n)), None) => f64::from(n),
-                (Some(Constant::Integer(n)), None) => f64::from(n),
-                (Some(Constant::Point(p)), Some(axis)) => {
-                    f64::from(p[axis])
+            match (value_of(editor, node, &read), slot) {
+                (Some(Constant::Number(value)), Slot::Scalar) => {
+                    f64::from(value)
                 }
-                (Some(Constant::Color(c)), Some(axis)) => {
-                    f64::from(c[axis])
+                (Some(Constant::Integer(value)), Slot::Scalar) => {
+                    f64::from(value)
+                }
+                // A book read from a file may hold a value of another
+                // shape than the input's, with no such axis.
+                (Some(Constant::Point(point)), Slot::Axis(axis)) => {
+                    point
+                        .to_array()
+                        .get(axis)
+                        .map_or(0.0, |v| f64::from(*v))
+                }
+                (Some(Constant::Color(rgba)), Slot::Axis(axis)) => {
+                    rgba.to_array()
+                        .get(axis)
+                        .map_or(0.0, |v| f64::from(*v))
                 }
                 _ => 0.0,
             }
         }),
-        move |world: &mut World, n: f64| {
-            let n = n as f32;
-            let constant = match axis {
-                None if whole => Constant::Integer(n.round() as i32),
-                None => Constant::Number(n),
-                Some(axis) => {
-                    match value_of(
+        move |world: &mut World, value: f64| {
+            let value = value as f32;
+            let constant = match slot {
+                Slot::Scalar if whole => {
+                    Constant::Integer(value.round() as i32)
+                }
+                Slot::Scalar => Constant::Number(value),
+                Slot::Axis(axis) => {
+                    let current = value_of(
                         world.resource::<Editor<F>>(),
                         node,
                         &input,
-                    ) {
-                        Some(Constant::Color(mut c)) => {
-                            c[axis] = n;
-                            Constant::Color(c)
+                    );
+                    match current {
+                        Some(Constant::Color(mut rgba))
+                            if axis < 4 =>
+                        {
+                            rgba[axis] = value;
+                            Constant::Color(rgba)
                         }
-                        Some(Constant::Point(mut p)) => {
-                            p[axis] = n;
-                            Constant::Point(p)
+                        Some(Constant::Point(mut point))
+                            if axis < 3 =>
+                        {
+                            point[axis] = value;
+                            Constant::Point(point)
                         }
-                        _ => {
-                            let mut p = Vec3::ZERO;
-                            p[axis] = n;
-                            Constant::Point(p)
+                        _ if axis < 3 => {
+                            let mut point = Vec3::ZERO;
+                            point[axis] = value;
+                            Constant::Point(point)
                         }
+                        _ => return,
                     }
                 }
             };
@@ -243,10 +275,10 @@ fn number<F: Flavor>(
     .step(if whole { 1.0 } else { 0.05 })
     .precision(if whole { 0 } else { 2 });
     let field = if colour { field.range(0.0, 1.0) } else { field };
-    let width = match (axis, colour) {
-        (None, _) => NUMBER,
-        (Some(_), false) => AXIS,
-        (Some(_), true) => CHANNEL,
+    let width = match (slot, colour) {
+        (Slot::Scalar, _) => NUMBER,
+        (Slot::Axis(_), false) => AXIS,
+        (Slot::Axis(_), true) => CHANNEL,
     };
     field.width(px(width)).rules(text_input).boxed()
 }
@@ -256,8 +288,8 @@ fn swatch<F: Flavor>(node: NodeId, input: Input) -> AnyView {
     let shown =
         resource::<Editor<F>, _>(move |editor| {
             match value_of(editor, node, &input) {
-                Some(Constant::Color(c)) => {
-                    Color::srgba(c.x, c.y, c.z, c.w)
+                Some(Constant::Color(rgba)) => {
+                    Color::srgba(rgba.x, rgba.y, rgba.z, rgba.w)
                 }
                 _ => Color::NONE,
             }
@@ -315,7 +347,7 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
         .gap(4.0)
         .align(AlignItems::Center),
     )
-    .padding(bevy::ui::UiRect::axes(px(6.0), px(0.0)))
+    .padding(UiRect::axes(px(6.0), px(0.0)))
     .rules(text_input)
     .on_activate(move |world| {
         let catalogue = &world.resource::<Editor<F>>().rules.assets;
@@ -325,7 +357,7 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
             None => input
                 .choices
                 .iter()
-                .map(|c| (*c).to_owned())
+                .map(|choice| (*choice).to_owned())
                 .collect(),
         };
         super::menu::choose::<F>(

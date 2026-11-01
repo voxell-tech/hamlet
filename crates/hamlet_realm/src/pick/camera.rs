@@ -78,10 +78,10 @@ impl Orbit {
         }
     }
 
-    /// How much of the ground one pixel of a drag slides, across the
-    /// view and along it, for a view `height` pixels tall. `stance`
-    /// is the camera's distance from what it looks at and its angle
-    /// below the horizon, where known.
+    /// The ground one pixel of a drag slides, across the view and
+    /// along it, for a view `height` pixels tall. `stance` is the
+    /// camera's distance from what it looks at and its angle below
+    /// the horizon, where known.
     pub fn slide_scale(
         self,
         height: f32,
@@ -137,19 +137,19 @@ impl Orbit {
         camera: &CameraSettings,
         held: bool,
     ) -> Self {
-        let k = 1.0 - (-camera.glide * dt).exp();
+        let ease = 1.0 - (-camera.glide * dt).exp();
         let rate = if held { camera.slide } else { camera.glide };
-        let slid = 1.0 - (-rate * dt).exp();
-        // Zoom is eased by its ratio, so it feels the same far and
-        // near.
+        let pan_ease = 1.0 - (-rate * dt).exp();
+        // Zoom is eased by its ratio, so it moves at the same pace
+        // far and near.
         let zoom = (self.zoom.ln()
-            + (to.zoom.ln() - self.zoom.ln()) * k)
+            + (to.zoom.ln() - self.zoom.ln()) * ease)
             .exp();
         let next = Orbit {
-            pan: self.pan.lerp(to.pan, slid),
+            pan: self.pan.lerp(to.pan, pan_ease),
             zoom,
-            yaw: self.yaw + (to.yaw - self.yaw) * k,
-            pitch: self.pitch + (to.pitch - self.pitch) * k,
+            yaw: self.yaw + (to.yaw - self.yaw) * ease,
+            pitch: self.pitch + (to.pitch - self.pitch) * ease,
         };
         let near = next.pan.distance(to.pan) < 0.01
             && (next.zoom / to.zoom - 1.0).abs() < 0.001
@@ -159,7 +159,7 @@ impl Orbit {
     }
 }
 
-/// Scrolled `lines` of a scroll of `y` in `unit`.
+/// The lines a scroll of `y` in `unit` comes to.
 pub fn scrolled_lines(
     unit: MouseScrollUnit,
     y: f32,

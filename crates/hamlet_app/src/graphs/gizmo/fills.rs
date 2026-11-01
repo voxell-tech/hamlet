@@ -34,7 +34,8 @@ const CONE_SIDES: usize = 12;
 pub(super) type FillMaterial =
     ExtendedMaterial<StandardMaterial, OnTop>;
 
-/// Draws a [`StandardMaterial`] over whatever is in front of it.
+/// Extension of a [`StandardMaterial`] that draws over whatever is in
+/// front of it.
 #[derive(Asset, AsBindGroup, TypePath, Clone, Default)]
 pub(super) struct OnTop {}
 

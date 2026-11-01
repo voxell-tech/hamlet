@@ -592,19 +592,20 @@ const PATTERNS: &[MaterialKind] = &[
             let detail = emit.input("detail", Number)?;
             let roughness = emit.input("roughness", Number)?;
             let distortion = emit.input("distortion", Number)?;
-            let p = emit.local("p", &format!("{at} * {scale}"));
-            let p = emit.local(
+            let point =
+                emit.local("point", &format!("{at} * {scale}"));
+            let bent = emit.local(
                 "bent",
                 &format!(
-                    "{p} + {distortion} * vec3<f32>(hm_noise({p} + \
-                     vec3<f32>(3.1)), hm_noise({p} + \
-                     vec3<f32>(7.7)), hm_noise({p} + \
-                     vec3<f32>(1.3)))"
+                    "{point} + {distortion} * \
+                     vec3<f32>(hm_noise({point} + vec3<f32>(3.1)), \
+                     hm_noise({point} + vec3<f32>(7.7)), \
+                     hm_noise({point} + vec3<f32>(1.3)))"
                 ),
             );
             let fbm = |offset: &str| {
                 format!(
-                    "hm_fbm({p} + vec3<f32>({offset}), {detail}, \
+                    "hm_fbm({bent} + vec3<f32>({offset}), {detail}, \
                      {roughness})"
                 )
             };
@@ -709,16 +710,21 @@ const PATTERNS: &[MaterialKind] = &[
         &[out("value", Number, "The gradient")],
         |emit| {
             let at = emit.input_or("vector", "i.position")?;
-            let p = emit.local("p", &at);
+            let point = emit.local("point", &at);
             let code = match emit.choice("shape")?.as_str() {
-                "linear" => format!("clamp({p}.x, 0.0, 1.0)"),
+                "linear" => format!("clamp({point}.x, 0.0, 1.0)"),
                 "quadratic" => {
-                    format!("pow(clamp({p}.x, 0.0, 1.0), 2.0)")
+                    format!("pow(clamp({point}.x, 0.0, 1.0), 2.0)")
                 }
                 "radial" => {
-                    format!("atan2({p}.y, {p}.x) / 6.2831853 + 0.5")
+                    format!(
+                        "atan2({point}.y, {point}.x) / 6.2831853 + \
+                         0.5"
+                    )
                 }
-                "spherical" => format!("max(1.0 - length({p}), 0.0)"),
+                "spherical" => {
+                    format!("max(1.0 - length({point}), 0.0)")
+                }
                 _ => {
                     return Err(emit.invalid("shape", "is not known"));
                 }
@@ -754,18 +760,23 @@ const PATTERNS: &[MaterialKind] = &[
             let at = emit.input_or("vector", "i.position")?;
             let scale = emit.input("scale", Number)?;
             let distortion = emit.input("distortion", Number)?;
-            let p = emit.local("p", &format!("{at} * {scale}"));
+            let point =
+                emit.local("point", &format!("{at} * {scale}"));
             let along = match emit.choice("shape")?.as_str() {
-                "rings" => format!("length({p})"),
-                _ => format!("({p}.x + {p}.y + {p}.z)"),
+                "rings" => format!("length({point})"),
+                _ => format!("({point}.x + {point}.y + {point}.z)"),
             };
-            let d = emit.local(
-                "d",
-                &format!("{along} + {distortion} * hm_noise({p})"),
+            let phase = emit.local(
+                "phase",
+                &format!(
+                    "{along} + {distortion} * hm_noise({point})"
+                ),
             );
             let code = match emit.choice("profile")?.as_str() {
-                "saw" => format!("fract({d})"),
-                _ => format!("0.5 + 0.5 * sin({d} * 6.2831853)"),
+                "saw" => format!("fract({phase})"),
+                _ => {
+                    format!("0.5 + 0.5 * sin({phase} * 6.2831853)")
+                }
             };
             emit.put("value", Number, &code);
             Ok(())
@@ -875,29 +886,29 @@ const COLOURS: &[MaterialKind] = &[
             let factor = emit.input("factor", Number)?;
             let base = emit.local("base", &base);
             let layer = emit.local("layer", &layer);
-            let (b, l) =
+            let (under, over) =
                 (format!("{base}.rgb"), format!("{layer}.rgb"));
             let blended = match emit.choice("mode")?.as_str() {
-                "mix" => l.clone(),
-                "multiply" => format!("{b} * {l}"),
+                "mix" => over.clone(),
+                "multiply" => format!("{under} * {over}"),
                 "screen" => {
-                    format!("1.0 - (1.0 - {b}) * (1.0 - {l})")
+                    format!("1.0 - (1.0 - {under}) * (1.0 - {over})")
                 }
-                "overlay" => format!("hm_overlay({b}, {l})"),
-                "add" => format!("{b} + {l}"),
+                "overlay" => format!("hm_overlay({under}, {over})"),
+                "add" => format!("{under} + {over}"),
                 "subtract" => {
-                    format!("max({b} - {l}, vec3<f32>(0.0))")
+                    format!("max({under} - {over}, vec3<f32>(0.0))")
                 }
-                "darken" => format!("min({b}, {l})"),
-                "lighten" => format!("max({b}, {l})"),
+                "darken" => format!("min({under}, {over})"),
+                "lighten" => format!("max({under}, {over})"),
                 _ => return Err(emit.invalid("mode", "is not known")),
             };
             emit.put(
                 "colour",
                 Color,
                 &format!(
-                    "vec4<f32>(mix({b}, {blended}, clamp({factor}, \
-                     0.0, 1.0)), {base}.a)"
+                    "vec4<f32>(mix({under}, {blended}, \
+                     clamp({factor}, 0.0, 1.0)), {base}.a)"
                 ),
             );
             Ok(())
@@ -965,7 +976,7 @@ const COLOURS: &[MaterialKind] = &[
             let to = emit.input("to", Number)?;
             let a = emit.input("colour a", Color)?;
             let b = emit.input("colour b", Color)?;
-            let t = match emit.choice("blend")?.as_str() {
+            let rise = match emit.choice("blend")?.as_str() {
                 "smooth" => {
                     format!("smoothstep({from}, {to}, {factor})")
                 }
@@ -975,7 +986,11 @@ const COLOURS: &[MaterialKind] = &[
                      0.0, 1.0)"
                 ),
             };
-            emit.put("colour", Color, &format!("mix({a}, {b}, {t})"));
+            emit.put(
+                "colour",
+                Color,
+                &format!("mix({a}, {b}, {rise})"),
+            );
             Ok(())
         },
     ),

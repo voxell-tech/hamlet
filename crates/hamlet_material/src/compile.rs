@@ -123,7 +123,6 @@ fn as_slot(constant: Constant) -> Vec4 {
     }
 }
 
-/// The WGSL type of a value of `value_type`.
 pub(crate) fn wgsl(value_type: ValueType) -> &'static str {
     match value_type {
         ValueType::Vector2 => "vec2<f32>",
@@ -169,11 +168,10 @@ pub(crate) fn width(value_type: ValueType) -> u8 {
     }
 }
 
-/// A port's variable in the shader.
 fn variable(node: NodeId, port: &str) -> String {
     let port: String = port
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
         .collect();
     format!("v{}_{port}", node.0)
 }
@@ -334,24 +332,22 @@ struct Compiler<'a> {
 }
 
 impl Compiler<'_> {
-    fn slot(
-        &mut self,
-        source: Source,
-    ) -> Result<usize, &'static str> {
+    /// The slot `source` is read from, or none when all are taken.
+    fn slot(&mut self, source: Source) -> Option<usize> {
         if let Source::Parent(name) = &source
             && let Some(at) = self.parents.get(name)
         {
-            return Ok(*at);
+            return Some(*at);
         }
         if self.sources.len() + 1 >= SLOTS {
-            return Err("needs more values than a material holds");
+            return None;
         }
         self.sources.push(source.clone());
         let at = self.sources.len();
         if let Source::Parent(name) = source {
             self.parents.insert(name, at);
         }
-        Ok(at)
+        Some(at)
     }
 }
 
@@ -473,10 +469,12 @@ impl Emit<'_, '_> {
                 input: spec.name,
             },
         };
-        let at = self
-            .compiler
-            .slot(source)
-            .map_err(|reason| self.invalid(spec.name, reason))?;
+        let at = self.compiler.slot(source).ok_or_else(|| {
+            self.invalid(
+                spec.name,
+                "needs more values than a material holds",
+            )
+        })?;
         Ok(match spec.value_type {
             ValueType::Vector2 => format!("slots.v[{at}].xy"),
             ValueType::Vector3 => format!("slots.v[{at}].xyz"),

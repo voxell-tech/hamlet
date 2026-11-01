@@ -7,7 +7,7 @@
 use bevy::color::Color;
 use bevy::ecs::world::World;
 use bevy::math::{Vec3, Vec4};
-use bevy::ui::{AlignItems, percent, px};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
     frame, icon_button, number_field, row, text_field,
@@ -92,7 +92,7 @@ fn panel<F: Flavor>() -> AnyView {
     with_cx(|cx| {
         let editor = cx.world.resource::<Editor<F>>();
         let gap = cx.theme().space.gap;
-        let mut parts: Vec<AnyView> = vec![
+        let mut parts = vec![
             description(
                 "What the graph above sets. Left unset, each takes \
                  its default, or varies.",
@@ -247,7 +247,7 @@ pub(super) fn input<F: Flavor>(name: String) -> AnyView {
         }
         column(parts)
             .gap(gap / 2.0)
-            .padding(bevy::ui::UiRect::all(px(gap)))
+            .padding(UiRect::all(px(gap)))
             .border(1.0)
             .border_color(cx.theme().palette.border)
             .radius(cx.theme().space.round)
@@ -284,8 +284,8 @@ fn head<F: Flavor>(name: String, value_type: ValueType) -> AnyView {
             .iter()
             .position(|(_, kind)| *kind == value_type)
             .unwrap_or(0);
-        let words: Vec<&str> =
-            offered.iter().map(|(word, _)| *word).collect();
+        let words =
+            offered.iter().map(|(word, _)| *word).collect::<Vec<_>>();
         let rename = rename.clone();
         let retype = retype.clone();
         let remove = remove.clone();
@@ -374,21 +374,23 @@ fn axes<F: Flavor>(
         number::<F>(
             name.clone(),
             move |input| match input.default {
-                Some(Constant::Point(p)) if !colour => p[index],
-                Some(Constant::Color(c)) if colour => c[index],
+                Some(Constant::Point(point)) if !colour => {
+                    point[index]
+                }
+                Some(Constant::Color(rgba)) if colour => rgba[index],
                 _ => 0.0,
             },
             move |input, value| {
                 if colour {
                     let mut at = match input.default {
-                        Some(Constant::Color(c)) => c,
+                        Some(Constant::Color(rgba)) => rgba,
                         _ => blank_colour(),
                     };
                     at[index] = value.clamp(0.0, 1.0);
                     input.default = Some(Constant::Color(at));
                 } else {
                     let mut at = match input.default {
-                        Some(Constant::Point(p)) => p,
+                        Some(Constant::Point(point)) => point,
                         _ => Vec3::ZERO,
                     };
                     at[index] = value;
@@ -397,7 +399,7 @@ fn axes<F: Flavor>(
             },
         )
     };
-    let mut fields: Vec<AnyView> = (0..count).map(axis).collect();
+    let mut fields = (0..count).map(axis).collect::<Vec<_>>();
     if colour {
         fields.push(swatch::<F>(name.clone()));
     }
@@ -502,7 +504,8 @@ fn default<F: Flavor>(
     }
 }
 
-/// Whether the input is picked at random when unset, and how often.
+/// The control for whether the input is picked at random when unset,
+/// and how often.
 fn varies<F: Flavor>(name: String) -> AnyView {
     let reading = name.clone();
     dropdown(
@@ -521,11 +524,15 @@ fn varies<F: Flavor>(name: String) -> AnyView {
         }),
         Glyph::Chevron.image(ICON),
         move |world, at| {
+            let per = match at.checked_sub(1) {
+                None => None,
+                Some(index) => match PER.get(index) {
+                    Some((_, per)) => Some(*per),
+                    None => return,
+                },
+            };
             change::<F>(world, &name, |input| {
-                input.vary = match at
-                    .checked_sub(1)
-                    .map(|at| PER[at].1)
-                {
+                input.vary = match per {
                     None => None,
                     Some(per) => {
                         let start = match input.default {
@@ -547,28 +554,34 @@ fn varies<F: Flavor>(name: String) -> AnyView {
     .boxed()
 }
 
+/// An end of the range a varying input is picked from.
+#[derive(Clone, Copy)]
+enum Bound {
+    Low,
+    High,
+}
+
 /// The two numbers a varying input is picked between.
 fn between<F: Flavor>(name: String) -> AnyView {
-    let end = |high: bool| {
+    let end = |bound: Bound| {
         number::<F>(
             name.clone(),
-            move |input| match input.vary {
-                Some(vary) if high => vary.high,
-                Some(vary) => vary.low,
-                None => 0.0,
+            move |input| match (input.vary, bound) {
+                (Some(vary), Bound::High) => vary.high,
+                (Some(vary), Bound::Low) => vary.low,
+                (None, _) => 0.0,
             },
             move |input, value| {
                 if let Some(vary) = &mut input.vary {
-                    if high {
-                        vary.high = value;
-                    } else {
-                        vary.low = value;
+                    match bound {
+                        Bound::High => vary.high = value,
+                        Bound::Low => vary.low = value,
                     }
                 }
             },
         )
     };
-    row((end(false), note("to"), end(true)))
+    row((end(Bound::Low), note("to"), end(Bound::High)))
         .gap(4.0)
         .align(AlignItems::Center)
         .boxed()

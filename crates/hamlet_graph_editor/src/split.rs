@@ -1,5 +1,5 @@
-//! How the Graph panel is laid out: the line between the canvas and
-//! the preview, dragged to size them, and the cards floating over the
+//! The Graph panel's layout: the line between the canvas and the
+//! preview, dragged to size them, and the cards floating over the
 //! canvas: the parameters, and a preview that floats. A card is
 //! dragged by its header; while it is, an outline shows the corner it
 //! will settle in when let go, and it glides there. Its left edge is
@@ -40,16 +40,17 @@ use hamlet_ui::{AnyView, View, with_cx};
 use super::canvas::Canvas;
 use super::flavor::Flavor;
 
-/// The least the preview and the canvas are wide, in logical pixels.
-/// The preview grows as far as the canvas leaves it.
+/// The least the preview is wide, in logical pixels.
 const PREVIEW: f32 = 120.0;
+/// The least the canvas is wide, in logical pixels.
 const CANVAS: f32 = 240.0;
 
 /// How far a card sits from the canvas's edges.
 const MARGIN: f32 = 8.0;
 
-/// The least and most a card is wide.
+/// The least a card is wide.
 const NARROWEST: f32 = 180.0;
+/// The most a card is wide.
 const WIDEST: f32 = 640.0;
 
 /// How fast a card closes on where it is going, per second.
@@ -177,7 +178,7 @@ impl<F: Flavor> PartialEq for Shown<F> {
     }
 }
 
-/// How the Graph panel is laid out.
+/// The Graph panel's layout.
 #[derive(Resource)]
 pub(super) struct Layout<F: Flavor> {
     /// The width of the preview beside the canvas, when it does not
@@ -283,13 +284,13 @@ pub(super) fn floating<F: Flavor>(
                 .align(AlignItems::Center)
                 .boxed()
         } else {
-            let strip: Vec<_> = tabs
+            let strip = tabs
                 .iter()
                 .enumerate()
                 .map(|(at, (which, name, _))| {
                     (Shown::<F>::at(at), *which, *name)
                 })
-                .collect();
+                .collect::<Vec<_>>();
             tabs::strip(&strip, |world, shown| {
                 *world.resource_mut::<Shown<F>>() = shown;
             })
@@ -305,7 +306,7 @@ pub(super) fn floating<F: Flavor>(
         .align(AlignItems::Center)
         .tagged(Handle::<F>(pane, PhantomData))
         .tagged(EntityCursor(SystemCursorIcon::Grab));
-        let bodies: Vec<AnyView> = tabs
+        let bodies = tabs
             .into_iter()
             .enumerate()
             .map(|(at, (_, _, body))| {
@@ -324,7 +325,7 @@ pub(super) fn floating<F: Flavor>(
                     }))
                     .boxed()
             })
-            .collect();
+            .collect::<Vec<_>>();
         let display = resource::<Layout<F>, _>(move |layout| {
             if open(layout) {
                 Display::Flex
@@ -364,8 +365,8 @@ pub(super) fn floating<F: Flavor>(
     .boxed()
 }
 
-/// Where a dragged card will settle, hinted as the dock hints where
-/// a dragged tab will go.
+/// The hint of where a dragged card will settle, drawn as the dock
+/// hints where a dragged tab will go.
 pub(super) fn outline<F: Flavor>() -> AnyView {
     with_cx(|cx| {
         let theme = cx.theme();
@@ -389,7 +390,6 @@ pub(super) fn outline<F: Flavor>() -> AnyView {
                     Display::None
                 }
             }))
-            // As the dock hints where a dragged tab will go.
             .fill(theme.selection())
             .radius(theme.radius())
     })
@@ -473,9 +473,10 @@ fn drag<F: Flavor>(
     mut layout: ResMut<Layout<F>>,
 ) {
     if dividers.contains(drag.entity) {
-        let canvas = canvas.iter().next().map_or(CANVAS, |node| {
-            node.size().x * node.inverse_scale_factor()
-        });
+        let canvas = canvas
+            .iter()
+            .next()
+            .map_or(CANVAS, |node| logical(node).x);
         let most = (layout.preview + canvas - CANVAS).max(PREVIEW);
         layout.preview =
             (layout.preview - drag.delta.x).clamp(PREVIEW, most);

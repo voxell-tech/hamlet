@@ -34,12 +34,12 @@ pub(super) fn plugin<F: Flavor>(app: &mut App) {
         .add_systems(Update, (restore::<F>, keep::<F>));
 }
 
-/// What a book is kept in, and the last word on it.
+/// The files a book is kept in, and a note on the last thing done.
 #[derive(Resource)]
 pub struct Files<F: Flavor> {
     /// The file the book was last opened from or saved to.
     pub path: Option<PathBuf>,
-    /// The last thing done with a file, or what went wrong.
+    /// The last thing done with a file, or its error.
     pub note: String,
     /// The book's revision last written to the window's folder.
     kept: u64,
@@ -47,7 +47,7 @@ pub struct Files<F: Flavor> {
     seen: Option<(u64, Duration)>,
     /// Whether the kept book has been read at launch.
     restored: bool,
-    /// What the dialogs answer to.
+    /// The entity the dialogs answer to.
     asker: Option<Entity>,
     flavor: PhantomData<F>,
 }

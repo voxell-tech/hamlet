@@ -18,7 +18,7 @@ use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::observer::On;
-use bevy::ecs::query::{Changed, Or, With, Without};
+use bevy::ecs::query::{Added, Changed, Or, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, If, Local, Query, Res, ResMut};
@@ -46,7 +46,7 @@ use bevy::ui::{
     Val, Val2, ZIndex, px,
 };
 use bevy::ui_render::ui_material::MaterialNode;
-use bevy::window::SystemCursorIcon;
+use bevy::window::{SystemCursorIcon, Window};
 use bevy_fynix::views::{BehaviorExt, frame};
 use bevy_fynix::{EntityCursor, OverrideCursor, Theme};
 use hamlet_graph::{
@@ -69,8 +69,8 @@ const ROW: f32 = 28.0;
 const PAD: f32 = 4.0;
 const BORDER: f32 = 1.0;
 const DOT: f32 = 20.0;
-/// The area a dot is pointed at in, twice the dot, so it is easy to
-/// hit.
+/// The size of the area a dot is pointed at in, larger than the dot
+/// so it is easy to hit.
 const DOT_HIT: f32 = DOT * 2.0;
 /// How far a group's frame stands off its cards, and its title bar's
 /// height.
@@ -81,10 +81,6 @@ const TITLE: f32 = 28.0;
 const TITLE_FONT: f32 = 15.0;
 const LEAST_ZOOM: f32 = 0.3;
 const MOST_ZOOM: f32 = 2.0;
-
-/// Whether a wire is being dragged on any canvas.
-#[derive(Resource, Default)]
-pub struct Dragging(pub bool);
 
 pub(super) fn plugin<F: Flavor>(app: &mut App) {
     app.init_resource::<Dragging>()
@@ -98,7 +94,11 @@ pub(super) fn plugin<F: Flavor>(app: &mut App) {
         .add_systems(Update, (titles::<F>, retitled::<F>));
 }
 
-/// Marks the frame the canvas is drawn in.
+/// Set while any canvas drags a wire.
+#[derive(Resource, Default)]
+pub struct Dragging(pub bool);
+
+/// The frame the canvas is drawn in.
 #[derive(Component)]
 pub(super) struct Canvas<F: Flavor>(PhantomData<F>);
 
@@ -153,18 +153,31 @@ struct Retitling<F: Flavor> {
 #[derive(Component)]
 struct Drawn<F: Flavor>(Option<Wire>, PhantomData<F>);
 
+/// The edge of a card a port's dot sits on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Input,
+    Output,
+}
+
 /// A port's dot on a card: the area it is pointed at in.
 #[derive(Component)]
 struct Dot<F: Flavor> {
     port: Port,
-    output: bool,
+    side: Side,
     value_type: ValueType,
     flavor: PhantomData<F>,
 }
 
+impl<F: Flavor> Dot<F> {
+    fn is_output(&self) -> bool {
+        self.side == Side::Output
+    }
+}
+
 /// The drawn dot inside a dot's area, which paint colours.
 #[derive(Component)]
-struct Look<F: Flavor>(Entity, PhantomData<F>);
+struct Disc<F: Flavor>(Entity, PhantomData<F>);
 
 /// An input's row on a card, which a right click asks about.
 #[derive(Component)]
@@ -174,8 +187,8 @@ struct InputRow<F: Flavor> {
     flavor: PhantomData<F>,
 }
 
-/// What a row knows of the input it shows: a kind's port, or an
-/// input of the graph a node runs.
+/// An input as a row shows it: a kind's port, or an input of the
+/// graph a node runs.
 #[derive(Clone, PartialEq, Debug)]
 pub(super) struct Input {
     pub(super) name: String,
@@ -183,7 +196,7 @@ pub(super) struct Input {
     pub(super) initial: Option<Constant>,
     /// The choices a choice takes. Empty for any text.
     pub(super) choices: &'static [&'static str],
-    /// What of the catalogue it names, its choices the catalogue's.
+    /// The catalogue the choices are taken from.
     pub(super) listed: Option<Listed>,
 }
 
@@ -341,7 +354,6 @@ pub(super) fn on_sheet<F: Flavor>(
     Some((inside - sight.pan) / sight.zoom)
 }
 
-/// Whether the pointer is on the canvas.
 pub(super) fn is_hovered<F: Flavor>(world: &mut World) -> bool {
     world
         .query_filtered::<&Hovered, With<Canvas<F>>>()
@@ -368,14 +380,13 @@ fn canvas_size<F: Flavor>(world: &mut World) -> Vec2 {
         })
 }
 
-/// The height of a card with `rows` rows.
 fn height<F: Flavor>(rows: usize) -> f32 {
     BORDER * 2.0 + HEADER + PAD * 2.0 + F::ROOM + rows as f32 * ROW
 }
 
-/// The inputs and outputs of each node, in the order drawn. The input
-/// that names a node is its title instead, and an input its name does
-/// not use is left out unless wired.
+/// The inputs and outputs of `node` in the order drawn. The input
+/// that names the node is its title and is left out, as is an input
+/// the name does not use unless it is wired.
 fn rows<F: Flavor>(
     editor: &Editor<F>,
     node: &hamlet_graph::Node,
@@ -385,13 +396,13 @@ fn rows<F: Flavor>(
     else {
         return (Vec::new(), Vec::new());
     };
-    let dot = |output: bool| {
+    let dot = |side: Side| {
         move |info: hamlet_graph::PortInfo| Dot {
             port: Port {
                 node: node.id,
                 name: info.name,
             },
-            output,
+            side,
             value_type: info.value_type,
             flavor: PhantomData,
         }
@@ -422,14 +433,14 @@ fn rows<F: Flavor>(
         inputs
             .into_iter()
             .filter(|info| drawn(&info.name))
-            .map(dot(false))
+            .map(dot(Side::Input))
             .collect(),
-        outputs.into_iter().map(dot(true)).collect(),
+        outputs.into_iter().map(dot(Side::Output)).collect(),
     )
 }
 
-/// What a row needs of each input of `node`: its kind's ports, or
-/// the inputs of the graph it runs.
+/// The inputs of `node` as rows show them: its kind's ports, or the
+/// inputs of the graph it runs.
 fn specs<F: Flavor>(editor: &Editor<F>, node: NodeId) -> Vec<Input> {
     match editor.sheet.graph.node(node).map(|node| &node.does) {
         Some(Does::Kind(kind)) => editor
@@ -462,9 +473,13 @@ fn specs<F: Flavor>(editor: &Editor<F>, node: NodeId) -> Vec<Input> {
 }
 
 /// Where a port's dot is on the sheet, from its card's place and row.
-fn dot_at<F: Flavor>(card: Vec2, row: usize, output: bool) -> Vec2 {
+fn dot_at<F: Flavor>(card: Vec2, row: usize, side: Side) -> Vec2 {
     Vec2::new(
-        card.x + if output { WIDTH } else { 0.0 },
+        card.x
+            + match side {
+                Side::Input => 0.0,
+                Side::Output => WIDTH,
+            },
         card.y
             + BORDER
             + HEADER
@@ -540,7 +555,7 @@ pub(super) fn arrange<F: Flavor>(
         }
     }
     let groups = &editor.sheet.groups;
-    let mut bands: Vec<(bool, Vec<NodeId>)> = groups
+    let mut bands = groups
         .iter()
         .map(|group| {
             let nodes = graph
@@ -548,10 +563,10 @@ pub(super) fn arrange<F: Flavor>(
                 .iter()
                 .map(|node| node.id)
                 .filter(|id| group.nodes.contains(id))
-                .collect();
+                .collect::<Vec<_>>();
             (true, nodes)
         })
-        .collect();
+        .collect::<Vec<_>>();
     bands.push((
         false,
         graph
@@ -563,7 +578,7 @@ pub(super) fn arrange<F: Flavor>(
             })
             .collect(),
     ));
-    let mut placed = BTreeMap::new();
+    let mut placed = BTreeMap::<NodeId, Vec2>::new();
     let mut top = 0.0_f32;
     for (framed, band) in bands {
         if band.is_empty() {
@@ -582,26 +597,27 @@ pub(super) fn arrange<F: Flavor>(
         for (column, nodes) in columns {
             // Each card goes as near as it can to the middle of the
             // cards that feed it, all in columns already placed.
-            let mut wanted: Vec<(NodeId, f32)> = nodes
+            let mut wanted = nodes
                 .into_iter()
                 .map(|node| {
-                    let ys: Vec<f32> = graph
+                    let feeders = graph
                         .wires
                         .iter()
                         .filter(|wire| wire.to.node == node)
                         .filter_map(|wire| {
                             placed.get(&wire.from.node)
                         })
-                        .map(|at: &Vec2| at.y)
-                        .collect();
-                    let y = if ys.is_empty() {
+                        .map(|at| at.y)
+                        .collect::<Vec<_>>();
+                    let y = if feeders.is_empty() {
                         f32::MAX
                     } else {
-                        ys.iter().sum::<f32>() / ys.len() as f32
+                        feeders.iter().sum::<f32>()
+                            / feeders.len() as f32
                     };
                     (node, y)
                 })
-                .collect();
+                .collect::<Vec<_>>();
             wanted.sort_by(|a, b| a.1.total_cmp(&b.1));
             let x = column as f32 * (WIDTH + ACROSS);
             let mut y = start;
@@ -624,8 +640,8 @@ pub(super) fn arrange<F: Flavor>(
     placed
 }
 
-/// The colour a selected card, and what it gives in the preview, are
-/// shown in, by its place in the selection.
+/// The colour of the selected card at `index` in the selection, and
+/// of what it gives in the preview.
 pub fn picked(palette: &Palette, index: usize) -> Color {
     let colours = [
         palette.glow,
@@ -889,7 +905,7 @@ fn build<F: Flavor>(
                         padding: UiRect::horizontal(px(10.0)),
                         align_items: AlignItems::Center,
                         column_gap: px(3.0),
-                        justify_content: if dot.output {
+                        justify_content: if dot.is_output() {
                             JustifyContent::FlexEnd
                         } else {
                             JustifyContent::FlexStart
@@ -904,7 +920,11 @@ fn build<F: Flavor>(
                 TextFont::from_font_size(11.0),
                 TextColor(palette.grey_1),
                 Node {
-                    flex_grow: if dot.output { 0.0 } else { 1.0 },
+                    flex_grow: if dot.is_output() {
+                        0.0
+                    } else {
+                        1.0
+                    },
                     ..Node::default()
                 },
                 Pickable::IGNORE,
@@ -912,7 +932,7 @@ fn build<F: Flavor>(
             ));
             let spec =
                 specs.iter().find(|spec| spec.name == dot.port.name);
-            if let (false, Some(spec)) = (dot.output, spec) {
+            if let (false, Some(spec)) = (dot.is_output(), spec) {
                 commands.entity(row).insert(InputRow::<F> {
                     node: node.id,
                     input: spec.clone(),
@@ -920,7 +940,7 @@ fn build<F: Flavor>(
                 });
             }
             if let (false, false, Some(spec)) =
-                (dot.output, wired, spec)
+                (dot.is_output(), wired, spec)
             {
                 let (id, spec) = (node.id, spec.clone());
                 let setting = node.settings.get(&spec.name).cloned();
@@ -952,12 +972,12 @@ fn build<F: Flavor>(
                     Node {
                         position_type: PositionType::Absolute,
                         top: px((ROW - DOT_HIT) * 0.5),
-                        left: if dot.output {
+                        left: if dot.is_output() {
                             Val::Auto
                         } else {
                             edge
                         },
-                        right: if dot.output {
+                        right: if dot.is_output() {
                             edge
                         } else {
                             Val::Auto
@@ -973,7 +993,7 @@ fn build<F: Flavor>(
                     ChildOf(row),
                 ))
                 .id();
-            let look = commands
+            let disc = commands
                 .spawn((
                     Node {
                         width: px(DOT),
@@ -989,8 +1009,8 @@ fn build<F: Flavor>(
                 ))
                 .id();
             let mut hit = commands.entity(area);
-            hit.insert(Look::<F>(look, PhantomData));
-            if dot.output {
+            hit.insert(Disc::<F>(disc, PhantomData));
+            if dot.is_output() {
                 hit.observe(start_link::<F>)
                     .observe(drag_link::<F>)
                     .observe(gesture_end::<F>);
@@ -1002,8 +1022,8 @@ fn build<F: Flavor>(
     }
 }
 
-/// Moves the sheet and the cards, and draws each wire where it now
-/// runs: a wire's node is kept, and only moved or given a new shape.
+/// Moves the sheet and the cards and draws each wire; a wire's node
+/// is kept and only moved or reshaped.
 fn place<F: Flavor>(
     mut commands: Commands,
     editor: Res<Editor<F>>,
@@ -1021,7 +1041,7 @@ fn place<F: Flavor>(
         (Without<Card<F>>, Without<Frame<F>>),
     >,
     mut materials: ResMut<Assets<WireMaterial>>,
-    added: Query<(), bevy::ecs::query::Added<Card<F>>>,
+    added: Query<(), Added<Card<F>>>,
 ) {
     let Some((sheet, mut transform)) = sheets.iter_mut().next()
     else {
@@ -1057,30 +1077,34 @@ fn place<F: Flavor>(
     }
     let palette = &theme.0.palette;
     let graph = &editor.sheet.graph;
-    let find = |port: &Port, output: bool| {
+    let find = |port: &Port, side: Side| {
         let node = graph.node(port.node)?;
         let (inputs, outputs) = rows(&editor, node);
-        let (list, before) = if output {
-            (&outputs, inputs.len())
-        } else {
-            (&inputs, 0)
+        let (list, before) = match side {
+            Side::Input => (&inputs, 0),
+            Side::Output => (&outputs, inputs.len()),
         };
-        let row = list.iter().position(|dot| dot.port == *port)?;
+        let (row, dot) = list
+            .iter()
+            .enumerate()
+            .find(|(_, dot)| dot.port == *port)?;
         Some((
             dot_at::<F>(
                 card_at(&editor, port.node),
                 before + row,
-                output,
+                side,
             ),
-            list[row].value_type,
+            dot.value_type,
         ))
     };
     let mut wanted = Vec::new();
     for wire in &graph.wires {
-        if let (Some((a, value_type)), Some((b, _))) =
-            (find(&wire.from, true), find(&wire.to, false))
-        {
-            let shape = Shape::of(a, b, tint(palette, value_type));
+        if let (Some((start, value_type)), Some((end, _))) = (
+            find(&wire.from, Side::Output),
+            find(&wire.to, Side::Input),
+        ) {
+            let shape =
+                Shape::of(start, end, tint(palette, value_type));
             wanted.push((Some(wire.clone()), shape));
         }
     }
@@ -1126,8 +1150,8 @@ fn place<F: Flavor>(
     }
 }
 
-/// Lights what the pointer is on, the selected card, and while a wire
-/// is dragged, the inputs it can go to.
+/// Colours what the pointer is on, the selected cards, and, while a
+/// wire is dragged, the inputs it can go to.
 fn paint<F: Flavor>(
     editor: Res<Editor<F>>,
     gesture: Res<Held<F>>,
@@ -1136,8 +1160,8 @@ fn paint<F: Flavor>(
         (&Card<F>, &Hovered, &mut BorderColor),
         Without<Dot<F>>,
     >,
-    dots: Query<(&Dot<F>, &Hovered, &Look<F>)>,
-    mut looks: Query<
+    dots: Query<(&Dot<F>, &Hovered, &Disc<F>)>,
+    mut discs: Query<
         (&mut BorderColor, &mut BackgroundColor),
         (Without<Card<F>>, Without<TitleBar<F>>),
     >,
@@ -1145,10 +1169,7 @@ fn paint<F: Flavor>(
         (&TitleBar<F>, &Hovered, &mut BackgroundColor),
         (Without<Card<F>>, Without<Dot<F>>),
     >,
-    changed: Query<
-        (),
-        Or<(Changed<Hovered>, bevy::ecs::query::Added<Hovered>)>,
-    >,
+    changed: Query<(), Or<(Changed<Hovered>, Added<Hovered>)>>,
 ) {
     if !editor.is_changed()
         && !gesture.is_changed()
@@ -1157,13 +1178,14 @@ fn paint<F: Flavor>(
         return;
     }
     let palette = &theme.0.palette;
-    // The cards that did not run in the last run, lit as a warning.
-    let failed: BTreeSet<NodeId> = editor
+    // The cards that did not run in the last run are marked as
+    // errors.
+    let failed = editor
         .errors
         .iter()
         .filter(|found| found.graph == editor.name)
         .filter_map(|found| found.error.node())
-        .collect();
+        .collect::<BTreeSet<_>>();
     for (card, hovered, mut border) in &mut cards {
         let at =
             editor.selected.iter().position(|node| *node == card.0);
@@ -1198,13 +1220,14 @@ fn paint<F: Flavor>(
         }
         _ => None,
     };
-    for (dot, hovered, look) in &dots {
-        let Ok((mut border, mut fill)) = looks.get_mut(look.0) else {
+    for (dot, hovered, disc) in &dots {
+        let Ok((mut border, mut fill)) = discs.get_mut(disc.0) else {
             continue;
         };
         let open = match linking {
             Some((from, value_type)) => {
-                (!dot.output && dot.value_type.accepts(value_type))
+                (!dot.is_output()
+                    && dot.value_type.accepts(value_type))
                     || dot.port == *from
             }
             None => true,
@@ -1237,13 +1260,13 @@ fn gesture_end<F: Flavor>(
 ) {
     end.propagate(false);
     if let Gesture::Cards(cards) = &**gesture {
-        let moved: Vec<_> = cards
+        let moved = cards
             .iter()
             .filter(|(node, from)| {
                 editor.sheet.layout.get(node) != Some(from)
             })
             .copied()
-            .collect();
+            .collect::<Vec<_>>();
         if !moved.is_empty() {
             editor.dropped(moved);
         }
@@ -1268,7 +1291,7 @@ fn select<F: Flavor>(
     let Ok(card) = cards.get(click.entity) else {
         return;
     };
-    if held_shift(keys.as_deref()) {
+    if is_shift_held(keys.as_deref()) {
         if !editor.selected.remove(&card.0) {
             editor.selected.insert(card.0);
         }
@@ -1299,7 +1322,7 @@ fn select_group<F: Flavor>(
     else {
         return;
     };
-    if held_shift(keys.as_deref()) {
+    if is_shift_held(keys.as_deref()) {
         editor.selected.extend(nodes);
     } else if editor.selected != nodes {
         editor.selected = nodes;
@@ -1339,14 +1362,14 @@ fn grab_group<F: Flavor>(
     cursor.0 = Some(SystemCursorIcon::Grabbing);
 }
 
-fn held_shift(keys: Option<&ButtonInput<KeyCode>>) -> bool {
+fn is_shift_held(keys: Option<&ButtonInput<KeyCode>>) -> bool {
     keys.is_some_and(|keys| {
         keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
     })
 }
 
-/// Opens a group's title to be written in on a double press of its
-/// bar: the title gives way to a field with the keys in it.
+/// Swaps a group's title for a text field on a double press of its
+/// bar.
 fn retitle<F: Flavor>(
     press: On<PointerPress>,
     bars: Query<(&TitleBar<F>, &Children)>,
@@ -1393,9 +1416,8 @@ fn retitle<F: Flavor>(
     });
 }
 
-/// Gives the title's field the keys once it is built, and puts the
-/// title back when the field loses them or Enter or Escape is
-/// pressed.
+/// Focuses the title's field once it is built, and puts the title
+/// back when the field loses focus or Enter or Escape is pressed.
 fn retitled<F: Flavor>(world: &mut World) {
     let Some(&Retitling::<F> {
         text,
@@ -1466,7 +1488,7 @@ fn titles<F: Flavor>(
     editor: Res<Editor<F>>,
     sight: Res<Sight<F>>,
     mut texts: Query<(&TitleText<F>, &mut Text, &mut TextFont)>,
-    added: Query<(), bevy::ecs::query::Added<TitleText<F>>>,
+    added: Query<(), Added<TitleText<F>>>,
 ) {
     if !editor.is_changed() && !sight.is_changed() && added.is_empty()
     {
@@ -1509,7 +1531,7 @@ fn deselect<F: Flavor>(
 ) {
     if click.entity == click.original_event_target()
         && click.button == PointerButton::Primary
-        && !held_shift(keys.as_deref())
+        && !is_shift_held(keys.as_deref())
         && !editor.selected.is_empty()
     {
         editor.selected.clear();
@@ -1574,7 +1596,7 @@ fn pan_start<F: Flavor>(
     if start.entity != start.original_event_target() {
         return;
     }
-    if held_shift(keys.as_deref())
+    if is_shift_held(keys.as_deref())
         && let Ok((node, transform)) = canvas.get(start.entity)
     {
         let at = (start.pointer.position
@@ -1805,7 +1827,7 @@ fn start_link<F: Flavor>(
     let at = dot_at::<F>(
         card_at(&editor, dot.port.node),
         inputs.len() + row,
-        true,
+        Side::Output,
     );
     **gesture = Gesture::Link(
         dot.port.clone(),
@@ -1842,9 +1864,9 @@ fn received<F: Flavor>(
             return;
         };
         let at = world
-            .query::<&bevy::window::Window>()
+            .query::<&Window>()
             .iter(world)
-            .find_map(bevy::window::Window::cursor_position)
+            .find_map(Window::cursor_position)
             .unwrap_or_default();
         let Some(at) = on_sheet::<F>(world, at) else {
             return;
@@ -1866,8 +1888,8 @@ fn link<F: Flavor>(
     else {
         return;
     };
-    if !from.output
-        || to.output
+    if !from.is_output()
+        || to.is_output()
         || !to.value_type.accepts(from.value_type)
     {
         return;

@@ -52,7 +52,7 @@ pub(super) struct Grab {
 /// How far along the line through `origin` in the unit direction
 /// `axis` the point nearest to `ray` is. `None` when the two are
 /// parallel.
-fn axis_param(ray: Ray3d, origin: Vec3, axis: Vec3) -> Option<f32> {
+fn along_axis(ray: Ray3d, origin: Vec3, axis: Vec3) -> Option<f32> {
     let direction = *ray.direction;
     let between = origin - ray.origin;
     let lean = axis.dot(direction);
@@ -96,8 +96,8 @@ impl Grab {
             Handle::Axis(axis) => {
                 let axis = axes[axis];
                 let from =
-                    axis_param(self.pointing.ray, origin, axis)?;
-                let to = axis_param(now.ray, origin, axis)?;
+                    along_axis(self.pointing.ray, origin, axis)?;
+                let to = along_axis(now.ray, origin, axis)?;
                 Some(axis * snapped(to - from, snap))
             }
             Handle::Plane(axis) => {
@@ -162,8 +162,8 @@ impl Grab {
         snap: Option<f32>,
     ) -> Option<Vec3> {
         let Frame { origin, axes, .. } = self.frame;
-        // Kept above nothing: a target scaled to zero has no inverse,
-        // and no later drag scales it back.
+        // A target scaled to zero has no inverse, and no later drag
+        // scales it back.
         let factor = |raw: f32| snapped(raw, snap).max(MIN_FACTOR);
         let spread = || {
             let from = self.pointing.cursor.distance(self.centre);
@@ -172,12 +172,12 @@ impl Grab {
         };
         match self.handle {
             Handle::Axis(axis) => {
-                let from = axis_param(
+                let from = along_axis(
                     self.pointing.ray,
                     origin,
                     axes[axis],
                 )?;
-                let to = axis_param(now.ray, origin, axes[axis])?;
+                let to = along_axis(now.ray, origin, axes[axis])?;
                 let length = self.reach * self.frame.scale;
                 let mut scale = Vec3::ONE;
                 scale[axis] = factor(1.0 + (to - from) / length);
@@ -239,7 +239,7 @@ pub(super) struct Drag {
 pub(crate) struct Dragging(pub(super) Option<Drag>);
 
 impl Dragging {
-    pub(crate) fn under_way(&self) -> bool {
+    pub(crate) fn is_under_way(&self) -> bool {
         self.0.is_some()
     }
 }

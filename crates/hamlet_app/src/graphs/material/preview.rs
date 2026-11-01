@@ -95,7 +95,8 @@ pub(super) fn plugin(app: &mut App) {
 pub(super) type SurfaceMaterial =
     ExtendedMaterial<StandardMaterial, SurfaceExt>;
 
-/// What the graph's shader reads beyond the standard material.
+/// The uniforms the graph's shader reads beyond the standard
+/// material.
 #[derive(Asset, AsBindGroup, TypePath, Debug, Clone, Default)]
 pub(super) struct SurfaceExt {
     #[uniform(100)]

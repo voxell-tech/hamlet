@@ -82,7 +82,7 @@ struct Shown {
     selected: Option<Item>,
 }
 
-/// Marks the search field.
+/// The search field.
 #[derive(Component)]
 struct SearchField;
 
@@ -100,7 +100,7 @@ fn show(
         return;
     }
     let search = browse.search.to_lowercase();
-    let items: Vec<Item> = library
+    let items = library
         .items
         .iter()
         .filter(|item| {
@@ -111,7 +111,7 @@ fn show(
                 || item.name.to_lowercase().contains(&search)
         })
         .cloned()
-        .collect();
+        .collect::<Vec<_>>();
     // A selection the library no longer has is dropped.
     let selected = browse
         .selected
@@ -201,8 +201,7 @@ fn bar() -> AnyView {
     .boxed()
 }
 
-/// Has the search field's input search as it is typed in, once it is
-/// built.
+/// Observes the search field's input once the field is built.
 fn listen(
     mut commands: Commands,
     fields: Query<&Children, With<SearchField>>,
@@ -219,7 +218,6 @@ fn listen(
     }
 }
 
-/// Searches as the search field is typed in.
 fn searched(
     change: On<TextEditChange>,
     texts: Query<&EditableText>,
@@ -239,7 +237,7 @@ fn grid() -> AnyView {
     scroll((keyed(
         resource::<Shown, _>(Clone::clone),
         |shown: &Shown| {
-            let tiles: Vec<AnyView> = shown
+            let tiles = shown
                 .items
                 .iter()
                 .map(|item| {
@@ -248,7 +246,7 @@ fn grid() -> AnyView {
                         shown.selected.as_ref() == Some(item),
                     )
                 })
-                .collect();
+                .collect::<Vec<_>>();
             let empty = tiles.is_empty();
             AnyView::new(move |cx: &mut Cx| {
                 let gap = cx.theme().space.gap;
@@ -285,7 +283,7 @@ fn grid() -> AnyView {
 
 /// One asset: its kind's picture, its name, and where it comes from.
 fn tile(item: Item, selected: bool) -> AnyView {
-    let menu_item_of = item.clone();
+    let for_menu = item.clone();
     with_cx(move |cx| {
         let theme = cx.theme();
         let gap = theme.space.gap;
@@ -340,7 +338,7 @@ fn tile(item: Item, selected: bool) -> AnyView {
         .tagged(EntityCursor(SystemCursorIcon::Grab))
         .context_menu(move || {
             let (open_it, remove_it) =
-                (menu_item_of.clone(), menu_item_of.clone());
+                (for_menu.clone(), for_menu.clone());
             (
                 menu_item(label("Open"))
                     .on_activate(move |world| open(world, &open_it)),
@@ -353,7 +351,7 @@ fn tile(item: Item, selected: bool) -> AnyView {
     .boxed()
 }
 
-/// Selects a tile pressed, and opens it on a second press.
+/// A press on a tile: it is selected, and opened on a second press.
 fn pressed(
     press: On<PointerPress>,
     tiles: Query<&Tile>,
@@ -465,11 +463,10 @@ fn details() -> AnyView {
     .boxed()
 }
 
-/// Opens `item` where it is edited.
 fn open(world: &mut World, item: &Item) {
     let note = match crate::graphs::open_item(world, item) {
         Ok(()) => format!("Opened {}", item.name),
-        Err(why) => why,
+        Err(error) => format!("{error:#}"),
     };
     world.resource_mut::<Library>().note = note;
 }
@@ -495,7 +492,6 @@ fn remove(world: &mut World, item: &Item) {
     world.resource_mut::<Browse>().selected = None;
 }
 
-/// Asks for a file to add as a mesh or a texture.
 fn import(world: &mut World, kind: Kind) {
     let (meshes, textures) = match world.resource::<Importer>().0 {
         Some(askers) => askers,
@@ -516,7 +512,6 @@ fn import(world: &mut World, kind: Kind) {
     });
 }
 
-/// Adds the chosen file to the library.
 fn chosen(
     chosen: On<FileChosen>,
     importer: Res<Importer>,
