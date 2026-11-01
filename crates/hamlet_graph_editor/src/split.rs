@@ -259,11 +259,11 @@ pub(super) fn floating<F: Flavor>(
         let gap = theme.space.gap;
         let open = move |layout: &Layout<F>| layout.card(pane).open;
         let title = tabs.first().map_or("", |(_, name, _)| name);
-        // The chevron points down while open and right while folded.
+        // The chevron points down while open and left while folded.
         let fold = button(
             glyph(Glyph::Chevron, ICON)
                 .rotation(resource::<Layout<F>, _>(move |layout| {
-                    if open(layout) { 180.0 } else { 90.0 }
+                    if open(layout) { 180.0 } else { 270.0 }
                 }))
                 .transition(Motion::Interact),
         )

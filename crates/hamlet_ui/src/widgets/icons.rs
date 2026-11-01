@@ -62,6 +62,8 @@ pub enum Glyph {
     Rename,
     /// Arrows to the four sides.
     Move,
+    /// A small box and an arrow out from its corner: made larger.
+    Scale,
     /// A struck ring: gone, or to be closed down.
     Gone,
     /// A bin.
@@ -170,7 +172,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 59] = [
+    pub const ALL: [Glyph; 60] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -185,6 +187,7 @@ impl Glyph {
         Glyph::History,
         Glyph::Rename,
         Glyph::Move,
+        Glyph::Scale,
         Glyph::Gone,
         Glyph::Delete,
         Glyph::Stop,
@@ -344,6 +347,11 @@ impl Glyph {
                 Path(&[[6.0, 12.0], [8.0, 14.0], [10.0, 12.0]]),
                 Path(&[[4.0, 6.0], [2.0, 8.0], [4.0, 10.0]]),
                 Path(&[[12.0, 6.0], [14.0, 8.0], [12.0, 10.0]]),
+            ],
+            Glyph::Scale => &[
+                Round(2.5, 8.5, 7.5, 13.5, 1.0),
+                Line(9.0, 7.0, 13.5, 2.5),
+                Path(&[[9.5, 2.5], [13.5, 2.5], [13.5, 6.5]]),
             ],
             Glyph::Gone => &[
                 Ring(8.0, 8.0, 5.75),

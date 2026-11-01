@@ -26,7 +26,7 @@ use bevy::image::Image;
 use bevy::input::ButtonInput;
 use bevy::input::mouse::MouseButton;
 use bevy::light::DirectionalLight;
-use bevy::math::{Quat, Vec3};
+use bevy::math::{Quat, Rect, Vec3};
 use bevy::mesh::{Mesh, Mesh3d};
 use bevy::pbr::{DistanceFog, MeshMaterial3d, StandardMaterial};
 use bevy::picking::events::{PointerDrag, PointerScroll};
@@ -41,12 +41,17 @@ use bevy::ui::{
     AlignItems, ComputedNode, Display, Overflow, PositionType,
     UiRect, Val, percent, px,
 };
+use bevy::ui_widgets::popover::{
+    PopoverAlign, PopoverPlacement, PopoverSide,
+};
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
-    slider,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    label, overlay, popup, row,
 };
-use bevy_fynix::{ScopedExt, Theme, ViewExt, resource};
+use bevy_fynix::{
+    ScopedExt, Theme, ViewExt, derived, every_frame, keyed, resource,
+};
 use hamlet_blueprint::{Frame, Object};
 use hamlet_graph::{Asset, BODY, Catalogue, Paint, Shape};
 use hamlet_graph_editor::Editor;
@@ -61,8 +66,11 @@ use hamlet_realm::sky::{
     self, CameraSettings, Hourly, Looks, North, OwnSky, Sky,
     SkySettings,
 };
-use hamlet_ui::styles::{self, Fills, ICON, description, note};
+use hamlet_ui::styles::{
+    self, Fills, ICON, choice, description, note,
+};
 use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::dial::{Face, dial};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
@@ -93,6 +101,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<Framing>()
         .init_resource::<Backdrop>()
         .init_resource::<Daytime>()
+        .init_resource::<DialOpen>()
         .add_systems(Startup, spawn)
         .add_systems(
             Update,
@@ -100,13 +109,10 @@ pub(super) fn plugin(app: &mut App) {
         );
 }
 
-/// The hour the preview is lit at, apart from the world's, and its
-/// name when it was chosen by one: midday until another is chosen.
+/// The hour the preview is lit at, apart from the world's: midday
+/// until another is dialled.
 #[derive(Resource, Clone, Copy, PartialEq, Debug)]
-struct Daytime {
-    hour: f32,
-    name: Option<&'static str>,
-}
+struct Daytime(f32);
 
 impl FromWorld for Daytime {
     fn from_world(world: &mut World) -> Self {
@@ -114,23 +120,13 @@ impl FromWorld for Daytime {
             .get_resource::<SkySettings>()
             .cloned()
             .unwrap_or_default();
-        let (name, hour) = named_hours(&set)[0];
-        Self {
-            hour,
-            name: Some(name),
-        }
+        Self(set.held(false))
     }
 }
 
-/// The hours the Time button steps through, by name.
-fn named_hours(set: &SkySettings) -> [(&'static str, f32); 4] {
-    [
-        ("Day", set.held(false)),
-        ("Dusk", set.sunset),
-        ("Night", set.held(true)),
-        ("Dawn", set.sunrise),
-    ]
-}
+/// Whether the dial of the preview's hour is open.
+#[derive(Resource, Default, Clone, Copy, PartialEq)]
+struct DialOpen(bool);
 
 /// What is drawn behind what the graph puts down: a ground under it,
 /// and a grid on the ground plane.
@@ -198,7 +194,7 @@ struct Drawn {
 pub(super) fn view() -> impl View {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let panel = column((error(), switches()))
+        let panel = column((error(), switches(), time_dial()))
             .width(percent(100.0))
             .fills_height()
             .overflow(Overflow::clip())
@@ -264,26 +260,6 @@ fn error() -> AnyView {
 /// the random values picked per hamlet and per item, in the preview's
 /// lower corner.
 fn switches() -> AnyView {
-    // What a transform's gizmo edits, the one it edits now marked.
-    let mode =
-        |word: &'static str, key: &'static str, picked: GizmoMode| {
-            button(label(resource::<GizmoMode, _>(move |mode| {
-                if *mode == picked {
-                    format!("• {word}")
-                } else {
-                    word.to_owned()
-                }
-            })))
-            .padding(UiRect::axes(px(8.0), px(2.0)))
-            .tooltip(move || {
-                note(format!("What a transform's gizmo does ({key})"))
-            })
-            .rules(styles::button)
-            .tagged(Variant::Default)
-            .on_activate(move |world| {
-                world.insert_resource(picked);
-            })
-        };
     let dice = |word: &'static str,
                 tip: &'static str,
                 roll: fn(&mut Editor<Blueprint>)| {
@@ -327,15 +303,13 @@ fn switches() -> AnyView {
             "Roll again what is picked once per item",
             roll_item,
         ),
-        mode("Move", "W", GizmoMode::Translate),
-        mode("Turn", "E", GizmoMode::Rotate),
-        mode("Scale", "R", GizmoMode::Scale),
+        modes(),
     ))
     .gap(4.0)
     .position(PositionType::Absolute)
     .inset(UiRect {
-        left: px(8.0),
-        bottom: px(8.0),
+        left: px(BAR_INSET),
+        bottom: px(BAR_INSET),
         right: Val::Auto,
         top: Val::Auto,
     })
@@ -364,65 +338,139 @@ fn daylight(
     {
         return;
     }
-    let own = OwnSky(Sky::at(&looks, &set, daytime.hour, north));
+    let own = OwnSky(Sky::at(&looks, &set, daytime.0, north));
     for entity in [preview.camera, preview.key, preview.fill] {
         commands.entity(entity).insert(own.clone());
     }
 }
 
-/// The Time button, which steps through the named hours, and the
-/// slider for any hour between.
+/// The sun or the moon of the preview's hour, read from the world.
+fn sun_or_moon(world: &World) -> Glyph {
+    let hour = world.resource::<Daytime>().0;
+    let night = world
+        .get_resource::<SkySettings>()
+        .is_some_and(|set| set.is_night(hour));
+    if night { Glyph::Moon } else { Glyph::Sun }
+}
+
+/// How far the preview's bar is in from the panel's lower left
+/// corner.
+const BAR_INSET: f32 = 8.0;
+
+/// The side of a button of the preview's bar that holds only an icon.
+const BAR_BUTTON: f32 = 28.0;
+
+/// The button that opens the dial of the preview's hour, showing the
+/// sun or the moon of it.
 fn time() -> AnyView {
-    let named =
-        row((button(label(resource::<Daytime, _>(|daytime| {
-            format!("Time: {}", hour_name(daytime))
-        })))
-        .padding(UiRect::axes(px(8.0), px(2.0)))
-        .tooltip(|| note("The hour the preview is lit at"))
-        .rules(styles::button)
-        .tagged(Variant::Default)
-        .on_activate(|world| {
-            let set = world
-                .get_resource::<SkySettings>()
-                .cloned()
-                .unwrap_or_default();
-            let hours = named_hours(&set);
-            let now = world.resource::<Daytime>().name;
-            let next = hours
-                .iter()
-                .position(|(name, _)| Some(*name) == now)
-                .map_or(0, |at| (at + 1) % hours.len());
-            let (name, hour) = hours[next];
-            *world.resource_mut::<Daytime>() = Daytime {
-                hour,
-                name: Some(name),
-            };
-        }),));
-    row((
-        named,
-        slider(resource::<Daytime, _>(|daytime| daytime.hour))
-            .range(0.0, 24.0)
-            .on_change(|world, hour| {
-                *world.resource_mut::<Daytime>() =
-                    Daytime { hour, name: None };
+    keyed(derived(sun_or_moon).when(every_frame()), |which| {
+        button(glyph(*which, ICON))
+            .width(px(BAR_BUTTON))
+            .height(px(BAR_BUTTON))
+            .tooltip(|| note("The hour the preview is lit at"))
+            .rules(styles::button)
+            .tagged(Variant::Default)
+            .on_activate(|world| {
+                let mut open = world.resource_mut::<DialOpen>();
+                open.0 = !open.0;
             })
-            .width(px(TIME_SLIDER)),
-    ))
-    .gap(6.0)
-    .align(AlignItems::Center)
+            .boxed()
+    })
+    .within(row(()).gap(0.0))
     .boxed()
 }
 
-/// The width of the slider for the preview's hour.
-const TIME_SLIDER: f32 = 96.0;
+/// The dial of the preview's hour, in a popup over the Time button
+/// while it is open.
+fn time_dial() -> AnyView {
+    keyed(resource::<DialOpen, _>(|open| open.0), |open| {
+        if !*open {
+            return frame().boxed();
+        }
+        AnyView::new(|cx: &mut Cx| {
+            // The button is the first of the bar, in the panel's
+            // lower left corner.
+            let height = cx
+                .world
+                .query_filtered::<&ComputedNode, With<Shown>>()
+                .iter(cx.world)
+                .next()
+                .map_or(0.0, |node| {
+                    node.size().y * node.inverse_scale_factor()
+                });
+            let bottom = height - BAR_INSET;
+            let anchor = Rect::new(
+                BAR_INSET,
+                bottom - BAR_BUTTON,
+                BAR_INSET + BAR_BUTTON,
+                bottom,
+            );
+            let gap = cx.theme().space.gap;
+            cx.build(
+                popup(
+                    anchor,
+                    (column((
+                        dial(
+                            Face::HOURS,
+                            derived(sun_or_moon).when(every_frame()),
+                            resource::<Daytime, _>(|daytime| {
+                                daytime.0
+                            }),
+                            resource::<Daytime, _>(|daytime| {
+                                daytime.0
+                            }),
+                            |world, hour| {
+                                world.resource_mut::<Daytime>().0 =
+                                    hour;
+                            },
+                        ),
+                        description("Drag to hold an hour."),
+                    ))
+                    .gap(gap)
+                    .align(AlignItems::Center),),
+                )
+                .placements(vec![PopoverPlacement {
+                    side: PopoverSide::Top,
+                    align: PopoverAlign::Start,
+                    gap,
+                }])
+                .on_dismiss(|world, _| {
+                    world.resource_mut::<DialOpen>().0 = false;
+                }),
+            )
+        })
+    })
+    .within(overlay(()))
+    .boxed()
+}
 
-/// The name `daytime` was chosen by, else its hour and minute.
-fn hour_name(daytime: &Daytime) -> String {
-    if let Some(name) = daytime.name {
-        return name.to_owned();
-    }
-    let minutes = (daytime.hour * 60.0).round() as u32 % (24 * 60);
-    format!("{:02}:{:02}", minutes / 60, minutes % 60)
+/// What a transform's gizmo does, each an icon, the one it does now
+/// lit.
+fn modes() -> AnyView {
+    const MODES: [(Glyph, &str, GizmoMode); 3] = [
+        (Glyph::Move, "Move (W)", GizmoMode::Translate),
+        (Glyph::Restore, "Turn (E)", GizmoMode::Rotate),
+        (Glyph::Scale, "Scale (R)", GizmoMode::Scale),
+    ];
+    keyed(resource::<GizmoMode, _>(|mode| *mode), |mode| {
+        let buttons = MODES
+            .into_iter()
+            .map(|(which, tip, picked)| {
+                button(glyph(which, ICON))
+                    .width(px(BAR_BUTTON))
+                    .height(px(BAR_BUTTON))
+                    .tooltip(move || note(tip))
+                    .rules(choice(*mode == picked))
+                    .on_activate(move |world| {
+                        world.insert_resource(picked);
+                    })
+                    .boxed()
+            })
+            .collect::<Vec<_>>();
+        row(buttons).gap(4.0).boxed()
+    })
+    .within(row(()).gap(0.0))
+    .boxed()
 }
 
 /// Shows or hides the grid, spawning it once the theme gives its
