@@ -70,10 +70,16 @@ pub mod fonts {
 }
 
 impl File {
-    /// The file's path from the root of the workspace. The watcher
-    /// looks there when the app is run with `cargo run`.
+    /// The file's whole path in the workspace's `assets/`, where it
+    /// is built in from, which the watcher knows a saved file by.
     fn kept(&self) -> PathBuf {
-        Path::new("assets").join(self.name)
+        let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        crate_dir
+            .ancestors()
+            .nth(2)
+            .unwrap_or(crate_dir)
+            .join("assets")
+            .join(self.name)
     }
 
     /// The path the asset server knows it by.
