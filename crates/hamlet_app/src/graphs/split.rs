@@ -1,8 +1,9 @@
 //! How the Graph panel is laid out: the line between the canvas and
-//! the preview, dragged to size them, and the properties floating
-//! over the canvas. The properties are dragged by their header; while
-//! they are, an outline shows the corner they will settle in when let
-//! go, and they glide there.
+//! the preview, dragged to size them, and the cards floating over the
+//! canvas: the parameters, and a preview that floats. A card is
+//! dragged by its header; while it is, an outline shows the corner it
+//! will settle in when let go, and it glides there. Its left edge is
+//! dragged to size it, and its chevron folds it to its header.
 
 use std::marker::PhantomData;
 
@@ -18,11 +19,22 @@ use bevy::picking::events::{
     PointerDrag, PointerDragEnd, PointerDragStart,
 };
 use bevy::time::Time;
-use bevy::ui::{ComputedNode, UiRect, Val, px};
+use bevy::ui::{
+    AlignItems, ComputedNode, Display, Overflow, PositionType,
+    UiRect, Val, percent, px,
+};
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::OverrideCursor;
-use bevy_fynix::views::{self, Axis, BehaviorExt};
-use hamlet_ui::View;
+use bevy_fynix::tokens::Motion;
+use bevy_fynix::views::{
+    self, Axis, BehaviorExt, FrameProps, TooltipExt, button, column,
+    frame, icon_button, row,
+};
+use bevy_fynix::{
+    EntityCursor, OverrideCursor, ScopedExt, ViewExt, resource,
+};
+use hamlet_ui::styles::{ICON, note, section};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, View, with_cx};
 
 use super::canvas::Canvas;
 use super::flavor::Flavor;
@@ -32,10 +44,14 @@ use super::flavor::Flavor;
 const PREVIEW: f32 = 120.0;
 const CANVAS: f32 = 240.0;
 
-/// How far the properties sit from the canvas's edges.
+/// How far a card sits from the canvas's edges.
 const MARGIN: f32 = 8.0;
 
-/// How fast the properties close on where they are going, per second.
+/// The least and most a card is wide.
+const NARROWEST: f32 = 180.0;
+const WIDEST: f32 = 640.0;
+
+/// How fast a card closes on where it is going, per second.
 const GLIDE: f32 = 14.0;
 
 pub(super) fn plugin<F: Flavor>(app: &mut App) {
@@ -79,28 +95,63 @@ impl Corner {
     }
 }
 
-/// How the Graph panel is laid out. Places are in logical pixels from
-/// the canvas's top left corner.
+/// A card floating over the canvas.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Pane {
+    Parameters,
+    Preview,
+}
+
+impl Pane {
+    fn at(self) -> usize {
+        self as usize
+    }
+}
+
+/// Where a card floats and how. Places are in logical pixels from the
+/// canvas's top left corner.
+pub(super) struct Card {
+    /// Whether it is open, or folded to its header.
+    pub open: bool,
+    /// How wide it is.
+    pub width: f32,
+    /// The corner it settles in.
+    corner: Corner,
+    /// Where it is drawn.
+    pub shown: Vec2,
+    /// Where it would settle if let go now, while dragged.
+    pub ghost: Option<Vec2>,
+    /// Its size as drawn.
+    pub size: Vec2,
+    /// Where its top left is while it is dragged.
+    held: Option<Vec2>,
+    /// Whether it has been placed once, after which it glides.
+    placed: bool,
+}
+
+impl Card {
+    fn new(corner: Corner, width: f32) -> Self {
+        Self {
+            open: true,
+            width,
+            corner,
+            shown: Vec2::splat(MARGIN),
+            ghost: None,
+            size: Vec2::ZERO,
+            held: None,
+            placed: false,
+        }
+    }
+}
+
+/// How the Graph panel is laid out.
 #[derive(Resource)]
 pub(super) struct Layout<F: Flavor> {
-    /// The width of the preview.
+    /// The width of the preview beside the canvas, when it does not
+    /// float.
     pub preview: f32,
-    /// Whether the properties are open, or folded to their header.
-    pub properties: bool,
-    /// The corner the properties settle in.
-    pub corner: Corner,
-    /// Where the properties are drawn.
-    pub shown: Vec2,
-    /// Where the properties would settle if let go now, while
-    /// dragged.
-    pub ghost: Option<Vec2>,
-    /// The properties' size as drawn.
-    pub size: Vec2,
-    /// Where the properties' top left is while they are dragged.
-    held: Option<Vec2>,
-    /// Whether the properties have been placed once, after which
-    /// they glide.
-    placed: bool,
+    /// The cards, by [`Pane`].
+    cards: [Card; 2],
     flavor: PhantomData<F>,
 }
 
@@ -108,20 +159,34 @@ impl<F: Flavor> Default for Layout<F> {
     fn default() -> Self {
         Self {
             preview: 360.0,
-            properties: true,
-            corner: Corner::TopRight,
-            shown: Vec2::splat(MARGIN),
-            ghost: None,
-            size: Vec2::ZERO,
-            held: None,
-            placed: false,
+            cards: [
+                Card::new(Corner::TopRight, 300.0),
+                Card::new(Corner::BottomRight, 280.0),
+            ],
             flavor: PhantomData,
         }
     }
 }
 
+impl<F: Flavor> Layout<F> {
+    pub(super) fn card(&self, pane: Pane) -> &Card {
+        &self.cards[pane.at()]
+    }
+
+    fn card_mut(&mut self, pane: Pane) -> &mut Card {
+        &mut self.cards[pane.at()]
+    }
+
+    /// Where the card being dragged would settle, if one is.
+    fn ghost(&self) -> Option<(Vec2, Vec2)> {
+        self.cards
+            .iter()
+            .find_map(|card| card.ghost.map(|at| (at, card.size)))
+    }
+}
+
 /// The inset that puts a box's top left at `at`.
-pub(super) fn inset_at(at: Vec2) -> UiRect {
+fn inset_at(at: Vec2) -> UiRect {
     UiRect::new(px(at.x), Val::Auto, px(at.y), Val::Auto)
 }
 
@@ -129,91 +194,195 @@ pub(super) fn inset_at(at: Vec2) -> UiRect {
 #[derive(Component)]
 struct Divider<F: Flavor>(PhantomData<F>);
 
-/// Marks the properties floating over the canvas.
+/// Marks a card floating over the canvas.
 #[derive(Component)]
-pub(super) struct Floating<F: Flavor>(PhantomData<F>);
+struct Floating<F: Flavor>(Pane, PhantomData<F>);
 
-impl<F: Flavor> Floating<F> {
-    pub(super) fn new() -> Self {
-        Self(PhantomData)
-    }
-}
-
-/// Marks the header the properties are dragged by.
+/// Marks the header a card is dragged by.
 #[derive(Component)]
-pub(super) struct Handle<F: Flavor>(PhantomData<F>);
+struct Handle<F: Flavor>(Pane, PhantomData<F>);
 
-impl<F: Flavor> Handle<F> {
-    pub(super) fn new() -> Self {
-        Self(PhantomData)
-    }
-}
+/// Marks the left edge a card is sized by.
+#[derive(Component)]
+struct Grip<F: Flavor>(Pane, PhantomData<F>);
 
 /// The line the dock's panels are parted by, grabbed the same way.
 pub(super) fn divider<F: Flavor>() -> impl View {
     views::divider(Axis::Vertical).tagged(Divider::<F>(PhantomData))
 }
 
+/// The card `pane` floating over the canvas: a header of `icon` and
+/// `title` with the chevron that folds it, and `body` under it.
+pub(super) fn floating<F: Flavor>(
+    pane: Pane,
+    icon: Glyph,
+    title: &'static str,
+    body: AnyView,
+) -> AnyView {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let gap = theme.space.gap;
+        let open = move |layout: &Layout<F>| layout.card(pane).open;
+        // Open, the chevron points up to fold; folded, it turns to
+        // point on.
+        let fold = button(
+            glyph(Glyph::Chevron, ICON)
+                .rotation(resource::<Layout<F>, _>(move |layout| {
+                    if open(layout) { 0.0 } else { 90.0 }
+                }))
+                .transition(Motion::Interact),
+        )
+        .rules(icon_button)
+        .tooltip(move || {
+            note(format!("Fold or open the {}", title.to_lowercase()))
+        })
+        .on_activate(move |world| {
+            let mut layout = world.resource_mut::<Layout<F>>();
+            let card = layout.card_mut(pane);
+            card.open = !card.open;
+        });
+        let header = row((
+            glyph(icon, ICON),
+            section(title),
+            frame().grow(1.0),
+            fold,
+        ))
+        .gap(gap / 2.0)
+        .align(AlignItems::Center)
+        .tagged(Handle::<F>(pane, PhantomData))
+        .tagged(EntityCursor(SystemCursorIcon::Grab));
+        let shown = column((body,)).display(
+            resource::<Layout<F>, _>(move |layout| {
+                if open(layout) {
+                    Display::Flex
+                } else {
+                    Display::None
+                }
+            }),
+        );
+        let grip = frame()
+            .position(PositionType::Absolute)
+            .inset(UiRect::new(px(-3.0), Val::Auto, px(0.0), px(0.0)))
+            .width(px(6.0))
+            .tagged(Grip::<F>(pane, PhantomData))
+            .tagged(EntityCursor(SystemCursorIcon::EwResize));
+        column((header, shown, grip))
+            .position(PositionType::Absolute)
+            .inset(resource::<Layout<F>, _>(move |layout| {
+                inset_at(layout.card(pane).shown)
+            }))
+            .width(resource::<Layout<F>, _>(move |layout| {
+                px(layout.card(pane).width)
+            }))
+            .max_height(percent(100.0))
+            .overflow(Overflow::clip())
+            .padding(UiRect::all(px(gap)))
+            .gap(gap / 2.0)
+            .fill(theme.palette.card)
+            .border(theme.space.border)
+            .border_color(theme.palette.border)
+            .radius(theme.space.round)
+            .tagged(Floating::<F>(pane, PhantomData))
+    })
+    .boxed()
+}
+
+/// A lit outline of the corner a dragged card will settle in.
+pub(super) fn outline<F: Flavor>() -> AnyView {
+    with_cx(|cx| {
+        let theme = cx.theme();
+        frame()
+            .position(PositionType::Absolute)
+            .inset(resource::<Layout<F>, _>(|layout| {
+                inset_at(
+                    layout.ghost().map_or(Vec2::ZERO, |(at, _)| at),
+                )
+            }))
+            .width(resource::<Layout<F>, _>(|layout| {
+                px(layout.ghost().map_or(0.0, |(_, size)| size.x))
+            }))
+            .height(resource::<Layout<F>, _>(|layout| {
+                px(layout.ghost().map_or(0.0, |(_, size)| size.y))
+            }))
+            .display(resource::<Layout<F>, _>(|layout| {
+                if layout.ghost().is_some() {
+                    Display::Flex
+                } else {
+                    Display::None
+                }
+            }))
+            .fill(theme.palette.text_selection)
+            .border(2.0)
+            .border_color(theme.palette.glow)
+            .radius(theme.space.round)
+    })
+    .boxed()
+}
+
 fn logical(node: &ComputedNode) -> Vec2 {
     node.size() * node.inverse_scale_factor()
 }
 
-/// Moves the properties toward where they belong: under the pointer
-/// while dragged, else their corner, easing there from where they
-/// are.
+/// Moves each card toward where it belongs: under the pointer while
+/// dragged, else its corner, easing there from where it is.
 fn glide<F: Flavor>(
     time: Res<Time>,
-    floating: Query<&ComputedNode, With<Floating<F>>>,
+    floating: Query<(&Floating<F>, &ComputedNode)>,
     canvas: Query<&ComputedNode, With<Canvas<F>>>,
     mut layout: ResMut<Layout<F>>,
 ) {
-    let (Some(panel), Some(area)) =
-        (floating.iter().next(), canvas.iter().next())
-    else {
+    let Some(area) = canvas.iter().next() else {
         return;
     };
-    let (size, area) = (logical(panel), logical(area));
-    let now = layout.bypass_change_detection();
-    let ghost = now.held.map(|at| {
-        Corner::nearest(at + size * 0.5, area * 0.5).place(area, size)
-    });
-    let target =
-        now.held.unwrap_or_else(|| now.corner.place(area, size));
-    let shown = if now.placed {
-        let step = 1.0 - (-GLIDE * time.delta_secs()).exp();
-        let next = now.shown + (target - now.shown) * step;
-        if next.distance(target) < 0.25 {
-            target
+    let area = logical(area);
+    let step = 1.0 - (-GLIDE * time.delta_secs()).exp();
+    for (Floating(pane, _), node) in &floating {
+        let size = logical(node);
+        let now = layout.bypass_change_detection().card(*pane);
+        let ghost = now.held.map(|at| {
+            Corner::nearest(at + size * 0.5, area * 0.5)
+                .place(area, size)
+        });
+        let target =
+            now.held.unwrap_or_else(|| now.corner.place(area, size));
+        let shown = if now.placed {
+            let next = now.shown + (target - now.shown) * step;
+            if next.distance(target) < 0.25 {
+                target
+            } else {
+                next
+            }
         } else {
-            next
+            target
+        };
+        if now.shown != shown
+            || now.ghost != ghost
+            || now.size != size
+            || !now.placed
+        {
+            let card = layout.card_mut(*pane);
+            card.shown = shown;
+            card.ghost = ghost;
+            card.size = size;
+            card.placed = true;
         }
-    } else {
-        target
-    };
-    if now.shown != shown
-        || now.ghost != ghost
-        || now.size != size
-        || !now.placed
-    {
-        let layout = layout.as_mut();
-        layout.shown = shown;
-        layout.ghost = ghost;
-        layout.size = size;
-        layout.placed = true;
     }
 }
 
 fn grab<F: Flavor>(
     start: On<PointerDragStart>,
     dividers: Query<(), With<Divider<F>>>,
-    handles: Query<(), With<Handle<F>>>,
+    handles: Query<&Handle<F>>,
+    grips: Query<(), With<Grip<F>>>,
     mut layout: ResMut<Layout<F>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
-    if dividers.contains(start.entity) {
+    if dividers.contains(start.entity) || grips.contains(start.entity)
+    {
         cursor.0 = Some(SystemCursorIcon::EwResize);
-    } else if handles.contains(start.entity) {
-        layout.held = Some(layout.shown);
+    } else if let Ok(Handle(pane, _)) = handles.get(start.entity) {
+        let card = layout.card_mut(*pane);
+        card.held = Some(card.shown);
         cursor.0 = Some(SystemCursorIcon::Grabbing);
     }
 }
@@ -221,7 +390,8 @@ fn grab<F: Flavor>(
 fn drag<F: Flavor>(
     drag: On<PointerDrag>,
     dividers: Query<(), With<Divider<F>>>,
-    handles: Query<(), With<Handle<F>>>,
+    handles: Query<&Handle<F>>,
+    grips: Query<&Grip<F>>,
     canvas: Query<&ComputedNode, With<Canvas<F>>>,
     mut layout: ResMut<Layout<F>>,
 ) {
@@ -232,32 +402,44 @@ fn drag<F: Flavor>(
         let most = (layout.preview + canvas - CANVAS).max(PREVIEW);
         layout.preview =
             (layout.preview - drag.delta.x).clamp(PREVIEW, most);
-    } else if handles.contains(drag.entity)
-        && let Some(at) = &mut layout.held
+    } else if let Ok(Handle(pane, _)) = handles.get(drag.entity)
+        && let Some(at) = &mut layout.card_mut(*pane).held
     {
         *at += drag.delta;
+    } else if let Ok(Grip(pane, _)) = grips.get(drag.entity) {
+        // The left edge: dragged left, the card grows.
+        let card = layout.card_mut(*pane);
+        card.width =
+            (card.width - drag.delta.x).clamp(NARROWEST, WIDEST);
     }
 }
 
-/// Settles dragged properties in the corner of the canvas nearest
-/// their middle.
+/// Settles a dragged card in the corner of the canvas nearest its
+/// middle.
 fn drop<F: Flavor>(
     end: On<PointerDragEnd>,
     dividers: Query<(), With<Divider<F>>>,
-    handles: Query<(), With<Handle<F>>>,
+    handles: Query<&Handle<F>>,
+    grips: Query<(), With<Grip<F>>>,
     canvas: Query<&ComputedNode, With<Canvas<F>>>,
     mut layout: ResMut<Layout<F>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
-    if handles.contains(end.entity)
-        && let Some(at) = layout.held.take()
+    if let Ok(Handle(pane, _)) = handles.get(end.entity)
         && let Some(area) = canvas.iter().next()
     {
-        let middle = at + layout.size * 0.5;
-        layout.corner = Corner::nearest(middle, logical(area) * 0.5);
-        layout.ghost = None;
+        let card = layout.card_mut(*pane);
+        if let Some(at) = card.held.take() {
+            let middle = at + card.size * 0.5;
+            card.corner =
+                Corner::nearest(middle, logical(area) * 0.5);
+            card.ghost = None;
+        }
     }
-    if dividers.contains(end.entity) || handles.contains(end.entity) {
+    if dividers.contains(end.entity)
+        || handles.contains(end.entity)
+        || grips.contains(end.entity)
+    {
         cursor.0 = None;
     }
 }

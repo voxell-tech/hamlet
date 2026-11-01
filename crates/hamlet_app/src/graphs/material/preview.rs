@@ -1,7 +1,8 @@
-//! The material's preview: a mesh with the material, shaded by the
-//! hour's directional lights through the realm's camera and post
-//! processing, as on a house in the realm. Dragging turns the shape
-//! and scrolling brings it nearer. The surface colour a graph reads
+//! The material's preview, floating over the canvas in a card of the
+//! editor's: a mesh with the material, shaded by the hour's
+//! directional lights through the realm's camera and post processing,
+//! as on a house in the realm. Dragging turns the shape and scrolling
+//! brings it nearer. The surface colour a graph reads
 //! is a palette colour picked here, as a mesh in the realm gives its
 //! own.
 
@@ -10,7 +11,10 @@ use bevy::asset::{
     Asset, Assets, Handle, RenderAssetUsages, uuid_handle,
 };
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{Camera, ImageRenderTarget, RenderTarget};
+use bevy::camera::{
+    Camera, ImageRenderTarget, PerspectiveProjection, Projection,
+    RenderTarget,
+};
 use bevy::color::Color;
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
@@ -39,7 +43,9 @@ use bevy::shape::{Cuboid, Rectangle, Sphere};
 use bevy::time::Time;
 use bevy::transform::components::Transform;
 use bevy::ui::widget::ViewportNode;
-use bevy::ui::{Overflow, PositionType, UiRect, Val, percent, px};
+use bevy::ui::{
+    Display, Node, Overflow, PositionType, UiRect, Val, percent, px,
+};
 use bevy::window::{PrimaryWindow, Window};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
@@ -48,7 +54,7 @@ use bevy_fynix::{ScopedExt, ViewExt, resource};
 use hamlet_material::surface_shader;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
-use hamlet_ui::styles::{self, Fills, description, note};
+use hamlet_ui::styles::{self, description, note};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{AnyView, Cx};
 
@@ -66,6 +72,10 @@ const LAYER: usize = 9;
 /// graph's code changes.
 const SHADER: Handle<Shader> =
     uuid_handle!("2f7d9a3e-55c1-4b8e-8d0a-7e4c3b9f6a21");
+
+/// How far the camera stands from the shape before it is zoomed: the
+/// sphere, a unit across, fills about two thirds of the picture.
+const DISTANCE: f32 = 3.4;
 
 /// The shapes the material can be seen on.
 const SHAPES: [&str; 3] = ["Sphere", "Cube", "Quad"];
@@ -138,25 +148,31 @@ impl Default for Stand {
     }
 }
 
+/// The picture, square to the card it floats in, with the problem
+/// over its top and the switches over its foot.
 pub(super) fn view() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let panel = column((problem(), switches()))
+        let picture = column((problem(), switches()))
             .width(percent(100.0))
-            .fills_height()
             .overflow(Overflow::clip())
             .fill(theme.palette.input)
+            .radius(theme.space.round)
             .tagged(Shown);
-        match cx
+        let picture = match cx
             .world
             .get_resource::<Stage>()
             .map(|stage| stage.camera)
         {
             Some(camera) => {
-                cx.build(panel.seeded(ViewportNode::new(camera)))
+                cx.build(picture.seeded(ViewportNode::new(camera)))
             }
-            None => cx.build(panel),
+            None => cx.build(picture),
+        };
+        if let Some(mut node) = cx.world.get_mut::<Node>(picture) {
+            node.aspect_ratio = Some(1.0);
         }
+        picture
     })
 }
 
@@ -189,9 +205,9 @@ fn problem() -> AnyView {
             .radius(theme.space.round)
             .display(resource::<Editor<Material>, _>(|editor| {
                 if editor.problems.is_empty() {
-                    bevy::ui::Display::None
+                    Display::None
                 } else {
-                    bevy::ui::Display::Flex
+                    Display::Flex
                 }
             })),
         )
@@ -281,8 +297,16 @@ fn spawn(
                 handle,
                 scale_factor: scale,
             }),
+            // The realm's lens, but with a near plane for a shape
+            // within reach, not a hamlet from afar.
+            Projection::Perspective(PerspectiveProjection {
+                fov: settings.fov.to_radians(),
+                near: 0.05,
+                far: 100.0,
+                ..PerspectiveProjection::default()
+            }),
             RenderLayers::layer(LAYER),
-            Transform::from_xyz(0.0, 0.6, 2.4)
+            Transform::from_xyz(0.0, 0.0, DISTANCE)
                 .looking_at(Vec3::ZERO, Vec3::Y),
         ))
         .id();
@@ -414,7 +438,7 @@ fn pose(
             mesh.0 = stage.meshes[stand.shape].clone();
         }
     }
-    let distance = 2.4 * stand.zoom;
+    let distance = DISTANCE * stand.zoom;
     if let Ok((mut transform, mut fog)) =
         cameras.get_mut(stage.camera)
     {

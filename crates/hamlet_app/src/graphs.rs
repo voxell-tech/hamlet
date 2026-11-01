@@ -26,19 +26,15 @@ use bevy::app::App;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::math::Vec2;
-use bevy::ui::{
-    AlignItems, Display, Overflow, PositionType, UiRect, percent, px,
-};
+use bevy::ui::{AlignItems, Display, Overflow, UiRect, percent, px};
 use bevy::ui_render::UiMaterialPlugin;
-use bevy::window::SystemCursorIcon;
 use bevy_fynix::dock::DockWindowKind;
-use bevy_fynix::tokens::Motion;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, icon_button, row,
+    frame, row,
 };
 use bevy_fynix::{
-    Bevy, EntityCursor, ScopedExt, ViewExt, ViewSeq, keyed, resource,
+    Bevy, ScopedExt, ViewExt, ViewSeq, keyed, resource,
 };
 use hamlet_blueprint::{
     Book, Catalogue, Constant, Does, Edit, GraphInput, GraphOutput,
@@ -47,17 +43,16 @@ use hamlet_blueprint::{
 };
 use hamlet_ui::styles::{
     CONTROL, Fills, ICON, description, hairline, note, raised,
-    section,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{View, styles, with_cx};
+use hamlet_ui::{AnyView, View, styles, with_cx};
 
 pub(crate) use self::blueprint::Blueprint;
 use self::flavor::Flavor;
 pub(crate) use self::material::Material;
-use self::split::{Floating, Handle, Layout, divider, inset_at};
+use self::split::{Layout, Pane, divider, floating, outline};
 use crate::dock::{PanelAppExt, flush_panel};
 use crate::library::{Item, Kind, Source};
 
@@ -826,136 +821,59 @@ fn reshapes(sheet: &Sheet, registry: &Registry, edit: &Edit) -> bool {
     }
 }
 
-/// The width of the properties floating over the canvas.
-const FLOATING: f32 = 300.0;
-
-/// The Graph panel: its toolbar over the canvas, with the
-/// properties floating over the canvas's corner, and the preview
-/// beside it, sized by dragging the line between them. The canvas and
-/// the preview fill their sides edge to edge.
+/// The Graph panel: its toolbar over the canvas, with the parameters
+/// floating over the canvas's corner, and the preview floating there
+/// too or beside it, sized by dragging the line between them. The
+/// canvas and the preview fill their sides edge to edge.
 fn screen<F: Flavor>() -> impl View {
-    // Not `fills_height`: its grow would be along the row, sharing
-    // the width with the canvas.
-    let preview = column((F::preview(),))
-        .gap(0.0)
-        .min_height(px(0.0))
-        .width(resource::<Layout<F>, _>(|layout| px(layout.preview)))
-        .shrink(0.0);
+    let parameters = floating::<F>(
+        Pane::Parameters,
+        Glyph::Sliders,
+        "PARAMETERS",
+        params::view::<F>().boxed(),
+    );
+    let floating_preview = if F::PREVIEW_FLOATS {
+        floating::<F>(Pane::Preview, F::ICON, "PREVIEW", F::preview())
+    } else {
+        frame().display(Display::None).boxed()
+    };
+    // The cards are placed over the canvas, in its frame.
+    let over = column((
+        canvas::view::<F>(),
+        outline::<F>(),
+        parameters,
+        floating_preview,
+    ))
+    .fills_width()
+    .fills_height()
+    .min_width(px(0.0))
+    .gap(0.0);
+    let body: AnyView = if F::PREVIEW_FLOATS {
+        row((over,)).boxed()
+    } else {
+        // Not `fills_height`: its grow would be along the row,
+        // sharing the width with the canvas.
+        let preview = column((F::preview(),))
+            .gap(0.0)
+            .min_height(px(0.0))
+            .width(resource::<Layout<F>, _>(|layout| {
+                px(layout.preview)
+            }))
+            .shrink(0.0);
+        row((over, divider::<F>(), preview)).boxed()
+    };
     column((
         tools::<F>(),
         with_cx(|cx| hairline(cx.theme().palette.border)),
-        row((
-            // The properties are placed over the canvas, in its
-            // frame.
-            column((
-                canvas::view::<F>(),
-                dock_outline::<F>(),
-                properties::<F>(),
-            ))
-            .fills_width()
+        column((body,))
+            .width(percent(100.0))
             .fills_height()
-            .min_width(px(0.0))
             .gap(0.0),
-            divider::<F>(),
-            preview,
-        ))
-        .width(percent(100.0))
-        .fills_height()
-        .gap(0.0),
         menu::view::<F>(),
     ))
     .fills_width()
     .fills_height()
     .gap(0.0)
-}
-
-/// A lit outline of the corner dragged properties will settle in.
-fn dock_outline<F: Flavor>() -> impl View {
-    with_cx(|cx| {
-        let theme = cx.theme();
-        frame()
-            .position(PositionType::Absolute)
-            .inset(resource::<Layout<F>, _>(|layout| {
-                inset_at(layout.ghost.unwrap_or(layout.shown))
-            }))
-            .width(px(FLOATING))
-            .height(resource::<Layout<F>, _>(|layout| {
-                px(layout.size.y)
-            }))
-            .display(resource::<Layout<F>, _>(|layout| {
-                if layout.ghost.is_some() {
-                    Display::Flex
-                } else {
-                    Display::None
-                }
-            }))
-            .fill(theme.palette.text_selection)
-            .border(2.0)
-            .border_color(theme.palette.glow)
-            .radius(theme.space.round)
-    })
-}
-
-/// The selected node's properties, floating over a corner of the
-/// canvas. Its header drags it and its chevron folds it.
-fn properties<F: Flavor>() -> impl View {
-    with_cx(|cx| {
-        let theme = cx.theme();
-        let gap = theme.space.gap;
-        // Open, the chevron points up to fold; folded, it turns to
-        // point on.
-        let fold = button(
-            glyph(Glyph::Chevron, ICON)
-                .rotation(resource::<Layout<F>, _>(|layout| {
-                    if layout.properties { 0.0 } else { 90.0 }
-                }))
-                .transition(Motion::Interact),
-        )
-        .rules(icon_button)
-        .tooltip(|| note("Fold or open the parameters"))
-        .on_activate(|world| {
-            let mut layout = world.resource_mut::<Layout<F>>();
-            layout.properties = !layout.properties;
-        });
-        let header = row((
-            glyph(Glyph::Sliders, ICON),
-            section("PARAMETERS"),
-            frame().grow(1.0),
-            fold,
-        ))
-        .gap(gap / 2.0)
-        .align(AlignItems::Center)
-        .tagged(Handle::<F>::new())
-        .tagged(EntityCursor(SystemCursorIcon::Grab));
-        let body =
-            column((params::view::<F>(),)).display(resource::<
-                Layout<F>,
-                _,
-            >(
-                |layout| {
-                    if layout.properties {
-                        Display::Flex
-                    } else {
-                        Display::None
-                    }
-                },
-            ));
-        column((header, body))
-            .position(PositionType::Absolute)
-            .inset(resource::<Layout<F>, _>(|layout| {
-                inset_at(layout.shown)
-            }))
-            .width(px(FLOATING))
-            .max_height(percent(100.0))
-            .overflow(Overflow::clip())
-            .padding(UiRect::all(px(gap)))
-            .gap(gap / 2.0)
-            .fill(theme.palette.card)
-            .border(theme.space.border)
-            .border_color(theme.palette.border)
-            .radius(theme.space.round)
-            .tagged(Floating::<F>::new())
-    })
 }
 
 /// A button of one icon that runs `act`, named by `tip` under the

@@ -57,6 +57,7 @@ impl Flavor for Material {
         ("Water", include_str!("material/examples/water.ron")),
     ];
     const ROOM: f32 = swatch::SIZE + 8.0;
+    const PREVIEW_FLOATS: bool = true;
 
     type Got = Got;
 

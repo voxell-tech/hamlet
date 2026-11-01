@@ -27,6 +27,9 @@ pub(crate) trait Flavor:
     const KIND: Kind;
     /// Books to start from, by name; the first opens at launch.
     const EXAMPLES: &'static [(&'static str, &'static str)];
+    /// Whether its preview floats over the canvas as a card of its
+    /// own, rather than filling a side of the panel.
+    const PREVIEW_FLOATS: bool = false;
     /// The room a card leaves under its header for the flavor to
     /// fill, in sheet pixels; 0 for none.
     const ROOM: f32 = 0.0;
