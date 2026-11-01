@@ -21,7 +21,7 @@ use bevy_fynix::views::{
     icon_button, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
-use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
+use hamlet_desktop::file::{ChooseFiles, FilesChosen};
 use hamlet_graph::{Asset, Catalogue, Paint, Shape, Socket};
 use hamlet_graph_editor::library::{Kind, Library, mesh_file};
 use hamlet_realm::meshes::Meshing;
@@ -482,7 +482,7 @@ fn colour(name: String, asset: Asset, slot: String) -> AnyView {
 #[derive(Resource, Default)]
 struct Importer(Option<Entity>);
 
-/// Asks for a `.glb` file to add as an asset.
+/// Asks for the `.glb` files to add as assets.
 pub(super) fn import(world: &mut World) {
     let asker = match world.resource::<Importer>().0 {
         Some(asker) => asker,
@@ -492,30 +492,36 @@ pub(super) fn import(world: &mut World) {
             asker
         }
     };
-    world.trigger(ChooseFile {
+    world.trigger(ChooseFiles {
         asker,
-        mode: FileMode::Open,
-        title: "Add an asset".to_owned(),
+        title: "Add assets".to_owned(),
         extension: "glb".to_owned(),
-        name: String::new(),
     });
 }
 
 fn chosen(
-    chosen: On<FileChosen>,
+    chosen: On<FilesChosen>,
     importer: Res<Importer>,
     mut commands: Commands,
 ) {
     if importer.0 != Some(chosen.asker) {
         return;
     }
-    let path = chosen.path.clone();
+    let paths = chosen.paths.clone();
     commands.queue(move |world: &mut World| {
-        let note = match add_mesh(world, &path) {
-            Ok(name) => format!("Added {name}"),
-            Err(error) => format!("{error:#}"),
-        };
-        world.resource_mut::<Library>().note = note;
+        let (mut added, mut errors) = (Vec::new(), Vec::new());
+        for path in &paths {
+            match add_mesh(world, path) {
+                Ok(name) => added.push(name),
+                Err(error) => errors.push(format!("{error:#}")),
+            }
+        }
+        let mut notes = Vec::new();
+        if !added.is_empty() {
+            notes.push(format!("Added {}", added.join(", ")));
+        }
+        notes.extend(errors);
+        world.resource_mut::<Library>().note = notes.join("; ");
     });
 }
 

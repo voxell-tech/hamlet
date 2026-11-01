@@ -3,7 +3,7 @@
 
 use bevy_math::Vec3;
 use hamlet_graph::{
-    Error, Initial, Listed, NodeKind, PortSpec, ValueType,
+    Error, Initial, Listed, NodeKind, PortSpec, Scope, ValueType,
 };
 
 use super::{OBJECTS_IN, OBJECTS_OUT};
@@ -16,6 +16,7 @@ pub(super) const KINDS: &[BlueprintKind] = &[
     BlueprintKind::new(OBJECT, object),
     BlueprintKind::new(MATMUL, matmul),
     BlueprintKind::new(COMBINE, combine),
+    BlueprintKind::new(RANDOM_SELECT, random_select),
 ];
 
 const TRANSFORM_IN: PortSpec = PortSpec::new(
@@ -144,31 +145,58 @@ fn matmul(run: &mut Run) -> Result<(), Error> {
     Ok(())
 }
 
-/// The inputs of [`COMBINE`], in the order their objects are listed.
-const SETS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
+/// A set of objects, one port for each wire.
+const SET_IN: PortSpec =
+    PortSpec::new("set", ValueType::Objects, "A set").grows();
 
 const COMBINE: NodeKind = NodeKind {
     name: "combine",
-    doc: "Up to six sets of objects as one. Unwired inputs add \
-          nothing",
-    inputs: &[
-        PortSpec::new("a", ValueType::Objects, "A set"),
-        PortSpec::new("b", ValueType::Objects, "A set"),
-        PortSpec::new("c", ValueType::Objects, "A set"),
-        PortSpec::new("d", ValueType::Objects, "A set"),
-        PortSpec::new("e", ValueType::Objects, "A set"),
-        PortSpec::new("f", ValueType::Objects, "A set"),
-    ],
+    doc: "Its wired sets of objects as one, in the order of its \
+          inputs",
+    inputs: &[SET_IN],
     outputs: &[OBJECTS_OUT],
 };
 
 fn combine(run: &mut Run) -> Result<(), Error> {
     let mut objects = Vec::new();
-    for set in SETS {
-        if run.is_set(set) {
-            objects.extend_from_slice(run.objects(set)?);
-        }
+    for set in run.grown("set") {
+        objects.extend_from_slice(run.objects(&set)?);
     }
+    run.put("objects", Value::Objects(objects));
+    Ok(())
+}
+
+const RANDOM_SELECT: NodeKind = NodeKind {
+    name: "random_select",
+    doc: "One of its wired sets of objects, picked at random. Per \
+          is how often the pick changes",
+    inputs: &[
+        SET_IN,
+        PortSpec::new(
+            "per",
+            ValueType::Choice,
+            "How often it changes",
+        )
+        .initial(Initial::Choice("item"))
+        .choices(&["realm", "hamlet", "item"]),
+    ],
+    outputs: &[OBJECTS_OUT],
+};
+
+fn random_select(run: &mut Run) -> Result<(), Error> {
+    let scope = match run.choice("per", None)?.as_str() {
+        "realm" => Scope::Realm,
+        "hamlet" => Scope::Hamlet,
+        _ => Scope::Item,
+    };
+    let sets = run.grown("set");
+    let picked =
+        (run.chance(scope).unit() * sets.len() as f32) as usize;
+    let objects =
+        match sets.get(picked.min(sets.len().saturating_sub(1))) {
+            Some(set) => run.objects(set)?.to_vec(),
+            None => Vec::new(),
+        };
     run.put("objects", Value::Objects(objects));
     Ok(())
 }

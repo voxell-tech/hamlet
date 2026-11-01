@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::graph::{Does, Graph, Node, NodeId, Ruleset, Setting};
+use crate::grows;
 use crate::node::{PortSpec, Registry};
 use crate::value::{Constant, ValueType};
 
@@ -82,11 +83,13 @@ pub struct PortInfo {
     pub value_type: ValueType,
 }
 
-/// The inputs and outputs of `node`, from its kind or the graph it
-/// runs.
+/// The inputs and outputs of `node` in `graph`, from its kind or the
+/// graph it runs. A growing input has a port for each wire into it,
+/// and one more.
 pub fn ports(
     registry: &Registry,
     ruleset: &Ruleset,
+    graph: &Graph,
     node: &Node,
 ) -> Result<(Vec<PortInfo>, Vec<PortInfo>), Error> {
     match &node.does {
@@ -100,20 +103,27 @@ pub fn ports(
             let info = |specs: &[PortSpec]| {
                 specs
                     .iter()
-                    .map(|spec| PortInfo {
-                        name: spec.name.to_owned(),
-                        value_type: spec.value_type,
+                    .flat_map(|spec| {
+                        let names = if spec.grows {
+                            grows::ports_of(spec, graph, node.id)
+                        } else {
+                            vec![spec.name.to_owned()]
+                        };
+                        names.into_iter().map(|name| PortInfo {
+                            name,
+                            value_type: spec.value_type,
+                        })
                     })
                     .collect()
             };
             Ok((info(kind.inputs), info(kind.outputs)))
         }
         Does::Graph(name) => {
-            let graph = ruleset
+            let runs = ruleset
                 .graphs
                 .get(name)
                 .ok_or_else(|| Error::UnknownGraph(name.clone()))?;
-            let inputs = graph
+            let inputs = runs
                 .inputs
                 .iter()
                 .map(|input| PortInfo {
@@ -121,7 +131,7 @@ pub fn ports(
                     value_type: input.value_type,
                 })
                 .collect();
-            let outputs = graph
+            let outputs = runs
                 .outputs
                 .iter()
                 .map(|output| PortInfo {
@@ -171,7 +181,7 @@ fn check(
         if !ids.insert(node.id) {
             errors.push(Error::SameId(node.id));
         }
-        match ports(registry, ruleset, node) {
+        match ports(registry, ruleset, graph, node) {
             Ok(found) => {
                 ports_of.insert(node.id, found);
             }
@@ -210,7 +220,7 @@ fn check(
                         .and_then(|inputs| {
                             inputs
                                 .iter()
-                                .find(|spec| spec.name == port)
+                                .find(|spec| spec.is_for(port))
                         })
                         .map_or(&[][..], |spec| spec.choices);
                     if let Constant::Choice(choice) = constant

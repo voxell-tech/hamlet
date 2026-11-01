@@ -391,9 +391,12 @@ fn rows<F: Flavor>(
     editor: &Editor<F>,
     node: &hamlet_graph::Node,
 ) -> (Vec<Dot<F>>, Vec<Dot<F>>) {
-    let Ok((inputs, outputs)) =
-        ports(&editor.registry, &editor.rules, node)
-    else {
+    let Ok((inputs, outputs)) = ports(
+        &editor.registry,
+        &editor.rules,
+        &editor.sheet.graph,
+        node,
+    ) else {
         return (Vec::new(), Vec::new());
     };
     let dot = |side: Side| {
@@ -416,14 +419,12 @@ fn rows<F: Flavor>(
         let Some((naming, chosen)) = &named else {
             return true;
         };
-        let used = kind
-            .and_then(|kind| {
-                kind.inputs.iter().find(|spec| spec.name == name)
-            })
-            .is_none_or(|spec| {
+        let used = kind.and_then(|kind| kind.input(name)).is_none_or(
+            |spec| {
                 spec.used_with.is_empty()
                     || spec.used_with.contains(&chosen.as_str())
-            });
+            },
+        );
         let wired = editor.sheet.graph.wires.iter().any(|wire| {
             wire.to.node == node.id && wire.to.name == name
         });
@@ -439,17 +440,35 @@ fn rows<F: Flavor>(
     )
 }
 
-/// The inputs of `node` as rows show them: its kind's ports, or the
-/// inputs of the graph it runs.
+/// The inputs of `node` as rows show them: its kind's ports, each
+/// port of a growing one too, or the inputs of the graph it runs.
 fn specs<F: Flavor>(editor: &Editor<F>, node: NodeId) -> Vec<Input> {
-    match editor.sheet.graph.node(node).map(|node| &node.does) {
-        Some(Does::Kind(kind)) => editor
-            .registry
-            .get(kind)
-            .map(|kind| {
-                kind.inputs.iter().map(Input::of_port).collect()
-            })
-            .unwrap_or_default(),
+    let found = editor.sheet.graph.node(node);
+    match found.map(|node| &node.does) {
+        Some(Does::Kind(kind)) => {
+            let (Some(kind), Some(found)) =
+                (editor.registry.get(kind), found)
+            else {
+                return Vec::new();
+            };
+            let Ok((inputs, _)) = ports(
+                &editor.registry,
+                &editor.rules,
+                &editor.sheet.graph,
+                found,
+            ) else {
+                return Vec::new();
+            };
+            inputs
+                .into_iter()
+                .filter_map(|info| {
+                    Some(Input {
+                        name: info.name.clone(),
+                        ..Input::of_port(kind.input(&info.name)?)
+                    })
+                })
+                .collect()
+        }
         Some(Does::Graph(graph)) => editor
             .rules
             .graphs

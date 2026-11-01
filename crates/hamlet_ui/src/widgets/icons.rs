@@ -117,6 +117,8 @@ pub enum Glyph {
     /// Three lines: a list folded away.
     Menu,
     Folder,
+    /// A cube seen from a corner: things put down in a scene.
+    Cube,
     /// A compass needle, its north half filled, pointing up.
     Compass,
     Eye,
@@ -166,7 +168,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 57] = [
+    pub const ALL: [Glyph; 58] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -212,6 +214,7 @@ impl Glyph {
         Glyph::More,
         Glyph::Menu,
         Glyph::Folder,
+        Glyph::Cube,
         Glyph::Compass,
         Glyph::Eye,
         Glyph::Mountains,
@@ -550,6 +553,20 @@ impl Glyph {
                 [14.0, 12.75],
                 [2.0, 12.75],
             ])],
+            // Its edges at thirty degrees, as an isometric view has
+            // them.
+            Glyph::Cube => &[
+                Loop(&[
+                    [8.0, 2.0],
+                    [13.2, 5.0],
+                    [13.2, 11.0],
+                    [8.0, 14.0],
+                    [2.8, 11.0],
+                    [2.8, 5.0],
+                ]),
+                Path(&[[2.8, 5.0], [8.0, 8.0], [13.2, 5.0]]),
+                Line(8.0, 8.0, 8.0, 14.0),
+            ],
             Glyph::Compass => &[
                 Loop(&[
                     [8.0, 2.0],

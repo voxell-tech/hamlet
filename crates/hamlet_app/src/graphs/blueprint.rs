@@ -107,6 +107,7 @@ impl Flavor for Blueprint {
             let Ok((_, outputs)) = hamlet_graph::ports(
                 &editor.registry,
                 &editor.rules,
+                &editor.sheet.graph,
                 found,
             ) else {
                 continue;
@@ -133,6 +134,7 @@ impl Flavor for Blueprint {
             let Ok((_, outputs)) = hamlet_graph::ports(
                 &editor.registry,
                 &editor.rules,
+                &editor.sheet.graph,
                 node,
             ) else {
                 continue;
@@ -222,7 +224,7 @@ impl Flavor for Blueprint {
     }
 
     fn tabs() -> Vec<(Glyph, &'static str, fn() -> AnyView)> {
-        vec![(Glyph::Folder, "ASSETS", assets::tab)]
+        vec![(Glyph::Cube, "ASSETS", assets::tab)]
     }
 
     /// A mesh dropped on the canvas becomes an object node putting it
