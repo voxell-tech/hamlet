@@ -29,7 +29,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use crate::window;
+use crate::window::{self, Vsync};
 use crate::world_view::TimeOfDay;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -208,7 +208,7 @@ fn item(
     .boxed()
 }
 
-fn items(menu: Menu, found: bool) -> Vec<AnyView> {
+fn items(menu: Menu, found: bool, vsync: Vsync) -> Vec<AnyView> {
     match menu {
         Menu::App => {
             let mut items = Vec::new();
@@ -235,6 +235,15 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
             item(Glyph::Moon, "Sky at Night", |w| {
                 *w.resource_mut::<TimeOfDay>() = TimeOfDay::Night;
             }),
+            item(
+                Glyph::Meter,
+                if vsync.0 {
+                    "Turn Off Vsync"
+                } else {
+                    "Turn On Vsync"
+                },
+                window::toggle_vsync,
+            ),
         ],
     }
 }
@@ -248,15 +257,23 @@ pub fn open_menu() -> impl View {
                 hamlet_client::realm::Deeds::is_allowed(
                     world, "found",
                 ),
+                world
+                    .get_resource::<Vsync>()
+                    .copied()
+                    .unwrap_or(Vsync(true)),
             )
         })
         .when(crate::roll::either(
-            crate::roll::moved::<OpenMenu>(),
-            crate::roll::moved::<hamlet_client::realm::Deeds>(),
+            crate::roll::either(
+                crate::roll::moved::<OpenMenu>(),
+                crate::roll::moved::<hamlet_client::realm::Deeds>(),
+            ),
+            crate::roll::moved::<Vsync>(),
         )),
-        |(open, found)| match open {
+        |(open, found, vsync)| match open {
             Some((menu, anchor)) => {
-                let (anchor, items) = (*anchor, items(*menu, *found));
+                let (anchor, items) =
+                    (*anchor, items(*menu, *found, *vsync));
                 with_cx(move |cx| {
                     popup(anchor, items)
                         .on_dismiss(|world, _| dismiss(world))
