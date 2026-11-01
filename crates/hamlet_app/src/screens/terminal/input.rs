@@ -24,7 +24,7 @@ use hamlet_client::terminals::{
     self, Terminal, TerminalKind, TerminalScreen,
 };
 
-use super::Active;
+use super::Panels;
 use super::keys::{self, Modes, Mods};
 use super::screen::{Canvas, Chosen, Drawn, Span};
 
@@ -70,24 +70,28 @@ fn press(
         (&ComputedNode, &UiGlobalTransform, &Drawn),
         With<Canvas>,
     >,
-    active: Res<Active>,
+    mut canvases: Query<(&Canvas, &mut Chosen)>,
+    panels: Res<Panels>,
     screens: Query<&TerminalScreen>,
     mut focus: ResMut<InputFocus>,
-    mut chosen: ResMut<Chosen>,
 ) {
     if press.entity != press.original_event_target()
         || !nodes.contains(press.entity)
     {
         return;
     }
+    let Ok((canvas, mut chosen)) = canvases.get_mut(press.entity)
+    else {
+        return;
+    };
     if focus.get() != Some(press.entity) {
         focus.set(press.entity, FocusCause::Pressed);
     }
     if press.button != PointerButton::Primary {
         return;
     }
-    let spot = active
-        .0
+    let spot = panels
+        .active(&canvas.0)
         .and_then(|terminal| screens.get(terminal).ok())
         .and_then(|screen| {
             cell_at(
@@ -108,9 +112,9 @@ fn drag(
         (&ComputedNode, &UiGlobalTransform, &Drawn),
         With<Canvas>,
     >,
-    active: Res<Active>,
+    mut canvases: Query<(&Canvas, &mut Chosen)>,
+    panels: Res<Panels>,
     screens: Query<&TerminalScreen>,
-    mut chosen: ResMut<Chosen>,
 ) {
     if drag.entity != drag.original_event_target()
         || drag.button != PointerButton::Primary
@@ -118,9 +122,15 @@ fn drag(
     {
         return;
     }
+    let Ok((canvas, mut chosen)) = canvases.get_mut(drag.entity)
+    else {
+        return;
+    };
     let (Some(from), Some(screen)) = (
         chosen.1,
-        active.0.and_then(|terminal| screens.get(terminal).ok()),
+        panels
+            .active(&canvas.0)
+            .and_then(|terminal| screens.get(terminal).ok()),
     ) else {
         return;
     };
@@ -142,17 +152,18 @@ fn drag(
 /// draws the whole screen is sent the arrows instead.
 fn wheel(
     scroll: On<PointerScroll>,
-    nodes: Query<&Drawn, With<Canvas>>,
-    active: Res<Active>,
+    mut nodes: Query<(&Drawn, &Canvas, &mut Chosen)>,
+    panels: Res<Panels>,
     mut screens: Query<(&mut TerminalScreen, &Terminal)>,
-    mut chosen: ResMut<Chosen>,
     mut left: Local<f32>,
     mut commands: Commands,
 ) {
-    let Ok(drawn) = nodes.get(scroll.entity) else {
+    let Ok((drawn, canvas, mut chosen)) =
+        nodes.get_mut(scroll.entity)
+    else {
         return;
     };
-    let Some(terminal) = active.0 else {
+    let Some(terminal) = panels.active(&canvas.0) else {
         return;
     };
     let Ok((mut screen, view)) = screens.get_mut(terminal) else {
@@ -228,18 +239,18 @@ fn edited(key: &KeyboardInput, mods: Mods) -> Option<&'static str> {
 /// round the desks.
 fn typed(
     mut key: On<FocusedInput<KeyboardInput>>,
-    canvases: Query<(), With<Canvas>>,
+    mut canvases: Query<(&Canvas, &mut Chosen)>,
     held: Option<Res<ButtonInput<KeyCode>>>,
-    active: Res<Active>,
-    mut chosen: ResMut<Chosen>,
+    panels: Res<Panels>,
     mut commands: Commands,
 ) {
-    let canvas = key.event_target();
-    if canvas != key.original_event_target()
-        || !canvases.contains(canvas)
-    {
+    let target = key.event_target();
+    if target != key.original_event_target() {
         return;
     }
+    let Ok((canvas, mut chosen)) = canvases.get_mut(target) else {
+        return;
+    };
     let mods = held.as_deref().map_or_else(Mods::default, Mods::held);
     let edit = edited(&key.input, mods);
     let window = mods.command
@@ -251,7 +262,7 @@ fn typed(
     }
     key.propagate(false);
     let input = key.input.clone();
-    let Some(terminal) = active.0 else {
+    let Some(terminal) = panels.active(&canvas.0) else {
         return;
     };
     if !input.state.is_pressed() {

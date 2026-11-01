@@ -1,6 +1,7 @@
 //! The view kept between launches: the desks, the choices of the
 //! View menu, and the selection.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -31,6 +32,7 @@ use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
+use crate::screens::terminal;
 use crate::world_view::{NorthTarget, TimeOfDay};
 
 /// Seconds a change waits before it is written, so that dragging a
@@ -114,6 +116,9 @@ pub struct View {
     desks: Option<Desks>,
     /// The selection when the window closed.
     selected: Option<Chosen>,
+    /// The terminal each Terminal panel showed, by panel id.
+    #[serde(default)]
+    terminals: BTreeMap<String, String>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -308,6 +313,7 @@ pub fn restore(world: &mut World) {
         None => Desks::first(view.dock),
     };
     world.insert_resource(desks);
+    world.insert_resource(terminal::Restoring(view.terminals));
 }
 
 /// The selection, by the names it is kept under.
@@ -338,10 +344,11 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north): (
+    (pending, kept, north, terminals): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
+        Res<terminal::Shown>,
     ),
     (fog, far): (
         Res<VolumetricFogSettings>,
@@ -360,6 +367,7 @@ pub fn keep(
         || fog.is_changed()
         || far.is_changed()
         || north.is_changed()
+        || terminals.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -384,6 +392,7 @@ pub fn keep(
         dock: Vec::new(),
         desks: Some(desks.clone()),
         selected: kept.0.clone(),
+        terminals: terminals.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -442,6 +451,10 @@ mod tests {
             dock: Vec::new(),
             desks,
             selected: Some(Chosen::House("juniper".into())),
+            terminals: BTreeMap::from([(
+                "terminal-2".into(),
+                "t-3f2a".into(),
+            )]),
         }
     }
 
@@ -472,6 +485,7 @@ mod tests {
                 .init_resource::<DockRegistry<HamletTheme>>()
                 .init_resource::<Desks>()
                 .init_resource::<desk::Shown>()
+                .init_resource::<terminal::Shown>()
                 .add_systems(Update, desk::capture)
                 .add_plugins(plugin);
             for name in ["world", "needs", "agent", "skills"] {

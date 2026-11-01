@@ -108,12 +108,19 @@ pub(super) fn seed_dock(world: &mut World) {
         if let Some(parent) = tree.parent_of(side) {
             tree.set_fraction(parent, 0.62);
         }
-        if matches!(scene, Scene::Terminal | Scene::TerminalShell)
-            && let Some((low, _)) =
-                tree.split(centre, Edge::Bottom, "terminal".into())
+        if matches!(
+            scene,
+            Scene::Terminal
+                | Scene::TerminalShell
+                | Scene::TerminalPanels
+        ) && let Some((low, _)) =
+            tree.split(centre, Edge::Bottom, "terminal".into())
             && let Some(parent) = tree.parent_of(low)
         {
             tree.set_fraction(parent, 0.4);
+            if scene == Scene::TerminalPanels {
+                tree.split(low, Edge::Right, "terminal-2".into());
+            }
         }
         if matches!(
             scene,
@@ -125,6 +132,7 @@ pub(super) fn seed_dock(world: &mut World) {
             tree.add_tab(side, "settings");
         }
     }
+    hamlet_app::register_numbered(world);
 }
 
 /// The question before a rewind to the last of the chief's

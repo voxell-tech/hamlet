@@ -8,7 +8,6 @@ use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::query::With;
-use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::input_focus::InputFocus;
 use bevy::input_focus::tab_navigation::TabIndex;
@@ -31,7 +30,7 @@ use hamlet_client::terminals::{
 use hamlet_ui::theme::{HamletTheme, TerminalLook};
 use hamlet_ui::widgets::platform::TerminalFace;
 
-use super::Active;
+use super::{PanelId, Panels};
 
 /// The letters the width of a cell is measured over.
 const PROBE: &str = "0123456789012345678901234567890123456789";
@@ -42,8 +41,8 @@ const PROBE: &str = "0123456789012345678901234567890123456789";
 /// negative one keeps it out of the Tab order, so Tab reaches the
 /// shell.
 #[derive(Component)]
-#[require(TabIndex = TabIndex(-1))]
-pub struct Canvas;
+#[require(TabIndex = TabIndex(-1), Chosen)]
+pub struct Canvas(pub PanelId);
 
 /// What is drawn in a [`Canvas`].
 #[derive(Component)]
@@ -106,18 +105,13 @@ impl Span {
     }
 }
 
-/// The cells chosen in the active terminal, and the cell a drag that
+/// The cells chosen in a canvas's terminal, and the cell a drag that
 /// chooses them starts from.
-#[derive(Resource, Default, Clone, Copy, PartialEq)]
+#[derive(Component, Default, Clone, Copy, PartialEq)]
 pub(crate) struct Chosen(
     pub(crate) Option<Span>,
     pub(crate) Option<(u16, u16)>,
 );
-
-/// The columns and rows the screen has room for, for a terminal
-/// still to be opened.
-#[derive(Resource, Default, Clone, Copy)]
-pub(crate) struct Room(pub(crate) Option<(u16, u16)>);
 
 /// One row of the screen as it is drawn.
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -296,7 +290,7 @@ pub(crate) fn line(
     line
 }
 
-/// Draws the active terminal in every canvas.
+/// Draws in each canvas the terminal its panel shows.
 pub(crate) fn draw(world: &mut World) {
     let Some(canvases) = world
         .try_query_filtered::<Entity, With<Canvas>>()
@@ -387,15 +381,16 @@ fn draw_in(world: &mut World, canvas: Entity, look: &TerminalLook) {
             info.size.x / info.scale_factor / PROBE.len() as f32
         });
     let active = world
-        .get_resource::<Active>()
-        .and_then(|active| active.0)
+        .get::<Canvas>(canvas)
+        .and_then(|canvas| {
+            world.resource::<Panels>().active(&canvas.0)
+        })
         .filter(|terminal| {
             world.get::<TerminalScreen>(*terminal).is_some()
         });
     let focused =
         world.get_resource::<InputFocus>().and_then(InputFocus::get)
             == Some(canvas);
-    let chosen = world.get_resource::<Chosen>().and_then(|c| c.0);
     let mut drawn = world.entity_mut(canvas).take::<Drawn>();
     let Some(drawn_now) = drawn.as_mut() else {
         return;
@@ -407,10 +402,11 @@ fn draw_in(world: &mut World, canvas: Entity, look: &TerminalLook) {
         drawn_now.terminal = active;
         drawn_now.seen = None;
         drawn_now.lines.iter_mut().for_each(|line| *line = None);
-        if world.get_resource::<Chosen>().is_some() {
-            world.resource_mut::<Chosen>().0 = None;
+        if let Some(mut chosen) = world.get_mut::<Chosen>(canvas) {
+            *chosen = Chosen::default();
         }
     }
+    let chosen = world.get::<Chosen>(canvas).and_then(|c| c.0);
     redraw(world, canvas, drawn_now, focused, chosen, &font, look);
     if let Some(drawn) = drawn {
         world.entity_mut(canvas).insert(drawn);
@@ -597,8 +593,8 @@ fn draw_row(
     }
 }
 
-/// Gives the active terminal the columns and rows its canvas has room
-/// for, once the canvas has held that size a moment.
+/// Gives each panel's terminal the columns and rows its canvas has
+/// room for, once the canvas has held that size a moment.
 pub(crate) fn fit(world: &mut World) {
     let Some(settle) = world
         .get_resource::<bevy_fynix::Theme<HamletTheme>>()
@@ -618,7 +614,16 @@ pub(crate) fn fit(world: &mut World) {
         let Some(room) = room(world, canvas) else {
             continue;
         };
-        world.insert_resource(Room(Some(room)));
+        if let Some(panel) =
+            world.get::<Canvas>(canvas).map(|c| c.0.clone())
+            && world
+                .resource::<Panels>()
+                .get(&panel)
+                .is_none_or(|shown| shown.room != Some(room))
+        {
+            world.resource_mut::<Panels>().edit(&panel).room =
+                Some(room);
+        }
         let Some(terminal) =
             world.get::<Drawn>(canvas).and_then(|d| d.terminal)
         else {

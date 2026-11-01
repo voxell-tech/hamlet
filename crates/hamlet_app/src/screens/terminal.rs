@@ -1,41 +1,51 @@
-//! The Terminal panel: the screen of the active terminal, and beside
-//! it the terminals by hamlet, each agent's commands first, with the
-//! press that opens another.
+//! The Terminal panels: each shows the screen of one terminal, and
+//! beside it the terminals by hamlet, each agent's commands first,
+//! with the press that opens another. More than one can be open, and
+//! a terminal shows in only one of them.
 
 mod input;
 pub mod keys;
 mod list;
 mod screen;
 
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
 use bevy::app::{App, Update};
 use bevy::color::{Alpha, Color};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::hierarchy::Children;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::math::Rect;
 use bevy::picking::Pickable;
+use bevy::ui::widget::Text;
 use bevy::ui::{
-    AlignItems, Outline, Overflow, PositionType, UiRect, px,
+    AlignItems, Outline, Overflow, PositionType, UiRect, percent, px,
 };
-use bevy_fynix::dock::DockWindowKind;
+use bevy_fynix::dock::{DockTab, DockTree, DockWindowKind};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, menu_item,
-    overlay, popup, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    label, menu_item, overlay, popup, row,
 };
 use bevy_fynix::{
-    Theme, ViewExt, derived, every_frame, keyed, resource,
+    ScopedExt, Theme, ViewExt, derived, every_frame, keyed,
 };
 use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{self, HamletId};
-use hamlet_client::terminals::{self, TerminalOpened, Watched};
-use hamlet_ui::styles::{Fills, ICON, caption, description};
+use hamlet_client::terminals::{
+    self, TerminalId, TerminalOpened, Watched,
+};
+use hamlet_ui::styles::{
+    Fills, ICON, caption, description, link_row, note,
+};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
@@ -43,67 +53,281 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use self::list::Listed;
 pub use self::screen::Canvas;
-pub(crate) use self::screen::{Chosen, Room};
-use crate::dock::{PanelAppExt, flush_panel, show_tab};
+use crate::dock::{
+    PanelAppExt, flush_panel, number, on_a_desk, open_another,
+    show_tab,
+};
 
 /// The size a terminal opens at before its canvas has been measured.
 const FIRST_SIZE: (u16, u16) = (80, 24);
 
+/// The id of the first Terminal panel. The others are `terminal-2`,
+/// `terminal-3` and so on.
+pub const PANEL: &str = "terminal";
+
 pub fn plugin(app: &mut App) {
-    app.add_panel(
-        "terminal",
-        DockWindowKind::new("TERMINAL", || flush_panel(panel()))
-            .icon(Glyph::Terminal.image(ICON)),
-    )
-    .init_resource::<Active>()
-    .init_resource::<Handing>()
-    .init_resource::<Adding>()
-    .init_resource::<Opening>()
-    .init_resource::<Chosen>()
-    .init_resource::<Room>()
-    .add_observer(opened)
-    .add_systems(
-        Update,
-        (
-            (hand_keys, keep_watching, screen::draw, screen::fit)
-                .chain(),
-            light_edge,
-        ),
-    )
-    .add_plugins((input::plugin, list::plugin));
+    app.add_numbered_panel(PANEL, window)
+        .init_resource::<Panels>()
+        .init_resource::<Handing>()
+        .init_resource::<Adding>()
+        .init_resource::<Opening>()
+        .init_resource::<Shown>()
+        .init_resource::<Restoring>()
+        .add_observer(opened)
+        .add_systems(
+            Update,
+            (
+                (
+                    forget_closed
+                        .run_if(resource_changed::<DockTree>)
+                        .after(crate::desk::capture),
+                    hand_keys,
+                    keep_watching,
+                    screen::draw,
+                    screen::fit,
+                )
+                    .chain(),
+                light_edge,
+                name_tabs,
+            ),
+        )
+        .add_plugins((input::plugin, list::plugin));
 }
 
-/// The terminal the panel shows.
-#[derive(Resource, Default, Clone, Copy, PartialEq)]
-pub struct Active(pub Option<Entity>);
+/// The dock window of the Terminal panel `id`. Its tab is named after
+/// the terminal it shows by [`name_tabs`].
+fn window(id: &str) -> DockWindowKind<HamletTheme> {
+    let panel = PanelId(id.to_owned());
+    DockWindowKind::new(TITLE, move || flush_panel(contents(&panel)))
+        .icon(Glyph::Terminal.image(ICON))
+}
+
+/// The name of a Terminal panel, and of its tab while it shows none.
+const TITLE: &str = "TERMINAL";
+
+/// The most letters of a terminal's name and of its last command a
+/// tab shows.
+const TAB_NAME: usize = 20;
+const TAB_LAST: usize = 24;
+
+/// Whether the dock window `id` is a Terminal panel.
+fn is_panel(id: &str) -> bool {
+    id == PANEL || number(PANEL, id).is_some()
+}
+
+/// The Terminal panels the dock holds, each once, in a lasting order.
+fn in_dock(world: &World) -> Vec<PanelId> {
+    let Some((tree, root)) = world
+        .get_resource::<DockTree>()
+        .and_then(|tree| Some((tree, tree.root?)))
+    else {
+        return Vec::new();
+    };
+    let mut found = tree
+        .leaves_under(root)
+        .into_iter()
+        .flat_map(|(_, leaf)| {
+            leaf.tabs().map(|(id, _)| id.to_owned())
+        })
+        .filter(|id| is_panel(id))
+        .map(PanelId)
+        .collect::<Vec<_>>();
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    found.dedup();
+    found
+}
+
+/// What each Terminal panel shows, by panel id and terminal id, as
+/// the view keeps it.
+#[derive(Resource, Default, Clone, PartialEq, Debug)]
+pub struct Shown(pub BTreeMap<String, String>);
+
+/// What Terminal panels showed and are to show again once they are in
+/// the dock and their terminals are there: as the view kept it, or as
+/// a panel on another desk left it.
+#[derive(Resource, Default, Clone, PartialEq, Debug)]
+pub struct Restoring(pub BTreeMap<String, String>);
+
+/// Names each Terminal panel's tab after the terminal it shows.
+fn name_tabs(
+    tabs: Query<(Entity, &DockTab)>,
+    tree: Option<Res<DockTree>>,
+    panels: Res<Panels>,
+    listed: Res<Listed>,
+    children: Query<&Children>,
+    mut texts: Query<&mut Text>,
+) {
+    let Some(tree) = tree else {
+        return;
+    };
+    for (node, tab) in &tabs {
+        let Some(window) = tree.leaf(tab.leaf).and_then(|leaf| {
+            leaf.tabs()
+                .find(|(_, id)| *id == tab.tab)
+                .map(|(window, _)| window)
+        }) else {
+            continue;
+        };
+        if !is_panel(window) {
+            continue;
+        }
+        let item = panels
+            .active(&PanelId(window.to_owned()))
+            .and_then(|terminal| listed.find(terminal));
+        let name = tab_name(item);
+        let Some(label) = children
+            .iter_descendants_depth_first(node)
+            .find(|kid| texts.contains(*kid))
+        else {
+            continue;
+        };
+        if let Ok(mut text) = texts.get_mut(label)
+            && text.0 != name
+        {
+            text.0 = name;
+        }
+    }
+}
+
+/// The name of the tab of a panel showing `item`.
+fn tab_name(item: Option<&list::Item>) -> String {
+    let Some(item) = item else {
+        return TITLE.to_owned();
+    };
+    let name = list::elided(&item.name, TAB_NAME);
+    match &item.last {
+        Some(last) => {
+            format!(
+                "{TITLE} ({name}): {}",
+                list::elided(last, TAB_LAST)
+            )
+        }
+        None => format!("{TITLE} ({name})"),
+    }
+}
+
+/// Forgets the panels the dock no longer holds. One a desk still
+/// holds is to show its terminal again when that desk is shown.
+fn forget_closed(world: &mut World) {
+    let docked = in_dock(world);
+    let gone = world
+        .resource::<Panels>()
+        .0
+        .keys()
+        .filter(|panel| !docked.contains(panel))
+        .cloned()
+        .collect::<Vec<_>>();
+    for panel in gone {
+        let shown = world
+            .resource_mut::<Panels>()
+            .0
+            .remove(&panel)
+            .and_then(|kept| kept.active)
+            .and_then(|terminal| world.get::<TerminalId>(terminal))
+            .map(|id| id.0.clone());
+        if let Some(terminal) = shown
+            && on_a_desk(world, &panel.0)
+        {
+            world
+                .resource_mut::<Restoring>()
+                .0
+                .insert(panel.0, terminal);
+        }
+    }
+    let kept = world
+        .resource::<Restoring>()
+        .0
+        .keys()
+        .filter(|panel| {
+            docked.contains(&PanelId((*panel).clone()))
+                || on_a_desk(world, panel)
+        })
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    world
+        .resource_mut::<Restoring>()
+        .0
+        .retain(|panel, _| kept.contains(panel));
+}
+
+/// A Terminal panel's dock window id.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PanelId(pub String);
+
+impl PanelId {
+    /// The first Terminal panel.
+    pub fn first() -> Self {
+        Self(PANEL.to_owned())
+    }
+}
+
+/// What each Terminal panel shows and keeps.
+#[derive(Resource, Default)]
+pub struct Panels(HashMap<PanelId, Panel>);
+
+#[derive(Clone, Default)]
+pub(crate) struct Panel {
+    /// The terminal it shows.
+    pub(crate) active: Option<Entity>,
+    /// The columns and rows its screen has room for, for a terminal
+    /// still to be opened.
+    pub(crate) room: Option<(u16, u16)>,
+    /// The groups of its list folded away, by hamlet id.
+    pub(crate) folded: BTreeSet<String>,
+    /// Its list is out of sight.
+    pub(crate) list_hidden: bool,
+}
+
+impl Panels {
+    /// The terminal `panel` shows.
+    pub fn active(&self, panel: &PanelId) -> Option<Entity> {
+        self.0.get(panel).and_then(|panel| panel.active)
+    }
+
+    pub(crate) fn get(&self, panel: &PanelId) -> Option<&Panel> {
+        self.0.get(panel)
+    }
+
+    pub(crate) fn edit(&mut self, panel: &PanelId) -> &mut Panel {
+        self.0.entry(panel.clone()).or_default()
+    }
+
+    /// Hides the list of `panel`.
+    pub fn hide_list(&mut self, panel: &PanelId) {
+        self.edit(panel).list_hidden = true;
+    }
+}
 
 /// A faint line just inside the panel's edge, lit while its screen
 /// has the keys. It is the panel's last child, so drawn over the
 /// rest.
 #[derive(Component)]
 #[require(Pickable = Pickable::IGNORE)]
-struct Edge;
+struct Edge(PanelId);
 
 /// How strongly the [`Edge`] shows the accent.
 const EDGE_ALPHA: f32 = 0.45;
 
-/// Lights each panel's [`Edge`] while a terminal's screen has the
-/// keys.
+/// Lights a panel's [`Edge`] while its screen has the keys.
 fn light_edge(
     focus: Option<Res<InputFocus>>,
-    canvases: Query<(), With<Canvas>>,
+    canvases: Query<&Canvas>,
     theme: Option<Res<Theme<HamletTheme>>>,
-    edges: Query<(Entity, Option<&Outline>), With<Edge>>,
+    edges: Query<(Entity, &Edge, Option<&Outline>)>,
     mut commands: Commands,
 ) {
     let focused = focus
         .and_then(|focus| focus.get())
-        .is_some_and(|node| canvases.contains(node));
+        .and_then(|node| canvases.get(node).ok());
     let lit = theme.map_or(Color::NONE, |theme| {
         theme.0.palette.gold_4.with_alpha(EDGE_ALPHA)
     });
-    let color = if focused { lit } else { Color::NONE };
-    for (edge, outline) in &edges {
+    for (edge, Edge(panel), outline) in &edges {
+        let color = if focused.is_some_and(|c| c.0 == *panel) {
+            lit
+        } else {
+            Color::NONE
+        };
         if outline.is_none_or(|outline| outline.color != color) {
             commands.entity(edge).try_insert(Outline::new(
                 px(1.0),
@@ -114,75 +338,147 @@ fn light_edge(
     }
 }
 
-/// Whether the screen is to be given the keys once it is there.
+/// The panel whose screen is to be given the keys once it is there.
 #[derive(Resource, Default)]
-struct Handing(bool);
+struct Handing(Option<PanelId>);
 
-/// Where the menu that opens a terminal hangs, while it is open.
-#[derive(Resource, Default, Clone, Copy, PartialEq)]
-struct Adding(Option<Rect>);
+/// Where the menu that opens a terminal hangs, and the panel it opens
+/// it in, while it is open.
+#[derive(Resource, Default, Clone, PartialEq)]
+struct Adding(Option<(Rect, PanelId)>);
 
-/// The open the panel waits on, to show what it opens.
+/// The open a panel waits on, to show what it opens.
 #[derive(Resource, Default)]
-struct Opening(Option<RequestId>);
+struct Opening(Option<(RequestId, PanelId)>);
 
-/// Watches the active terminal while the panel is shown, and no
-/// other. With none active, the first listed is.
+/// What each of `panels` shows: the terminal it had while that is
+/// there and no panel before it has it, else the one it is to show
+/// again, else none. A panel never takes a terminal of itself.
+fn claims(
+    panels: &[PanelId],
+    had: impl Fn(&PanelId) -> Option<Entity>,
+    there: impl Fn(Entity) -> bool,
+    again: impl Fn(&PanelId) -> Option<Entity>,
+) -> Vec<(PanelId, Option<Entity>)> {
+    let mut taken = Vec::new();
+    let mut kept = panels
+        .iter()
+        .map(|panel| {
+            let active = had(panel)
+                .filter(|terminal| there(*terminal))
+                .filter(|terminal| !taken.contains(terminal));
+            taken.extend(active);
+            (panel.clone(), active)
+        })
+        .collect::<Vec<_>>();
+    for (panel, active) in &mut kept {
+        if active.is_none() {
+            *active = again(panel)
+                .filter(|terminal| there(*terminal))
+                .filter(|terminal| !taken.contains(terminal));
+            taken.extend(*active);
+        }
+    }
+    kept
+}
+
+/// Keeps what each panel in the dock shows, puts back what a panel is
+/// to show again, watches those terminals and no other, and notes
+/// what each shows for the view.
 fn keep_watching(world: &mut World) {
-    let shown =
-        world.try_query_filtered::<(), With<Canvas>>().is_some_and(
-            |mut canvases| canvases.iter(world).next().is_some(),
-        );
-    let mut active =
-        world.resource::<Active>().0.filter(|terminal| {
-            world.get::<terminals::TerminalId>(*terminal).is_some()
-        });
-    if active.is_none() && shown {
-        active = world.resource::<Listed>().first();
+    let panels = in_dock(world);
+    let again = world
+        .resource::<Restoring>()
+        .0
+        .iter()
+        .filter_map(|(panel, id)| {
+            terminals::find(world, id)
+                .map(|terminal| (PanelId(panel.clone()), terminal))
+        })
+        .collect::<HashMap<_, _>>();
+    let shown = {
+        let kept = world.resource::<Panels>();
+        claims(
+            &panels,
+            |panel| kept.active(panel),
+            |terminal| world.get::<TerminalId>(terminal).is_some(),
+            |panel| again.get(panel).copied(),
+        )
+    };
+    for (panel, active) in &shown {
+        if world.resource::<Panels>().active(panel) != *active {
+            world.resource_mut::<Panels>().edit(panel).active =
+                *active;
+        }
+        if active.is_some()
+            && world.resource::<Restoring>().0.contains_key(&panel.0)
+        {
+            world.resource_mut::<Restoring>().0.remove(&panel.0);
+        }
     }
-    if world.resource::<Active>().0 != active {
-        world.resource_mut::<Active>().0 = active;
-    }
+    let keep = shown
+        .iter()
+        .filter_map(|(_, active)| *active)
+        .collect::<Vec<_>>();
     let watched = world
         .try_query_filtered::<Entity, With<Watched>>()
         .map(|mut query| query.iter(world).collect::<Vec<_>>())
         .unwrap_or_default();
-    let keep = active.filter(|_| shown);
     for terminal in watched {
-        if Some(terminal) != keep {
+        if !keep.contains(&terminal) {
             terminals::unwatch(world, terminal);
         }
     }
-    if let Some(terminal) = keep {
-        terminals::watch(world, terminal);
+    for terminal in &keep {
+        terminals::watch(world, *terminal);
+    }
+    let mut noted = world.resource::<Restoring>().0.clone();
+    for (panel, active) in shown {
+        if let Some(id) = active
+            .and_then(|terminal| world.get::<TerminalId>(terminal))
+        {
+            noted.insert(panel.0, id.0.clone());
+        }
+    }
+    if world.resource::<Shown>().0 != noted {
+        world.resource_mut::<Shown>().0 = noted;
     }
 }
 
-/// Shows a terminal the panel opened, and gives it the keys.
+/// Shows a terminal a panel opened, and gives it the keys.
 fn opened(opened: On<TerminalOpened>, mut commands: Commands) {
     let (request, terminal) =
         (opened.request.clone(), opened.terminal);
     commands.queue(move |world: &mut World| {
-        if world.resource::<Opening>().0.as_ref() != Some(&request) {
-            return;
-        }
+        let panel = match &world.resource::<Opening>().0 {
+            Some((waited, panel)) if *waited == request => {
+                panel.clone()
+            }
+            _ => return,
+        };
         world.resource_mut::<Opening>().0 = None;
-        show_tab(world, "terminal");
-        activate(world, terminal);
+        show_tab(world, &panel.0);
+        activate(world, &panel, terminal);
     });
 }
 
-/// Gives the screen the keys once it is there: the first terminal's
-/// canvas is built only after the terminal arrives.
+/// Gives the screen of the panel handed to the keys once it is
+/// there: the first terminal's canvas is built only after the
+/// terminal arrives.
 fn hand_keys(world: &mut World) {
-    if !world.resource::<Handing>().0 {
+    let Some(panel) = world.resource::<Handing>().0.clone() else {
         return;
-    }
-    let canvas = world
-        .try_query_filtered::<Entity, With<Canvas>>()
-        .and_then(|mut query| query.iter(world).next());
+    };
+    let canvas = world.try_query::<(Entity, &Canvas)>().and_then(
+        |mut query| {
+            query
+                .iter(world)
+                .find(|(_, canvas)| canvas.0 == panel)
+                .map(|(entity, _)| entity)
+        },
+    );
     if let Some(canvas) = canvas {
-        world.resource_mut::<Handing>().0 = false;
+        world.resource_mut::<Handing>().0 = None;
         if let Some(mut focus) =
             world.get_resource_mut::<InputFocus>()
         {
@@ -192,39 +488,65 @@ fn hand_keys(world: &mut World) {
 }
 
 /// Opens a shell in `hamlet`, or an unbounded one, at the size the
-/// canvas has room for.
-fn open(world: &mut World, hamlet: Option<String>) {
+/// screen of `panel` has room for.
+fn open(world: &mut World, panel: &PanelId, hamlet: Option<String>) {
     world.resource_mut::<Adding>().0 = None;
-    let (cols, rows) =
-        world.resource::<Room>().0.unwrap_or(FIRST_SIZE);
+    let (cols, rows) = world
+        .resource::<Panels>()
+        .get(panel)
+        .and_then(|panel| panel.room)
+        .unwrap_or(FIRST_SIZE);
     let request = terminals::open(world, hamlet, cols, rows);
-    world.resource_mut::<Opening>().0 = Some(request);
+    world.resource_mut::<Opening>().0 =
+        Some((request, panel.clone()));
 }
 
-/// Shows `terminal` and gives it the keys, as a press on its screen
-/// would.
-fn activate(world: &mut World, terminal: Entity) {
-    world.resource_mut::<Active>().0 = Some(terminal);
-    world.resource_mut::<Handing>().0 = true;
+/// Shows `terminal` in `panel` and gives it the keys, as a press on
+/// its screen would. One another panel shows is brought forward
+/// there instead.
+fn activate(world: &mut World, panel: &PanelId, terminal: Entity) {
+    let elsewhere = in_dock(world).into_iter().find(|other| {
+        other != panel
+            && world.resource::<Panels>().active(other)
+                == Some(terminal)
+    });
+    let panel = match elsewhere {
+        Some(other) => {
+            show_tab(world, &other.0);
+            other
+        }
+        None => {
+            world.resource_mut::<Panels>().edit(panel).active =
+                Some(terminal);
+            panel.clone()
+        }
+    };
+    world.resource_mut::<Handing>().0 = Some(panel);
 }
 
-/// The panel's contents.
-fn panel() -> impl View {
-    with_cx(|cx| {
+/// Shows `terminal` in `panel`, without giving it the keys.
+pub fn show(world: &mut World, panel: &PanelId, terminal: Entity) {
+    world.resource_mut::<Panels>().edit(panel).active =
+        Some(terminal);
+}
+
+/// The contents of `panel`.
+fn contents(panel: &PanelId) -> impl View + use<> {
+    let panel = panel.clone();
+    with_cx(move |cx| {
         let look = &cx.theme().terminal;
         row((
-            column((heading(), body()))
+            column((heading(&panel), body(&panel)))
                 .grow(1.0)
                 .min_width(px(0.0))
                 .fills_height()
                 .gap(0.0)
                 .fill(look.background),
-            frame().width(px(1.0)).fill(cx.theme().palette.border),
-            list::side(),
+            side(&panel),
             frame()
                 .position(PositionType::Absolute)
                 .inset(UiRect::all(px(0.0)))
-                .tagged(Edge),
+                .tagged(Edge(panel.clone())),
         ))
         .fills_width()
         .fills_height()
@@ -232,62 +554,192 @@ fn panel() -> impl View {
     })
 }
 
-/// The active terminal's name over its screen, and whether it takes
-/// keys.
-fn heading() -> impl View {
+/// The list beside the screen, behind its line, unless hidden.
+fn side(panel: &PanelId) -> impl View + use<> {
+    let shown = panel.clone();
+    let panel = panel.clone();
     keyed(
-        derived(|world: &World| {
-            let active = world.resource::<Active>().0?;
-            world.resource::<Listed>().find(active).cloned()
+        derived(move |world: &World| {
+            world
+                .resource::<Panels>()
+                .get(&shown)
+                .is_some_and(|shown| shown.list_hidden)
         })
         .when(every_frame()),
-        |item| match item {
-            Some(item) => with_cx({
-                let item = item.clone();
-                move |cx| {
-                    let space = &cx.theme().space;
-                    let mut hints = Vec::<AnyView>::new();
-                    if item.commands {
-                        hints.push(
-                            badge("READ-ONLY", Tone::Accent).boxed(),
-                        );
-                    }
-                    if let Some(code) = item.exit {
-                        hints.push(
-                            badge(format!("EXIT {code}"), Tone::Dim)
-                                .boxed(),
-                        );
-                    }
-                    if !item.sandboxed {
-                        hints.push(
-                            badge("UNSANDBOXED", Tone::Critical)
-                                .boxed(),
-                        );
-                    }
+        move |hidden| {
+            if *hidden {
+                frame().boxed()
+            } else {
+                let panel = panel.clone();
+                with_cx(move |cx| {
                     row((
-                        glyph(Glyph::Terminal, ICON).tone(Tone::Dim),
-                        label(item.name.clone())
-                            .size(cx.theme().text.small)
-                            .bold(true)
-                            .wrap(false),
-                        row((label(item.owner.clone())
-                            .size(cx.theme().text.small)
-                            .tone(Tone::Faint)
-                            .wrap(false),))
-                        .grow(1.0)
-                        .min_width(px(0.0)),
-                        row(hints).gap(space.gap),
+                        frame()
+                            .width(px(1.0))
+                            .fill(cx.theme().palette.border),
+                        list::side(&panel),
                     ))
+                    .gap(0.0)
+                    .height(percent(100.0))
+                })
+                .boxed()
+            }
+        },
+    )
+    // Not `fills_height`, whose grow in a row would take width the
+    // screen is to have.
+    .within(row(()).gap(0.0).shrink(0.0).height(percent(100.0)))
+}
+
+/// The shown terminal's name over its screen, whether it takes keys,
+/// and the press that hides or shows the list.
+fn heading(panel: &PanelId) -> impl View + use<> {
+    let shown = panel.clone();
+    let panel = panel.clone();
+    keyed(
+        derived(move |world: &World| {
+            let panels = world.resource::<Panels>();
+            let hidden = panels
+                .get(&shown)
+                .is_some_and(|shown| shown.list_hidden);
+            let listed = world.resource::<Listed>();
+            let item = panels
+                .active(&shown)
+                .and_then(|active| listed.find(active).cloned());
+            (item, hidden)
+        })
+        .when(every_frame()),
+        move |(item, hidden)| {
+            let (item, hidden) = (item.clone(), *hidden);
+            let panel = panel.clone();
+            with_cx(move |cx| {
+                let space = &cx.theme().space;
+                let small = cx.theme().text.small;
+                let mut parts = Vec::<AnyView>::new();
+                match &item {
+                    Some(item) => {
+                        parts.push(
+                            glyph(Glyph::Terminal, ICON)
+                                .tone(Tone::Dim)
+                                .boxed(),
+                        );
+                        parts.push(
+                            row((label(item.name.clone())
+                                .size(small)
+                                .bold(true)
+                                .wrap(false),))
+                            .min_width(px(0.0))
+                            .overflow(Overflow::clip())
+                            .boxed(),
+                        );
+                        parts.push(
+                            row((label(item.owner.clone())
+                                .size(small)
+                                .tone(Tone::Faint)
+                                .wrap(false),))
+                            .grow(1.0)
+                            .min_width(px(0.0))
+                            .overflow(Overflow::clip())
+                            .boxed(),
+                        );
+                        parts.push(
+                            row(hints(item))
+                                .gap(space.gap)
+                                .min_width(px(0.0))
+                                .overflow(Overflow::clip())
+                                .boxed(),
+                        );
+                    }
+                    None => {
+                        parts.push(frame().grow(1.0).boxed());
+                    }
+                }
+                parts.push(
+                    row(actions(&panel, hidden))
+                        .gap(0.0)
+                        .shrink(0.0)
+                        .boxed(),
+                );
+                row(parts)
                     .gap(space.gap)
                     .align(AlignItems::Center)
-                    .padding(UiRect::axes(px(space.section), px(6.0)))
-                }
+                    .padding(UiRect::new(
+                        px(space.section),
+                        px(space.gap),
+                        px(4.0),
+                        px(4.0),
+                    ))
             })
-            .boxed(),
-            None => frame().boxed(),
+            .boxed()
         },
     )
     .within(column(()).gap(0.0))
+}
+
+/// What the heading says of `item`: read-only, ended, unsandboxed.
+fn hints(item: &list::Item) -> Vec<AnyView> {
+    let mut hints = Vec::<AnyView>::new();
+    if item.commands {
+        hints.push(badge("READ-ONLY", Tone::Accent).boxed());
+    }
+    if let Some(code) = item.exit {
+        hints.push(badge(format!("EXIT {code}"), Tone::Dim).boxed());
+    }
+    if !item.sandboxed {
+        hints.push(badge("UNSANDBOXED", Tone::Critical).boxed());
+    }
+    hints
+}
+
+/// The heading's presses: open a terminal while the list is hidden,
+/// and hide or show the list.
+fn actions(panel: &PanelId, hidden: bool) -> Vec<AnyView> {
+    let mut presses = Vec::<AnyView>::new();
+    if hidden {
+        presses.push(press(Glyph::Plus, "New terminal", {
+            let panel = panel.clone();
+            move |world, node| {
+                let anchor = crate::menu::rect_of(world, node);
+                world.resource_mut::<Adding>().0 =
+                    anchor.map(|anchor| (anchor, panel.clone()));
+            }
+        }));
+    }
+    let words = if hidden {
+        "Show the list"
+    } else {
+        "Hide the list"
+    };
+    presses.push(press(Glyph::Sidebar, words, {
+        let panel = panel.clone();
+        move |world, _| {
+            let mut panels = world.resource_mut::<Panels>();
+            let shown = panels.edit(&panel);
+            shown.list_hidden = !shown.list_hidden;
+        }
+    }));
+    presses
+}
+
+/// Opens another Terminal panel beside `beside`, its screen to have
+/// the keys.
+pub(crate) fn new_panel(world: &mut World, beside: &PanelId) {
+    if let Some(id) = open_another(world, PANEL, &beside.0) {
+        world.resource_mut::<Handing>().0 = Some(PanelId(id));
+    }
+}
+
+/// A small press of `which`, named by a tooltip.
+fn press(
+    which: Glyph,
+    words: &'static str,
+    act: impl Fn(&mut World, Entity) + Send + Sync + 'static,
+) -> AnyView {
+    button(glyph(which, ICON).tone(Tone::Dim))
+        .padding(UiRect::all(px(4.0)))
+        .rules(link_row)
+        .on_activate_with(act)
+        .tooltip(move || note(words))
+        .boxed()
 }
 
 /// Small capitals in `tone`.
@@ -295,21 +747,54 @@ fn badge(text: impl Into<String>, tone: Tone) -> impl View {
     caption(text.into(), tone)
 }
 
-/// The screen, or the words of an empty panel.
-fn body() -> impl View {
+/// What a panel's body holds.
+#[derive(Clone, Copy, PartialEq)]
+enum Body {
+    /// There are no terminals.
+    Empty,
+    /// The panel shows none of them.
+    Unshown,
+    Screen,
+}
+
+/// The screen, or the words of a panel that shows no terminal.
+fn body(panel: &PanelId) -> impl View + use<> {
+    let shown = panel.clone();
+    let panel = panel.clone();
     keyed(
-        resource::<Listed, _>(|listed| listed.0.is_empty()),
-        |empty| {
-            if *empty {
-                with_cx(|cx| {
+        derived(move |world: &World| {
+            if world.resource::<Listed>().0.is_empty() {
+                Body::Empty
+            } else if world
+                .resource::<Panels>()
+                .active(&shown)
+                .is_none()
+            {
+                Body::Unshown
+            } else {
+                Body::Screen
+            }
+        })
+        .when(every_frame()),
+        move |body| {
+            let words = match body {
+                Body::Empty => Some(
+                    "No terminals yet. Press + to open a shell in a \
+                     hamlet, or an unbounded one. An agent's \
+                     commands show here as they run.",
+                ),
+                Body::Unshown => Some(
+                    "Choose a terminal in the list to show it here, \
+                     or press + to open one.",
+                ),
+                Body::Screen => None,
+            };
+            if let Some(words) = words {
+                with_cx(move |cx| {
                     let section = cx.theme().space.section;
-                    column((description(
-                        "No terminals yet. Press + to open a shell \
-                         in a hamlet, or an unbounded one. An \
-                         agent's commands show here as they run.",
-                    ),))
-                    .padding(UiRect::all(px(section * 2.0)))
-                    .fills_width()
+                    column((description(words),))
+                        .padding(UiRect::all(px(section * 2.0)))
+                        .fills_width()
                 })
                 .boxed()
             } else {
@@ -318,7 +803,7 @@ fn body() -> impl View {
                     .fills_width()
                     .min_height(px(0.0))
                     .overflow(Overflow::clip())
-                    .tagged(Canvas)
+                    .tagged(Canvas(panel.clone()))
                     .boxed()
             }
         },
@@ -357,19 +842,21 @@ fn hamlets(world: &World) -> Vec<(String, String)> {
 pub fn open_menu() -> impl View {
     keyed(
         derived(|world: &World| {
-            (world.resource::<Adding>().0, hamlets(world))
+            (world.resource::<Adding>().0.clone(), hamlets(world))
         })
         .when(every_frame()),
-        |(anchor, hamlets)| match anchor {
-            Some(anchor) => {
+        |(adding, hamlets)| match adding {
+            Some((anchor, panel)) => {
                 let anchor = *anchor;
                 let mut items = vec![place(
+                    panel.clone(),
                     Glyph::Terminal,
                     "Unbounded".into(),
                     None,
                 )];
                 items.extend(hamlets.iter().map(|(id, name)| {
                     place(
+                        panel.clone(),
                         Glyph::Hamlet,
                         name.clone(),
                         Some(id.clone()),
@@ -391,6 +878,7 @@ pub fn open_menu() -> impl View {
 }
 
 fn place(
+    panel: PanelId,
     which: Glyph,
     name: String,
     hamlet: Option<String>,
@@ -404,7 +892,11 @@ fn place(
             .gap(cx.theme().space.menu_gap)
             .align(AlignItems::Center),
         )
-        .on_activate(move |world| open(world, hamlet.clone()))
+        .on_activate({
+            let panel = panel.clone();
+            let hamlet = hamlet.clone();
+            move |world| open(world, &panel, hamlet.clone())
+        })
     })
     .boxed()
 }
@@ -436,20 +928,153 @@ mod tests {
      {
         let mut app = App::new();
         app.add_plugins(bevy::input_focus::InputFocusPlugin)
-            .init_resource::<Active>()
+            .init_resource::<Panels>()
             .init_resource::<Handing>()
             .add_systems(Update, hand_keys);
+        let panel = PanelId::first();
         let terminal = app.world_mut().spawn_empty().id();
-        activate(app.world_mut(), terminal);
+        activate(app.world_mut(), &panel, terminal);
         app.update();
-        assert!(app.world().resource::<Handing>().0);
-        let canvas = app.world_mut().spawn(Canvas).id();
+        assert!(app.world().resource::<Handing>().0.is_some());
+        app.world_mut().spawn(Canvas(PanelId("terminal-2".into())));
+        let canvas = app.world_mut().spawn(Canvas(panel)).id();
         app.update();
         assert_eq!(
             app.world().resource::<InputFocus>().get(),
             Some(canvas)
         );
-        assert!(!app.world().resource::<Handing>().0);
+        assert!(app.world().resource::<Handing>().0.is_none());
+    }
+
+    /// A dock of one area holding the Terminal panels `ids`.
+    fn dock(app: &mut App, ids: &[&str]) {
+        use bevy_fynix::dock::{DockAreaStyle, DockLeaf};
+
+        app.world_mut().resource_mut::<DockTree>().set_root_leaf(
+            DockLeaf::new("low", DockAreaStyle::TabBar).with_windows(
+                ids.iter().map(|id| (*id).to_owned()).collect(),
+            ),
+        );
+    }
+
+    #[test]
+    fn a_panel_shows_what_it_had_or_is_to_show_again_and_never_takes_one_of_itself()
+     {
+        let mut app = crate::testing::panel_app();
+        let terminals = |ids: &[&str]| {
+            let mut state = hamlet_testing::realm::state();
+            state.revision = 1;
+            state.terminals = ids
+                .iter()
+                .map(|id| view(id, None, None, "shell"))
+                .collect();
+            protocol::ServerMessage::State(state)
+        };
+        hamlet_client::receive(
+            app.world_mut(),
+            terminals(&["t1", "t2", "t3"]),
+        );
+        app.init_resource::<Panels>()
+            .init_resource::<Shown>()
+            .insert_resource(Restoring(BTreeMap::from([
+                ("terminal-2".to_owned(), "t2".to_owned()),
+                ("terminal-3".to_owned(), "t9".to_owned()),
+            ])));
+        dock(&mut app, &["terminal", "terminal-2", "terminal-3"]);
+        let find = |app: &App, id| terminals::find(app.world(), id);
+        let [first, second, third] =
+            ["terminal", "terminal-2", "terminal-3"]
+                .map(|id| PanelId(id.to_owned()));
+        // The first had t1, and the second had t1 as well, which the
+        // first keeps.
+        for panel in [&first, &second] {
+            app.world_mut()
+                .resource_mut::<Panels>()
+                .edit(panel)
+                .active = find(&app, "t1");
+        }
+        keep_watching(app.world_mut());
+        let active = |app: &App, panel| {
+            app.world().resource::<Panels>().active(panel)
+        };
+        assert_eq!(active(&app, &first), find(&app, "t1"));
+        assert_eq!(active(&app, &second), find(&app, "t2"));
+        // t3 is free, but the third is to show t9, which is not
+        // there.
+        assert_eq!(active(&app, &third), None);
+        let noted =
+            |app: &App| app.world().resource::<Shown>().0.clone();
+        let pairs = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(panel, id)| {
+                    ((*panel).to_owned(), (*id).to_owned())
+                })
+                .collect::<BTreeMap<_, _>>()
+        };
+        assert_eq!(
+            noted(&app),
+            pairs(&[
+                ("terminal", "t1"),
+                ("terminal-2", "t2"),
+                ("terminal-3", "t9")
+            ])
+        );
+        // A terminal closed leaves its panel showing none.
+        hamlet_client::receive(
+            app.world_mut(),
+            terminals(&["t1", "t3"]),
+        );
+        keep_watching(app.world_mut());
+        assert_eq!(active(&app, &second), None);
+        // A panel closed, which no desk holds, is forgotten.
+        dock(&mut app, &["terminal", "terminal-2"]);
+        forget_closed(app.world_mut());
+        keep_watching(app.world_mut());
+        assert_eq!(noted(&app), pairs(&[("terminal", "t1")]));
+    }
+
+    #[test]
+    fn a_tab_is_named_after_its_terminal_and_its_last_command() {
+        let item = |last: Option<&str>| list::Item {
+            terminal: Entity::PLACEHOLDER,
+            name: "zsh 3".into(),
+            owner: "chief".into(),
+            sandboxed: false,
+            exit: None,
+            commands: false,
+            last: last.map(str::to_owned),
+        };
+        assert_eq!(tab_name(None), "TERMINAL");
+        assert_eq!(tab_name(Some(&item(None))), "TERMINAL (zsh 3)");
+        assert_eq!(
+            tab_name(Some(&item(Some(
+                "cat notes/today.md | grep -n pears"
+            )))),
+            "TERMINAL (zsh 3): cat notes/today.md | ..."
+        );
+    }
+
+    #[test]
+    fn choosing_a_terminal_another_panel_shows_hands_the_keys_there()
+    {
+        let mut app = App::new();
+        app.init_resource::<Panels>()
+            .init_resource::<Handing>()
+            .init_resource::<DockTree>();
+        dock(&mut app, &["terminal", "terminal-2"]);
+        let (first, second) =
+            (PanelId::first(), PanelId("terminal-2".into()));
+        let terminal = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .resource_mut::<Panels>()
+            .edit(&second)
+            .active = Some(terminal);
+        activate(app.world_mut(), &first, terminal);
+        let panels = app.world().resource::<Panels>();
+        assert_eq!(panels.active(&first), None);
+        assert_eq!(panels.active(&second), Some(terminal));
+        assert_eq!(app.world().resource::<Handing>().0, Some(second));
     }
 
     #[test]
@@ -474,9 +1099,14 @@ mod tests {
             .id();
         app.update();
         let panel = app.world_mut().spawn(ChildOf(window)).id();
-        let canvas =
-            app.world_mut().spawn((Canvas, ChildOf(panel))).id();
-        let edge = app.world_mut().spawn((Edge, ChildOf(panel))).id();
+        let canvas = app
+            .world_mut()
+            .spawn((Canvas(PanelId::first()), ChildOf(panel)))
+            .id();
+        let edge = app
+            .world_mut()
+            .spawn((Edge(PanelId::first()), ChildOf(panel)))
+            .id();
         app.world_mut().trigger(AcquireFocus {
             focused_entity: canvas,
             window,
@@ -522,7 +1152,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        app.init_resource::<Active>().init_resource::<Listed>();
+        app.init_resource::<Panels>().init_resource::<Listed>();
         list::list(app.world_mut());
         let listed = app
             .world()

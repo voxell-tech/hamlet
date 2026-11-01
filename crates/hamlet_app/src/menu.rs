@@ -224,7 +224,13 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
         }
         Menu::View => vec![
             item(Glyph::Terminal, "Terminal", |w| {
-                crate::dock::show_tab(w, "terminal");
+                crate::dock::show_tab(w, crate::terminal::PANEL);
+            }),
+            item(Glyph::Split, "New Terminal Panel", |w| {
+                crate::terminal::new_panel(
+                    w,
+                    &crate::terminal::PanelId::first(),
+                );
             }),
             item(Glyph::Aim, "Reset Camera", |w| {
                 *w.resource_mut::<Orbit>() = Orbit::default();
