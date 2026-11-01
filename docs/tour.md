@@ -106,7 +106,13 @@ and draws a picture through `PictureView`, which the app's `links` and
 `pictures` screens set. The panels' steps before fynix mounts are `PanelSystems` in
 `hamlet_app/src/lib.rs` (`Follow`, `Bind`), in `PreUpdate`;
 `panel_sets` orders them, and the apps in `testing.rs` add it, so a UI
-test settles in one update.
+test settles in one update. A panel registers its dock window in
+`dock.rs` with `add_panel`; one that opens more than once, as the
+Terminal panel does, with `add_numbered_panel`. Its others are
+`<id>-2`, `<id>-3` and so on, known only while the dock or the shown
+desk holds them, so the dock's add menu offers only the first. A
+terminal dragged from a Terminal panel's list onto the dock opens in
+one of them (`screens/terminal/carry.rs`).
 
 ## The server
 

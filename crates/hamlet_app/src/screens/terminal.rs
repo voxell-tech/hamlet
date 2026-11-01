@@ -1,8 +1,10 @@
 //! The Terminal panels: each shows the screen of one terminal, and
 //! beside it the terminals by hamlet, each agent's commands first,
-//! with the press that opens another. More than one can be open, and
-//! a terminal shows in only one of them.
+//! with the press that opens another. A terminal dragged from a list
+//! onto the dock opens in a panel of its own, and a terminal shows in
+//! only one panel.
 
+mod carry;
 mod input;
 pub mod keys;
 mod list;
@@ -91,7 +93,7 @@ pub fn plugin(app: &mut App) {
                 name_tabs,
             ),
         )
-        .add_plugins((input::plugin, list::plugin));
+        .add_plugins((input::plugin, list::plugin, carry::plugin));
 }
 
 /// The dock window of the Terminal panel `id`. Its tab is named after
@@ -785,7 +787,8 @@ fn body(panel: &PanelId) -> impl View + use<> {
                 ),
                 Body::Unshown => Some(
                     "Choose a terminal in the list to show it here, \
-                     or press + to open one.",
+                     or press + to open one. Drag one from the list \
+                     onto the dock to open it in a panel of its own.",
                 ),
                 Body::Screen => None,
             };
