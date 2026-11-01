@@ -7,6 +7,7 @@ mod check;
 mod edit;
 mod fragment;
 mod graph;
+mod grows;
 mod node;
 mod value;
 
@@ -21,5 +22,6 @@ pub use graph::{
     Port, Roll, Ruleset, Scope, Setting, Sheet, Spread, Vary, Wire,
     to_ron,
 };
+pub use grows::pack;
 pub use node::{Initial, Listed, NodeKind, PortSpec, Registry};
 pub use value::{Constant, ValueType};

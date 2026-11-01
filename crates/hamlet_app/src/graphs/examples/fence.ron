@@ -54,8 +54,8 @@
                     (from: (node: 18, name: "value"), to: (node: 19, name: "y")),
                     (from: (node: 17, name: "objects"), to: (node: 20, name: "objects")),
                     (from: (node: 19, name: "point"), to: (node: 20, name: "step")),
-                    (from: (node: 13, name: "objects"), to: (node: 21, name: "a")),
-                    (from: (node: 20, name: "objects"), to: (node: 21, name: "b")),
+                    (from: (node: 13, name: "objects"), to: (node: 21, name: "set_1")),
+                    (from: (node: 20, name: "objects"), to: (node: 21, name: "set_2")),
                 ],
             ),
             groups: [

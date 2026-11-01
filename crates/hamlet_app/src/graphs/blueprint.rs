@@ -107,6 +107,7 @@ impl Flavor for Blueprint {
             let Ok((_, outputs)) = hamlet_graph::ports(
                 &editor.registry,
                 &editor.rules,
+                &editor.sheet.graph,
                 found,
             ) else {
                 continue;
@@ -133,6 +134,7 @@ impl Flavor for Blueprint {
             let Ok((_, outputs)) = hamlet_graph::ports(
                 &editor.registry,
                 &editor.rules,
+                &editor.sheet.graph,
                 node,
             ) else {
                 continue;

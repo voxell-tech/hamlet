@@ -35,6 +35,9 @@ pub struct PortSpec {
     /// The choices of the input that names the node this input is
     /// used with. Empty for every one.
     pub used_with: &'static [&'static str],
+    /// Whether this input repeats: one port per wire, numbered from
+    /// one, and an unwired one after them.
+    pub grows: bool,
 }
 
 impl PortSpec {
@@ -52,6 +55,7 @@ impl PortSpec {
             listed: None,
             names: false,
             used_with: &[],
+            grows: false,
         }
     }
 
@@ -88,6 +92,47 @@ impl PortSpec {
         used_with: &'static [&'static str],
     ) -> Self {
         Self { used_with, ..self }
+    }
+
+    pub const fn grows(self) -> Self {
+        Self {
+            grows: true,
+            ..self
+        }
+    }
+
+    /// The name of this growing input's port numbered `number`.
+    pub fn port(&self, number: usize) -> String {
+        format!("{}_{number}", self.name)
+    }
+
+    /// The number of `port` among this growing input's ports.
+    pub fn number_of(&self, port: &str) -> Option<usize> {
+        if !self.grows {
+            return None;
+        }
+        let number = port
+            .strip_prefix(self.name)?
+            .strip_prefix('_')?
+            .parse::<usize>()
+            .ok()?;
+        (number > 0).then_some(number)
+    }
+
+    /// Whether `port` is this input, or one of its ports if it grows.
+    pub fn is_for(&self, port: &str) -> bool {
+        if self.grows {
+            self.number_of(port).is_some()
+        } else {
+            self.name == port
+        }
+    }
+}
+
+impl NodeKind {
+    /// The input that `port` is, or is one port of.
+    pub fn input(&self, port: &str) -> Option<&'static PortSpec> {
+        self.inputs.iter().find(|spec| spec.is_for(port))
     }
 }
 

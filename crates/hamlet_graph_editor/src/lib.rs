@@ -30,7 +30,7 @@ use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_graph::{
     Book, Catalogue, Constant, Does, Edit, Fragment, GraphError,
     GraphInput, GraphOutput, Group, Initial, Node, NodeId, Port,
-    PortSpec, Registry, Ruleset, Setting, Sheet, ValueType,
+    PortSpec, Registry, Ruleset, Setting, Sheet, ValueType, Wire,
 };
 use hamlet_ui::styles::{
     Fills, ICON, cluster, description, hairline, tool,
@@ -109,6 +109,13 @@ pub enum DeleteRefusal {
         /// The graph that cannot be deleted.
         graph: String,
     },
+}
+
+/// Which side of a port its neighbour is on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Place {
+    Before,
+    After,
 }
 
 /// The book being edited: the open sheet with its history, the others
@@ -362,9 +369,17 @@ impl<F: Flavor> Editor<F> {
             } else {
                 Change::Value
             };
-        let Ok(inverse) = self.sheet.apply(edit) else {
+        let Ok(mut inverse) = self.sheet.apply(edit) else {
             return;
         };
+        // The wires into a growing input close up behind one that
+        // went, in the same step.
+        if let Some(pack) =
+            hamlet_graph::pack(&self.registry, &self.sheet.graph)
+            && let Ok(unpack) = self.sheet.apply(pack)
+        {
+            inverse = Edit::Batch(vec![unpack, inverse]);
+        }
         let merges = matches!(
             (&inverse, self.undo.last()),
             (
@@ -389,6 +404,66 @@ impl<F: Flavor> Editor<F> {
         }
         self.redo.clear();
         self.changed(change);
+    }
+
+    /// The wired port of the same growing input of `node` as `port`,
+    /// a place before it or after it.
+    pub fn neighbour(
+        &self,
+        node: NodeId,
+        port: &str,
+        place: Place,
+    ) -> Option<String> {
+        let found = self.sheet.graph.node(node)?;
+        let Does::Kind(kind) = &found.does else {
+            return None;
+        };
+        let spec = self.registry.get(kind)?.input(port)?;
+        let number = spec.number_of(port)?;
+        let other = spec.port(match place {
+            Place::Before => number.checked_sub(1)?,
+            Place::After => number + 1,
+        });
+        let wired = |name: &str| {
+            self.sheet.graph.wires.iter().any(|wire| {
+                wire.to.node == node && wire.to.name == name
+            })
+        };
+        (wired(port) && wired(&other)).then_some(other)
+    }
+
+    /// Swaps the wires into the ports `one` and `other` of `node`, as
+    /// one step.
+    pub fn swap_wires(
+        &mut self,
+        node: NodeId,
+        one: &str,
+        other: &str,
+    ) {
+        let into = |name: &str| {
+            self.sheet
+                .graph
+                .wires
+                .iter()
+                .find(|wire| {
+                    wire.to.node == node && wire.to.name == name
+                })
+                .cloned()
+        };
+        let (Some(first), Some(second)) = (into(one), into(other))
+        else {
+            return;
+        };
+        let moved = |wire: &Wire, to: &Wire| Wire {
+            from: wire.from.clone(),
+            to: to.to.clone(),
+        };
+        self.apply(Edit::Batch(vec![
+            Edit::Disconnect(first.clone()),
+            Edit::Disconnect(second.clone()),
+            Edit::Connect(moved(&first, &second)),
+            Edit::Connect(moved(&second, &first)),
+        ]));
     }
 
     /// Moves a node while it is dragged, kept out of the history
@@ -484,9 +559,12 @@ impl<F: Flavor> Editor<F> {
         let Some(found) = self.sheet.graph.node(node) else {
             return;
         };
-        let Ok((_, outputs)) =
-            hamlet_graph::ports(&self.registry, &self.rules, found)
-        else {
+        let Ok((_, outputs)) = hamlet_graph::ports(
+            &self.registry,
+            &self.rules,
+            &self.sheet.graph,
+            found,
+        ) else {
             return;
         };
         let Some(port) = outputs

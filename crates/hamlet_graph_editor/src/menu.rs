@@ -42,7 +42,7 @@ use hamlet_ui::{AnyView, Cx, View};
 
 use super::canvas::Input;
 use super::flavor::Flavor;
-use super::{Editor, canvas, controls, files};
+use super::{Editor, Place, canvas, controls, files};
 
 /// The group the book's other graphs are listed under.
 const GRAPHS: &str = "Graphs";
@@ -983,6 +983,21 @@ fn input_menu<F: Flavor>(
                     editor.apply(Edit::Batch(cut));
                 },
             ));
+        }
+        for (text, place) in
+            [("Move up", Place::Before), ("Move down", Place::After)]
+        {
+            let Some(other) =
+                editor.neighbour(node, &input.name, place)
+            else {
+                continue;
+            };
+            let name = input.name.clone();
+            items.push(action_item::<F>(text, move |world| {
+                world
+                    .resource_mut::<Editor<F>>()
+                    .swap_wires(node, &name, &other);
+            }));
         }
         if items.is_empty() {
             items.push(note("It can only be wired").boxed());

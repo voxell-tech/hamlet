@@ -210,7 +210,8 @@ impl Runner<'_> {
         };
         let seed = path.mix(u64::from(node.id.0));
         let (inputs, _) =
-            ports(self.registry, self.ruleset, node).map_err(fail)?;
+            ports(self.registry, self.ruleset, graph, node)
+                .map_err(fail)?;
         let mut bound = BTreeMap::new();
         for port in &inputs {
             if let Some(binding) =
@@ -422,6 +423,23 @@ impl Run<'_> {
     /// Whether `port` has a wire, a setting or an initial value.
     pub fn is_set(&self, port: &str) -> bool {
         self.inputs.contains_key(port)
+    }
+
+    /// The ports of the growing input `input` that are wired or set,
+    /// in their order.
+    pub fn grown(&self, input: &str) -> Vec<String> {
+        let Some(spec) =
+            self.kind.inputs.iter().find(|spec| spec.name == input)
+        else {
+            return Vec::new();
+        };
+        let mut ports = self
+            .inputs
+            .keys()
+            .filter_map(|port| Some((spec.number_of(port)?, port)))
+            .collect::<Vec<_>>();
+        ports.sort_by_key(|(number, _)| *number);
+        ports.into_iter().map(|(_, port)| port.clone()).collect()
     }
 
     /// An error for the value of `port`.

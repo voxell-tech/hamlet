@@ -374,3 +374,41 @@ fn a_node_left_unwired_stops_only_what_needs_it() {
         }
     ));
 }
+
+#[test]
+fn a_random_select_picks_one_wired_set_and_keeps_it_per_house() {
+    let ruleset = Ruleset::from_ron(
+        r#"(
+            entry: "pick",
+            graphs: {"pick": (
+                outputs: [(name: "objects", value_type: Objects, from: (node: 4, name: "objects"))],
+                nodes: [
+                    (id: 1, does: Kind("object"), settings: {"asset": Fixed(Choice("post"))}),
+                    (id: 2, does: Kind("object"), settings: {"asset": Fixed(Choice("door"))}),
+                    (id: 4, does: Kind("random_select")),
+                ],
+                wires: [
+                    (from: (node: 1, name: "objects"), to: (node: 4, name: "set_1")),
+                    (from: (node: 2, name: "objects"), to: (node: 4, name: "set_2")),
+                ],
+            )},
+        )"#,
+    )
+    .expect("the fixture parses");
+    let picked = |house| {
+        let found = objects(
+            &run(&ruleset, house, &BTreeMap::new()),
+            "objects",
+        );
+        assert_eq!(found.len(), 1);
+        found[0].asset.clone()
+    };
+    let assets = (0..32)
+        .map(picked)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        assets,
+        ["door", "post"].map(str::to_owned).into_iter().collect()
+    );
+    assert_eq!(picked(5), picked(5));
+}
