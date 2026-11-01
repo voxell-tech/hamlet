@@ -91,6 +91,35 @@ pub fn primary_button(cx: &mut Cx) {
         .apply(cx);
 }
 
+/// A button that is on, among buttons that switch something on or
+/// pick one of a few: a solid gold fill with dark ink, so it stands
+/// apart from a [`button`] that is off.
+pub fn lit_button(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(t.palette.gold_2)
+                .border(t.space.border)
+                .border_color(t.palette.glow)
+                .radius(t.space.round)
+        })
+        .label(|l, t| {
+            l.tone(Tone::OnAccent).size(t.text.small).bold(true)
+        })
+        .icon(|i, _| i.tone(Tone::OnAccent))
+        .hovered(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.gold_1).border_color(t.palette.glow)
+            })
+        })
+        .pressed(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.gold_3).border_color(t.palette.glow)
+            })
+        })
+        .transition(Motion::Interact)
+        .apply(cx);
+}
+
 /// A link back to the page the current one was reached from: an
 /// arrow and a name with no fill, dim until the pointer is on it.
 pub fn back_link(cx: &mut Cx) {

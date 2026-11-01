@@ -66,9 +66,7 @@ use hamlet_realm::sky::{
     self, CameraSettings, Hourly, Looks, North, OwnSky, Sky,
     SkySettings,
 };
-use hamlet_ui::styles::{
-    self, Fills, ICON, choice, description, note,
-};
+use hamlet_ui::styles::{self, Fills, ICON, description, note};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::dial::{Face, dial};
 use hamlet_ui::widgets::effects::Variant;
@@ -284,7 +282,10 @@ fn switches() -> AnyView {
                     flip(&mut world.resource_mut::<Backdrop>());
                 });
             if *on {
-                toggle.rules(choice(true)).boxed()
+                toggle
+                    .rules(styles::lit_button)
+                    .tagged(Variant::Primary)
+                    .boxed()
             } else {
                 toggle
                     .rules(styles::button)
@@ -476,7 +477,10 @@ fn modes() -> AnyView {
                         world.insert_resource(picked);
                     });
                 if *mode == picked {
-                    shown.rules(choice(true)).boxed()
+                    shown
+                        .rules(styles::lit_button)
+                        .tagged(Variant::Primary)
+                        .boxed()
                 } else {
                     shown
                         .rules(styles::button)
