@@ -344,6 +344,7 @@ fn create<F: Flavor>(at: Vec2, on_sheet: Vec2) -> AnyView {
                 Rect::from_corners(at, at),
                 vec![
                     group_selection::<F>(),
+                    paste_here::<F>(on_sheet),
                     column((
                         section("Create node"),
                         search_bar::<F>(),
@@ -391,6 +392,31 @@ fn group_selection<F: Flavor>() -> AnyView {
     .on_activate(|world| {
         close::<F>(world);
         world.resource_mut::<Editor<F>>().group();
+    })
+    .boxed()
+}
+
+/// The item that pastes the clipboard at `on_sheet`, shown while it
+/// holds nodes.
+fn paste_here<F: Flavor>(on_sheet: Vec2) -> AnyView {
+    menu_item(
+        row((
+            label("Paste").wrap(false),
+            frame().grow(1.0),
+            note("Cmd+V"),
+        ))
+        .gap(16.0),
+    )
+    .display(resource::<Editor<F>, _>(|editor| {
+        if editor.clipboard.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        }
+    }))
+    .on_activate(move |world| {
+        close::<F>(world);
+        world.resource_mut::<Editor<F>>().paste(Some(on_sheet));
     })
     .boxed()
 }
@@ -637,26 +663,32 @@ fn back<F: Flavor>(group: &'static str) -> AnyView {
     .boxed()
 }
 
-fn card<F: Flavor>(node: NodeId, at: Vec2) -> AnyView {
+/// An item that closes the menu and runs `act`, with the keys that
+/// do the same beside its text.
+fn keyed_item<F: Flavor>(
+    text: &'static str,
+    keys: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    menu_item(
+        row((label(text).wrap(false), frame().grow(1.0), note(keys)))
+            .gap(16.0),
+    )
+    .on_activate(move |world| {
+        close::<F>(world);
+        act(world);
+    })
+    .boxed()
+}
+
+fn card<F: Flavor>(node: NodeId, opened_at: Vec2) -> AnyView {
     let item = move |text: &'static str,
                      keys: &'static str,
                      act: fn(&mut World, NodeId)| {
-        menu_item(
-            row((
-                label(text).wrap(false),
-                frame().grow(1.0),
-                note(keys),
-            ))
-            .gap(16.0),
-        )
-        .on_activate(move |world| {
-            close::<F>(world);
-            act(world, node);
-        })
-        .boxed()
+        keyed_item::<F>(text, keys, move |world| act(world, node))
     };
     AnyView::new(move |cx: &mut Cx| {
-        let at = in_layer::<F>(cx.world, at);
+        let at = in_layer::<F>(cx.world, opened_at);
         let width = cx.theme().space.menu_width;
         let runs_graph = matches!(
             cx.world
@@ -720,6 +752,21 @@ fn card<F: Flavor>(node: NodeId, at: Vec2) -> AnyView {
             item("Expose as output", "", |world, node| {
                 world.resource_mut::<Editor<F>>().expose_output(node);
             }),
+            item("Copy", "Cmd+C", |world, _| {
+                world.resource_mut::<Editor<F>>().copy();
+            }),
+            item("Cut", "Cmd+X", |world, _| {
+                world.resource_mut::<Editor<F>>().cut();
+            }),
+        ]);
+        if cx.world.resource::<Editor<F>>().clipboard.is_some() {
+            items.push(keyed_item::<F>(
+                "Paste",
+                "Cmd+V",
+                move |world| paste_at::<F>(world, opened_at),
+            ));
+        }
+        items.extend([
             item("Duplicate", "Cmd+D", |world, _| {
                 world.resource_mut::<Editor<F>>().duplicate();
             }),
@@ -736,6 +783,13 @@ fn card<F: Flavor>(node: NodeId, at: Vec2) -> AnyView {
                 .min_width(px(width)),
         )
     })
+}
+
+/// Pastes the clipboard with its top left at the window's point
+/// `at`, or off the originals when that is not on the canvas.
+fn paste_at<F: Flavor>(world: &mut World, at: Vec2) {
+    let on_sheet = canvas::on_sheet::<F>(world, at);
+    world.resource_mut::<Editor<F>>().paste(on_sheet);
 }
 
 /// The menu on a group, which takes its cards out of it.
@@ -966,6 +1020,9 @@ fn keys<F: Flavor>(world: &mut World) {
         pressed(KeyCode::Delete) || pressed(KeyCode::Backspace);
     let undo = command && pressed(KeyCode::KeyZ);
     let duplicate = command && pressed(KeyCode::KeyD);
+    let copy = command && pressed(KeyCode::KeyC);
+    let cut = command && pressed(KeyCode::KeyX);
+    let paste = command && pressed(KeyCode::KeyV);
     let group = command && pressed(KeyCode::KeyG);
     let save = command && pressed(KeyCode::KeyS);
     let open = command && pressed(KeyCode::KeyO);
@@ -989,6 +1046,17 @@ fn keys<F: Flavor>(world: &mut World) {
         world.resource_mut::<Editor<F>>().group();
     } else if duplicate && selected {
         world.resource_mut::<Editor<F>>().duplicate();
+    } else if copy && selected {
+        world.resource_mut::<Editor<F>>().copy();
+    } else if cut && selected {
+        world.resource_mut::<Editor<F>>().cut();
+    } else if paste {
+        let at = world
+            .query::<&Window>()
+            .iter(world)
+            .find_map(Window::cursor_position)
+            .unwrap_or_default();
+        paste_at::<F>(world, at);
     } else if delete && selected {
         world.resource_mut::<Editor<F>>().remove();
     } else if fit {

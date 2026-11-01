@@ -28,9 +28,9 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_graph::{
-    Book, Catalogue, Constant, Does, Edit, GraphError, GraphInput,
-    GraphOutput, Group, Initial, Node, NodeId, Port, PortSpec,
-    Registry, Ruleset, Setting, Sheet, ValueType,
+    Book, Catalogue, Constant, Does, Edit, Fragment, GraphError,
+    GraphInput, GraphOutput, Group, Initial, Node, NodeId, Port,
+    PortSpec, Registry, Ruleset, Setting, Sheet, ValueType,
 };
 use hamlet_ui::styles::{
     Fills, ICON, cluster, description, hairline, tool,
@@ -41,6 +41,10 @@ use hamlet_ui::{AnyView, View, with_cx};
 pub use self::flavor::Flavor;
 use self::library::Library;
 use self::split::{Layout, Pane, divider, floating, outline};
+
+/// How far a duplicate, or a paste with no place, lies from the
+/// original, in sheet pixels.
+const NUDGE: f32 = 28.0;
 
 /// Adds the editor for `F`: its book and what the editing needs,
 /// its examples in the library, and whatever `F` adds itself. The
@@ -121,6 +125,9 @@ pub struct Editor<F: Flavor> {
     pub rules: Ruleset,
     /// The nodes picked to move, copy or delete together.
     pub selected: BTreeSet<NodeId>,
+    /// The nodes last copied or cut, kept when another book is
+    /// opened.
+    pub clipboard: Option<Fragment>,
     /// The kinds of node the graphs may use.
     pub registry: Registry,
     undo: Vec<Edit>,
@@ -156,6 +163,7 @@ impl<F: Flavor> Editor<F> {
             others: BTreeMap::new(),
             rules: Ruleset::default(),
             selected: BTreeSet::new(),
+            clipboard: None,
             registry: F::registry(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -568,46 +576,55 @@ impl<F: Flavor> Editor<F> {
     /// Adds a copy of each selected node, a little below and to the
     /// right, with the wires between them, and selects the copies.
     pub fn duplicate(&mut self) {
-        let mut next = self.sheet.graph.next_id();
-        let mut copies = BTreeMap::new();
-        let mut edits = Vec::new();
-        for node in &self.selected {
-            let Some(original) =
-                self.sheet.graph.node(*node).cloned()
-            else {
-                continue;
-            };
-            let at = self
-                .sheet
-                .layout
-                .get(node)
-                .copied()
-                .unwrap_or_default();
-            copies.insert(*node, next);
-            edits.push(Edit::AddNode {
-                node: Node {
-                    id: next,
-                    ..original
-                },
-                at: Some(at + Vec2::splat(28.0)),
-            });
-            next = NodeId(next.0 + 1);
+        let fragment = self.sheet.copy(&self.selected);
+        self.insert(&fragment, Vec2::splat(NUDGE));
+    }
+
+    /// Keeps the selected nodes and the wires between them as the
+    /// clipboard, for any sheet of this editor.
+    pub fn copy(&mut self) {
+        let fragment = self.sheet.copy(&self.selected);
+        if !fragment.is_empty() {
+            self.clipboard = Some(fragment);
         }
-        edits.extend(self.sheet.graph.wires.iter().filter_map(
-            |wire| {
-                let from = copies.get(&wire.from.node)?;
-                let to = copies.get(&wire.to.node)?;
-                let mut wire = wire.clone();
-                wire.from.node = *from;
-                wire.to.node = *to;
-                Some(Edit::Connect(wire))
-            },
-        ));
-        if edits.is_empty() {
+    }
+
+    /// Copies the selected nodes, then deletes them as one step.
+    pub fn cut(&mut self) {
+        self.copy();
+        self.remove();
+    }
+
+    /// Adds the clipboard's nodes as new ones and selects them, the
+    /// top left of their box at `at`, or a little off the originals
+    /// when there is none. A graph that is not in this book, or runs
+    /// the open one, is left out.
+    pub fn paste(&mut self, at: Option<Vec2>) {
+        let Some(mut fragment) = self.clipboard.clone() else {
+            return;
+        };
+        fragment.retain(|node| match &node.does {
+            Does::Graph(name) => {
+                self.rules.graphs.contains_key(name)
+                    && !self.runs(name, &self.name)
+            }
+            Does::Kind(_) => true,
+        });
+        let by = at.map_or(Vec2::splat(NUDGE), |at| {
+            at - fragment.corner().unwrap_or_default()
+        });
+        self.insert(&fragment, by);
+    }
+
+    /// Adds `fragment` drawn `by` further than it was, as one step,
+    /// and selects what it adds.
+    fn insert(&mut self, fragment: &Fragment, by: Vec2) {
+        if fragment.is_empty() {
             return;
         }
-        self.apply(Edit::Batch(edits));
-        self.selected = copies.into_values().collect();
+        let (edit, added) = self.sheet.paste(fragment, by);
+        self.apply(edit);
+        self.selected = added.into_iter().collect();
     }
 
     /// Deletes every selected node, and each group left empty.
