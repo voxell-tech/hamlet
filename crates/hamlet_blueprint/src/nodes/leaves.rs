@@ -4,7 +4,7 @@
 use bevy_math::Vec3;
 use hamlet_graph::{
     Does, Error, Graph, Initial, Listed, NodeKind, PortSpec, Scope,
-    ValueType,
+    ValueType, Wire,
 };
 
 use super::{OBJECTS_IN, OBJECTS_OUT};
@@ -170,7 +170,8 @@ fn combine(run: &mut Run) -> Result<(), Error> {
 const LETTERS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
 
 /// Moves each wire into one of Combine's old inputs, `a` to `f`, onto
-/// its numbered port, in their order.
+/// a numbered port after those already wired, in their order. One
+/// from an output already wired to a numbered port is dropped.
 pub fn upgrade(graph: &mut Graph) {
     let combines = graph
         .nodes
@@ -181,20 +182,34 @@ pub fn upgrade(graph: &mut Graph) {
         .map(|node| node.id)
         .collect::<Vec<_>>();
     for node in combines {
+        let letter_of = |wire: &Wire| {
+            (wire.to.node == node)
+                .then(|| {
+                    LETTERS
+                        .iter()
+                        .position(|letter| *letter == wire.to.name)
+                })
+                .flatten()
+        };
+        let numbered = graph
+            .wires
+            .iter()
+            .filter(|wire| wire.to.node == node)
+            .filter(|wire| SET_IN.number_of(&wire.to.name).is_some())
+            .map(|wire| wire.from.clone())
+            .collect::<Vec<_>>();
+        graph.wires.retain(|wire| {
+            letter_of(wire).is_none()
+                || !numbered.contains(&wire.from)
+        });
         let mut lettered = graph
             .wires
             .iter_mut()
-            .filter(|wire| wire.to.node == node)
-            .filter_map(|wire| {
-                let at = LETTERS
-                    .iter()
-                    .position(|letter| *letter == wire.to.name)?;
-                Some((at, wire))
-            })
+            .filter_map(|wire| Some((letter_of(wire)?, wire)))
             .collect::<Vec<_>>();
         lettered.sort_by_key(|(at, _)| *at);
         for (number, (_, wire)) in lettered.into_iter().enumerate() {
-            wire.to.name = SET_IN.port(number + 1);
+            wire.to.name = SET_IN.port(numbered.len() + number + 1);
         }
     }
 }
