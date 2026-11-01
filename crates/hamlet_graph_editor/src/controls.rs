@@ -9,7 +9,7 @@
 use bevy::color::Color;
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
-use bevy::ui::{AlignItems, Display, UiRect, px};
+use bevy::ui::{AlignItems, Display, Overflow, UiRect, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, frame, icon_button,
@@ -38,6 +38,8 @@ const AXIS: f32 = 38.0;
 const CHANNEL: f32 = 32.0;
 /// The side of a swatch or a glyph beside a field.
 const MARK: f32 = 12.0;
+/// The widest a choice's control grows before its words are cut.
+const CHOICE: f32 = 140.0;
 /// The side of the picture of an asset chosen.
 const PICTURE: f32 = 20.0;
 
@@ -351,7 +353,9 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
     button(
         row((
             picture,
-            label(resource::<Editor<F>, _>(move |editor| {
+            // Words too long for the control are cut at its edge, so
+            // the chevron keeps its place.
+            row((label(resource::<Editor<F>, _>(move |editor| {
                 match value_of(editor, node, &read) {
                     Some(Constant::Choice(choice)) => {
                         choice.replace('_', " ")
@@ -359,7 +363,10 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
                     _ => String::new(),
                 }
             }))
-            .wrap(false),
+            .wrap(false),))
+            .grow(1.0)
+            .min_width(px(0.0))
+            .overflow(Overflow::clip()),
             glyph(Glyph::Chevron, MARK)
                 .tone(Tone::Dim)
                 .rotation(resource::<Menu<F>, _>(move |menu| {
@@ -372,9 +379,12 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
                 .transition(Motion::Interact),
         ))
         .gap(4.0)
-        .align(AlignItems::Center),
+        .align(AlignItems::Center)
+        .min_width(px(0.0)),
     )
     .padding(UiRect::axes(px(6.0), px(0.0)))
+    .max_width(px(CHOICE))
+    .min_width(px(0.0))
     .rules(text_input)
     .on_activate(move |world| {
         if input.listed == Some(Listed::Assets) {
