@@ -16,12 +16,14 @@ use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use bevy_fynix::ViewExt;
 use hamlet_blueprint::{
-    Bundle, Catalogue, Constant, Does, GraphOutput, NodeId, Object,
-    Port, Registry, Seed, Seeds, Setting, Shape, Spread, Value,
-    ValueType, evaluate_partly,
+    Bundle, Object, Seed, Seeds, Value, evaluate_partly,
 };
 use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
+use hamlet_graph::{
+    Catalogue, Constant, Does, GraphOutput, NodeId, Port, Registry,
+    Setting, Shape, Spread, ValueType,
+};
 use hamlet_ui::AnyView;
 use hamlet_ui::widgets::icons::Glyph;
 
@@ -85,7 +87,7 @@ impl Flavor for Blueprint {
     type Got = Got;
 
     fn registry() -> Registry {
-        Registry::builtin()
+        hamlet_blueprint::registry()
     }
 
     /// Runs the open graph with every output nothing is wired to
@@ -100,7 +102,7 @@ impl Flavor for Blueprint {
             let Some(found) = editor.sheet.graph.node(*node) else {
                 continue;
             };
-            let Ok((_, outputs)) = hamlet_blueprint::ports(
+            let Ok((_, outputs)) = hamlet_graph::ports(
                 &editor.registry,
                 &editor.rules,
                 found,
@@ -126,7 +128,7 @@ impl Flavor for Blueprint {
         editor.got.watching = editor.selected.clone();
         editor.got.watched.clear();
         for node in &editor.sheet.graph.nodes {
-            let Ok((_, outputs)) = hamlet_blueprint::ports(
+            let Ok((_, outputs)) = hamlet_graph::ports(
                 &editor.registry,
                 &editor.rules,
                 node,
@@ -159,7 +161,7 @@ impl Flavor for Blueprint {
         ruleset.graphs.insert(editor.name.clone(), graph);
         // A node that fails stops only what needs it, so the rest is
         // still drawn while a graph is half built.
-        editor.problems.clear();
+        editor.errors.clear();
         let evaluated = evaluate_partly(
             &editor.registry,
             &ruleset,
@@ -167,8 +169,8 @@ impl Flavor for Blueprint {
             &BTreeMap::new(),
         );
         editor.got.outcome = evaluated
-            .map(|(outputs, problems)| {
-                editor.problems = problems;
+            .map(|(outputs, errors)| {
+                editor.errors = errors;
                 let mut put = Vec::new();
                 for (name, value) in outputs {
                     match watch.get(&name) {
@@ -183,20 +185,20 @@ impl Flavor for Blueprint {
                 }
                 put
             })
-            .map_err(|problem| problem.to_string());
+            .map_err(|error| error.to_string());
     }
 
     fn status(editor: &Editor<Self>) -> String {
-        match (&editor.got.outcome, editor.problems.first()) {
+        match (&editor.got.outcome, editor.errors.first()) {
             (Ok(objects), None) => {
                 format!("{} put down", objects.len())
             }
-            (Ok(objects), Some(problem)) => format!(
-                "{} put down; {} did not run: {problem}",
+            (Ok(objects), Some(error)) => format!(
+                "{} put down; {} did not run: {error}",
                 objects.len(),
-                editor.problems.len()
+                editor.errors.len()
             ),
-            (Err(problem), _) => problem.clone(),
+            (Err(error), _) => error.clone(),
         }
     }
 
@@ -343,8 +345,8 @@ fn write_bundle(
     editor: &Editor<Blueprint>,
     library: &Path,
 ) -> anyhow::Result<()> {
-    if let Err(problem) = &editor.got.outcome {
-        anyhow::bail!("Not exported, the graph fails: {problem}");
+    if let Err(error) = &editor.got.outcome {
+        anyhow::bail!("Not exported, the graph fails: {error}");
     }
     let mut ruleset = editor.book().export();
     let named = named(&ruleset.graphs);
@@ -377,7 +379,7 @@ fn write_bundle(
 /// Every choice the graphs are set to or may roll, which names the
 /// assets they put down among other things.
 fn named(
-    graphs: &BTreeMap<String, hamlet_blueprint::Graph>,
+    graphs: &BTreeMap<String, hamlet_graph::Graph>,
 ) -> BTreeSet<&str> {
     let mut named = BTreeSet::new();
     for graph in graphs.values() {
@@ -472,8 +474,8 @@ mod tests {
                             "{name}: {graph}"
                         );
                     }
-                    Err(problem) => {
-                        panic!("{name}: {graph}: {problem}")
+                    Err(error) => {
+                        panic!("{name}: {graph}: {error}")
                     }
                 }
             }
@@ -481,7 +483,7 @@ mod tests {
                 Ok(objects) => {
                     assert!(!objects.is_empty(), "{name}");
                 }
-                Err(problem) => panic!("{name}: {problem}"),
+                Err(error) => panic!("{name}: {error}"),
             }
         }
     }

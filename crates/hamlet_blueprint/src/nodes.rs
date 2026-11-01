@@ -7,11 +7,12 @@ mod make;
 mod math;
 mod modify;
 
-use crate::node::{NodeKind, PortSpec};
-use crate::value::ValueType;
+use hamlet_graph::{PortSpec, ValueType};
+
+use crate::kind::BlueprintKind;
 
 /// The built-in kinds, by the group each is listed under.
-pub(crate) const KINDS: [(&str, &[NodeKind]); 6] = [
+pub(crate) static KINDS: [(&str, &[BlueprintKind]); 6] = [
     ("Objects", leaves::KINDS),
     ("Copies", make::KINDS),
     ("Modifiers", modify::KINDS),

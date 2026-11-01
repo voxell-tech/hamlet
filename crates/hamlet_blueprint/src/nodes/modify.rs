@@ -1,14 +1,20 @@
 //! Nodes that thin or cut a set of objects.
 
 use bevy_math::Vec3;
+use hamlet_graph::{
+    Error, Initial, NodeKind, PortSpec, Scope, ValueType,
+};
 
 use super::{OBJECTS_IN, OBJECTS_OUT};
-use crate::eval::{Problem, Run};
-use crate::graph::Scope;
-use crate::node::{Initial, NodeKind, PortSpec};
-use crate::value::{Object, Value, ValueType};
+use crate::eval::Run;
+use crate::kind::BlueprintKind;
+use crate::value::{Object, Value};
 
-pub(super) const KINDS: &[NodeKind] = &[CULL, KEEP_APART, SPLIT];
+pub(super) const KINDS: &[BlueprintKind] = &[
+    BlueprintKind::new(CULL, cull),
+    BlueprintKind::new(KEEP_APART, keep_apart),
+    BlueprintKind::new(SPLIT, split),
+];
 
 const CULL: NodeKind = NodeKind {
     name: "cull",
@@ -24,10 +30,9 @@ const CULL: NodeKind = NodeKind {
         .initial(Initial::Bool(true)),
     ],
     outputs: &[OBJECTS_OUT],
-    run: cull,
 };
 
-fn cull(run: &mut Run) -> Result<(), Problem> {
+fn cull(run: &mut Run) -> Result<(), Error> {
     let mut kept = Vec::new();
     for object in run.objects("objects")? {
         if run.flag("keep", Some(object))? {
@@ -52,10 +57,9 @@ const KEEP_APART: NodeKind = NodeKind {
         .initial(Initial::Number(1.0)),
     ],
     outputs: &[OBJECTS_OUT],
-    run: keep_apart,
 };
 
-fn keep_apart(run: &mut Run) -> Result<(), Problem> {
+fn keep_apart(run: &mut Run) -> Result<(), Error> {
     let distance = run.number("distance", None)?;
     let chance = run.chance(Scope::Item);
     let mut order =
@@ -98,10 +102,9 @@ const SPLIT: NodeKind = NodeKind {
         .initial(Initial::Number(1.2)),
     ],
     outputs: &[OBJECTS_OUT],
-    run: split,
 };
 
-fn split(run: &mut Run) -> Result<(), Problem> {
+fn split(run: &mut Run) -> Result<(), Error> {
     let axis = match run.choice("axis", None)?.as_str() {
         "x" => Vec3::X,
         "y" => Vec3::Y,

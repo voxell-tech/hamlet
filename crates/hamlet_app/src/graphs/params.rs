@@ -13,7 +13,7 @@ use bevy_fynix::views::{
     frame, icon_button, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
-use hamlet_blueprint::{
+use hamlet_graph::{
     Constant, Edit, GraphInput, Scope, ValueType, Vary,
 };
 use hamlet_ui::styles::{

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use bevy_math::Vec4;
-use hamlet_blueprint::{
+use hamlet_graph::{
     Constant, Does, Graph, Node, NodeId, Port, Setting, Wire,
 };
 
@@ -56,7 +56,7 @@ fn every_kind() -> Graph {
 #[test]
 fn every_kind_compiles_to_valid_wgsl() {
     let compiled = compile(&every_kind()).unwrap();
-    assert_eq!(compiled.problems, []);
+    assert_eq!(compiled.errors, []);
     let code = compiled
         .code
         .replace("GROUP", "0")

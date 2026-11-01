@@ -49,7 +49,7 @@ use bevy::ui_render::ui_material::MaterialNode;
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{BehaviorExt, frame};
 use bevy_fynix::{EntityCursor, OverrideCursor, Theme};
-use hamlet_blueprint::{
+use hamlet_graph::{
     Constant, Does, Edit, Listed, NodeId, Port, PortSpec, ValueType,
     Wire, ports,
 };
@@ -373,7 +373,7 @@ fn height<F: Flavor>(rows: usize) -> f32 {
 /// not use is left out unless wired.
 fn rows<F: Flavor>(
     editor: &Editor<F>,
-    node: &hamlet_blueprint::Node,
+    node: &hamlet_graph::Node,
 ) -> (Vec<Dot<F>>, Vec<Dot<F>>) {
     let Ok((inputs, outputs)) =
         ports(&editor.registry, &editor.rules, node)
@@ -381,7 +381,7 @@ fn rows<F: Flavor>(
         return (Vec::new(), Vec::new());
     };
     let dot = |output: bool| {
-        move |info: hamlet_blueprint::PortInfo| Dot {
+        move |info: hamlet_graph::PortInfo| Dot {
             port: Port {
                 node: node.id,
                 name: info.name,
@@ -1154,10 +1154,10 @@ fn paint<F: Flavor>(
     let palette = &theme.0.palette;
     // The cards that did not run in the last run, lit as a warning.
     let failed: BTreeSet<NodeId> = editor
-        .problems
+        .errors
         .iter()
         .filter(|found| found.graph == editor.name)
-        .filter_map(|found| found.problem.node())
+        .filter_map(|found| found.error.node())
         .collect();
     for (card, hovered, mut border) in &mut cards {
         let at =

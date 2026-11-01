@@ -3,13 +3,17 @@
 //! or a random number in it is worked out at each transform.
 
 use bevy_math::Vec3;
+use hamlet_graph::{Error, Initial, NodeKind, PortSpec, ValueType};
 
-use crate::eval::{Problem, Run};
+use crate::eval::Run;
 use crate::field::{Field, Op};
-use crate::node::{Initial, NodeKind, PortSpec};
-use crate::value::{Value, ValueType};
+use crate::kind::BlueprintKind;
+use crate::value::Value;
 
-pub(super) const KINDS: &[NodeKind] = &[MATH, POINT];
+pub(super) const KINDS: &[BlueprintKind] = &[
+    BlueprintKind::new(MATH, math),
+    BlueprintKind::new(POINT, point),
+];
 
 const MATH: NodeKind = NodeKind {
     name: "math",
@@ -43,10 +47,9 @@ const MATH: NodeKind = NodeKind {
         ValueType::Field,
         "The result",
     )],
-    run: math,
 };
 
-fn math(run: &mut Run) -> Result<(), Problem> {
+fn math(run: &mut Run) -> Result<(), Error> {
     let name = run.choice("op", None)?;
     let op = Op::ALL
         .iter()
@@ -76,10 +79,9 @@ const POINT: NodeKind = NodeKind {
             .initial(Initial::Number(0.0)),
     ],
     outputs: &[PortSpec::new("point", ValueType::Point, "The point")],
-    run: point,
 };
 
-fn point(run: &mut Run) -> Result<(), Problem> {
+fn point(run: &mut Run) -> Result<(), Error> {
     // An axis wired from a field, such as noise or random, makes a
     // point that is its own at each transform it is read at.
     let axis = |port: &str| match run.field(port) {

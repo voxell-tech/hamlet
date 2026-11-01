@@ -8,7 +8,7 @@ mod preview;
 mod swatch;
 
 use bevy::app::App;
-use hamlet_blueprint::{GraphProblem, Registry};
+use hamlet_graph::{GraphError, Registry};
 use hamlet_material::{Compiled, compile};
 use hamlet_ui::AnyView;
 use hamlet_ui::widgets::icons::Glyph;
@@ -68,22 +68,21 @@ impl Flavor for Material {
     fn run(editor: &mut Editor<Self>) {
         let compiled = compile(&editor.sheet.graph);
         let old = editor.got.compiled().map(|old| old.code.clone());
-        editor.problems = match &compiled {
+        editor.errors = match &compiled {
             Ok(compiled) => compiled
-                .problems
+                .errors
                 .iter()
-                .map(|problem| GraphProblem {
+                .map(|error| GraphError {
                     graph: editor.name.clone(),
-                    problem: problem.clone(),
+                    error: error.clone(),
                 })
                 .collect(),
-            Err(problem) => vec![GraphProblem {
+            Err(error) => vec![GraphError {
                 graph: editor.name.clone(),
-                problem: problem.clone(),
+                error: error.clone(),
             }],
         };
-        let compiled =
-            compiled.map_err(|problem| problem.to_string());
+        let compiled = compiled.map_err(|error| error.to_string());
         let new = compiled.as_ref().ok().map(|new| new.code.clone());
         if new.is_some() && new != old {
             editor.got.version += 1;
@@ -95,13 +94,13 @@ impl Flavor for Material {
     }
 
     fn status(editor: &Editor<Self>) -> String {
-        match (&editor.got.compiled, editor.problems.first()) {
+        match (&editor.got.compiled, editor.errors.first()) {
             (Some(Ok(_)), None) => "Compiled".to_owned(),
-            (_, Some(problem)) => format!(
-                "{} did not compile: {problem}",
-                editor.problems.len()
+            (_, Some(error)) => format!(
+                "{} did not compile: {error}",
+                editor.errors.len()
             ),
-            (Some(Err(problem)), None) => problem.clone(),
+            (Some(Err(error)), None) => error.clone(),
             (None, None) => String::new(),
         }
     }
@@ -117,7 +116,7 @@ impl Flavor for Material {
 
 #[cfg(test)]
 mod tests {
-    use hamlet_blueprint::Book;
+    use hamlet_graph::Book;
 
     use super::{Flavor, Material};
 
@@ -127,10 +126,10 @@ mod tests {
             let book = Book::from_ron(text).unwrap();
             for (sheet_name, sheet) in &book.sheets {
                 let compiled = hamlet_material::compile(&sheet.graph)
-                    .unwrap_or_else(|problem| {
-                        panic!("{name}, {sheet_name}: {problem}")
+                    .unwrap_or_else(|error| {
+                        panic!("{name}, {sheet_name}: {error}")
                     });
-                assert_eq!(compiled.problems, [], "{name}");
+                assert_eq!(compiled.errors, [], "{name}");
             }
         }
     }

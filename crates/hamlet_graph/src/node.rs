@@ -1,12 +1,10 @@
-//! Kinds of node: what each takes and gives, and how it runs.
+//! Kinds of node: what each takes and gives.
 
 use std::collections::BTreeMap;
 
 use bevy_math::{Vec3, Vec4};
 
-use crate::eval::{Problem, Run};
-use crate::nodes;
-use crate::value::{Constant, Value, ValueType};
+use crate::value::{Constant, ValueType};
 
 /// A kind of node. Its names and words describe it to the editor, to
 /// plugin authors and to agents.
@@ -16,7 +14,6 @@ pub struct NodeKind {
     pub doc: &'static str,
     pub inputs: &'static [PortSpec],
     pub outputs: &'static [PortSpec],
-    pub run: fn(&mut Run) -> Result<(), Problem>,
 }
 
 /// A port of a [`NodeKind`].
@@ -129,21 +126,6 @@ impl From<Initial> for Constant {
     }
 }
 
-impl From<Initial> for Value {
-    fn from(initial: Initial) -> Self {
-        match initial {
-            Initial::Number(number) => Value::Number(number),
-            Initial::Integer(whole) => Value::Integer(whole),
-            Initial::Bool(flag) => Value::Bool(flag),
-            Initial::Point(point) => Value::Point(point),
-            Initial::Choice(choice) => {
-                Value::Choice(choice.to_owned())
-            }
-            Initial::Color(color) => Value::Color(color),
-        }
-    }
-}
-
 /// The kinds of node a ruleset may use, by name, each in a group it
 /// is listed under.
 #[derive(Clone, Debug, Default)]
@@ -152,17 +134,6 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// The built-in kinds.
-    pub fn builtin() -> Self {
-        let mut registry = Self::default();
-        for (group, kinds) in nodes::KINDS {
-            for kind in kinds {
-                registry.add(group, *kind);
-            }
-        }
-        registry
-    }
-
     /// Adds `kind` to `group`, in place of one of the same name.
     pub fn add(&mut self, group: &'static str, kind: NodeKind) {
         self.kinds.insert(kind.name, (group, kind));

@@ -5,9 +5,8 @@ use std::collections::BTreeMap;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use hamlet_graph::{Ruleset, to_ron};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use crate::graph::{Ruleset, to_ron};
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Bundle {

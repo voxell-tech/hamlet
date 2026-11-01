@@ -3,21 +3,23 @@
 //! copier after another copies the copies.
 
 use bevy_math::Vec3;
+use hamlet_graph::{
+    Error, Initial, Listed, NodeKind, PortSpec, Scope, ValueType,
+};
 
 use super::{OBJECTS_IN, OBJECTS_OUT};
-use crate::eval::{Problem, Run};
-use crate::graph::Scope;
-use crate::node::{Initial, Listed, NodeKind, PortSpec};
+use crate::eval::Run;
+use crate::kind::BlueprintKind;
 use crate::turn;
-use crate::value::{Frame, Object, Value, ValueType};
+use crate::value::{Frame, Object, Value};
 
-pub(super) const KINDS: &[NodeKind] = &[
-    REPEAT,
-    GRID,
-    ALONG_CURVE,
-    CURVE_CORNERS,
-    ON_SURFACE,
-    ON_SOCKETS,
+pub(super) const KINDS: &[BlueprintKind] = &[
+    BlueprintKind::new(REPEAT, repeat),
+    BlueprintKind::new(GRID, grid),
+    BlueprintKind::new(ALONG_CURVE, along_curve),
+    BlueprintKind::new(CURVE_CORNERS, curve_corners),
+    BlueprintKind::new(ON_SURFACE, on_surface),
+    BlueprintKind::new(ON_SOCKETS, on_sockets),
 ];
 
 const CURVE_IN: PortSpec =
@@ -85,10 +87,9 @@ const REPEAT: NodeKind = NodeKind {
         .initial(Initial::Point(Vec3::new(1.0, 0.0, 0.0))),
     ],
     outputs: &[OBJECTS_OUT],
-    run: repeat,
 };
 
-fn repeat(run: &mut Run) -> Result<(), Problem> {
+fn repeat(run: &mut Run) -> Result<(), Error> {
     let count = run.integer("count", None)?.max(0) as u32;
     let step = run.point("step")?;
     let places: Vec<Place> = (0..count)
@@ -121,10 +122,9 @@ const GRID: NodeKind = NodeKind {
         .initial(Initial::Number(2.0)),
     ],
     outputs: &[OBJECTS_OUT],
-    run: grid,
 };
 
-fn grid(run: &mut Run) -> Result<(), Problem> {
+fn grid(run: &mut Run) -> Result<(), Error> {
     let columns = run.integer("columns", None)?.max(0) as u32;
     let rows = run.integer("rows", None)?.max(0) as u32;
     let spacing = run.number("spacing", None)?;
@@ -163,10 +163,9 @@ const ALONG_CURVE: NodeKind = NodeKind {
         ALIGN,
     ],
     outputs: &[OBJECTS_OUT],
-    run: along_curve,
 };
 
-fn along_curve(run: &mut Run) -> Result<(), Problem> {
+fn along_curve(run: &mut Run) -> Result<(), Error> {
     let spacing = run.number("spacing", None)?;
     if spacing <= 0.0 {
         return Err(run.invalid("spacing", "must be above zero"));
@@ -204,10 +203,9 @@ const CURVE_CORNERS: NodeKind = NodeKind {
           of a polygon",
     inputs: &[OBJECTS_IN, CURVE_IN, ALIGN],
     outputs: &[OBJECTS_OUT],
-    run: curve_corners,
 };
 
-fn curve_corners(run: &mut Run) -> Result<(), Problem> {
+fn curve_corners(run: &mut Run) -> Result<(), Error> {
     let align = run.flag("align", None)?;
     let curve = run.curve("curve")?;
     let length = curve.length();
@@ -268,10 +266,9 @@ const ON_SURFACE: NodeKind = NodeKind {
         .initial(Initial::Bool(true)),
     ],
     outputs: &[OBJECTS_OUT],
-    run: on_surface,
 };
 
-fn on_surface(run: &mut Run) -> Result<(), Problem> {
+fn on_surface(run: &mut Run) -> Result<(), Error> {
     let align = run.flag("align", None)?;
     let chance = run.chance(Scope::Item);
     let objects = run.objects("objects")?;
@@ -333,10 +330,9 @@ const ON_SOCKETS: NodeKind = NodeKind {
         .initial(Initial::Choice("lamp")),
     ],
     outputs: &[OBJECTS_OUT],
-    run: on_sockets,
 };
 
-fn on_sockets(run: &mut Run) -> Result<(), Problem> {
+fn on_sockets(run: &mut Run) -> Result<(), Error> {
     let name = run.choice("socket", None)?;
     let mut places = Vec::new();
     for object in run.objects("on")? {

@@ -11,7 +11,7 @@ description = "Material graphs: a surface's colour, roughness and glow as nodes 
 workspace = true
 
 [dependencies]
-hamlet_blueprint.workspace = true
+hamlet_graph.workspace = true
 bevy_math.workspace = true
 thiserror.workspace = true
 

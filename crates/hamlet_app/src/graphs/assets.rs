@@ -22,8 +22,8 @@ use bevy_fynix::views::{
     icon_button, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
-use hamlet_blueprint::{Asset, Paint, Shape, Socket};
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
+use hamlet_graph::{Asset, Paint, Shape, Socket};
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_ui::styles::{ICON, command, description, note, section};
@@ -266,7 +266,7 @@ fn walk(
         let slot = match (material.name(), material.index()) {
             (Some(name), _) => name.to_owned(),
             (None, Some(index)) => format!("material {index}"),
-            (None, None) => hamlet_blueprint::BODY.to_owned(),
+            (None, None) => hamlet_graph::BODY.to_owned(),
         };
         let [r, g, b, _] =
             material.pbr_metallic_roughness().base_color_factor();

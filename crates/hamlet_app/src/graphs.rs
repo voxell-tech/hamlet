@@ -36,9 +36,9 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     Bevy, ScopedExt, ViewExt, ViewSeq, keyed, resource,
 };
-use hamlet_blueprint::{
-    Book, Catalogue, Constant, Does, Edit, GraphInput, GraphOutput,
-    GraphProblem, Group, Initial, Node, NodeId, Port, PortSpec,
+use hamlet_graph::{
+    Book, Catalogue, Constant, Does, Edit, GraphError, GraphInput,
+    GraphOutput, Group, Initial, Node, NodeId, Port, PortSpec,
     Registry, Ruleset, Setting, Sheet, ValueType,
 };
 use hamlet_ui::styles::{
@@ -170,9 +170,9 @@ pub(crate) struct Editor<F: Flavor> {
     pub shape: u64,
     /// Changes with every change to the book, so it is saved again.
     pub revision: u64,
-    /// The nodes that failed in the last run, each with its problem;
+    /// The nodes that failed in the last run, each with its error;
     /// the rest of the graph ran without them.
-    pub problems: Vec<GraphProblem>,
+    pub errors: Vec<GraphError>,
     /// What the flavor keeps of the last run.
     pub got: F::Got,
     /// The meshes the book last opened carried with it, not yet
@@ -193,7 +193,7 @@ impl<F: Flavor> Editor<F> {
             redo: Vec::new(),
             shape: 0,
             revision: 0,
-            problems: Vec::new(),
+            errors: Vec::new(),
             got: F::Got::default(),
             carried: Catalogue::default(),
         };
@@ -487,11 +487,9 @@ impl<F: Flavor> Editor<F> {
         let Some(found) = self.sheet.graph.node(node) else {
             return;
         };
-        let Ok((_, outputs)) = hamlet_blueprint::ports(
-            &self.registry,
-            &self.rules,
-            found,
-        ) else {
+        let Ok((_, outputs)) =
+            hamlet_graph::ports(&self.registry, &self.rules, found)
+        else {
             return;
         };
         let Some(port) = outputs
@@ -569,7 +567,7 @@ impl<F: Flavor> Editor<F> {
     fn free_name(
         &self,
         wanted: &str,
-        taken: impl Fn(&hamlet_blueprint::Graph) -> Vec<String>,
+        taken: impl Fn(&hamlet_graph::Graph) -> Vec<String>,
     ) -> String {
         let taken = taken(&self.sheet.graph);
         std::iter::once(wanted.to_owned())

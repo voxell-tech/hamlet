@@ -3374,6 +3374,7 @@ dependencies = [
  "hamlet_blueprint",
  "hamlet_client",
  "hamlet_desktop",
+ "hamlet_graph",
  "hamlet_material",
  "hamlet_protocol",
  "hamlet_realm",
@@ -3413,10 +3414,10 @@ dependencies = [
  "base64 0.22.1",
  "bevy_math",
  "fastnoise-lite",
+ "hamlet_graph",
  "libm",
  "ron",
  "serde",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3476,11 +3477,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_graph"
+version = "0.1.0"
+dependencies = [
+ "bevy_math",
+ "ron",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "hamlet_material"
 version = "0.1.0"
 dependencies = [
  "bevy_math",
- "hamlet_blueprint",
+ "hamlet_graph",
  "naga",
  "thiserror 2.0.21",
 ]

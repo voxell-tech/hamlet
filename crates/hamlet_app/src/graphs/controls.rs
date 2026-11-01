@@ -15,7 +15,7 @@ use bevy_fynix::views::{
     label, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, Signal, ViewExt, resource};
-use hamlet_blueprint::{
+use hamlet_graph::{
     Constant, Edit, Listed, NodeId, Setting, ValueType,
 };
 use hamlet_ui::styles::{note, text_input};

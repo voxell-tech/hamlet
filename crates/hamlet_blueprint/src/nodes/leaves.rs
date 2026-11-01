@@ -2,16 +2,21 @@
 //! one, move objects by one, and join sets of objects.
 
 use bevy_math::Vec3;
-
-use super::{OBJECTS_IN, OBJECTS_OUT};
-use crate::eval::{Problem, Run};
-use crate::node::{Initial, Listed, NodeKind, PortSpec};
-use crate::value::{
-    Frame, Object, ObjectId, TransformValue, Value, ValueType,
+use hamlet_graph::{
+    Error, Initial, Listed, NodeKind, PortSpec, ValueType,
 };
 
-pub(super) const KINDS: &[NodeKind] =
-    &[TRANSFORM, OBJECT, MATMUL, COMBINE];
+use super::{OBJECTS_IN, OBJECTS_OUT};
+use crate::eval::Run;
+use crate::kind::BlueprintKind;
+use crate::value::{Frame, Object, ObjectId, TransformValue, Value};
+
+pub(super) const KINDS: &[BlueprintKind] = &[
+    BlueprintKind::new(TRANSFORM, transform),
+    BlueprintKind::new(OBJECT, object),
+    BlueprintKind::new(MATMUL, matmul),
+    BlueprintKind::new(COMBINE, combine),
+];
 
 const TRANSFORM_IN: PortSpec = PortSpec::new(
     "transform",
@@ -49,10 +54,9 @@ const TRANSFORM: NodeKind = NodeKind {
         ValueType::Transform,
         "The transform",
     )],
-    run: transform,
 };
 
-fn transform(run: &mut Run) -> Result<(), Problem> {
+fn transform(run: &mut Run) -> Result<(), Error> {
     let transform = TransformValue {
         translation: run.point_fields("translation")?,
         rotation: run.point_fields("rotation")?,
@@ -77,10 +81,9 @@ const OBJECT: NodeKind = NodeKind {
         TRANSFORM_IN,
     ],
     outputs: &[OBJECTS_OUT],
-    run: object,
 };
 
-fn object(run: &mut Run) -> Result<(), Problem> {
+fn object(run: &mut Run) -> Result<(), Error> {
     let frame = run.transform("transform")?.at(run.origin());
     let object = Object::new(
         run.choice("asset", None)?,
@@ -110,10 +113,9 @@ const MATMUL: NodeKind = NodeKind {
         .choices(&["each", "origin"]),
     ],
     outputs: &[OBJECTS_OUT],
-    run: matmul,
 };
 
-fn matmul(run: &mut Run) -> Result<(), Problem> {
+fn matmul(run: &mut Run) -> Result<(), Error> {
     let transform = run.transform("transform")?;
     let each = run.choice("about", None)? == "each";
     let objects = run
@@ -157,10 +159,9 @@ const COMBINE: NodeKind = NodeKind {
         PortSpec::new("f", ValueType::Objects, "A set"),
     ],
     outputs: &[OBJECTS_OUT],
-    run: combine,
 };
 
-fn combine(run: &mut Run) -> Result<(), Problem> {
+fn combine(run: &mut Run) -> Result<(), Error> {
     let mut objects = Vec::new();
     for set in SETS {
         if run.is_set(set) {

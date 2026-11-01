@@ -35,7 +35,7 @@ use bevy_fynix::views::{
     menu_item, overlay, popup, row, scroll, text_field,
 };
 use bevy_fynix::{ScopedExt, Signal, ViewExt, keyed, resource};
-use hamlet_blueprint::{Constant, Does, Edit, NodeId, Setting};
+use hamlet_graph::{Constant, Does, Edit, NodeId, Setting};
 use hamlet_ui::styles::{ICON, note, section, text_input};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};

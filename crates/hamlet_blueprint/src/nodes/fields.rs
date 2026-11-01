@@ -1,13 +1,20 @@
 //! Nodes that make fields.
 
-use crate::eval::{Problem, Run};
-use crate::field::{Field, Measure, Noise, NoiseKind, Random};
-use crate::graph::Scope;
-use crate::node::{Initial, NodeKind, PortSpec};
-use crate::value::{Value, ValueType};
+use hamlet_graph::{
+    Error, Initial, NodeKind, PortSpec, Scope, ValueType,
+};
 
-pub(super) const KINDS: &[NodeKind] =
-    &[NOISE, RANDOM, MEASURE, REMAP];
+use crate::eval::Run;
+use crate::field::{Field, Measure, Noise, NoiseKind, Random};
+use crate::kind::BlueprintKind;
+use crate::value::Value;
+
+pub(super) const KINDS: &[BlueprintKind] = &[
+    BlueprintKind::new(NOISE, noise),
+    BlueprintKind::new(RANDOM, random),
+    BlueprintKind::new(MEASURE, measure),
+    BlueprintKind::new(REMAP, remap),
+];
 
 const FIELD_OUT: PortSpec =
     PortSpec::new("field", ValueType::Field, "The field");
@@ -47,10 +54,9 @@ const NOISE: NodeKind = NodeKind {
         .choices(&["realm", "hamlet", "item"]),
     ],
     outputs: &[FIELD_OUT],
-    run: noise,
 };
 
-fn noise(run: &mut Run) -> Result<(), Problem> {
+fn noise(run: &mut Run) -> Result<(), Error> {
     let kind = match run.choice("kind", None)?.as_str() {
         "value" => NoiseKind::Value,
         "simplex" => NoiseKind::Simplex,
@@ -81,10 +87,9 @@ const MEASURE: NodeKind = NodeKind {
         .initial(Initial::Choice("height"))
         .choices(&["x", "height", "z", "along", "index"])],
     outputs: &[FIELD_OUT],
-    run: measure,
 };
 
-fn measure(run: &mut Run) -> Result<(), Problem> {
+fn measure(run: &mut Run) -> Result<(), Error> {
     let measure = match run.choice("of", None)?.as_str() {
         "x" => Measure::X,
         "z" => Measure::Z,
@@ -132,10 +137,9 @@ const REMAP: NodeKind = NodeKind {
         .initial(Initial::Number(1.0)),
     ],
     outputs: &[FIELD_OUT],
-    run: remap,
 };
 
-fn remap(run: &mut Run) -> Result<(), Problem> {
+fn remap(run: &mut Run) -> Result<(), Error> {
     let field = Field::Remap {
         field: Box::new(run.field("field")?),
         from: [
@@ -177,10 +181,9 @@ const RANDOM: NodeKind = NodeKind {
         .choices(&["object", "item", "hamlet", "realm"]),
     ],
     outputs: &[FIELD_OUT],
-    run: random,
 };
 
-fn random(run: &mut Run) -> Result<(), Problem> {
+fn random(run: &mut Run) -> Result<(), Error> {
     let (scope, each) = match run.choice("per", None)?.as_str() {
         "item" => (Scope::Item, false),
         "hamlet" => (Scope::Hamlet, false),

@@ -1,13 +1,18 @@
 //! Nodes that make curves.
 
 use bevy_math::Vec3;
+use hamlet_graph::{Error, Initial, NodeKind, PortSpec, ValueType};
 
-use crate::eval::{Problem, Run};
-use crate::node::{Initial, NodeKind, PortSpec};
+use crate::eval::Run;
+use crate::kind::BlueprintKind;
 use crate::turn;
-use crate::value::{Curve, Value, ValueType};
+use crate::value::{Curve, Value};
 
-pub(super) const KINDS: &[NodeKind] = &[LINE, RECTANGLE, POLYGON];
+pub(super) const KINDS: &[BlueprintKind] = &[
+    BlueprintKind::new(LINE, line),
+    BlueprintKind::new(RECTANGLE, rectangle),
+    BlueprintKind::new(POLYGON, polygon),
+];
 
 const CURVE_OUT: PortSpec =
     PortSpec::new("curve", ValueType::Curve, "The curve");
@@ -25,10 +30,9 @@ const LINE: NodeKind = NodeKind {
             .initial(Initial::Point(Vec3::new(4.0, 0.0, 0.0))),
     ],
     outputs: &[CURVE_OUT],
-    run: line,
 };
 
-fn line(run: &mut Run) -> Result<(), Problem> {
+fn line(run: &mut Run) -> Result<(), Error> {
     let curve = Curve {
         points: vec![run.point("from")?, run.point("to")?],
         closed: false,
@@ -49,10 +53,9 @@ const RECTANGLE: NodeKind = NodeKind {
             .initial(Initial::Number(4.0)),
     ],
     outputs: &[CURVE_OUT],
-    run: rectangle,
 };
 
-fn rectangle(run: &mut Run) -> Result<(), Problem> {
+fn rectangle(run: &mut Run) -> Result<(), Error> {
     let center = run.point("center")?;
     let half = Vec3::new(
         run.number("width", None)?,
@@ -87,10 +90,9 @@ const POLYGON: NodeKind = NodeKind {
         .initial(Initial::Integer(16)),
     ],
     outputs: &[CURVE_OUT],
-    run: polygon,
 };
 
-fn polygon(run: &mut Run) -> Result<(), Problem> {
+fn polygon(run: &mut Run) -> Result<(), Error> {
     let center = run.point("center")?;
     let radius = run.number("radius", None)?;
     let sides = run.integer("sides", None)?.max(3) as u32;

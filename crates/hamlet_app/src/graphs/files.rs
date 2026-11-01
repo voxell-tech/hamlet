@@ -17,9 +17,9 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
-use hamlet_blueprint::{Book, Shape};
 use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
+use hamlet_graph::{Book, Shape};
 
 use super::flavor::Flavor;
 use super::{Editor, canvas, example};

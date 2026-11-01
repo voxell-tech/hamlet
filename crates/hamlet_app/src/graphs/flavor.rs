@@ -3,7 +3,7 @@
 
 use bevy::app::App;
 use bevy::math::Vec2;
-use hamlet_blueprint::Registry;
+use hamlet_graph::Registry;
 use hamlet_ui::AnyView;
 use hamlet_ui::widgets::icons::Glyph;
 
@@ -39,7 +39,7 @@ pub(crate) trait Flavor:
     /// The kinds of node its graphs use.
     fn registry() -> Registry;
     /// Works the open graph out again, filling `editor.got` and
-    /// `editor.problems`.
+    /// `editor.errors`.
     fn run(editor: &mut Editor<Self>);
     /// What the end of the toolbar says of the last run.
     fn status(editor: &Editor<Self>) -> String;

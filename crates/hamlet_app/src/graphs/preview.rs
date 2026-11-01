@@ -45,7 +45,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
 };
 use bevy_fynix::{ScopedExt, Theme, ViewExt, resource};
-use hamlet_blueprint::{Asset, BODY, Frame, Paint, Shape};
+use hamlet_blueprint::Frame;
+use hamlet_graph::{Asset, BODY, Paint, Shape};
 use hamlet_realm::generator::house::slope;
 use hamlet_realm::meshes::{Meshing, Rng};
 use hamlet_realm::palette::{Palette as Colours, TownStyle};
@@ -146,7 +147,7 @@ pub(super) struct Framing {
 pub(super) fn view() -> impl View {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let panel = column((problem(), switches()))
+        let panel = column((error(), switches()))
             .width(percent(100.0))
             .fills_height()
             .overflow(Overflow::clip())
@@ -167,12 +168,11 @@ pub(super) fn view() -> impl View {
 
 /// Why the graph does not run, over the preview's corner, while it
 /// shows the last drawing that did.
-fn problem() -> AnyView {
+fn error() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
         let shown = resource::<Editor<Blueprint>, _>(|editor| {
-            if editor.got.outcome.is_ok()
-                && editor.problems.is_empty()
+            if editor.got.outcome.is_ok() && editor.errors.is_empty()
             {
                 Display::None
             } else {
@@ -183,13 +183,13 @@ fn problem() -> AnyView {
             column((description(resource::<Editor<Blueprint>, _>(
                 |editor| match (
                     &editor.got.outcome,
-                    editor.problems.first(),
+                    editor.errors.first(),
                 ) {
-                    (Err(problem), _) => {
-                        format!("Not drawn: {problem}")
+                    (Err(error), _) => {
+                        format!("Not drawn: {error}")
                     }
-                    (Ok(_), Some(problem)) => {
-                        format!("Not all drawn: {problem}")
+                    (Ok(_), Some(error)) => {
+                        format!("Not all drawn: {error}")
                     }
                     (Ok(_), None) => String::new(),
                 },

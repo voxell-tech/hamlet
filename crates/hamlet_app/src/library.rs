@@ -17,8 +17,8 @@ use bevy::app::{App, Update};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::time::Time;
-use hamlet_blueprint::{Asset, Book, Catalogue, Shape};
 use hamlet_client::ViewFolder;
+use hamlet_graph::{Asset, Book, Catalogue, Shape};
 use hamlet_ui::widgets::icons::Glyph;
 
 /// How often the folder is read again, for files changed outside the

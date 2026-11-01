@@ -5,7 +5,7 @@
 //! offers nothing.
 
 use bevy::math::{EulerRot, Quat, Vec3};
-use hamlet_blueprint::{Constant, Does, Edit, NodeId, Setting};
+use hamlet_graph::{Constant, Does, Edit, NodeId, Setting};
 
 use super::{Blueprint, Editor};
 

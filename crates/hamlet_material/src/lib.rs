@@ -2,7 +2,7 @@
 //! emission and normal as nodes and wires, compiled to a fragment
 //! shader that extends the realm's PBR standard material.
 //!
-//! A material graph is a [`hamlet_blueprint::Graph`] of the kinds in
+//! A material graph is a [`hamlet_graph::Graph`] of the kinds in
 //! [`registry`]. [`compile`] turns it into WGSL, and
 //! [`surface_shader`] and [`swatch_shader`] wrap that for the realm
 //! and for a card's swatch. Values set on the graph are uniforms,

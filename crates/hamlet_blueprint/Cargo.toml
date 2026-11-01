@@ -11,10 +11,10 @@ description = "Procedural graphs: rules for placing parts, as data, and the eval
 workspace = true
 
 [dependencies]
+hamlet_graph.workspace = true
 base64.workspace = true
 bevy_math = { workspace = true, features = ["serialize"] }
 fastnoise-lite.workspace = true
 libm.workspace = true
 ron.workspace = true
 serde.workspace = true
-thiserror.workspace = true

@@ -17,7 +17,7 @@ use bevy::shape::Ray3d;
 use bevy::transform::components::GlobalTransform;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy_fynix::Theme;
-use hamlet_blueprint::{Constant, NodeId};
+use hamlet_graph::{Constant, NodeId};
 use hamlet_ui::theme::HamletTheme;
 
 use super::super::canvas::corner;

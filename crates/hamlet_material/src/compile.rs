@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
 use bevy_math::Vec4;
-use hamlet_blueprint::{
-    Constant, Does, Graph, Node, NodeId, PortSpec, Problem, Setting,
+use hamlet_graph::{
+    Constant, Does, Error, Graph, Node, NodeId, PortSpec, Setting,
     ValueType,
 };
 
@@ -40,7 +40,7 @@ pub struct Compiled {
     sources: Vec<Source>,
     /// The nodes that could not be compiled, each with why. What
     /// needs them takes its default.
-    pub problems: Vec<Problem>,
+    pub errors: Vec<Error>,
     /// Whether what it gives changes with the time, so its slots are
     /// filled again every frame.
     reads_time: bool,
@@ -180,7 +180,7 @@ fn variable(node: NodeId, port: &str) -> String {
 
 /// The nodes of `graph` in an order where each comes after those
 /// wired into it.
-fn order(graph: &Graph) -> Result<Vec<NodeId>, Problem> {
+fn order(graph: &Graph) -> Result<Vec<NodeId>, Error> {
     let mut placed = BTreeSet::new();
     let mut order = Vec::new();
     let mut left: Vec<NodeId> =
@@ -199,7 +199,7 @@ fn order(graph: &Graph) -> Result<Vec<NodeId>, Problem> {
             !ready
         });
         if left.len() == before {
-            return Err(Problem::Loop(left));
+            return Err(Error::Loop(left));
         }
     }
     Ok(order)
@@ -207,7 +207,7 @@ fn order(graph: &Graph) -> Result<Vec<NodeId>, Problem> {
 
 /// Compiles `graph`. A node that fails is left out, and what needs it
 /// takes its default; a loop fails the whole graph.
-pub fn compile(graph: &Graph) -> Result<Compiled, Problem> {
+pub fn compile(graph: &Graph) -> Result<Compiled, Error> {
     let order = order(graph)?;
     let mut compiler = Compiler {
         graph,
@@ -215,7 +215,7 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Problem> {
         parents: BTreeMap::new(),
         given: BTreeMap::new(),
         body: String::new(),
-        problems: Vec::new(),
+        errors: Vec::new(),
     };
     let mut shown = Vec::new();
     let mut surface = None;
@@ -224,7 +224,7 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Problem> {
             continue;
         };
         let Does::Kind(name) = &node.does else {
-            compiler.problems.push(Problem::Invalid {
+            compiler.errors.push(Error::Invalid {
                 node: id,
                 port: String::new(),
                 reason: "runs a graph, which a material cannot yet",
@@ -232,7 +232,7 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Problem> {
             continue;
         };
         let Some(kind) = kinds::get(name) else {
-            compiler.problems.push(Problem::UnknownKind {
+            compiler.errors.push(Error::UnknownKind {
                 node: id,
                 kind: name.clone(),
             });
@@ -259,13 +259,13 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Problem> {
                     surface = Some(id);
                 }
             }
-            Err(problem) => compiler.problems.push(problem),
+            Err(error) => compiler.errors.push(error),
         }
     }
     let Compiler {
         sources,
         body,
-        problems,
+        errors,
         ..
     } = compiler;
     let reads_time = body.contains("i.time");
@@ -317,7 +317,7 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Problem> {
     Ok(Compiled {
         code,
         sources,
-        problems,
+        errors,
         reads_time,
     })
 }
@@ -330,7 +330,7 @@ struct Compiler<'a> {
     /// The type of each output compiled so far.
     given: BTreeMap<(NodeId, String), ValueType>,
     body: String,
-    problems: Vec<Problem>,
+    errors: Vec<Error>,
 }
 
 impl Compiler<'_> {
@@ -365,7 +365,7 @@ pub(crate) struct Emit<'a, 'b> {
 }
 
 impl Emit<'_, '_> {
-    fn spec(&self, port: &str) -> Result<&'static PortSpec, Problem> {
+    fn spec(&self, port: &str) -> Result<&'static PortSpec, Error> {
         self.kind
             .kind
             .inputs
@@ -378,8 +378,8 @@ impl Emit<'_, '_> {
         &self,
         port: &str,
         reason: &'static str,
-    ) -> Problem {
-        Problem::Invalid {
+    ) -> Error {
+        Error::Invalid {
             node: self.node.id,
             port: port.to_owned(),
             reason,
@@ -404,7 +404,7 @@ impl Emit<'_, '_> {
     pub(crate) fn any(
         &mut self,
         port: &str,
-    ) -> Result<(String, ValueType), Problem> {
+    ) -> Result<(String, ValueType), Error> {
         if let Some(wired) = self.wired(port) {
             return Ok(wired);
         }
@@ -417,7 +417,7 @@ impl Emit<'_, '_> {
         &mut self,
         port: &str,
         value_type: ValueType,
-    ) -> Result<String, Problem> {
+    ) -> Result<String, Error> {
         let (code, from) = self.any(port)?;
         Ok(convert(&code, from, value_type))
     }
@@ -428,7 +428,7 @@ impl Emit<'_, '_> {
         &mut self,
         port: &str,
         otherwise: &str,
-    ) -> Result<String, Problem> {
+    ) -> Result<String, Error> {
         let spec = self.spec(port)?;
         Ok(match self.wired(port) {
             Some((code, from)) => {
@@ -439,17 +439,14 @@ impl Emit<'_, '_> {
     }
 
     /// The choice `port` is set to, fixed when the graph is compiled.
-    pub(crate) fn choice(
-        &self,
-        port: &str,
-    ) -> Result<String, Problem> {
+    pub(crate) fn choice(&self, port: &str) -> Result<String, Error> {
         let spec = self.spec(port)?;
         Ok(match self.node.settings.get(port) {
             Some(Setting::Fixed(Constant::Choice(choice))) => {
                 choice.clone()
             }
             _ => match spec.initial {
-                Some(hamlet_blueprint::Initial::Choice(choice)) => {
+                Some(hamlet_graph::Initial::Choice(choice)) => {
                     choice.to_owned()
                 }
                 _ => spec
@@ -466,7 +463,7 @@ impl Emit<'_, '_> {
     fn unwired(
         &mut self,
         spec: &'static PortSpec,
-    ) -> Result<String, Problem> {
+    ) -> Result<String, Error> {
         let source = match self.node.settings.get(spec.name) {
             Some(Setting::FromParent(name)) => {
                 Source::Parent(name.clone())

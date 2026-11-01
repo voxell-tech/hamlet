@@ -1,19 +1,20 @@
-//! Checking a ruleset and running it.
+//! Running a ruleset.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bevy_math::Vec3;
-
-use crate::catalogue::{Asset, Catalogue};
-use crate::field::Field;
-use crate::graph::{
-    Does, Graph, Node, NodeId, Roll, Ruleset, Scope, Setting, Spread,
+use hamlet_graph::{
+    Asset, Catalogue, Does, Error, Graph, GraphError, Node, NodeId,
+    NodeKind, Registry, Roll, Ruleset, Scope, Setting, Spread,
+    ValueType, order, ports, validate,
 };
-use crate::node::{NodeKind, Registry};
+
+use crate::field::Field;
+use crate::kind;
 use crate::seed::Seed;
 use crate::value::{
-    Curve, Frame, Object, ObjectId, TransformValue, Value, ValueType,
+    Curve, Frame, Object, ObjectId, TransformValue, Value,
 };
 
 /// The seeds a ruleset runs with, one for each scope above a
@@ -35,380 +36,6 @@ impl Seeds {
     }
 }
 
-/// Something wrong in a graph, found by [`validate`] or while running
-/// it.
-#[derive(Clone, PartialEq, Debug, thiserror::Error)]
-pub enum Problem {
-    #[error("no graph is named {0}")]
-    UnknownGraph(String),
-    #[error("{node} is of an unknown kind, {kind}")]
-    UnknownKind { node: NodeId, kind: String },
-    #[error("no node is {0}")]
-    UnknownNode(NodeId),
-    #[error("two nodes are {0}")]
-    SameId(NodeId),
-    #[error("{node} has no port {port}")]
-    UnknownPort { node: NodeId, port: String },
-    #[error("the graph has no input {0}")]
-    UnknownInput(String),
-    #[error("{node}.{port} takes {expected:?}, not {found:?}")]
-    WrongType {
-        node: NodeId,
-        port: String,
-        expected: ValueType,
-        found: ValueType,
-    },
-    #[error("{node}.{port} has two wires")]
-    TwoWires { node: NodeId, port: String },
-    #[error("{node}.{port} is not set")]
-    Unset { node: NodeId, port: String },
-    #[error("{node}.{port} {reason}")]
-    Invalid {
-        node: NodeId,
-        port: String,
-        reason: &'static str,
-    },
-    #[error("the graph input {0} is not given")]
-    NotGiven(String),
-    #[error("the wires go round in a loop through {0:?}")]
-    Loop(Vec<NodeId>),
-    #[error("the graph runs itself")]
-    RunsItself,
-    #[error("{node} puts down {asset}, which is in no catalogue")]
-    UnknownAsset { node: NodeId, asset: String },
-}
-
-impl Problem {
-    /// The node the problem is with, when it is with one.
-    pub fn node(&self) -> Option<NodeId> {
-        match self {
-            Problem::UnknownKind { node, .. }
-            | Problem::UnknownPort { node, .. }
-            | Problem::WrongType { node, .. }
-            | Problem::TwoWires { node, .. }
-            | Problem::Unset { node, .. }
-            | Problem::Invalid { node, .. }
-            | Problem::UnknownAsset { node, .. } => Some(*node),
-            Problem::UnknownNode(node) | Problem::SameId(node) => {
-                Some(*node)
-            }
-            _ => None,
-        }
-    }
-}
-
-/// A [`Problem`] and the graph it is in.
-#[derive(Clone, PartialEq, Debug, thiserror::Error)]
-#[error("{graph}: {problem}")]
-pub struct GraphProblem {
-    pub graph: String,
-    pub problem: Problem,
-}
-
-/// A port's name and type.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PortInfo {
-    pub name: String,
-    pub value_type: ValueType,
-}
-
-/// The inputs and outputs of `node`, from its kind or the graph it
-/// runs.
-pub fn ports(
-    registry: &Registry,
-    ruleset: &Ruleset,
-    node: &Node,
-) -> Result<(Vec<PortInfo>, Vec<PortInfo>), Problem> {
-    match &node.does {
-        Does::Kind(name) => {
-            let kind = registry.get(name).ok_or_else(|| {
-                Problem::UnknownKind {
-                    node: node.id,
-                    kind: name.clone(),
-                }
-            })?;
-            let info = |specs: &[crate::node::PortSpec]| {
-                specs
-                    .iter()
-                    .map(|spec| PortInfo {
-                        name: spec.name.to_owned(),
-                        value_type: spec.value_type,
-                    })
-                    .collect()
-            };
-            Ok((info(kind.inputs), info(kind.outputs)))
-        }
-        Does::Graph(name) => {
-            let graph = ruleset
-                .graphs
-                .get(name)
-                .ok_or_else(|| Problem::UnknownGraph(name.clone()))?;
-            let inputs = graph
-                .inputs
-                .iter()
-                .map(|input| PortInfo {
-                    name: input.name.clone(),
-                    value_type: input.value_type,
-                })
-                .collect();
-            let outputs = graph
-                .outputs
-                .iter()
-                .map(|output| PortInfo {
-                    name: output.name.clone(),
-                    value_type: output.value_type,
-                })
-                .collect();
-            Ok((inputs, outputs))
-        }
-    }
-}
-
-/// Every problem in `ruleset` that can be found without running it.
-pub fn validate(
-    registry: &Registry,
-    ruleset: &Ruleset,
-) -> Vec<GraphProblem> {
-    let mut problems = Vec::new();
-    if !ruleset.graphs.contains_key(&ruleset.entry) {
-        problems.push(GraphProblem {
-            graph: ruleset.entry.clone(),
-            problem: Problem::UnknownGraph(ruleset.entry.clone()),
-        });
-    }
-    for (name, graph) in &ruleset.graphs {
-        let mut found = check(registry, ruleset, graph);
-        if runs_itself(ruleset, name, &mut Vec::new()) {
-            found.push(Problem::RunsItself);
-        }
-        problems.extend(found.into_iter().map(|problem| {
-            GraphProblem {
-                graph: name.clone(),
-                problem,
-            }
-        }));
-    }
-    problems
-}
-
-fn check(
-    registry: &Registry,
-    ruleset: &Ruleset,
-    graph: &Graph,
-) -> Vec<Problem> {
-    let mut problems = Vec::new();
-    let mut ids = BTreeSet::new();
-    let mut ports_of = BTreeMap::new();
-    for node in &graph.nodes {
-        if !ids.insert(node.id) {
-            problems.push(Problem::SameId(node.id));
-        }
-        match ports(registry, ruleset, node) {
-            Ok(found) => {
-                ports_of.insert(node.id, found);
-            }
-            Err(problem) => problems.push(problem),
-        }
-    }
-    let port_type = |node: NodeId, name: &str, output: bool| {
-        ports_of.get(&node).and_then(|(inputs, outputs)| {
-            let list: &Vec<PortInfo> =
-                if output { outputs } else { inputs };
-            list.iter()
-                .find(|port| port.name == name)
-                .map(|port| port.value_type)
-        })
-    };
-    for node in &graph.nodes {
-        let choices = match &node.does {
-            Does::Kind(name) => {
-                registry.get(name).map(|kind| kind.inputs)
-            }
-            Does::Graph(_) => None,
-        };
-        for (port, setting) in &node.settings {
-            let Some(expected) = port_type(node.id, port, false)
-            else {
-                if ports_of.contains_key(&node.id) {
-                    problems.push(Problem::UnknownPort {
-                        node: node.id,
-                        port: port.clone(),
-                    });
-                }
-                continue;
-            };
-            let found = match setting {
-                Setting::Fixed(constant) => {
-                    let allowed = choices
-                        .and_then(|inputs| {
-                            inputs
-                                .iter()
-                                .find(|spec| spec.name == port)
-                        })
-                        .map_or(&[][..], |spec| spec.choices);
-                    if let crate::value::Constant::Choice(choice) =
-                        constant
-                        && !allowed.is_empty()
-                        && !allowed.contains(&choice.as_str())
-                    {
-                        problems.push(Problem::Invalid {
-                            node: node.id,
-                            port: port.clone(),
-                            reason: "is not one of its choices",
-                        });
-                    }
-                    Some(constant.value_type())
-                }
-                Setting::Random(roll) => {
-                    Some(roll.spread.value_type())
-                }
-                Setting::FromParent(name) => {
-                    let input = graph
-                        .inputs
-                        .iter()
-                        .find(|input| &input.name == name);
-                    if input.is_none() {
-                        problems.push(Problem::UnknownInput(
-                            name.clone(),
-                        ));
-                    }
-                    input.map(|input| input.value_type)
-                }
-            };
-            if let Some(found) = found
-                && !expected.accepts(found)
-            {
-                problems.push(Problem::WrongType {
-                    node: node.id,
-                    port: port.clone(),
-                    expected,
-                    found,
-                });
-            }
-        }
-    }
-    let mut wired = BTreeSet::new();
-    for wire in &graph.wires {
-        for end in [&wire.from, &wire.to] {
-            if !ids.contains(&end.node) {
-                problems.push(Problem::UnknownNode(end.node));
-            }
-        }
-        let from = port_type(wire.from.node, &wire.from.name, true);
-        let to = port_type(wire.to.node, &wire.to.name, false);
-        for (end, found) in [(&wire.from, from), (&wire.to, to)] {
-            if found.is_none() && ports_of.contains_key(&end.node) {
-                problems.push(Problem::UnknownPort {
-                    node: end.node,
-                    port: end.name.clone(),
-                });
-            }
-        }
-        if let (Some(from), Some(to)) = (from, to)
-            && !to.accepts(from)
-        {
-            problems.push(Problem::WrongType {
-                node: wire.to.node,
-                port: wire.to.name.clone(),
-                expected: to,
-                found: from,
-            });
-        }
-        if !wired.insert((wire.to.node, wire.to.name.as_str())) {
-            problems.push(Problem::TwoWires {
-                node: wire.to.node,
-                port: wire.to.name.clone(),
-            });
-        }
-    }
-    for output in &graph.outputs {
-        match port_type(output.from.node, &output.from.name, true) {
-            Some(found) if !output.value_type.accepts(found) => {
-                problems.push(Problem::WrongType {
-                    node: output.from.node,
-                    port: output.from.name.clone(),
-                    expected: output.value_type,
-                    found,
-                });
-            }
-            Some(_) => {}
-            None => problems.push(Problem::UnknownPort {
-                node: output.from.node,
-                port: output.from.name.clone(),
-            }),
-        }
-    }
-    if let Err(problem) = order(graph) {
-        problems.push(problem);
-    }
-    problems
-}
-
-fn runs_itself(
-    ruleset: &Ruleset,
-    name: &str,
-    running: &mut Vec<String>,
-) -> bool {
-    if running.iter().any(|above| above == name) {
-        return true;
-    }
-    let Some(graph) = ruleset.graphs.get(name) else {
-        return false;
-    };
-    running.push(name.to_owned());
-    let found = graph.nodes.iter().any(|node| match &node.does {
-        Does::Graph(child) => runs_itself(ruleset, child, running),
-        Does::Kind(_) => false,
-    });
-    running.pop();
-    found
-}
-
-/// The nodes in an order where each comes after those wired into it.
-fn order(graph: &Graph) -> Result<Vec<usize>, Problem> {
-    let index: BTreeMap<NodeId, usize> = graph
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, node)| (node.id, i))
-        .collect();
-    let mut waiting = vec![0usize; graph.nodes.len()];
-    for wire in &graph.wires {
-        if let (Some(_), Some(&to)) =
-            (index.get(&wire.from.node), index.get(&wire.to.node))
-        {
-            waiting[to] += 1;
-        }
-    }
-    let mut ready = (0..graph.nodes.len())
-        .filter(|&i| waiting[i] == 0)
-        .collect::<Vec<_>>();
-    let mut sorted = Vec::with_capacity(graph.nodes.len());
-    while let Some(i) = ready.pop() {
-        sorted.push(i);
-        for wire in graph
-            .wires
-            .iter()
-            .filter(|wire| wire.from.node == graph.nodes[i].id)
-        {
-            if let Some(&to) = index.get(&wire.to.node) {
-                waiting[to] -= 1;
-                if waiting[to] == 0 {
-                    ready.push(to);
-                }
-            }
-        }
-    }
-    if sorted.len() < graph.nodes.len() {
-        let stuck = (0..graph.nodes.len())
-            .filter(|&i| waiting[i] > 0)
-            .map(|i| graph.nodes[i].id)
-            .collect();
-        return Err(Problem::Loop(stuck));
-    }
-    Ok(sorted)
-}
-
 /// Runs `ruleset` from its entry graph with `inputs`, giving the
 /// entry graph's outputs by name.
 pub fn evaluate(
@@ -416,11 +43,11 @@ pub fn evaluate(
     ruleset: &Ruleset,
     seeds: Seeds,
     inputs: &BTreeMap<String, Value>,
-) -> Result<BTreeMap<String, Value>, GraphProblem> {
-    if let Some(problem) =
+) -> Result<BTreeMap<String, Value>, GraphError> {
+    if let Some(error) =
         validate(registry, ruleset).into_iter().next()
     {
-        return Err(problem);
+        return Err(error);
     }
     let runner = Runner {
         registry,
@@ -434,19 +61,18 @@ pub fn evaluate(
 /// Runs `ruleset` as [`evaluate`] does, but a node that fails, as one
 /// with an input left unset, only stops the nodes that need what it
 /// would have made: the rest still run. Gives what was made, and the
-/// problem of each node that failed. A ruleset that does not validate
-/// still gives its problem alone.
+/// error of each node that failed. A ruleset that does not validate
+/// still gives its error alone.
 pub fn evaluate_partly(
     registry: &Registry,
     ruleset: &Ruleset,
     seeds: Seeds,
     inputs: &BTreeMap<String, Value>,
-) -> Result<(BTreeMap<String, Value>, Vec<GraphProblem>), GraphProblem>
-{
-    if let Some(problem) =
+) -> Result<(BTreeMap<String, Value>, Vec<GraphError>), GraphError> {
+    if let Some(error) =
         validate(registry, ruleset).into_iter().next()
     {
-        return Err(problem);
+        return Err(error);
     }
     let runner = Runner {
         registry,
@@ -455,18 +81,18 @@ pub fn evaluate_partly(
         partial: Some(RefCell::new(Vec::new())),
     };
     let made = runner.run(&ruleset.entry, Seed::default(), inputs)?;
-    let problems =
+    let errors =
         runner.partial.map(RefCell::into_inner).unwrap_or_default();
-    Ok((made, problems))
+    Ok((made, errors))
 }
 
 struct Runner<'a> {
     registry: &'a Registry,
     ruleset: &'a Ruleset,
     seeds: Seeds,
-    /// The problems of the nodes that failed, for a run that goes on
+    /// The errors of the nodes that failed, for a run that goes on
     /// past them; none for a run that stops at the first.
-    partial: Option<RefCell<Vec<GraphProblem>>>,
+    partial: Option<RefCell<Vec<GraphError>>>,
 }
 
 impl Runner<'_> {
@@ -477,14 +103,14 @@ impl Runner<'_> {
         name: &str,
         path: Seed,
         given: &BTreeMap<String, Value>,
-    ) -> Result<BTreeMap<String, Value>, GraphProblem> {
-        let fail = |problem| GraphProblem {
+    ) -> Result<BTreeMap<String, Value>, GraphError> {
+        let fail = |error| GraphError {
             graph: name.to_owned(),
-            problem,
+            error,
         };
         let graph =
             self.ruleset.graphs.get(name).ok_or_else(|| {
-                fail(Problem::UnknownGraph(name.to_owned()))
+                fail(Error::UnknownGraph(name.to_owned()))
             })?;
         // An input the graph above left unset varies, or takes its
         // default.
@@ -533,13 +159,13 @@ impl Runner<'_> {
                 .node(name, graph, node, path, &made, given)
             {
                 Ok(outputs) => outputs,
-                Err(problem) => match &self.partial {
-                    Some(problems) => {
-                        problems.borrow_mut().push(problem);
+                Err(error) => match &self.partial {
+                    Some(errors) => {
+                        errors.borrow_mut().push(error);
                         skipped.insert(node.id);
                         continue;
                     }
-                    None => return Err(problem),
+                    None => return Err(error),
                 },
             };
             for (port, value) in outputs {
@@ -561,7 +187,7 @@ impl Runner<'_> {
                 .cloned()
                 .map(|value| (output.name.clone(), value))
                 .ok_or_else(|| {
-                    fail(Problem::Unset {
+                    fail(Error::Unset {
                         node: output.from.node,
                         port: output.from.name.clone(),
                     })
@@ -579,10 +205,10 @@ impl Runner<'_> {
         path: Seed,
         made: &BTreeMap<(NodeId, String), Value>,
         given: &BTreeMap<String, Value>,
-    ) -> Result<BTreeMap<String, Value>, GraphProblem> {
-        let fail = |problem| GraphProblem {
+    ) -> Result<BTreeMap<String, Value>, GraphError> {
+        let fail = |error| GraphError {
             graph: name.to_owned(),
-            problem,
+            error,
         };
         let seed = path.mix(u64::from(node.id.0));
         let (inputs, _) =
@@ -598,12 +224,18 @@ impl Runner<'_> {
         }
         let outputs = match &node.does {
             Does::Kind(kind_name) => {
-                let Some(kind) = self.registry.get(kind_name) else {
-                    return Err(fail(Problem::UnknownKind {
+                let unknown = || {
+                    fail(Error::UnknownKind {
                         node: node.id,
                         kind: kind_name.clone(),
-                    }));
+                    })
                 };
+                let kind = self
+                    .registry
+                    .get(kind_name)
+                    .ok_or_else(unknown)?;
+                let runs =
+                    kind::get(kind_name).ok_or_else(unknown)?;
                 for spec in kind.inputs {
                     if let Some(initial) = spec.initial {
                         bound
@@ -622,7 +254,7 @@ impl Runner<'_> {
                     inputs: bound,
                     outputs: BTreeMap::new(),
                 };
-                (kind.run)(&mut run).map_err(fail)?;
+                (runs.run)(&mut run).map_err(fail)?;
                 // Only a kind's node puts down a new asset; a
                 // graph's gives back what its own nodes did.
                 for value in run.outputs.values() {
@@ -637,7 +269,7 @@ impl Runner<'_> {
                                 .is_none()
                         })
                     {
-                        return Err(fail(Problem::UnknownAsset {
+                        return Err(fail(Error::UnknownAsset {
                             node: node.id,
                             asset: unknown.asset.clone(),
                         }));
@@ -681,7 +313,7 @@ fn bind(
     port: &str,
     made: &BTreeMap<(NodeId, String), Value>,
     given: &BTreeMap<String, Value>,
-) -> Result<Option<Binding>, Problem> {
+) -> Result<Option<Binding>, Error> {
     if let Some(wire) = graph
         .wires
         .iter()
@@ -689,7 +321,7 @@ fn bind(
     {
         let value = made
             .get(&(wire.from.node, wire.from.name.clone()))
-            .ok_or_else(|| Problem::Unset {
+            .ok_or_else(|| Error::Unset {
                 node: wire.from.node,
                 port: wire.from.name.clone(),
             })?;
@@ -705,7 +337,7 @@ fn bind(
         Some(Setting::FromParent(name)) => {
             let value = given
                 .get(name)
-                .ok_or_else(|| Problem::NotGiven(name.clone()))?;
+                .ok_or_else(|| Error::NotGiven(name.clone()))?;
             Some(Binding::Value(value.clone()))
         }
         None => None,
@@ -763,20 +395,20 @@ pub struct Run<'a> {
 }
 
 impl Run<'_> {
-    fn binding(&self, port: &str) -> Result<&Binding, Problem> {
-        self.inputs.get(port).ok_or_else(|| Problem::Unset {
+    fn binding(&self, port: &str) -> Result<&Binding, Error> {
+        self.inputs.get(port).ok_or_else(|| Error::Unset {
             node: self.node,
             port: port.to_owned(),
         })
     }
 
-    fn wrong(&self, port: &str, expected: ValueType) -> Problem {
+    fn wrong(&self, port: &str, expected: ValueType) -> Error {
         let found = match self.inputs.get(port) {
             Some(Binding::Value(value)) => value.value_type(),
             Some(Binding::Roll(roll)) => roll.spread.value_type(),
             None => expected,
         };
-        Problem::WrongType {
+        Error::WrongType {
             node: self.node,
             port: port.to_owned(),
             expected,
@@ -789,13 +421,9 @@ impl Run<'_> {
         self.inputs.contains_key(port)
     }
 
-    /// A problem with the value of `port`.
-    pub fn invalid(
-        &self,
-        port: &str,
-        reason: &'static str,
-    ) -> Problem {
-        Problem::Invalid {
+    /// A error with the value of `port`.
+    pub fn invalid(&self, port: &str, reason: &'static str) -> Error {
+        Error::Invalid {
             node: self.node,
             port: port.to_owned(),
             reason,
@@ -834,7 +462,7 @@ impl Run<'_> {
         &self,
         port: &str,
         at: Option<&Object>,
-    ) -> Result<f32, Problem> {
+    ) -> Result<f32, Error> {
         match self.binding(port)? {
             Binding::Value(Value::Number(number)) => Ok(*number),
             Binding::Value(Value::Integer(whole)) => {
@@ -860,7 +488,7 @@ impl Run<'_> {
         &self,
         port: &str,
         at: Option<&Object>,
-    ) -> Result<i32, Problem> {
+    ) -> Result<i32, Error> {
         match self.binding(port)? {
             Binding::Value(Value::Integer(whole)) => Ok(*whole),
             _ => self
@@ -876,7 +504,7 @@ impl Run<'_> {
         &self,
         port: &str,
         at: Option<&Object>,
-    ) -> Result<bool, Problem> {
+    ) -> Result<bool, Error> {
         match self.binding(port)? {
             Binding::Value(Value::Bool(flag)) => Ok(*flag),
             Binding::Value(Value::Field(field)) => {
@@ -899,7 +527,7 @@ impl Run<'_> {
         &self,
         port: &str,
         at: Option<&Object>,
-    ) -> Result<String, Problem> {
+    ) -> Result<String, Error> {
         let choice = match self.binding(port)? {
             Binding::Value(Value::Choice(choice)) => choice.clone(),
             Binding::Roll(roll) => {
@@ -931,7 +559,7 @@ impl Run<'_> {
         Ok(choice)
     }
 
-    pub fn point(&self, port: &str) -> Result<Vec3, Problem> {
+    pub fn point(&self, port: &str) -> Result<Vec3, Error> {
         self.point_at(port, None)
     }
 
@@ -941,7 +569,7 @@ impl Run<'_> {
     pub fn point_fields(
         &self,
         port: &str,
-    ) -> Result<[Field; 3], Problem> {
+    ) -> Result<[Field; 3], Error> {
         match self.binding(port)? {
             Binding::Value(Value::Point(point)) => {
                 Ok(point.to_array().map(Field::Constant))
@@ -963,7 +591,7 @@ impl Run<'_> {
         &self,
         port: &str,
         at: Option<&Object>,
-    ) -> Result<Vec3, Problem> {
+    ) -> Result<Vec3, Error> {
         match self.binding(port)? {
             Binding::Value(Value::Point(point)) => Ok(*point),
             Binding::Value(Value::PointField(axes)) => {
@@ -977,7 +605,7 @@ impl Run<'_> {
         }
     }
 
-    pub fn curve(&self, port: &str) -> Result<&Curve, Problem> {
+    pub fn curve(&self, port: &str) -> Result<&Curve, Error> {
         match self.binding(port)? {
             Binding::Value(Value::Curve(curve)) => Ok(curve),
             _ => Err(self.wrong(port, ValueType::Curve)),
@@ -989,7 +617,7 @@ impl Run<'_> {
     pub fn transform(
         &self,
         port: &str,
-    ) -> Result<TransformValue, Problem> {
+    ) -> Result<TransformValue, Error> {
         if !self.is_set(port) {
             return Ok(TransformValue::IDENTITY);
         }
@@ -1001,7 +629,7 @@ impl Run<'_> {
         }
     }
 
-    pub fn objects(&self, port: &str) -> Result<&[Object], Problem> {
+    pub fn objects(&self, port: &str) -> Result<&[Object], Error> {
         match self.binding(port)? {
             Binding::Value(Value::Objects(objects)) => Ok(objects),
             _ => Err(self.wrong(port, ValueType::Objects)),
@@ -1009,7 +637,7 @@ impl Run<'_> {
     }
 
     /// The field on `port`. A number is the same value everywhere.
-    pub fn field(&self, port: &str) -> Result<Field, Problem> {
+    pub fn field(&self, port: &str) -> Result<Field, Error> {
         match self.binding(port)? {
             Binding::Value(Value::Field(field)) => Ok(field.clone()),
             Binding::Value(Value::Number(number)) => {

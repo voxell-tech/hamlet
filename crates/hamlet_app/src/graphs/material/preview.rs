@@ -148,12 +148,12 @@ impl Default for Stand {
     }
 }
 
-/// The picture, square to the card it floats in, with the problem
+/// The picture, square to the card it floats in, with the error
 /// over its top and the switches over its foot.
 pub(super) fn view() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let picture = column((problem(), switches()))
+        let picture = column((error(), switches()))
             .width(percent(100.0))
             .overflow(Overflow::clip())
             .fill(theme.palette.input)
@@ -178,18 +178,16 @@ pub(super) fn view() -> AnyView {
 
 /// Why the graph does not compile, over the preview's corner, while
 /// it shows the last shader that did.
-fn problem() -> AnyView {
+fn error() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
         cx.build(
             column((description(resource::<Editor<Material>, _>(
                 |editor| {
                     editor
-                        .problems
+                        .errors
                         .first()
-                        .map(|problem| {
-                            format!("Not compiled: {problem}")
-                        })
+                        .map(|error| format!("Not compiled: {error}"))
                         .unwrap_or_default()
                 },
             )),))
@@ -204,7 +202,7 @@ fn problem() -> AnyView {
             .fill(theme.palette.card)
             .radius(theme.space.round)
             .display(resource::<Editor<Material>, _>(|editor| {
-                if editor.problems.is_empty() {
+                if editor.errors.is_empty() {
                     Display::None
                 } else {
                     Display::Flex

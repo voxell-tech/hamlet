@@ -1,11 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use bevy_math::{Vec2, Vec3};
+use bevy_math::Vec3;
 use hamlet_blueprint::{
-    Bundle, Does, Edit, Group, Node, NodeId, Object, Problem,
-    Registry, Ruleset, Seed, Seeds, Setting, Sheet, Value, evaluate,
-    evaluate_partly, validate,
+    Bundle, Object, Seed, Seeds, Value, evaluate, evaluate_partly,
+    registry,
 };
+use hamlet_graph::{Does, Error, Node, NodeId, Ruleset, validate};
 
 /// A post copied along a line, each copy lifted and turned at random
 /// by a transform read from random fields at each.
@@ -77,7 +77,7 @@ fn run(
     house: u64,
     inputs: &BTreeMap<String, Value>,
 ) -> BTreeMap<String, Value> {
-    evaluate(&Registry::builtin(), ruleset, seeds(house), inputs)
+    evaluate(&registry(), ruleset, seeds(house), inputs)
         .expect("the ruleset runs")
 }
 
@@ -193,20 +193,18 @@ fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
         )"#,
     )
     .expect("the fixture parses");
-    let problems = validate(&Registry::builtin(), &ruleset)
+    let errors = validate(&registry(), &ruleset)
         .into_iter()
-        .map(|found| found.problem)
+        .map(|found| found.error)
         .collect::<Vec<_>>();
-    assert!(problems.iter().any(|problem| matches!(
-        problem,
-        Problem::WrongType { node: NodeId(2), port, .. } if port == "objects"
+    assert!(errors.iter().any(|error| matches!(
+        error,
+        Error::WrongType { node: NodeId(2), port, .. } if port == "objects"
     )));
     assert!(
-        problems
-            .iter()
-            .any(|problem| matches!(problem, Problem::Loop(_)))
+        errors.iter().any(|error| matches!(error, Error::Loop(_)))
     );
-    assert!(problems.contains(&Problem::RunsItself));
+    assert!(errors.contains(&Error::RunsItself));
 }
 
 #[test]
@@ -291,86 +289,6 @@ fn an_unset_input_varies_within_its_range_once_per_house() {
 }
 
 #[test]
-fn renaming_an_input_carries_to_the_nodes_set_from_it_and_undoes() {
-    let ruleset =
-        Ruleset::from_ron(RISE).expect("the fixture parses");
-    let mut sheet = Sheet {
-        graph: ruleset.graphs["tower"].clone(),
-        layout: BTreeMap::new(),
-        groups: Vec::new(),
-    };
-    let mut renamed = sheet.graph.inputs[0].clone();
-    renamed.name = "height".to_owned();
-    let undo = sheet
-        .apply(Edit::ChangeInput {
-            name: "rise".to_owned(),
-            input: renamed,
-        })
-        .expect("the input is there");
-    let read_by = |sheet: &Sheet| {
-        sheet.graph.node(NodeId(1)).expect("node 1").settings["y"]
-            .clone()
-    };
-    assert_eq!(
-        read_by(&sheet),
-        Setting::FromParent("height".to_owned())
-    );
-    sheet.apply(undo).expect("the undo applies");
-    assert_eq!(
-        read_by(&sheet),
-        Setting::FromParent("rise".to_owned())
-    );
-    assert_eq!(sheet.graph.inputs[0].name, "rise");
-}
-
-#[test]
-fn removing_an_input_puts_the_nodes_set_from_it_back_and_undoes() {
-    let ruleset =
-        Ruleset::from_ron(RISE).expect("the fixture parses");
-    let mut sheet = Sheet {
-        graph: ruleset.graphs["tower"].clone(),
-        ..Sheet::default()
-    };
-    let before = sheet.clone();
-    let undo = sheet
-        .apply(Edit::RemoveInput("rise".to_owned()))
-        .expect("the input is there");
-    let node = sheet.graph.node(NodeId(1)).expect("node 1");
-    assert!(!node.settings.contains_key("y"));
-    sheet.apply(undo).expect("the undo applies");
-    assert_eq!(sheet, before);
-}
-
-#[test]
-fn sheet_round_trips_and_edits_undo() {
-    let mut sheet = Sheet {
-        graph: fence().graphs["fence"].clone(),
-        layout: BTreeMap::from([(NodeId(1), Vec2::new(10.0, 20.0))]),
-        groups: vec![Group {
-            title: "posts".to_owned(),
-            nodes: BTreeSet::from([NodeId(1), NodeId(2)]),
-        }],
-    };
-    let text = sheet.to_ron().expect("the sheet writes");
-    assert_eq!(
-        Sheet::from_ron(&text).expect("the sheet reads"),
-        sheet
-    );
-
-    let before = sheet.clone();
-    let undo = sheet
-        .apply(Edit::RemoveNode(NodeId(2)))
-        .expect("the node is there");
-    assert!(sheet.graph.wires.len() < before.graph.wires.len());
-    assert_eq!(sheet.groups[0].nodes, BTreeSet::from([NodeId(1)]));
-    sheet.apply(undo).expect("the undo applies");
-    assert_eq!(sheet.graph.nodes.len(), before.graph.nodes.len());
-    assert_eq!(sheet.graph.wires.len(), before.graph.wires.len());
-    assert_eq!(sheet.layout, before.layout);
-    assert_eq!(sheet.groups, before.groups);
-}
-
-#[test]
 fn a_bundle_round_trips_with_its_files() {
     let bundle = Bundle {
         ruleset: fence(),
@@ -410,21 +328,21 @@ fn a_node_left_unwired_stops_only_what_needs_it() {
         )"#,
     )
     .expect("the fixture parses");
-    let (made, problems) = evaluate_partly(
-        &Registry::builtin(),
+    let (made, errors) = evaluate_partly(
+        &registry(),
         &ruleset,
         seeds(1),
         &BTreeMap::new(),
     )
     .expect("it validates");
     // The curve is not wired, so along_curve fails, and cull after it
-    // is skipped without a problem of its own.
+    // is skipped without a error of its own.
     assert_eq!(objects(&made, "alone").len(), 1);
     assert!(!made.contains_key("copied"));
-    assert_eq!(problems.len(), 1);
+    assert_eq!(errors.len(), 1);
     assert!(matches!(
-        problems[0].problem,
-        Problem::Unset {
+        errors[0].error,
+        Error::Unset {
             node: NodeId(2),
             ..
         }

@@ -6,8 +6,8 @@ use ValueType::{
     Bool, Choice, Color, Integer, Number, Vector2, Vector3,
 };
 use bevy_math::{Vec3, Vec4};
-use hamlet_blueprint::{
-    Initial, NodeKind, PortSpec, Problem, Registry, Run, ValueType,
+use hamlet_graph::{
+    Error, Initial, NodeKind, PortSpec, Registry, ValueType,
 };
 
 use crate::compile::{Emit, convert, width};
@@ -15,7 +15,7 @@ use crate::compile::{Emit, convert, width};
 /// A kind of node and how it is compiled.
 pub struct MaterialKind {
     pub kind: NodeKind,
-    pub(crate) emit: fn(&mut Emit) -> Result<(), Problem>,
+    pub(crate) emit: fn(&mut Emit) -> Result<(), Error>,
 }
 
 /// The kinds, by the group each is listed under.
@@ -46,18 +46,12 @@ pub(crate) fn get(name: &str) -> Option<&'static MaterialKind> {
         .find(|kind| kind.kind.name == name)
 }
 
-/// What a node of a material does on the CPU: nothing, as its shader
-/// works it out.
-fn on_gpu(run: &mut Run) -> Result<(), Problem> {
-    Err(run.invalid("", "is worked out by a material's shader"))
-}
-
 const fn kind(
     name: &'static str,
     doc: &'static str,
     inputs: &'static [PortSpec],
     outputs: &'static [PortSpec],
-    emit: fn(&mut Emit) -> Result<(), Problem>,
+    emit: fn(&mut Emit) -> Result<(), Error>,
 ) -> MaterialKind {
     MaterialKind {
         kind: NodeKind {
@@ -65,7 +59,6 @@ const fn kind(
             doc,
             inputs,
             outputs,
-            run: on_gpu,
         },
         emit,
     }
