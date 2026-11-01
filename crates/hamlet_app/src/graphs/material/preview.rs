@@ -297,18 +297,18 @@ fn spawn(
                 handle,
                 scale_factor: scale,
             }),
-            // The realm's lens, but with a near plane for a shape
-            // within reach, not a hamlet from afar.
-            Projection::Perspective(PerspectiveProjection {
-                fov: settings.fov.to_radians(),
-                near: 0.05,
-                far: 100.0,
-                ..PerspectiveProjection::default()
-            }),
             RenderLayers::layer(LAYER),
             Transform::from_xyz(0.0, 0.0, DISTANCE)
                 .looking_at(Vec3::ZERO, Vec3::Y),
         ))
+        // The realm's lens, but with a near plane for a shape within
+        // reach, not a hamlet from afar.
+        .insert(Projection::Perspective(PerspectiveProjection {
+            fov: settings.fov.to_radians(),
+            near: 0.05,
+            far: 100.0,
+            ..PerspectiveProjection::default()
+        }))
         .id();
     let key = commands
         .spawn((
