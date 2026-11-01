@@ -47,8 +47,10 @@ pub trait Flavor: Sized + Send + Sync + 'static {
     fn tools() -> Vec<AnyView> {
         Vec::new()
     }
-    /// Sections of its own at the end of the parameters panel.
-    fn sections() -> Vec<AnyView> {
+    /// Tabs of its own in the parameters card, after the parameters:
+    /// each an icon, a name and what builds its body, built again
+    /// when the graph's shape changes.
+    fn tabs() -> Vec<(Glyph, &'static str, fn() -> AnyView)> {
         Vec::new()
     }
     /// Adds what the library's `item` is to the open graph, its

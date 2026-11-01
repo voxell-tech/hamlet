@@ -776,15 +776,29 @@ fn reshapes(sheet: &Sheet, registry: &Registry, edit: &Edit) -> bool {
 /// too or beside it, sized by dragging the line between them. The
 /// canvas and the preview fill their sides edge to edge.
 pub fn screen<F: Flavor>() -> impl View {
-    let parameters = floating::<F>(
-        Pane::Parameters,
+    // Each tab scrolls when it has more than the canvas has room for.
+    let mut tabs = vec![(
         Glyph::Sliders,
         "PARAMETERS",
-        // Scrolled when there are more than the canvas has room for.
-        scroll((params::view::<F>(),)).gap(0.0).boxed(),
-    );
+        params::view::<F>().boxed(),
+    )];
+    tabs.extend(F::tabs().into_iter().map(|(which, name, body)| {
+        (which, name, params::tab::<F>(body).boxed())
+    }));
+    let tabs = tabs
+        .into_iter()
+        .map(|(which, name, body)| {
+            (which, name, scroll((body,)).gap(0.0).boxed())
+        })
+        .collect();
+    let parameters =
+        floating::<F>(Pane::Parameters, Glyph::Sliders, tabs);
     let floating_preview = if F::PREVIEW_FLOATS {
-        floating::<F>(Pane::Preview, F::ICON, "PREVIEW", F::preview())
+        floating::<F>(
+            Pane::Preview,
+            F::ICON,
+            vec![(F::ICON, "PREVIEW", F::preview())],
+        )
     } else {
         frame().display(Display::None).boxed()
     };

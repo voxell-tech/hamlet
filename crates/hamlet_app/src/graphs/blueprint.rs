@@ -217,8 +217,8 @@ impl Flavor for Blueprint {
         ]
     }
 
-    fn sections() -> Vec<AnyView> {
-        assets::part()
+    fn tabs() -> Vec<(Glyph, &'static str, fn() -> AnyView)> {
+        vec![(Glyph::Folder, "ASSETS", assets::tab)]
     }
 
     /// A mesh dropped on the canvas becomes an object node putting it

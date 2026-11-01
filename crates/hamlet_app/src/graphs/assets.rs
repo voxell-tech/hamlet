@@ -28,7 +28,7 @@ use hamlet_graph_editor::library::{Kind, Library, mesh_file};
 use hamlet_graph_editor::params;
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
-use hamlet_ui::styles::{ICON, command, description, note, section};
+use hamlet_ui::styles::{ICON, command, description, note};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, with_cx};
 
@@ -328,36 +328,30 @@ impl Meshes {
     }
 }
 
-/// The panel's part for the assets the book adds: each with a colour
-/// for each of its material slots, and a way to take it out; and the
-/// button that adds one.
-pub(super) fn part() -> Vec<AnyView> {
-    let mut parts = vec![
-        section("Assets").boxed(),
-        description(
-            "Built-in boxes, and meshes added from .glb files. Each \
-             material takes a palette colour, or keeps its own.",
-        )
-        .boxed(),
-    ];
-    parts.push(
-        with_cx(|cx| {
-            let library = cx.world.resource::<Library>();
-            let gap = cx.theme().space.gap;
-            let cards: Vec<AnyView> = library
-                .catalogue
-                .0
-                .iter()
-                .map(|(name, asset)| {
-                    card(name.clone(), asset.clone())
-                })
-                .collect();
-            column(cards).gap(gap)
-        })
-        .boxed(),
-    );
-    parts.push(command("Add asset", import).boxed());
-    parts
+/// The parameters card's tab for the library's assets: each with a
+/// colour for each of its material slots, and a way to take it out;
+/// and the button that adds one.
+pub(super) fn tab() -> AnyView {
+    with_cx(|cx| {
+        let library = cx.world.resource::<Library>();
+        let gap = cx.theme().space.gap;
+        let mut parts = vec![
+            description(
+                "Built-in boxes, and meshes added from .glb files. \
+                 Each material takes a palette colour, or keeps its \
+                 own.",
+            )
+            .boxed(),
+        ];
+        parts.extend(
+            library.catalogue.0.iter().map(|(name, asset)| {
+                card(name.clone(), asset.clone())
+            }),
+        );
+        parts.push(command("Add asset", import).boxed());
+        column(parts).gap(gap)
+    })
+    .boxed()
 }
 
 /// One asset's name, a way to take it out, and its slots' colours.

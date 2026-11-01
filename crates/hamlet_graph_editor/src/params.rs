@@ -1,8 +1,8 @@
 //! The open graph's own inputs, as its parameters: each one's name
 //! and type, what it is when the graph above leaves it unset, and
 //! whether it is picked at random then, between which numbers and how
-//! often; the graph's outputs; and the sections of the flavor's own.
-//! They float over the canvas.
+//! often; and the graph's outputs. They float over the canvas, with
+//! the flavor's own tabs beside them.
 
 use bevy::color::Color;
 use bevy::ecs::world::World;
@@ -75,9 +75,16 @@ const PER: [(&str, Scope); 3] = [
 /// with how it varies, and its outputs. Built again when the graph's
 /// shape changes.
 pub(super) fn view<F: Flavor>() -> impl View {
-    keyed(resource::<Editor<F>, _>(|editor| editor.shape), |_| {
-        panel::<F>()
-    })
+    tab::<F>(panel::<F>)
+}
+
+/// A tab of the parameters card, built by `body` again when the
+/// graph's shape changes.
+pub(super) fn tab<F: Flavor>(body: fn() -> AnyView) -> impl View {
+    keyed(
+        resource::<Editor<F>, _>(|editor| editor.shape),
+        move |_| body(),
+    )
     .within(column(()).gap(0.0))
 }
 
@@ -86,7 +93,6 @@ fn panel<F: Flavor>() -> AnyView {
         let editor = cx.world.resource::<Editor<F>>();
         let gap = cx.theme().space.gap;
         let mut parts: Vec<AnyView> = vec![
-            section("Parameters").boxed(),
             description(
                 "What the graph above sets. Left unset, each takes \
                  its default, or varies.",
@@ -134,7 +140,6 @@ fn panel<F: Flavor>() -> AnyView {
                 .boxed(),
             );
         }
-        parts.extend(F::sections());
         column(parts).gap(gap)
     })
     .boxed()

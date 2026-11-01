@@ -24,7 +24,7 @@ use bevy::ui::{
     UiRect, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::tokens::Motion;
+use bevy_fynix::tokens::{Motion, SpacingTokens, SurfaceTokens};
 use bevy_fynix::views::{
     self, Axis, BehaviorExt, FrameProps, TooltipExt, button, column,
     frame, icon_button, row,
@@ -34,6 +34,7 @@ use bevy_fynix::{
 };
 use hamlet_ui::styles::{ICON, note, section};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::canvas::Canvas;
@@ -56,10 +57,11 @@ const GLIDE: f32 = 14.0;
 
 pub(super) fn plugin<F: Flavor>(app: &mut App) {
     app.init_resource::<Layout<F>>()
+        .init_resource::<Shown<F>>()
         .add_observer(grab::<F>)
         .add_observer(drag::<F>)
         .add_observer(drop::<F>)
-        .add_systems(Update, glide::<F>);
+        .add_systems(Update, (glide::<F>, tabs::mark::<Shown<F>>));
 }
 
 /// A corner of the canvas.
@@ -144,6 +146,37 @@ impl Card {
     }
 }
 
+/// Which tab of the card with tabs, the parameters, is shown.
+#[derive(Resource)]
+pub(super) struct Shown<F: Flavor>(usize, PhantomData<F>);
+
+impl<F: Flavor> Shown<F> {
+    fn at(at: usize) -> Self {
+        Self(at, PhantomData)
+    }
+}
+
+impl<F: Flavor> Default for Shown<F> {
+    fn default() -> Self {
+        Self::at(0)
+    }
+}
+
+// By hand, as derived ones would ask the same of `F`.
+impl<F: Flavor> Clone for Shown<F> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<F: Flavor> Copy for Shown<F> {}
+
+impl<F: Flavor> PartialEq for Shown<F> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
 /// How the Graph panel is laid out.
 #[derive(Resource)]
 pub(super) struct Layout<F: Flavor> {
@@ -211,18 +244,20 @@ pub(super) fn divider<F: Flavor>() -> impl View {
     views::divider(Axis::Vertical).tagged(Divider::<F>(PhantomData))
 }
 
-/// The card `pane` floating over the canvas: a header of `icon` and
-/// `title` with the chevron that folds it, and `body` under it.
+/// The card `pane` floating over the canvas: a header of the chevron
+/// that folds it, and the body of the tab shown under it. With one
+/// tab the header names it beside `icon`; with more, it is the strip
+/// of the inspector's tabs, choosing [`Shown`].
 pub(super) fn floating<F: Flavor>(
     pane: Pane,
     icon: Glyph,
-    title: &'static str,
-    body: AnyView,
+    tabs: Vec<(Glyph, &'static str, AnyView)>,
 ) -> AnyView {
     with_cx(move |cx| {
         let theme = cx.theme();
         let gap = theme.space.gap;
         let open = move |layout: &Layout<F>| layout.card(pane).open;
+        let title = tabs.first().map_or("", |(_, name, _)| name);
         // Open, the chevron points up to fold; folded, it turns to
         // point on.
         let fold = button(
@@ -241,25 +276,67 @@ pub(super) fn floating<F: Flavor>(
             let card = layout.card_mut(pane);
             card.open = !card.open;
         });
+        let single = tabs.len() == 1;
+        let names: AnyView = if single {
+            row((glyph(icon, ICON), section(title)))
+                .gap(gap / 2.0)
+                .align(AlignItems::Center)
+                .boxed()
+        } else {
+            let strip: Vec<_> = tabs
+                .iter()
+                .enumerate()
+                .map(|(at, (which, name, _))| {
+                    (Shown::<F>::at(at), *which, *name)
+                })
+                .collect();
+            tabs::strip(&strip, |world, shown| {
+                *world.resource_mut::<Shown<F>>() = shown;
+            })
+            .boxed()
+        };
+        // A tab pressed and dragged drags the card too: the press
+        // reaches the header under it.
         let header = row((
-            glyph(icon, ICON),
-            section(title),
-            frame().grow(1.0),
+            column((names,)).grow(1.0).min_width(px(0.0)),
             fold,
         ))
         .gap(gap / 2.0)
         .align(AlignItems::Center)
         .tagged(Handle::<F>(pane, PhantomData))
         .tagged(EntityCursor(SystemCursorIcon::Grab));
-        let shown = column((body,)).display(
-            resource::<Layout<F>, _>(move |layout| {
-                if open(layout) {
-                    Display::Flex
-                } else {
-                    Display::None
+        let bodies: Vec<AnyView> = tabs
+            .into_iter()
+            .enumerate()
+            .map(|(at, (_, _, body))| {
+                if single {
+                    return body;
                 }
-            }),
-        );
+                let chosen = Shown::<F>::at(at);
+                column((body,))
+                    .min_height(px(0.0))
+                    .display(resource::<Shown<F>, _>(move |shown| {
+                        if *shown == chosen {
+                            Display::Flex
+                        } else {
+                            Display::None
+                        }
+                    }))
+                    .boxed()
+            })
+            .collect();
+        let display = resource::<Layout<F>, _>(move |layout| {
+            if open(layout) {
+                Display::Flex
+            } else {
+                Display::None
+            }
+        });
+        // It can shrink below the body, for a body that scrolls.
+        let shown = column(bodies)
+            .min_height(px(0.0))
+            .gap(0.0)
+            .display(display);
         let grip = frame()
             .position(PositionType::Absolute)
             .inset(UiRect::new(px(-3.0), Val::Auto, px(0.0), px(0.0)))
@@ -287,7 +364,8 @@ pub(super) fn floating<F: Flavor>(
     .boxed()
 }
 
-/// A lit outline of the corner a dragged card will settle in.
+/// Where a dragged card will settle, hinted as the dock hints where
+/// a dragged tab will go.
 pub(super) fn outline<F: Flavor>() -> AnyView {
     with_cx(|cx| {
         let theme = cx.theme();
@@ -311,10 +389,9 @@ pub(super) fn outline<F: Flavor>() -> AnyView {
                     Display::None
                 }
             }))
-            .fill(theme.palette.text_selection)
-            .border(2.0)
-            .border_color(theme.palette.glow)
-            .radius(theme.space.round)
+            // As the dock hints where a dragged tab will go.
+            .fill(theme.selection())
+            .radius(theme.radius())
     })
     .boxed()
 }
@@ -415,29 +492,34 @@ fn drag<F: Flavor>(
 }
 
 /// Settles a dragged card in the corner of the canvas nearest its
-/// middle.
+/// middle, and puts the cursor back. A card held is settled whatever
+/// the drag ends on, so a drag started on something in its header
+/// never leaves it held.
 fn drop<F: Flavor>(
     end: On<PointerDragEnd>,
     dividers: Query<(), With<Divider<F>>>,
-    handles: Query<&Handle<F>>,
     grips: Query<(), With<Grip<F>>>,
     canvas: Query<&ComputedNode, With<Canvas<F>>>,
     mut layout: ResMut<Layout<F>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
-    if let Ok(Handle(pane, _)) = handles.get(end.entity)
-        && let Some(area) = canvas.iter().next()
-    {
-        let card = layout.card_mut(*pane);
+    let area = canvas.iter().next().map(logical);
+    let mut settled = false;
+    for card in &mut layout.bypass_change_detection().cards {
         if let Some(at) = card.held.take() {
-            let middle = at + card.size * 0.5;
-            card.corner =
-                Corner::nearest(middle, logical(area) * 0.5);
+            if let Some(area) = area {
+                card.corner =
+                    Corner::nearest(at + card.size * 0.5, area * 0.5);
+            }
             card.ghost = None;
+            settled = true;
         }
     }
-    if dividers.contains(end.entity)
-        || handles.contains(end.entity)
+    if settled {
+        layout.set_changed();
+    }
+    if settled
+        || dividers.contains(end.entity)
         || grips.contains(end.entity)
     {
         cursor.0 = None;
