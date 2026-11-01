@@ -119,6 +119,21 @@ pub(super) enum Which {
     },
 }
 
+impl Which {
+    /// Whether this is the list of choices for `input` of `node`.
+    pub(super) fn is_choosing(
+        &self,
+        node: NodeId,
+        input: &str,
+    ) -> bool {
+        matches!(
+            self,
+            Which::Choice { node: on, input: name, .. }
+                if *on == node && name == input
+        )
+    }
+}
+
 /// Where the list of kinds stands: what is typed, and the group open,
 /// none for the list of groups.
 #[derive(Default, Clone, PartialEq)]

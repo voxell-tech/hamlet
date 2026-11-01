@@ -9,7 +9,7 @@ use bevy::color::Color;
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
 use bevy::ui::{AlignItems, Display, UiRect, px};
-use bevy_fynix::tokens::Tone;
+use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, icon_button, label,
     number_field, row, text_field,
@@ -26,6 +26,7 @@ use hamlet_ui::widgets::switch::switch;
 use super::Editor;
 use super::canvas::Input;
 use super::flavor::Flavor;
+use super::menu::Menu;
 
 /// The width of a number's field.
 const NUMBER: f32 = 58.0;
@@ -319,9 +320,11 @@ fn flag<F: Flavor>(node: NodeId, input: Input) -> AnyView {
 }
 
 /// A choice: its value and a chevron, which open the list of choices
-/// at the pointer.
+/// at the pointer. The chevron points down, and up while the list is
+/// open.
 fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
     let read = input.clone();
+    let name = input.name.clone();
     button(
         row((
             label(resource::<Editor<F>, _>(move |editor| {
@@ -333,7 +336,16 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
                 }
             }))
             .wrap(false),
-            glyph(Glyph::Chevron, MARK).tone(Tone::Dim),
+            glyph(Glyph::Chevron, MARK)
+                .tone(Tone::Dim)
+                .rotation(resource::<Menu<F>, _>(move |menu| {
+                    if menu.is_choosing(node, &name) {
+                        0.0
+                    } else {
+                        180.0
+                    }
+                }))
+                .transition(Motion::Interact),
         ))
         .gap(4.0)
         .align(AlignItems::Center),
