@@ -25,7 +25,7 @@ use bevy::ui::{AlignItems, Display, Overflow, UiRect, percent, px};
 use bevy::ui_render::UiMaterialPlugin;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, row,
+    frame, row, scroll,
 };
 use bevy_fynix::{
     Bevy, ScopedExt, ViewExt, ViewSeq, keyed, resource,
@@ -780,7 +780,8 @@ pub fn screen<F: Flavor>() -> impl View {
         Pane::Parameters,
         Glyph::Sliders,
         "PARAMETERS",
-        params::view::<F>().boxed(),
+        // Scrolled when there are more than the canvas has room for.
+        scroll((params::view::<F>(),)).gap(0.0).boxed(),
     );
     let floating_preview = if F::PREVIEW_FLOATS {
         floating::<F>(Pane::Preview, F::ICON, "PREVIEW", F::preview())
@@ -798,8 +799,10 @@ pub fn screen<F: Flavor>() -> impl View {
     .fills_height()
     .min_width(px(0.0))
     .gap(0.0);
+    // The row takes the column's height; without it the canvas has
+    // none.
     let body: AnyView = if F::PREVIEW_FLOATS {
-        row((over,)).boxed()
+        row((over,)).fills_height().boxed()
     } else {
         // Not `fills_height`: its grow would be along the row,
         // sharing the width with the canvas.
@@ -810,7 +813,7 @@ pub fn screen<F: Flavor>() -> impl View {
                 px(layout.preview)
             }))
             .shrink(0.0);
-        row((over, divider::<F>(), preview)).boxed()
+        row((over, divider::<F>(), preview)).fills_height().boxed()
     };
     column((
         tools::<F>(),
