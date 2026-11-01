@@ -1,6 +1,6 @@
 //! Terminals: the chief's own, a hamlet's under the sandbox, those an
-//! agent opens and types into, the runs of its shell tool, and what a
-//! restart keeps of them.
+//! agent opens and types into, the commands of its shell tool, and
+//! what a restart keeps of them.
 
 use std::time::Duration;
 
@@ -194,7 +194,7 @@ async fn a_terminal_keeps_its_last_command_and_the_name_the_chief_gives_it()
 }
 
 #[tokio::test]
-async fn an_agent_opens_and_types_into_a_terminal_and_its_bash_runs_show()
+async fn an_agent_opens_and_types_into_a_terminal_and_its_bash_commands_show()
  {
     let script = Script::new().responses([
         call("terminal_open", json!({"name": "dev"})),
@@ -221,11 +221,11 @@ async fn an_agent_opens_and_types_into_a_terminal_and_its_bash_runs_show()
     assert_eq!(dev.name, "dev");
     assert_eq!(dev.agent.as_ref(), Some(&me));
     assert!(dev.sandboxed);
-    let runs = terminals
+    let commands = terminals
         .iter()
-        .find(|t| t.kind == TerminalKind::Runs)
-        .expect("the agent's runs");
-    assert_eq!(runs.agent.as_ref(), Some(&me));
+        .find(|t| t.kind == TerminalKind::Commands)
+        .expect("the agent's commands");
+    assert_eq!(commands.agent.as_ref(), Some(&me));
     let tools = s
         .chief
         .items(&chat(mayor()))
@@ -241,12 +241,12 @@ async fn an_agent_opens_and_types_into_a_terminal_and_its_bash_runs_show()
             None
         )),
     );
-    let (dev, runs) = (dev.id.clone(), runs.id.clone());
+    let (dev, commands) = (dev.id.clone(), commands.id.clone());
     watch(&mut s.chief, &dev).await;
     shows(&mut s.chief, &dev, "agent-42").await;
-    watch(&mut s.chief, &runs).await;
-    shows(&mut s.chief, &runs, "echo ran-$((2 + 3))").await;
-    shows(&mut s.chief, &runs, "ran-5").await;
+    watch(&mut s.chief, &commands).await;
+    shows(&mut s.chief, &commands, "echo ran-$((2 + 3))").await;
+    shows(&mut s.chief, &commands, "ran-5").await;
     // The chief types into the agent's terminal too.
     type_in(&mut s.chief, &dev, "echo chief-$((1 + 1))\r").await;
     shows(&mut s.chief, &dev, "chief-2").await;

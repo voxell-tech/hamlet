@@ -85,7 +85,7 @@ that would have had it.
 | `terminal_open`, `terminal_write`, `terminal_read`, `terminal_close` | A bash shell on a terminal that stays open between calls, in the same place and sandbox as `bash`, for servers, watchers and programs that ask for input. A write types text and keys, then gives the screen once the output settles; a read gives the screen and up to 2000 lines above it. A terminal is named by its id or its name, among its hamlet's. The chief sees each one and may type into it. Opening one and every write pass the gate as a `bash` call does |
 
 Each `bash` call's command and its output, as it comes, are also shown in
-the agent's runs terminal, which the chief can watch and nobody types into.
+the agent's commands terminal, which the chief can watch and nobody types into.
 
 The hamlet's own tools, offered by role, are in [`hamlet.md`](hamlet.md).
 

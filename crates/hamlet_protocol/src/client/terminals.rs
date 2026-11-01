@@ -62,8 +62,8 @@ pub enum TerminalKind {
     Shell,
     /// The commands an agent's shell tool ran and what they printed.
     /// It takes no input.
-    #[serde(rename = "runs")]
-    Runs,
+    #[serde(rename = "commands")]
+    Commands,
 }
 
 #[derive(

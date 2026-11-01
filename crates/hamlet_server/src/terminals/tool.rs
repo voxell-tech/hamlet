@@ -302,7 +302,7 @@ pub(crate) fn call(
                 } else {
                     failed(format!(
                         "The terminal `{terminal}` takes no input: \
-                         its shell ended, or it shows runs."
+                         its shell ended, or it shows commands."
                     ))
                 }
             }

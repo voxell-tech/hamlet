@@ -130,7 +130,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `op` | Fields | Answer |
 |---|---|---|
 | `open` | `id`, `hamlet?: string`, `cols`, `rows` | Opens a shell in the hamlet's folder under the sandbox, with its mayor's reach, or the chief's own login shell with no sandbox when `hamlet` is left out. The connection watches it: the first `terminal` message has `to` and names it. A refusal is a `reply`. |
-| `input` | `terminal`, `data: string`; no `id` | Types `data`, keys and pastes as the terminal reads them, into the shell. No answer. A `runs` terminal or an ended shell ignores it. |
+| `input` | `terminal`, `data: string`; no `id` | Types `data`, keys and pastes as the terminal reads them, into the shell. No answer. A `commands` terminal or an ended shell ignores it. |
 | `resize` | `terminal`, `cols`, `rows`; no `id` | No answer. |
 | `watch` | `id`, `terminal` | A `terminal` message with `to` and `reset: true` that redraws it, then its output as it comes. A `reply` when there is no such terminal. |
 | `unwatch` | `terminal`; no `id` | No answer. |
@@ -256,12 +256,12 @@ at most 240 characters, plus total and added/removed counts.
 that opened it, null when the chief did), `cols`, `rows`, `cwd`, `exit`
 (null while its shell runs), `sandboxed`, the `title` its programs set,
 `named` (whether the chief or its agent named it, its name then shown over
-the title) and `last`, the last command typed into it or, for `runs`, the
+the title) and `last`, the last command typed into it or, for `commands`, the
 last its agent ran (null before one). A typed command is the line read
 from where typing began after a prompt, once the shell echoes its Enter;
 what a full-screen program is typed is not one, and nor is what a prompt
 does not echo.
-`kind` is `shell`, which takes input, or `runs`: one per agent, showing
+`kind` is `shell`, which takes input, or `commands`: one per agent, showing
 each command its shell tool runs and that command's output as it comes,
 read-only. A terminal's agent or hamlet leaving removes it. The server
 keeps each terminal's last output across restarts; a shell that ran

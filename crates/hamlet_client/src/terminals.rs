@@ -194,7 +194,7 @@ pub fn unwatch(world: &mut World, terminal: Entity) {
     });
 }
 
-/// Types `data` into a shell. A terminal of runs takes nothing.
+/// Types `data` into a shell. A terminal of commands takes nothing.
 pub fn type_in(world: &mut World, terminal: Entity, data: &str) {
     let shell = world
         .get::<Terminal>(terminal)
@@ -584,7 +584,7 @@ mod tests {
     fn watched_terminals_are_watched_again_on_a_new_connection_and_gone_ones_removed()
      {
         let mut app =
-            app(vec![view("t1", "shell"), view("t2", "runs")]);
+            app(vec![view("t1", "shell"), view("t2", "commands")]);
         let t1 = find(app.world(), "t1").unwrap();
         watch(app.world_mut(), t1);
         sent(&mut app);
@@ -598,7 +598,7 @@ mod tests {
         ));
         let mut state = hamlet_testing::realm::state();
         state.revision = 1;
-        state.terminals = vec![view("t2", "runs")];
+        state.terminals = vec![view("t2", "commands")];
         receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -608,9 +608,9 @@ mod tests {
     }
 
     #[test]
-    fn a_terminal_of_runs_takes_no_input() {
+    fn a_terminal_of_commands_takes_no_input() {
         let mut app =
-            app(vec![view("t1", "shell"), view("t2", "runs")]);
+            app(vec![view("t1", "shell"), view("t2", "commands")]);
         let (t1, t2) = (
             find(app.world(), "t1").unwrap(),
             find(app.world(), "t2").unwrap(),

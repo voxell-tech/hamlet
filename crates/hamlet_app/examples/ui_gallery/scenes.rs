@@ -157,7 +157,7 @@ pub enum Scene {
     Menu,
     /// The panels with the VIEW menu open.
     ViewMenu,
-    /// The Terminal panel showing an agent's runs.
+    /// The Terminal panel showing an agent's commands.
     Terminal,
     /// The Terminal panel showing the chief's shell, typed in.
     TerminalShell,

@@ -605,8 +605,8 @@ fn run(
         return Ok(());
     }
     let place = places(service, &call.bound.agent)?;
-    let runs = match tools::Dialect::of_tool(call.tool) {
-        Some(_) => Some(runs(service, &call, &place)?),
+    let commands = match tools::Dialect::of_tool(call.tool) {
+        Some(_) => Some(commands(service, &call, &place)?),
         None => None,
     };
     let tools = service.tools(&call.bound.agent, place, net)?;
@@ -620,15 +620,20 @@ fn run(
         address.clone(),
         async move {
             let mut outcome = tools
-                .run_shown(&secrets, &name, &arguments, runs.as_ref())
+                .run_shown(
+                    &secrets,
+                    &name,
+                    &arguments,
+                    commands.as_ref(),
+                )
                 .await;
-            if let Some(runs) = &runs {
+            if let Some(commands) = &commands {
                 let code = outcome
                     .details
                     .as_ref()
                     .and_then(|details| details.get("exitCode"))
                     .and_then(Value::as_i64);
-                runs.ended_run(code);
+                commands.ended_run(code);
             }
             if let Some(change) = change {
                 outcome
@@ -643,8 +648,8 @@ fn run(
 }
 
 /// Where the shell call `call` shows its command and output as they
-/// come: its agent's runs terminal.
-fn runs(
+/// come: its agent's commands terminal.
+fn commands(
     service: &mut Service,
     call: &decide::Admitted<'_>,
     place: &tools::Place,
@@ -663,7 +668,7 @@ fn runs(
         })
         .unwrap_or_else(|| agent.number.to_string());
     let cwd = place.folder.as_ref().unwrap_or(&place.house);
-    let feed = service.terminals.runs(
+    let feed = service.terminals.commands(
         &hamlet_protocol::client::AgentRef {
             hamlet: agent.hamlet.clone(),
             number: agent.number,

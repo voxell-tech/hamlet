@@ -1,6 +1,6 @@
 //! Terminals: shells on pseudo-terminals that the chief and agents
-//! type into, and the runs of each agent's shell tool, kept for the
-//! windows that watch them and across restarts.
+//! type into, and the commands of each agent's shell tool, kept for
+//! the windows that watch them and across restarts.
 //!
 //! A terminal of a hamlet runs under the sandbox, with its agent's
 //! reach, or its mayor's when the chief opened it. An unbounded
@@ -524,15 +524,15 @@ impl Terminals {
         !gone.is_empty()
     }
 
-    /// The live runs terminal of `agent`, made when it has none.
-    pub(crate) fn runs(
+    /// The live commands terminal of `agent`, made when it has none.
+    pub(crate) fn commands(
         &mut self,
         agent: &AgentRef,
         name: &str,
         cwd: &str,
     ) -> Feed {
         let found = self.open.iter().find(|(_, t)| {
-            t.view.kind == TerminalKind::Runs
+            t.view.kind == TerminalKind::Commands
                 && t.view.agent.as_ref() == Some(agent)
         });
         let id = match found {
@@ -545,9 +545,9 @@ impl Terminals {
                     exit: None,
                     hamlet: Some(agent.hamlet.clone()),
                     id: new_id(),
-                    kind: TerminalKind::Runs,
+                    kind: TerminalKind::Commands,
                     last: None,
-                    name: format!("{name}'s runs"),
+                    name: format!("{name}'s commands"),
                     named: false,
                     rows: 30,
                     sandboxed: true,
@@ -558,7 +558,8 @@ impl Terminals {
                 id
             }
         };
-        self.feed(&id).expect("the runs terminal was just found")
+        self.feed(&id)
+            .expect("the commands terminal was just found")
     }
 
     fn feed(&self, id: &str) -> Option<Feed> {
@@ -1047,7 +1048,7 @@ pub(crate) fn restore(service: &mut Service) -> Result<()> {
     for Kept { mut view, replay } in kept {
         let mut replay = STANDARD.decode(replay).unwrap_or_default();
         let launch = match (&view.kind, view.exit, &view.hamlet) {
-            (TerminalKind::Runs, ..) | (_, Some(_), _) => None,
+            (TerminalKind::Commands, ..) | (_, Some(_), _) => None,
             (TerminalKind::Shell, None, None) => Some(unbounded()),
             (TerminalKind::Shell, None, Some(hamlet)) => {
                 let record = service.home.store().record(hamlet)?;

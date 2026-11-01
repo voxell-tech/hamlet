@@ -147,8 +147,8 @@ _Avoid_: trash, deleted agents
 A shell on a pseudo-terminal the server runs, which the chief and agents
 type into and the window shows. One of a hamlet runs under the sandbox;
 an unbounded one is the chief's own shell, with no sandbox. Each agent
-also has one terminal of its runs, showing the commands its shell tool
-runs as they run.
+also has one terminal of its commands, showing each command its shell
+tool runs and its output as they come.
 _Avoid_: console, tty, pane
 
 ### The window

@@ -438,7 +438,7 @@ fn redraw(
     };
     let read_only = world
         .get::<Terminal>(terminal)
-        .is_some_and(|view| view.0.kind == TerminalKind::Runs);
+        .is_some_and(|view| view.0.kind == TerminalKind::Commands);
     let Some(screen) =
         world.entity(terminal).get_ref::<TerminalScreen>()
     else {

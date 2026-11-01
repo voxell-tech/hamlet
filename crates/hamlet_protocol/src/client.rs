@@ -109,7 +109,7 @@ impl ServerMessage {
 }
 
 /// The value of every `v` field.
-pub const V: u64 = 4;
+pub const V: u64 = 5;
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
