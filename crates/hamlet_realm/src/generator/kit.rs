@@ -1,22 +1,21 @@
 //! The meshes and materials everything of a kind shares.
 
-use bevy::camera::visibility::NoFrustumCulling;
 use bevy::light::NotShadowCaster;
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
 use hamlet_vfx::ground::{self, GroundMaterial, GroundSettings};
 use hamlet_vfx::inlay::{InlayExt, InlayMaterial, InlayUniform};
+use hamlet_vfx::patch;
 use hamlet_vfx::water::{
-    self, WaterMaterial, WaterSettings, WaterUniform, Waves,
+    self, WaterMaterial, WaterSettings, WaterUniform,
 };
 
 use super::land::Land;
-use super::loading::{Bed, Sea};
+use super::loading::Bed;
 use super::{Tally, flora, traffic, yard};
 use crate::keeper::KeeperState;
 use crate::lantern::lantern_glass;
 use crate::palette::Palette;
-use crate::sky::CameraSettings;
 use crate::{Sky, Stock};
 
 /// Handles shared by everything of a kind, so the renderer can batch
@@ -24,7 +23,8 @@ use crate::{Sky, Stock};
 #[derive(Resource)]
 pub(super) struct Kit {
     pub(super) matte: Handle<StandardMaterial>,
-    /// The tiles of ground: matte, with bumps in its light.
+    /// The ground's patches: matte, with bumps in its light, raised
+    /// to the land by its shader.
     pub(super) ground: Handle<GroundMaterial>,
     pub(super) windows: Handle<StandardMaterial>,
     /// One lantern material per state, in the order of
@@ -41,6 +41,8 @@ pub(super) struct Kit {
     pub(super) cart: Handle<Mesh>,
     /// The water: the sea, the rivers and every pool.
     pub(super) water: Handle<WaterMaterial>,
+    /// The grid each patch of the ground and of the sea is drawn in.
+    pub(super) patch: Handle<Mesh>,
     pub(super) trees: Vec<Handle<Mesh>>,
     pub(super) groove: Handle<InlayMaterial>,
 }
@@ -65,7 +67,6 @@ pub(super) fn setup(
     stock: Res<Stock>,
     bumps: Res<GroundSettings>,
     flow: Res<WaterSettings>,
-    lens: Option<Res<CameraSettings>>,
 ) {
     let ground = grounds.add(ground::material(
         &mut images,
@@ -92,22 +93,12 @@ pub(super) fn setup(
         ),
     });
 
-    // One surface of water under the camera, for the sea, the rivers
-    // and every pool: wherever the ground dips under it, it shows.
+    // One surface of water about the camera, for the sea, the rivers
+    // and every pool: wherever the ground dips under it, it shows. It
+    // is drawn in patches, which the loading lays.
     let water = waters.add(water::material(&mut images, &flow));
     let plane = meshes.add(Plane3d::new(Vec3::Y, Vec2::ONE).mesh());
-    let far = lens.map_or(4000.0, |lens| lens.far);
-    commands.spawn((
-        Sea,
-        Waves,
-        Mesh3d(meshes.add(water::sea(far))),
-        MeshMaterial3d(water.clone()),
-        Transform::from_xyz(0.0, land.set.land.water_y, 0.0),
-        NotShadowCaster,
-        // Its swells rise above the flat square its bounds are taken
-        // from, and it is about the camera wherever that looks.
-        NoFrustumCulling,
-    ));
+    let patch = meshes.add(patch::grid());
     // The deep sea's floor under it, where the ground has yet to
     // come and all about the island.
     commands.spawn((
@@ -144,6 +135,7 @@ pub(super) fn setup(
             .add(yard::engine(&land.pal, &land.set.yard).build()),
         cart: meshes.add(traffic::cart(&land.pal).build()),
         water,
+        patch,
         trees: kinds,
         groove,
     });

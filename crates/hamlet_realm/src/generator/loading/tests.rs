@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use bevy::platform::collections::HashMap;
@@ -7,16 +6,17 @@ use bevy::window::RequestRedraw;
 
 use super::lanes::Lanes;
 use super::stream::stream;
-use super::{Ground, Loading, Standing};
+use super::{Loading, Standing};
 use crate::WorldCamera;
-use crate::generator::ground::{Tile, rim_key};
+use crate::generator::ground::Tile;
 use crate::generator::land::Land;
 use crate::generator::{
     Ahead, DetailSettings, GeneratorView, Tally, testing,
 };
 use crate::sky::CameraSettings;
 
-/// The ground alone, seen by a camera with the world's fog.
+/// The ground and its woods alone, seen by a camera with the world's
+/// fog.
 fn app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -48,14 +48,17 @@ fn app() -> App {
 /// does, and runs frames until the ground is in.
 fn look(app: &mut App, focus: Vec2, far: f32) {
     let world = app.world_mut();
+    let view = GeneratorView {
+        focus,
+        dist: far,
+        yaw: 0.0,
+        pitch: 40.0,
+    };
+    let (eye, focus) = view.eye(world.resource::<Land>());
     let mut camera = world
         .query_filtered::<(&mut Transform, &mut DistanceFog), With<WorldCamera>>();
     let (mut at, mut fog) = camera.single_mut(world).unwrap();
-    let focus = Vec3::new(focus.x, 1.3, focus.y);
-    *at = Transform::from_translation(
-        focus + far * Vec3::new(0.0, 0.64, 0.77),
-    )
-    .looking_at(focus, Vec3::Y);
+    *at = Transform::from_translation(eye).looking_at(focus, Vec3::Y);
     fog.falloff = FogFalloff::Linear {
         start: far * 1.2,
         end: far * 2.6 + 150.0,
@@ -72,14 +75,16 @@ fn look(app: &mut App, focus: Vec2, far: f32) {
     }
 }
 
-/// The tiles drawn, and the trees that stand.
+/// The tiles of trees drawn, and the trees that stand.
 fn drawn(app: &mut App) -> (Vec<Tile>, usize) {
-    let world = app.world_mut();
-    let tiles = world
-        .query::<&Ground>()
-        .iter(world)
-        .map(|ground| ground.0)
+    let tiles = app
+        .world()
+        .resource::<Loading>()
+        .woods()
+        .into_iter()
+        .map(|(tile, _)| tile)
         .collect::<Vec<_>>();
+    let world = app.world_mut();
     let trees = world
         .query_filtered::<(), With<Standing>>()
         .iter(world)
@@ -88,7 +93,7 @@ fn drawn(app: &mut App) -> (Vec<Tile>, usize) {
 }
 
 #[test]
-fn the_ground_follows_the_view_and_what_is_left_behind_goes() {
+fn the_woods_follow_the_view_and_what_is_left_behind_goes() {
     let mut app = app();
     let chunk = 32.0;
     let land = app.world().resource::<Land>().clone();
@@ -139,7 +144,7 @@ fn the_ground_follows_the_view_and_what_is_left_behind_goes() {
 }
 
 #[test]
-fn the_ground_is_there_before_a_camera_that_is_on_its_way() {
+fn the_woods_are_there_before_a_camera_that_is_on_its_way() {
     let mut app = app();
     look(&mut app, Vec2::ZERO, 72.0);
     let here = drawn(&mut app).0;
@@ -192,15 +197,14 @@ fn the_ground_is_there_before_a_camera_that_is_on_its_way() {
 }
 
 #[test]
-fn ground_a_town_comes_to_or_leaves_is_built_anew() {
+fn woods_a_town_comes_to_or_leaves_are_found_anew() {
     let mut app = app();
     look(&mut app, Vec2::ZERO, 72.0);
     let entities = |app: &mut App| {
-        let world = app.world_mut();
-        world
-            .query::<(Entity, &Ground)>()
-            .iter(world)
-            .map(|(entity, ground)| (ground.0, entity))
+        app.world()
+            .resource::<Loading>()
+            .woods()
+            .into_iter()
             .collect::<HashMap<_, _>>()
     };
     let before = entities(&mut app);
@@ -228,13 +232,7 @@ fn ground_a_town_comes_to_or_leaves_is_built_anew() {
     };
     assert!(after.keys().any(|t| near(t, from) && anew(t)));
     assert!(after.keys().any(|t| near(t, to) && anew(t)));
-    // Ground far from both, beside tiles of the sizes they were, is
-    // the ground that was there.
-    let top = DetailSettings::default().tile_levels - 1;
-    let tiles = |drawn: &HashMap<Tile, Entity>| {
-        drawn.keys().copied().collect::<HashSet<_>>()
-    };
-    let (was, is) = (tiles(&before), tiles(&after));
+    // Woods far from both are the woods that were there.
     let kept = after
         .keys()
         .filter(|t| {
@@ -242,7 +240,6 @@ fn ground_a_town_comes_to_or_leaves_is_built_anew() {
             before.contains_key(*t)
                 && mid.distance(from) > t.side(32.0) + 60.0
                 && mid.distance(to) > t.side(32.0) + 60.0
-                && rim_key(&was, top, **t) == rim_key(&is, top, **t)
         })
         .collect::<Vec<_>>();
     assert!(kept.len() > 50);

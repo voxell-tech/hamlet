@@ -1,14 +1,14 @@
-// A page of the land's heights, one per texel, as `Land::height_wide` in
-// `land/terrain.rs` has them: rolling plains, flat-topped hills, town
-// sites levelled, rivers cut, the island's coast falling to the sea floor
-// and held ground kept level. The two must give the same land, so a
-// change to one is a change to the other.
+// A page of the land, one texel to a point of a grid, as `land/terrain.rs`
+// has it: its height as `Land::height_wide` has it, with rolling plains,
+// flat-topped hills, town sites levelled, rivers cut, the island's coast
+// falling to the sea floor and held ground kept level; and its share of
+// woods, as `forest` has it, and of heath. The two must give the same land,
+// so a change to one is a change to the other.
 
 import hamlet_vfx::noise::{fbm, key1, perlin, scramble, smooth_step};
 
 // The fields are `ReliefInput`'s in `relief.rs`, where each is explained.
 struct Relief {
-    page: vec4<f32>,
     plains: vec4<f32>,
     rise: vec4<f32>,
     mounds: vec4<f32>,
@@ -20,14 +20,22 @@ struct Relief {
     town: vec4<f32>,
     river: vec4<f32>,
     drift: vec4<f32>,
+    wilds: vec4<f32>,
     counts: vec4<u32>,
     // Sites, then shores, as x and z; then held ground as x, z, radius
     // and the height it is held at.
     points: array<vec4<f32>>,
 }
 
+// `LevelInput` in `relief.rs`: the page's corner on the map, the width of
+// its texel, and how much wider its rivers are drawn.
+struct Level {
+    page: vec4<f32>,
+}
+
 @group(0) @binding(0) var<storage, read> relief: Relief;
-@group(0) @binding(1) var heights: texture_storage_2d<r32float, write>;
+@group(0) @binding(1) var<uniform> level: Level;
+@group(0) @binding(2) var page: texture_storage_2d<rgba32float, write>;
 
 const FAR: f32 = 1e30;
 // `HOLD_EASE` in `land.rs`.
@@ -262,12 +270,44 @@ fn height(p: vec2<f32>, wide: f32) -> f32 {
     return h;
 }
 
+// `afar` in `terrain.rs`.
+fn afar(p: vec2<f32>) -> f32 {
+    let plains = relief.rise.y;
+    return smooth_step(plains, plains + 500.0, length(p));
+}
+
+// `forest` in `terrain.rs`.
+fn forest(p: vec2<f32>) -> f32 {
+    let n = fbm(p * 0.017, 3u, seed() + 70u);
+    let ds = site_dist(p);
+    let far_out = afar(p);
+    var bare = 0.0;
+    if far_out > 0.0 {
+        bare = relief.wilds.x * far_out * fbm(p * 0.0021, 2u, seed() + 72u);
+    }
+    let radius = relief.town.y;
+    return smooth_step(-0.12 + bare, 0.22 + bare, n)
+        * smooth_step(radius + 2.0, radius + 12.0, ds);
+}
+
+// The share of heath in the grass at `p`: none near the middle, and far out
+// in some regions. Only the ground's colour needs it, so the CPU has none.
+fn heath(p: vec2<f32>) -> f32 {
+    let far_out = afar(p);
+    if far_out <= 0.0 {
+        return 0.0;
+    }
+    let share = fbm(p * 0.0016, 2u, seed() + 73u);
+    return relief.wilds.y * far_out * smooth_step(0.05, 0.4, share);
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let size = textureDimensions(heights);
+    let size = textureDimensions(page);
     if id.x >= size.x || id.y >= size.y {
         return;
     }
-    let p = relief.page.xy + (vec2<f32>(id.xy) + 0.5) * relief.page.z;
-    textureStore(heights, id.xy, vec4<f32>(height(p, relief.page.w), 0.0, 0.0, 1.0));
+    // Texels lie on the grid's points, the first at the page's corner.
+    let p = level.page.xy + vec2<f32>(id.xy) * level.page.z;
+    textureStore(page, id.xy, vec4<f32>(height(p, level.page.w), forest(p), heath(p), 1.0));
 }

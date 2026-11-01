@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::tasks::futures_lite::future::poll_once;
 use bevy::tasks::{Task, block_on};
 
-use super::Ground;
+use super::Wood;
 use crate::generator::DetailSettings;
 use crate::generator::ground::{self, Sight, Tile};
 use crate::generator::land::Land;
@@ -92,6 +92,15 @@ impl<B: Send + 'static> Layer<B> {
         self.patches.values().filter(|p| p.drawn.is_some())
     }
 
+    /// Each tile drawn, with the entity it is drawn as.
+    #[cfg(test)]
+    pub(super) fn drawn_tiles(&self) -> Vec<(Tile, Entity)> {
+        self.patches
+            .iter()
+            .filter_map(|(tile, p)| p.drawn.map(|e| (*tile, e)))
+            .collect()
+    }
+
     /// Has the tiles within `hold` of `at` built anew.
     pub(super) fn redo(&mut self, chunk: f32, at: Vec2, hold: f32) {
         for (tile, patch) in &mut self.patches {
@@ -117,12 +126,11 @@ impl<B: Send + 'static> Layer<B> {
         land: &Land,
         detail: &DetailSettings,
         (here, there): (&Sight, &Sight),
-        finer: bool,
         key: impl Fn(&HashSet<Tile>, Tile) -> u64,
     ) {
         let patches = &self.patches;
         let tiles = |sight: &Sight| {
-            ground::wanted(land, detail, sight, finer, |tile| {
+            ground::wanted(land, detail, sight, |tile| {
                 patches.get(&tile).is_some_and(|p| p.drawn.is_some())
             })
         };
@@ -273,7 +281,7 @@ impl<B: Send + 'static> Layer<B> {
         commands: &mut Commands,
         top: u8,
         sink: f32,
-        places: &mut Query<&mut Transform, With<Ground>>,
+        places: &mut Query<&mut Transform, With<Wood>>,
     ) {
         if !self.stirred {
             return;

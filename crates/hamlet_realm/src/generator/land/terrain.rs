@@ -188,35 +188,20 @@ impl LandData {
         self.height_wide(p, 0.0)
     }
 
-    /// Cells along the side of the ground's tile about `mid`, which
-    /// is `side` wide: more where a river runs through it.
-    pub fn cells(&self, mid: Vec2, side: f32) -> usize {
-        let cells = self.set.land.tile_cells;
-        if self.river_dist(mid) < side * 0.75 {
-            cells.1
-        } else {
-            cells.0
-        }
-        .max(1)
-    }
-
     /// The height of the ground as it is drawn up close: flat
-    /// triangles between the points its finest tiles take from
-    /// [`Self::height`]. What stands on the ground stands on this.
+    /// triangles between the points of its finest grid, `cell` apart,
+    /// as [`Self::height`] has them, which is the ground the
+    /// smallest patches draw. What stands on the ground stands on
+    /// this.
     pub fn surface(&self, p: Vec2) -> f32 {
-        let chunk = self.set.land.chunk;
-        let lo = (p / chunk).floor() * chunk;
-        let cells = self.cells(lo + chunk * 0.5, chunk);
-        let step = chunk / cells as f32;
-        let cell = ((p - lo) / step)
-            .floor()
-            .clamp(Vec2::ZERO, Vec2::splat(cells as f32 - 1.0));
-        let f = ((p - lo) / step - cell).clamp(Vec2::ZERO, Vec2::ONE);
-        let h = |i: f32, j: f32| {
-            self.height(lo + (cell + Vec2::new(i, j)) * step)
-        };
-        // A tile's quads are cut from their first corner to the
-        // one across.
+        let step = self.set.land.cell;
+        let cell = (p / step).floor();
+        let lo = cell * step;
+        let f = ((p - lo) / step).clamp(Vec2::ZERO, Vec2::ONE);
+        let h =
+            |i: f32, j: f32| self.height(lo + Vec2::new(i, j) * step);
+        // A patch's quads are cut from their first corner to the one
+        // across.
         let (h00, h11) = (h(0.0, 0.0), h(1.0, 1.0));
         if f.y >= f.x {
             let h01 = h(0.0, 1.0);
@@ -445,17 +430,6 @@ impl LandData {
             pal.grass_sun,
             0.45 * fine * smoothstep(0.35, 0.7, broad),
         )
-    }
-
-    /// The share of heath in the grass at `p`: none near the middle,
-    /// and far out in some regions.
-    pub(crate) fn heath(&self, p: Vec2) -> f32 {
-        let afar = self.afar(p);
-        if afar <= 0.0 {
-            return 0.0;
-        }
-        let heath = fbm(p * 0.0016, 2, self.seed + 73);
-        self.set.land.heath * afar * smoothstep(0.05, 0.4, heath)
     }
 
     /// What the ground's shader paints the ground with.

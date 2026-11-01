@@ -1,24 +1,23 @@
-//! The land's heights made on the GPU: a page of them, one per texel,
-//! by `relief.wesl`, and read back for the CPU. For now it is a trial
-//! beside [`Land::height`], which it is checked against: it logs how
-//! long the page takes to come back and how far it is from the CPU's
-//! heights. It is to become the land's one source of heights
-//! (`hamlet_backlog/terrain.md`).
-
-use std::time::Instant;
+//! The land's pages on the GPU: for each size of patch the ground is
+//! drawn in, a page of the land about the eye, one texel to a point
+//! of that size's grid, made by `relief.wesl` with the same heights
+//! as [`LandData::height_wide`]. Each texel holds the height, the
+//! share of woods and the share of heath there. A page is made anew
+//! only when the eye has moved far enough over it, or the land has
+//! changed; the ground's shader reads the pages to raise its patches.
+//!
+//! [`LandData::height_wide`]: crate::generator::land::LandData::height_wide
 
 use bevy::asset::{
     RenderAssetUsages, embedded_asset, load_embedded_asset,
 };
-use bevy::diagnostic::FrameCount;
 use bevy::prelude::*;
 use bevy::render::extract_resource::{
     ExtractResource, ExtractResourcePlugin,
 };
-use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::binding_types::{
-    storage_buffer_read_only, texture_storage_2d,
+    storage_buffer_read_only, texture_storage_2d, uniform_buffer,
 };
 use bevy::render::render_resource::encase::StorageBuffer;
 use bevy::render::render_resource::{
@@ -27,45 +26,57 @@ use bevy::render::render_resource::{
     ComputePassDescriptor, ComputePipelineDescriptor, Extent3d,
     PipelineCache, ShaderStages, ShaderType, StorageTextureAccess,
     TextureDimension, TextureFormat, TextureUsages,
+    TextureViewDescriptor, TextureViewDimension, UniformBuffer,
 };
 use bevy::render::renderer::{
-    RenderContext, RenderDevice, RenderGraph,
+    RenderContext, RenderDevice, RenderGraph, RenderGraphSystems,
+    RenderQueue,
 };
 use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
 use bevy::render::texture::GpuImage;
 use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
+use hamlet_vfx::ground::{GroundMaterial, LEVELS, PagesUniform};
+use hamlet_vfx::patch;
 
 use super::land::Land;
+use super::{DetailSettings, Kit};
+use crate::WorldCamera;
 
-/// Texels along the side of a page.
-const SIDE: u32 = 512;
-/// World units across one texel.
-const TEXEL: f32 = 0.5;
-/// Heights compared with the CPU's when a page comes back.
-const CHECKS: u32 = 1000;
+/// Texels along the side of a page. A patch is drawn within
+/// [`patch::SPLIT`] times twice its side, and its diagonal, of the
+/// eye, about nine of its sides, and its size's texel is its side
+/// over [`patch::QUADS`]: so a page reaches about 285 texels each
+/// way, and [`STEP`] more while the eye moves over it.
+const SIDE: u32 = 704;
+
+/// Texels the eye moves over a page before it is made anew about it.
+const STEP: f32 = 32.0;
 
 pub(super) fn plugin(app: &mut App) {
     embedded_asset!(app, "relief.wesl");
     app.add_plugins(ExtractResourcePlugin::<Job>::default())
-        .add_systems(Update, ask.run_if(resource_changed::<Land>));
+        .add_systems(Update, follow);
     let Some(render) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
     render
+        .init_resource::<Made>()
         .add_systems(RenderStartup, prepare)
         .add_systems(
             Render,
             bind.in_set(RenderSystems::PrepareBindGroups),
         )
-        .add_systems(RenderGraph, run);
+        // Before the cameras draw, so the ground reads this frame's
+        // pages.
+        .add_systems(
+            RenderGraph,
+            run.in_set(RenderGraphSystems::Begin),
+        );
 }
 
 /// What the pass reads, as `Relief` in `relief.wesl`.
 #[derive(ShaderType, Clone, Default)]
 struct ReliefInput {
-    /// The page's corner on the map, the width of a texel, and how
-    /// much wider the rivers are drawn.
-    page: Vec4,
     /// `plain_y`, `hills` and the scale of the `grain`.
     plains: Vec4,
     /// The height of the `grain`, the reach of the `plains` and the
@@ -89,6 +100,8 @@ struct ReliefInput {
     river: Vec4,
     /// The reach of the `kinks`, `drift_scale` and `river_drift`.
     drift: Vec4,
+    /// `wilds` and `heath`.
+    wilds: Vec4,
     /// The seed, and how many sites, shores and held rounds there
     /// are in `points`.
     counts: UVec4,
@@ -97,7 +110,7 @@ struct ReliefInput {
 }
 
 impl ReliefInput {
-    fn of(land: &Land, corner: Vec2) -> Self {
+    fn of(land: &Land) -> Self {
         let set = &land.set.land;
         let dir = land.river_dir();
         let point = |at: Vec2| Vec4::new(at.x, at.y, 0.0, 0.0);
@@ -116,7 +129,6 @@ impl ReliefInput {
         );
         let points = [sites, shores, holds].concat();
         Self {
-            page: Vec4::new(corner.x, corner.y, TEXEL, 0.0),
             plains: Vec4::new(
                 set.plain_y,
                 set.hills.0,
@@ -178,144 +190,162 @@ impl ReliefInput {
                 set.river_drift,
                 0.0,
             ),
+            wilds: Vec4::new(set.wilds, set.heath, 0.0, 0.0),
             counts,
             points,
         }
     }
 }
 
-/// The page asked for: its input and the texture it is drawn into,
-/// both new for each, and a number that tells one from the next.
-#[derive(Resource, ExtractResource, Clone)]
+/// Mirrors `Level` in `relief.wesl`: the corner of a page on the map,
+/// the width of its texel, and how much wider its rivers are drawn,
+/// so that a page too coarse to hold a river's bed does not break it
+/// into pieces.
+#[derive(ShaderType, Clone, Copy, Default)]
+struct LevelInput {
+    page: Vec4,
+}
+
+/// The pages made this frame: the land they are made from, the
+/// texture they are made in, and the page of each size made anew.
+#[derive(Resource, ExtractResource, Clone, Default)]
 #[extract_app(RenderApp)]
 struct Job {
     input: Handle<ShaderBuffer>,
-    heights: Handle<Image>,
-    number: u32,
-    corner: Vec2,
-    asked: (Instant, u32),
+    pages: Handle<Image>,
+    /// Each size made anew, with its page's corner and texel.
+    made: Vec<(u32, LevelInput)>,
 }
 
-/// Asks for the page about the middle anew whenever the land changes.
-fn ask(
+/// The texture the pages are in, one layer for each size, and the
+/// corner each was last made about.
+#[derive(Resource)]
+struct Pages {
+    image: Handle<Image>,
+    corners: [Option<Vec2>; LEVELS],
+}
+
+/// The width of a texel of the pages of size `level`, for a land
+/// whose finest grid is `cell` wide.
+fn texel(cell: f32, level: usize) -> f32 {
+    cell * (1u32 << level) as f32
+}
+
+/// Lays the pages about the eye, makes anew those it has moved far
+/// enough over and all of them when the land changes, and tells the
+/// ground where they lie.
+fn follow(
     mut commands: Commands,
     land: Res<Land>,
-    frame: Res<FrameCount>,
+    detail: Res<DetailSettings>,
+    kit: Option<Res<Kit>>,
+    camera: Query<&GlobalTransform, With<WorldCamera>>,
     images: Option<ResMut<Assets<Image>>>,
     buffers: Option<ResMut<Assets<ShaderBuffer>>>,
+    mut grounds: ResMut<Assets<GroundMaterial>>,
+    pages: Option<ResMut<Pages>>,
     job: Option<Res<Job>>,
-    readers: Query<Entity, With<Readback>>,
 ) {
-    let (Some(mut images), Some(mut buffers)) = (images, buffers)
+    let (Some(kit), Some(mut images), Some(mut buffers), Some(eye)) =
+        (kit, images, buffers, camera.iter().next())
     else {
         return;
     };
-    for reader in &readers {
-        commands.entity(reader).try_despawn();
-    }
-    let corner = Vec2::splat(-(SIDE as f32) * TEXEL * 0.5);
-    let mut bytes = StorageBuffer::new(Vec::<u8>::new());
-    if bytes.write(&ReliefInput::of(&land, corner)).is_err() {
+    let Some(mut pages) = pages else {
+        commands.insert_resource(Pages {
+            image: images.add(texture()),
+            corners: [None; LEVELS],
+        });
         return;
+    };
+    let cell = land.set.land.cell;
+    let renew = land.is_changed() || job.is_none();
+    let mut made = Vec::new();
+    for level in 0..LEVELS {
+        let texel = texel(cell, level);
+        let step = texel * STEP;
+        let corner = (eye.translation().xz() / step).round() * step
+            - SIDE as f32 * 0.5 * texel;
+        if renew || pages.corners[level] != Some(corner) {
+            pages.corners[level] = Some(corner);
+            made.push((
+                level as u32,
+                LevelInput {
+                    page: Vec4::new(
+                        corner.x,
+                        corner.y,
+                        texel,
+                        ((texel - 3.0) * 0.5).max(0.0),
+                    ),
+                },
+            ));
+        }
     }
-    let mut input = ShaderBuffer::from(bytes.into_inner());
-    input.asset_usage = RenderAssetUsages::RENDER_WORLD;
-    // Filled with NaN, so that a page read back before the pass has
-    // run is told apart.
-    let mut heights = Image::new_fill(
+    let input = match &job {
+        Some(job) if !renew => job.input.clone(),
+        _ => {
+            let mut bytes = StorageBuffer::new(Vec::<u8>::new());
+            if bytes.write(&ReliefInput::of(&land)).is_err() {
+                return;
+            }
+            let mut input = ShaderBuffer::from(bytes.into_inner());
+            input.asset_usage = RenderAssetUsages::RENDER_WORLD;
+            buffers.add(input)
+        }
+    };
+    if renew {
+        info!("relief: pages made anew for the land");
+    }
+    let at = std::array::from_fn(|level| {
+        let corner = pages.corners[level].unwrap_or_default();
+        Vec4::new(corner.x, corner.y, texel(cell, level), 0.0)
+    });
+    if let Some(mut ground) = grounds.get_mut(&kit.ground) {
+        let next = PagesUniform {
+            at,
+            shape: Vec4::new(
+                cell * patch::QUADS as f32,
+                land.set.land.plain_y,
+                detail.tile_sink.0,
+                detail.tile_sink.1,
+            ),
+            water: Vec4::new(land.set.land.water_y, 0.0, 0.0, 0.0),
+        };
+        if ground.extension.pages_at != next {
+            ground.extension.pages_at = next;
+        }
+        if ground.extension.pages != pages.image {
+            ground.extension.pages = pages.image.clone();
+        }
+    }
+    commands.insert_resource(Job {
+        input,
+        pages: pages.image.clone(),
+        made,
+    });
+}
+
+/// The pages' texture: a layer for each size, each texel the height,
+/// the woods and the heath, written by the pass and read by the
+/// ground's shader.
+fn texture() -> Image {
+    let mut image = Image::new_uninit(
         Extent3d {
             width: SIDE,
             height: SIDE,
-            depth_or_array_layers: 1,
+            depth_or_array_layers: LEVELS as u32,
         },
         TextureDimension::D2,
-        &f32::NAN.to_le_bytes(),
-        TextureFormat::R32Float,
+        TextureFormat::Rgba32Float,
         RenderAssetUsages::RENDER_WORLD,
     );
-    heights.texture_descriptor.usage |= TextureUsages::COPY_SRC
-        | TextureUsages::STORAGE_BINDING
+    image.texture_descriptor.usage |= TextureUsages::STORAGE_BINDING
         | TextureUsages::TEXTURE_BINDING;
-    let heights = images.add(heights);
-    let number = job.map_or(0, |job| job.number + 1);
-    commands.insert_resource(Job {
-        input: buffers.add(input),
-        heights: heights.clone(),
-        number,
-        corner,
-        asked: (Instant::now(), frame.0),
+    image.texture_view_descriptor = Some(TextureViewDescriptor {
+        dimension: Some(TextureViewDimension::D2Array),
+        ..default()
     });
-    commands
-        .spawn((Readback::texture(heights), Page(number)))
-        .observe(check);
-}
-
-/// The number of the page a readback is of.
-#[derive(Component)]
-struct Page(u32);
-
-/// Takes a page that came back, once the pass has run on it: logs how
-/// long it took and how far it lies from the CPU's heights.
-fn check(
-    back: On<ReadbackComplete>,
-    mut commands: Commands,
-    land: Res<Land>,
-    job: Res<Job>,
-    frame: Res<FrameCount>,
-    pages: Query<&Page>,
-    mut checked: Local<Option<u32>>,
-) {
-    // A page asked for before the land last changed is let go, and
-    // so is one that comes back again before its reader is gone.
-    if pages
-        .get(back.entity)
-        .is_ok_and(|page| page.0 != job.number)
-        || *checked == Some(job.number)
-    {
-        return;
-    }
-    let heights = back
-        .data
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| f32::from_le_bytes(*b))
-        .collect::<Vec<_>>();
-    if heights.first().is_none_or(|h| h.is_nan()) {
-        return;
-    }
-    *checked = Some(job.number);
-    commands.entity(back.entity).try_despawn();
-    let (since, from) = job.asked;
-    let (mut worst, mut sum) = (0f32, 0f32);
-    let cpu = Instant::now();
-    for k in 0..CHECKS {
-        let (x, y) = (k * 7919 % SIDE, k * 104_729 % SIDE);
-        let p = job.corner
-            + (Vec2::new(x as f32, y as f32) + 0.5) * TEXEL;
-        let off =
-            (heights[(y * SIDE + x) as usize] - land.height(p)).abs();
-        worst = worst.max(off);
-        sum += off;
-    }
-    let cpu = cpu.elapsed().as_secs_f64() / CHECKS as f64
-        * f64::from(SIDE * SIDE);
-    let (low, high) =
-        heights.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &h| {
-            (lo.min(h), hi.max(h))
-        });
-    info!(
-        "relief: page {} back after {} frames, {:.1} ms; heights \
-         from {low:.2} to {high:.2}; off the CPU by {:.6} on \
-         average and {:.6} at most; the CPU would take {:.0} ms for \
-         the page",
-        job.number,
-        frame.0.wrapping_sub(from),
-        since.elapsed().as_secs_f64() * 1e3,
-        sum / CHECKS as f32,
-        worst,
-        cpu * 1e3,
-    );
+    image
 }
 
 /// The pass, made once.
@@ -336,8 +366,9 @@ fn prepare(
             ShaderStages::COMPUTE,
             (
                 storage_buffer_read_only::<ReliefInput>(false),
+                uniform_buffer::<LevelInput>(false),
                 texture_storage_2d(
-                    TextureFormat::R32Float,
+                    TextureFormat::Rgba32Float,
                     StorageTextureAccess::WriteOnly,
                 ),
             ),
@@ -353,56 +384,89 @@ fn prepare(
     commands.insert_resource(Pass { layout, pipeline });
 }
 
-/// The bind group of the page asked for, and its number.
-#[derive(Resource)]
-struct Bound(BindGroup, u32);
+/// The pages asked for and not yet made: kept until the pass has run,
+/// so that none asked for while it is still being built is lost.
+#[derive(Default)]
+struct Waiting([Option<LevelInput>; LEVELS]);
+
+/// This frame's bind groups, one for each page waiting.
+#[derive(Resource, Default)]
+struct Bound(Vec<BindGroup>);
 
 fn bind(
     mut commands: Commands,
     job: Option<Res<Job>>,
-    bound: Option<Res<Bound>>,
+    mut waiting: Local<Waiting>,
+    mut done: ResMut<Made>,
     pass: Res<Pass>,
     device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     buffers: Res<RenderAssets<GpuShaderBuffer>>,
     images: Res<RenderAssets<GpuImage>>,
+    mut uniforms: Local<Vec<UniformBuffer<LevelInput>>>,
 ) {
-    let Some(job) = job else {
-        return;
-    };
-    if bound.is_some_and(|bound| bound.1 == job.number) {
-        return;
+    if done.0 {
+        waiting.0 = [None; LEVELS];
+        done.0 = false;
     }
-    let (Some(input), Some(heights)) =
-        (buffers.get(&job.input), images.get(&job.heights))
-    else {
-        return;
-    };
-    let group = device.create_bind_group(
-        Some("relief"),
-        &cache.get_bind_group_layout(&pass.layout),
-        &BindGroupEntries::sequential((
-            input.buffer.as_entire_buffer_binding(),
-            &heights.texture_view,
-        )),
-    );
-    commands.insert_resource(Bound(group, job.number));
+    let mut groups = Vec::new();
+    if let Some(job) = job
+        && let (Some(input), Some(pages)) =
+            (buffers.get(&job.input), images.get(&job.pages))
+    {
+        for &(level, at) in &job.made {
+            waiting.0[level as usize] = Some(at);
+        }
+        uniforms.resize_with(LEVELS, UniformBuffer::default);
+        let asked =
+            waiting.0.iter().enumerate().filter_map(|(level, at)| {
+                at.map(|at| (level as u32, at))
+            });
+        for (level, at) in asked {
+            let uniform = &mut uniforms[level as usize];
+            uniform.set(at);
+            uniform.write_buffer(&device, &queue);
+            let Some(at) = uniform.binding() else {
+                continue;
+            };
+            let layer =
+                pages.texture.create_view(&TextureViewDescriptor {
+                    dimension: Some(TextureViewDimension::D2),
+                    base_array_layer: level,
+                    array_layer_count: Some(1),
+                    ..default()
+                });
+            groups.push(device.create_bind_group(
+                Some("relief"),
+                &cache.get_bind_group_layout(&pass.layout),
+                &BindGroupEntries::sequential((
+                    input.buffer.as_entire_buffer_binding(),
+                    at,
+                    &layer,
+                )),
+            ));
+        }
+    }
+    commands.insert_resource(Bound(groups));
 }
 
-/// Runs the pass once for each page asked for.
+/// Whether the pass ran on the pages waiting, which are then let go.
+#[derive(Resource, Default)]
+struct Made(bool);
+
+/// Makes this frame's pages.
 fn run(
     mut context: RenderContext,
+    mut made: ResMut<Made>,
     cache: Res<PipelineCache>,
     pass: Res<Pass>,
     bound: Option<Res<Bound>>,
-    mut done: Local<Option<u32>>,
 ) {
-    let Some(bound) = bound else {
+    let Some(bound) = bound.filter(|bound| !bound.0.is_empty())
+    else {
         return;
     };
-    if *done == Some(bound.1) {
-        return;
-    }
     let Some(pipeline) = cache.get_compute_pipeline(pass.pipeline)
     else {
         return;
@@ -414,7 +478,13 @@ fn run(
         },
     );
     compute.set_pipeline(pipeline);
-    compute.set_bind_group(0, &bound.0, &[]);
-    compute.dispatch_workgroups(SIDE / 8, SIDE / 8, 1);
-    *done = Some(bound.1);
+    for group in &bound.0 {
+        compute.set_bind_group(0, group, &[]);
+        compute.dispatch_workgroups(
+            SIDE.div_ceil(8),
+            SIDE.div_ceil(8),
+            1,
+        );
+    }
+    made.0 = true;
 }

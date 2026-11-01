@@ -44,8 +44,8 @@ use self::kit::{Kit, repaint, setup, state_index};
 use self::land::{Land, LandSettings};
 use self::layout::TownSettings;
 use self::lights::{light_lanterns, light_roads, light_spills};
-pub use self::loading::{Ground, Loading};
 use self::loading::{Lanes, clear_lanes, finish_loading, stream};
+pub use self::loading::{Loading, Terrain};
 pub use self::magic::Thought;
 use self::road::RoadSettings;
 pub use self::shift::HouseMotion;
@@ -200,9 +200,7 @@ pub struct GeneratorSettings {
 /// Tells the land which sites have towns, so that the island reaches
 /// about them.
 fn settle(society: Res<Society>, mut land: ResMut<Land>) {
-    let mut settled =
-        society.towns.iter().map(|t| t.site).collect::<Vec<_>>();
-    settled.sort_unstable();
+    let settled = society.settled();
     if land.settled() != settled {
         land.settle(&settled);
     }
@@ -295,7 +293,7 @@ pub struct Tally {
     pub road_bytes: usize,
     /// Trees that stand as themselves.
     pub trees: usize,
-    /// Tiles of ground that are drawn.
+    /// Patches of ground that are drawn.
     pub tiles: usize,
 }
 
@@ -352,24 +350,8 @@ mod tests {
                 reach: (far * 2.6 + 150.0) * detail.ground_reach,
             };
             let began = std::time::Instant::now();
-            let tiles =
-                ground::wanted(&land, &detail, &sight, true, |_| {
-                    false
-                });
-            let drawn = tiles.iter().copied().collect();
-            let ground = tiles
-                .iter()
-                .map(|tile| {
-                    let recipe =
-                        ground::Recipe::of(&land, &detail, *tile);
-                    let sod = ground::sod(&land, recipe, &drawn);
-                    mesh_bytes(&sod.mesh)
-                })
-                .sum::<usize>();
             let woods =
-                ground::wanted(&land, &detail, &sight, false, |_| {
-                    false
-                });
+                ground::wanted(&land, &detail, &sight, |_| false);
             let (mut canopy, mut trees) = (0, 0);
             for tile in &woods {
                 let stand = ground::Stand::of(&detail, *tile);
@@ -378,10 +360,8 @@ mod tests {
                 trees += grove.trees.len();
             }
             println!(
-                "from {far}: {} tiles of ground, {ground} bytes; {} \
-                 of trees, {canopy} bytes and {trees} standing; \
-                 {:?} on one thread",
-                tiles.len(),
+                "from {far}: {} tiles of trees, {canopy} bytes and \
+                 {trees} standing; {:?} on one thread",
                 woods.len(),
                 began.elapsed()
             );

@@ -22,6 +22,7 @@ import bevy_pbr::{
     },
     prepass::utils::prepass_depth,
 };
+import hamlet_vfx::patch::slid;
 import hamlet_vfx::waves::{FIELD_REACH, coast, crests, groups, pull, varied, wave};
 
 // The fields are explained on `WaterUniform` in `water.rs`.
@@ -51,6 +52,12 @@ struct Water {
 @group(constants::MATERIAL_BIND_GROUP) @binding(113) var noise_slope: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(114) var noise_slope_sampler: sampler;
 
+// How far from the eye, in units of the waves, the water lies flat.
+const FLAT: f32 = 55.0;
+// How far from the eye, in units of the waves, each point's own slope
+// begins to fade, and where it is gone.
+const SLOPE_FADE: vec2<f32> = vec2<f32>(200.0, 450.0);
+
 // How far the waves move the point `pos` metres across.
 fn moved(pos: vec2<f32>) -> vec3<f32> {
     return wave(
@@ -74,26 +81,32 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     // The mesh's attributes may be stored compressed.
     let vertex = decompress_vertex(vertex_in, vertex_in.instance_index);
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
-    let flat = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0)).xyz;
+    // A patch of the sea, as `patch.rs` lays them: its corner and side
+    // are where its square is moved to and how large it is drawn.
+    let corner = world_from_local[3].xz;
+    let side = world_from_local[0].x;
+    let y = world_from_local[3].y;
+    let on_map = slid(vertex.position.xz, corner, side, y, view.world_position);
+    let flat = vec3<f32>(on_map.x, y, on_map.y);
 
     // Far off, waves smaller than a pixel would only shimmer, and fall
-    // between the mesh's points: there the water lies flat.
+    // between the mesh's points: there the water lies flat. Measured
+    // from the eye itself, so that seen from high over it the whole sea
+    // lies flat.
     let away = distance(flat.xz, view.world_position.xz);
     let scale = water.time.y;
-    let kept = 1.0 - smoothstep(25.0 * scale, 55.0 * scale, away);
-    let displacement = moved(flat.xz) * kept;
+    let kept = 1.0 - smoothstep(25.0 * scale, FLAT * scale, distance(flat, view.world_position));
+    // Where it lies flat the waves are not worked out at all. Each
+    // fragment finds its own slope, so none is found here.
+    var displacement = vec3<f32>(0.0);
+    if kept > 0.0 {
+        displacement = moved(flat.xz) * kept;
+    }
     let at = flat + displacement;
-    // The slope is found between this point and two beside it, further
-    // apart far off, where finer would only shimmer.
-    let apart = mix(water.shallow.w, water.shallow.w * 20.0, smoothstep(5.0, 40.0, away / scale)) * scale;
-    let ahead = flat + vec3<f32>(0.0, 0.0, -apart);
-    let left = flat + vec3<f32>(-apart, 0.0, 0.0);
-    let to_ahead = ahead + moved(ahead.xz) * kept - at;
-    let to_left = left + moved(left.xz) * kept - at;
 
     out.world_position = vec4<f32>(at, 1.0);
     out.position = position_world_to_clip(at);
-    out.world_normal = normalize(cross(to_ahead, to_left));
+    out.world_normal = vec3<f32>(0.0, 1.0, 0.0);
     // Where the point lay before the waves moved it, how far they lifted
     // it, and how far it lies from the eye along the ground.
 @if(VERTEX_COLORS)
@@ -124,9 +137,10 @@ fn held(fresh: f32, age: f32, decay: f32, eaten: f32) -> f32 {
 // since. They squeeze it hardest as their crests pass, so the past is
 // looked at now and as each wave's last two crests passed, with all five
 // waves as they were then. Where the noise lets none be born, none is
-// looked for; the waves turned to the shore count only where they have
-// turned enough to show.
-fn worked_foam(pos: vec2<f32>) -> f32 {
+// looked for, nor in a past that has faded too far to leave more than is
+// found already, or than `least`, the least that shows; the waves turned
+// to the shore count only where they have turned enough to show.
+fn worked_foam(pos: vec2<f32>, least: f32) -> f32 {
     let world_uv = pos / 15.0;
     let allowed = smoothstep(0.2, 0.7, textureSampleLevel(noise, noise_sampler, world_uv, 0.0).r) * 8.0;
     if allowed <= 0.0 {
@@ -157,6 +171,9 @@ fn worked_foam(pos: vec2<f32>) -> f32 {
         if k > 0u {
             let crest = times[(k - 1u) / 2u];
             age = crest.x + f32((k - 1u) % 2u) * crest.y;
+        }
+        if held(min(allowed, 1.0), age, water.fading.x, eaten) <= max(most, least) {
+            continue;
         }
         let then = t - age;
         var d = pull(noise_slope, noise_slope_sampler, p, then, streak, vec2<f32>(0.0), 0.0, false, downwind, 0.0, open_kept);
@@ -231,10 +248,12 @@ fn sky_seen(dir: vec3<f32>) -> vec3<f32> {
 // The farthest a reflected ray is followed, in metres, and the most steps
 // taken along it on the screen, where the reflection shows most.
 const MIRROR_REACH: f32 = 120.0;
-const MIRROR_STEPS: u32 = 48u;
+const MIRROR_STEPS: u32 = 24u;
 // The fewest pixels one step covers: a reflection on rippled water need not
 // be sharp, so it is found at a coarser grain than the screen's.
-const MIRROR_GRAIN: f32 = 3.0;
+const MIRROR_GRAIN: f32 = 6.0;
+// The halvings a hit is narrowed down by between its last two steps.
+const MIRROR_NARROWING: u32 = 3u;
 
 // The point on the screen, in pixels, that the world point seen with clip
 // position `clip` falls on.
@@ -315,7 +334,7 @@ fn mirror_hit(start: vec3<f32>, dir: vec3<f32>, pixel: vec2<f32>, steps: u32) ->
         if ray < scene && ray > scene - (moved + 0.3 + 0.01 * -scene) {
             var a = last;
             var b = along;
-            for (var n = 0u; n < 5u; n++) {
+            for (var n = 0u; n < MIRROR_NARROWING; n++) {
                 let mid = (a + b) * 0.5;
                 if -1.0 / mix(k0, k1, mid) < scene_z(mix(s0, s1, mid)) {
                     b = mid;
@@ -370,27 +389,36 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     // The foam, worked out from the waves' past and painted in broad
     // shapes, from the coarse foam alone. It thins out from `fade.x` to
-    // `fade.y` metres from the eye, and past that is not worked out at all.
+    // `fade.y` metres from the eye, and past that, or outside the shapes,
+    // is not worked out at all. The rim of the faintest foam drawn begins
+    // at a tenth.
     var foam = 0.0;
-    let shape = textureSample(sea_foam, sea_foam_sampler, world_xz / 7.5).r;
+    let shape = smoothstep(0.4, 1.0, textureSample(sea_foam, sea_foam_sampler, world_xz / 7.5).r);
     let from_eye = distance(view.world_position, in.world_position.xyz);
     let thinned = 1.0 - smoothstep(water.foam.x, max(water.foam.y, water.foam.x + 1.0), from_eye);
-    if thinned > 0.0 {
-        foam = clamp(worked_foam(world_xz) * thinned * smoothstep(0.4, 1.0, shape), 0.0, 1.0);
+    let showing = thinned * shape;
+    if showing > 0.0 {
+        foam = clamp(worked_foam(world_xz, 0.1 / showing) * showing, 0.0, 1.0);
     }
 
     // The slope is found again for each point drawn, from the waves
     // themselves, so that far off, where the mesh lies flat, the water
     // still shows them. It fades where a pixel covers several waves, and
     // is found between points a pixel apart there, so that it does not
-    // shimmer.
+    // shimmer. Far from the eye, where the waves are a few pixels long
+    // and the water reads as flat, it fades too; where it has faded away
+    // it is not found at all.
     let pixel = length(fwidth(world_xz));
-    let apart = max(0.5 * scale, pixel);
-    let here = vec3<f32>(world_xz.x, 0.0, world_xz.y) + moved(world_xz);
-    let ahead = vec3<f32>(world_xz.x, 0.0, world_xz.y - apart) + moved(world_xz - vec2<f32>(0.0, apart));
-    let left = vec3<f32>(world_xz.x - apart, 0.0, world_xz.y) + moved(world_xz - vec2<f32>(apart, 0.0));
-    let detail = (1.0 - smoothstep(0.4, 1.8, pixel / scale)) * water.calm.w;
-    let N = normalize(mix(vec3<f32>(0.0, 1.0, 0.0), normalize(cross(ahead - here, left - here)), detail));
+    let near = 1.0 - smoothstep(SLOPE_FADE.x * scale, SLOPE_FADE.y * scale, from_eye);
+    let detail = (1.0 - smoothstep(0.4, 1.8, pixel / scale)) * near * water.calm.w;
+    var N = vec3<f32>(0.0, 1.0, 0.0);
+    if detail > 0.0 {
+        let apart = max(0.5 * scale, pixel);
+        let here = vec3<f32>(world_xz.x, 0.0, world_xz.y) + moved(world_xz);
+        let ahead = vec3<f32>(world_xz.x, 0.0, world_xz.y - apart) + moved(world_xz - vec2<f32>(0.0, apart));
+        let left = vec3<f32>(world_xz.x - apart, 0.0, world_xz.y) + moved(world_xz - vec2<f32>(apart, 0.0));
+        N = normalize(mix(N, normalize(cross(ahead - here, left - here)), detail));
+    }
 
     // What lies under the surface, bent by its slope as the eye sees it,
     // less so far off and where the water is thin, and how far beyond the
@@ -480,7 +508,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     if weight > 0.01 {
         // A faint reflection is found in fewer, coarser steps: what it
         // misses is hidden in how little of it shows.
-        let steps = u32(mix(16.0, f32(MIRROR_STEPS), smoothstep(0.02, 0.3, weight)));
+        let steps = u32(mix(8.0, f32(MIRROR_STEPS), smoothstep(0.02, 0.3, weight)));
         let hit = mirror_hit(in.world_position.xyz, R, in.position.xy, steps);
         mirrored = mix(mirrored, hit.rgb, hit.a);
     }

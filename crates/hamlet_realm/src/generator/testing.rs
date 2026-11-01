@@ -23,6 +23,14 @@ pub(crate) fn land(seed: u32) -> Land {
     Land::new(seed, GeneratorSettings::default(), Palette::default())
 }
 
+/// [`land`] with a town on every site it has, so that the island
+/// reaches about all of them.
+pub(crate) fn settled_land(seed: u32) -> Land {
+    let mut land = land(seed);
+    land.settle(&(0..land.sites.len()).collect::<Vec<_>>());
+    land
+}
+
 /// Gives a world with nothing to draw on the shared materials and a
 /// kit of empty meshes.
 pub(super) fn kit(world: &mut World) {
@@ -40,6 +48,7 @@ pub(super) fn kit(world: &mut World) {
         engine: Handle::default(),
         cart: Handle::default(),
         water: Handle::default(),
+        patch: Handle::default(),
         trees: vec![Handle::default(); flora::KINDS],
         groove: Handle::default(),
     });

@@ -1,8 +1,11 @@
 //! Frame times of the realm from several views, each with parts of it
 //! turned off in turn, to find what a frame spends its time on. Drawn
-//! offscreen, with no window.
+//! offscreen, with no window. With `--out`, it saves a still of each
+//! view instead, as it is and as its meshes' edges. With `--view`, it
+//! measures that one view alone.
 //!
-//! `cargo run --release --example sea_bench -- [--size 2720x1720]`
+//! `cargo run --release --example sea_bench -- [--size 2720x1720]
+//! [--out <dir>] [--view <name>]`
 
 #![expect(
     clippy::print_stdout,
@@ -10,12 +13,13 @@
 )]
 
 #[path = "../common/offscreen.rs"]
-#[expect(dead_code, reason = "it takes no stills")]
 mod offscreen;
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use bevy::audio::AudioPlugin;
+use bevy::pbr::wireframe::WireframeConfig;
 use bevy::prelude::*;
 use bevy::render::view::Msaa;
 use bevy::time::TimeUpdateStrategy;
@@ -39,16 +43,19 @@ const FRAME: f32 = 1.0 / 60.0;
 const WARM: u32 = 60;
 const MEASURED: u32 = 180;
 
-/// A view of the first town: its name, the distance, the turn in
-/// radians and the tilt in degrees.
-const VIEWS: [(&str, f32, f32, f32); 7] = [
-    ("close", 30.0, 0.0, 40.0),
-    ("default", 72.0, 0.0, 40.0),
-    ("mid", 200.0, 0.0, 40.0),
-    ("far", 500.0, 0.0, 40.0),
-    ("farthest", 1150.0, 0.0, 40.0),
-    ("low, to the horizon", 120.0, 0.9, 14.0),
-    ("overhead", 400.0, 0.0, 80.0),
+/// A view: its name, the distance, the turn in radians and the tilt
+/// in degrees, and whether it looks at the sea off the coast rather
+/// than at the first town.
+const VIEWS: [(&str, f32, f32, f32, bool); 9] = [
+    ("close", 30.0, 0.0, 40.0, false),
+    ("default", 72.0, 0.0, 40.0, false),
+    ("mid", 200.0, 0.0, 40.0, false),
+    ("far", 500.0, 0.0, 40.0, false),
+    ("farthest", 1150.0, 0.0, 40.0, false),
+    ("low, to the horizon", 120.0, 0.9, 14.0, false),
+    ("overhead", 400.0, 0.0, 80.0, false),
+    ("sea, low", 60.0, 0.0, 18.0, true),
+    ("sea, high", 300.0, 0.0, 45.0, true),
 ];
 
 /// What is turned off: the water, the shadows, multisampling.
@@ -141,6 +148,8 @@ struct Shot {
     to: Pose,
     slide: Vec2,
     frames: u32,
+    /// Whether it looks at the sea off the coast.
+    at_sea: bool,
 }
 
 impl Shot {
@@ -151,16 +160,18 @@ impl Shot {
 
 /// Every view in every scene, held still, then the moves.
 fn shots() -> Vec<Shot> {
-    let held = VIEWS.iter().flat_map(|&(name, dist, yaw, pitch)| {
-        SCENES.iter().map(move |&scene| Shot {
-            name,
-            scene,
-            from: (dist, yaw, pitch),
-            to: (dist, yaw, pitch),
-            slide: Vec2::ZERO,
-            frames: MEASURED,
-        })
-    });
+    let held =
+        VIEWS.iter().flat_map(|&(name, dist, yaw, pitch, at_sea)| {
+            SCENES.iter().map(move |&scene| Shot {
+                name,
+                scene,
+                from: (dist, yaw, pitch),
+                to: (dist, yaw, pitch),
+                slide: Vec2::ZERO,
+                frames: MEASURED,
+                at_sea,
+            })
+        });
     let moving =
         MOVES.iter().map(|&(name, from, to, slide, frames)| Shot {
             name,
@@ -169,13 +180,37 @@ fn shots() -> Vec<Shot> {
             to,
             slide,
             frames,
+            at_sea: false,
         });
     held.chain(moving).collect()
+}
+
+/// The stills: every view with everything on, then as its edges.
+fn stills() -> Vec<Shot> {
+    VIEWS
+        .iter()
+        .flat_map(|&(name, dist, yaw, pitch, at_sea)| {
+            [false, true].map(|edges| Shot {
+                at_sea,
+                name,
+                scene: Off {
+                    name: if edges { "edges" } else { "all" },
+                    ..SCENES[0]
+                },
+                from: (dist, yaw, pitch),
+                to: (dist, yaw, pitch),
+                slide: Vec2::ZERO,
+                frames: 4,
+            })
+        })
+        .collect()
 }
 
 #[derive(Resource)]
 struct Run {
     shots: Vec<Shot>,
+    /// Where the stills go, when it takes stills.
+    out: Option<PathBuf>,
     /// The shot being measured, by number.
     at: usize,
     founded: bool,
@@ -191,6 +226,11 @@ fn main() {
             Some(UVec2::new(w.parse().ok()?, h.parse().ok()?))
         })
         .unwrap_or(SIZE);
+    let out = offscreen::word("--out").map(PathBuf::from);
+    let only = offscreen::word("--view");
+    if let Some(dir) = &out {
+        std::fs::create_dir_all(dir).expect("output folder");
+    }
     println!("{}x{} pixels", size.x, size.y);
     println!(
         "{:<22} {:<22} {:>9} {:>9} {:>9}",
@@ -213,7 +253,13 @@ fn main() {
             Duration::from_secs_f32(FRAME),
         ))
         .insert_resource(Run {
-            shots: shots(),
+            shots: if out.is_some() { stills() } else { shots() }
+                .into_iter()
+                .filter(|shot| {
+                    only.as_ref().is_none_or(|v| shot.name == v)
+                })
+                .collect(),
+            out,
             at: 0,
             founded: false,
             frames: 0,
@@ -236,7 +282,10 @@ fn draw_offscreen(
 }
 
 fn run(
+    mut commands: Commands,
     mut run: ResMut<Run>,
+    target: Res<Target>,
+    edges: Option<ResMut<WireframeConfig>>,
     loading: Res<Loading>,
     mut land: ResMut<Land>,
     mut society: ResMut<Society>,
@@ -256,17 +305,34 @@ fn run(
         run.founded = true;
     }
     let Some(shot) = run.shots.get(run.at) else {
-        exit.write(AppExit::Success);
+        // Leave time for the last still to be written.
+        run.frames += 1;
+        if run.frames > 30 {
+            exit.write(AppExit::Success);
+        }
         return;
     };
     let (name, scene, moves) = (shot.name, shot.scene, shot.moves());
-    let (from, to, slide, frames) =
-        (shot.from, shot.to, shot.slide, shot.frames);
+    let (from, to, slide, frames, at_sea) =
+        (shot.from, shot.to, shot.slide, shot.frames, shot.at_sea);
     // The first shot waits longer: pipelines compile during it.
     let warm = if run.at == 0 { WARM * 4 } else { WARM };
-    let home = society
+    let town = society
         .town(TownId(0))
         .map_or(Vec2::ZERO, |town| land.sites[town.site].at);
+    // Out to sea from the town: the first water that way, and as far
+    // again beyond.
+    let home = if at_sea {
+        (0..2000)
+            .map(|i| town + Vec2::X * i as f32)
+            .find(|&p| {
+                land.is_water(p)
+                    && land.height(p) < land.set.land.water_y - 1.0
+            })
+            .map_or(town, |coast| coast + Vec2::X * 40.0)
+    } else {
+        town
+    };
     // How far through its frames the shot is.
     let t = (run.frames.saturating_sub(warm) as f32 / frames as f32)
         .clamp(0.0, 1.0);
@@ -301,6 +367,12 @@ fn run(
             *samples = next;
         }
     }
+    if let Some(mut edges) = edges {
+        let wanted = scene.name == "edges";
+        if edges.global != wanted {
+            edges.global = wanted;
+        }
+    }
     // A held view is measured once all is built; a move from when it
     // sets off, building and all.
     if !loading.is_done() && !(moves && run.frames >= warm) {
@@ -308,6 +380,23 @@ fn run(
         return;
     }
     run.frames += 1;
+    if let Some(dir) = run.out.clone() {
+        if run.frames == warm {
+            let path = dir.join(format!(
+                "{:02}-{}-{}.png",
+                run.at,
+                name.replace([' ', ','], "-"),
+                scene.name
+            ));
+            println!("{}", path.display());
+            target.shoot(&mut commands, path);
+        }
+        if run.frames > warm + frames {
+            run.at += 1;
+            run.frames = 0;
+        }
+        return;
+    }
     if run.frames == warm {
         run.times.clear();
         run.began = Instant::now();

@@ -6,6 +6,7 @@ pub mod ground;
 pub mod inlay;
 pub mod magic;
 pub mod mark;
+pub mod patch;
 pub mod sparks;
 pub mod water;
 pub mod wind;

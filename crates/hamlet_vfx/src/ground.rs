@@ -19,7 +19,7 @@ use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, Extent3d, ShaderType, TextureDimension,
-    TextureFormat,
+    TextureFormat, TextureViewDescriptor, TextureViewDimension,
 };
 use bevy::shader::{ShaderRef, load_shader_library};
 
@@ -28,7 +28,9 @@ pub type GroundMaterial =
 
 pub(crate) fn plugin(app: &mut App) {
     load_shader_library!(app, "noise.wesl");
+    load_shader_library!(app, "ground_shape.wesl");
     embedded_asset!(app, "ground.wesl");
+    embedded_asset!(app, "ground_prepass.wesl");
     app.add_plugins(MaterialPlugin::<GroundMaterial>::default())
         .init_resource::<GroundSettings>()
         .add_systems(
@@ -97,6 +99,36 @@ pub struct GroundExt {
     pub bumps: Handle<Image>,
     #[uniform(103)]
     pub soil: SoilUniform,
+    /// The land's pages, a layer for each size of patch, as the
+    /// realm makes them: in each texel the height, the woods and the
+    /// heath.
+    #[texture(
+        104,
+        dimension = "2d_array",
+        sample_type = "float",
+        filterable = false
+    )]
+    pub pages: Handle<Image>,
+    #[uniform(105)]
+    pub pages_at: PagesUniform,
+}
+
+/// Sizes of patch the ground is drawn in, each twice the last, and
+/// so the layers of its pages.
+pub const LEVELS: usize = 8;
+
+/// Mirrors `Pages` in `ground_shape.wesl`: where the pages lie and
+/// how the patches stand on them.
+#[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
+pub struct PagesUniform {
+    /// Each page's corner on the map and the width of its texel.
+    pub at: [Vec4; LEVELS],
+    /// The side of the smallest patch, the height of the plane the
+    /// patches are chosen on, and the depth a patch of the second
+    /// size is sunk and the most any is.
+    pub shape: Vec4,
+    /// The height of the water, which ground below stays at.
+    pub water: Vec4,
 }
 
 /// Mirrors `Soil` in `ground.wesl`: the colours the ground is painted
@@ -120,8 +152,16 @@ pub struct SoilUniform {
 }
 
 impl MaterialExtension for GroundExt {
+    fn vertex_shader() -> ShaderRef {
+        "embedded://hamlet_vfx/ground.wesl".into()
+    }
+
     fn fragment_shader() -> ShaderRef {
         "embedded://hamlet_vfx/ground.wesl".into()
+    }
+
+    fn prepass_vertex_shader() -> ShaderRef {
+        "embedded://hamlet_vfx/ground_prepass.wesl".into()
     }
 }
 
@@ -170,8 +210,30 @@ pub fn material(
             u: set.into(),
             bumps: images.add(bumps(&set.strokes)),
             soil,
+            pages: images.add(blank_pages()),
+            pages_at: PagesUniform::default(),
         },
     }
+}
+
+/// Pages of nothing, until the land's are made.
+fn blank_pages() -> Image {
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: LEVELS as u32,
+        },
+        TextureDimension::D2,
+        &[0; 16],
+        TextureFormat::Rgba32Float,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    image.texture_view_descriptor = Some(TextureViewDescriptor {
+        dimension: Some(TextureViewDimension::D2Array),
+        ..default()
+    });
+    image
 }
 
 /// Follows the settings: the uniform at once, the texture baked anew

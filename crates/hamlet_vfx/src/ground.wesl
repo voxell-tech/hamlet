@@ -1,8 +1,10 @@
 // The ground: coloured here, point by point, from where it lies, its
 // height and its slope, then shaded in brush strokes and lit through soft
-// bumps, which show most within the strokes. What the shader cannot know
-// alone comes in the vertex colour: the woods in red, the heath in green
-// and in blue how far the ground stands above where its tile is drawn. Strokes and bumps are one
+// bumps, which show most within the strokes. Its points are laid on the
+// patches of `patch.wesl` from the relief pages, in `ground_shape.wesl`,
+// which hands on in the vertex colour what the shader cannot know alone:
+// the woods in red, the heath in green and in blue how far its patch is
+// sunk. Strokes and bumps are one
 // texture laid over the world's x and z in a grid of hexagons. Each corner of
 // the grid takes the texture moved and turned at random, and every point
 // blends the three corners about it, the higher bump winning, so no repeat
@@ -10,10 +12,13 @@
 // with the texture, so the light stays true.
 
 import bevy_pbr::render::{
+    mesh_functions,
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
-    forward_io::{VertexOutput, FragmentOutput},
+    forward_io::{Vertex, VertexOutput, FragmentOutput, decompress_vertex},
+    view_transformations::position_world_to_clip,
 };
+import hamlet_vfx::ground_shape::ground_point;
 import hamlet_vfx::noise::{fbm, perlin, smooth_step};
 
 // The fields are explained on `GroundSettings` in `ground.rs`.
@@ -114,6 +119,29 @@ fn copy_at(uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, corner: vec2<f32>) -> ve
     let at = turn * uv + r * 17.0;
     let t = textureSampleGrad(bumps, bumps_sampler, at, turn * dx, turn * dy);
     return vec4<f32>(transpose(turn) * (t.xy * 2.0 - 1.0), t.z, t.w);
+}
+
+// A point of a patch of the ground, as `ground_shape.wesl` raises it.
+@vertex
+fn vertex(vertex_in: Vertex) -> VertexOutput {
+    var out: VertexOutput;
+    // The mesh's attributes may be stored compressed.
+    let vertex = decompress_vertex(vertex_in, vertex_in.instance_index);
+    let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+    let point = ground_point(vertex.position.xz, world_from_local);
+    out.world_position = vec4<f32>(point.position, 1.0);
+    out.position = position_world_to_clip(point.position);
+    out.world_normal = point.normal;
+@if(VERTEX_COLORS)
+    out.color = point.colour;
+@if(VERTEX_OUTPUT_INSTANCE_INDEX)
+    out.instance_index = vertex.instance_index;
+@if(VISIBILITY_RANGE_DITHER)
+    out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
+        vertex.instance_index,
+        world_from_local[3],
+    );
+    return out;
 }
 
 @fragment

@@ -10,7 +10,6 @@ use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::image::{
     ImageAddressMode, ImageSampler, ImageSamplerDescriptor,
 };
-use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
@@ -26,6 +25,7 @@ use crate::{Now, VfxSystems};
 pub type WaterMaterial = ExtendedMaterial<StandardMaterial, WaterExt>;
 
 pub(crate) fn plugin(app: &mut App) {
+    load_shader_library!(app, "patch.wesl");
     load_shader_library!(app, "waves.wesl");
     embedded_asset!(app, "water.wesl");
     app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
@@ -48,10 +48,6 @@ pub struct WaterSettings {
     /// How much of the ground the shallows show through them, from 0
     /// to 1.
     pub clear: f32,
-    /// How far apart, in metres, the points the surface's slope is
-    /// found between are near the eye. Far off they are twenty times
-    /// as far.
-    pub sampling: f32,
     /// How large the waves are, against their own size at 1.
     pub scale: f32,
     /// How far out from the land, in metres, the waves begin to turn
@@ -129,7 +125,7 @@ pub struct WaterExt {
 /// Mirrors `Water` in `water.wesl`.
 #[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
 pub struct WaterUniform {
-    /// [`WaterSettings::shallow`], linear, and `sampling`.
+    /// [`WaterSettings::shallow`], linear.
     pub shallow: Vec4,
     /// `mid`, linear, and the depth its band begins at.
     pub mid: Vec4,
@@ -164,7 +160,7 @@ impl WaterUniform {
             LinearRgba::from(Color::srgb(c[0], c[1], c[2])).to_vec3()
         };
         Self {
-            shallow: linear(set.shallow).extend(set.sampling),
+            shallow: linear(set.shallow).extend(0.0),
             mid: linear(set.mid).extend(set.depths.0),
             deep: linear(set.deep).extend(set.depths.1),
             foam_color: linear(set.foam.color).extend(set.clear),
@@ -252,57 +248,12 @@ impl MaterialExtension for WaterExt {
     }
 }
 
-/// The sea's surface, flat, to be raised in waves by its shader: a
-/// square reaching `far` from its middle each way, in quads a quarter
-/// of a metre wide about the middle that grow wider toward its edges,
-/// where they are far off and small to the eye. Kept under the
-/// camera, moved a whole metre at a time so that the waves do not
-/// swim. Its vertex colours carry to the fragments where each point
-/// lay before the waves moved it, and how far they lifted it.
-pub fn sea(far: f32) -> Mesh {
-    /// Quads along a side, and the metres the even part of the square
-    /// reaches each way.
-    const QUADS: u32 = 640;
-    const NEAR: f32 = 80.0;
-    let reach = |i: u32| {
-        let u = i as f32 / QUADS as f32 * 2.0 - 1.0;
-        u.signum()
-            * (NEAR * u.abs()
-                + (far - NEAR).max(0.0) * u.abs().powi(6))
-    };
-    let side = QUADS + 1;
-    let mut at = Vec::with_capacity((side * side) as usize);
-    for j in 0..side {
-        for i in 0..side {
-            at.push([reach(i), 0.0, reach(j)]);
-        }
-    }
-    let mut indices =
-        Vec::with_capacity((QUADS * QUADS * 6) as usize);
-    for j in 0..QUADS {
-        for i in 0..QUADS {
-            let a = j * side + i;
-            indices.extend([
-                a,
-                a + side,
-                a + 1,
-                a + 1,
-                a + side,
-                a + side + 1,
-            ]);
-        }
-    }
-    let normals = vec![[0.0, 1.0, 0.0]; at.len()];
-    let colours = vec![[1.0; 4]; at.len()];
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, at)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colours)
-    .with_inserted_indices(Indices::U32(indices))
-}
+/// The side, in metres, of the sea's smallest patches, as
+/// `patch.rs` lays them: quads a quarter of a metre wide under the
+/// eye. Each patch is drawn as [`crate::patch::grid`], its vertex
+/// colours carrying to the fragments where each point lay before the
+/// waves moved it, and how far they lifted it.
+pub const FINEST: f32 = 8.0;
 
 /// The water's material for the water of `set`.
 pub fn material(

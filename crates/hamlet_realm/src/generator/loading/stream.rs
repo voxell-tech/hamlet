@@ -1,21 +1,32 @@
-//! The ground and the trees, drawn about where the camera looks.
+//! The ground, the sea and the trees, drawn about where the camera
+//! looks.
 
 use std::collections::HashSet;
 
+use bevy::camera::primitives::Aabb;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy::window::RequestRedraw;
+use hamlet_vfx::patch::{self, Patch};
+use hamlet_vfx::water::{self, Waves};
 
 use super::lanes::Lanes;
-use super::{Bed, Ground, Loading, Sea, Standing, Wood};
+use super::{Bed, Loading, Sea, Standing, Terrain, Wood};
 use crate::WorldCamera;
 use crate::generator::building::mesh_bytes;
-use crate::generator::ground::{self, Recipe, Sight, Stand};
+use crate::generator::ground::{self, Sight, Stand};
 use crate::generator::land::{Land, LandData};
 use crate::generator::view::Ahead;
 use crate::generator::{DetailSettings, Kit, Tally};
 use crate::sky::{CameraSettings, DistanceFogSettings};
+
+/// Where a patch is drawn: moved to its corner on the plane `y` high,
+/// and as large as its side.
+fn placed(patch: Patch, y: f32) -> Transform {
+    Transform::from_xyz(patch.corner.x, y, patch.corner.y)
+        .with_scale(Vec3::new(patch.side, 1.0, patch.side))
+}
 
 /// The camera's sight of the ground: as far as the fog lets it.
 fn sight(
@@ -27,16 +38,22 @@ fn sight(
 ) -> Sight {
     let eye = camera.translation;
     let ahead = camera.forward().as_vec3();
-    // The point of the ground it looks at. A camera that looks at
-    // none counts as looking straight down.
-    let level = land.set.land.site_y;
-    let fall = (eye.y - level).max(1.0);
-    let run = if ahead.y < -0.05 {
-        (fall / -ahead.y).min(far)
-    } else {
-        0.0
+    // The point of the ground it looks at, found where its line
+    // meets the plains, then where it meets the ground or the sea
+    // about there. A camera that looks at none counts as looking
+    // straight down.
+    let meets = |level: f32| {
+        let fall = (eye.y - level).max(1.0);
+        let run = if ahead.y < -0.05 {
+            (fall / -ahead.y).min(far)
+        } else {
+            0.0
+        };
+        (eye + ahead * run).xz()
     };
-    let centre = (eye + ahead * run).xz();
+    let plains = meets(land.set.land.site_y);
+    let centre =
+        meets(land.height(plains).max(land.set.land.water_y));
     let whole = match fog.map(|fog| &fog.falloff) {
         Some(FogFalloff::Linear { end, .. }) => *end,
         _ => far,
@@ -48,10 +65,10 @@ fn sight(
     }
 }
 
-/// Keeps the ground and the trees drawn about where the camera
-/// looks: asks for the tiles the view calls for, puts those that are
-/// built into the world, and takes out those the view has left
-/// behind.
+/// Keeps the ground, the sea and the trees drawn about where the
+/// camera looks: lays the patches of the ground and the sea, asks for
+/// the tiles of trees the view calls for, puts those that are built
+/// into the world, and takes out those the view has left behind.
 pub(in crate::generator) fn stream(
     mut commands: Commands,
     mut loading: ResMut<Loading>,
@@ -66,17 +83,17 @@ pub(in crate::generator) fn stream(
     ),
     camera: Query<
         (&Transform, &Projection, Option<&DistanceFog>),
-        (With<WorldCamera>, Without<Ground>),
+        (With<WorldCamera>, Without<Wood>),
     >,
-    mut bed: Query<
-        (&mut Transform, Has<Sea>),
+    mut laid: Query<
+        (Entity, &mut Transform, Has<Sea>, Has<Terrain>),
         (
-            Or<(With<Bed>, With<Sea>)>,
+            Or<(With<Bed>, With<Sea>, With<Terrain>)>,
             Without<WorldCamera>,
-            Without<Ground>,
+            Without<Wood>,
         ),
     >,
-    mut places: Query<&mut Transform, With<Ground>>,
+    mut places: Query<&mut Transform, With<Wood>>,
     standing: Query<(), With<Standing>>,
     mut tally: ResMut<Tally>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -94,23 +111,78 @@ pub(in crate::generator) fn stream(
         _ => 4000.0,
     };
     let sight = sight(&land, &detail, at, fog, far);
-    for (mut bed, is_sea) in &mut bed {
-        // The sea is its own size, and moves a whole metre at a time,
-        // so that its swells stay where they are on the map.
-        let next = if is_sea {
-            let at = sight.centre.round();
-            Transform::from_xyz(at.x, land.set.land.water_y, at.y)
+    // The sea and the ground in patches about the eye, each about as
+    // large to it: one entity for each patch, kept from frame to
+    // frame, more spawned or the spare ones let go as the patches
+    // change. The ground's are chosen on the plane its plains lie on
+    // and its shader raises them to the land; the sea's lie flat on
+    // the water.
+    let water_y = land.set.land.water_y;
+    let mut sea =
+        patch::choose(at.translation, water_y, water::FINEST, far)
+            .into_iter()
+            .map(|patch| placed(patch, water_y));
+    let finest = land.set.land.cell * patch::QUADS as f32;
+    let terrain = patch::choose(
+        at.translation,
+        land.set.land.plain_y,
+        finest,
+        sight.reach,
+    );
+    let ground_patches = terrain.len();
+    let mut terrain =
+        terrain.into_iter().map(|patch| placed(patch, 0.0));
+    for (entity, mut place, is_sea, is_terrain) in &mut laid {
+        let next = if is_sea || is_terrain {
+            let next =
+                if is_sea { sea.next() } else { terrain.next() };
+            let Some(next) = next else {
+                commands.entity(entity).despawn();
+                continue;
+            };
+            next
         } else {
             Transform::from_xyz(
                 sight.centre.x,
-                land.set.land.water_y - detail.bed,
+                water_y - detail.bed,
                 sight.centre.y,
             )
             .with_scale(Vec3::splat(far * 2.0))
         };
-        if *bed != next {
-            *bed = next;
+        if *place != next {
+            *place = next;
         }
+    }
+    for at in sea {
+        commands.spawn((
+            Sea,
+            Waves,
+            Mesh3d(kit.patch.clone()),
+            MeshMaterial3d(kit.water.clone()),
+            at,
+            NotShadowCaster,
+            // Its swells rise and lean beyond the flat square its
+            // bounds would be taken from.
+            Aabb::from_min_max(
+                Vec3::new(-0.1, -3.0, -0.1),
+                Vec3::new(1.1, 3.0, 1.1),
+            ),
+        ));
+    }
+    for at in terrain {
+        commands.spawn((
+            Terrain,
+            Mesh3d(kit.patch.clone()),
+            MeshMaterial3d(kit.ground.clone()),
+            at,
+            NotShadowCaster,
+            // Its shader raises it from the plane to the land, from
+            // the sea floor to the tops of the hills.
+            Aabb::from_min_max(
+                Vec3::new(-0.05, -30.0, -0.05),
+                Vec3::new(1.05, 40.0, 1.05),
+            ),
+        ));
     }
     // The place the camera is being taken to, so that the ground is
     // there before it.
@@ -135,7 +207,6 @@ pub(in crate::generator) fn stream(
                 continue;
             }
             for at in [now, was].into_iter().flatten() {
-                loading.ground.redo(chunk, *at, hold);
                 loading.groves.redo(chunk, *at, hold);
             }
         }
@@ -151,7 +222,6 @@ pub(in crate::generator) fn stream(
             if shores.contains(at) && loading.shores.contains(at) {
                 continue;
             }
-            loading.ground.redo(chunk, *at, reach);
             loading.groves.redo(chunk, *at, reach);
         }
         loading.shores = shores;
@@ -166,7 +236,6 @@ pub(in crate::generator) fn stream(
                 continue;
             }
             let reach = LandData::hold_reach(round.1) + 17.0;
-            loading.ground.redo(chunk, round.0, reach);
             loading.groves.redo(chunk, round.0, reach);
         }
         loading.holds = holds;
@@ -183,38 +252,12 @@ pub(in crate::generator) fn stream(
     });
     if looked || changed {
         let views = (&sight, &going);
-        let top = detail.tile_levels.max(1) - 1;
-        // A tile of ground is cut to the tiles drawn beside it.
-        loading.ground.choose(
-            &land,
-            &detail,
-            views,
-            true,
-            |drawn, tile| ground::rim_key(drawn, top, tile),
-        );
-        loading
-            .groves
-            .choose(&land, &detail, views, false, |_, _| 0);
+        loading.groves.choose(&land, &detail, views, |_, _| 0);
         loading.sight = Some((sight, going));
     }
 
-    let mut came =
-        loading.ground.land(&mut commands, |commands, tile, sod| {
-            let bytes = mesh_bytes(&sod.mesh);
-            let entity = commands
-                .spawn((
-                    Ground(tile),
-                    Mesh3d(meshes.add(sod.mesh)),
-                    MeshMaterial3d(kit.ground.clone()),
-                    NotShadowCaster,
-                    Transform::default(),
-                    Visibility::Inherited,
-                ))
-                .id();
-            (entity, bytes, true)
-        });
     let waiting = &mut loading.waiting;
-    came +=
+    let came =
         loading.groves.land(&mut commands, |commands, _, grove| {
             // A wood with trees to plant is shown when they stand.
             let whole = grove.trees.is_empty();
@@ -243,27 +286,9 @@ pub(in crate::generator) fn stream(
         });
 
     let top = detail.tile_levels.max(1) - 1;
-    loading.ground.retire(
-        &mut commands,
-        top,
-        detail.stale_sink,
-        &mut places,
-    );
     loading.groves.retire(&mut commands, top, 0.0, &mut places);
 
     let pool = AsyncComputeTaskPool::get();
-    loading.ground.build(
-        chunk,
-        going.centre,
-        detail.tile_tasks,
-        |tile, drawn| {
-            let recipe = Recipe::of(&land, &detail, tile);
-            let (land, drawn) = (land.clone(), drawn.clone());
-            pool.spawn(
-                async move { ground::sod(&land, recipe, &drawn) },
-            )
-        },
-    );
     loading.groves.build(
         chunk,
         going.centre,
@@ -310,7 +335,7 @@ pub(in crate::generator) fn stream(
         loading.landed = true;
     }
     if came > 0 || plant > 0 || !loading.is_settled() {
-        tally.tiles = loading.ground.drawn().count();
+        tally.tiles = ground_patches;
         tally.trees = standing.iter().len();
         // Keep frames coming while the world fills in.
         redraw.write(RequestRedraw);
