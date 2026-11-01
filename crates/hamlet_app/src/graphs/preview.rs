@@ -273,27 +273,39 @@ fn switches() -> AnyView {
                 roll(&mut world.resource_mut::<Editor<Blueprint>>());
             })
     };
-    let switch = |word: &'static str, flip: fn(&mut Backdrop)| {
-        button(label(resource::<Backdrop, _>(move |backdrop| {
-            let on = match word {
-                "Ground" => backdrop.ground,
-                _ => backdrop.grid,
-            };
-            format!("{word}: {}", if on { "on" } else { "off" })
-        })))
-        .padding(UiRect::axes(px(8.0), px(2.0)))
-        .rules(styles::button)
-        .tagged(Variant::Default)
-        .on_activate(move |world| {
-            flip(&mut world.resource_mut::<Backdrop>());
+    // A part of the backdrop, lit while it is shown.
+    let switch = |word: &'static str,
+                  shown: fn(&Backdrop) -> bool,
+                  flip: fn(&mut Backdrop)| {
+        keyed(resource::<Backdrop, _>(shown), move |on| {
+            let toggle = button(label(word))
+                .padding(UiRect::axes(px(8.0), px(2.0)))
+                .on_activate(move |world| {
+                    flip(&mut world.resource_mut::<Backdrop>());
+                });
+            if *on {
+                toggle.rules(choice(true)).boxed()
+            } else {
+                toggle
+                    .rules(styles::button)
+                    .tagged(Variant::Default)
+                    .boxed()
+            }
         })
+        .within(row(()).gap(0.0))
     };
     row((
         time(),
-        switch("Grid", |backdrop| backdrop.grid = !backdrop.grid),
-        switch("Ground", |backdrop| {
-            backdrop.ground = !backdrop.ground;
-        }),
+        switch(
+            "Grid",
+            |backdrop| backdrop.grid,
+            |backdrop| backdrop.grid = !backdrop.grid,
+        ),
+        switch(
+            "Ground",
+            |backdrop| backdrop.ground,
+            |backdrop| backdrop.ground = !backdrop.ground,
+        ),
         dice(
             "Hamlet",
             "Roll again what is picked once per hamlet",
