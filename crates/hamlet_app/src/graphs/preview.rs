@@ -45,8 +45,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
 };
 use bevy_fynix::{ScopedExt, Theme, ViewExt, resource};
-use hamlet_blueprint::Frame;
-use hamlet_graph::{Asset, BODY, Paint, Shape};
+use hamlet_blueprint::{Frame, Object};
+use hamlet_graph::{Asset, BODY, Catalogue, Paint, Shape};
 use hamlet_graph_editor::Editor;
 use hamlet_graph_editor::library::Library;
 use hamlet_realm::generator::house::slope;
@@ -144,6 +144,13 @@ struct Seat {
 pub(super) struct Framing {
     pub(super) middle: Vec3,
     pub(super) reach: f32,
+}
+
+/// What the last drawing was made from.
+struct Drawn {
+    objects: Vec<Object>,
+    assets: Catalogue,
+    library: u64,
 }
 
 pub(super) fn view() -> impl View {
@@ -512,18 +519,21 @@ fn rebuild(
     editor: Res<Editor<Blueprint>>,
     preview: Option<Res<Preview>>,
     colours: Option<Res<Colours>>,
-    library: Res<Library>,
+    mut library: ResMut<Library>,
     mut models: ResMut<Meshes>,
     pieces: Query<Entity, With<Piece>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut framing: ResMut<Framing>,
     backdrop: Res<Backdrop>,
-    mut drawn: Local<bool>,
+    mut drawn: Local<Option<Drawn>>,
 ) {
     let Some(preview) = preview else {
         return;
     };
-    if !editor.is_changed() && !backdrop.is_changed() && *drawn {
+    if !editor.is_changed()
+        && !backdrop.is_changed()
+        && drawn.is_some()
+    {
         return;
     }
     // A graph that fails, as one with an input not yet wired, leaves
@@ -531,7 +541,22 @@ fn rebuild(
     let Ok(objects) = &editor.got.outcome else {
         return;
     };
-    *drawn = true;
+    // The editor changes with a selection and a dragged card too,
+    // which draw the same.
+    if !backdrop.is_changed()
+        && drawn.as_ref().is_some_and(|drawn| {
+            drawn.objects == *objects
+                && drawn.assets == editor.rules.assets
+                && drawn.library == library.revision
+        })
+    {
+        return;
+    }
+    *drawn = Some(Drawn {
+        objects: objects.clone(),
+        assets: editor.rules.assets.clone(),
+        library: library.revision,
+    });
     for piece in &pieces {
         commands.entity(piece).despawn();
     }
@@ -546,15 +571,29 @@ fn rebuild(
         let middle = object.frame.translation
             + object.frame.rotation * Vec3::new(0.0, lift, 0.0);
         let asset = editor.rules.assets.get(&object.asset);
+        // A mesh that cannot be read is drawn as a box, and said so.
+        let mut failed = None;
         let model = match (
             asset.as_ref().map(|asset| &asset.shape),
             library.root(),
         ) {
             (Some(Shape::Mesh(path)), Some(root)) => {
-                models.get(root, path).ok()
+                match models.get(root, path) {
+                    Ok(model) => Some(model),
+                    Err(error) => {
+                        failed =
+                            Some(format!("Could not read {error}"));
+                        None
+                    }
+                }
             }
             _ => None,
         };
+        if let Some(error) = failed
+            && library.note != error
+        {
+            library.note = error;
+        }
         let colours = colours.as_deref();
         let colour = match colours {
             Some(c) if marker => c.ochre,
@@ -693,6 +732,11 @@ fn tiles(
     colour: Vec3,
     c: &Colours,
 ) {
+    // A slope flat along x or z has no eave or no run to lay on, and
+    // `slope` would give its vertices NaN.
+    if size.x.abs() < 1e-4 || size.z.abs() < 1e-4 {
+        return;
+    }
     let at = |x: f32, z: f32| {
         frame.translation
             + frame.rotation

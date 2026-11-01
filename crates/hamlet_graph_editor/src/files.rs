@@ -23,7 +23,7 @@ use hamlet_graph::{Book, Shape};
 
 use super::flavor::Flavor;
 use super::{Editor, canvas, example};
-use crate::library::Library;
+use crate::library::{Library, mesh_path, temp_of, write_atomic};
 
 /// How long the book is left as it is before it is written.
 const SETTLE: Duration = Duration::from_secs(1);
@@ -95,22 +95,55 @@ fn kept_at<F: Flavor>(folder: &Path) -> PathBuf {
 }
 
 /// Copies the file of each asset `book` adds from the folder `from`
-/// to the folder `to`.
+/// to the folder `to`. Every file is copied beside its place first,
+/// and put in place only when all are, so a failure leaves the files
+/// in `to` as they were.
 fn carry(book: &Book, from: &Path, to: &Path) -> anyhow::Result<()> {
     if from == to {
         return Ok(());
     }
+    let mut staged = Vec::new();
+    let copied = stage(book, from, to, &mut staged).and_then(|()| {
+        staged.iter().try_for_each(|(temp, target)| {
+            fs::rename(temp, target).with_context(|| {
+                format!("replacing {}", target.display())
+            })
+        })
+    });
+    if copied.is_err() {
+        for (temp, _) in &staged {
+            let _ = fs::remove_file(temp);
+        }
+    }
+    copied
+}
+
+/// Copies each asset file of `book` from `from` to a temporary file
+/// beside its place in `to`, listing each as the temporary file and
+/// its place.
+fn stage(
+    book: &Book,
+    from: &Path,
+    to: &Path,
+    staged: &mut Vec<(PathBuf, PathBuf)>,
+) -> anyhow::Result<()> {
     for asset in book.assets.0.values() {
         let Shape::Mesh(path) = &asset.shape else {
             continue;
         };
-        let (source, target) = (from.join(path), to.join(path));
+        let (source, target) =
+            (mesh_path(from, path)?, mesh_path(to, path)?);
+        if staged.iter().any(|(_, placed)| *placed == target) {
+            continue;
+        }
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).with_context(|| {
                 format!("making {}", parent.display())
             })?;
         }
-        fs::copy(&source, &target).with_context(|| {
+        let temp = temp_of(&target);
+        staged.push((temp.clone(), target));
+        fs::copy(&source, &temp).with_context(|| {
             format!("copying {}", source.display())
         })?;
     }
@@ -129,8 +162,7 @@ fn write(path: &Path, book: &Book) -> anyhow::Result<()> {
         })?;
     }
     let text = book.to_ron().context("writing the book")?;
-    fs::write(path, text)
-        .with_context(|| format!("writing {}", path.display()))
+    write_atomic(path, &text)
 }
 
 fn read(path: &Path) -> anyhow::Result<Book> {
@@ -191,12 +223,16 @@ fn keep<F: Flavor>(
             return;
         }
     }
-    if let Err(error) =
-        write(&kept_at::<F>(&folder.0), &editor.book())
-    {
-        files.note = format!("Could not keep the graphs: {error:#}");
+    match write(&kept_at::<F>(&folder.0), &editor.book()) {
+        Ok(()) => files.kept = editor.revision,
+        Err(error) => {
+            // The revision stays unkept; the settle wait starts
+            // again, so the write is tried again a moment later.
+            files.note =
+                format!("Could not keep the graphs: {error:#}");
+            files.seen = Some((editor.revision, now));
+        }
     }
-    files.kept = editor.revision;
 }
 
 /// Asks for a file to open the book from.
@@ -324,9 +360,11 @@ fn chosen<F: Flavor>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use bevy_fynix::ViewExt;
     use bevy_fynix::views::frame;
-    use hamlet_graph::{Registry, Sheet};
+    use hamlet_graph::{Asset, Registry, Sheet};
     use hamlet_testing::Scratch;
     use hamlet_ui::AnyView;
     use hamlet_ui::widgets::icons::Glyph;
@@ -366,5 +404,32 @@ mod tests {
         let path = kept_at::<Empty>(&folder);
         write(&path, &book).expect("the book writes");
         assert_eq!(read(&path).expect("the book reads"), book);
+    }
+
+    #[test]
+    fn a_book_whose_second_file_is_missing_leaves_the_first_kept_file_alone()
+     {
+        let folder = Scratch::new("graph-carry");
+        let (from, to) = (folder.join("from"), folder.join("to"));
+        fs::create_dir_all(&from).unwrap();
+        fs::create_dir_all(&to).unwrap();
+        fs::write(from.join("a.glb"), b"new").unwrap();
+        fs::write(to.join("a.glb"), b"old").unwrap();
+        let mesh = |file: &str| Asset {
+            shape: Shape::Mesh(file.to_owned()),
+            slots: BTreeMap::new(),
+            sockets: BTreeMap::new(),
+        };
+        let mut book = Book::of("main", Sheet::default());
+        book.assets.0.insert("a".to_owned(), mesh("a.glb"));
+        book.assets.0.insert("b".to_owned(), mesh("b.glb"));
+
+        assert!(carry(&book, &from, &to).is_err());
+        assert_eq!(fs::read(to.join("a.glb")).unwrap(), b"old");
+        assert!(!to.join(".a.glb.tmp").exists());
+
+        fs::write(from.join("b.glb"), b"b").unwrap();
+        carry(&book, &from, &to).unwrap();
+        assert_eq!(fs::read(to.join("a.glb")).unwrap(), b"new");
     }
 }

@@ -90,7 +90,8 @@ const REPEAT: NodeKind = NodeKind {
 };
 
 fn repeat(run: &mut Run) -> Result<(), Error> {
-    let count = run.integer("count", None)?.max(0) as u32;
+    let count =
+        run.count("count", run.integer("count", None)? as f32)?;
     let step = run.point("step")?;
     let places: Vec<Place> = (0..count)
         .map(|index| Place::at(Frame::at(step * index as f32)))
@@ -127,6 +128,7 @@ const GRID: NodeKind = NodeKind {
 fn grid(run: &mut Run) -> Result<(), Error> {
     let columns = run.integer("columns", None)?.max(0) as u32;
     let rows = run.integer("rows", None)?.max(0) as u32;
+    run.count("columns", columns as f32 * rows as f32)?;
     let spacing = run.number("spacing", None)?;
     let corner = -Vec3::new(
         columns.saturating_sub(1) as f32,
@@ -175,11 +177,14 @@ fn along_curve(run: &mut Run) -> Result<(), Error> {
     let length = curve.length();
     // Spacing is kept exact, not stretched to fit, so a longer curve
     // keeps the copies a shorter one had.
-    let steps = (length / spacing + 1e-4).floor() as u32;
+    let steps =
+        run.count("spacing", (length / spacing + 1e-4).floor())?;
     let count = if curve.closed { steps } else { steps + 1 };
     let mut places = Vec::with_capacity(count as usize);
     for index in 0..count {
-        let distance = index as f32 * spacing;
+        // The tolerance above can put the last copy a hair past an
+        // open curve's end.
+        let distance = (index as f32 * spacing).min(length);
         let Some((at, direction)) = curve.at(distance) else {
             break;
         };
@@ -278,7 +283,7 @@ fn on_surface(run: &mut Run) -> Result<(), Error> {
         let size = surface.frame.scale;
         let expected = size.x * size.z * density;
         let key = chance.mix(surface.id.0);
-        let count = expected.floor() as u32
+        let count = run.count("density", expected.floor())?
             + u32::from(key.unit() < expected.fract());
         let places: Vec<Place> = (0..count)
             .map(|index| {
@@ -300,7 +305,7 @@ fn on_surface(run: &mut Run) -> Result<(), Error> {
         // Keyed by the surface too, so two surfaces' copies differ.
         made.extend(copies(run, objects, &places).into_iter().map(
             |mut copy| {
-                copy.id = run.id(surface.id, copy.id.0 as u32);
+                copy.id = run.id(surface.id, copy.id.0);
                 copy.tags.clone_from(&surface.tags);
                 copy
             },

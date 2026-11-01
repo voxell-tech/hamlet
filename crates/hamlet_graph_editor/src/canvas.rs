@@ -1728,6 +1728,7 @@ fn ask<F: Flavor>(
     sight: Res<Sight<F>>,
     mut editor: ResMut<Editor<F>>,
     mut menu: ResMut<Menu<F>>,
+    mut commands: Commands,
 ) {
     if press.button != PointerButton::Secondary {
         return;
@@ -1769,7 +1770,14 @@ fn ask<F: Flavor>(
             };
             let on_sheet = (at - corner(node, transform) - sight.pan)
                 / sight.zoom;
-            Which::Create { at, on_sheet }
+            // Through `open`, which clears what was searched for.
+            commands.queue(move |world: &mut World| {
+                super::menu::open::<F>(
+                    world,
+                    Which::Create { at, on_sheet },
+                );
+            });
+            return;
         }
     };
 }

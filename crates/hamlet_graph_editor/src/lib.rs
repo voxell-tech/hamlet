@@ -165,14 +165,28 @@ impl<F: Flavor> Editor<F> {
     /// Whether the graph `name` runs `target`, itself or through
     /// others.
     pub fn runs(&self, name: &str, target: &str) -> bool {
+        self.runs_past(name, target, &mut BTreeSet::new())
+    }
+
+    /// [`Editor::runs`], passing over the graphs in `seen`, so a book
+    /// read from a file whose graphs run each other still ends.
+    fn runs_past<'a>(
+        &'a self,
+        name: &'a str,
+        target: &str,
+        seen: &mut BTreeSet<&'a str>,
+    ) -> bool {
         if name == target {
             return true;
+        }
+        if !seen.insert(name) {
+            return false;
         }
         let Some(graph) = self.rules.graphs.get(name) else {
             return false;
         };
         graph.nodes.iter().any(|node| match &node.does {
-            Does::Graph(child) => self.runs(child, target),
+            Does::Graph(child) => self.runs_past(child, target, seen),
             Does::Kind(_) => false,
         })
     }

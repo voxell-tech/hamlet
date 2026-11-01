@@ -87,7 +87,7 @@ fn object(run: &mut Run) -> Result<(), Error> {
     let frame = run.transform("transform")?.at(run.origin());
     let object = Object::new(
         run.choice("asset", None)?,
-        run.id(ObjectId::ROOT, 0),
+        run.id(ObjectId::ROOT, 0_u32),
         frame,
     );
     run.put("objects", Value::Objects(vec![object]));

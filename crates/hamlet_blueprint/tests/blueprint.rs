@@ -172,6 +172,32 @@ fn closed_rectangle_places_on_its_corners() {
 }
 
 #[test]
+fn open_curve_keeps_its_end_post_when_spacing_rounds_past_it() {
+    let ruleset = Ruleset::from_ron(
+        r#"(
+            entry: "line",
+            graphs: {"line": (
+                outputs: [(name: "objects", value_type: Objects, from: (node: 2, name: "objects"))],
+                nodes: [
+                    (id: 1, does: Kind("line"), settings: {"to": Fixed(Point((0.9999999, 0.0, 0.0)))}),
+                    (id: 2, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(0.1))}),
+                    (id: 3, does: Kind("object")),
+                ],
+                wires: [
+                    (from: (node: 1, name: "curve"), to: (node: 2, name: "curve")),
+                    (from: (node: 3, name: "objects"), to: (node: 2, name: "objects")),
+                ],
+            )},
+        )"#,
+    )
+    .expect("the fixture parses");
+    let posts =
+        objects(&run(&ruleset, 1, &BTreeMap::new()), "objects");
+    assert_eq!(posts.len(), 11);
+    assert!(posts.iter().all(|post| post.count == 11));
+}
+
+#[test]
 fn validation_finds_a_wrong_wire_a_loop_and_a_graph_that_runs_itself()
 {
     let ruleset = Ruleset::from_ron(

@@ -395,6 +395,11 @@ pub struct Run<'a> {
 }
 
 impl Run<'_> {
+    /// The most places or pieces one node makes from a number it is
+    /// given: a 256 by 256 grid. Far more freezes the editor, which
+    /// runs the graph after every edit.
+    pub const MAX_COUNT: f32 = 65_536.0;
+
     fn binding(&self, port: &str) -> Result<&Binding, Error> {
         self.inputs.get(port).ok_or_else(|| Error::Unset {
             node: self.node,
@@ -428,6 +433,19 @@ impl Run<'_> {
             port: port.to_owned(),
             reason,
         }
+    }
+
+    /// `wanted` places or pieces as a count, or an error on `port`
+    /// when it is above [`Self::MAX_COUNT`].
+    pub fn count(
+        &self,
+        port: &str,
+        wanted: f32,
+    ) -> Result<u32, Error> {
+        if wanted > Self::MAX_COUNT {
+            return Err(self.invalid(port, "would make too many"));
+        }
+        Ok(wanted as u32)
     }
 
     /// The seed of a roll of `port` at `scope`, at `at` when it is
@@ -657,8 +675,12 @@ impl Run<'_> {
         self.assets.get(name)
     }
 
-    pub fn id(&self, parent: ObjectId, index: u32) -> ObjectId {
-        ObjectId(self.seed.mix(parent.0).mix(u64::from(index)).0)
+    pub fn id(
+        &self,
+        parent: ObjectId,
+        index: impl Into<u64>,
+    ) -> ObjectId {
+        ObjectId(self.seed.mix(parent.0).mix(index.into()).0)
     }
 
     /// A seed of this node that changes as often as `scope` does.

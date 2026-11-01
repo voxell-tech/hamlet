@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use hamlet_graph::{Ruleset, to_ron};
+use hamlet_graph::{Ruleset, Shape, to_ron};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -46,6 +46,13 @@ fn decode<'de, D: Deserializer<'de>>(
     BTreeMap::<String, String>::deserialize(deserializer)?
         .into_iter()
         .map(|(path, text)| {
+            // A file is written where its path says, so it may not
+            // name a place outside the folder.
+            if !Shape::is_safe_path(&path) {
+                return Err(serde::de::Error::custom(format!(
+                    "{path:?} is not a path inside the folder"
+                )));
+            }
             STANDARD
                 .decode(text)
                 .map(|bytes| (path, bytes))

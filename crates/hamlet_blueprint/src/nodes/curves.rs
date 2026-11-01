@@ -95,7 +95,8 @@ const POLYGON: NodeKind = NodeKind {
 fn polygon(run: &mut Run) -> Result<(), Error> {
     let center = run.point("center")?;
     let radius = run.number("radius", None)?;
-    let sides = run.integer("sides", None)?.max(3) as u32;
+    let sides = run
+        .count("sides", run.integer("sides", None)?.max(3) as f32)?;
     let points = (0..sides)
         .map(|i| {
             let turn = turn::about(

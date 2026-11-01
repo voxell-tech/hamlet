@@ -7,6 +7,7 @@
 //! removed is moved to `.trash/`, not deleted.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -234,9 +235,7 @@ impl Library {
             .catalogue
             .to_ron()
             .context("writing the catalogue")?;
-        let path = Self::catalogue_at(root);
-        fs::write(&path, text)
-            .with_context(|| format!("writing {}", path.display()))
+        write_atomic(&Self::catalogue_at(root), &text)
     }
 
     /// A name for an asset of `kind`, `wanted` or it with a number
@@ -300,8 +299,7 @@ impl Library {
             })?;
         }
         let text = book.to_ron().context("writing the book")?;
-        fs::write(&path, text)
-            .with_context(|| format!("writing {}", path.display()))?;
+        write_atomic(&path, &text)?;
         self.scan();
         Ok(path)
     }
@@ -349,7 +347,7 @@ impl Library {
                 if let Some(parent) = to.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                fs::copy(from.join(file), &to)
+                fs::copy(mesh_path(from, file)?, &to)
                     .with_context(|| format!("copying {file}"))?;
                 asset.shape = Shape::Mesh(mesh_file(name));
             }
@@ -416,6 +414,38 @@ impl Library {
         self.scan();
         Ok(())
     }
+}
+
+/// Where the file at `path`, as a mesh names it, is in the folder
+/// `root`.
+pub fn mesh_path(root: &Path, path: &str) -> anyhow::Result<PathBuf> {
+    anyhow::ensure!(
+        Shape::is_safe_path(path),
+        "{path:?} is not a path inside the folder"
+    );
+    Ok(root.join(path))
+}
+
+/// Where `path` is written before it replaces what is there.
+pub fn temp_of(path: &Path) -> PathBuf {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    path.with_file_name(format!(".{name}.tmp"))
+}
+
+/// Writes `text` to `path` so that the file there is the old one or
+/// the whole new one, never a part.
+pub fn write_atomic(path: &Path, text: &str) -> anyhow::Result<()> {
+    let temp = temp_of(path);
+    let written = fs::File::create(&temp).and_then(|mut file| {
+        file.write_all(text.as_bytes())?;
+        file.sync_all()
+    });
+    written
+        .and_then(|()| fs::rename(&temp, path))
+        .inspect_err(|_| {
+            let _ = fs::remove_file(&temp);
+        })
+        .with_context(|| format!("writing {}", path.display()))
 }
 
 /// Where the mesh `name`'s file is, in the library.

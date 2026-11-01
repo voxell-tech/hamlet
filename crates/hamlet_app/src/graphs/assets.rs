@@ -252,15 +252,23 @@ fn walk(
             Some(indices) => indices.into_u32().collect(),
             None => (0..positions.len() as u32).collect(),
         };
+        // The file's indices and normals are not checked by the glTF
+        // reader, and `smooth` and `Model::draw` index with them.
+        if indices.iter().any(|&i| i as usize >= positions.len()) {
+            continue;
+        }
         let normals = match reader.read_normals() {
             Some(normals) => normals
                 .map(|n| {
                     turn.transform_vector3(Vec3::from(n))
                         .normalize_or_zero()
                 })
-                .collect(),
+                .collect::<Vec<_>>(),
             None => smooth(&positions, &indices),
         };
+        if normals.len() != positions.len() {
+            continue;
+        }
         let material = primitive.material();
         let slot = match (material.name(), material.index()) {
             (Some(name), _) => name.to_owned(),
@@ -576,13 +584,19 @@ mod tests {
     /// normals, lifted by its node, and a socket at its top corner.
     fn triangle() -> Vec<u8> {
         let json = r#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0,1]}],"nodes":[{"mesh":0,"translation":[0,1,0]},{"name":"socket_lamp","translation":[2,2,0]}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"material":0}]}],"materials":[{"name":"roof_tiles"}],"buffers":[{"byteLength":36}],"bufferViews":[{"buffer":0,"byteLength":36}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[2,1,0]}]}"#;
+        glb(json, &corners())
+    }
+
+    fn corners() -> Vec<u8> {
+        [0.0f32, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect()
+    }
+
+    fn glb(json: &str, bin: &[u8]) -> Vec<u8> {
         let mut json = json.as_bytes().to_vec();
         json.resize(json.len().next_multiple_of(4), b' ');
-        let bin: Vec<u8> =
-            [0.0f32, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0]
-                .iter()
-                .flat_map(|f| f.to_le_bytes())
-                .collect();
         let mut glb = b"glTF".to_vec();
         glb.extend(2u32.to_le_bytes());
         let length = 12 + 8 + json.len() + 8 + bin.len();
@@ -611,5 +625,17 @@ mod tests {
             model.sockets["lamp"].at,
             Vec3::new(0.5, 0.5, 0.0)
         );
+    }
+
+    #[test]
+    fn a_primitive_indexing_past_its_positions_is_left_out() {
+        let json = r#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":1}]}],"buffers":[{"byteLength":44}],"bufferViews":[{"buffer":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[2,1,0]},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}]}"#;
+        let mut bin = corners();
+        bin.extend(
+            [0u16, 1, 5, 0].iter().flat_map(|i| i.to_le_bytes()),
+        );
+        let error =
+            read(&glb(json, &bin)).err().expect("it is refused");
+        assert_eq!(error.to_string(), "the file has no triangles");
     }
 }

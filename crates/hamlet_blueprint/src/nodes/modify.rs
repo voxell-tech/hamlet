@@ -117,7 +117,8 @@ fn split(run: &mut Run) -> Result<(), Error> {
             return Err(run.invalid("size", "must be above zero"));
         }
         let length = whole.frame.scale.dot(axis);
-        let count = (length / size).round().max(1.0) as u32;
+        let count =
+            run.count("size", (length / size).round().max(1.0))?;
         for index in 0..count {
             // In its own frame, where its scale is its size, a piece
             // is a share of one along the axis.

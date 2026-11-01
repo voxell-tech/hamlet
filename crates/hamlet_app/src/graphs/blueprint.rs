@@ -25,7 +25,9 @@ use hamlet_graph::{
     Setting, Shape, Spread, ValueType,
 };
 use hamlet_graph_editor::files::{self, Files};
-use hamlet_graph_editor::library::{Item, Kind, Library};
+use hamlet_graph_editor::library::{
+    Item, Kind, Library, mesh_path, write_atomic,
+};
 use hamlet_graph_editor::{Editor, Flavor, tool};
 use hamlet_ui::AnyView;
 use hamlet_ui::widgets::icons::Glyph;
@@ -141,10 +143,14 @@ impl Flavor for Blueprint {
                     wire.from.node == node.id
                         && wire.from.name == output.name
                 });
-                let declared = graph.outputs.iter().any(|declared| {
-                    declared.from.node == node.id
-                        && declared.from.name == output.name
-                });
+                // The sheet's own outputs, not the watch ones added
+                // above, which give the preview nothing to draw.
+                let declared = editor.sheet.graph.outputs.iter().any(
+                    |declared| {
+                        declared.from.node == node.id
+                            && declared.from.name == output.name
+                    },
+                );
                 if shown && !wired && !declared {
                     graph.outputs.push(GraphOutput {
                         name: format!("{}.{}", node.id, output.name),
@@ -363,15 +369,14 @@ fn write_bundle(
         let Shape::Mesh(file) = &asset.shape else {
             continue;
         };
-        let bytes = fs::read(library.join(file))
+        let bytes = fs::read(mesh_path(library, file)?)
             .with_context(|| format!("reading {file}"))?;
         files.insert(file.clone(), bytes);
     }
     let text = Bundle { ruleset, files }
         .to_ron()
         .context("writing the bundle")?;
-    fs::write(path, text)
-        .with_context(|| format!("writing {}", path.display()))
+    write_atomic(path, &text)
 }
 
 /// Every choice the graphs are set to or may roll, which names the

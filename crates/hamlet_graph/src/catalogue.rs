@@ -2,9 +2,11 @@
 //! ones and those the book adds.
 
 use std::collections::BTreeMap;
+use std::path::{Component, Path};
 
 use bevy_math::{Quat, Vec3};
-use serde::{Deserialize, Serialize};
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// The assets a book adds, by name, each in place of a built-in one
 /// of the same name.
@@ -51,7 +53,31 @@ pub enum Shape {
     /// `taper` times as wide. A hip's end has a taper of 0.
     Tiles { taper: f32 },
     /// A glTF file in the folder beside the book, by its path there.
-    Mesh(String),
+    Mesh(#[serde(deserialize_with = "mesh_path")] String),
+}
+
+impl Shape {
+    /// Whether `path` is a file below the folder it is in: not empty,
+    /// not absolute and without `..`.
+    pub fn is_safe_path(path: &str) -> bool {
+        !path.is_empty()
+            && Path::new(path)
+                .components()
+                .all(|part| matches!(part, Component::Normal(_)))
+    }
+}
+
+fn mesh_path<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let path = String::deserialize(deserializer)?;
+    if Shape::is_safe_path(&path) {
+        Ok(path)
+    } else {
+        Err(D::Error::custom(format!(
+            "{path:?} is not a path inside the folder"
+        )))
+    }
 }
 
 /// What colours a material slot.
@@ -166,5 +192,21 @@ impl Catalogue {
         text: &str,
     ) -> Result<Self, ron::error::SpannedError> {
         ron::from_str(text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mesh_path_outside_the_folder_does_not_read() {
+        for path in ["", "/etc/passwd", "../up.glb", "a/../../up.glb"]
+        {
+            let text = format!("{{\"x\": (shape: Mesh({path:?}))}}");
+            assert!(Catalogue::from_ron(&text).is_err(), "{path}");
+        }
+        let text = "{\"x\": (shape: Mesh(\"meshes/x.glb\"))}";
+        assert!(Catalogue::from_ron(text).is_ok());
     }
 }
