@@ -29,7 +29,8 @@ use bevy::math::Rect;
 use bevy::picking::Pickable;
 use bevy::ui::widget::Text;
 use bevy::ui::{
-    AlignItems, Outline, Overflow, PositionType, UiRect, percent, px,
+    AlignItems, Node, Outline, Overflow, PositionType, UiRect,
+    percent, px,
 };
 use bevy_fynix::dock::{DockTab, DockTree, DockWindowKind};
 use bevy_fynix::tokens::Tone;
@@ -107,10 +108,14 @@ fn window(id: &str) -> DockWindowKind<HamletTheme> {
 /// The name of a Terminal panel, and of its tab while it shows none.
 const TITLE: &str = "TERMINAL";
 
-/// The most letters of a terminal's name and of its last command a
-/// tab shows.
-const TAB_NAME: usize = 20;
-const TAB_LAST: usize = 24;
+/// The letters a Terminal panel's tab holds: its name is cut to them
+/// with an ellipsis, and the tab is as wide as them whatever it
+/// shows, so it does not jump as commands of other lengths run.
+const TAB_LETTERS: usize = 32;
+
+/// The width of a letter of a tab's name, in ems of the body size:
+/// a little over the display face's capitals, on average.
+const TAB_LETTER_EM: f32 = 0.58;
 
 /// Whether the dock window `id` is a Terminal panel.
 fn is_panel(id: &str) -> bool {
@@ -156,12 +161,15 @@ fn name_tabs(
     tree: Option<Res<DockTree>>,
     panels: Res<Panels>,
     listed: Res<Listed>,
+    theme: Option<Res<Theme<HamletTheme>>>,
     children: Query<&Children>,
-    mut texts: Query<&mut Text>,
+    mut texts: Query<(&mut Text, &mut Node)>,
 ) {
-    let Some(tree) = tree else {
+    let (Some(tree), Some(theme)) = (tree, theme) else {
         return;
     };
+    let width =
+        px(TAB_LETTERS as f32 * TAB_LETTER_EM * theme.0.text.body);
     for (node, tab) in &tabs {
         let Some(window) = tree.leaf(tab.leaf).and_then(|leaf| {
             leaf.tabs()
@@ -183,29 +191,30 @@ fn name_tabs(
         else {
             continue;
         };
-        if let Ok(mut text) = texts.get_mut(label)
-            && text.0 != name
-        {
+        let Ok((mut text, mut node)) = texts.get_mut(label) else {
+            continue;
+        };
+        if text.0 != name {
             text.0 = name;
+        }
+        if node.width != width {
+            node.width = width;
+            node.overflow = Overflow::clip();
         }
     }
 }
 
-/// The name of the tab of a panel showing `item`.
+/// The name of the tab of a panel showing `item`, cut to
+/// [`TAB_LETTERS`].
 fn tab_name(item: Option<&list::Item>) -> String {
-    let Some(item) = item else {
-        return TITLE.to_owned();
+    let name = match item {
+        None => TITLE.to_owned(),
+        Some(item) => match &item.last {
+            Some(last) => format!("{TITLE} ({}): {last}", item.name),
+            None => format!("{TITLE} ({})", item.name),
+        },
     };
-    let name = list::elided(&item.name, TAB_NAME);
-    match &item.last {
-        Some(last) => {
-            format!(
-                "{TITLE} ({name}): {}",
-                list::elided(last, TAB_LAST)
-            )
-        }
-        None => format!("{TITLE} ({name})"),
-    }
+    list::elided(&name, TAB_LETTERS)
 }
 
 /// Forgets the panels the dock no longer holds. One a desk still
@@ -1054,7 +1063,7 @@ mod tests {
             tab_name(Some(&item(Some(
                 "cat notes/today.md | grep -n pears"
             )))),
-            "TERMINAL (zsh 3): cat notes/today.md | ..."
+            "TERMINAL (zsh 3): cat notes/t..."
         );
     }
 
