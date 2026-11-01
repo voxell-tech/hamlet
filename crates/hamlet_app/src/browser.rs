@@ -55,7 +55,7 @@ pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
         "assets",
         DockWindowKind::new("ASSETS", || flush_panel(view()))
-            .icon(Glyph::Folder.image(ICON)),
+            .icon(Glyph::Cube.image(ICON)),
     )
     .init_resource::<Browse>()
     .init_resource::<Shown>()
