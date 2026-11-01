@@ -95,7 +95,11 @@ impl Serving {
                 | Terminal::Unwatch { .. }),
             ) = &message
         {
-            crate::terminals::request(&mut self.service, id, asked)?;
+            crate::terminals::chief::request(
+                &mut self.service,
+                id,
+                asked,
+            )?;
             return Ok(false);
         }
         let request = message.id().cloned();
@@ -266,7 +270,7 @@ impl Serving {
                 vec![self.service.read(read.clone()).await?]
             }
             ClientMessage::Terminal(asked) => {
-                crate::terminals::request(
+                crate::terminals::chief::request(
                     &mut self.service,
                     id,
                     asked,

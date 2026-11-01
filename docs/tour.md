@@ -158,7 +158,7 @@ fault points, signals, remote workspaces and the society) and
 | `starters.rs` | Shipped starter content from `crates/hamlet_server/assets/starters/` |
 | `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, the model each attempt runs (`Choices`), atomic credential files, sign-ins and secret removal before publication or harness persistence, and before a diagnostic is logged |
 | `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
-| `terminals.rs`, `terminals/` | `Terminals`: shells on pseudo-terminals, each a `vt100` screen and the bytes that redraw it, for the connections that watch them; the chief's `terminal` requests; each agent's commands terminal, which the shell tool prints to; `restore` and `keep_all`, which keep them under `terminals/` across restarts; `tool.rs`, the agents' `terminal_*` tools |
+| `terminals.rs`, `terminals/` | `Terminals`: shells on pseudo-terminals, for the connections that watch them, and each agent's commands terminal, which the shell tool prints to through a `Feed`; `screen.rs`, each one's `vt100` screen, the bytes that redraw it and its last command; `shell.rs`, starting a shell, unbounded or under the sandbox; `chief.rs`, the chief's `terminal` requests; `kept.rs`, `restore` and `keep_all`, which keep them under `terminals/` across restarts; `tool.rs`, the agents' `terminal_*` tools |
 | `society.rs`, `society/` | `SocietyTool` names each society tool, its role and schema, and `SocietyOutcome` is what one returns, which `once` keeps at its marker; letters/questions, instructions/objections, votes, library and recoverable merge/departure work. The sweeps run on the ticks that rebuild the state, and read only due votes and reviews; finished ones are kept under `votes-done` and `review-done` |
 | `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding, agreements and pending house moves |
 | `testing.rs` | For unit tests: `config`, a harness configuration that starts nothing, and `set_limits`, which writes a hamlet's limits |
@@ -217,7 +217,7 @@ ordinary tools.
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs`, `index.rs` |
 | Gifts of skills and files, their upload in parts | `hamlet_client/src/gifts.rs`; dropped files reach it through `hamlet_realm/src/orders.rs` |
-| Terminals: the server's shells, the agents' terminal tools, the panel | `hamlet_server/src/terminals.rs`, `terminals/tool.rs`; `hamlet_os/src/process/pty.rs`; `hamlet_protocol/src/screen.rs` (resizing a screen, both ends); `hamlet_client/src/terminals.rs`; `hamlet_app/src/screens/terminal.rs`, `screens/terminal/`; [`sandbox.md`](sandbox.md#terminals) |
+| Terminals: the server's shells, the agents' terminal tools, the panel | `hamlet_server/src/terminals.rs`, `terminals/`; `hamlet_os/src/process/pty.rs`; `hamlet_protocol/src/screen.rs` (resizing a screen, both ends); `hamlet_client/src/terminals.rs`; `hamlet_app/src/screens/terminal.rs`, `screens/terminal/`; [`sandbox.md`](sandbox.md#terminals) |
 | A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
 | Panels' colors, controls and icons | `assets/theme.toml`, `effects.toml`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |

@@ -23,7 +23,7 @@ An approval does not remove filesystem confinement.
 
 ## Terminals
 
-`crates/hamlet_server/src/terminals.rs` runs shells on pseudo-terminals
+`crates/hamlet_server/src/terminals/shell.rs` starts shells on pseudo-terminals
 (`hamlet_os::process::pty`). A terminal of a hamlet runs `bash` under the
 same policy as a shell tool call: an agent's with that agent's reach and
 the network only when its call asked for it and the gate allowed it; one

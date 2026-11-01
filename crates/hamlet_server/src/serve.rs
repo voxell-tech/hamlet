@@ -238,7 +238,8 @@ pub async fn serve(options: Options) -> Result<()> {
     );
     let (events, mut incoming) = mpsc::channel(128);
     let (shutdown, closing) = watch::channel(false);
-    if let Err(error) = crate::terminals::restore(&mut service) {
+    if let Err(error) = crate::terminals::kept::restore(&mut service)
+    {
         crate::diagnostic::tell(
             crate::diagnostic::Secrets::Of(&service.credentials),
             format_args!(

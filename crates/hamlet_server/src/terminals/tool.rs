@@ -9,7 +9,7 @@ use hamlet_protocol::client::{AgentRef, TerminalView};
 use hamlet_protocol::runtime::{ToolSpec, ToolSpecReplay};
 use serde_json::{Value, json};
 
-use super::{Screen, lock, shown};
+use super::screen::{Screen, lock};
 use crate::record;
 use crate::service::Service;
 use crate::tools::Outcome;
@@ -266,7 +266,7 @@ pub(crate) fn call(
                 cols: 120,
             };
             let hamlet = Some(agent.hamlet.as_str());
-            match super::open(
+            match super::shell::open(
                 service,
                 hamlet,
                 Some(&me),
@@ -312,7 +312,7 @@ pub(crate) fn call(
                 .get("scrollback")
                 .and_then(Value::as_f64)
                 .map_or(0, |lines| {
-                    lines.clamp(0.0, super::SCROLLBACK as f64)
+                    lines.clamp(0.0, super::screen::SCROLLBACK as f64)
                         as usize
                 });
             let since = lock(&found.1).seq();
@@ -401,6 +401,24 @@ impl Work {
             &text[cut..]
         ))
     }
+}
+
+/// What a terminal's output is for an agent, as its tools show it.
+fn shown(
+    view: &TerminalView,
+    screen: &Mutex<Screen>,
+    above: usize,
+) -> String {
+    let mut screen = lock(screen);
+    let text = screen.text(above);
+    let status = match screen.ended() {
+        Some(code) => format!("ended with exit code {code}"),
+        None => "running".into(),
+    };
+    format!(
+        "[terminal {} \"{}\", {}x{}, {status}]\n{text}",
+        view.id, view.name, view.cols, view.rows
+    )
 }
 
 #[cfg(test)]
