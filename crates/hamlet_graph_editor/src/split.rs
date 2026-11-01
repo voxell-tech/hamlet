@@ -186,6 +186,8 @@ pub(super) struct Layout<F: Flavor> {
     pub preview: f32,
     /// The cards, by [`Pane`].
     cards: [Card; 2],
+    /// The canvas's size, as last laid out. Zero until it is.
+    area: Vec2,
     flavor: PhantomData<F>,
 }
 
@@ -197,12 +199,23 @@ impl<F: Flavor> Default for Layout<F> {
                 Card::new(Corner::TopRight, 300.0),
                 Card::new(Corner::BottomRight, 280.0),
             ],
+            area: Vec2::ZERO,
             flavor: PhantomData,
         }
     }
 }
 
 impl<F: Flavor> Layout<F> {
+    /// The tallest a card is drawn: the canvas less a margin above
+    /// and below.
+    fn tallest(&self) -> Val {
+        if self.area.y > 0.0 {
+            px((self.area.y - 2.0 * MARGIN).max(0.0))
+        } else {
+            percent(100.0)
+        }
+    }
+
     pub(super) fn card(&self, pane: Pane) -> &Card {
         &self.cards[pane.at()]
     }
@@ -351,7 +364,7 @@ pub(super) fn floating<F: Flavor>(
             .width(resource::<Layout<F>, _>(move |layout| {
                 px(layout.card(pane).width)
             }))
-            .max_height(percent(100.0))
+            .max_height(resource::<Layout<F>, _>(Layout::tallest))
             .overflow(Overflow::clip())
             .padding(UiRect::all(px(gap)))
             .gap(gap / 2.0)
@@ -411,6 +424,9 @@ fn glide<F: Flavor>(
         return;
     };
     let area = logical(area);
+    if layout.area != area {
+        layout.area = area;
+    }
     let step = 1.0 - (-GLIDE * time.delta_secs()).exp();
     for (Floating(pane, _), node) in &floating {
         let size = logical(node);
