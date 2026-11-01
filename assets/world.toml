@@ -384,6 +384,7 @@ gap = 0.2
 [debug]
 shown = false
 key = "F3"
+wireframe = "F4"
 hit_boxes = true
 routes = true
 plots = true
