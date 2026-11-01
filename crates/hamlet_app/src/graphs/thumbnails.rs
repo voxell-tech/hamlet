@@ -187,11 +187,12 @@ fn develop(
         }
         _ => None,
     };
-    // A mesh stands as long as its file is, in a box of one.
+    // A mesh keeps the proportions of its file in a box of one; an
+    // asset is drawn at its own size, which this scale undoes.
     let scale = model.map_or(Vec3::ONE, |model| {
         let extent = model.extent();
         extent / extent.max_element().max(1e-4)
-    });
+    }) / asset.size.max(Vec3::splat(1e-4));
     let mut meshing = Meshing::new();
     stand(
         &mut meshing,

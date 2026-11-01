@@ -763,8 +763,8 @@ fn rebuild(
     let (mut low, mut high) =
         (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for object in objects {
-        let size = object.frame.scale;
         let asset = editor.rules.assets.get(&object.asset);
+        let size = drawn_size(&object.frame, asset.as_ref());
         // A mesh that cannot be read is drawn as a box, and said so.
         let mut failed = None;
         let model = match (
@@ -830,6 +830,12 @@ fn rebuild(
     ));
 }
 
+/// The size an asset is drawn at on `frame`: its own size times the
+/// frame's scale, a metre on each side where it has none.
+fn drawn_size(frame: &Frame, asset: Option<&Asset>) -> Vec3 {
+    frame.scale * asset.map_or(Vec3::ONE, |asset| asset.size)
+}
+
 /// The asset `name`, with the catalogue entry `asset` and the
 /// `model` its file was read as, drawn standing on `frame`: a box
 /// where it has no shape of its own. Gives the middle of its box.
@@ -841,7 +847,7 @@ pub(super) fn stand(
     model: Option<&Model>,
     colours: Option<&Colours>,
 ) -> Vec3 {
-    let size = frame.scale;
+    let size = drawn_size(frame, asset);
     let marker = name == MARKER;
     // An asset stands on its transform; a marker sits on it.
     let lift = if marker { 0.0 } else { size.y * 0.5 };

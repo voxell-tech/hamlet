@@ -280,7 +280,8 @@ fn on_surface(run: &mut Run) -> Result<(), Error> {
     let mut made = Vec::new();
     for surface in run.objects("on")? {
         let density = run.number("density", Some(surface))?.max(0.0);
-        let size = surface.frame.scale;
+        let own = run.own_size(surface);
+        let size = surface.frame.scale * own;
         let expected = size.x * size.z * density;
         let key = chance.mix(surface.id.0);
         let count = run.count("density", expected.floor())?
@@ -288,13 +289,14 @@ fn on_surface(run: &mut Run) -> Result<(), Error> {
         let places = (0..count)
             .map(|index| {
                 let point = key.mix(u64::from(index) + 1);
-                // On its top, in its own frame, where its scale is
-                // its size.
-                let local = Vec3::new(
-                    point.mix(1).unit() - 0.5,
-                    1.0,
-                    point.mix(2).unit() - 0.5,
-                );
+                // On its top, in its own frame, where its scale
+                // times its own size is its size.
+                let local = own
+                    * Vec3::new(
+                        point.mix(1).unit() - 0.5,
+                        1.0,
+                        point.mix(2).unit() - 0.5,
+                    );
                 let mut frame = Frame::at(surface.frame.point(local));
                 if align {
                     frame.rotation = surface.frame.rotation;
@@ -348,7 +350,7 @@ fn on_sockets(run: &mut Run) -> Result<(), Error> {
             continue;
         };
         // An asset stands on its frame, its box above it.
-        let size = object.frame.scale;
+        let size = object.frame.scale * run.own_size(object);
         let rotation = object.frame.rotation;
         places.push(Place::at(Frame {
             translation: object.frame.translation

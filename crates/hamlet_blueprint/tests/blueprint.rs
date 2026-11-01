@@ -315,6 +315,44 @@ fn an_unset_input_varies_within_its_range_once_per_house() {
 }
 
 #[test]
+fn a_mesh_at_scale_one_is_its_own_size_and_its_socket_is_on_it() {
+    let ruleset = Ruleset::from_ron(
+        r#"(
+            entry: "door",
+            graphs: {"door": (
+                outputs: [(name: "objects", value_type: Objects, from: (node: 3, name: "objects"))],
+                nodes: [
+                    (id: 1, does: Kind("object"), settings: {"asset": Fixed(Choice("door"))}),
+                    (id: 2, does: Kind("object"), settings: {"asset": Fixed(Choice("box"))}),
+                    (id: 3, does: Kind("on_sockets")),
+                ],
+                wires: [
+                    (from: (node: 1, name: "objects"), to: (node: 3, name: "on")),
+                    (from: (node: 2, name: "objects"), to: (node: 3, name: "objects")),
+                ],
+            )},
+            assets: {"door": (
+                shape: Mesh("assets/door.glb"),
+                size: (1.2, 2.4, 0.2),
+                sockets: {"lamp": (at: (0.5, 0.5, 0.0), turn: (0.0, 0.0, 0.0, 1.0))},
+            )},
+        )"#,
+    )
+    .expect("the fixture parses");
+    let lamps =
+        objects(&run(&ruleset, 1, &BTreeMap::new()), "objects");
+    // At the top right of a door 1.2 wide and 2.4 tall standing on
+    // the origin, not of a metre's box.
+    assert_eq!(lamps.len(), 1);
+    assert!(
+        lamps[0]
+            .frame
+            .translation
+            .abs_diff_eq(Vec3::new(0.6, 2.4, 0.0), 1e-5)
+    );
+}
+
+#[test]
 fn a_bundle_round_trips_with_its_files() {
     let bundle = Bundle {
         ruleset: fence(),

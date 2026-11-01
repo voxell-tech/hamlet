@@ -1,8 +1,7 @@
 //! The library's meshes as the blueprint editor shows them. A chosen
 //! `.glb` is copied into the library and added to its catalogue with
 //! a palette colour for each of its materials. The preview reads each
-//! file once and draws it fitted to its transform, as a box fills
-//! one.
+//! file once and draws it at its own size times its object's scale.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -23,7 +22,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_desktop::file::{ChooseFiles, FilesChosen};
-use hamlet_graph::{Asset, Paint, Shape, Socket};
+use hamlet_graph::{Asset, Catalogue, Paint, Shape, Socket};
 use hamlet_graph_editor::library::picker::{
     Section, grid, picture, sections, shown,
 };
@@ -128,6 +127,11 @@ impl Model {
     /// The sides of the box around it.
     pub(super) fn extent(&self) -> Vec3 {
         self.high - self.low
+    }
+
+    /// The size of the box around it, as it was made, never flat.
+    fn size(&self) -> Vec3 {
+        self.extent().max(Vec3::splat(1e-4))
     }
 
     /// The names of its material slots, each once.
@@ -340,6 +344,23 @@ impl Meshes {
                     .with_context(|| path.to_owned())
             })
             .as_ref()
+    }
+
+    /// Sets the size of each mesh in `catalogue` to its file's in
+    /// `folder`, for one added before assets kept their size. One
+    /// whose file cannot be read is left as it is.
+    pub(super) fn measure(
+        &mut self,
+        catalogue: &mut Catalogue,
+        folder: &Path,
+    ) {
+        for asset in catalogue.0.values_mut() {
+            if let Shape::Mesh(path) = &asset.shape
+                && let Ok(model) = self.get(folder, path)
+            {
+                asset.size = model.size();
+            }
+        }
     }
 
     /// Forgets every file read, so each is read again.
@@ -602,6 +623,7 @@ pub(crate) fn add_mesh(
         .collect();
     let asset = Asset {
         shape: Shape::Mesh(path),
+        size: model.size(),
         slots,
         sockets: model.sockets.clone(),
     };

@@ -489,6 +489,7 @@ fn rescan(time: Res<Time>, mut library: ResMut<Library>) {
 mod tests {
     use std::collections::BTreeMap;
 
+    use bevy::math::Vec3;
     use hamlet_testing::Scratch;
 
     use super::*;
@@ -504,6 +505,7 @@ mod tests {
             "barrel".to_owned(),
             Asset {
                 shape: Shape::Mesh("assets/barrel.glb".to_owned()),
+                size: Vec3::ONE,
                 slots: BTreeMap::new(),
                 sockets: BTreeMap::new(),
             },

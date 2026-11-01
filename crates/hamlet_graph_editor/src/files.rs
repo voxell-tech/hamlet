@@ -362,6 +362,7 @@ fn chosen<F: Flavor>(
 mod tests {
     use std::collections::BTreeMap;
 
+    use bevy::math::Vec3;
     use bevy_fynix::ViewExt;
     use bevy_fynix::views::frame;
     use hamlet_graph::{Asset, Registry, Sheet};
@@ -417,6 +418,7 @@ mod tests {
         fs::write(to.join("a.glb"), b"old").unwrap();
         let mesh = |file: &str| Asset {
             shape: Shape::Mesh(file.to_owned()),
+            size: Vec3::ONE,
             slots: BTreeMap::new(),
             sockets: BTreeMap::new(),
         };

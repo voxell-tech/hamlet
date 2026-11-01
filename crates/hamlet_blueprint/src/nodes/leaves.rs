@@ -70,8 +70,9 @@ fn transform(run: &mut Run) -> Result<(), Error> {
 
 const OBJECT: NodeKind = NodeKind {
     name: "object",
-    doc: "An asset on a transform, whose scale is its size: a \
-          built-in box is a metre on each side",
+    doc: "An asset on a transform. A scale of one draws it at its \
+          own size: a metre on each side for a built-in shape, and \
+          as it was made for a mesh",
     inputs: &[
         PortSpec::new(
             "asset",

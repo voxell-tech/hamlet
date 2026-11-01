@@ -16,6 +16,7 @@ use bevy::reflect::Reflect;
 use bevy::transform::components::Transform;
 use bevy_fynix::Theme;
 use hamlet_blueprint::{Frame, Object, ObjectId, Value};
+use hamlet_graph::Catalogue;
 use hamlet_graph_editor::Editor;
 use hamlet_graph_editor::canvas::picked;
 use hamlet_ui::theme::HamletTheme;
@@ -56,7 +57,13 @@ fn draw(
         for (_, value) in
             editor.got.watched.get(node).into_iter().flatten()
         {
-            show(&mut gizmos, value, colour, &framing);
+            show(
+                &mut gizmos,
+                value,
+                &editor.rules.assets,
+                colour,
+                &framing,
+            );
         }
     }
 }
@@ -64,6 +71,7 @@ fn draw(
 fn show(
     gizmos: &mut Gizmos<Overlay>,
     value: &Value,
+    assets: &Catalogue,
     colour: Color,
     framing: &Framing,
 ) {
@@ -76,7 +84,7 @@ fn show(
                 ObjectId::ROOT,
                 Frame::IDENTITY,
             ));
-            outline(gizmos, &frame, colour);
+            outline(gizmos, &frame, frame.scale, colour);
             gizmos.axes(
                 Transform::from_translation(frame.translation)
                     .with_rotation(frame.rotation),
@@ -85,7 +93,15 @@ fn show(
         }
         Value::Objects(objects) => {
             for object in objects {
-                outline(gizmos, &object.frame, colour);
+                let own = assets
+                    .get(&object.asset)
+                    .map_or(Vec3::ONE, |asset| asset.size);
+                outline(
+                    gizmos,
+                    &object.frame,
+                    object.frame.scale * own,
+                    colour,
+                );
             }
         }
         Value::Curve(curve) => {
@@ -166,13 +182,13 @@ fn show(
     }
 }
 
-/// The box an asset standing on `frame` fills, its scale its size.
+/// The box of `size` an asset standing on `frame` fills.
 fn outline(
     gizmos: &mut Gizmos<Overlay>,
     frame: &Frame,
+    size: Vec3,
     colour: Color,
 ) {
-    let size = frame.scale;
     gizmos.cube(
         Transform {
             translation: frame.translation
