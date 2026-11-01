@@ -24,7 +24,6 @@ pub struct Inks {
     pub wax: Color,
     pub shade: Color,
     pub brass: Color,
-    pub rune: Color,
     pub coal: Color,
     /// The dark line around every cursor.
     pub edge: Color,
@@ -301,8 +300,7 @@ impl Picture {
 pub fn hot(mode: Mode) -> (u16, u16) {
     match mode {
         Mode::Point => (3, 3),
-        Mode::Press => (7, 7),
-        Mode::Pick => (14, 14),
+        Mode::Press => (13, 3),
         Mode::Grab => (16, 18),
         Mode::Carry => (16, 17),
         _ => (16, 16),
@@ -327,38 +325,31 @@ pub fn face(mode: Mode, frame: usize, inks: &Inks) -> Image {
     match mode {
         Mode::Point => art.taper(hot, 11.5, 4.6, 31.0, inks),
         Mode::Press => {
-            art.taper(hot, 11.5, 5.4, 27.5, inks);
-            // The flame flares, and sparks fly off to both sides.
-            let heart = hot + Vec2::splat(6.2);
-            for turn in [-75.0_f32, -30.0, 120.0, 165.0] {
-                let out = Vec2::from_angle(turn.to_radians());
+            // The glove of Grab with one finger out, its tip on
+            // the pointer.
+            art.add(
+                line(Vec2::new(13.5, 14.0), hot + Vec2::Y * 2.0, 2.3),
+                inks.wax,
+            );
+            for (x, y) in [(17.4, 14.6), (21.0, 15.6), (23.6, 17.2)] {
+                art.add(disc(Vec2::new(x, y), 2.4), inks.wax);
+            }
+            art.add(
+                line(Vec2::new(9.8, 21.5), Vec2::new(6.4, 17.8), 2.2),
+                inks.wax,
+            );
+            art.add(disc(Vec2::new(16.0, 19.5), 6.8), inks.wax);
+            for x in [19.2, 22.6] {
                 art.add(
-                    line(heart + out * 8.0, heart + out * 10.6, 0.9),
-                    inks.flame,
+                    line(
+                        Vec2::new(x, 13.6),
+                        Vec2::new(x, 15.4),
+                        0.45,
+                    ),
+                    inks.edge,
                 );
             }
-        }
-        Mode::Pick => {
-            // A glass held up to the thing: a ring of the agents'
-            // magic with the flame in its middle.
-            let back = Vec2::splat(FRAC_1_SQRT_2);
-            art.add(
-                line(hot + back * 10.0, hot + back * 17.6, 2.1),
-                inks.brass,
-            );
-            art.add(
-                line(hot + back * 9.8, hot + back * 10.6, 2.9),
-                inks.brass,
-            );
-            art.add(ring(hot, 9.0, 1.1), inks.rune);
-            for out in [Vec2::X, Vec2::Y, -Vec2::X, -Vec2::Y] {
-                art.add(
-                    line(hot + out * 9.0, hot + out * 10.8, 1.1),
-                    inks.rune,
-                );
-            }
-            art.flame(hot - back * 5.2, back, 6.0, 2.9, inks);
-            art.light = Some((hot, 9.0));
+            art.cuff(Vec2::new(16.0, 26.5), inks);
         }
         Mode::Grab => {
             let fingers = [
