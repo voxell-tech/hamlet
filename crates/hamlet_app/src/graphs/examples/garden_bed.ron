@@ -26,7 +26,6 @@
                     (id: 14, does: Kind("object"), settings: {"asset": Fixed(Choice("flagstone"))}),
                     (id: 15, does: Kind("rectangle"), settings: {"width": Fixed(Number(3.6)), "depth": Fixed(Number(2.4))}),
                     (id: 16, does: Kind("along_curve"), settings: {"spacing": Fixed(Number(0.45)), "align": Fixed(Bool(true))}),
-                    (id: 17, does: Kind("combine")),
                 ],
                 wires: [
                     (from: (node: 1, name: "transform"), to: (node: 2, name: "transform")),
@@ -45,8 +44,6 @@
                     (from: (node: 13, name: "transform"), to: (node: 14, name: "transform")),
                     (from: (node: 14, name: "objects"), to: (node: 16, name: "objects")),
                     (from: (node: 15, name: "curve"), to: (node: 16, name: "curve")),
-                    (from: (node: 12, name: "objects"), to: (node: 17, name: "set_1")),
-                    (from: (node: 16, name: "objects"), to: (node: 17, name: "set_2")),
                 ],
             ),
             groups: [

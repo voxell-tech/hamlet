@@ -32,7 +32,6 @@
                     (id: 18, does: Kind("math"), settings: {"op": Fixed(Choice("subtract")), "a": FromParent("height"), "b": Fixed(Number(0.65))}),
                     (id: 19, does: Kind("point"), settings: {"x": Fixed(Number(0.0)), "z": Fixed(Number(0.0))}),
                     (id: 20, does: Kind("repeat"), settings: {"count": Fixed(Integer(2))}),
-                    (id: 21, does: Kind("combine")),
                 ],
                 wires: [
                     (from: (node: 1, name: "point"), to: (node: 2, name: "scale")),
@@ -54,8 +53,6 @@
                     (from: (node: 18, name: "value"), to: (node: 19, name: "y")),
                     (from: (node: 17, name: "objects"), to: (node: 20, name: "objects")),
                     (from: (node: 19, name: "point"), to: (node: 20, name: "step")),
-                    (from: (node: 13, name: "objects"), to: (node: 21, name: "set_1")),
-                    (from: (node: 20, name: "objects"), to: (node: 21, name: "set_2")),
                 ],
             ),
             groups: [
