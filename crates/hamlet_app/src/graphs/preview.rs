@@ -194,12 +194,13 @@ struct Drawn {
 pub(super) fn view() -> impl View {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let panel = column((error(), switches(), time_dial()))
-            .width(percent(100.0))
-            .fills_height()
-            .overflow(Overflow::clip())
-            .fill(theme.palette.input)
-            .tagged(Shown);
+        let panel =
+            column((error(), modes(), switches(), time_dial()))
+                .width(percent(100.0))
+                .fills_height()
+                .overflow(Overflow::clip())
+                .fill(theme.palette.input)
+                .tagged(Shown);
         match cx
             .world
             .get_resource::<Preview>()
@@ -243,9 +244,9 @@ fn error() -> AnyView {
             )),))
             .position(PositionType::Absolute)
             .inset(UiRect {
-                left: px(8.0),
-                right: px(8.0),
-                top: px(8.0),
+                left: px(BAR_INSET),
+                right: px(MODES_WIDTH),
+                top: px(BAR_INSET),
                 bottom: Val::Auto,
             })
             .padding(UiRect::axes(px(8.0), px(4.0)))
@@ -303,7 +304,6 @@ fn switches() -> AnyView {
             "Roll again what is picked once per item",
             roll_item,
         ),
-        modes(),
     ))
     .gap(4.0)
     .position(PositionType::Absolute)
@@ -445,7 +445,7 @@ fn time_dial() -> AnyView {
 }
 
 /// What a transform's gizmo does, each an icon, the one it does now
-/// lit.
+/// lit, in the preview's upper right corner.
 fn modes() -> AnyView {
     const MODES: [(Glyph, &str, GizmoMode); 3] = [
         (Glyph::Move, "Move (G)", GizmoMode::Translate),
@@ -456,22 +456,43 @@ fn modes() -> AnyView {
         let buttons = MODES
             .into_iter()
             .map(|(which, tip, picked)| {
-                button(glyph(which, ICON))
+                let shown = button(glyph(which, ICON))
                     .width(px(BAR_BUTTON))
                     .height(px(BAR_BUTTON))
                     .tooltip(move || note(tip))
-                    .rules(choice(*mode == picked))
                     .on_activate(move |world| {
                         world.insert_resource(picked);
-                    })
-                    .boxed()
+                    });
+                if *mode == picked {
+                    shown.rules(choice(true)).boxed()
+                } else {
+                    shown
+                        .rules(styles::button)
+                        .tagged(Variant::Default)
+                        .boxed()
+                }
             })
             .collect::<Vec<_>>();
-        row(buttons).gap(4.0).boxed()
+        row(buttons).gap(MODE_GAP).boxed()
     })
-    .within(row(()).gap(0.0))
+    .within(row(()).gap(0.0).position(PositionType::Absolute).inset(
+        UiRect {
+            top: px(BAR_INSET),
+            right: px(BAR_INSET),
+            left: Val::Auto,
+            bottom: Val::Auto,
+        },
+    ))
     .boxed()
 }
+
+/// The space between the buttons of the gizmo's modes.
+const MODE_GAP: f32 = 4.0;
+
+/// The width the buttons of the gizmo's modes take from the preview's
+/// right edge, which the error beside them keeps clear of.
+const MODES_WIDTH: f32 =
+    BAR_INSET + 3.0 * BAR_BUTTON + 2.0 * MODE_GAP + BAR_INSET;
 
 /// Shows or hides the grid, spawning it once the theme gives its
 /// colours.
