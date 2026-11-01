@@ -1,7 +1,8 @@
 //! The controls on a card's unwired input rows: a field for a number,
 //! a whole number or each axis of a point or vector, a switch, a
 //! colour's four fields with a swatch, a choice that opens its list
-//! in the menu layer, and a mark that puts a fixed input back to its
+//! in the menu layer or the pictures of the library's meshes, and a
+//! mark that puts a fixed input back to its
 //! default. Changing a value fixes the input; until then it shows its
 //! default. A group's title is a field on its title bar.
 
@@ -11,10 +12,10 @@ use bevy::math::Vec3;
 use bevy::ui::{AlignItems, Display, UiRect, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, icon_button, label,
-    number_field, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, frame, icon_button,
+    label, number_field, row, text_field,
 };
-use bevy_fynix::{ScopedExt, Signal, ViewExt, resource};
+use bevy_fynix::{ScopedExt, Signal, ViewExt, keyed, resource};
 use hamlet_graph::{
     Constant, Edit, Listed, NodeId, Setting, ValueType,
 };
@@ -26,6 +27,7 @@ use hamlet_ui::widgets::switch::switch;
 use super::Editor;
 use super::canvas::Input;
 use super::flavor::Flavor;
+use super::library::picker;
 use super::menu::Menu;
 
 /// The width of a number's field.
@@ -36,6 +38,8 @@ const AXIS: f32 = 38.0;
 const CHANNEL: f32 = 32.0;
 /// The side of a swatch or a glyph beside a field.
 const MARK: f32 = 12.0;
+/// The side of the picture of an asset chosen.
+const PICTURE: f32 = 20.0;
 
 /// How an input of `node` is set now.
 pub(super) fn current<F: Flavor>(
@@ -320,13 +324,33 @@ fn flag<F: Flavor>(node: NodeId, input: Input) -> AnyView {
 }
 
 /// A choice: its value and a chevron, which open the list of choices
-/// at the pointer. The chevron points down, and up while the list is
-/// open.
+/// at the pointer, or the pictures of the library's meshes for an
+/// asset, which it then shows a picture of too. The chevron points
+/// down, and up while the list is open.
 fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
     let read = input.clone();
     let name = input.name.clone();
+    let pictured = input.clone();
+    let picture = keyed(
+        resource::<Editor<F>, _>(move |editor| {
+            match (pictured.listed, value_of(editor, node, &pictured))
+            {
+                (
+                    Some(Listed::Assets),
+                    Some(Constant::Choice(asset)),
+                ) => Some(asset),
+                _ => None,
+            }
+        }),
+        |asset: &Option<String>| match asset {
+            Some(asset) => picker::picture(asset, PICTURE),
+            None => frame().boxed(),
+        },
+    )
+    .within(row(()).gap(0.0));
     button(
         row((
+            picture,
             label(resource::<Editor<F>, _>(move |editor| {
                 match value_of(editor, node, &read) {
                     Some(Constant::Choice(choice)) => {
@@ -353,10 +377,18 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
     .padding(UiRect::axes(px(6.0), px(0.0)))
     .rules(text_input)
     .on_activate(move |world| {
+        if input.listed == Some(Listed::Assets) {
+            super::menu::choose_asset::<F>(
+                world,
+                node,
+                input.name.clone(),
+            );
+            return;
+        }
         let catalogue = &world.resource::<Editor<F>>().rules.assets;
         let choices = match input.listed {
-            Some(Listed::Assets) => catalogue.names(),
             Some(Listed::Sockets) => catalogue.socket_names(),
+            Some(Listed::Assets) => Vec::new(),
             None => input
                 .choices
                 .iter()

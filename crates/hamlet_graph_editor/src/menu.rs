@@ -42,6 +42,8 @@ use hamlet_ui::{AnyView, Cx, View};
 
 use super::canvas::Input;
 use super::flavor::Flavor;
+use super::library::Item;
+use super::library::picker::picker;
 use super::{Editor, Place, canvas, controls, files};
 
 /// The group the book's other graphs are listed under.
@@ -60,6 +62,8 @@ const GROUPS: [&str; 7] = [
 
 /// The most a long list in a menu grows before it scrolls.
 const TALLEST: f32 = 320.0;
+/// The width of the pictures of the library's meshes: three across.
+const PICKER: f32 = 316.0;
 /// The room the caret takes before the search's hint.
 const CARET: f32 = 4.0;
 
@@ -110,6 +114,13 @@ pub(super) enum Which {
         input: Input,
         at: Vec2,
     },
+    /// The library's meshes as pictures, the one picked the asset an
+    /// input of a card puts down.
+    Asset {
+        node: NodeId,
+        input: String,
+        at: Vec2,
+    },
     /// The choices an input of a card can take.
     Choice {
         node: NodeId,
@@ -129,6 +140,7 @@ impl Which {
         matches!(
             self,
             Which::Choice { node: on, input: name, .. }
+            | Which::Asset { node: on, input: name, .. }
                 if *on == node && name == input
         )
     }
@@ -332,6 +344,9 @@ pub(super) fn view<F: Flavor>() -> impl View {
             }
             Which::Input { node, input, at } => {
                 input_menu::<F>(*node, input.clone(), *at)
+            }
+            Which::Asset { node, input, at } => {
+                asset_menu::<F>(*node, input.clone(), *at)
             }
             Which::Choice {
                 node,
@@ -830,6 +845,59 @@ fn group_menu<F: Flavor>(group: usize, at: Vec2) -> AnyView {
     })
 }
 
+/// Opens the pictures of the library's meshes for `node`'s `input`,
+/// at the pointer.
+pub(super) fn choose_asset<F: Flavor>(
+    world: &mut World,
+    node: NodeId,
+    input: String,
+) {
+    let at = pointer(world);
+    open::<F>(world, Which::Asset { node, input, at });
+}
+
+/// Where the pointer is in the window.
+fn pointer(world: &mut World) -> Vec2 {
+    world
+        .query::<&Window>()
+        .iter(world)
+        .find_map(Window::cursor_position)
+        .unwrap_or_default()
+}
+
+/// The pictures of the library's meshes, a click on one putting it
+/// down by `node`'s `input`.
+fn asset_menu<F: Flavor>(
+    node: NodeId,
+    input: String,
+    at: Vec2,
+) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let at = in_layer::<F>(cx.world, at);
+        let input = input.clone();
+        let pick = move |world: &mut World, item: &Item| {
+            close::<F>(world);
+            controls::put::<F>(
+                world,
+                node,
+                &input,
+                Some(Setting::Fixed(Constant::Choice(
+                    item.name.clone(),
+                ))),
+            );
+        };
+        cx.build(
+            popup(
+                Rect::from_corners(at, at),
+                (column((picker(pick),))
+                    .width(px(PICKER))
+                    .height(px(TALLEST)),),
+            )
+            .on_dismiss(|world, _| close::<F>(world)),
+        )
+    })
+}
+
 /// Opens the choices of `node`'s `input` at the pointer.
 pub(super) fn choose<F: Flavor>(
     world: &mut World,
@@ -837,11 +905,7 @@ pub(super) fn choose<F: Flavor>(
     input: String,
     choices: Vec<String>,
 ) {
-    let at = world
-        .query::<&Window>()
-        .iter(world)
-        .find_map(Window::cursor_position)
-        .unwrap_or_default();
+    let at = pointer(world);
     open::<F>(
         world,
         Which::Choice {
