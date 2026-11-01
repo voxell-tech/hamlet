@@ -58,7 +58,7 @@ const GROUPS: [&str; 7] = [
     GRAPHS,
 ];
 
-/// The most the list of what can be added grows before it scrolls.
+/// The most a long list in a menu grows before it scrolls.
 const TALLEST: f32 = 320.0;
 /// The room the caret takes before the search's hint.
 const CARET: f32 = 4.0;
@@ -751,9 +751,12 @@ fn group_menu<F: Flavor>(group: usize, at: Vec2) -> AnyView {
                 .boxed(),
         ];
         cx.build(
-            popup(Rect::from_corners(at, at), items)
-                .on_dismiss(|world, _| close::<F>(world))
-                .min_width(px(cx.theme().space.menu_width * 0.6)),
+            popup(
+                Rect::from_corners(at, at),
+                (scroll(items).gap(0.0).max_height(px(TALLEST)),),
+            )
+            .on_dismiss(|world, _| close::<F>(world))
+            .min_width(px(cx.theme().space.menu_width * 0.6)),
         )
     })
 }
