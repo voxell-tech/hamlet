@@ -16,6 +16,7 @@ use tokio::sync::mpsc::{
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Picker>()
         .add_observer(ask)
+        .add_observer(ask_many)
         .add_systems(Update, (open, take));
 }
 
@@ -47,14 +48,39 @@ pub struct FileChosen {
     pub path: PathBuf,
 }
 
-/// The asker a file was chosen for, how, and the file. None when the
-/// dialog was closed with nothing chosen.
-type Chosen = (Entity, FileMode, Option<PathBuf>);
+/// Asks the chief to choose any number of files for `asker` in the
+/// system's dialog, which says `title`, among files ending in
+/// `extension`. A dialog already open asks nothing.
+#[derive(Event, Clone, Debug)]
+pub struct ChooseFiles {
+    pub asker: Entity,
+    pub title: String,
+    pub extension: String,
+}
+
+/// The files the chief chose for `asker`, at least one.
+#[derive(Event, Clone, Debug)]
+pub struct FilesChosen {
+    pub asker: Entity,
+    pub paths: Vec<PathBuf>,
+}
+
+/// What the chief is asked to choose.
+enum Asked {
+    One(ChooseFile),
+    Many(ChooseFiles),
+}
+
+/// What a dialog gave. Empty when it was closed with nothing chosen.
+enum Chosen {
+    One(Entity, FileMode, Option<PathBuf>),
+    Many(Entity, Vec<PathBuf>),
+}
 
 /// The dialog a file is chosen in.
 #[derive(Resource)]
 struct Picker {
-    asked: Option<ChooseFile>,
+    asked: Option<Asked>,
     /// A dialog is open.
     open: bool,
     tx: UnboundedSender<Chosen>,
@@ -74,7 +100,11 @@ impl Default for Picker {
 }
 
 fn ask(choose: On<ChooseFile>, mut picker: ResMut<Picker>) {
-    picker.asked = Some(choose.event().clone());
+    picker.asked = Some(Asked::One(choose.event().clone()));
+}
+
+fn ask_many(choose: On<ChooseFiles>, mut picker: ResMut<Picker>) {
+    picker.asked = Some(Asked::Many(choose.event().clone()));
 }
 
 /// Opens the dialog for whoever asked. The marker keeps this on the
@@ -93,40 +123,70 @@ fn open(
         return;
     };
     picker.open = true;
-    let dialog = rfd::AsyncFileDialog::new()
-        .set_title(asked.title)
-        .add_filter(
-            asked.extension.clone(),
-            &[asked.extension.as_str()],
-        );
-    let (asker, mode) = (asked.asker, asked.mode);
     let tx = picker.tx.clone();
-    match mode {
-        FileMode::Open => {
-            let chosen = dialog.pick_file();
-            tokio.0.spawn(async move {
-                let path =
-                    chosen.await.map(|f| f.path().to_path_buf());
-                let _ = tx.send((asker, mode, path));
-            });
+    match asked {
+        Asked::One(asked) => {
+            let dialog = filtered(asked.title, &asked.extension);
+            let (asker, mode) = (asked.asker, asked.mode);
+            match mode {
+                FileMode::Open => {
+                    let chosen = dialog.pick_file();
+                    tokio.0.spawn(async move {
+                        let path = chosen
+                            .await
+                            .map(|f| f.path().to_path_buf());
+                        let _ =
+                            tx.send(Chosen::One(asker, mode, path));
+                    });
+                }
+                FileMode::Save => {
+                    let chosen =
+                        dialog.set_file_name(asked.name).save_file();
+                    tokio.0.spawn(async move {
+                        let path = chosen
+                            .await
+                            .map(|f| f.path().to_path_buf());
+                        let _ =
+                            tx.send(Chosen::One(asker, mode, path));
+                    });
+                }
+            }
         }
-        FileMode::Save => {
-            let chosen = dialog.set_file_name(asked.name).save_file();
+        Asked::Many(asked) => {
+            let chosen =
+                filtered(asked.title, &asked.extension).pick_files();
+            let asker = asked.asker;
             tokio.0.spawn(async move {
-                let path =
-                    chosen.await.map(|f| f.path().to_path_buf());
-                let _ = tx.send((asker, mode, path));
+                let paths = chosen.await.unwrap_or_default();
+                let paths = paths
+                    .iter()
+                    .map(|f| f.path().to_path_buf())
+                    .collect();
+                let _ = tx.send(Chosen::Many(asker, paths));
             });
         }
     }
 }
 
-/// Tells of the file a dialog gave.
+/// A dialog that says `title` and shows files ending in `extension`.
+fn filtered(title: String, extension: &str) -> rfd::AsyncFileDialog {
+    rfd::AsyncFileDialog::new()
+        .set_title(title)
+        .add_filter(extension, &[extension])
+}
+
+/// Tells of the files a dialog gave.
 fn take(mut picker: ResMut<Picker>, mut commands: Commands) {
-    while let Ok((asker, mode, path)) = picker.rx.try_recv() {
+    while let Ok(chosen) = picker.rx.try_recv() {
         picker.open = false;
-        if let Some(path) = path {
-            commands.trigger(FileChosen { asker, mode, path });
+        match chosen {
+            Chosen::One(asker, mode, Some(path)) => {
+                commands.trigger(FileChosen { asker, mode, path });
+            }
+            Chosen::Many(asker, paths) if !paths.is_empty() => {
+                commands.trigger(FilesChosen { asker, paths });
+            }
+            Chosen::One(..) | Chosen::Many(..) => {}
         }
     }
 }
