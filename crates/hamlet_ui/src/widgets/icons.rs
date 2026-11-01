@@ -119,6 +119,8 @@ pub enum Glyph {
     Folder,
     /// A cube seen from a corner: things put down in a scene.
     Cube,
+    /// A ball shaded from the top left: a material.
+    Sphere,
     /// A compass needle, its north half filled, pointing up.
     Compass,
     Eye,
@@ -168,7 +170,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 58] = [
+    pub const ALL: [Glyph; 59] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -215,6 +217,7 @@ impl Glyph {
         Glyph::Menu,
         Glyph::Folder,
         Glyph::Cube,
+        Glyph::Sphere,
         Glyph::Compass,
         Glyph::Eye,
         Glyph::Mountains,
@@ -566,6 +569,10 @@ impl Glyph {
                 ]),
                 Path(&[[2.8, 5.0], [8.0, 8.0], [13.2, 5.0]]),
                 Line(8.0, 8.0, 8.0, 14.0),
+            ],
+            Glyph::Sphere => &[
+                Ring(8.0, 8.0, 6.0),
+                Arc(9.5, 9.5, 4.5, 190.0, 260.0),
             ],
             Glyph::Compass => &[
                 Loop(&[

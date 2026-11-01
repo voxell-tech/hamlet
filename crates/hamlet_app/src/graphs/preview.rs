@@ -63,7 +63,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use super::Blueprint;
-use super::assets::{Meshes, palette_colour};
+use super::assets::{Meshes, Model, palette_colour};
 use super::blueprint::{roll_hamlet, roll_item};
 use super::gizmo::{self, Dragging, GizmoMode};
 
@@ -568,11 +568,6 @@ fn rebuild(
         (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for object in objects {
         let size = object.frame.scale;
-        let marker = object.asset == MARKER;
-        // An asset stands on its transform; a marker sits on it.
-        let lift = if marker { 0.0 } else { size.y * 0.5 };
-        let middle = object.frame.translation
-            + object.frame.rotation * Vec3::new(0.0, lift, 0.0);
         let asset = editor.rules.assets.get(&object.asset);
         // A mesh that cannot be read is drawn as a box, and said so.
         let mut failed = None;
@@ -597,50 +592,14 @@ fn rebuild(
         {
             library.note = error;
         }
-        let colours = colours.as_deref();
-        let colour = match colours {
-            Some(palette) if marker => palette.ochre,
-            _ => {
-                paint(colours, asset.as_ref(), BODY, Vec3::splat(0.7))
-            }
-        };
-        let shape = asset.as_ref().map(|asset| &asset.shape);
-        match (model, shape, colours) {
-            (Some(model), ..) => model.draw(
-                &mut meshing,
-                middle,
-                size,
-                object.frame.rotation,
-                |slot, own| paint(colours, asset.as_ref(), slot, own),
-            ),
-            (None, Some(Shape::Wedge { peak }), _) => {
-                wedge(
-                    &mut meshing,
-                    &object.frame,
-                    size,
-                    *peak,
-                    colour,
-                );
-            }
-            (None, Some(Shape::Tiles { taper }), Some(palette)) => {
-                tiles(
-                    &mut meshing,
-                    &object.frame,
-                    size,
-                    *taper,
-                    colour,
-                    palette,
-                );
-            }
-            _ => meshing.rbox(
-                middle,
-                size * 0.5,
-                0.04,
-                object.frame.rotation,
-                colour,
-                if marker { 0.0 } else { 0.25 },
-            ),
-        }
+        let middle = stand(
+            &mut meshing,
+            &object.frame,
+            &object.asset,
+            asset.as_ref(),
+            model,
+            colours.as_deref(),
+        );
         low = low.min(middle - size);
         high = high.max(middle + size);
     }
@@ -673,6 +632,56 @@ fn rebuild(
         MeshMaterial3d(preview.material.clone()),
         RenderLayers::layer(LAYER),
     ));
+}
+
+/// The asset `name`, with the catalogue entry `asset` and the
+/// `model` its file was read as, drawn standing on `frame`: a box
+/// where it has no shape of its own. Gives the middle of its box.
+pub(super) fn stand(
+    meshing: &mut Meshing,
+    frame: &Frame,
+    name: &str,
+    asset: Option<&Asset>,
+    model: Option<&Model>,
+    colours: Option<&Colours>,
+) -> Vec3 {
+    let size = frame.scale;
+    let marker = name == MARKER;
+    // An asset stands on its transform; a marker sits on it.
+    let lift = if marker { 0.0 } else { size.y * 0.5 };
+    let middle = frame.translation
+        + frame.rotation * Vec3::new(0.0, lift, 0.0);
+    let colour = match colours {
+        Some(palette) if marker => palette.ochre,
+        _ => paint(colours, asset, BODY, Vec3::splat(0.7)),
+    };
+    let shape = asset.map(|asset| &asset.shape);
+    match (model, shape, colours) {
+        (Some(model), ..) => {
+            model.draw(
+                meshing,
+                middle,
+                size,
+                frame.rotation,
+                |slot, own| paint(colours, asset, slot, own),
+            );
+        }
+        (None, Some(Shape::Wedge { peak }), _) => {
+            wedge(meshing, frame, size, *peak, colour);
+        }
+        (None, Some(Shape::Tiles { taper }), Some(palette)) => {
+            tiles(meshing, frame, size, *taper, colour, palette);
+        }
+        _ => meshing.rbox(
+            middle,
+            size * 0.5,
+            0.04,
+            frame.rotation,
+            colour,
+            if marker { 0.0 } else { 0.25 },
+        ),
+    }
+    middle
 }
 
 /// A triangle across x on `frame`, `size.y` high at `peak` along x

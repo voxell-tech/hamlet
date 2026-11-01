@@ -227,6 +227,7 @@ ordinary tools.
 | Procedural graph nodes, or the BLUEPRINT panel | `hamlet_blueprint/src/nodes/`; `hamlet_graph_editor/src/` for the editor every kind of graph shares; `hamlet_app/src/graphs/` for the blueprint and material flavors, whose `examples/` folders hold the books they offer, the first of which each opens with |
 | Material graph nodes, or the MATERIAL panel | `hamlet_material/src/kinds.rs` for the nodes, `compile.rs` for the shader they compile to; `hamlet_app/src/graphs/material.rs` and `material/` for the flavor and its preview |
 | The ASSETS panel and the asset library | `hamlet_graph_editor/src/library.rs` for the library; `hamlet_app/src/browser.rs` for the panel |
+| Mesh pictures and the mesh picker | `hamlet_graph_editor/src/library/thumbnails.rs` for what is asked for and when it is drawn again, `library/picker.rs` for the view that takes a callback; `hamlet_app/src/graphs/thumbnails.rs` for the camera that draws them |
 | The assets a graph puts down | `hamlet_graph/src/catalogue.rs` for the built-in ones and what an entry holds; `hamlet_app/src/graphs/assets.rs` for importing a `.glb`, its sockets, and drawing it in the preview |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Wizard, Hearth, camera or sound | `hamlet_realm/src/chief/`, `pick/camera.rs`, `sound/` |

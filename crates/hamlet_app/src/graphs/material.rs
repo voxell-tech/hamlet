@@ -38,7 +38,7 @@ impl Got {
 impl Flavor for Material {
     const PANEL: &'static str = "materials";
     const TITLE: &'static str = "MATERIAL";
-    const ICON: Glyph = Glyph::Drop;
+    const ICON: Glyph = Glyph::Sphere;
     const FOLDER: &'static str = "materials";
     const KIND: Kind = Kind::Material;
     const EXAMPLES: &'static [(&'static str, &'static str)] = &[

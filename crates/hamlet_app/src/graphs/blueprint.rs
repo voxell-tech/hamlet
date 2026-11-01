@@ -224,7 +224,7 @@ impl Flavor for Blueprint {
     }
 
     fn tabs() -> Vec<(Glyph, &'static str, fn() -> AnyView)> {
-        vec![(Glyph::Cube, "ASSETS", assets::tab)]
+        vec![(Glyph::Folder, "ASSETS", assets::tab)]
     }
 
     /// A mesh dropped on the canvas becomes an object node putting it

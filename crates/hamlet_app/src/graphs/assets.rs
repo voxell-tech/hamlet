@@ -19,17 +19,25 @@ use bevy::math::{Mat4, Quat, Vec3};
 use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    icon_button, row,
+    icon_button, row, scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_desktop::file::{ChooseFiles, FilesChosen};
 use hamlet_graph::{Asset, Paint, Shape, Socket};
-use hamlet_graph_editor::library::{Kind, Library, mesh_file};
+use hamlet_graph_editor::library::picker::{
+    Section, grid, picture, sections, shown,
+};
+use hamlet_graph_editor::library::{Item, Kind, Library, mesh_file};
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_ui::styles::{ICON, command, description, labelled, note};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, with_cx};
+
+use super::thumbnails;
+
+/// The side of the picture on an added asset's card.
+const PICTURE: f32 = 48.0;
 
 /// The palette's colours a material slot can take, of those a
 /// building is made of.
@@ -59,6 +67,7 @@ pub(super) const COLOURS: [&str; 20] = [
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Meshes>()
         .init_resource::<Importer>()
+        .add_plugins(thumbnails::plugin)
         .add_observer(chosen);
 }
 
@@ -116,6 +125,11 @@ struct Part {
 }
 
 impl Model {
+    /// The sides of the box around it.
+    pub(super) fn extent(&self) -> Vec3 {
+        self.high - self.low
+    }
+
     /// The names of its material slots, each once.
     fn slots(&self) -> Vec<String> {
         let mut slots: Vec<String> =
@@ -332,20 +346,58 @@ impl Meshes {
     pub(super) fn forget(&mut self) {
         self.0.clear();
     }
+
+    /// Forgets the file at `path`, so it is read again.
+    pub(super) fn forget_file(&mut self, path: &str) {
+        self.0.remove(path);
+    }
 }
 
-/// The parameters card's tab for the library's assets: each with a
-/// colour for each of its material slots, and a way to take it out;
-/// and the button that adds one.
+/// The parameters card's tab for the library's assets, in the
+/// sections of [`Section`].
 pub(super) fn tab() -> AnyView {
+    with_cx(|cx| {
+        let gap = cx.theme().space.gap;
+        column((
+            sections(),
+            scroll((
+                shown(Section::BuiltIn, built_in()),
+                shown(Section::Added, added()),
+            ))
+            .grow(1.0),
+        ))
+        .gap(gap)
+    })
+    .boxed()
+}
+
+/// The built-in assets as pictures.
+fn built_in() -> AnyView {
+    with_cx(|cx| {
+        let gap = cx.theme().space.gap;
+        column((
+            description(
+                "Boxes, gables and roof tiles every book has. Drag \
+                 one from the ASSETS panel onto the canvas to put \
+                 it down.",
+            ),
+            grid(Section::BuiltIn, |_: &mut World, _: &Item| {}),
+        ))
+        .gap(gap)
+    })
+    .boxed()
+}
+
+/// The added assets, each with a colour for each of its material
+/// slots and a way to take it out, and the button that adds one.
+fn added() -> AnyView {
     with_cx(|cx| {
         let library = cx.world.resource::<Library>();
         let gap = cx.theme().space.gap;
         let mut parts = vec![
             description(
-                "Built-in boxes, and meshes added from .glb files. \
-                 Each material takes a palette colour, or keeps its \
-                 own.",
+                "Meshes added from .glb files. Each material takes \
+                 a palette colour, or keeps its own.",
             )
             .boxed(),
         ];
@@ -360,13 +412,15 @@ pub(super) fn tab() -> AnyView {
     .boxed()
 }
 
-/// One asset's name, a way to take it out, and its slots' colours.
+/// One asset's picture and name, a way to take it out, and its
+/// slots' colours.
 fn card(name: String, asset: Asset) -> AnyView {
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
         let remove = name.clone();
         let mut rows: Vec<AnyView> = vec![
             row((
+                picture(&name, PICTURE),
                 column((note(name.replace('_', " ")),))
                     .width(percent(100.0))
                     .min_width(px(0.0)),

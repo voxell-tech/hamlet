@@ -20,14 +20,19 @@ use hamlet_client::ViewFolder;
 use hamlet_graph::{Asset, Book, Catalogue, Shape};
 use hamlet_ui::widgets::icons::Glyph;
 
+pub mod picker;
+pub mod thumbnails;
+
 /// How often the folder is read again, for files changed outside the
 /// window.
 const RESCAN: Duration = Duration::from_secs(3);
 
 /// Adds the [`Library`] and the systems that find and read its
-/// folder.
+/// folder, and the pickers of its meshes.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Library>()
+        .init_resource::<thumbnails::Thumbnails>()
+        .add_plugins(picker::plugin)
         .add_systems(Update, (find, rescan));
 }
 
@@ -78,8 +83,8 @@ impl Kind {
     pub fn glyph(self) -> Glyph {
         match self {
             Kind::Blueprint => Glyph::Signpost,
-            Kind::Material => Glyph::Drop,
-            Kind::Mesh => Glyph::Hamlet,
+            Kind::Material => Glyph::Sphere,
+            Kind::Mesh => Glyph::Cube,
             Kind::Texture => Glyph::Mountains,
         }
     }

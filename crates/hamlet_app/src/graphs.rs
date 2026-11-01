@@ -8,6 +8,7 @@ mod handles;
 mod material;
 mod overlay;
 mod preview;
+mod thumbnails;
 
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChanges;

@@ -34,6 +34,9 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
+use hamlet_graph_editor::library::picker::{
+    Section, picture, sections,
+};
 use hamlet_graph_editor::library::{
     Item, Kind, Library, Source, Tile,
 };
@@ -55,7 +58,7 @@ pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
         "assets",
         DockWindowKind::new("ASSETS", || flush_panel(view()))
-            .icon(Glyph::Cube.image(ICON)),
+            .icon(Glyph::Folder.image(ICON)),
     )
     .init_resource::<Browse>()
     .init_resource::<Shown>()
@@ -94,15 +97,20 @@ struct Importer(Option<(Entity, Entity)>);
 fn show(
     library: Res<Library>,
     browse: Res<Browse>,
+    section: Res<Section>,
     mut shown: ResMut<Shown>,
 ) {
-    if !library.is_changed() && !browse.is_changed() {
+    if !library.is_changed()
+        && !browse.is_changed()
+        && !section.is_changed()
+    {
         return;
     }
     let search = browse.search.to_lowercase();
     let items = library
         .items
         .iter()
+        .filter(|item| section.holds(item))
         .filter(|item| {
             browse.kind.is_none_or(|kind| item.kind == kind)
         })
@@ -124,7 +132,7 @@ fn show(
 }
 
 fn view() -> impl View {
-    column((bar(), grid(), details()))
+    column((bar(), sections(), grid(), details()))
         .fills_width()
         .fills_height()
         .gap(0.0)
@@ -301,17 +309,21 @@ fn tile(item: Item, selected: bool) -> AnyView {
                 format!("Example {}", item.kind.word().to_lowercase())
             }
         };
-        let picture = column((
-            glyph(item.kind.glyph(), 28.0).tint(Some(tint)),
-        ))
-        .width(px(PICTURE))
-        .height(px(PICTURE))
-        .align(AlignItems::Center)
-        .justify(JustifyContent::Center)
-        .fill(palette.input)
-        .radius(theme.space.round);
+        let drawn = match item.kind {
+            Kind::Mesh => picture(&item.name, PICTURE),
+            _ => column((
+                glyph(item.kind.glyph(), 28.0).tint(Some(tint)),
+            ))
+            .width(px(PICTURE))
+            .height(px(PICTURE))
+            .align(AlignItems::Center)
+            .justify(JustifyContent::Center)
+            .fill(palette.input)
+            .radius(theme.space.round)
+            .boxed(),
+        };
         column((
-            picture,
+            drawn,
             column((note(item.name.replace('_', " ")),))
                 .width(percent(100.0))
                 .overflow(Overflow::clip())
