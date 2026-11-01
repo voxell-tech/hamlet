@@ -1,7 +1,8 @@
 //! The styles of the buttons and fields, and the view shapes the
 //! panels share.
 
-use bevy::color::Color;
+use bevy::color::{Alpha, Color};
+use bevy::ecs::component::Component;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::{Motion, Tone};
@@ -91,33 +92,67 @@ pub fn primary_button(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// A button that is on, among buttons that switch something on or
-/// pick one of a few: a solid gold fill with dark ink, so it stands
-/// apart from a [`button`] that is off.
-pub fn lit_button(cx: &mut Cx) {
+/// On a [`toggle_button`] while it is checked.
+#[derive(Component)]
+pub struct Checked;
+
+/// The opacity of an unchecked [`toggle_button`]'s fill.
+const UNCHECKED_FILL: f32 = 0.45;
+
+/// A button that is checked or not, alone as a switch or as one of a
+/// few: faded while unchecked, its fill at [`UNCHECKED_FILL`] with a
+/// `gold_6` border and faint text, and a [`button`] with a `gold_3`
+/// border and body text while [`Checked`].
+pub fn toggle_button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(t.palette.gold_2)
+            f.fill(t.palette.button.with_alpha(UNCHECKED_FILL))
                 .border(t.space.border)
-                .border_color(t.palette.glow)
+                .border_color(t.palette.gold_6)
                 .radius(t.space.round)
         })
         .label(|l, t| {
-            l.tone(Tone::OnAccent).size(t.text.small).bold(true)
+            l.tone(Tone::Faint).size(t.text.small).bold(true)
         })
-        .icon(|i, _| i.tone(Tone::OnAccent))
+        .icon(|i, _| i.tone(Tone::Faint))
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.gold_1).border_color(t.palette.glow)
+                f.fill(t.palette.gold_hover)
+                    .border_color(t.palette.gold_5)
             })
+            .tone(Tone::Dim)
         })
-        .pressed(|s| {
+        .when::<Checked>(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.gold_3).border_color(t.palette.glow)
+                f.fill(t.palette.button)
+                    .border_color(t.palette.gold_3)
             })
+            .tone(Tone::Body)
         })
         .transition(Motion::Interact)
         .apply(cx);
+}
+
+/// `view` with [`Checked`] on its root while `checked` holds. The
+/// view is built once; only the component changes.
+pub fn checked_when(
+    view: impl View + 'static,
+    checked: impl Into<Prop<bool>>,
+) -> AnyView {
+    let checked = checked.into();
+    AnyView::new(move |cx: &mut Cx| {
+        let node = cx.build(view);
+        cx.effect(node, checked, |world, node, &checked| {
+            if let Ok(mut entity) = world.get_entity_mut(node) {
+                if checked {
+                    entity.insert(Checked);
+                } else {
+                    entity.remove::<Checked>();
+                }
+            }
+        });
+        node
+    })
 }
 
 /// A link back to the page the current one was reached from: an

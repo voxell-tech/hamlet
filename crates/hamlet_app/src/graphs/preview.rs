@@ -66,7 +66,9 @@ use hamlet_realm::sky::{
     self, CameraSettings, Hourly, Looks, North, OwnSky, Sky,
     SkySettings,
 };
-use hamlet_ui::styles::{self, Fills, ICON, description, note};
+use hamlet_ui::styles::{
+    self, Fills, ICON, checked_when, description, note, toggle_button,
+};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::dial::{Face, dial};
 use hamlet_ui::widgets::effects::Variant;
@@ -107,8 +109,8 @@ pub(super) fn plugin(app: &mut App) {
         );
 }
 
-/// The hour the preview is lit at, apart from the world's: midday
-/// until another is dialled.
+/// The hour the preview's lighting is set for, apart from the
+/// world's: midday until another is dialled.
 #[derive(Resource, Clone, Copy, PartialEq, Debug)]
 struct Daytime(f32);
 
@@ -271,29 +273,20 @@ fn switches() -> AnyView {
                 roll(&mut world.resource_mut::<Editor<Blueprint>>());
             })
     };
-    // A part of the backdrop, lit while it is shown.
+    // A part of the backdrop, checked while it is shown.
     let switch = |word: &'static str,
                   shown: fn(&Backdrop) -> bool,
                   flip: fn(&mut Backdrop)| {
-        keyed(resource::<Backdrop, _>(shown), move |on| {
-            let toggle = button(label(word))
+        checked_when(
+            button(label(word))
                 .padding(UiRect::axes(px(8.0), px(2.0)))
+                .rules(toggle_button)
+                .tagged(Variant::Default)
                 .on_activate(move |world| {
                     flip(&mut world.resource_mut::<Backdrop>());
-                });
-            if *on {
-                toggle
-                    .rules(styles::lit_button)
-                    .tagged(Variant::Primary)
-                    .boxed()
-            } else {
-                toggle
-                    .rules(styles::button)
-                    .tagged(Variant::Default)
-                    .boxed()
-            }
-        })
-        .within(row(()).gap(0.0))
+                }),
+            resource::<Backdrop, _>(shown),
+        )
     };
     row((
         time(),
@@ -380,7 +373,7 @@ fn time() -> AnyView {
         button(glyph(*which, ICON))
             .width(px(BAR_BUTTON))
             .height(px(BAR_BUTTON))
-            .tooltip(|| note("The hour the preview is lit at"))
+            .tooltip(|| note("The hour of the preview's lighting"))
             .rules(styles::button)
             .tagged(Variant::Default)
             .on_activate(|world| {
@@ -458,48 +451,40 @@ fn time_dial() -> AnyView {
 }
 
 /// What a transform's gizmo does, each an icon, the one it does now
-/// lit, in the preview's upper right corner.
+/// checked, in the preview's upper right corner.
 fn modes() -> AnyView {
     const MODES: [(Glyph, &str, GizmoMode); 3] = [
         (Glyph::Move, "Move (G)", GizmoMode::Translate),
         (Glyph::Restore, "Rotate (R)", GizmoMode::Rotate),
         (Glyph::Scale, "Scale (S)", GizmoMode::Scale),
     ];
-    keyed(resource::<GizmoMode, _>(|mode| *mode), |mode| {
-        let buttons = MODES
-            .into_iter()
-            .map(|(which, tip, picked)| {
-                let shown = button(glyph(which, ICON))
+    let buttons = MODES
+        .into_iter()
+        .map(|(which, tip, picked)| {
+            checked_when(
+                button(glyph(which, ICON))
                     .width(px(BAR_BUTTON))
                     .height(px(BAR_BUTTON))
                     .tooltip(move || note(tip))
+                    .rules(toggle_button)
+                    .tagged(Variant::Default)
                     .on_activate(move |world| {
                         world.insert_resource(picked);
-                    });
-                if *mode == picked {
-                    shown
-                        .rules(styles::lit_button)
-                        .tagged(Variant::Primary)
-                        .boxed()
-                } else {
-                    shown
-                        .rules(styles::button)
-                        .tagged(Variant::Default)
-                        .boxed()
-                }
-            })
-            .collect::<Vec<_>>();
-        row(buttons).gap(MODE_GAP).boxed()
-    })
-    .within(row(()).gap(0.0).position(PositionType::Absolute).inset(
-        UiRect {
+                    }),
+                resource::<GizmoMode, _>(move |mode| *mode == picked),
+            )
+        })
+        .collect::<Vec<_>>();
+    row(buttons)
+        .gap(MODE_GAP)
+        .position(PositionType::Absolute)
+        .inset(UiRect {
             top: px(BAR_INSET),
             right: px(BAR_INSET),
             left: Val::Auto,
             bottom: Val::Auto,
-        },
-    ))
-    .boxed()
+        })
+        .boxed()
 }
 
 /// The space between the buttons of the gizmo's modes.
