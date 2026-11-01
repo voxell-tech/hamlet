@@ -466,7 +466,7 @@ fn details() -> AnyView {
 fn open(world: &mut World, item: &Item) {
     let note = match crate::graphs::open_item(world, item) {
         Ok(()) => format!("Opened {}", item.name),
-        Err(error) => format!("{error:#}"),
+        Err(refusal) => refusal.to_string(),
     };
     world.resource_mut::<Library>().note = note;
 }

@@ -417,7 +417,7 @@ fn forget(
     files: Res<Files<Blueprint>>,
     mut meshes: ResMut<Meshes>,
 ) {
-    if files.asks(chosen.asker)
+    if files.is_asker(chosen.asker)
         && matches!(chosen.mode, FileMode::Open)
     {
         meshes.forget();

@@ -62,6 +62,23 @@ impl Default for Orbit {
     }
 }
 
+/// The rate an [`Orbit`] pans toward where it is going at.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pace {
+    /// [`CameraSettings::glide`].
+    Glide,
+    /// [`CameraSettings::slide`], for a hand on the ground, followed
+    /// closely but not in steps.
+    Slide,
+}
+
+impl Pace {
+    /// [`Pace::Slide`] while the ground is `held`.
+    pub fn of(held: bool) -> Self {
+        if held { Pace::Slide } else { Pace::Glide }
+    }
+}
+
 impl Orbit {
     /// This orbit turned and tilted by a drag of `delta` pixels, as
     /// a hand on the world turns it.
@@ -128,17 +145,19 @@ impl Orbit {
     }
 
     /// This orbit eased `dt` seconds toward `to`, and `to` itself
-    /// once it is near. A hand `held` on the ground is followed
-    /// closely.
+    /// once it is near, panning at `pace`.
     pub fn eased(
         self,
         to: Orbit,
         dt: f32,
         camera: &CameraSettings,
-        held: bool,
+        pace: Pace,
     ) -> Self {
         let ease = 1.0 - (-camera.glide * dt).exp();
-        let rate = if held { camera.slide } else { camera.glide };
+        let rate = match pace {
+            Pace::Glide => camera.glide,
+            Pace::Slide => camera.slide,
+        };
         let pan_ease = 1.0 - (-rate * dt).exp();
         // Zoom is eased by its ratio, so it moves at the same pace
         // far and near.
@@ -358,9 +377,8 @@ fn glide(
     if shown.0 == *orbit {
         return;
     }
-    // A hand on the ground is followed closely, but not in steps.
-    let held = buttons.pressed(MouseButton::Left);
-    shown.0 = shown.0.eased(*orbit, time.delta_secs(), &camera, held);
+    let pace = Pace::of(buttons.pressed(MouseButton::Left));
+    shown.0 = shown.0.eased(*orbit, time.delta_secs(), &camera, pace);
     redraw.write(bevy::window::RequestRedraw);
 }
 

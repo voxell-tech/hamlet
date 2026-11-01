@@ -705,7 +705,7 @@ fn card<F: Flavor>(node: NodeId, at: Vec2) -> AnyView {
         items.push(item("Group", "Cmd+G", |world, _| {
             world.resource_mut::<Editor<F>>().group();
         }));
-        if cx.world.resource::<Editor<F>>().any_grouped() {
+        if cx.world.resource::<Editor<F>>().has_grouped() {
             items.push(item(
                 "Take out of group",
                 "Cmd+Shift+G",

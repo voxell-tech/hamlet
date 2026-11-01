@@ -288,7 +288,7 @@ pub(crate) fn cap_picture(
         };
         let mut size = image.size().min(most);
         // Bloom is drawn 512 pixels tall and at most 32768 wide, so
-        // a panel a pixel tall gives a picture it widens too far.
+        // at most 64 times as wide as tall; 32 leaves a margin.
         size.y = size.y.max(size.x.div_ceil(32));
         if size != image.size()
             && let Some(mut image) = images.get_mut(handle)

@@ -87,7 +87,7 @@ impl Shape {
 
 impl WireMaterial {
     /// Whether `other` draws the same.
-    pub fn same_as(&self, other: &WireMaterial) -> bool {
+    pub fn is_same_as(&self, other: &WireMaterial) -> bool {
         self.wire == other.wire
     }
 }

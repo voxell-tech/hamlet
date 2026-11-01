@@ -54,20 +54,29 @@ fn fade(dragging: Res<Dragging>, mut faint: ResMut<Faint>) {
 pub(crate) fn open_item(
     world: &mut World,
     item: &Item,
-) -> Result<(), String> {
+) -> Result<(), OpenRefusal> {
     match item.kind {
         Kind::Blueprint => open_book::<Blueprint>(world, item),
         Kind::Material => open_book::<Material>(world, item),
-        Kind::Mesh | Kind::Texture => {
-            Err(format!("Drag {} onto a canvas to use it", item.name))
-        }
+        Kind::Mesh | Kind::Texture => Err(OpenRefusal::Dragged {
+            name: item.name.clone(),
+        }),
     }
+}
+
+/// Why a library item does not open in an editor.
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum OpenRefusal {
+    #[error("Drag {name} onto a canvas to use it")]
+    Dragged { name: String },
+    #[error("{name} is not a book")]
+    NotABook { name: String },
 }
 
 fn open_book<F: Flavor>(
     world: &mut World,
     item: &Item,
-) -> Result<(), String> {
+) -> Result<(), OpenRefusal> {
     let (book, path) = match &item.source {
         Source::Example(text) => (example(text), None),
         Source::File(path) => (
@@ -78,8 +87,9 @@ fn open_book<F: Flavor>(
         ),
         Source::BuiltIn => (None, None),
     };
-    let book =
-        book.ok_or_else(|| format!("{} is not a book", item.name))?;
+    let book = book.ok_or_else(|| OpenRefusal::NotABook {
+        name: item.name.clone(),
+    })?;
     world.resource_mut::<Editor<F>>().load(book);
     world.resource_mut::<Files<F>>().path = path;
     hamlet_graph_editor::canvas::fit::<F>(world);

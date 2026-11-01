@@ -700,7 +700,7 @@ impl<F: Flavor> Editor<F> {
     }
 
     /// Whether any selected node is in a group.
-    pub fn any_grouped(&self) -> bool {
+    pub fn has_grouped(&self) -> bool {
         self.sheet
             .groups
             .iter()

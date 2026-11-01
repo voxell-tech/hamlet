@@ -5,7 +5,7 @@ use bevy::gizmos::gizmos::Gizmos;
 
 use super::fills::Fills;
 use super::{
-    Arc, Frame, GizmoMode, Handle, HandleGizmos, Look, RING_STEPS,
+    Arc, Frame, GizmoMode, Handle, HandleGizmos, Handles, RING_STEPS,
     Style,
 };
 
@@ -19,12 +19,12 @@ pub(super) struct Shown {
     pub(super) sweep: Option<(Arc, f32)>,
 }
 
-/// Draws the handles `look` has: all of them with the hot one
-/// brighter, or the dragged one and what a drag keeps beside it.
+/// Draws `handles`: all of them with the hot one brighter, or the
+/// dragged one and what a drag keeps beside it.
 pub(super) fn paint(
     gizmos: &mut Gizmos<HandleGizmos>,
     fills: &mut Fills,
-    look: Look,
+    handles: Handles,
     shown: &Shown,
     style: &Style,
 ) {
@@ -34,7 +34,7 @@ pub(super) fn paint(
         dragging,
         sweep,
     } = *shown;
-    let mode = look.mode;
+    let mode = handles.mode;
     let toward = -frame.look;
     let plain = |handle: Handle| match handle {
         Handle::Axis(axis) | Handle::Plane(axis) => style.axes[axis],
@@ -54,7 +54,7 @@ pub(super) fn paint(
     let held = |handle: Handle| dragging && hot == Some(handle);
     let dropped = |handle: Handle| dragging && hot != Some(handle);
 
-    if mode == GizmoMode::Rotate && look.only.is_none() {
+    if mode == GizmoMode::Rotate && handles.only.is_none() {
         let rings = (0..3)
             .map(|axis| {
                 let arc = if dragging {
@@ -97,7 +97,7 @@ pub(super) fn paint(
     }
 
     for axis in 0..3 {
-        if look.only.is_some_and(|only| only != axis) {
+        if handles.only.is_some_and(|only| only != axis) {
             continue;
         }
         let handle = Handle::Axis(axis);
@@ -108,7 +108,7 @@ pub(super) fn paint(
             continue;
         }
         let color = tint(handle, fade);
-        let from = if held(handle) || look.only.is_some() {
+        let from = if held(handle) || handles.only.is_some() {
             frame.origin
         } else {
             frame.along(axis, style.centre)
@@ -139,7 +139,7 @@ pub(super) fn paint(
             );
         }
     }
-    if look.only.is_some() {
+    if handles.only.is_some() {
         return;
     }
     for axis in 0..3 {

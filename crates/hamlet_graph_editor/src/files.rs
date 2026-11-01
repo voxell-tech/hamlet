@@ -69,7 +69,7 @@ impl<F: Flavor> Default for Files<F> {
 impl<F: Flavor> Files<F> {
     /// Whether `asker` is the entity the open and save dialogs answer
     /// to.
-    pub fn asks(&self, asker: Entity) -> bool {
+    pub fn is_asker(&self, asker: Entity) -> bool {
         self.asker == Some(asker)
     }
 

@@ -1127,7 +1127,7 @@ fn place<F: Flavor>(
         set_place(&mut node, &shape);
         if materials
             .get(&material.0)
-            .is_some_and(|now| !now.same_as(&shape.material))
+            .is_some_and(|now| !now.is_same_as(&shape.material))
             && let Some(mut now) = materials.get_mut(&material.0)
         {
             *now = shape.material;

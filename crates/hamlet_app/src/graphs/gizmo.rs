@@ -363,18 +363,18 @@ impl Frame {
     }
 }
 
-/// How a target's gizmo is drawn and picked: what it edits, and, for
-/// a distance, the one axis it pulls along.
+/// The handles of a target's gizmo: what it edits, and, for a
+/// distance, the one axis it pulls along.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Look {
+pub(super) struct Handles {
     pub(super) mode: GizmoMode,
     pub(super) only: Option<usize>,
 }
 
-/// The [`Look`] of `target`'s gizmo in `mode`, and the turn of its
+/// The [`Handles`] of `target`'s gizmo in `mode`, and the turn of its
 /// axes: a transform node's own turn when it scales, the world's
 /// otherwise.
-fn look_of(target: &Target, mode: GizmoMode) -> (Look, Quat) {
+fn handles_of(target: &Target, mode: GizmoMode) -> (Handles, Quat) {
     match &target.kind {
         Kind::Transform { rotation, .. } => {
             let turn = if mode == GizmoMode::Scale {
@@ -382,10 +382,10 @@ fn look_of(target: &Target, mode: GizmoMode) -> (Look, Quat) {
             } else {
                 Quat::IDENTITY
             };
-            (Look { mode, only: None }, turn)
+            (Handles { mode, only: None }, turn)
         }
         Kind::Point { .. } => (
-            Look {
+            Handles {
                 mode: GizmoMode::Translate,
                 only: None,
             },
@@ -395,7 +395,7 @@ fn look_of(target: &Target, mode: GizmoMode) -> (Look, Quat) {
             let index =
                 if axis.z.abs() > axis.x.abs() { 2 } else { 0 };
             (
-                Look {
+                Handles {
                     mode: GizmoMode::Translate,
                     only: Some(index),
                 },
@@ -444,7 +444,7 @@ fn nearest_axis(
 /// `project` taking a point in the world to where the preview shows
 /// it.
 fn pick(
-    look: Look,
+    handles: Handles,
     frame: &Frame,
     cursor: Vec2,
     style: &Style,
@@ -461,12 +461,12 @@ fn pick(
             project(frame.along(axis, style.size))?,
         ))
     };
-    if let Some(only) = look.only {
+    if let Some(only) = handles.only {
         return nearest_axis(style.pick_radius, |axis| {
             (axis == only).then(|| arrow(axis)).flatten()
         });
     }
-    if look.mode == GizmoMode::Rotate {
+    if handles.mode == GizmoMode::Rotate {
         let ring = |arc: Arc, pixels: f32| {
             let ring = frame
                 .ring(arc, pixels)
@@ -511,7 +511,7 @@ fn pick(
         })
         .or_else(|| {
             // A scale is even from anywhere else inside its ring.
-            (look.mode == GizmoMode::Scale
+            (handles.mode == GizmoMode::Scale
                 && from_centre
                     <= style.outer_ring + style.pick_radius)
                 .then_some((Handle::Centre, from_centre))
@@ -563,7 +563,7 @@ fn handles(
         let mut nearest: Option<(usize, Handle, f32)> = None;
         let targets = targets(&editor);
         for (index, target) in targets.iter().enumerate() {
-            let (look, turn) = look_of(target, *mode);
+            let (handles, turn) = handles_of(target, *mode);
             let Some(mut frame) =
                 Frame::of(target.at, turn, camera, eye)
             else {
@@ -578,7 +578,7 @@ fn handles(
                 && !buttons.pressed(MouseButton::Left)
                 && let Some(cursor) = cursor
                 && let Some((handle, distance)) =
-                    pick(look, &frame, cursor, &style, project)
+                    pick(handles, &frame, cursor, &style, project)
                 && nearest.is_none_or(|(.., best)| distance < best)
             {
                 nearest = Some((index, handle, distance));
@@ -595,12 +595,12 @@ fn handles(
                 hot: hot_here,
                 dragging: held.is_some(),
                 sweep: held
-                    .filter(|_| look.mode == GizmoMode::Rotate)
+                    .filter(|_| handles.mode == GizmoMode::Rotate)
                     .and_then(|drag| {
                         drag.grab.sweep(drag.angle, &style)
                     }),
             };
-            paint(&mut gizmos, &mut fills, look, &shown, &style);
+            paint(&mut gizmos, &mut fills, handles, &shown, &style);
         }
         if drag.is_none() && !buttons.pressed(MouseButton::Left) {
             let found =

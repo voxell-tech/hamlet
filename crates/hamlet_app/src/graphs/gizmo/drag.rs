@@ -25,7 +25,7 @@ use hamlet_ui::theme::HamletTheme;
 use super::super::Blueprint;
 use super::super::handles::{Kind, Target, degrees_of, set, targets};
 use super::super::preview::{Preview, Shown as PreviewFrame};
-use super::{Arc, Frame, GizmoMode, Handle, Hot, Style, look_of};
+use super::{Arc, Frame, GizmoMode, Handle, Hot, Style, handles_of};
 
 /// The least a scale drag scales by.
 const MIN_FACTOR: f32 = 1e-3;
@@ -324,7 +324,7 @@ pub(crate) fn grab(
     let Ok((camera, eye)) = cameras.get(preview.camera) else {
         return;
     };
-    let (look, turn) = look_of(&target, *mode);
+    let (handles, turn) = handles_of(&target, *mode);
     let Some(frame) = Frame::of(target.at, turn, camera, eye) else {
         return;
     };
@@ -334,11 +334,11 @@ pub(crate) fn grab(
     ) else {
         return;
     };
-    let (input, was) = written(&target, look.mode);
+    let (input, was) = written(&target, handles.mode);
     dragging.0 = Some(Drag {
         index,
         written: (target.node, input, was),
-        mode: look.mode,
+        mode: handles.mode,
         grab: Grab {
             handle,
             frame,

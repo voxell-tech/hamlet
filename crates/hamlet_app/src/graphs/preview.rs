@@ -52,7 +52,9 @@ use hamlet_graph_editor::library::Library;
 use hamlet_realm::generator::house::slope;
 use hamlet_realm::meshes::{Meshing, Rng};
 use hamlet_realm::palette::{Palette as Colours, TownStyle};
-use hamlet_realm::pick::{Orbit, Steer, backward, scrolled_lines};
+use hamlet_realm::pick::{
+    Orbit, Pace, Steer, backward, scrolled_lines,
+};
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
 use hamlet_ui::styles::{self, Fills, ICON, description, note};
 use hamlet_ui::theme::HamletTheme;
@@ -505,12 +507,12 @@ fn glide(
     if seat.shown == seat.want {
         return;
     }
-    // A hand on the ground is followed closely, but not in steps.
-    let held = buttons
-        .as_deref()
-        .is_some_and(|buttons| buttons.pressed(MouseButton::Left));
+    let pace =
+        Pace::of(buttons.as_deref().is_some_and(|buttons| {
+            buttons.pressed(MouseButton::Left)
+        }));
     seat.shown =
-        seat.shown.eased(seat.want, time.delta_secs(), &set, held);
+        seat.shown.eased(seat.want, time.delta_secs(), &set, pace);
     redraw.write(RequestRedraw);
 }
 
