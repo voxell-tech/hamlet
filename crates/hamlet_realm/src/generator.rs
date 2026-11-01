@@ -20,7 +20,6 @@ pub mod noise;
 mod relief;
 pub mod road;
 mod shift;
-mod shore;
 pub mod society;
 mod sounds;
 mod sync;
@@ -101,7 +100,6 @@ pub fn plugin(app: &mut App) {
         lights::plugin,
         sounds::plugin,
         relief::plugin,
-        shore::plugin,
     ))
     // An effect a house is given plays the frame it is given.
     .configure_sets(
@@ -405,7 +403,13 @@ mod tests {
 
         let mut meshes = Assets::<Mesh>::default();
         let mut materials = Assets::<StandardMaterial>::default();
-        let stock = Stock::new(&mut materials, &land.pal);
+        // The stock's meshes apart, so that only the kit's are
+        // counted.
+        let stock = Stock::new(
+            &mut Assets::default(),
+            &mut materials,
+            &land.pal,
+        );
         Kit::new(&mut meshes, &mut materials, &stock, &land.pal);
         let kit =
             meshes.iter().map(|(_, m)| mesh_bytes(m)).sum::<usize>();

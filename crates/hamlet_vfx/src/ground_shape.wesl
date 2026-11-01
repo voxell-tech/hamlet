@@ -15,7 +15,7 @@ struct Pages {
     water: vec4<f32>,
 }
 
-@group(constants::MATERIAL_BIND_GROUP) @binding(104) var pages: texture_2d_array<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(104) var pages: texture_2d_array<u32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(105) var<uniform> pages_at: Pages;
 
 // `LEVELS` in `ground.rs`.
@@ -30,6 +30,14 @@ struct GroundPoint {
     colour: vec4<f32>,
 }
 
+// The texel `c` of the page of size `level`: the height, kept as its bits,
+// and the woods and the heath, kept as two shares of 8 bits beside the
+// distance from the shore, which the water reads.
+fn texel(level: i32, c: vec2<i32>) -> vec3<f32> {
+    let t = textureLoad(pages, c, level, 0).xy;
+    return vec3<f32>(bitcast<f32>(t.x), unpack4x8unorm(t.y).xy);
+}
+
 // The page of size `level` at the point `p` on the map, between its texels:
 // the height, the woods and the heath.
 fn page_at(level: i32, p: vec2<f32>) -> vec3<f32> {
@@ -39,10 +47,10 @@ fn page_at(level: i32, p: vec2<f32>) -> vec3<f32> {
     let i = floor(g);
     let f = g - i;
     let c = clamp(vec2<i32>(i), vec2<i32>(0), size);
-    let a = textureLoad(pages, c, level, 0).xyz;
-    let b = textureLoad(pages, c + vec2<i32>(1, 0), level, 0).xyz;
-    let d = textureLoad(pages, c + vec2<i32>(0, 1), level, 0).xyz;
-    let e = textureLoad(pages, c + vec2<i32>(1, 1), level, 0).xyz;
+    let a = texel(level, c);
+    let b = texel(level, c + vec2<i32>(1, 0));
+    let d = texel(level, c + vec2<i32>(0, 1));
+    let e = texel(level, c + vec2<i32>(1, 1));
     return mix(mix(a, b, f.x), mix(d, e, f.x), f.y);
 }
 

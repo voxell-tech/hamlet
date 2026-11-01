@@ -5,6 +5,7 @@
 mod builds;
 mod lanes;
 mod layer;
+mod shelf;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -14,16 +15,20 @@ use bevy::prelude::*;
 pub(super) use self::builds::finish_loading;
 pub(super) use self::lanes::{Lanes, clear_lanes};
 use self::layer::Layer;
+use self::shelf::{Grown, Shelf};
 pub(super) use self::stream::stream;
 use super::building::Builds;
 use super::flora;
-use super::ground::{Grove, Sight};
+use super::ground::Sight;
 
 /// Everything being built in the background, and what of the
 /// trees is in the world.
 #[derive(Resource, Default)]
 pub struct Loading {
-    groves: Layer<Grove>,
+    groves: Layer<Grown>,
+    /// The woods built for tiles lately, drawn from again when the
+    /// view comes back to them.
+    shelf: Shelf,
     /// The views the tiles were last chosen for: the camera's, and
     /// the one it is being taken to.
     sight: Option<(Sight, Sight)>,

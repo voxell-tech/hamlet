@@ -357,7 +357,7 @@ impl<B: Send + 'static> Layer<B> {
         chunk: f32,
         centre: Vec2,
         most: usize,
-        start: impl Fn(Tile, &Arc<HashSet<Tile>>) -> Task<B>,
+        mut start: impl FnMut(Tile, &Arc<HashSet<Tile>>) -> Task<B>,
     ) {
         if !self.stirred {
             return;

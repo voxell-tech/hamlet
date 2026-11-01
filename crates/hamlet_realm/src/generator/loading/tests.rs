@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
+use hamlet_vfx::water::WaterSettings;
 
 use super::lanes::Lanes;
 use super::stream::stream;
@@ -29,6 +30,7 @@ fn app() -> App {
         .init_resource::<DetailSettings>()
         .init_resource::<CameraSettings>()
         .init_resource::<Ahead>()
+        .init_resource::<WaterSettings>()
         .insert_resource(testing::land(7))
         .add_systems(Update, stream);
     testing::kit(app.world_mut());

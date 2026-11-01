@@ -12,7 +12,7 @@ use hamlet_vfx::water::{
 
 use super::land::Land;
 use super::loading::Bed;
-use super::{Tally, flora, traffic, yard};
+use super::{Tally, traffic, yard};
 use crate::keeper::KeeperState;
 use crate::lantern::lantern_glass;
 use crate::palette::Palette;
@@ -43,6 +43,9 @@ pub(super) struct Kit {
     pub(super) water: Handle<WaterMaterial>,
     /// The grid each patch of the ground and of the sea is drawn in.
     pub(super) patch: Handle<Mesh>,
+    /// One quad, for each patch of the sea far enough off to lie
+    /// flat.
+    pub(super) flat_patch: Handle<Mesh>,
     pub(super) trees: Vec<Handle<Mesh>>,
     pub(super) groove: Handle<InlayMaterial>,
 }
@@ -98,7 +101,8 @@ pub(super) fn setup(
     // is drawn in patches, which the loading lays.
     let water = waters.add(water::material(&mut images, &flow));
     let plane = meshes.add(Plane3d::new(Vec3::Y, Vec2::ONE).mesh());
-    let patch = meshes.add(patch::grid());
+    let patch = meshes.add(patch::grid(patch::QUADS));
+    let flat_patch = meshes.add(patch::grid(1));
     // The deep sea's floor under it, where the ground has yet to
     // come and all about the island.
     commands.spawn((
@@ -116,9 +120,6 @@ pub(super) fn setup(
         NotShadowCaster,
     ));
 
-    let kinds = (0..flora::KINDS)
-        .map(|k| meshes.add(flora::mesh(&land.pal, k)))
-        .collect::<Vec<_>>();
     commands.init_resource::<Tally>();
 
     commands.insert_resource(Kit {
@@ -136,14 +137,14 @@ pub(super) fn setup(
         cart: meshes.add(traffic::cart(&land.pal).build()),
         water,
         patch,
-        trees: kinds,
+        flat_patch,
+        trees: stock.trees.clone(),
         groove,
     });
 }
 
 /// Paints the ground as the land has it, and the water as its
-/// settings and the sky have it, keeping where the shore's field
-/// lies, the wind and the time.
+/// settings and the sky have it, keeping the wind and the time.
 pub(super) fn repaint(
     land: Res<Land>,
     flow: Res<WaterSettings>,
@@ -166,7 +167,6 @@ pub(super) fn repaint(
     let look = WaterUniform {
         time: now.time,
         wind: now.wind,
-        field: now.field,
         sky: LinearRgba::from(sky.look.haze)
             .to_vec3()
             .extend(flow.mirror),

@@ -86,19 +86,20 @@ pub fn away(eye: Vec3, y: f32, corner: Vec2, side: f32) -> f32 {
     eye.distance(Vec3::new(near.x, y, near.y))
 }
 
-/// The grid a patch is drawn in: [`QUADS`] by [`QUADS`] quads over a
-/// unit square from its corner of least x and z, to be scaled by its
-/// side and moved to its corner. Its vertex colours are what a shader
-/// fills in; white here.
-pub fn grid() -> Mesh {
-    let side = QUADS + 1;
+/// The grid a patch is drawn in: `quads` by `quads` quads over a unit
+/// square from its corner of least x and z, to be scaled by its side
+/// and moved to its corner. [`QUADS`] of them, unless the patch is
+/// flat all over, when one will do. Its vertex colours are what a
+/// shader fills in; white here.
+pub fn grid(quads: u32) -> Mesh {
+    let side = quads + 1;
     let mut at = Vec::with_capacity((side * side) as usize);
     for j in 0..side {
         for i in 0..side {
             at.push([
-                i as f32 / QUADS as f32,
+                i as f32 / quads as f32,
                 0.0,
-                j as f32 / QUADS as f32,
+                j as f32 / quads as f32,
             ]);
         }
     }
@@ -106,9 +107,9 @@ pub fn grid() -> Mesh {
     // the realm's `Land::surface` cuts it, so the ground drawn up
     // close is the ground it stands things on.
     let mut indices =
-        Vec::with_capacity((QUADS * QUADS * 6) as usize);
-    for j in 0..QUADS {
-        for i in 0..QUADS {
+        Vec::with_capacity((quads * quads * 6) as usize);
+    for j in 0..quads {
+        for i in 0..quads {
             let a = j * side + i;
             indices.extend([
                 a,

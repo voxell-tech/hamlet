@@ -9,6 +9,10 @@ use super::{HOLD_EASE, LandData, Unfit};
 use crate::generator::noise::{fbm, key, perlin, unit};
 use crate::meshes::{lerp, smoothstep};
 
+/// Metres out from the coast past which the sea floor lies level at
+/// its full depth. `OPEN` in `relief.wesl`.
+const OPEN: f32 = 40.0;
+
 impl LandData {
     /// `p`, moved straight away from the nearest river if nearer
     /// than `min`.
@@ -228,6 +232,29 @@ impl LandData {
             - set.coast.1 * perlin(p * set.coast.0, self.seed + 40)
     }
 
+    /// True when all the square at `corner`, `side` across, is the
+    /// open sea's floor: level at its depth, with no rock standing on
+    /// it. It lies so far out that the coast at its nearest, pushed
+    /// out as far as the coast's wobble, its raggedness and the
+    /// smooth joining of every reach can push it, is further than
+    /// [`OPEN`] off.
+    pub(crate) fn is_open_floor(
+        &self,
+        corner: Vec2,
+        side: f32,
+    ) -> bool {
+        let set = &self.set.land;
+        let joined = self.shores().count().saturating_sub(1) as f32
+            * set.island
+            * 0.3
+            / 4.0;
+        let reach =
+            set.island + set.coast.1 + set.ragged + joined + OPEN;
+        self.shores().all(|at| {
+            at.distance(at.clamp(corner, corner + side)) > reach
+        })
+    }
+
     /// The ground `h` high at `p` as the coast leaves it. The island
     /// is one stroke: level inland, its rim falling in a skirt to the
     /// sea floor, steep in some stretches and gentle in others. Out
@@ -245,7 +272,7 @@ impl LandData {
         let floor = lerp(
             water - set.shelf,
             water - set.sea_floor,
-            smoothstep(0.0, -40.0, inside),
+            smoothstep(0.0, -OPEN, inside),
         );
         let ground =
             floor + (h - floor) * stroke(run - inside, 0.0, run);

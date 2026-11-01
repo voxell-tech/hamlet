@@ -100,14 +100,9 @@ pub struct GroundExt {
     #[uniform(103)]
     pub soil: SoilUniform,
     /// The land's pages, a layer for each size of patch, as the
-    /// realm makes them: in each texel the height, the woods and the
-    /// heath.
-    #[texture(
-        104,
-        dimension = "2d_array",
-        sample_type = "float",
-        filterable = false
-    )]
+    /// realm makes them: in each texel the height's bits, and the
+    /// woods and the heath as two shares of 16 bits.
+    #[texture(104, dimension = "2d_array", sample_type = "u_int")]
     pub pages: Handle<Image>,
     #[uniform(105)]
     pub pages_at: PagesUniform,
@@ -217,7 +212,7 @@ pub fn material(
 }
 
 /// Pages of nothing, until the land's are made.
-fn blank_pages() -> Image {
+pub(crate) fn blank_pages() -> Image {
     let mut image = Image::new_fill(
         Extent3d {
             width: 1,
@@ -225,8 +220,8 @@ fn blank_pages() -> Image {
             depth_or_array_layers: LEVELS as u32,
         },
         TextureDimension::D2,
-        &[0; 16],
-        TextureFormat::Rgba32Float,
+        &[0; 8],
+        TextureFormat::Rg32Uint,
         RenderAssetUsages::RENDER_WORLD,
     );
     image.texture_view_descriptor = Some(TextureViewDescriptor {

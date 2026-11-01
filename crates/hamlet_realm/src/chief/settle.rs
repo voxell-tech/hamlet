@@ -5,13 +5,13 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use super::dress::lit;
-use super::mascot::{self, Rig};
+use super::mascot::Rig;
 use super::{
     Chief, ChiefSettings, Look, Mascot, Place, Settled, Stands, place,
 };
+use crate::generator::glow;
 use crate::generator::land::Land;
 use crate::generator::society::{Claim, Ground, Society};
-use crate::generator::{flora, glow};
 use crate::lantern::lantern_glass;
 use crate::library::{self, Library};
 use crate::palette::Palette;
@@ -202,7 +202,7 @@ pub(super) fn settle(
             .id();
         for tree in &built.trees {
             commands.spawn((
-                Mesh3d(meshes.add(flora::mesh(&pal, tree.kind))),
+                Mesh3d(stock.trees[tree.kind].clone()),
                 MeshMaterial3d(stock.matte.clone()),
                 Transform::from_translation(tree.at)
                     .with_scale(Vec3::splat(tree.scale)),
@@ -252,7 +252,7 @@ pub(super) fn settle(
                 Visibility::Inherited,
             ))
             .id();
-        let wick = meshes.add(mascot::wick().build());
+        let wick = stock.wick.clone();
         let rig = Rig::spawn(
             &mut commands,
             mascot,

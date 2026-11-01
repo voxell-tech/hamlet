@@ -97,11 +97,10 @@ depths = [0.6, 2.2]
 clear = 0.45
 scale = 1.3
 bend = 16.0
-calm = [4.0, 0.45]
+calm = [16.0, 0.3]
 soft = 0.35
 normals = 0.45
 mirror = 1.0
-lines = [35.0, 70.0]
 
 [water.foam]
 color = [0.96, 0.95, 0.9]

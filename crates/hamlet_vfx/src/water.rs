@@ -19,6 +19,7 @@ use bevy::render::render_resource::{
 use bevy::shader::{ShaderRef, load_shader_library};
 use bevy::window::RequestRedraw;
 
+use crate::ground::{PagesUniform, blank_pages};
 use crate::wind::WindSettings;
 use crate::{Now, VfxSystems};
 
@@ -68,10 +69,6 @@ pub struct WaterSettings {
     /// How much of the land and sky the water mirrors, against its
     /// true fresnel; it never mirrors more than half.
     pub mirror: f32,
-    /// How high over the water, in metres, the eye must be for the
-    /// lines of foam riding in to the shore to begin to show, and to
-    /// show whole.
-    pub lines: (f32, f32),
     pub foam: FoamSettings,
 }
 
@@ -110,16 +107,18 @@ pub struct WaterExt {
     #[texture(105)]
     #[sampler(106)]
     pub sea_foam: Handle<Image>,
-    /// The field of the distance to the shore, as `shore` in
-    /// `waves.wesl` reads it.
-    #[texture(111)]
-    #[sampler(112)]
-    pub shore: Handle<Image>,
     /// How steeply `noise` rises along x and along y, as `sloped`
     /// finds it, which the foam draws its streaks by.
     #[texture(113)]
     #[sampler(114)]
     pub noise_slope: Handle<Image>,
+    /// The land's pages and where they lie, as the ground has them,
+    /// which the water finds the depth of the ground under it by,
+    /// and how far it lies from the shore.
+    #[texture(115, dimension = "2d_array", sample_type = "u_int")]
+    pub pages: Handle<Image>,
+    #[uniform(116)]
+    pub pages_at: PagesUniform,
 }
 
 /// Mirrors `Water` in `water.wesl`.
@@ -137,12 +136,9 @@ pub struct WaterUniform {
     pub foam: Vec4,
     /// The time, `scale` and `bend`.
     pub time: Vec4,
-    /// The corner of the shore's field on the map, and its size.
-    pub field: Vec4,
     /// `calm`, `soft` and `normals`.
     pub calm: Vec4,
-    /// The way the wind blows over the ground, which the waves run,
-    /// and `lines`.
+    /// The way the wind blows over the ground, which the waves run.
     pub wind: Vec4,
     /// The colour of the sky over it, linear, which it mirrors where
     /// it finds nothing nearer, and `mirror`.
@@ -153,8 +149,7 @@ pub struct WaterUniform {
 }
 
 impl WaterUniform {
-    /// The water of `set`, with no shore near until its field is
-    /// baked.
+    /// The water of `set`.
     pub fn new(set: &WaterSettings) -> Self {
         let linear = |c: [f32; 3]| {
             LinearRgba::from(Color::srgb(c[0], c[1], c[2])).to_vec3()
@@ -171,14 +166,13 @@ impl WaterUniform {
                 0.0,
             ),
             time: Vec4::new(0.0, set.scale, set.bend, 0.0),
-            field: Vec4::new(0.0, 0.0, 1.0, 1.0),
             calm: Vec4::new(
                 set.calm.0,
                 set.calm.1,
                 set.soft,
                 set.normals,
             ),
-            wind: Vec4::new(0.0, 1.0, set.lines.0, set.lines.1),
+            wind: Vec4::new(0.0, 1.0, 0.0, 0.0),
             sky: Vec4::new(0.5, 0.6, 0.7, set.mirror),
             fading: Vec4::new(
                 set.foam.decay,
@@ -190,43 +184,10 @@ impl WaterUniform {
     }
 }
 
-/// The farthest from the shore its field tells, in metres. Beyond, it
-/// tells this.
+/// The farthest from the shore the land's pages tell its distance, in
+/// metres. Beyond, they tell this. `SHORE_REACH` in `waves.wesl` and
+/// in `hamlet_realm`'s `relief.wesl`.
 pub const SHORE_REACH: f32 = 16.0;
-
-/// The field of the distance to the shore, `width` by `height`, its
-/// rows from the corner of least x and z: at each point the distance
-/// in metres, above zero over water; the way to the shore over x and
-/// z; and how much of it is sea.
-pub fn shore_field(
-    width: u32,
-    height: u32,
-    points: &[[f32; 4]],
-) -> Image {
-    let snorm = |v: f32| {
-        ((v.clamp(-1.0, 1.0) * 32767.0).round() as i16).to_le_bytes()
-    };
-    let data = points
-        .iter()
-        .flat_map(|&[d, x, z, sea]| {
-            [d / SHORE_REACH, x, z, sea].into_iter().flat_map(snorm)
-        })
-        .collect::<Vec<_>>();
-    let mut image = Image::new(
-        Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        data,
-        TextureFormat::Rgba16Snorm,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    image.sampler =
-        ImageSampler::Descriptor(ImageSamplerDescriptor::linear());
-    image
-}
 
 impl MaterialExtension for WaterExt {
     fn vertex_shader() -> ShaderRef {
@@ -255,6 +216,11 @@ impl MaterialExtension for WaterExt {
 /// waves moved it, and how far they lifted it.
 pub const FINEST: f32 = 8.0;
 
+/// How far from the eye, in units of the waves, the water lies flat.
+/// A patch wholly further off is drawn as one quad. `FLAT` in
+/// `water.wesl`.
+pub const FLAT: f32 = 55.0;
+
 /// The water's material for the water of `set`.
 pub fn material(
     images: &mut Assets<Image>,
@@ -274,12 +240,9 @@ pub fn material(
             noise_slope: images.add(sloped(noise)),
             edge_noise: images.add(tiling(gradient(512, 5, 2))),
             sea_foam: images.add(tiling(sea_foam())),
-            // Far from any shore until its field is baked.
-            shore: images.add(shore_field(
-                1,
-                1,
-                &[[SHORE_REACH, 0.0, 0.0, 1.0]],
-            )),
+            // Open sea until the land's pages are made.
+            pages: images.add(blank_pages()),
+            pages_at: PagesUniform::default(),
         },
     }
 }
@@ -529,7 +492,7 @@ pub(crate) fn flow(
     let turned = was + off.clamp(-TURN * seconds, TURN * seconds);
     *heading = Some(turned);
     let (x, z) = turned.to_radians().sin_cos();
-    let way = Vec4::new(x, z, set.lines.0, set.lines.1);
+    let way = Vec4::new(x, z, 0.0, 0.0);
     for (_, water) in materials.iter_mut() {
         if water.extension.water.time != time
             || water.extension.water.wind != way

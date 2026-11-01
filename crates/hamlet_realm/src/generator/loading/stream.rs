@@ -4,14 +4,16 @@
 use std::collections::HashSet;
 
 use bevy::camera::primitives::Aabb;
+use bevy::camera::visibility::NoAutoAabb;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy::window::RequestRedraw;
 use hamlet_vfx::patch::{self, Patch};
-use hamlet_vfx::water::{self, Waves};
+use hamlet_vfx::water::{self, WaterSettings, Waves};
 
 use super::lanes::Lanes;
+use super::shelf::{Grown, Kept};
 use super::{Bed, Loading, Sea, Standing, Terrain, Wood};
 use crate::WorldCamera;
 use crate::generator::building::mesh_bytes;
@@ -77,16 +79,17 @@ pub(in crate::generator) fn stream(
     kit: Res<Kit>,
     lanes: Res<Lanes>,
     ahead: Option<Res<Ahead>>,
-    (lens, fog_set): (
+    (lens, fog_set, flow): (
         Option<Res<CameraSettings>>,
         Option<Res<DistanceFogSettings>>,
+        Res<WaterSettings>,
     ),
     camera: Query<
         (&Transform, &Projection, Option<&DistanceFog>),
         (With<WorldCamera>, Without<Wood>),
     >,
     mut laid: Query<
-        (Entity, &mut Transform, Has<Sea>, Has<Terrain>),
+        (Entity, &mut Transform, &mut Mesh3d, Has<Sea>, Has<Terrain>),
         (
             Or<(With<Bed>, With<Sea>, With<Terrain>)>,
             Without<WorldCamera>,
@@ -115,73 +118,103 @@ pub(in crate::generator) fn stream(
     // large to it: one entity for each patch, kept from frame to
     // frame, more spawned or the spare ones let go as the patches
     // change. The ground's are chosen on the plane its plains lie on
-    // and its shader raises them to the land; the sea's lie flat on
-    // the water.
+    // and its shader raises them to the land; none is drawn where all
+    // of it is the open sea's level floor, which the bed stands for.
+    // The sea's lie flat on the water, each as one quad where the
+    // waves have died away.
     let water_y = land.set.land.water_y;
+    let flat = water::FLAT * flow.scale;
     let mut sea =
         patch::choose(at.translation, water_y, water::FINEST, far)
             .into_iter()
-            .map(|patch| placed(patch, water_y));
+            .map(|p| {
+                let lies_flat = patch::away(
+                    at.translation,
+                    water_y,
+                    p.corner,
+                    p.side,
+                ) > flat;
+                let mesh = if lies_flat {
+                    &kit.flat_patch
+                } else {
+                    &kit.patch
+                };
+                (placed(p, water_y), mesh.clone())
+            });
     let finest = land.set.land.cell * patch::QUADS as f32;
     let terrain = patch::choose(
         at.translation,
         land.set.land.plain_y,
         finest,
         sight.reach,
-    );
+    )
+    .into_iter()
+    .filter(|p| !land.is_open_floor(p.corner, p.side))
+    .collect::<Vec<_>>();
     let ground_patches = terrain.len();
-    let mut terrain =
-        terrain.into_iter().map(|patch| placed(patch, 0.0));
-    for (entity, mut place, is_sea, is_terrain) in &mut laid {
-        let next = if is_sea || is_terrain {
+    let mut terrain = terrain
+        .into_iter()
+        .map(|p| (placed(p, 0.0), kit.patch.clone()));
+    for (entity, mut place, mut mesh, is_sea, is_terrain) in &mut laid
+    {
+        if is_sea || is_terrain {
             let next =
                 if is_sea { sea.next() } else { terrain.next() };
-            let Some(next) = next else {
+            let Some((next, drawn)) = next else {
                 commands.entity(entity).despawn();
                 continue;
             };
-            next
+            if *place != next {
+                *place = next;
+            }
+            if mesh.0 != drawn {
+                mesh.0 = drawn;
+            }
         } else {
-            Transform::from_xyz(
+            let next = Transform::from_xyz(
                 sight.centre.x,
                 water_y - detail.bed,
                 sight.centre.y,
             )
-            .with_scale(Vec3::splat(far * 2.0))
-        };
-        if *place != next {
-            *place = next;
+            .with_scale(Vec3::splat(far * 2.0));
+            if *place != next {
+                *place = next;
+            }
         }
     }
-    for at in sea {
+    for (at, mesh) in sea {
         commands.spawn((
             Sea,
             Waves,
-            Mesh3d(kit.patch.clone()),
+            Mesh3d(mesh),
             MeshMaterial3d(kit.water.clone()),
             at,
             NotShadowCaster,
             // Its swells rise and lean beyond the flat square its
-            // bounds would be taken from.
+            // bounds would be taken from, and are kept so when its
+            // mesh is set or changed.
             Aabb::from_min_max(
                 Vec3::new(-0.1, -3.0, -0.1),
                 Vec3::new(1.1, 3.0, 1.1),
             ),
+            NoAutoAabb,
         ));
     }
-    for at in terrain {
+    for (at, mesh) in terrain {
         commands.spawn((
             Terrain,
-            Mesh3d(kit.patch.clone()),
+            Mesh3d(mesh),
             MeshMaterial3d(kit.ground.clone()),
             at,
             NotShadowCaster,
             // Its shader raises it from the plane to the land, from
-            // the sea floor to the tops of the hills.
+            // the sea floor to the tops of the hills, and its bounds
+            // are kept so when its mesh is set.
             Aabb::from_min_max(
                 Vec3::new(-0.05, -30.0, -0.05),
                 Vec3::new(1.05, 40.0, 1.05),
             ),
+            NoAutoAabb,
         ));
     }
     // The place the camera is being taken to, so that the ground is
@@ -208,6 +241,7 @@ pub(in crate::generator) fn stream(
             }
             for at in [now, was].into_iter().flatten() {
                 loading.groves.redo(chunk, *at, hold);
+                loading.shelf.redo(chunk, *at, hold);
             }
         }
         loading.sites = sites;
@@ -223,6 +257,7 @@ pub(in crate::generator) fn stream(
                 continue;
             }
             loading.groves.redo(chunk, *at, reach);
+            loading.shelf.redo(chunk, *at, reach);
         }
         loading.shores = shores;
         changed = true;
@@ -237,6 +272,7 @@ pub(in crate::generator) fn stream(
             }
             let reach = LandData::hold_reach(round.1) + 17.0;
             loading.groves.redo(chunk, round.0, reach);
+            loading.shelf.redo(chunk, round.0, reach);
         }
         loading.holds = holds;
         changed = true;
@@ -256,9 +292,31 @@ pub(in crate::generator) fn stream(
         loading.sight = Some((sight, going));
     }
 
+    // What the woods are built for changes with the detail asked for.
+    if detail.is_changed() {
+        loading.shelf.clear();
+    }
+    let seed = land.seed;
     let waiting = &mut loading.waiting;
-    let came =
-        loading.groves.land(&mut commands, |commands, _, grove| {
+    let shelf = &mut loading.shelf;
+    let came = loading.groves.land(
+        &mut commands,
+        |commands, tile, grown| {
+            // Woods built just now are meshed once and kept.
+            let grove = match grown {
+                Grown::Kept(kept) => kept,
+                Grown::New(grove) => {
+                    let kept = Kept {
+                        trees: grove.trees,
+                        canopy: grove.canopy.map(|canopy| {
+                            let bytes = mesh_bytes(&canopy);
+                            (meshes.add(canopy), bytes)
+                        }),
+                    };
+                    shelf.put(seed, tile, kept.clone());
+                    kept
+                }
+            };
             // A wood with trees to plant is shown when they stand.
             let whole = grove.trees.is_empty();
             let wood = commands
@@ -272,10 +330,11 @@ pub(in crate::generator) fn stream(
                     },
                 ))
                 .id();
-            let bytes = grove.canopy.as_ref().map_or(0, mesh_bytes);
-            if let Some(canopy) = grove.canopy {
+            let mut bytes = 0;
+            if let Some((canopy, size)) = grove.canopy {
+                bytes = size;
                 commands.entity(wood).try_insert((
-                    Mesh3d(meshes.add(canopy)),
+                    Mesh3d(canopy),
                     MeshMaterial3d(kit.matte.clone()),
                 ));
             }
@@ -283,7 +342,8 @@ pub(in crate::generator) fn stream(
                 grove.trees.into_iter().map(|tree| (wood, tree)),
             );
             (wood, bytes, whole)
-        });
+        },
+    );
 
     let top = detail.tile_levels.max(1) - 1;
     loading.groves.retire(&mut commands, top, 0.0, &mut places);
@@ -294,11 +354,17 @@ pub(in crate::generator) fn stream(
         going.centre,
         detail.tile_tasks,
         |tile, _| {
+            // A tile built lately is drawn from what was built.
+            if let Some(kept) = loading.shelf.get(seed, tile) {
+                return pool.spawn(async move { Grown::Kept(kept) });
+            }
             let stand = Stand::of(&detail, tile);
             let land = land.clone();
-            pool.spawn(
-                async move { ground::grove(&land, tile, stand) },
-            )
+            pool.spawn(async move {
+                Grown::New(Box::new(ground::grove(
+                    &land, tile, stand,
+                )))
+            })
         },
     );
 

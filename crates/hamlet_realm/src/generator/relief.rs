@@ -21,7 +21,7 @@ use bevy::render::render_resource::binding_types::{
 };
 use bevy::render::render_resource::encase::StorageBuffer;
 use bevy::render::render_resource::{
-    BindGroup, BindGroupEntries, BindGroupLayoutDescriptor,
+    BindGroupEntries, BindGroupLayoutDescriptor,
     BindGroupLayoutEntries, CachedComputePipelineId,
     ComputePassDescriptor, ComputePipelineDescriptor, Extent3d,
     PipelineCache, ShaderStages, ShaderType, StorageTextureAccess,
@@ -34,9 +34,10 @@ use bevy::render::renderer::{
 };
 use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
 use bevy::render::texture::GpuImage;
-use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
+use bevy::render::{RenderApp, RenderStartup};
 use hamlet_vfx::ground::{GroundMaterial, LEVELS, PagesUniform};
 use hamlet_vfx::patch;
+use hamlet_vfx::water::WaterMaterial;
 
 use super::land::Land;
 use super::{DetailSettings, Kit};
@@ -60,12 +61,7 @@ pub(super) fn plugin(app: &mut App) {
         return;
     };
     render
-        .init_resource::<Made>()
         .add_systems(RenderStartup, prepare)
-        .add_systems(
-            Render,
-            bind.in_set(RenderSystems::PrepareBindGroups),
-        )
         // Before the cameras draw, so the ground reads this frame's
         // pages.
         .add_systems(
@@ -233,7 +229,7 @@ fn texel(cell: f32, level: usize) -> f32 {
 
 /// Lays the pages about the eye, makes anew those it has moved far
 /// enough over and all of them when the land changes, and tells the
-/// ground where they lie.
+/// ground and the water where they lie.
 fn follow(
     mut commands: Commands,
     land: Res<Land>,
@@ -242,7 +238,10 @@ fn follow(
     camera: Query<&GlobalTransform, With<WorldCamera>>,
     images: Option<ResMut<Assets<Image>>>,
     buffers: Option<ResMut<Assets<ShaderBuffer>>>,
-    mut grounds: ResMut<Assets<GroundMaterial>>,
+    (mut grounds, mut waters): (
+        ResMut<Assets<GroundMaterial>>,
+        ResMut<Assets<WaterMaterial>>,
+    ),
     pages: Option<ResMut<Pages>>,
     job: Option<Res<Job>>,
 ) {
@@ -300,22 +299,31 @@ fn follow(
         let corner = pages.corners[level].unwrap_or_default();
         Vec4::new(corner.x, corner.y, texel(cell, level), 0.0)
     });
+    let next = PagesUniform {
+        at,
+        shape: Vec4::new(
+            cell * patch::QUADS as f32,
+            land.set.land.plain_y,
+            detail.tile_sink.0,
+            detail.tile_sink.1,
+        ),
+        water: Vec4::new(land.set.land.water_y, 0.0, 0.0, 0.0),
+    };
     if let Some(mut ground) = grounds.get_mut(&kit.ground) {
-        let next = PagesUniform {
-            at,
-            shape: Vec4::new(
-                cell * patch::QUADS as f32,
-                land.set.land.plain_y,
-                detail.tile_sink.0,
-                detail.tile_sink.1,
-            ),
-            water: Vec4::new(land.set.land.water_y, 0.0, 0.0, 0.0),
-        };
         if ground.extension.pages_at != next {
-            ground.extension.pages_at = next;
+            ground.extension.pages_at = next.clone();
         }
         if ground.extension.pages != pages.image {
             ground.extension.pages = pages.image.clone();
+        }
+    }
+    // The water finds the depth of the ground under it from them too.
+    if let Some(mut water) = waters.get_mut(&kit.water) {
+        if water.extension.pages_at != next {
+            water.extension.pages_at = next;
+        }
+        if water.extension.pages != pages.image {
+            water.extension.pages = pages.image.clone();
         }
     }
     commands.insert_resource(Job {
@@ -325,9 +333,9 @@ fn follow(
     });
 }
 
-/// The pages' texture: a layer for each size, each texel the height,
-/// the woods and the heath, written by the pass and read by the
-/// ground's shader.
+/// The pages' texture: a layer for each size, each texel the height's
+/// bits and the woods and the heath as two shares of 16 bits, written
+/// by the pass and read by the ground's shader.
 fn texture() -> Image {
     let mut image = Image::new_uninit(
         Extent3d {
@@ -336,7 +344,7 @@ fn texture() -> Image {
             depth_or_array_layers: LEVELS as u32,
         },
         TextureDimension::D2,
-        TextureFormat::Rgba32Float,
+        TextureFormat::Rg32Uint,
         RenderAssetUsages::RENDER_WORLD,
     );
     image.texture_descriptor.usage |= TextureUsages::STORAGE_BINDING
@@ -368,7 +376,7 @@ fn prepare(
                 storage_buffer_read_only::<ReliefInput>(false),
                 uniform_buffer::<LevelInput>(false),
                 texture_storage_2d(
-                    TextureFormat::Rgba32Float,
+                    TextureFormat::Rg32Uint,
                     StorageTextureAccess::WriteOnly,
                 ),
             ),
@@ -384,93 +392,47 @@ fn prepare(
     commands.insert_resource(Pass { layout, pipeline });
 }
 
-/// The pages asked for and not yet made: kept until the pass has run,
-/// so that none asked for while it is still being built is lost.
+/// The pages asked for and not yet made: kept until the pass and the
+/// land it is made from are ready, so that none asked for before then
+/// is lost.
 #[derive(Default)]
 struct Waiting([Option<LevelInput>; LEVELS]);
 
-/// This frame's bind groups, one for each page waiting.
-#[derive(Resource, Default)]
-struct Bound(Vec<BindGroup>);
-
-fn bind(
-    mut commands: Commands,
-    job: Option<Res<Job>>,
-    mut waiting: Local<Waiting>,
-    mut done: ResMut<Made>,
-    pass: Res<Pass>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-    cache: Res<PipelineCache>,
-    buffers: Res<RenderAssets<GpuShaderBuffer>>,
-    images: Res<RenderAssets<GpuImage>>,
-    mut uniforms: Local<Vec<UniformBuffer<LevelInput>>>,
-) {
-    if done.0 {
-        waiting.0 = [None; LEVELS];
-        done.0 = false;
-    }
-    let mut groups = Vec::new();
-    if let Some(job) = job
-        && let (Some(input), Some(pages)) =
-            (buffers.get(&job.input), images.get(&job.pages))
-    {
-        for &(level, at) in &job.made {
-            waiting.0[level as usize] = Some(at);
-        }
-        uniforms.resize_with(LEVELS, UniformBuffer::default);
-        let asked =
-            waiting.0.iter().enumerate().filter_map(|(level, at)| {
-                at.map(|at| (level as u32, at))
-            });
-        for (level, at) in asked {
-            let uniform = &mut uniforms[level as usize];
-            uniform.set(at);
-            uniform.write_buffer(&device, &queue);
-            let Some(at) = uniform.binding() else {
-                continue;
-            };
-            let layer =
-                pages.texture.create_view(&TextureViewDescriptor {
-                    dimension: Some(TextureViewDimension::D2),
-                    base_array_layer: level,
-                    array_layer_count: Some(1),
-                    ..default()
-                });
-            groups.push(device.create_bind_group(
-                Some("relief"),
-                &cache.get_bind_group_layout(&pass.layout),
-                &BindGroupEntries::sequential((
-                    input.buffer.as_entire_buffer_binding(),
-                    at,
-                    &layer,
-                )),
-            ));
-        }
-    }
-    commands.insert_resource(Bound(groups));
-}
-
-/// Whether the pass ran on the pages waiting, which are then let go.
-#[derive(Resource, Default)]
-struct Made(bool);
-
-/// Makes this frame's pages.
+/// Makes the pages asked for, this frame's and any still waiting.
 fn run(
     mut context: RenderContext,
-    mut made: ResMut<Made>,
-    cache: Res<PipelineCache>,
+    job: Option<Res<Job>>,
+    mut waiting: Local<Waiting>,
+    mut uniforms: Local<Vec<UniformBuffer<LevelInput>>>,
     pass: Res<Pass>,
-    bound: Option<Res<Bound>>,
+    (device, queue, cache): (
+        Res<RenderDevice>,
+        Res<RenderQueue>,
+        Res<PipelineCache>,
+    ),
+    (buffers, images): (
+        Res<RenderAssets<GpuShaderBuffer>>,
+        Res<RenderAssets<GpuImage>>,
+    ),
 ) {
-    let Some(bound) = bound.filter(|bound| !bound.0.is_empty())
-    else {
+    let Some(job) = job else {
         return;
     };
-    let Some(pipeline) = cache.get_compute_pipeline(pass.pipeline)
-    else {
+    for &(level, at) in &job.made {
+        waiting.0[level as usize] = Some(at);
+    }
+    let (Some(pipeline), Some(input), Some(pages)) = (
+        cache.get_compute_pipeline(pass.pipeline),
+        buffers.get(&job.input),
+        images.get(&job.pages),
+    ) else {
         return;
     };
+    if waiting.0.iter().all(Option::is_none) {
+        return;
+    }
+    uniforms.resize_with(LEVELS, UniformBuffer::default);
+    let layout = cache.get_bind_group_layout(&pass.layout);
     let mut compute = context.command_encoder().begin_compute_pass(
         &ComputePassDescriptor {
             label: Some("relief"),
@@ -478,13 +440,37 @@ fn run(
         },
     );
     compute.set_pipeline(pipeline);
-    for group in &bound.0 {
-        compute.set_bind_group(0, group, &[]);
+    for (level, at) in waiting.0.iter_mut().enumerate() {
+        let Some(at) = at.take() else {
+            continue;
+        };
+        let uniform = &mut uniforms[level];
+        uniform.set(at);
+        uniform.write_buffer(&device, &queue);
+        let Some(at) = uniform.binding() else {
+            continue;
+        };
+        let layer =
+            pages.texture.create_view(&TextureViewDescriptor {
+                dimension: Some(TextureViewDimension::D2),
+                base_array_layer: level as u32,
+                array_layer_count: Some(1),
+                ..default()
+            });
+        let group = device.create_bind_group(
+            Some("relief"),
+            &layout,
+            &BindGroupEntries::sequential((
+                input.buffer.as_entire_buffer_binding(),
+                at,
+                &layer,
+            )),
+        );
+        compute.set_bind_group(0, &group, &[]);
         compute.dispatch_workgroups(
             SIDE.div_ceil(8),
             SIDE.div_ceil(8),
             1,
         );
     }
-    made.0 = true;
 }
