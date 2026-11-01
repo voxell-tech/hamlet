@@ -9,6 +9,7 @@ mod modify;
 
 use hamlet_graph::{PortSpec, ValueType};
 
+pub use self::leaves::upgrade;
 use crate::kind::BlueprintKind;
 
 /// The built-in kinds, by the group each is listed under.

@@ -21,8 +21,8 @@ use hamlet_blueprint::{
 use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_graph::{
-    Catalogue, Constant, Does, GraphError, GraphOutput, NodeId, Port,
-    Registry, Setting, Shape, Spread, ValueType,
+    Catalogue, Constant, Does, Graph, GraphError, GraphOutput,
+    NodeId, Port, Registry, Setting, Shape, Spread, ValueType,
 };
 use hamlet_graph_editor::files::{self, Files};
 use hamlet_graph_editor::library::{
@@ -91,6 +91,10 @@ impl Flavor for Blueprint {
 
     fn registry() -> Registry {
         hamlet_blueprint::registry()
+    }
+
+    fn upgrade(graph: &mut Graph) {
+        hamlet_blueprint::upgrade(graph);
     }
 
     /// Runs the open graph with every unwired output shown too, and
@@ -382,7 +386,7 @@ fn write_bundle(
 /// Every choice the graphs are set to or may roll, which names the
 /// assets they put down among other things.
 fn named(
-    graphs: &BTreeMap<String, hamlet_graph::Graph>,
+    graphs: &BTreeMap<String, Graph>,
 ) -> BTreeSet<&str> {
     let mut named = BTreeSet::new();
     for graph in graphs.values() {

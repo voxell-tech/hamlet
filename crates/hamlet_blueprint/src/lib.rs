@@ -19,6 +19,7 @@ pub use bundle::Bundle;
 pub use eval::{Run, Seeds, evaluate, evaluate_partly};
 pub use field::{Field, Measure, Noise, NoiseKind, Op, Random};
 pub use kind::{BlueprintKind, registry};
+pub use nodes::upgrade;
 pub use seed::Seed;
 pub use value::{
     Curve, Frame, Object, ObjectId, TransformValue, Value,

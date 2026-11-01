@@ -3,7 +3,8 @@
 
 use bevy_math::Vec3;
 use hamlet_graph::{
-    Error, Initial, Listed, NodeKind, PortSpec, Scope, ValueType,
+    Does, Error, Graph, Initial, Listed, NodeKind, PortSpec, Scope,
+    ValueType,
 };
 
 use super::{OBJECTS_IN, OBJECTS_OUT};
@@ -163,6 +164,39 @@ fn combine(run: &mut Run) -> Result<(), Error> {
     }
     run.put("objects", Value::Objects(objects));
     Ok(())
+}
+
+/// The inputs [`COMBINE`] had before they grew, in order.
+const LETTERS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
+
+/// Moves each wire into one of Combine's old inputs, `a` to `f`, onto
+/// its numbered port, in their order.
+pub fn upgrade(graph: &mut Graph) {
+    let combines = graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(&node.does, Does::Kind(kind) if kind == COMBINE.name)
+        })
+        .map(|node| node.id)
+        .collect::<Vec<_>>();
+    for node in combines {
+        let mut lettered = graph
+            .wires
+            .iter_mut()
+            .filter(|wire| wire.to.node == node)
+            .filter_map(|wire| {
+                let at = LETTERS
+                    .iter()
+                    .position(|letter| *letter == wire.to.name)?;
+                Some((at, wire))
+            })
+            .collect::<Vec<_>>();
+        lettered.sort_by_key(|(at, _)| *at);
+        for (number, (_, wire)) in lettered.into_iter().enumerate() {
+            wire.to.name = SET_IN.port(number + 1);
+        }
+    }
 }
 
 const RANDOM_SELECT: NodeKind = NodeKind {

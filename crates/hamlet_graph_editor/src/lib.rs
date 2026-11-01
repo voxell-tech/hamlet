@@ -325,6 +325,7 @@ impl<F: Flavor> Editor<F> {
         // A node's settings may still name an input removed earlier.
         for sheet in book.sheets.values_mut() {
             let graph = &mut sheet.graph;
+            F::upgrade(graph);
             let names = graph
                 .inputs
                 .iter()

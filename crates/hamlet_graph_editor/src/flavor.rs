@@ -4,7 +4,7 @@
 
 use bevy::app::App;
 use bevy::math::Vec2;
-use hamlet_graph::Registry;
+use hamlet_graph::{Graph, Registry};
 use hamlet_ui::AnyView;
 use hamlet_ui::widgets::icons::Glyph;
 
@@ -37,6 +37,9 @@ pub trait Flavor: Sized + Send + Sync + 'static {
     type Got: Default + Send + Sync + 'static;
     /// The kinds of node its graphs use.
     fn registry() -> Registry;
+    /// Brings `graph`, written for older kinds, up to date as its
+    /// book is opened.
+    fn upgrade(_graph: &mut Graph) {}
     /// Works the open graph out again, filling `editor.got` and
     /// `editor.errors`.
     fn run(editor: &mut Editor<Self>);
