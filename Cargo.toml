@@ -25,6 +25,7 @@ hamlet_assets = { version = "0.1.0", path = "crates/hamlet_assets" }
 hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
+hamlet_profiler = { version = "0.1.0", path = "crates/hamlet_profiler" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
 hamlet_workspace_wire = { version = "0.1.0", path = "crates/hamlet_workspace_wire" }
 
@@ -85,6 +86,9 @@ objc2-foundation = { version = "0.2", default-features = false, features = ["std
 winit = { version = "0.30", default-features = false }
 windows-sys = "0.61"
 toml = "1"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+# Held to the version `bevy_render` uses, so its devices are this crate's.
+wgpu = { version = "30", default-features = false }
 
 [workspace.lints.rust]
 # Unsafe code lives only in the modules that say so.

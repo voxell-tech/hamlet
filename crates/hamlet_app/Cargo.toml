@@ -24,6 +24,7 @@ hamlet_client.workspace = true
 hamlet_desktop.workspace = true
 hamlet_protocol.workspace = true
 hamlet_ui.workspace = true
+hamlet_profiler = { workspace = true, optional = true }
 hamlet_realm.workspace = true
 anyhow.workspace = true
 # The product's Bevy: each library names only what its own code
@@ -51,6 +52,9 @@ hamlet_vfx.workspace = true
 # A saved change to a file under assets/ reaches the running app:
 # `cargo run -p hamlet_app --features hot-reload`.
 hot-reload = ["hamlet_assets/hot-reload"]
+# The Profiler panel, recording every frame's spans:
+# `HAMLET_APP=... cargo build --bin hamlet_app --features profiler`.
+profiler = ["dep:hamlet_profiler"]
 
 [[example]]
 name = "style_test"

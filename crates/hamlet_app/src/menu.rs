@@ -235,6 +235,10 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
             item(Glyph::Moon, "Sky at Night", |w| {
                 *w.resource_mut::<TimeOfDay>() = TimeOfDay::Night;
             }),
+            #[cfg(feature = "profiler")]
+            item(Glyph::Meter, "Profiler", |w| {
+                crate::dock::show_tab(w, "profiler");
+            }),
         ],
     }
 }

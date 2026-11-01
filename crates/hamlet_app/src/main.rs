@@ -77,12 +77,18 @@ fn main() -> Result<()> {
     let remembered = Remembered::read(&view)?;
     let kept = Kept::read(&view)?;
     let rt = tokio::runtime::Runtime::new()?;
+    let plugins = DefaultPlugins.set(window);
+    #[cfg(feature = "profiler")]
+    let plugins = plugins.set(bevy::log::LogPlugin {
+        custom_layer: hamlet_profiler::layer,
+        ..Default::default()
+    });
     let mut app = App::new();
     app.insert_resource(Tokio(rt.handle().clone()))
         .insert_resource(ViewFolder(view))
         .insert_resource(remembered)
         .insert_resource(kept)
-        .add_plugins(DefaultPlugins.set(window));
+        .add_plugins(plugins);
     client(&mut app, |key| std::env::var(key).ok());
     let exit = app
         .add_plugins((

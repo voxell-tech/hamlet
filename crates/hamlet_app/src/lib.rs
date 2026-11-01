@@ -17,6 +17,8 @@ pub mod lists;
 mod markdown;
 pub mod menu;
 pub mod models;
+#[cfg(feature = "profiler")]
+mod profiler;
 mod remember;
 mod roll;
 mod root;
@@ -152,6 +154,8 @@ impl Plugin for UiPlugin {
                 .chain()
                 .in_set(PanelSystems::Follow),
         );
+        #[cfg(feature = "profiler")]
+        app.add_plugins(profiler::plugin);
     }
 }
 
