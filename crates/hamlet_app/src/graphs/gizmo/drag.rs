@@ -18,12 +18,13 @@ use bevy::transform::components::GlobalTransform;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy_fynix::Theme;
 use hamlet_graph::{Constant, NodeId};
+use hamlet_graph_editor::Editor;
+use hamlet_graph_editor::canvas::corner;
 use hamlet_ui::theme::HamletTheme;
 
-use super::super::canvas::corner;
+use super::super::Blueprint;
 use super::super::handles::{Kind, Target, degrees_of, set, targets};
 use super::super::preview::{Preview, Shown as PreviewFrame};
-use super::super::{Blueprint, Editor};
 use super::{Arc, Frame, GizmoMode, Handle, Hot, Style, look_of};
 
 /// The least a scale drag scales by.

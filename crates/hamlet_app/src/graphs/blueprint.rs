@@ -24,14 +24,14 @@ use hamlet_graph::{
     Catalogue, Constant, Does, GraphOutput, NodeId, Port, Registry,
     Setting, Shape, Spread, ValueType,
 };
+use hamlet_graph_editor::files::{self, Files};
+use hamlet_graph_editor::library::{Item, Kind, Library};
+use hamlet_graph_editor::{Editor, Flavor, tool};
 use hamlet_ui::AnyView;
 use hamlet_ui::widgets::icons::Glyph;
 
 use super::assets::Meshes;
-use super::files::{self, Files};
-use super::flavor::Flavor;
-use super::{Editor, assets, gizmo, overlay, preview, tool};
-use crate::library::{Item, Kind, Library};
+use super::{assets, gizmo, overlay, preview};
 
 /// Blueprint graphs.
 pub(crate) struct Blueprint;
@@ -256,20 +256,18 @@ impl Flavor for Blueprint {
     }
 }
 
-impl Editor<Blueprint> {
-    /// Rolls again every random value picked once per item, as if
-    /// this were another of them.
-    pub fn roll_item(&mut self) {
-        self.got.seeds.item = self.got.seeds.item.mix(1);
-        Blueprint::run(self);
-    }
+/// Rolls again every random value picked once per item, as if this
+/// were another of them.
+pub(super) fn roll_item(editor: &mut Editor<Blueprint>) {
+    editor.got.seeds.item = editor.got.seeds.item.mix(1);
+    Blueprint::run(editor);
+}
 
-    /// Rolls again every random value picked once per hamlet, as if
-    /// the item were in another hamlet.
-    pub fn roll_hamlet(&mut self) {
-        self.got.seeds.hamlet = self.got.seeds.hamlet.mix(1);
-        Blueprint::run(self);
-    }
+/// Rolls again every random value picked once per hamlet, as if the
+/// item were in another hamlet.
+pub(super) fn roll_hamlet(editor: &mut Editor<Blueprint>) {
+    editor.got.seeds.hamlet = editor.got.seeds.hamlet.mix(1);
+    Blueprint::run(editor);
 }
 
 /// The objects an output shows.
@@ -453,8 +451,9 @@ fn exported(
 
 #[cfg(test)]
 mod tests {
+    use hamlet_graph_editor::example;
+
     use super::*;
-    use crate::graphs::example;
 
     #[test]
     fn every_example_opens_and_puts_something_down() {

@@ -1,0 +1,23 @@
+[package]
+name = "hamlet_graph_editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The node-graph editor, generic over the kind of graph, and the asset library it saves into"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_client.workspace = true
+hamlet_desktop.workspace = true
+hamlet_graph.workspace = true
+hamlet_ui.workspace = true
+anyhow.workspace = true
+bevy = { workspace = true, features = ["bevy_asset", "bevy_color", "bevy_input_focus", "bevy_log", "bevy_picking", "bevy_render", "bevy_shader", "bevy_text", "bevy_ui", "bevy_ui_render", "bevy_window"] }
+bevy_fynix.workspace = true
+
+[dev-dependencies]
+hamlet_testing.workspace = true

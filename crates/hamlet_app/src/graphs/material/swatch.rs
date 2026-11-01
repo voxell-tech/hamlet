@@ -19,11 +19,11 @@ use bevy::ui::{AlignSelf, Node, Val, px};
 use bevy::ui_render::UiMaterialPlugin;
 use bevy::ui_render::prelude::MaterialNode;
 use bevy::ui_render::ui_material::UiMaterial;
+use hamlet_graph_editor::Editor;
+use hamlet_graph_editor::canvas::Room;
 use hamlet_material::{SLOTS, swatch_shader};
 
 use super::Material;
-use crate::graphs::Editor;
-use crate::graphs::canvas::Room;
 
 /// A swatch's width and height, in sheet pixels.
 pub(super) const SIZE: f32 = 64.0;

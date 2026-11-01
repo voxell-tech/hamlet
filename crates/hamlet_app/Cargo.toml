@@ -24,6 +24,7 @@ hamlet_client.workspace = true
 hamlet_desktop.workspace = true
 hamlet_blueprint.workspace = true
 hamlet_graph.workspace = true
+hamlet_graph_editor.workspace = true
 hamlet_material.workspace = true
 hamlet_protocol.workspace = true
 hamlet_ui.workspace = true

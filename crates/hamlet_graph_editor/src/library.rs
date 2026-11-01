@@ -6,14 +6,13 @@
 //! names the meshes it uses rather than carrying them. What is
 //! removed is moved to `.trash/`, not deleted.
 
-pub(crate) mod browser;
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::Context;
 use bevy::app::{App, Update};
+use bevy::ecs::component::Component;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::time::Time;
@@ -25,18 +24,23 @@ use hamlet_ui::widgets::icons::Glyph;
 /// window.
 const RESCAN: Duration = Duration::from_secs(3);
 
-pub(crate) fn plugin(app: &mut App) {
+/// Adds the [`Library`] and the systems that find and read its
+/// folder.
+pub fn plugin(app: &mut App) {
     app.init_resource::<Library>()
-        .add_systems(Update, (find, rescan))
-        .add_plugins(browser::plugin);
+        .add_systems(Update, (find, rescan));
 }
 
 /// What an asset is.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub(crate) enum Kind {
+pub enum Kind {
+    /// A book of blueprint graphs.
     Blueprint,
+    /// A book of material graphs.
     Material,
+    /// A `.glb` mesh.
     Mesh,
+    /// A `.png` texture.
     Texture,
 }
 
@@ -60,6 +64,7 @@ impl Kind {
         }
     }
 
+    /// Its name as a word.
     pub fn word(self) -> &'static str {
         match self {
             Kind::Blueprint => "Blueprint",
@@ -69,6 +74,7 @@ impl Kind {
         }
     }
 
+    /// Its icon.
     pub fn glyph(self) -> Glyph {
         match self {
             Kind::Blueprint => Glyph::Signpost,
@@ -81,7 +87,7 @@ impl Kind {
 
 /// Where an asset comes from.
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) enum Source {
+pub enum Source {
     /// A file in the library.
     File(PathBuf),
     /// One of the meshes every book has.
@@ -92,11 +98,19 @@ pub(crate) enum Source {
 
 /// One asset of the library.
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct Item {
+pub struct Item {
+    /// What it is.
     pub kind: Kind,
+    /// Its name among the assets of its kind.
     pub name: String,
+    /// Where it comes from.
     pub source: Source,
 }
+
+/// Marks a tile showing an asset, with the asset. A tile dropped on a
+/// canvas adds what it is there.
+#[derive(Component, Clone)]
+pub struct Tile(pub Item);
 
 impl Item {
     /// Whether it can be renamed and removed.
@@ -107,8 +121,10 @@ impl Item {
 
 /// The library's folder and what is in it.
 #[derive(Resource, Default)]
-pub(crate) struct Library {
+pub struct Library {
     root: Option<PathBuf>,
+    /// The example books each kind of book starts from.
+    examples: Vec<(Kind, &'static [(&'static str, &'static str)])>,
     /// The meshes, by name.
     pub catalogue: Catalogue,
     /// Every asset, by kind and then name, the examples and built-in
@@ -126,6 +142,17 @@ impl Library {
     /// The library's folder, once the window's folder is known.
     pub fn root(&self) -> Option<&Path> {
         self.root.as_deref()
+    }
+
+    /// Lists `examples`, by name and text, as example books of
+    /// `kind`.
+    pub fn add_examples(
+        &mut self,
+        kind: Kind,
+        examples: &'static [(&'static str, &'static str)],
+    ) {
+        self.examples.push((kind, examples));
+        self.scan();
     }
 
     fn catalogue_at(root: &Path) -> PathBuf {
@@ -176,12 +203,9 @@ impl Library {
         items.sort_by(|a, b| {
             (a.kind, &a.name).cmp(&(b.kind, &b.name))
         });
-        for (kind, examples) in [
-            (Kind::Blueprint, crate::graphs::blueprint_examples()),
-            (Kind::Material, crate::graphs::material_examples()),
-        ] {
+        for (kind, examples) in &self.examples {
             items.extend(examples.iter().map(|(name, text)| Item {
-                kind,
+                kind: *kind,
                 name: (*name).to_owned(),
                 source: Source::Example(text),
             }));
@@ -395,7 +419,7 @@ impl Library {
 }
 
 /// Where the mesh `name`'s file is, in the library.
-pub(crate) fn mesh_file(name: &str) -> String {
+pub fn mesh_file(name: &str) -> String {
     format!(
         "{}/{name}.{}",
         Kind::Mesh.shelf(),

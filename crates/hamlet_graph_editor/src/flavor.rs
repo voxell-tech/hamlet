@@ -11,9 +11,7 @@ use super::Editor;
 use crate::library::{Item, Kind};
 
 /// A kind of graph the editor edits.
-pub(crate) trait Flavor:
-    Sized + Send + Sync + 'static
-{
+pub trait Flavor: Sized + Send + Sync + 'static {
     /// The dock panel's id.
     const PANEL: &'static str;
     /// The dock panel's title.
@@ -53,7 +51,6 @@ pub(crate) trait Flavor:
     fn sections() -> Vec<AnyView> {
         Vec::new()
     }
-    /// Its own plugins, added once by `graphs::plugin`.
     /// Adds what the library's `item` is to the open graph, its
     /// card at `at`, when it is dropped on the canvas; false for an
     /// asset it takes nothing of.
@@ -64,5 +61,6 @@ pub(crate) trait Flavor:
     ) -> bool {
         false
     }
+    /// Its own plugins, added once by [`plugin`](crate::plugin).
     fn plugin(app: &mut App);
 }

@@ -24,14 +24,13 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_graph::{Asset, Paint, Shape, Socket};
+use hamlet_graph_editor::library::{Kind, Library, mesh_file};
+use hamlet_graph_editor::params;
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_ui::styles::{ICON, command, description, note, section};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, with_cx};
-
-use super::params;
-use crate::library::{Kind, Library, mesh_file};
 
 /// The palette's colours a material slot can take, of those a
 /// building is made of.

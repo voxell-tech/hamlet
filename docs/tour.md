@@ -57,6 +57,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
 | `hamlet_graph` | Node graphs as data: sheets, rulesets, the registry of node kinds, edits, the asset catalogue, and the checks that need only a kind's description |
 | `hamlet_blueprint` | Procedural graphs: the built-in nodes with what they run, bundles, and the evaluator that turns a ruleset and seeds into placed assets |
+| `hamlet_graph_editor` | The node-graph editor, generic over a `Flavor`: canvas, menus, parameters, files, and the asset library it saves into |
 | `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, sound and camera |
 | `hamlet_ui` | The widget kit: theme, styles, controls and their effects, with no client state |
 | `hamlet_vfx` | Visual effects |
@@ -222,7 +223,8 @@ ordinary tools.
 | Panels' colors, controls and icons | `assets/theme.toml`, `effects.toml`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
 | Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |
-| Procedural graph nodes, or the Graphs panel | `hamlet_blueprint/src/nodes/`; `hamlet_app/src/graphs/`, whose `examples/` holds the books it offers, the first of which it opens with |
+| Procedural graph nodes, or the Graphs panel | `hamlet_blueprint/src/nodes/`; `hamlet_graph_editor/src/` for the editor every kind of graph shares; `hamlet_app/src/graphs/` for the blueprint and material flavors, whose `examples/` holds the books they offer, the first of which each opens with |
+| The ASSETS panel and the asset library | `hamlet_graph_editor/src/library.rs` for the library; `hamlet_app/src/browser.rs` for the panel |
 | The assets a graph puts down | `hamlet_graph/src/catalogue.rs` for the built-in ones and what an entry holds; `hamlet_app/src/graphs/assets.rs` for importing a `.glb`, its sockets, and drawing it in the preview |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Wizard, Hearth, camera or sound | `hamlet_realm/src/chief/`, `pick/camera.rs`, `sound/` |

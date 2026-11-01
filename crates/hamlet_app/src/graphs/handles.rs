@@ -6,8 +6,9 @@
 
 use bevy::math::{EulerRot, Quat, Vec3};
 use hamlet_graph::{Constant, Does, Edit, NodeId, Setting};
+use hamlet_graph_editor::Editor;
 
-use super::{Blueprint, Editor};
+use super::Blueprint;
 
 /// One thing the gizmo can take hold of: where it is, and what it
 /// sets.

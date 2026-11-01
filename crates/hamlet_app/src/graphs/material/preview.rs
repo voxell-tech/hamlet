@@ -51,6 +51,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, resource};
+use hamlet_graph_editor::Editor;
 use hamlet_material::surface_shader;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
@@ -60,7 +61,6 @@ use hamlet_ui::{AnyView, Cx};
 
 use super::Material;
 use super::swatch::Slots;
-use crate::graphs::Editor;
 use crate::graphs::assets::{COLOURS, palette_colour};
 
 /// The render layer only the material preview's camera, lights and

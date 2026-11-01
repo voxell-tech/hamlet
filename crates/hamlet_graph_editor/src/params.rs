@@ -251,7 +251,7 @@ pub(super) fn input<F: Flavor>(name: String) -> AnyView {
 }
 
 /// `control` after a word on what it sets.
-pub(super) fn labelled(word: &str, control: AnyView) -> AnyView {
+pub fn labelled(word: &str, control: AnyView) -> AnyView {
     let word = word.to_owned();
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;

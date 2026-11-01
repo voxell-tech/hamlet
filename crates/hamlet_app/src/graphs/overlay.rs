@@ -16,11 +16,12 @@ use bevy::reflect::Reflect;
 use bevy::transform::components::Transform;
 use bevy_fynix::Theme;
 use hamlet_blueprint::{Frame, Object, ObjectId, Value};
+use hamlet_graph_editor::Editor;
+use hamlet_graph_editor::canvas::picked;
 use hamlet_ui::theme::HamletTheme;
 
-use super::canvas::picked;
+use super::Blueprint;
 use super::preview::{Framing, LAYER};
-use super::{Blueprint, Editor};
 
 /// How many squares a field is sampled in, on each side.
 const WASH: usize = 24;

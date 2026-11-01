@@ -47,6 +47,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, Theme, ViewExt, resource};
 use hamlet_blueprint::Frame;
 use hamlet_graph::{Asset, BODY, Paint, Shape};
+use hamlet_graph_editor::Editor;
+use hamlet_graph_editor::library::Library;
 use hamlet_realm::generator::house::slope;
 use hamlet_realm::meshes::{Meshing, Rng};
 use hamlet_realm::palette::{Palette as Colours, TownStyle};
@@ -58,10 +60,10 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
+use super::Blueprint;
 use super::assets::{Meshes, palette_colour};
+use super::blueprint::{roll_hamlet, roll_item};
 use super::gizmo::{self, Dragging, GizmoMode};
-use super::{Blueprint, Editor};
-use crate::library::Library;
 
 /// The asset name a transform is shown as when nothing is put there.
 pub(super) const MARKER: &str = "marker";
@@ -268,12 +270,12 @@ fn switches() -> AnyView {
         dice(
             "Hamlet",
             "Roll again what is picked once per hamlet",
-            Editor::<Blueprint>::roll_hamlet,
+            roll_hamlet,
         ),
         dice(
             "Item",
             "Roll again what is picked once per item",
-            Editor::<Blueprint>::roll_item,
+            roll_item,
         ),
         mode("Move", "W", GizmoMode::Translate),
         mode("Turn", "E", GizmoMode::Rotate),

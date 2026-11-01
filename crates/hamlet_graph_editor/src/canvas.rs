@@ -61,7 +61,7 @@ use super::flavor::Flavor;
 use super::menu::{Menu, Which};
 use super::wire::{Shape, WireMaterial};
 use super::{Editor, controls};
-use crate::cursor::Faint;
+use crate::library::Tile;
 
 const WIDTH: f32 = 236.0;
 const HEADER: f32 = 26.0;
@@ -82,8 +82,13 @@ const TITLE_FONT: f32 = 15.0;
 const LEAST_ZOOM: f32 = 0.3;
 const MOST_ZOOM: f32 = 2.0;
 
+/// Whether a wire is being dragged on any canvas.
+#[derive(Resource, Default)]
+pub struct Dragging(pub bool);
+
 pub(super) fn plugin<F: Flavor>(app: &mut App) {
-    app.init_resource::<Sight<F>>()
+    app.init_resource::<Dragging>()
+        .init_resource::<Sight<F>>()
         .init_resource::<Held<F>>()
         .add_systems(
             Update,
@@ -119,7 +124,7 @@ struct Card<F: Flavor>(NodeId, PhantomData<F>);
 
 /// The room under a card's header the flavor fills.
 #[derive(Component)]
-pub(crate) struct Room<F: Flavor>(pub NodeId, pub PhantomData<F>);
+pub struct Room<F: Flavor>(pub NodeId, pub PhantomData<F>);
 
 /// A group's frame, by its place among the sheet's groups.
 #[derive(Component)]
@@ -282,7 +287,7 @@ pub(super) fn middle<F: Flavor>(world: &mut World) -> Vec2 {
 }
 
 /// Pans and zooms so that every card is in sight.
-pub(super) fn fit<F: Flavor>(world: &mut World) {
+pub fn fit<F: Flavor>(world: &mut World) {
     let size = canvas_size::<F>(world);
     let editor = world.resource::<Editor<F>>();
     let (mut low, mut high) =
@@ -345,7 +350,7 @@ pub(super) fn is_hovered<F: Flavor>(world: &mut World) -> bool {
 }
 
 /// A node's top left corner in the window, in logical pixels.
-pub(super) fn corner(
+pub fn corner(
     node: &ComputedNode,
     transform: &UiGlobalTransform,
 ) -> Vec2 {
@@ -621,7 +626,7 @@ pub(super) fn arrange<F: Flavor>(
 
 /// The colour a selected card, and what it gives in the preview, are
 /// shown in, by its place in the selection.
-pub(super) fn picked(palette: &Palette, index: usize) -> Color {
+pub fn picked(palette: &Palette, index: usize) -> Color {
     let colours = [
         palette.glow,
         palette.gold_3,
@@ -1643,11 +1648,10 @@ fn cancel<F: Flavor>(
     cursor.0 = None;
 }
 
-/// Draws the cursor faint while a wire is dragged, so what it is
-/// dragged over shows through.
+/// Sets [`Dragging`] while this canvas drags a wire.
 fn faint<F: Flavor>(
     gesture: Res<Held<F>>,
-    mut faint: ResMut<Faint>,
+    mut dragging: ResMut<Dragging>,
     mut was: Local<bool>,
 ) {
     // Only a change of this canvas's own is passed on, as another
@@ -1655,7 +1659,7 @@ fn faint<F: Flavor>(
     let linking = matches!(**gesture, Gesture::Link(..));
     if *was != linking {
         *was = linking;
-        faint.0 = linking;
+        dragging.0 = linking;
     }
 }
 
@@ -1825,7 +1829,7 @@ fn received<F: Flavor>(
     let dropped = drop.dropped;
     commands.queue(move |world: &mut World| {
         let Some(item) =
-            crate::library::browser::tile_item(world, dropped)
+            world.get::<Tile>(dropped).map(|tile| tile.0.clone())
         else {
             return;
         };

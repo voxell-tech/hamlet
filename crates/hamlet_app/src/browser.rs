@@ -34,6 +34,9 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
+use hamlet_graph_editor::library::{
+    Item, Kind, Library, Source, Tile,
+};
 use hamlet_ui::styles::{
     self, Fills, ICON, description, note, section, text_input,
 };
@@ -41,7 +44,6 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use super::{Item, Kind, Library, Source};
 use crate::dock::{PanelAppExt, flush_panel};
 
 /// A tile's width; its picture is as tall.
@@ -49,7 +51,7 @@ const TILE: f32 = 96.0;
 /// The picture's side within a tile.
 const PICTURE: f32 = 64.0;
 
-pub(super) fn plugin(app: &mut App) {
+pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
         "assets",
         DockWindowKind::new("ASSETS", || flush_panel(view()))
@@ -79,10 +81,6 @@ struct Shown {
     items: Vec<Item>,
     selected: Option<Item>,
 }
-
-/// Marks a tile, with its asset.
-#[derive(Component, Clone)]
-pub(crate) struct Tile(pub Item);
 
 /// Marks the search field.
 #[derive(Component)]
@@ -546,12 +544,4 @@ fn chosen(
             };
         });
     }
-}
-
-/// The asset of the tile `entity`, if it is one.
-pub(crate) fn tile_item(
-    world: &World,
-    entity: Entity,
-) -> Option<Item> {
-    world.get::<Tile>(entity).map(|tile| tile.0.clone())
 }

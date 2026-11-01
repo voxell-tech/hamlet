@@ -9,13 +9,11 @@ mod swatch;
 
 use bevy::app::App;
 use hamlet_graph::{GraphError, Registry};
+use hamlet_graph_editor::library::Kind;
+use hamlet_graph_editor::{Editor, Flavor};
 use hamlet_material::{Compiled, compile};
 use hamlet_ui::AnyView;
 use hamlet_ui::widgets::icons::Glyph;
-
-use super::Editor;
-use super::flavor::Flavor;
-use crate::library::Kind;
 
 /// Material graphs.
 pub(crate) struct Material;

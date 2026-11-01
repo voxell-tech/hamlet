@@ -36,7 +36,7 @@ pub(super) fn plugin<F: Flavor>(app: &mut App) {
 
 /// What a book is kept in, and the last word on it.
 #[derive(Resource)]
-pub(super) struct Files<F: Flavor> {
+pub struct Files<F: Flavor> {
     /// The file the book was last opened from or saved to.
     pub path: Option<PathBuf>,
     /// The last thing done with a file, or what went wrong.
@@ -85,7 +85,7 @@ impl<F: Flavor> Files<F> {
 }
 
 /// The folder the window keeps the book in, with its assets' files.
-pub(super) fn book_folder<F: Flavor>(folder: &Path) -> PathBuf {
+pub fn book_folder<F: Flavor>(folder: &Path) -> PathBuf {
     folder.join(F::FOLDER)
 }
 
@@ -324,18 +324,46 @@ fn chosen<F: Flavor>(
 
 #[cfg(test)]
 mod tests {
+    use bevy_fynix::ViewExt;
+    use bevy_fynix::views::frame;
+    use hamlet_graph::{Registry, Sheet};
     use hamlet_testing::Scratch;
+    use hamlet_ui::AnyView;
+    use hamlet_ui::widgets::icons::Glyph;
 
     use super::*;
-    use crate::graphs::Blueprint;
+    use crate::library::Kind;
+
+    /// A flavor with nothing in it, for the folder it keeps in.
+    struct Empty;
+
+    impl Flavor for Empty {
+        const PANEL: &'static str = "empty";
+        const TITLE: &'static str = "EMPTY";
+        const ICON: Glyph = Glyph::Folder;
+        const FOLDER: &'static str = "empty";
+        const KIND: Kind = Kind::Blueprint;
+        const EXAMPLES: &'static [(&'static str, &'static str)] = &[];
+        type Got = ();
+        fn registry() -> Registry {
+            Registry::default()
+        }
+        fn run(_: &mut Editor<Self>) {}
+        fn status(_: &Editor<Self>) -> String {
+            String::new()
+        }
+        fn preview() -> AnyView {
+            frame().boxed()
+        }
+        fn plugin(_: &mut App) {}
+    }
 
     #[test]
     fn a_book_written_where_the_window_keeps_it_reads_back_the_same()
     {
         let folder = Scratch::new("graph-book");
-        let book = example(Blueprint::EXAMPLES[0].1)
-            .expect("the example parses");
-        let path = kept_at::<Blueprint>(&folder);
+        let book = Book::of("main", Sheet::default());
+        let path = kept_at::<Empty>(&folder);
         write(&path, &book).expect("the book writes");
         assert_eq!(read(&path).expect("the book reads"), book);
     }

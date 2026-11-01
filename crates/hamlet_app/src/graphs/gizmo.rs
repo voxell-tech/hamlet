@@ -35,16 +35,17 @@ use bevy::transform::components::GlobalTransform;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy::window::{PrimaryWindow, Window};
 use bevy_fynix::Theme;
+use hamlet_graph_editor::Editor;
+use hamlet_graph_editor::canvas::corner;
 use hamlet_ui::theme::{HamletTheme, Palette};
 
 use self::drag::cancel;
 pub(super) use self::drag::{Dragging, grab, release, steer};
 use self::fills::{FillMaterial, Fills, HandleFills, spawn_fills};
 use self::paint::{Shown, paint};
-use super::canvas::corner;
+use super::Blueprint;
 use super::handles::{Kind, Target, targets};
 use super::preview::{LAYER, Preview, Shown as PreviewFrame};
-use super::{Blueprint, Editor};
 
 /// Segments a rotation ring is drawn and picked by.
 const RING_STEPS: usize = 48;

@@ -3,6 +3,7 @@
 //! state and built from the widgets of `hamlet_ui`.
 
 pub mod asking;
+mod browser;
 mod chief;
 pub mod chrome;
 mod convo;
@@ -13,7 +14,6 @@ mod folder;
 mod graphs;
 pub mod history;
 mod hover;
-mod library;
 pub mod limits;
 pub mod lists;
 mod markdown;
@@ -134,7 +134,8 @@ impl Plugin for UiPlugin {
                 tuning::plugin,
                 graphs::plugin::<graphs::Blueprint>,
                 graphs::plugin::<graphs::Material>,
-                library::plugin,
+                graphs::faint,
+                browser::plugin,
                 cursor::plugin,
                 sounds::plugin,
             ),

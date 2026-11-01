@@ -3375,6 +3375,7 @@ dependencies = [
  "hamlet_client",
  "hamlet_desktop",
  "hamlet_graph",
+ "hamlet_graph_editor",
  "hamlet_material",
  "hamlet_protocol",
  "hamlet_realm",
@@ -3484,6 +3485,20 @@ dependencies = [
  "ron",
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "hamlet_graph_editor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "bevy_fynix",
+ "hamlet_client",
+ "hamlet_desktop",
+ "hamlet_graph",
+ "hamlet_testing",
+ "hamlet_ui",
 ]
 
 [[package]]
