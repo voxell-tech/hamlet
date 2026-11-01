@@ -567,13 +567,14 @@ fn rebuild(
     let (mut low, mut high) =
         (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for object in objects {
-        let size = object.frame.scale;
+        let asset = editor.rules.assets.get(&object.asset);
+        let size = object.frame.scale
+            * asset.as_ref().map_or(Vec3::ONE, |asset| asset.size);
         let marker = object.asset == MARKER;
         // An asset stands on its transform; a marker sits on it.
         let lift = if marker { 0.0 } else { size.y * 0.5 };
         let middle = object.frame.translation
             + object.frame.rotation * Vec3::new(0.0, lift, 0.0);
-        let asset = editor.rules.assets.get(&object.asset);
         // A mesh that cannot be read is drawn as a box, and said so.
         let mut failed = None;
         let model = match (

@@ -16,15 +16,29 @@ use serde::{Deserialize, Deserializer, Serialize};
 #[serde(transparent)]
 pub struct Catalogue(pub BTreeMap<String, Asset>);
 
-/// What draws an asset, the colour of each of its material slots,
-/// and the points named on it that other assets are put at.
+/// What draws an asset, its own size, the colour of each of its
+/// material slots, and the points named on it that other assets are
+/// put at.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Asset {
     pub shape: Shape,
+    /// The box around it in metres, which a scale of one draws it
+    /// at: a metre on each side for a built-in shape, and as it was
+    /// made for a mesh.
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub size: Vec3,
     #[serde(default)]
     pub slots: BTreeMap<String, Paint>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sockets: BTreeMap<String, Socket>,
+}
+
+fn one() -> Vec3 {
+    Vec3::ONE
+}
+
+fn is_one(size: &Vec3) -> bool {
+    *size == Vec3::ONE
 }
 
 /// A point named on an asset, where another is put, such as where the
@@ -148,6 +162,7 @@ impl Catalogue {
             BUILTIN.iter().find(|(builtin, ..)| *builtin == name)?;
         Some(Asset {
             shape: shape.clone(),
+            size: Vec3::ONE,
             slots: BTreeMap::from([(
                 BODY.to_owned(),
                 Paint::Palette((*colour).to_owned()),

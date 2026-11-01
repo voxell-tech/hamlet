@@ -671,6 +671,13 @@ impl Run<'_> {
         self.assets.get(name)
     }
 
+    /// The size of `object`'s asset in its frame, before its scale:
+    /// a metre on each side for one the catalogue does not have.
+    pub fn own_size(&self, object: &Object) -> Vec3 {
+        self.asset(&object.asset)
+            .map_or(Vec3::ONE, |asset| asset.size)
+    }
+
     /// The id of the `index`th object this node makes from `parent`.
     pub fn id(
         &self,

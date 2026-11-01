@@ -282,12 +282,13 @@ fn shown(value: Value) -> Vec<Object> {
     }
 }
 
-/// Gives the graphs the library's meshes, moving any the book opened
-/// carried into the library first.
+/// Gives the graphs the library's meshes, each at its file's size,
+/// moving any the book opened carried into the library first.
 fn mirror(
     folder: Option<Res<ViewFolder>>,
     mut library: ResMut<Library>,
     mut editor: ResMut<Editor<Blueprint>>,
+    mut meshes: ResMut<Meshes>,
 ) {
     if !editor.carried.is_empty()
         && let Some(folder) = folder
@@ -300,7 +301,11 @@ fn mirror(
         }
     }
     if library.is_changed() || editor.is_added() {
-        editor.set_catalogue(library.catalogue.clone());
+        let mut catalogue = library.catalogue.clone();
+        if let Some(root) = library.root() {
+            meshes.measure(&mut catalogue, root);
+        }
+        editor.set_catalogue(catalogue);
     }
 }
 
