@@ -23,13 +23,13 @@ pub(crate) struct Screen {
     replay: VecDeque<u8>,
     /// Its size where `replay` starts.
     start: Size,
-    /// Where the line being typed starts: the cursor, as a row
-    /// counted from the top of the scrollback and a column, when
-    /// typing began after a prompt.
-    typing: Option<(usize, u16)>,
-    /// Where a line entered starts, read once the shell has echoed
-    /// it.
-    entered: Option<(usize, u16)>,
+    /// What the line being typed showed before typing began on it:
+    /// the prompt. The line is found again by it, not by where it
+    /// was, which scrolling and a full scrollback move.
+    typing: Option<String>,
+    /// The prompt of a line entered, read once the shell has echoed
+    /// its Enter.
+    entered: Option<String>,
     /// The last command typed into it or run in it.
     pub(super) last: Option<String>,
     pub(super) seq: u64,
@@ -52,6 +52,15 @@ impl vt100::Callbacks for Titled {
 /// `n` cells, at least one.
 fn cells(n: u16) -> std::num::NonZeroU16 {
     std::num::NonZeroU16::new(n).unwrap_or(std::num::NonZeroU16::MIN)
+}
+
+/// The first row of the line `row` is part of, its rows before it
+/// wrapped into it.
+fn first_row(screen: &vt100::Screen, mut row: u16) -> u16 {
+    while row > 0 && screen.row_wrapped(row - 1) {
+        row -= 1;
+    }
+    row
 }
 
 pub(super) fn lock(
@@ -138,16 +147,20 @@ impl Screen {
         bytes
     }
 
-    /// The cursor, its row counted from the top of the scrollback.
-    fn cursor(&self) -> (usize, u16) {
+    /// What the cursor's line shows before the cursor, its wrapped
+    /// rows joined.
+    fn before_cursor(&self) -> String {
         let screen = self.parser.screen();
         let (row, col) = screen.cursor_position();
-        (screen.scrollback_len() + usize::from(row), col)
+        screen.contents_between(first_row(screen, row), 0, row, col)
     }
 
-    /// Notes what `bytes` typed means for the last command: where the
-    /// line starts, as typing begins after a prompt, and the line
-    /// entered with Enter. A full-screen program's keys are not
+    /// Notes what `bytes` typed means for the last command: the
+    /// prompt of the line, as typing begins on it, and the line
+    /// entered with Enter. Keys typed at a program that left the
+    /// line, such as the `q` that ends a pager, are not taken for
+    /// the next prompt's: a line that no longer shows its prompt
+    /// begins again. A full-screen program's keys are not
     /// commands.
     pub(super) fn typed(&mut self, bytes: &[u8]) {
         if self.parser.screen().alternate_screen() {
@@ -159,57 +172,46 @@ impl Screen {
             self.typing = None;
             return;
         }
-        let cursor = self.cursor();
-        let start = *self.typing.get_or_insert(cursor);
+        let before = self.before_cursor();
+        let kept = self.typing.as_ref().is_some_and(|prompt| {
+            before.starts_with(prompt.trim_end())
+        });
+        if !kept {
+            self.typing = Some(before);
+        }
         if bytes.contains(&b'\r') {
-            self.entered = Some(start);
-            self.typing = None;
+            self.entered = self.typing.take();
         }
     }
 
-    /// Reads the line entered once the cursor has left it.
+    /// Reads the line entered, which ends on the row above the cursor
+    /// once its Enter has been echoed, without its prompt and what a
+    /// prompt shows at its right. A line that does not show the
+    /// prompt typing began after is not read.
     fn read_entered(&mut self) {
-        let Some((row, col)) = self.entered else {
+        let Some(prompt) = self.entered.take() else {
             return;
         };
-        if self.cursor().0 <= row {
+        let screen = self.parser.screen();
+        let (row, _) = screen.cursor_position();
+        let Some(end) = row.checked_sub(1) else {
             return;
-        }
-        self.entered = None;
-        let line = self.line_from(row, col);
-        if !line.is_empty() {
-            self.last = Some(line);
-        }
-    }
-
-    /// The line that starts at `row` and `col`, its wrapped rows
-    /// joined, without what a prompt shows at its right.
-    fn line_from(&mut self, row: usize, col: u16) -> String {
-        let screen = self.parser.screen_mut();
-        let back = screen.scrollback_len();
-        let (rows, cols) = screen.size();
-        let (rows, cols) = (rows.get(), cols.get());
-        let mut at = if row >= back {
-            u16::try_from(row - back).unwrap_or(rows)
-        } else {
-            screen.set_scrollback(back - row);
-            0
         };
-        let mut text = String::new();
-        let mut from = col;
-        while at < rows {
-            text.push_str(
-                &screen.contents_between(at, from, at, cols),
-            );
-            if !screen.row_wrapped(at) {
-                break;
-            }
-            at += 1;
-            from = 0;
+        let cols = screen.size().1.get();
+        let line = screen.contents_between(
+            first_row(screen, end),
+            0,
+            end,
+            cols,
+        );
+        let Some(typed) = line.strip_prefix(prompt.trim_end()) else {
+            return;
+        };
+        let text =
+            typed.split("    ").next().unwrap_or_default().trim();
+        if !text.is_empty() {
+            self.last = Some(text.chars().take(LAST).collect());
         }
-        screen.set_scrollback(0);
-        let text = text.split("    ").next().unwrap_or_default();
-        text.trim().chars().take(LAST).collect()
     }
 
     pub(super) fn resize(&mut self, size: Size) {
@@ -341,6 +343,33 @@ mod tests {
         screen.take(b"\x1b[?1049h");
         typed(&mut screen, "q\r", "\r\n");
         assert_eq!(screen.last.as_deref(), Some("ls -la /tmp"));
+    }
+
+    #[test]
+    fn a_key_typed_at_a_pager_is_not_taken_for_the_next_command() {
+        let mut screen = Screen::new(Size { rows: 4, cols: 30 });
+        screen.take(b"diff --git a/x b/x\r\n:");
+        // The q that ends the pager, which does not echo it.
+        typed(&mut screen, "q", "\r\x1b[K");
+        screen.take(b"me@host src % ");
+        typed(&mut screen, "ls", "ls");
+        typed(&mut screen, "\r", "\r\n");
+        assert_eq!(screen.last.as_deref(), Some("ls"));
+    }
+
+    #[test]
+    fn the_last_command_is_read_once_the_scrollback_is_full() {
+        let mut screen = Screen::new(Size { rows: 4, cols: 30 });
+        for line in 0..SCROLLBACK + 50 {
+            screen.take(format!("{line}\r\n").as_bytes());
+        }
+        for command in ["git log", "ls"] {
+            screen.take(b"% ");
+            typed(&mut screen, command, command);
+            typed(&mut screen, "\r", "\r\n");
+            screen.take(b"a\r\nb\r\nc\r\n");
+            assert_eq!(screen.last.as_deref(), Some(command));
+        }
     }
 
     #[test]

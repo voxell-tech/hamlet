@@ -257,10 +257,10 @@ that opened it, null when the chief did), `cols`, `rows`, `cwd`, `exit`
 (null while its shell runs), `sandboxed`, the `title` its programs set,
 `named` (whether the chief or its agent named it, its name then shown over
 the title) and `last`, the last command typed into it or, for `commands`, the
-last its agent ran (null before one). A typed command is the line read
-from where typing began after a prompt, once the shell echoes its Enter;
-what a full-screen program is typed is not one, and nor is what a prompt
-does not echo.
+last its agent ran (null before one). A typed command is the line entered
+after a prompt, read once the shell echoes its Enter and kept only while
+that line still shows the prompt typing began after; what a full-screen
+program is typed is not one, and nor is what a prompt does not echo.
 `kind` is `shell`, which takes input, or `commands`: one per agent, showing
 each command its shell tool runs and that command's output as it comes,
 read-only. A terminal's agent or hamlet leaving removes it. The server
