@@ -13,10 +13,11 @@ use std::ops::{Deref, DerefMut};
 use bevy::app::{App, Update};
 use bevy::asset::Assets;
 use bevy::color::{Alpha, Color};
-use bevy::ecs::change_detection::DetectChanges;
+use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
+use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Changed, Or, With, Without};
 use bevy::ecs::resource::Resource;
@@ -25,7 +26,7 @@ use bevy::ecs::system::{Commands, If, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
-use bevy::input::mouse::MouseScrollUnit;
+use bevy::input::mouse::{MouseButton, MouseScrollUnit};
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::math::Vec2;
 use bevy::picking::Pickable;
@@ -38,6 +39,7 @@ use bevy::picking::pointer::PointerButton;
 use bevy::text::{
     EditableText, FontSize, TextColor, TextEdit, TextFont, TextLayout,
 };
+use bevy::time::Time;
 use bevy::ui::widget::Text;
 use bevy::ui::{
     AlignItems, BackgroundColor, BorderColor, BorderRadius,
@@ -46,7 +48,7 @@ use bevy::ui::{
     Val, Val2, ZIndex, px,
 };
 use bevy::ui_render::ui_material::MaterialNode;
-use bevy::window::{SystemCursorIcon, Window};
+use bevy::window::{RequestRedraw, SystemCursorIcon, Window};
 use bevy_fynix::views::{BehaviorExt, frame};
 use bevy_fynix::{EntityCursor, OverrideCursor, Theme};
 use hamlet_graph::{
@@ -58,7 +60,7 @@ use hamlet_ui::theme::{HamletTheme, Palette};
 use hamlet_ui::{View, with_cx};
 
 use super::flavor::Flavor;
-use super::menu::{Menu, Which};
+use super::menu::Which;
 use super::wire::{Shape, WireMaterial};
 use super::{Editor, controls};
 use crate::library::Tile;
@@ -82,13 +84,29 @@ const TITLE_FONT: f32 = 15.0;
 const LEAST_ZOOM: f32 = 0.3;
 const MOST_ZOOM: f32 = 2.0;
 
+/// How quickly the zoom goes to the one a scroll asked for, per
+/// second.
+const ZOOM_EASE: f32 = 16.0;
+
+/// How far, in logical pixels, a right press moves before it pans
+/// rather than opening a menu.
+const PAN_SLOP: f32 = 4.0;
+
 pub(super) fn plugin<F: Flavor>(app: &mut App) {
     app.init_resource::<Dragging>()
         .init_resource::<Sight<F>>()
         .init_resource::<Held<F>>()
+        .init_resource::<RightPress<F>>()
         .add_systems(
             Update,
-            (build::<F>, place::<F>, paint::<F>, lasso::<F>).chain(),
+            (
+                (right_drag::<F>, ease_zoom::<F>),
+                build::<F>,
+                place::<F>,
+                paint::<F>,
+                lasso::<F>,
+            )
+                .chain(),
         )
         .add_systems(Update, (cancel::<F>, faint::<F>).chain())
         .add_systems(Update, (titles::<F>, retitled::<F>));
@@ -218,6 +236,8 @@ impl Input {
 struct Sight<F: Flavor> {
     pan: Vec2,
     zoom: f32,
+    /// The zoom a scroll asked for, which [`ease_zoom`] goes to.
+    goal: Option<ZoomGoal>,
     flavor: PhantomData<F>,
 }
 
@@ -226,9 +246,44 @@ impl<F: Flavor> Sight<F> {
         Self {
             pan,
             zoom,
+            goal: None,
             flavor: PhantomData,
         }
     }
+}
+
+/// A zoom to go to, about a point of the canvas that stays put.
+#[derive(Clone, Copy)]
+struct ZoomGoal {
+    zoom: f32,
+    about: Vec2,
+}
+
+/// A press of the right button on the canvas, until it is let go:
+/// the menu it opens if it does not move, or the sheet panning once
+/// it has.
+#[derive(Resource)]
+struct RightPress<F: Flavor> {
+    held: Option<RightHeld>,
+    flavor: PhantomData<F>,
+}
+
+impl<F: Flavor> Default for RightPress<F> {
+    fn default() -> Self {
+        Self {
+            held: None,
+            flavor: PhantomData,
+        }
+    }
+}
+
+/// What a right press holds while it is down. Places are in the
+/// window's logical pixels.
+struct RightHeld {
+    menu: Which,
+    from: Vec2,
+    last: Vec2,
+    panning: bool,
 }
 
 impl<F: Flavor> Default for Sight<F> {
@@ -1598,8 +1653,9 @@ fn drag_card<F: Flavor>(
     }
 }
 
-/// Pans on a drag of the bare canvas, or with Shift draws a box to
-/// select by.
+/// Draws a box to select by on a drag of the bare canvas, adding to
+/// the selection with Shift, or pans on a drag with the middle
+/// button. The right button pans in [`right_drag`].
 fn pan_start<F: Flavor>(
     start: On<PointerDragStart>,
     canvas: Query<
@@ -1612,21 +1668,32 @@ fn pan_start<F: Flavor>(
     mut gesture: ResMut<Held<F>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
-    if start.entity != start.original_event_target() {
-        return;
-    }
-    if is_shift_held(keys.as_deref())
-        && let Ok((node, transform)) = canvas.get(start.entity)
-    {
-        let at = (start.pointer.position
-            - corner(node, transform)
-            - sight.pan)
-            / sight.zoom;
-        **gesture = Gesture::Lasso(at, at, editor.selected.clone());
-        cursor.0 = Some(SystemCursorIcon::Crosshair);
-    } else {
-        **gesture = Gesture::Pan;
-        cursor.0 = Some(SystemCursorIcon::Move);
+    match start.button {
+        PointerButton::Primary => {
+            if start.entity != start.original_event_target() {
+                return;
+            }
+            let Ok((node, transform)) = canvas.get(start.entity)
+            else {
+                return;
+            };
+            let at = (start.pointer.position
+                - corner(node, transform)
+                - sight.pan)
+                / sight.zoom;
+            let kept = if is_shift_held(keys.as_deref()) {
+                editor.selected.clone()
+            } else {
+                BTreeSet::new()
+            };
+            **gesture = Gesture::Lasso(at, at, kept);
+            cursor.0 = Some(SystemCursorIcon::Crosshair);
+        }
+        PointerButton::Middle => {
+            **gesture = Gesture::Pan;
+            cursor.0 = Some(SystemCursorIcon::Move);
+        }
+        PointerButton::Secondary => {}
     }
 }
 
@@ -1704,7 +1771,8 @@ fn faint<F: Flavor>(
     }
 }
 
-/// Shows the box of a Shift-drag where it is, and hides it after.
+/// Shows the box of a drag that selects where it is, and hides it
+/// after.
 fn lasso<F: Flavor>(
     gesture: Res<Held<F>>,
     mut boxes: Query<&mut Node, With<Lasso<F>>>,
@@ -1730,7 +1798,7 @@ fn lasso<F: Flavor>(
     }
 }
 
-/// Zooms about the pointer.
+/// Asks for a zoom about the pointer, which [`ease_zoom`] goes to.
 fn zoom<F: Flavor>(
     scroll: On<PointerScroll>,
     canvas: Query<
@@ -1746,16 +1814,87 @@ fn zoom<F: Flavor>(
         MouseScrollUnit::Line => scroll.y * 0.12,
         MouseScrollUnit::Pixel => scroll.y * 0.002,
     };
-    let zoom =
-        (sight.zoom * notch.exp()).clamp(LEAST_ZOOM, MOST_ZOOM);
-    let at = scroll.pointer.position - corner(node, transform);
-    let on_sheet = (at - sight.pan) / sight.zoom;
-    sight.pan = at - on_sheet * zoom;
-    sight.zoom = zoom;
+    let from = sight.goal.map_or(sight.zoom, |goal| goal.zoom);
+    sight.goal = Some(ZoomGoal {
+        zoom: (from * notch.exp()).clamp(LEAST_ZOOM, MOST_ZOOM),
+        about: scroll.pointer.position - corner(node, transform),
+    });
 }
 
-/// Opens the menu of the card a right click is on, or the list of
-/// kinds where it is on the bare canvas.
+/// Eases the zoom toward the one asked for, keeping the point it is
+/// about where it is on the canvas.
+fn ease_zoom<F: Flavor>(
+    time: Res<Time>,
+    mut sight: ResMut<Sight<F>>,
+    mut redraw: MessageWriter<RequestRedraw>,
+) {
+    let Some(goal) = sight.goal else {
+        return;
+    };
+    let step = 1.0 - (-ZOOM_EASE * time.delta_secs()).exp();
+    // In equal ratios, so a zoom in and a zoom out ease alike.
+    let zoom = if (goal.zoom / sight.zoom - 1.0).abs() < 1e-3 {
+        goal.zoom
+    } else {
+        sight.zoom * (goal.zoom / sight.zoom).powf(step)
+    };
+    let on_sheet = (goal.about - sight.pan) / sight.zoom;
+    sight.pan = goal.about - on_sheet * zoom;
+    sight.zoom = zoom;
+    if zoom == goal.zoom {
+        sight.goal = None;
+    } else {
+        redraw.write(RequestRedraw);
+    }
+}
+
+/// Pans the sheet while the right button is dragged from a press on
+/// the canvas, and opens the press's menu where it is let go without
+/// having moved.
+fn right_drag<F: Flavor>(
+    buttons: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    mut right: ResMut<RightPress<F>>,
+    mut sight: ResMut<Sight<F>>,
+    mut cursor: ResMut<OverrideCursor>,
+    mut commands: Commands,
+) {
+    let right = right.bypass_change_detection();
+    let Some(held) = &mut right.held else {
+        return;
+    };
+    if buttons.pressed(MouseButton::Right) {
+        let Some(at) =
+            windows.iter().find_map(Window::cursor_position)
+        else {
+            return;
+        };
+        if !held.panning && at.distance(held.from) > PAN_SLOP {
+            held.panning = true;
+            cursor.0 = Some(SystemCursorIcon::Move);
+        }
+        if held.panning && at != held.last {
+            sight.pan += at - held.last;
+        }
+        held.last = at;
+        return;
+    }
+    let Some(held) = right.held.take() else {
+        return;
+    };
+    if held.panning {
+        cursor.0 = None;
+    } else {
+        // Through `open`, which clears what was searched for.
+        commands.queue(move |world: &mut World| {
+            super::menu::open::<F>(world, held.menu);
+        });
+    }
+}
+
+/// Holds a right press on the canvas with the menu it opens if let go
+/// where it is: the menu of the card or row it is on, or the list of
+/// kinds on the bare canvas. [`right_drag`] opens it or pans.
 fn ask<F: Flavor>(
     press: On<PointerPress>,
     cards: Query<&Card<F>>,
@@ -1768,8 +1907,7 @@ fn ask<F: Flavor>(
     >,
     sight: Res<Sight<F>>,
     mut editor: ResMut<Editor<F>>,
-    mut menu: ResMut<Menu<F>>,
-    mut commands: Commands,
+    mut right: ResMut<RightPress<F>>,
 ) {
     if press.button != PointerButton::Secondary {
         return;
@@ -1780,15 +1918,9 @@ fn ask<F: Flavor>(
         || std::iter::once(hit).chain(parents.iter_ancestors(hit));
     let row = up().find_map(|entity| rows.get(entity).ok());
     let card = up().find_map(|entity| cards.get(entity).ok());
-    if card.is_none()
-        && let Some(bar) =
-            up().find_map(|entity| bars.get(entity).ok())
-    {
-        **menu = Which::Group { group: bar.0, at };
-        return;
-    }
-    **menu = match (row, card) {
-        (Some(row), _) => {
+    let bar = up().find_map(|entity| bars.get(entity).ok());
+    let menu = match (row, card, bar) {
+        (Some(row), ..) => {
             if !editor.selected.contains(&row.node) {
                 editor.selected = BTreeSet::from([row.node]);
             }
@@ -1798,29 +1930,29 @@ fn ask<F: Flavor>(
                 at,
             }
         }
-        (None, Some(card)) => {
+        (None, Some(card), _) => {
             if !editor.selected.contains(&card.0) {
                 editor.selected = BTreeSet::from([card.0]);
             }
             Which::Card { node: card.0, at }
         }
-        (None, None) => {
+        (None, None, Some(bar)) => Which::Group { group: bar.0, at },
+        (None, None, None) => {
             let Ok((node, transform)) = canvas.get(press.entity)
             else {
                 return;
             };
             let on_sheet = (at - corner(node, transform) - sight.pan)
                 / sight.zoom;
-            // Through `open`, which clears what was searched for.
-            commands.queue(move |world: &mut World| {
-                super::menu::open::<F>(
-                    world,
-                    Which::Create { at, on_sheet },
-                );
-            });
-            return;
+            Which::Create { at, on_sheet }
         }
     };
+    right.held = Some(RightHeld {
+        menu,
+        from: at,
+        last: at,
+        panning: false,
+    });
 }
 
 fn start_link<F: Flavor>(
@@ -1831,6 +1963,9 @@ fn start_link<F: Flavor>(
     mut cursor: ResMut<OverrideCursor>,
 ) {
     start.propagate(false);
+    if start.button != PointerButton::Primary {
+        return;
+    }
     let Ok(dot) = dots.get(start.entity) else {
         return;
     };
