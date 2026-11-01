@@ -214,6 +214,10 @@ pub enum Glyph {
     Picture,
     /// A prompt in a window: a terminal.
     Terminal,
+    /// A window halved side by side: another panel beside this one.
+    Split,
+    /// A window with a strip down its right: a panel's list.
+    Sidebar,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -242,7 +246,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 71] = [
+    pub const ALL: [Glyph; 73] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -314,6 +318,8 @@ impl Glyph {
         Glyph::Worker,
         Glyph::Picture,
         Glyph::Terminal,
+        Glyph::Split,
+        Glyph::Sidebar,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -804,6 +810,14 @@ impl Glyph {
                 Round(1.75, 2.75, 14.25, 13.25, 1.5),
                 Path(&[[4.5, 6.0], [6.75, 8.0], [4.5, 10.0]]),
                 Line(8.25, 10.25, 11.5, 10.25),
+            ],
+            Glyph::Split => &[
+                Round(1.75, 2.75, 14.25, 13.25, 1.5),
+                Line(8.0, 2.75, 8.0, 13.25),
+            ],
+            Glyph::Sidebar => &[
+                Round(1.75, 2.75, 14.25, 13.25, 1.5),
+                Line(10.25, 2.75, 10.25, 13.25),
             ],
         }
     }

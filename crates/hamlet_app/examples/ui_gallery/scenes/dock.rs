@@ -79,13 +79,21 @@ pub(super) fn seed_dock(world: &mut World) {
     {
         tree.set_fraction(parent, 0.5);
     }
-    if matches!(scene, Scene::Terminal | Scene::TerminalShell)
-        && let Some((low, _)) =
-            tree.split(centre, Edge::Bottom, "terminal".into())
+    if matches!(
+        scene,
+        Scene::Terminal
+            | Scene::TerminalShell
+            | Scene::TerminalPanels
+    ) && let Some((low, _)) =
+        tree.split(centre, Edge::Bottom, "terminal".into())
         && let Some(parent) = tree.parent_of(low)
     {
         tree.set_fraction(parent, 0.4);
+        if scene == Scene::TerminalPanels {
+            tree.split(low, Edge::Right, "terminal-2".into());
+        }
     }
+    hamlet_app::register_numbered(world);
 }
 
 /// Opens the Settings tab beside the Hub in the scenes of Settings.

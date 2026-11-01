@@ -82,13 +82,6 @@ pub(crate) trait PanelAppExt {
 
     /// Registers a panel that opens more than once: `id` now, and
     /// each other as it is opened or laid out.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "no panel opens more than once yet"
-        )
-    )]
     fn add_numbered_panel(
         &mut self,
         id: &str,
@@ -151,10 +144,6 @@ fn tabs_of(parts: &[Part]) -> impl Iterator<Item = &String> {
 }
 
 /// Whether a desk holds the panel `id`.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no panel opens more than once yet")
-)]
 pub(crate) fn on_a_desk(world: &World, id: &str) -> bool {
     world.get_resource::<Desks>().is_some_and(|desks| {
         desks
@@ -234,10 +223,6 @@ fn register(world: &mut World, id: &str) {
 
 /// Opens another of the numbered panel `first` where `target` says,
 /// and gives its id: one neither the dock nor a desk holds.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no panel opens more than once yet")
-)]
 pub(crate) fn open_numbered(
     world: &mut World,
     first: &str,
@@ -277,7 +262,6 @@ pub(crate) fn open_numbered(
 /// Opens another of the numbered panel `first` beside the panel
 /// `beside`, or beside the first area when it is not in the dock,
 /// and gives its id.
-#[expect(dead_code, reason = "no panel opens more than once yet")]
 pub(crate) fn open_another(
     world: &mut World,
     first: &str,

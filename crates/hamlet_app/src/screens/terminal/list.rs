@@ -38,12 +38,11 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, View, with_cx};
 
-use super::{Active, Adding, Handing, activate};
+use super::{Adding, Handing, PanelId, Panels, activate};
 use crate::PanelSystems;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Listed>()
-        .init_resource::<Folded>()
         .init_resource::<Renaming>()
         .add_observer(start_rename)
         .add_systems(PreUpdate, list.in_set(PanelSystems::Bind))
@@ -56,18 +55,14 @@ pub(super) fn plugin(app: &mut App) {
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(super) struct Listed(pub(super) Vec<Group>);
 
-/// The groups folded away, by [`Group::key`].
+/// The terminal whose name is being typed, in the list of which
+/// panel, and whether its field has had the keys yet.
 #[derive(Resource, Default, Clone, PartialEq)]
-struct Folded(BTreeSet<String>);
+struct Renaming(Option<(Entity, PanelId, bool)>);
 
-/// The terminal whose name is being typed, and whether its field has
-/// had the keys yet.
-#[derive(Resource, Default, Clone, Copy, PartialEq)]
-struct Renaming(Option<(Entity, bool)>);
-
-/// A terminal's row in the list, which a double click names.
+/// A terminal's row in a panel's list, which a double click names.
 #[derive(Component)]
-struct Entry(Entity);
+pub(super) struct Entry(pub(super) Entity, pub(super) PanelId);
 
 /// The field a terminal's name is typed in.
 #[derive(Component)]
@@ -91,7 +86,6 @@ pub(super) struct Item {
     pub(super) sandboxed: bool,
     pub(super) exit: Option<i64>,
     pub(super) commands: bool,
-    pub(super) active: bool,
     /// The last command it ran.
     pub(super) last: Option<String>,
 }
@@ -99,10 +93,6 @@ pub(super) struct Item {
 impl Listed {
     pub(super) fn find(&self, terminal: Entity) -> Option<&Item> {
         self.items().find(|item| item.terminal == terminal)
-    }
-
-    pub(super) fn first(&self) -> Option<Entity> {
-        self.items().map(|item| item.terminal).next()
     }
 
     pub(super) fn items(&self) -> impl Iterator<Item = &Item> {
@@ -114,7 +104,6 @@ impl Listed {
 /// hamlet the agents' come first, by agent and each agent's commands
 /// before its shells, then the chief's.
 pub(super) fn list(world: &mut World) {
-    let active = world.resource::<Active>().0;
     let Some(views) =
         world.try_query::<(Entity, &Terminal)>().map(|mut query| {
             query
@@ -167,7 +156,6 @@ pub(super) fn list(world: &mut World) {
                 sandboxed: view.sandboxed,
                 exit: view.exit,
                 commands,
-                active: active == Some(entity),
                 last: view.last.clone(),
             };
             (order, (hamlet.unwrap_or_default(), title), item)
@@ -191,9 +179,10 @@ pub(super) fn list(world: &mut World) {
     }
 }
 
-/// The list of terminals and the press that opens another.
-pub(super) fn side() -> impl View {
-    with_cx(|cx| {
+/// The list of terminals in `panel` and the press that opens another.
+pub(super) fn side(panel: &PanelId) -> impl View + use<> {
+    let panel = panel.clone();
+    with_cx(move |cx| {
         let space = &cx.theme().space;
         column((
             row((
@@ -202,10 +191,16 @@ pub(super) fn side() -> impl View {
                 button(glyph(Glyph::Plus, ICON).tone(Tone::Dim))
                     .padding(UiRect::all(px(4.0)))
                     .rules(link_row)
-                    .on_activate_with(|world, node| {
-                        let anchor =
-                            crate::menu::rect_of(world, node);
-                        world.resource_mut::<Adding>().0 = anchor;
+                    .on_activate_with({
+                        let panel = panel.clone();
+                        move |world, node| {
+                            let anchor =
+                                crate::menu::rect_of(world, node);
+                            world.resource_mut::<Adding>().0 = anchor
+                                .map(|anchor| {
+                                    (anchor, panel.clone())
+                                });
+                        }
                     }),
             ))
             .align(AlignItems::Center)
@@ -218,19 +213,38 @@ pub(super) fn side() -> impl View {
             )),
             hairline(cx.theme().palette.border),
             scroll_area((keyed(
-                derived(|world: &World| {
-                    (
-                        world.resource::<Listed>().clone(),
-                        world.resource::<Folded>().clone(),
-                        world
-                            .resource::<Renaming>()
-                            .0
-                            .map(|(t, _)| t),
-                    )
+                derived({
+                    let panel = panel.clone();
+                    move |world: &World| {
+                        let shown =
+                            world.resource::<Panels>().get(&panel);
+                        (
+                            world.resource::<Listed>().clone(),
+                            shown
+                                .map(|shown| shown.folded.clone())
+                                .unwrap_or_default(),
+                            shown.and_then(|shown| shown.active),
+                            world
+                                .resource::<Renaming>()
+                                .0
+                                .as_ref()
+                                .and_then(|(terminal, at, _)| {
+                                    (*at == panel)
+                                        .then_some(*terminal)
+                                }),
+                        )
+                    }
                 })
                 .when(every_frame()),
-                |(listed, folded, renaming)| {
-                    groups(listed, folded, *renaming).boxed()
+                {
+                    let panel = panel.clone();
+                    move |(listed, folded, active, renaming)| {
+                        groups(
+                            &panel, listed, folded, *active,
+                            *renaming,
+                        )
+                        .boxed()
+                    }
                 },
             )
             .within(column(()).gap(0.0)),)),
@@ -243,15 +257,17 @@ pub(super) fn side() -> impl View {
 }
 
 fn groups(
+    panel: &PanelId,
     listed: &Listed,
-    folded: &Folded,
+    folded: &BTreeSet<String>,
+    active: Option<Entity>,
     renaming: Option<Entity>,
-) -> impl View {
+) -> impl View + use<> {
     let groups = listed
         .0
         .iter()
         .map(|group| {
-            let shut = folded.0.contains(&group.key);
+            let shut = folded.contains(&group.key);
             let rows = if shut {
                 Vec::new()
             } else {
@@ -259,16 +275,16 @@ fn groups(
                     .items
                     .iter()
                     .map(|item| {
-                        entry(
-                            item.clone(),
-                            renaming == Some(item.terminal),
-                        )
+                        entry(panel, item.clone(), active, renaming)
                     })
                     .collect::<Vec<_>>()
             };
-            column((heading(group, shut), column(rows).gap(0.0)))
-                .gap(0.0)
-                .boxed()
+            column((
+                heading(panel, group, shut),
+                column(rows).gap(0.0),
+            ))
+            .gap(0.0)
+            .boxed()
         })
         .collect::<Vec<_>>();
     column(groups).gap(0.0).padding(UiRect::bottom(px(8.0)))
@@ -276,7 +292,12 @@ fn groups(
 
 /// A group's title, which folds the group away or opens it, with how
 /// many it holds while folded.
-fn heading(group: &Group, shut: bool) -> impl View {
+fn heading(
+    panel: &PanelId,
+    group: &Group,
+    shut: bool,
+) -> impl View + use<> {
+    let panel = panel.clone();
     let key = group.key.clone();
     let title = group.title.to_uppercase();
     let count = shut.then(|| group.items.len().to_string());
@@ -291,6 +312,7 @@ fn heading(group: &Group, shut: bool) -> impl View {
             words.push(caption(count.clone(), Tone::Faint).boxed());
         }
         let key = key.clone();
+        let panel = panel.clone();
         button(row(words).gap(4.0).align(AlignItems::Center))
             .justify(JustifyContent::FlexStart)
             .padding(UiRect::new(
@@ -300,21 +322,31 @@ fn heading(group: &Group, shut: bool) -> impl View {
                 px(2.0),
             ))
             .rules(link_row)
-            .on_activate(move |world| fold(world, &key))
+            .on_activate(move |world| fold(world, &panel, &key))
     })
 }
 
-/// Folds the group of `key` away, or opens it.
-fn fold(world: &mut World, key: &str) {
-    let mut folded = world.resource_mut::<Folded>();
-    if !folded.0.remove(key) {
-        folded.0.insert(key.to_owned());
+/// Folds the group of `key` in the list of `panel` away, or opens it.
+fn fold(world: &mut World, panel: &PanelId, key: &str) {
+    let mut panels = world.resource_mut::<Panels>();
+    let folded = &mut panels.edit(panel).folded;
+    if !folded.remove(key) {
+        folded.insert(key.to_owned());
     }
 }
 
 /// One terminal: its name and owner, what it is, the last command it
-/// ran, and its close. While it is named, a field holds its name.
-fn entry(item: Item, renaming: bool) -> AnyView {
+/// ran, and its close, lit when it is the one `panel` shows. While it
+/// is named, a field holds its name.
+fn entry(
+    panel: &PanelId,
+    item: Item,
+    shown: Option<Entity>,
+    renaming: Option<Entity>,
+) -> AnyView {
+    let panel = panel.clone();
+    let active = shown == Some(item.terminal);
+    let renaming = renaming == Some(item.terminal);
     with_cx(move |cx| {
         let theme = cx.theme();
         let small = theme.text.small;
@@ -334,23 +366,19 @@ fn entry(item: Item, renaming: bool) -> AnyView {
         } else {
             Glyph::Terminal
         };
-        let tone = if item.active { Tone::Accent } else { Tone::Dim };
-        let fill = if item.active {
+        let tone = if active { Tone::Accent } else { Tone::Dim };
+        let fill = if active {
             theme.palette.button
         } else {
             Color::NONE
         };
         let name = if renaming {
-            rename_field(terminal, item.name.clone())
+            rename_field(panel.clone(), terminal, item.name.clone())
         } else {
             label(item.name.clone())
                 .size(small)
-                .bold(item.active)
-                .tone(if item.active {
-                    Tone::Body
-                } else {
-                    Tone::Dim
-                })
+                .bold(active)
+                .tone(if active { Tone::Body } else { Tone::Dim })
                 .wrap(false)
                 .boxed()
         };
@@ -409,9 +437,15 @@ fn entry(item: Item, renaming: bool) -> AnyView {
                 px(5.0),
             ))
             .rules(link_row)
-            .on_activate(move |world| activate(world, terminal))
-            .tagged(Entry(terminal)),
-            close_button(move |world| close(world, terminal)),
+            .on_activate({
+                let panel = panel.clone();
+                move |world| activate(world, &panel, terminal)
+            })
+            .tagged(Entry(terminal, panel.clone())),
+            close_button({
+                let panel = panel.clone();
+                move |world| close(world, &panel, terminal)
+            }),
         ))
         .align(AlignItems::Center)
         .padding(UiRect::right(px(theme.space.gap)))
@@ -425,7 +459,7 @@ const MONO_ADVANCE: f32 = 0.6;
 
 /// `text` in at most `most` letters, three dots ending what is cut:
 /// the monospace face has no ellipsis.
-fn elided(text: &str, most: usize) -> String {
+pub(super) fn elided(text: &str, most: usize) -> String {
     if text.chars().count() <= most {
         return text.to_owned();
     }
@@ -439,7 +473,11 @@ fn elided(text: &str, most: usize) -> String {
 
 /// The field `terminal`'s name is typed in. Enter names it; Escape,
 /// or the keys going elsewhere, leaves it as it was.
-fn rename_field(terminal: Entity, name: String) -> AnyView {
+fn rename_field(
+    panel: PanelId,
+    terminal: Entity,
+    name: String,
+) -> AnyView {
     text_field(name, move |world, name| {
         // Enter keeps the field focused while it commits; focus
         // leaving first drops the name.
@@ -455,7 +493,7 @@ fn rename_field(terminal: Entity, name: String) -> AnyView {
         }
         terminals::rename(world, terminal, &name);
         world.resource_mut::<Renaming>().0 = None;
-        world.resource_mut::<Handing>().0 = true;
+        world.resource_mut::<Handing>().0 = Some(panel.clone());
     })
     .fills_width()
     .rules(text_input)
@@ -473,7 +511,7 @@ fn start_rename(
         return;
     };
     if click.button == PointerButton::Primary && click.count == 2 {
-        renaming.0 = Some((entry.0, false));
+        renaming.0 = Some((entry.0, entry.1.clone(), false));
     }
 }
 
@@ -493,8 +531,8 @@ fn focus_field(
             if let Ok(mut field) = texts.get_mut(text) {
                 field.queue_edit(TextEdit::SelectAll);
             }
-            if let Some((terminal, _)) = renaming.0 {
-                renaming.0 = Some((terminal, true));
+            if let Some((_, _, had_keys)) = &mut renaming.0 {
+                *had_keys = true;
             }
         }
     }
@@ -510,7 +548,7 @@ fn end_rename(
     mut renaming: ResMut<Renaming>,
     mut commands: Commands,
 ) {
-    let Some((_, had_keys)) = renaming.0 else {
+    let Some((_, panel, had_keys)) = renaming.0.clone() else {
         return;
     };
     let inside = fields.iter().any(|field| {
@@ -523,20 +561,22 @@ fn end_rename(
     });
     if keys.just_pressed(KeyCode::Escape) {
         renaming.0 = None;
-        commands.queue(|world: &mut World| {
-            world.resource_mut::<Handing>().0 = true;
+        commands.queue(move |world: &mut World| {
+            world.resource_mut::<Handing>().0 = Some(panel);
         });
     } else if had_keys && !inside {
         renaming.0 = None;
     }
 }
 
-/// Closes `terminal`. Closing the one shown gives the keys to the
-/// one shown next.
-fn close(world: &mut World, terminal: Entity) {
+/// Closes `terminal` from the list of `panel`. Closing the one it
+/// shows gives the keys to the one it shows next.
+fn close(world: &mut World, panel: &PanelId, terminal: Entity) {
     let others = world.resource::<Listed>().items().count() > 1;
-    if others && world.resource::<Active>().0 == Some(terminal) {
-        world.resource_mut::<Handing>().0 = true;
+    if others
+        && world.resource::<Panels>().active(panel) == Some(terminal)
+    {
+        world.resource_mut::<Handing>().0 = Some(panel.clone());
     }
     terminals::close(world, terminal);
 }
@@ -583,9 +623,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        app.init_resource::<Active>()
-            .init_resource::<Listed>()
-            .init_resource::<Folded>();
+        app.init_resource::<Panels>().init_resource::<Listed>();
         list(app.world_mut());
         let listed = app.world().resource::<Listed>().clone();
         let names = listed
@@ -599,9 +637,18 @@ mod tests {
                 ("vim", Some("cargo test"))
             ]
         );
-        fold(app.world_mut(), "");
-        assert!(app.world().resource::<Folded>().0.contains(""));
-        fold(app.world_mut(), "");
-        assert!(app.world().resource::<Folded>().0.is_empty());
+        let panel = PanelId::first();
+        let folded = |app: &App| {
+            app.world()
+                .resource::<Panels>()
+                .get(&panel)
+                .unwrap()
+                .folded
+                .clone()
+        };
+        fold(app.world_mut(), &panel, "");
+        assert!(folded(&app).contains(""));
+        fold(app.world_mut(), &panel, "");
+        assert!(folded(&app).is_empty());
     }
 }

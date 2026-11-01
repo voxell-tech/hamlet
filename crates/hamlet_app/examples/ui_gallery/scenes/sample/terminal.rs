@@ -5,7 +5,7 @@
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use hamlet_app::terminal::Active;
+use hamlet_app::terminal::{PanelId, Panels, show};
 use hamlet_client::terminals::{self, TerminalScreen, TerminalView};
 use hamlet_protocol::client as protocol;
 use serde_json::json;
@@ -122,7 +122,12 @@ fn view(
 
 /// Adds the hamlets, the agent and the terminals to `state`.
 pub(super) fn state(state: &mut protocol::State, scene: Scene) {
-    if !matches!(scene, Scene::Terminal | Scene::TerminalShell) {
+    if !matches!(
+        scene,
+        Scene::Terminal
+            | Scene::TerminalShell
+            | Scene::TerminalPanels
+    ) {
         return;
     }
     state.hamlets.push(hamlet_testing::realm::hamlet("mill", 3));
@@ -150,45 +155,61 @@ pub(super) fn state(state: &mut protocol::State, scene: Scene) {
         view("t4", "bash", Some("mill"), None, "shell", Some(0)),
         view("t5", "login", None, None, "shell", None),
     ];
+    state.terminals[1].last = Some("git log --oneline -3".into());
 }
 
-/// Shows the scene's terminal, which is given what it printed once
-/// the panel watches it.
+/// Shows the scene's terminals, each in its panel, which are given
+/// what they printed once the panels watch them.
 pub(super) fn setup(world: &mut World, scene: Scene) {
-    let (id, printed) = match scene {
-        Scene::Terminal => ("t1", RUNS.to_owned()),
-        Scene::TerminalShell => ("t2", shell()),
+    let shown = match scene {
+        Scene::Terminal => {
+            vec![(PanelId::first(), "t1", RUNS.to_owned())]
+        }
+        Scene::TerminalShell => {
+            vec![(PanelId::first(), "t2", shell())]
+        }
+        Scene::TerminalPanels => vec![
+            (PanelId::first(), "t1", RUNS.to_owned()),
+            (PanelId("terminal-2".into()), "t2", shell()),
+        ],
         _ => return,
     };
-    let Some(terminal) = terminals::find(world, id) else {
-        return;
-    };
-    world.resource_mut::<Active>().0 = Some(terminal);
-    world.insert_resource(Printed(terminal, printed));
+    let mut printed = Vec::new();
+    for (panel, id, bytes) in shown {
+        let Some(terminal) = terminals::find(world, id) else {
+            continue;
+        };
+        show(world, &panel, terminal);
+        printed.push((terminal, bytes));
+    }
+    if scene == Scene::TerminalPanels {
+        world
+            .resource_mut::<Panels>()
+            .hide_list(&PanelId("terminal-2".into()));
+    }
+    world.insert_resource(Printed(printed));
 }
 
-/// What the scene's terminal printed, until its screen has it.
+/// What the scene's terminals printed, until their screens have it.
 #[derive(Resource)]
-pub(crate) struct Printed(Entity, String);
+pub(crate) struct Printed(Vec<(Entity, String)>);
 
-/// Gives the watched terminal what it printed, as a server would.
+/// Gives each watched terminal what it printed, as a server would.
 pub(crate) fn print(world: &mut World) {
-    let Some(Printed(terminal, _)) = world.get_resource::<Printed>()
+    let Some(Printed(mut left)) = world.remove_resource::<Printed>()
     else {
         return;
     };
-    let terminal = *terminal;
-    if world.get::<TerminalScreen>(terminal).is_none() {
-        return;
-    }
-    let Some(Printed(_, printed)) =
-        world.remove_resource::<Printed>()
-    else {
-        return;
-    };
-    if let Some(mut screen) =
-        world.get_mut::<TerminalScreen>(terminal)
-    {
+    left.retain(|(terminal, printed)| {
+        let Some(mut screen) =
+            world.get_mut::<TerminalScreen>(*terminal)
+        else {
+            return true;
+        };
         screen.process(printed.as_bytes());
+        false
+    });
+    if !left.is_empty() {
+        world.insert_resource(Printed(left));
     }
 }

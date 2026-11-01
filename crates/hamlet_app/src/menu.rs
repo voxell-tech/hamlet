@@ -351,7 +351,18 @@ fn items(
                 "Terminal",
                 None,
                 |w| {
-                    show_tab(w, "terminal");
+                    show_tab(w, crate::terminal::PANEL);
+                },
+            ));
+            items.push(item(
+                Glyph::Split,
+                "New Terminal Panel",
+                None,
+                |w| {
+                    crate::terminal::new_panel(
+                        w,
+                        &crate::terminal::PanelId::first(),
+                    );
                 },
             ));
             items.push(

@@ -261,6 +261,8 @@ pub enum Scene {
     Terminal,
     /// The Terminal panel showing the chief's shell, typed in.
     TerminalShell,
+    /// Two Terminal panels side by side, the second's list hidden.
+    TerminalPanels,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
     /// The first-run provider step, every provider shown and searched
