@@ -53,6 +53,7 @@ pub fn plugin(app: &mut App) {
                 (
                     (light, light_windows)
                         .run_if(resource_changed::<Sky>),
+                    light_own,
                     dim_fill.after(light).run_if(
                         |sky: Res<Sky>,
                          fog: Res<VolumetricFogSettings>,
@@ -476,6 +477,11 @@ pub(crate) struct WorldFog {
 #[derive(Component)]
 pub struct SkyView;
 
+/// The sky a view is lit by in place of the world's: on its camera
+/// and on its [`Hourly`] lights alike.
+#[derive(Component, Clone, PartialEq, Debug)]
+pub struct OwnSky(pub Sky);
+
 /// A light set by the hour.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Hourly {
@@ -758,49 +764,103 @@ pub fn spawn(mut commands: Commands, settings: Res<CameraSettings>) {
     ));
 }
 
-/// Sets the lights, the sky and the grading for the hour.
+/// Sets the lights, the sky and the grading for the hour, on every
+/// view that has no [`OwnSky`].
 pub(crate) fn light(
     sky: Res<Sky>,
     mut ambient: ResMut<GlobalAmbientLight>,
     mut cameras: Query<
         (&mut Camera, &mut DistanceFog, &mut ColorGrading),
-        With<SkyView>,
+        (With<SkyView>, Without<OwnSky>),
     >,
-    mut lights: Query<(
-        &Hourly,
-        &mut DirectionalLight,
-        &mut Transform,
-    )>,
+    mut lights: Query<
+        (&Hourly, &mut DirectionalLight, &mut Transform),
+        Without<OwnSky>,
+    >,
+) {
+    for (mut camera, mut fog, mut grading) in &mut cameras {
+        grade(&sky, &mut camera, &mut fog, &mut grading);
+    }
+    ambient.color = sky.look.ambient;
+    ambient.brightness = sky.look.ambient_nits;
+    for (which, mut light, mut transform) in &mut lights {
+        shine(&sky, *which, &mut light, &mut transform);
+    }
+}
+
+/// Sets the lights, the sky and the grading of each view with an
+/// [`OwnSky`] that changed, from it.
+pub(crate) fn light_own(
+    mut commands: Commands,
+    mut cameras: Query<
+        (
+            Entity,
+            &OwnSky,
+            &mut Camera,
+            &mut DistanceFog,
+            &mut ColorGrading,
+        ),
+        (With<SkyView>, Changed<OwnSky>),
+    >,
+    mut lights: Query<
+        (&OwnSky, &Hourly, &mut DirectionalLight, &mut Transform),
+        Changed<OwnSky>,
+    >,
+) {
+    for (entity, own, mut camera, mut fog, mut grading) in
+        &mut cameras
+    {
+        grade(&own.0, &mut camera, &mut fog, &mut grading);
+        commands.entity(entity).insert(AmbientLight {
+            color: own.0.look.ambient,
+            brightness: own.0.look.ambient_nits,
+            ..default()
+        });
+    }
+    for (own, which, mut light, mut transform) in &mut lights {
+        shine(&own.0, *which, &mut light, &mut transform);
+    }
+}
+
+/// Grades a camera and clears it to the haze of `sky`.
+fn grade(
+    sky: &Sky,
+    camera: &mut Camera,
+    fog: &mut DistanceFog,
+    grading: &mut ColorGrading,
 ) {
     let look = &sky.look;
-    for (mut camera, mut fog, mut grading) in &mut cameras {
-        // Its own clear colour, so a window that also shows panels
-        // keeps theirs.
-        camera.clear_color = ClearColorConfig::Custom(look.haze);
-        fog.color = look.haze;
-        grading.global = ColorGradingGlobal {
-            post_saturation: look.saturation,
-            exposure: look.exposure,
-            ..default()
-        };
-    }
-    ambient.color = look.ambient;
-    ambient.brightness = look.ambient_nits;
+    // Its own clear colour, so a window that also shows panels keeps
+    // theirs.
+    camera.clear_color = ClearColorConfig::Custom(look.haze);
+    fog.color = look.haze;
+    grading.global = ColorGradingGlobal {
+        post_saturation: look.saturation,
+        exposure: look.exposure,
+        ..default()
+    };
+}
 
-    for (which, mut light, mut transform) in &mut lights {
-        match which {
-            Hourly::Key => {
-                light.color = look.sun;
-                light.illuminance = look.sun_lux;
-                *transform = Transform::default()
-                    .looking_to(look.sun_dir, Vec3::Y);
-            }
-            Hourly::Fill => {
-                light.color = look.fill;
-                light.illuminance = look.fill_lux;
-                *transform = Transform::default()
-                    .looking_to(sky.fill_dir, Vec3::Y);
-            }
+/// Points and colours a light as `sky` has its key or fill light.
+fn shine(
+    sky: &Sky,
+    which: Hourly,
+    light: &mut DirectionalLight,
+    transform: &mut Transform,
+) {
+    let look = &sky.look;
+    match which {
+        Hourly::Key => {
+            light.color = look.sun;
+            light.illuminance = look.sun_lux;
+            *transform = Transform::default()
+                .looking_to(look.sun_dir, Vec3::Y);
+        }
+        Hourly::Fill => {
+            light.color = look.fill;
+            light.illuminance = look.fill_lux;
+            *transform = Transform::default()
+                .looking_to(sky.fill_dir, Vec3::Y);
         }
     }
 }

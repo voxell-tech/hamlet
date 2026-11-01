@@ -385,9 +385,7 @@ fn write_bundle(
 
 /// Every choice the graphs are set to or may roll, which names the
 /// assets they put down among other things.
-fn named(
-    graphs: &BTreeMap<String, Graph>,
-) -> BTreeSet<&str> {
+fn named(graphs: &BTreeMap<String, Graph>) -> BTreeSet<&str> {
     let mut named = BTreeSet::new();
     for graph in graphs.values() {
         for setting in

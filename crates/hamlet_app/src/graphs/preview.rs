@@ -21,6 +21,7 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, If, Local, Query, Res, ResMut};
+use bevy::ecs::world::{FromWorld, World};
 use bevy::image::Image;
 use bevy::input::ButtonInput;
 use bevy::input::mouse::MouseButton;
@@ -37,12 +38,13 @@ use bevy::time::Time;
 use bevy::transform::components::Transform;
 use bevy::ui::widget::ViewportNode;
 use bevy::ui::{
-    ComputedNode, Display, Overflow, PositionType, UiRect, Val,
-    percent, px,
+    AlignItems, ComputedNode, Display, Overflow, PositionType,
+    UiRect, Val, percent, px,
 };
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
+    slider,
 };
 use bevy_fynix::{ScopedExt, Theme, ViewExt, resource};
 use hamlet_blueprint::{Frame, Object};
@@ -55,7 +57,10 @@ use hamlet_realm::palette::{Palette as Colours, TownStyle};
 use hamlet_realm::pick::{
     Orbit, Pace, Steer, backward, scrolled_lines,
 };
-use hamlet_realm::sky::{self, CameraSettings, Hourly};
+use hamlet_realm::sky::{
+    self, CameraSettings, Hourly, Looks, North, OwnSky, Sky,
+    SkySettings,
+};
 use hamlet_ui::styles::{self, Fills, ICON, description, note};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -87,11 +92,44 @@ pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Seat>()
         .init_resource::<Framing>()
         .init_resource::<Backdrop>()
+        .init_resource::<Daytime>()
         .add_systems(Startup, spawn)
         .add_systems(
             Update,
-            (open, rebuild, grid, glide, aim).chain(),
+            (open, rebuild, grid, daylight, glide, aim).chain(),
         );
+}
+
+/// The hour the preview is lit at, apart from the world's, and its
+/// name when it was chosen by one: midday until another is chosen.
+#[derive(Resource, Clone, Copy, PartialEq, Debug)]
+struct Daytime {
+    hour: f32,
+    name: Option<&'static str>,
+}
+
+impl FromWorld for Daytime {
+    fn from_world(world: &mut World) -> Self {
+        let set = world
+            .get_resource::<SkySettings>()
+            .cloned()
+            .unwrap_or_default();
+        let (name, hour) = named_hours(&set)[0];
+        Self {
+            hour,
+            name: Some(name),
+        }
+    }
+}
+
+/// The hours the Time button steps through, by name.
+fn named_hours(set: &SkySettings) -> [(&'static str, f32); 4] {
+    [
+        ("Day", set.held(false)),
+        ("Dusk", set.sunset),
+        ("Night", set.held(true)),
+        ("Dawn", set.sunrise),
+    ]
 }
 
 /// What is drawn behind what the graph puts down: a ground under it,
@@ -128,6 +166,7 @@ struct Piece;
 pub(super) struct Preview {
     pub(super) camera: Entity,
     key: Entity,
+    fill: Entity,
     material: Handle<StandardMaterial>,
 }
 
@@ -273,6 +312,7 @@ fn switches() -> AnyView {
         })
     };
     row((
+        time(),
         switch("Grid", |backdrop| backdrop.grid = !backdrop.grid),
         switch("Ground", |backdrop| {
             backdrop.ground = !backdrop.ground;
@@ -300,6 +340,89 @@ fn switches() -> AnyView {
         top: Val::Auto,
     })
     .boxed()
+}
+
+/// Lights the preview's camera and lights at its own hour.
+fn daylight(
+    mut commands: Commands,
+    preview: Option<Res<Preview>>,
+    daytime: Res<Daytime>,
+    looks: Option<Res<Looks>>,
+    set: Option<Res<SkySettings>>,
+    north: Option<Res<North>>,
+) {
+    let (Some(preview), Some(looks), Some(set)) =
+        (preview, looks, set)
+    else {
+        return;
+    };
+    let north = north.as_deref().copied().unwrap_or_default();
+    if !(preview.is_added()
+        || daytime.is_changed()
+        || looks.is_changed()
+        || set.is_changed())
+    {
+        return;
+    }
+    let own = OwnSky(Sky::at(&looks, &set, daytime.hour, north));
+    for entity in [preview.camera, preview.key, preview.fill] {
+        commands.entity(entity).insert(own.clone());
+    }
+}
+
+/// The Time button, which steps through the named hours, and the
+/// slider for any hour between.
+fn time() -> AnyView {
+    let named =
+        row((button(label(resource::<Daytime, _>(|daytime| {
+            format!("Time: {}", hour_name(daytime))
+        })))
+        .padding(UiRect::axes(px(8.0), px(2.0)))
+        .tooltip(|| note("The hour the preview is lit at"))
+        .rules(styles::button)
+        .tagged(Variant::Default)
+        .on_activate(|world| {
+            let set = world
+                .get_resource::<SkySettings>()
+                .cloned()
+                .unwrap_or_default();
+            let hours = named_hours(&set);
+            let now = world.resource::<Daytime>().name;
+            let next = hours
+                .iter()
+                .position(|(name, _)| Some(*name) == now)
+                .map_or(0, |at| (at + 1) % hours.len());
+            let (name, hour) = hours[next];
+            *world.resource_mut::<Daytime>() = Daytime {
+                hour,
+                name: Some(name),
+            };
+        }),));
+    row((
+        named,
+        slider(resource::<Daytime, _>(|daytime| daytime.hour))
+            .range(0.0, 24.0)
+            .on_change(|world, hour| {
+                *world.resource_mut::<Daytime>() =
+                    Daytime { hour, name: None };
+            })
+            .width(px(TIME_SLIDER)),
+    ))
+    .gap(6.0)
+    .align(AlignItems::Center)
+    .boxed()
+}
+
+/// The width of the slider for the preview's hour.
+const TIME_SLIDER: f32 = 96.0;
+
+/// The name `daytime` was chosen by, else its hour and minute.
+fn hour_name(daytime: &Daytime) -> String {
+    if let Some(name) = daytime.name {
+        return name.to_owned();
+    }
+    let minutes = (daytime.hour * 60.0).round() as u32 % (24 * 60);
+    format!("{:02}:{:02}", minutes / 60, minutes % 60)
 }
 
 /// Shows or hides the grid, spawning it once the theme gives its
@@ -377,8 +500,8 @@ fn spawn(
                 .looking_at(Vec3::ZERO, Vec3::Y),
         ))
         .id();
-    // The hour's lights, which the realm sets for the world's and
-    // for these alike.
+    // The hour's lights, which the realm sets from the preview's own
+    // hour.
     let key = commands
         .spawn((
             Hourly::Key,
@@ -390,12 +513,14 @@ fn spawn(
             RenderLayers::layer(LAYER),
         ))
         .id();
-    commands.spawn((
-        Hourly::Fill,
-        DirectionalLight::default(),
-        Transform::default(),
-        RenderLayers::layer(LAYER),
-    ));
+    let fill = commands
+        .spawn((
+            Hourly::Fill,
+            DirectionalLight::default(),
+            Transform::default(),
+            RenderLayers::layer(LAYER),
+        ))
+        .id();
     let material = materials.add(StandardMaterial {
         perceptual_roughness: 0.9,
         reflectance: 0.2,
@@ -404,6 +529,7 @@ fn spawn(
     commands.insert_resource(Preview {
         camera,
         key,
+        fill,
         material,
     });
 }
