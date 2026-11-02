@@ -8,6 +8,7 @@ mod carry;
 mod input;
 pub mod keys;
 mod list;
+mod mouse;
 mod screen;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
