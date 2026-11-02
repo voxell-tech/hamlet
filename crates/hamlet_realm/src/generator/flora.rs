@@ -149,28 +149,32 @@ fn broadleaf(
         false,
     );
 
-    let lumps = 4 + (rng.f() * 4.0) as usize;
-    let clumps: Vec<(Vec3, f32)> = (0..lumps)
-        .map(|i| {
-            if i == 0 {
-                let up = Vec3::Y * tall * 0.35;
-                return (middle + up, wide * rng.range(0.62, 0.72));
-            }
-            let a = rng.f() * TAU;
-            let y = rng.range(-0.55, 0.6);
-            let r = (1.0 - y * y).sqrt();
-            let d = Vec3::new(a.cos() * r, y, a.sin() * r);
-            let at = middle
-                + d * Vec3::new(wide, tall, wide)
-                    * rng.range(0.42, 0.58);
-            (at, wide * rng.range(0.5, 0.66))
-        })
-        .collect();
-    // Branches up into a few clumps, to show between the leaves.
-    for &(at, _) in clumps.iter().skip(1).take(3) {
-        let from = fork - Vec3::Y * rng.range(0.0, 0.3);
-        let to = from.lerp(at, 0.8);
-        meshing.tube(from, to, 0.07, 0.035, 5, pal.bark, false);
+    // The trunk forks into limbs, each limb splits in two, and each
+    // split ends in a clump of leaves; one more clump crowns the top.
+    let mut clumps = vec![(
+        middle + Vec3::Y * tall * 0.4,
+        wide * rng.range(0.55, 0.65),
+    )];
+    let limbs = 3 + (rng.f() * 2.0) as usize;
+    let turn = rng.f() * TAU;
+    for i in 0..limbs {
+        let a = turn + i as f32 / limbs as f32 * TAU + rng.sym(0.3);
+        let out = Vec3::new(a.cos(), 0.0, a.sin());
+        let from = fork - Vec3::Y * rng.range(0.0, 0.25);
+        let split = fork
+            + out * wide * rng.range(0.3, 0.45)
+            + Vec3::Y * tall * rng.range(0.35, 0.6);
+        meshing.tube(from, split, 0.075, 0.05, 5, pal.bark, false);
+        for side in [-1.0, 1.0] {
+            let b = a + side * rng.range(0.45, 0.8);
+            let twig = Vec3::new(b.cos(), 0.0, b.sin());
+            let end = split
+                + twig * wide * rng.range(0.3, 0.45)
+                + Vec3::Y * tall * rng.range(0.15, 0.45);
+            meshing
+                .tube(split, end, 0.045, 0.025, 4, pal.bark, false);
+            clumps.push((end, wide * rng.range(0.4, 0.5)));
+        }
     }
 
     let crown = meshing.vertices();
@@ -185,7 +189,7 @@ fn broadleaf(
             rng.f() * 40.0,
             move |_| core,
         );
-        let n = ((40.0 * r * r) as usize).max(10);
+        let n = ((70.0 * r * r) as usize).max(14);
         for d in spread(n, rng.f() * TAU) {
             let p = at + d * r * rng.range(0.92, 1.08);
             // Hidden inside another clump.

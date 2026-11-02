@@ -27,7 +27,6 @@ pub type GrassMaterial = ExtendedMaterial<StandardMaterial, GrassExt>;
 pub(crate) fn plugin(app: &mut App) {
     load_shader_library!(app, "grass_shape.wesl");
     embedded_asset!(app, "grass.wesl");
-    embedded_asset!(app, "grass_prepass.wesl");
     app.add_plugins(MaterialPlugin::<GrassMaterial>::default())
         .init_resource::<GrassSettings>()
         .add_systems(Update, sway.in_set(VfxSystems));
@@ -57,11 +56,19 @@ pub struct GrassSettings {
     pub glow: f32,
     /// The share of blades that flower where flowers grow.
     pub flowers: f32,
+    /// How far apart the clumps blades grow in are, in metres, the
+    /// share of the way each blade's root is drawn to its clump's
+    /// middle, and how far it splays out from there, as a share of
+    /// its height.
+    pub clump: f32,
+    pub gather: f32,
+    pub splay: f32,
     /// The side of a patch, in metres.
     pub patch: f32,
     /// How far from the eye each ring of patches reaches, nearest
-    /// first, and how many blades a patch of each has. The last
-    /// ring's blades shorten to nothing toward its edge.
+    /// first, where the eye stands low, and how many blades a patch
+    /// of each has. The last ring's blades shorten to nothing toward
+    /// its edge.
     pub rings: [f32; 3],
     pub blades: [u32; 3],
 }
@@ -94,29 +101,31 @@ pub struct GrassUniform {
     pub shape: Vec4,
     pub look: Vec4,
     pub sway: Vec4,
+    pub clumps: Vec4,
     pub reach: Vec4,
     pub mask_at: Vec4,
     pub flowers: [Vec4; 5],
 }
 
 impl GrassUniform {
-    /// The uniform for `set`, at the time `now`, about `eye`, with
-    /// the mask laid at `mask_at` and the flowers in `flowers`.
+    /// The uniform for `set`, at the time `now`, drawn as far as
+    /// `reach` has it, with the mask laid at `mask_at` and the
+    /// flowers in `flowers`.
     pub fn new(
         set: &GrassSettings,
         now: f32,
-        eye: Vec2,
+        reach: Vec4,
         mask_at: Vec4,
         flowers: [Vec4; 5],
     ) -> Self {
-        let far = set.rings[2];
         Self {
             shape: Vec4::new(
                 set.tall.0, set.tall.1, set.wide, set.lean,
             ),
             look: Vec4::new(set.root, set.tip, set.sun, set.glow),
             sway: Vec4::new(set.bend, now, set.flowers, 0.0),
-            reach: Vec4::new(eye.x, eye.y, far * 0.7, far),
+            clumps: Vec4::new(set.clump, set.gather, set.splay, 0.0),
+            reach,
             mask_at,
             flowers,
         }
@@ -132,8 +141,16 @@ impl MaterialExtension for GrassExt {
         "embedded://hamlet_vfx/grass.wesl".into()
     }
 
-    fn prepass_vertex_shader() -> ShaderRef {
-        "embedded://hamlet_vfx/grass_prepass.wesl".into()
+    // The blades are thin enough that the prepass and the main pass,
+    // each placing them in its own shader, can disagree on a pixel's
+    // depth by a hair; the main pass then draws nothing there. So the
+    // grass is left out of the prepass, and casts no shadow.
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
     }
 }
 
@@ -156,7 +173,7 @@ pub fn material(
             grass: GrassUniform::new(
                 set,
                 0.0,
-                Vec2::ZERO,
+                Vec4::ZERO,
                 Vec4::ZERO,
                 [Vec4::ONE; 5],
             ),
@@ -252,7 +269,7 @@ fn sway(
         let next = GrassUniform::new(
             &set,
             now.0,
-            was.reach.xy(),
+            was.reach,
             was.mask_at,
             was.flowers,
         );

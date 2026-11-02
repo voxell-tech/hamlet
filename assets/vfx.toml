@@ -123,7 +123,7 @@ rim_light = 0.35
 night_glow = 2.5
 
 [grass]
-tall = [0.14, 0.34]
+tall = [0.16, 0.42]
 wide = 0.05
 lean = 0.3
 bend = 0.6
@@ -132,6 +132,9 @@ tip = 1.15
 sun = 0.35
 glow = 0.8
 flowers = 0.12
+clump = 0.35
+gather = 0.55
+splay = 0.45
 patch = 8.0
 rings = [18.0, 34.0, 52.0]
 blades = [5000, 1800, 640]

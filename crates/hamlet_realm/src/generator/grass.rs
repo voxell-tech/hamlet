@@ -1,7 +1,7 @@
-//! The grass about where the eye looks: square patches of the field
-//! laid in rings, the nearest with the most blades, which the GPU
-//! grows on the land; and the mask that keeps it off held ground,
-//! the roads and the towns' squares.
+//! The grass about the eye: square patches of the field laid in
+//! rings, the nearest with the most blades, which the GPU grows on
+//! the land; and the mask that keeps it off held ground, the roads
+//! and the towns' squares.
 
 use bevy::camera::primitives::Aabb;
 use bevy::light::NotShadowCaster;
@@ -15,8 +15,9 @@ use super::land::Land;
 use super::sync::Drawn;
 use crate::WorldCamera;
 
-/// Texels across the mask, and metres to a texel.
-const MASK: u32 = 256;
+/// Texels across the mask, and metres to a texel: enough to reach
+/// past the furthest ring, as wide as the eye's height makes it.
+const MASK: u32 = 512;
 const MASK_TEXEL: f32 = 0.5;
 
 /// How far the trodden ground spreads past what treads it, in metres,
@@ -111,21 +112,9 @@ fn follow(
     }
 }
 
-/// Where on the map the eye looks: where its gaze meets the land, or
-/// under it when it looks too far ahead.
-fn looked_at(eye: &GlobalTransform, land: &Land) -> Vec2 {
-    let at = eye.translation();
-    let ahead = eye.forward();
-    let below = at.y - land.height(at.xz());
-    if ahead.y > -0.05 {
-        return at.xz();
-    }
-    let far = (below / -ahead.y).min(80.0);
-    at.xz() + ahead.xz() * far
-}
-
-/// Lays the patches in rings about where the eye looks, each as the
-/// ring it lies in has it, and tells the grass where that is.
+/// Lays the patches in rings about the eye, each as the ring it lies
+/// in has it, and tells the grass where the eye is and how far the
+/// rings reach.
 fn lay(
     mut commands: Commands,
     field: Option<ResMut<Field>>,
@@ -146,16 +135,23 @@ fn lay(
             commands.entity(entity).despawn();
         }
     }
-    let centre = looked_at(eye, &land);
+    let at = eye.translation();
+    let centre = at.xz();
+    let low = (at.y - land.height(centre)).max(0.0);
+    // Seen from higher up, the nearest blades are further off: the
+    // rings widen with the eye's height, and draw a size coarser.
+    let wide = (low / 12.0).clamp(1.0, 2.4);
+    let coarser = usize::from(wide > 1.5) + usize::from(wide > 2.1);
+    let rings = set.rings.map(|r| r * wide);
+    let far = rings[2];
     if let Some(mut grass) = materials.get_mut(&field.material) {
-        let reach = &mut grass.extension.grass.reach;
-        if reach.xy() != centre {
-            *reach = centre.extend(reach.z).extend(reach.w);
+        let reach = at.extend(far);
+        if grass.extension.grass.reach != reach {
+            grass.extension.grass.reach = reach;
         }
     }
 
     let side = set.patch;
-    let far = set.rings[2];
     let lo = ((centre - far) / side).floor().as_ivec2();
     let hi = ((centre + far) / side).ceil().as_ivec2();
     let mut wanted = HashMap::new();
@@ -165,11 +161,9 @@ fn lay(
             let middle = (cell.as_vec2() + 0.5) * side;
             // The nearest point of the patch decides its ring.
             let near = (centre - middle).abs() - side * 0.5;
-            let away = near.max(Vec2::ZERO).length();
-            if let Some(ring) =
-                set.rings.iter().position(|r| away < *r)
-            {
-                wanted.insert(cell, ring);
+            let away = near.max(Vec2::ZERO).length().hypot(low);
+            if let Some(ring) = rings.iter().position(|r| away < *r) {
+                wanted.insert(cell, (ring + coarser).min(2));
             }
         }
     }
@@ -212,7 +206,7 @@ fn lay(
     }
 }
 
-/// Makes the mask anew about where the eye looks when that has moved
+/// Makes the mask anew about the eye when it has moved
 /// far enough, or the ground held, the roads or the towns change.
 fn tread(
     field: Option<ResMut<Field>>,
@@ -226,7 +220,7 @@ fn tread(
     };
     let Some(centre) = materials
         .get(&field.material)
-        .map(|grass| grass.extension.grass.reach.xy())
+        .map(|grass| grass.extension.grass.reach.xz())
     else {
         return;
     };
