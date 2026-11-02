@@ -79,14 +79,16 @@ impl WindSettings {
     /// What the shaders are told of the wind at `now`.
     pub fn uniform(&self, now: f32) -> WindUniform {
         let way = self.blowing(now);
+        let across = 1.0 / self.band.0.max(1e-3);
+        // The bands roll along the wind's mean heading: by its
+        // veering one, scaled by the time, they would swing ever
+        // faster sideways.
+        let mean = self.heading.to_radians();
+        let rolled = Vec2::new(mean.sin(), mean.cos())
+            * (now * self.band.1 * across);
         WindUniform {
             flow: Vec4::new(way.sin(), way.cos(), now, self.calm),
-            scale: Vec4::new(
-                1.0 / self.band.0.max(1e-3),
-                self.band.1,
-                0.0,
-                0.0,
-            ),
+            scale: Vec4::new(across, 0.0, rolled.x, rolled.y),
         }
     }
 }
@@ -100,9 +102,8 @@ pub struct WindUniform {
 
 impl WindUniform {
     fn strength(&self, at: Vec2) -> f32 {
-        let along = Vec2::new(self.flow.x, self.flow.y) * self.flow.z;
-        let band = 0.5
-            + 0.5 * fbm((at - along * self.scale.y) * self.scale.x);
+        let rolled = Vec2::new(self.scale.z, self.scale.w);
+        let band = 0.5 + 0.5 * fbm(at * self.scale.x - rolled);
         let gust = smoothstep(0.3, 0.75, band);
         self.flow.w + (1.0 - self.flow.w) * gust
     }
