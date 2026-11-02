@@ -3,10 +3,11 @@
 
 mod art;
 
-use bevy::app::{App, PostUpdate};
+use bevy::app::{App, PostUpdate, PreUpdate};
 use bevy::asset::{Assets, Handle};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::Add;
+use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
@@ -17,11 +18,15 @@ use bevy::ecs::world::World;
 use bevy::image::Image;
 use bevy::input::ButtonInput;
 use bevy::input::mouse::MouseButton;
+use bevy::picking::PickingSystems;
+use bevy::picking::pointer::{
+    PointerAction, PointerId, PointerInput, PointerLocation,
+};
 use bevy::state::state::OnEnter;
 use bevy::time::{Real, Time};
 use bevy::window::{
     CursorIcon, CustomCursor, CustomCursorImage, PrimaryWindow,
-    SystemCursorIcon,
+    SystemCursorIcon, WindowFocused,
 };
 use bevy_fynix::{EntityCursor, Theme};
 use hamlet_realm::hand::{Grip, Hand};
@@ -40,9 +45,39 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(OnEnter(ThemeState::Ready), draw)
         .add_observer(lend)
         .add_systems(
+            PreUpdate,
+            forget_pointer.before(PickingSystems::Backend),
+        )
+        .add_systems(
             PostUpdate,
             dress.run_if(resource_exists::<Cursors>),
         );
+}
+
+/// Forgets where the mouse is when the window loses the focus, as to
+/// a dialog of the system, and cancels what it pressed. The window
+/// hears nothing of the mouse until it is back, so without this what
+/// was under it stays hovered, and a tooltip opens on it.
+fn forget_pointer(
+    mut focus: MessageReader<WindowFocused>,
+    mut pointers: Query<(&PointerId, &mut PointerLocation)>,
+    mut inputs: MessageWriter<PointerInput>,
+) {
+    if !focus.read().any(|event| !event.focused) {
+        return;
+    }
+    for (id, mut location) in &mut pointers {
+        if *id != PointerId::Mouse {
+            continue;
+        }
+        if let Some(at) = location.location.take() {
+            inputs.write(PointerInput::new(
+                *id,
+                at,
+                PointerAction::Cancel,
+            ));
+        }
+    }
 }
 
 /// Whether the cursor is drawn faint because a panel holds something
