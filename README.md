@@ -187,11 +187,6 @@ opens its sibling window.
 run `git submodule update --init vendor/fynix` once. `cargo xtask`
 fetches it itself.
 
-```sh
-npm ci --prefix harnesses/pi
-cargo xtask check
-```
-
 `cargo xtask check` runs every check a commit needs, each as a step CI
 runs by name. `cargo xtask help` lists every task.
 
