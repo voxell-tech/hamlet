@@ -3,11 +3,11 @@
 // edge. Lit mostly by the sky, they turn toward a cool shade where the
 // sun does not reach them, glow at the crown's edge where the sun is
 // behind it, as light comes through thin leaves, and keep a rim of the
-// night's colour after dark. Far off they fade into the haze.
+// night's colour after dark.
 
 import bevy_pbr::render::{
     mesh_functions,
-    mesh_view_bindings::{fog, lights, view},
+    mesh_view_bindings::{lights, view},
     mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT,
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
@@ -127,11 +127,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // At night the crown's edge keeps a rim of the night's colour.
     let rim = leaves.rim.rgb * leaves.rim.w * leaves.edge.w * pow(edge, 3.0);
     colour += rim * albedo / max(max(albedo.r, albedo.g), max(albedo.b, 0.05));
-
-    // Far off, the leaves sink into the haze.
-    let far = distance(in.world_position.xyz, view.world_position);
-    let hazed = smoothstep(leaves.haze.x, leaves.haze.y, far) * leaves.haze.z;
-    colour = mix(colour, fog.base_color.rgb, hazed);
 
     out.color = vec4<f32>(colour, out.color.a);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);

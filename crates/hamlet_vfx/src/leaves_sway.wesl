@@ -15,8 +15,8 @@ struct Leaves {
     shade: vec4<f32>,
     // rgb: `rim`, linear. w: `rim_light`.
     rim: vec4<f32>,
-    // x and y: `haze`. z: `haze_most`. w: `clear`.
-    haze: vec4<f32>,
+    // x: `clear`. The rest is unused.
+    open: vec4<f32>,
     // xyz: the point the eye watches. w: `opening`, 0 for none.
     watch: vec4<f32>,
 }
@@ -89,7 +89,7 @@ fn left_open(leaves: Leaves, at: vec3<f32>, eye: vec3<f32>) -> f32 {
     let inside = smoothstep(wide, wide * 0.55, off)
         * smoothstep(0.0, 0.1, k)
         * smoothstep(1.0, 0.85, k);
-    return 1.0 - inside * leaves.haze.w;
+    return 1.0 - inside * leaves.open.x;
 }
 
 // Whether to cut away the pixel at `pixel` of a leaf as much `cover`ed.

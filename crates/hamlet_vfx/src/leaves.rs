@@ -2,10 +2,10 @@
 //! edge in a dither, set on a tree's crown and bent by the wind from
 //! its foot. Lit, they are warm; out of the sun they turn cool, glow
 //! at the crown's edge with the sun behind them and, at night, keep a
-//! rim of the night's colour. Far off they fade into the haze, and
-//! between the eye and what it watches they thin so that it shows
-//! through. The colour is in the mesh's vertices, tinted for each
-//! tree by its [`MeshTag`](bevy::mesh::MeshTag).
+//! rim of the night's colour. Between the eye and what it watches
+//! they thin so that it shows through. The colour is in the mesh's
+//! vertices, tinted for each tree by its
+//! [`MeshTag`](bevy::mesh::MeshTag).
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
@@ -59,11 +59,6 @@ pub struct LeafSettings {
     /// how bright it is.
     pub rim: [f32; 3],
     pub rim_light: f32,
-    /// Metres from the eye where the leaves begin to fade into the
-    /// haze and where they are as far into it as they go, and how
-    /// far that is, from 0 to 1.
-    pub haze: (f32, f32),
-    pub haze_most: f32,
     /// The radius in metres of the opening the leaves leave about
     /// what the eye watches, and how much of them it takes away
     /// there, from 0 to 1.
@@ -103,7 +98,7 @@ pub struct LeafUniform {
     pub edge: Vec4,
     pub shade: Vec4,
     pub rim: Vec4,
-    pub haze: Vec4,
+    pub open: Vec4,
     pub watch: Vec4,
 }
 
@@ -146,12 +141,7 @@ impl LeafUniform {
                 rim.blue,
                 set.rim_light,
             ),
-            haze: Vec4::new(
-                set.haze.0,
-                set.haze.1.max(set.haze.0 + 1.0),
-                set.haze_most,
-                set.clear,
-            ),
+            open: Vec4::new(set.clear, 0.0, 0.0, 0.0),
             watch: watched.extend(opening),
         }
     }
