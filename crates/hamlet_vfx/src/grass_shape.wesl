@@ -70,12 +70,14 @@ fn blade(
         * smoothstep(grass.reach.w, grass.reach.w * 0.67, away);
     let rise = (at.y - middle.y) * kept;
 
-    // The wind bends the tips the most, each tuft at its own moment; a
-    // bent tip comes down a little, as its blade's length is kept.
+    // The wind bends the tips the most: down the wind in a gust, and
+    // back a little past upright as it eases, each tuft at its own
+    // moment. A bent tip comes down a little, as its blade's length is
+    // kept.
     let strong = strength(wind, middle.xz);
     let t = grass.sway.y;
     let phase = dot(middle.xz, vec2<f32>(0.37, 0.23)) + own * 1.7;
-    let gust = strong * (0.75 + 0.25 * sin(t * 2.1 + phase));
+    let gust = 1.5 * strong - 0.55 + 0.25 * sin(t * 2.1 + phase);
     let flow = vec2<f32>(wind.flow.x, wind.flow.y);
     let push = grass.sway.x * gust * up * up * rise;
     let sink = 0.5 * push * push / max(rise, 0.05);
@@ -87,7 +89,7 @@ fn blade(
     var colour = grass_colour(middle.xz, middle.y, here.y, here.z) * tone
         * mix(grass.look.x, grass.look.y, up);
     colour = mix(colour, soil.grass_sun.rgb * grass.look.y, grass.look.z * up * up);
-    colour *= 1.0 + 0.15 * gust * up;
+    colour *= 1.0 + 0.15 * max(gust, 0.0) * up;
     if flower {
         let bed = vec2<i32>(floor(middle.xz / 9.0));
         let k = u32(bed.x * 73 + bed.y * 19 + 100000) % 5u;

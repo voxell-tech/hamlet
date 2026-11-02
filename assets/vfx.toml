@@ -49,7 +49,6 @@ gap = [0.5, 1.6]
 heading = 70.0
 veer = 18.0
 band = [30.0, 6.0]
-shiver = [4.0, 9.0]
 calm = 0.45
 length = 17.0
 width = 0.42
