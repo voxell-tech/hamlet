@@ -1099,15 +1099,17 @@ pub(super) fn open_graph<F: Flavor>(world: &mut World, node: NodeId) {
     let _ = files::open_item::<F>(world, &item);
 }
 
-/// The graph's keys, while the pointer is on this canvas and nothing
-/// is being typed in.
+/// The graph's keys while nothing is being typed in: saving and the
+/// history anywhere on the editor, the rest while the pointer is on
+/// this canvas.
 fn keys<F: Flavor>(world: &mut World) {
     if **world.resource::<Menu<F>>() != Which::Closed
         || world.resource::<InputFocus>().get().is_some()
-        || !canvas::is_hovered::<F>(world)
+        || !super::is_screen_hovered::<F>(world)
     {
         return;
     }
+    let on_canvas = canvas::is_hovered::<F>(world);
     let keys = world.resource::<ButtonInput<KeyCode>>();
     let command = keys.any_pressed([
         KeyCode::SuperLeft,
@@ -1130,9 +1132,7 @@ fn keys<F: Flavor>(world: &mut World) {
     let save = command && pressed(KeyCode::KeyS);
     let fit = !command && pressed(KeyCode::KeyF);
     let selected = !world.resource::<Editor<F>>().selected.is_empty();
-    if space {
-        create_at_pointer::<F>(world);
-    } else if save && shift {
+    if save && shift {
         files::save_as::<F>(world);
     } else if save {
         files::save::<F>(world);
@@ -1140,6 +1140,10 @@ fn keys<F: Flavor>(world: &mut World) {
         world.resource_mut::<Editor<F>>().redo();
     } else if undo {
         world.resource_mut::<Editor<F>>().undo();
+    } else if !on_canvas {
+        // The rest act on the canvas under the pointer.
+    } else if space {
+        create_at_pointer::<F>(world);
     } else if group && shift {
         world.resource_mut::<Editor<F>>().ungroup_selected();
     } else if group && selected {

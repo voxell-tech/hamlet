@@ -17,11 +17,16 @@ mod toolbar;
 mod wire;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::marker::PhantomData;
 use std::mem::discriminant;
 
 use bevy::app::App;
+use bevy::ecs::component::Component;
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::world::World;
 use bevy::math::Vec2;
+use bevy::picking::hover::Hovered;
 use bevy::ui::{Display, percent, px};
 use bevy::ui_render::UiMaterialPlugin;
 use bevy_fynix::views::{FrameProps, column, frame, row, scroll};
@@ -958,4 +963,19 @@ pub fn screen<F: Flavor>() -> impl View {
     .fills_width()
     .fills_height()
     .gap(0.0)
+    .with((Screen::<F>(PhantomData), Hovered::default()))
+}
+
+/// Marks an editor's whole screen: its toolbar, canvas and preview.
+#[derive(Component)]
+pub(crate) struct Screen<F: Flavor>(PhantomData<F>);
+
+/// Whether the pointer is anywhere on the editor's screen.
+pub(crate) fn is_screen_hovered<F: Flavor>(
+    world: &mut World,
+) -> bool {
+    world
+        .query_filtered::<&Hovered, With<Screen<F>>>()
+        .iter(world)
+        .any(Hovered::get)
 }
