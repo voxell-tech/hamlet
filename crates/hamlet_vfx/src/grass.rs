@@ -93,7 +93,8 @@ pub struct GrassSettings {
     pub slots: u32,
     /// How far from the eye each detail reaches, the finest first,
     /// where the eye stands low. The grass shortens to nothing over
-    /// the last third of the last.
+    /// the last half of the last, so the furthest blades, too small
+    /// to draw steadily, lie low.
     pub rings: [f32; 3],
 }
 

@@ -29,7 +29,7 @@ struct Grass {
     // of its patches. z: how fast they drift.
     glow: vec4<f32>,
     // xyz: the eye. w: how far from it the grass is gone, shortening
-    // over the last third of the way.
+    // over the last half of the way.
     reach: vec4<f32>,
     // xy: the mask's corner on the map. z: its side.
     mask_at: vec4<f32>,
@@ -151,7 +151,7 @@ fn blade(
     let ground = page_at(0, at.xz).x;
     let away = distance(middle, grass.reach.xyz);
     let kept = (1.0 - trodden(at.xz))
-        * smooth_step(grass.reach.w, grass.reach.w * 0.67, away);
+        * smooth_step(grass.reach.w, grass.reach.w * 0.5, away);
     let rise = (at.y - y) * kept;
 
     // The wind bends the tips the most: down the wind in a gust, and

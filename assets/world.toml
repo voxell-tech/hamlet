@@ -108,9 +108,9 @@ fog_start = 1.2
 fog_end = [2.6, 150.0]
 shadow_range = [1.25, 2.4]
 blur_within = 600.0
-blur_stop = 3.0
+blur_stop = 10.0
 blur_stop_min = 0.03
-blur_circle = 12.0
+blur_circle = 7.0
 
 [detail]
 town_far = 330.0

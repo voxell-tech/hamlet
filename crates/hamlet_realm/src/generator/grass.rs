@@ -4,6 +4,7 @@
 //! off the roads and the towns' squares.
 
 use bevy::camera::primitives::Aabb;
+use bevy::camera::visibility::NoAutoAabb;
 use bevy::light::NotShadowCaster;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -197,11 +198,14 @@ fn lay(
                 Transform::from_xyz(corner.x, 0.0, corner.y),
                 // The tufts stand wherever the land is, and reach a
                 // little past their slots; the square holds every
-                // height they may stand at.
+                // height they may stand at. Its mesh holds only one
+                // tuft's room, at the origin, so Bevy must not work
+                // its bounds out from it.
                 Aabb::from_min_max(
-                    Vec3::new(-2.0, -20.0, -2.0),
-                    Vec3::new(side + 2.0, 60.0, side + 2.0),
+                    Vec3::new(-2.0, -40.0, -2.0),
+                    Vec3::new(side + 2.0, 120.0, side + 2.0),
                 ),
+                NoAutoAabb,
                 NotShadowCaster,
             ))
             .id();
