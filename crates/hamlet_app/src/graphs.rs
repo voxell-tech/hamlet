@@ -16,9 +16,8 @@ use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy_fynix::dock::DockWindowKind;
 use hamlet_graph_editor::canvas::Dragging;
-use hamlet_graph_editor::files::Files;
-use hamlet_graph_editor::library::{Item, Kind, Source};
-use hamlet_graph_editor::{Editor, Flavor, example, screen};
+use hamlet_graph_editor::library::{Item, Kind};
+use hamlet_graph_editor::{Flavor, files, screen};
 use hamlet_ui::styles::ICON;
 
 pub(crate) use self::assets::add_mesh;
@@ -49,20 +48,23 @@ fn fade(dragging: Res<Dragging>, mut faint: ResMut<Faint>) {
     }
 }
 
-/// Opens the library's `item` in the editor of its kind: a book in
-/// the blueprint or material editor, saved back to its file. A mesh
-/// or a texture is not opened; it is dragged onto a canvas.
+/// Opens the library's `item` in the editor of its kind, to be saved
+/// back to its file. A mesh or a texture is not opened; it is dragged
+/// onto a canvas.
 pub(crate) fn open_item(
     world: &mut World,
     item: &Item,
 ) -> Result<(), OpenRefusal> {
-    match item.kind {
-        Kind::Blueprint => open_book::<Blueprint>(world, item),
-        Kind::Material => open_book::<Material>(world, item),
-        Kind::Mesh | Kind::Texture => Err(OpenRefusal::Dragged {
-            name: item.name.clone(),
-        }),
-    }
+    let opened = match item.kind {
+        Kind::Blueprint => files::open_item::<Blueprint>(world, item),
+        Kind::Material => files::open_item::<Material>(world, item),
+        Kind::Mesh | Kind::Texture => {
+            return Err(OpenRefusal::Dragged {
+                name: item.name.clone(),
+            });
+        }
+    };
+    Ok(opened?)
 }
 
 /// Why a library item does not open in an editor.
@@ -70,29 +72,6 @@ pub(crate) fn open_item(
 pub(crate) enum OpenRefusal {
     #[error("Drag {name} onto a canvas to use it")]
     Dragged { name: String },
-    #[error("{name} is not a book")]
-    NotABook { name: String },
-}
-
-fn open_book<F: Flavor>(
-    world: &mut World,
-    item: &Item,
-) -> Result<(), OpenRefusal> {
-    let (book, path) = match &item.source {
-        Source::Example(text) => (example(text), None),
-        Source::File(path) => (
-            std::fs::read_to_string(path)
-                .ok()
-                .and_then(|text| example(&text)),
-            Some(path.clone()),
-        ),
-        Source::BuiltIn => (None, None),
-    };
-    let book = book.ok_or_else(|| OpenRefusal::NotABook {
-        name: item.name.clone(),
-    })?;
-    world.resource_mut::<Editor<F>>().load(book);
-    world.resource_mut::<Files<F>>().path = path;
-    hamlet_graph_editor::canvas::fit::<F>(world);
-    Ok(())
+    #[error("{0:#}")]
+    Unreadable(#[from] anyhow::Error),
 }

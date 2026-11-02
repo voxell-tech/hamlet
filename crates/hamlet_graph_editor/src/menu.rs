@@ -42,11 +42,11 @@ use hamlet_ui::{AnyView, Cx, View};
 
 use super::canvas::Input;
 use super::flavor::Flavor;
-use super::library::Item;
 use super::library::picker::picker;
+use super::library::{Item, Library};
 use super::{Editor, Place, canvas, controls, files};
 
-/// The group the book's other graphs are listed under.
+/// The group the library's other graphs are listed under.
 const GRAPHS: &str = "Graphs";
 
 /// The groups in the order they are listed, before any others.
@@ -275,15 +275,14 @@ fn entries<F: Flavor>(editor: &Editor<F>) -> Vec<Entry> {
         }
     });
     let graphs = editor
-        .names()
-        .into_iter()
+        .others()
         .filter(|name| !editor.runs(name, &editor.name))
         .map(|name| Entry {
             group: GRAPHS,
-            doc: format!("The graph {name} of this book"),
-            does: Does::Graph(name.clone()),
+            doc: format!("The graph {name} of the library"),
+            does: Does::Graph(name.to_owned()),
             settings: BTreeMap::new(),
-            name,
+            name: name.to_owned(),
         });
     let mut found = graphs.chain(kinds).collect::<Vec<_>>();
     found.sort_by(|a, b| {
@@ -1074,9 +1073,10 @@ fn input_menu<F: Flavor>(
     })
 }
 
-/// Opens the graph `node` runs, if it runs one.
+/// Opens the asset `node` runs, if it runs one, saving the open one
+/// first when it is a file with changes.
 pub(super) fn open_graph<F: Flavor>(world: &mut World, node: NodeId) {
-    let mut editor = world.resource_mut::<Editor<F>>();
+    let editor = world.resource::<Editor<F>>();
     let name = match editor
         .sheet
         .graph
@@ -1086,8 +1086,17 @@ pub(super) fn open_graph<F: Flavor>(world: &mut World, node: NodeId) {
         Some(Does::Graph(name)) => name.clone(),
         _ => return,
     };
-    editor.go_to(&name);
-    canvas::fit::<F>(world);
+    let unsaved = editor.is_dirty() && editor.is_own();
+    let Some(item) = world.resource::<Library>().find(F::KIND, &name)
+    else {
+        world.resource_mut::<files::Files<F>>().note =
+            format!("{name} is not in the library");
+        return;
+    };
+    if unsaved {
+        files::save::<F>(world);
+    }
+    let _ = files::open_item::<F>(world, &item);
 }
 
 /// The graph's keys, while the pointer is on this canvas and nothing
@@ -1119,7 +1128,6 @@ fn keys<F: Flavor>(world: &mut World) {
     let paste = command && pressed(KeyCode::KeyV);
     let group = command && pressed(KeyCode::KeyG);
     let save = command && pressed(KeyCode::KeyS);
-    let open = command && pressed(KeyCode::KeyO);
     let fit = !command && pressed(KeyCode::KeyF);
     let selected = !world.resource::<Editor<F>>().selected.is_empty();
     if space {
@@ -1128,8 +1136,6 @@ fn keys<F: Flavor>(world: &mut World) {
         files::save_as::<F>(world);
     } else if save {
         files::save::<F>(world);
-    } else if open {
-        files::open::<F>(world);
     } else if undo && shift {
         world.resource_mut::<Editor<F>>().redo();
     } else if undo {

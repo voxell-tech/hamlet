@@ -220,8 +220,8 @@ fn number<F: Flavor>(
                 (Some(Constant::Integer(value)), Slot::Scalar) => {
                     f64::from(value)
                 }
-                // A book read from a file may hold a value of another
-                // shape than the input's, with no such axis.
+                // A graph read from a file may hold a value of
+                // another shape than the input's, with no such axis.
                 (Some(Constant::Point(point)), Slot::Axis(axis)) => {
                     point
                         .to_array()

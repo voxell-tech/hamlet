@@ -2,9 +2,9 @@
 // slate, emitting cyan that pulses with a sine of the time. Change the
 // emission strength in the parameters.
 (
-    entry: "emissive runes",
+    entry: "emissive_runes",
     sheets: {
-        "emissive runes": (
+        "emissive_runes": (
             graph: (
                 inputs: [
                     (name: "strength", value_type: Number, default: Some(Number(4.0))),

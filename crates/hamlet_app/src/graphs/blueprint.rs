@@ -18,17 +18,16 @@ use bevy_fynix::ViewExt;
 use hamlet_blueprint::{
     Bundle, Object, Seed, Seeds, Value, evaluate_partly,
 };
-use hamlet_client::ViewFolder;
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_graph::{
-    Catalogue, Constant, Does, Graph, GraphError, GraphOutput,
-    NodeId, Port, Registry, Setting, Shape, Spread, ValueType,
+    Constant, Does, Graph, GraphError, GraphOutput, NodeId, Port,
+    Registry, Setting, Shape, ValueType,
 };
-use hamlet_graph_editor::files::{self, Files};
+use hamlet_graph_editor::files::Files;
 use hamlet_graph_editor::library::{
     Item, Kind, Library, mesh_path, write_atomic,
 };
-use hamlet_graph_editor::{Editor, Flavor};
+use hamlet_graph_editor::{Editor, Flavor, Nesting};
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::tool;
 use hamlet_ui::widgets::icons::Glyph;
@@ -73,16 +72,20 @@ impl Flavor for Blueprint {
     const ICON: Glyph = Glyph::Signpost;
     const FOLDER: &'static str = "graphs";
     const KIND: Kind = Kind::Blueprint;
-    /// The small examples first, each one idea; the house puts
-    /// several together.
+    const NESTING: Nesting = Nesting::Runs;
+    /// The small examples first, each one idea; the house runs the
+    /// three after it.
     const EXAMPLES: &'static [(&'static str, &'static str)] = &[
-        ("Fence", include_str!("examples/fence.ron")),
-        ("Stone wall", include_str!("examples/stone_wall.ron")),
-        ("Window", include_str!("examples/window.ron")),
-        ("Stone tower", include_str!("examples/stone_tower.ron")),
-        ("Garden bed", include_str!("examples/garden_bed.ron")),
+        ("fence", include_str!("examples/fence.ron")),
+        ("stone_wall", include_str!("examples/stone_wall.ron")),
+        ("window", include_str!("examples/window.ron")),
+        ("stone_tower", include_str!("examples/stone_tower.ron")),
+        ("garden_bed", include_str!("examples/garden_bed.ron")),
+        ("house_wall", include_str!("examples/house_wall.ron")),
+        ("house_roof", include_str!("examples/house_roof.ron")),
+        ("house_window", include_str!("examples/house_window.ron")),
         (
-            "Medieval house",
+            "medieval_house",
             include_str!("examples/medieval_house.ron"),
         ),
     ];
@@ -288,24 +291,12 @@ fn shown(value: Value) -> Vec<Object> {
     }
 }
 
-/// Gives the graphs the library's meshes, each at its file's size,
-/// moving any the book opened carried into the library first.
+/// Gives the graphs the library's meshes, each at its file's size.
 fn mirror(
-    folder: Option<Res<ViewFolder>>,
-    mut library: ResMut<Library>,
+    library: Res<Library>,
     mut editor: ResMut<Editor<Blueprint>>,
     mut meshes: ResMut<Meshes>,
 ) {
-    if !editor.carried.is_empty()
-        && let Some(folder) = folder
-        && library.root().is_some()
-    {
-        let carried = std::mem::take(&mut editor.carried);
-        let from = files::book_folder::<Blueprint>(&folder.0);
-        if let Err(error) = library.adopt(&carried, &from) {
-            library.note = format!("{error:#}");
-        }
-    }
     if library.is_changed() || editor.is_added() {
         let mut catalogue = library.catalogue.clone();
         if let Some(root) = library.root() {
@@ -350,9 +341,9 @@ fn export(world: &mut World) {
     });
 }
 
-/// Writes the bundle of `editor`'s book to `path`, with the library's
-/// meshes it names, their files read from the library at `library`.
-/// A graph that fails is not exported.
+/// Writes the bundle of the open graph and the graphs it runs to
+/// `path`, with the library's meshes they name, their files read from
+/// the library at `library`. A graph that fails is not exported.
 fn write_bundle(
     path: &Path,
     editor: &Editor<Blueprint>,
@@ -361,18 +352,9 @@ fn write_bundle(
     if let Err(error) = &editor.got.outcome {
         anyhow::bail!("Not exported, the graph fails: {error}");
     }
-    let mut ruleset = editor.book().export();
-    let named = named(&ruleset.graphs);
-    ruleset.assets = Catalogue(
-        editor
-            .rules
-            .assets
-            .0
-            .iter()
-            .filter(|(name, _)| named.contains(name.as_str()))
-            .map(|(name, asset)| (name.clone(), asset.clone()))
-            .collect(),
-    );
+    let mut ruleset = editor.reached();
+    ruleset.assets =
+        editor.rules.assets.named_in(ruleset.graphs.values());
     let mut files = BTreeMap::new();
     for asset in ruleset.assets.0.values() {
         let Shape::Mesh(file) = &asset.shape else {
@@ -388,40 +370,7 @@ fn write_bundle(
     write_atomic(path, &text)
 }
 
-/// Every choice the graphs are set to or may roll, which names the
-/// assets they put down among other things.
-fn named(graphs: &BTreeMap<String, Graph>) -> BTreeSet<&str> {
-    let mut named = BTreeSet::new();
-    for graph in graphs.values() {
-        for setting in
-            graph.nodes.iter().flat_map(|node| node.settings.values())
-        {
-            match setting {
-                Setting::Fixed(Constant::Choice(choice)) => {
-                    named.insert(choice.as_str());
-                }
-                Setting::Random(roll) => {
-                    if let Spread::Weights(weights) = &roll.spread {
-                        named.extend(
-                            weights
-                                .iter()
-                                .map(|(choice, _)| choice.as_str()),
-                        );
-                    }
-                }
-                _ => {}
-            }
-        }
-        for input in &graph.inputs {
-            if let Some(Constant::Choice(choice)) = &input.default {
-                named.insert(choice.as_str());
-            }
-        }
-    }
-    named
-}
-
-/// Forgets the meshes read for the last book when another is opened.
+/// Forgets the meshes read before a graph file is imported.
 fn forget(
     chosen: On<FileChosen>,
     files: Res<Files<Blueprint>>,
@@ -463,33 +412,38 @@ fn exported(
 
 #[cfg(test)]
 mod tests {
-    use hamlet_graph_editor::example;
+    use hamlet_graph_editor::library::{Source, lone, parse_book};
 
     use super::*;
 
     #[test]
-    fn every_example_opens_and_puts_something_down() {
+    fn every_example_runs_with_the_others_available_and_puts_something_down()
+     {
+        let sheets = Blueprint::EXAMPLES
+            .iter()
+            .map(|(name, text)| {
+                let book = parse_book(text).unwrap_or_else(|| {
+                    panic!("{name} does not parse")
+                });
+                ((*name).to_owned(), lone(book))
+            })
+            .collect::<BTreeMap<_, _>>();
         let mut editor = Editor::<Blueprint>::new();
         for (name, text) in Blueprint::EXAMPLES {
-            let book = example(text)
-                .unwrap_or_else(|| panic!("{name} does not parse"));
-            editor.load(book);
-            // Each graph also runs alone, its inputs at their
-            // defaults.
-            for graph in editor.names() {
-                editor.go_to(&graph);
-                match &editor.got.outcome {
-                    Ok(objects) => {
-                        assert!(
-                            !objects.is_empty(),
-                            "{name}: {graph}"
-                        );
-                    }
-                    Err(error) => {
-                        panic!("{name}: {graph}: {error}")
-                    }
-                }
-            }
+            editor.open(
+                (*name).to_owned(),
+                Source::Example(text),
+                sheets[*name].clone(),
+            );
+            editor.set_others(
+                sheets
+                    .iter()
+                    .filter(|(other, _)| *other != name)
+                    .map(|(other, sheet)| {
+                        (other.clone(), sheet.graph.clone())
+                    })
+                    .collect(),
+            );
             match &editor.got.outcome {
                 Ok(objects) => {
                     assert!(!objects.is_empty(), "{name}");

@@ -10,8 +10,10 @@ pub mod files;
 mod flavor;
 pub mod library;
 mod menu;
+mod others;
 mod params;
 mod split;
+mod toolbar;
 mod wire;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,36 +21,32 @@ use std::mem::discriminant;
 
 use bevy::app::App;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::world::World;
 use bevy::math::Vec2;
-use bevy::ui::{AlignItems, Display, Overflow, UiRect, percent, px};
+use bevy::ui::{Display, percent, px};
 use bevy::ui_render::UiMaterialPlugin;
-use bevy_fynix::views::{
-    FrameProps, column, dropdown, frame, row, scroll,
-};
-use bevy_fynix::{ViewExt, keyed, resource};
+use bevy_fynix::views::{FrameProps, column, frame, row, scroll};
+use bevy_fynix::{ViewExt, resource};
 use hamlet_graph::{
-    Book, Catalogue, Constant, Does, Edit, Fragment, GraphError,
-    GraphInput, GraphOutput, Group, Initial, Node, NodeId, Port,
-    PortSpec, Registry, Ruleset, Setting, Sheet, ValueType, Wire,
+    Book, Catalogue, Constant, Does, Edit, Fragment, Graph,
+    GraphError, GraphInput, GraphOutput, Group, Initial, Node,
+    NodeId, Port, PortSpec, Registry, Ruleset, Setting, Sheet,
+    ValueType, Wire,
 };
-use hamlet_ui::styles::{
-    Fills, ICON, cluster, description, hairline, tool,
-};
+use hamlet_ui::styles::{Fills, hairline};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, with_cx};
 
-pub use self::flavor::Flavor;
-use self::library::Library;
+pub use self::flavor::{Flavor, Nesting};
+use self::library::{Item, Library, Source, lone, parse_book};
 use self::split::{Layout, Pane, divider, floating, outline};
 
 /// How far a duplicate, or a paste with no place, lies from the
 /// original, in sheet pixels.
 const NUDGE: f32 = 28.0;
 
-/// Adds the editor for `F`: its book and what the editing needs,
-/// its examples in the library, and whatever `F` adds itself. The
-/// panel is [`screen`], which the caller puts in a dock.
+/// Adds the editor for `F`: the open asset and what the editing
+/// needs, its examples in the library, and whatever `F` adds itself.
+/// The panel is [`screen`], which the caller puts in a dock.
 pub fn plugin<F: Flavor>(app: &mut App) {
     if !app.world().contains_resource::<Library>() {
         app.add_plugins(library::plugin);
@@ -61,6 +59,7 @@ pub fn plugin<F: Flavor>(app: &mut App) {
         menu::plugin::<F>,
         split::plugin::<F>,
         files::plugin::<F>,
+        others::plugin::<F>,
     ));
     // The wires' material is shared by every editor.
     if !app.is_plugin_added::<UiMaterialPlugin<wire::WireMaterial>>()
@@ -68,22 +67,6 @@ pub fn plugin<F: Flavor>(app: &mut App) {
         app.add_plugins(wire::plugin);
     }
     F::plugin(app);
-}
-
-/// The book an example's text holds.
-pub fn example(text: &str) -> Option<Book> {
-    Book::from_ron(text).ok().or_else(|| {
-        Sheet::from_ron(text)
-            .ok()
-            .map(|sheet| Book::of("main", sheet))
-    })
-}
-
-/// A sheet that is not open, with its history.
-struct Kept {
-    sheet: Sheet,
-    undo: Vec<Edit>,
-    redo: Vec<Edit>,
 }
 
 /// How much of what is built from the sheet a change touches.
@@ -95,22 +78,6 @@ enum Change {
     Value,
 }
 
-/// Why the open graph cannot be deleted.
-#[derive(Debug, thiserror::Error)]
-pub enum DeleteRefusal {
-    /// It is the only graph of the book.
-    #[error("The only graph cannot be deleted")]
-    Only,
-    /// Another graph runs it.
-    #[error("{user} uses {graph}")]
-    Used {
-        /// The graph that runs it.
-        user: String,
-        /// The graph that cannot be deleted.
-        graph: String,
-    },
-}
-
 /// Which side of a port its neighbour is on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Place {
@@ -118,21 +85,26 @@ pub enum Place {
     After,
 }
 
-/// The book being edited: the open sheet with its history, the others
-/// it may use as nodes, and what the open one last gave.
+/// The graph being edited: the sheet of the open library asset with
+/// its history, the other assets it may run as nodes, and what the
+/// open one last gave.
 #[derive(Resource)]
 pub struct Editor<F: Flavor> {
     /// The open sheet.
     pub sheet: Sheet,
-    /// Its name in the book.
+    /// The open asset's name in the library.
     pub name: String,
-    others: BTreeMap<String, Kept>,
-    /// Every graph of the book, for the ports of nodes that run one,
-    /// and the assets the book adds.
+    /// Where the open asset comes from.
+    pub source: Source,
+    /// The graphs of the library's other assets of this kind, by
+    /// name.
+    others: BTreeMap<String, Graph>,
+    /// The open graph and the others, for the ports of nodes that
+    /// run one, and the assets the graphs add.
     pub rules: Ruleset,
     /// The nodes picked to move, copy or delete together.
     pub selected: BTreeSet<NodeId>,
-    /// The nodes last copied or cut, kept when another book is
+    /// The nodes last copied or cut, kept when another asset is
     /// opened.
     pub clipboard: Option<Fragment>,
     /// The kinds of node the graphs may use.
@@ -140,19 +112,21 @@ pub struct Editor<F: Flavor> {
     undo: Vec<Edit>,
     redo: Vec<Edit>,
     /// Changes whenever the nodes, the wires or the way an input is
-    /// set change, or another sheet is opened, so what is built from
+    /// set change, or another asset is opened, so what is built from
     /// them is built again.
     pub shape: u64,
-    /// Changes with every change to the book, so it is saved again.
+    /// Changes with every edit to the open sheet, and whenever it is
+    /// opened or saved, so what is remembered of it is written
+    /// again.
     pub revision: u64,
+    /// Whether the open sheet has changed since it was opened or
+    /// saved.
+    dirty: bool,
     /// The nodes that failed in the last run, each with its error;
     /// the rest of the graph ran without them.
     pub errors: Vec<GraphError>,
     /// What the flavor keeps of the last run.
     pub got: F::Got,
-    /// The meshes the book last opened carried with it, not yet
-    /// moved into the library.
-    pub carried: Catalogue,
 }
 
 impl<F: Flavor> Default for Editor<F> {
@@ -167,6 +141,7 @@ impl<F: Flavor> Editor<F> {
         let mut editor = Self {
             sheet: Sheet::default(),
             name: String::new(),
+            source: Source::Example(""),
             others: BTreeMap::new(),
             rules: Ruleset::default(),
             selected: BTreeSet::new(),
@@ -176,25 +151,55 @@ impl<F: Flavor> Editor<F> {
             redo: Vec::new(),
             shape: 0,
             revision: 0,
+            dirty: false,
             errors: Vec::new(),
             got: F::Got::default(),
-            carried: Catalogue::default(),
         };
-        let start = F::EXAMPLES
-            .first()
-            .and_then(|(_, text)| example(text))
-            .unwrap_or_default();
-        editor.load(start);
+        if let Some((name, text)) = F::EXAMPLES.first() {
+            let sheet =
+                parse_book(text).map(lone).unwrap_or_default();
+            editor.open(
+                (*name).to_owned(),
+                Source::Example(text),
+                sheet,
+            );
+        }
         editor
     }
 
-    /// The names of every sheet in the book, the open one included.
-    pub fn names(&self) -> Vec<String> {
-        let mut names =
-            self.others.keys().cloned().collect::<Vec<_>>();
-        names.push(self.name.clone());
-        names.sort();
-        names
+    /// The open asset.
+    pub fn item(&self) -> Item {
+        Item {
+            kind: F::KIND,
+            name: self.name.clone(),
+            source: self.source.clone(),
+        }
+    }
+
+    /// Whether the open sheet has changed since it was opened or
+    /// saved.
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Whether the open asset is a file of the library, which can be
+    /// saved back and renamed.
+    pub fn is_own(&self) -> bool {
+        matches!(self.source, Source::File(_))
+    }
+
+    /// The names of the other assets the open graph may run.
+    pub fn others(&self) -> impl Iterator<Item = &str> {
+        self.others.keys().map(String::as_str)
+    }
+
+    /// Takes `others` as the graphs of the library's other assets,
+    /// which the open graph may run.
+    pub fn set_others(&mut self, others: BTreeMap<String, Graph>) {
+        if self.others != others {
+            self.others = others;
+            self.changed(Change::Shape);
+        }
     }
 
     /// Whether the graph `name` runs `target`, itself or through
@@ -203,8 +208,8 @@ impl<F: Flavor> Editor<F> {
         self.can_reach(name, target, &mut BTreeSet::new())
     }
 
-    /// [`Editor::runs`], passing over the graphs in `seen`, so a book
-    /// read from a file whose graphs run each other still ends.
+    /// [`Editor::runs`], passing over the graphs in `seen`, so graphs
+    /// read from files that run each other still end.
     fn can_reach<'a>(
         &'a self,
         name: &'a str,
@@ -226,139 +231,93 @@ impl<F: Flavor> Editor<F> {
         })
     }
 
-    /// Opens the sheet `name`, chosen directly.
-    pub fn go_to(&mut self, name: &str) {
-        self.open(name);
-    }
-
-    /// Opens the sheet `name`, keeping the open one with its history.
-    fn open(&mut self, name: &str) {
-        let Some(kept) = self.others.remove(name) else {
-            return;
-        };
-        let was = Kept {
-            sheet: std::mem::replace(&mut self.sheet, kept.sheet),
-            undo: std::mem::replace(&mut self.undo, kept.undo),
-            redo: std::mem::replace(&mut self.redo, kept.redo),
-        };
-        self.others.insert(
-            std::mem::replace(&mut self.name, name.to_owned()),
-            was,
-        );
-        self.selected.clear();
-        self.changed(Change::Shape);
-    }
-
-    /// Adds an empty sheet to the book and opens it.
-    pub fn new_graph(&mut self) {
-        let names = self.names();
-        let name = (1..)
-            .map(|n| format!("graph {n}"))
-            .find(|name| !names.contains(name))
-            .unwrap_or_default();
-        self.others.insert(
-            name.clone(),
-            Kept {
-                sheet: Sheet::default(),
-                undo: Vec::new(),
-                redo: Vec::new(),
-            },
-        );
-        self.open(&name);
-    }
-
-    /// Takes the open sheet out of the book and opens another, or
-    /// refuses when it is the only one or another graph runs it.
-    pub fn delete_graph(&mut self) -> Result<(), DeleteRefusal> {
-        if let Some(user) =
-            self.others.iter().find_map(|(name, kept)| {
-                kept.sheet
-                    .graph
-                    .nodes
-                    .iter()
-                    .any(|node| {
-                        node.does == Does::Graph(self.name.clone())
-                    })
-                    .then_some(name)
-            })
-        {
-            return Err(DeleteRefusal::Used {
-                user: user.clone(),
-                graph: self.name.clone(),
-            });
+    /// The open graph and every graph it reaches through nodes that
+    /// run one, with no assets.
+    pub fn reached(&self) -> Ruleset {
+        let mut graphs = BTreeMap::new();
+        let mut todo = vec![self.name.as_str()];
+        while let Some(name) = todo.pop() {
+            if graphs.contains_key(name) {
+                continue;
+            }
+            let Some(graph) = self.rules.graphs.get(name) else {
+                continue;
+            };
+            graphs.insert(name.to_owned(), graph.clone());
+            todo.extend(graph.nodes.iter().filter_map(|node| {
+                match &node.does {
+                    Does::Graph(child) => Some(child.as_str()),
+                    Does::Kind(_) => None,
+                }
+            }));
         }
-        let Some(next) = self.others.keys().next().cloned() else {
-            return Err(DeleteRefusal::Only);
-        };
-        let Some(kept) = self.others.remove(&next) else {
-            return Ok(());
-        };
-        self.sheet = kept.sheet;
-        self.undo = kept.undo;
-        self.redo = kept.redo;
-        self.name = next;
-        self.selected.clear();
-        self.changed(Change::Shape);
-        Ok(())
-    }
-
-    /// The book as it is now, its entry the open sheet.
-    pub fn book(&self) -> Book {
-        Book {
+        Ruleset {
             entry: self.name.clone(),
-            sheets: self
-                .others
-                .iter()
-                .map(|(name, kept)| {
-                    (name.clone(), kept.sheet.clone())
-                })
-                .chain([(self.name.clone(), self.sheet.clone())])
-                .collect(),
-            // The meshes it uses are the library's.
+            graphs,
             assets: Catalogue::default(),
         }
     }
 
-    /// Puts `book` in place of the one being edited, with no history,
-    /// open at its entry.
-    pub fn load(&mut self, mut book: Book) {
-        // A node's settings may still name an input removed earlier.
-        for sheet in book.sheets.values_mut() {
-            let graph = &mut sheet.graph;
-            F::upgrade(graph);
-            let names = graph
-                .inputs
-                .iter()
-                .map(|input| input.name.clone())
-                .collect::<BTreeSet<_>>();
-            for node in &mut graph.nodes {
-                node.settings.retain(|_, setting| match setting {
-                    Setting::FromParent(name) => names.contains(name),
-                    _ => true,
-                });
-            }
+    /// The open sheet as the book a file holds it in, with `assets`.
+    pub fn book(&self, assets: Catalogue) -> Book {
+        Book {
+            assets,
+            ..Book::of(&self.name, self.sheet.clone())
         }
-        let entry =
-            book.sheets.remove(&book.entry).unwrap_or_default();
-        self.others = book
-            .sheets
-            .into_iter()
-            .map(|(name, sheet)| {
-                let kept = Kept {
-                    sheet,
-                    undo: Vec::new(),
-                    redo: Vec::new(),
-                };
-                (name, kept)
-            })
-            .collect();
-        self.sheet = entry;
-        self.name = book.entry;
-        self.carried = book.assets;
+    }
+
+    /// Opens `sheet` as the asset `name` from `source`, with no
+    /// history and nothing unsaved.
+    pub fn open(
+        &mut self,
+        name: String,
+        source: Source,
+        mut sheet: Sheet,
+    ) {
+        upgrade::<F>(&mut sheet);
+        self.sheet = sheet;
+        self.name = name;
+        self.source = source;
         self.selected.clear();
         self.undo.clear();
         self.redo.clear();
+        self.dirty = false;
+        self.revision += 1;
         self.changed(Change::Shape);
+    }
+
+    /// Opens the unsaved `sheet` of the open asset again, as it was
+    /// left, with nothing to take back.
+    pub fn recover(&mut self, mut sheet: Sheet) {
+        upgrade::<F>(&mut sheet);
+        self.sheet = sheet;
+        self.selected.clear();
+        self.undo.clear();
+        self.redo.clear();
+        self.touch();
+        self.changed(Change::Shape);
+    }
+
+    /// Takes the open sheet as saved in the library as `name` at
+    /// `source`, in the history it has.
+    pub fn saved(&mut self, name: String, source: Source) {
+        self.dirty = false;
+        self.renamed(name, source);
+    }
+
+    /// Takes the open asset's file as now called `name` at `source`,
+    /// with whatever is not saved still not saved.
+    pub fn renamed(&mut self, name: String, source: Source) {
+        self.name = name;
+        self.source = source;
+        self.revision += 1;
+        self.changed(Change::Value);
+    }
+
+    /// Marks the open sheet as changed since it was saved.
+    fn touch(&mut self) {
+        self.dirty = true;
+        self.revision += 1;
     }
 
     /// Applies `edit` and keeps the edit that undoes it. Edits of one
@@ -404,6 +363,7 @@ impl<F: Flavor> Editor<F> {
             self.undo.push(inverse);
         }
         self.redo.clear();
+        self.touch();
         self.changed(change);
     }
 
@@ -486,7 +446,7 @@ impl<F: Flavor> Editor<F> {
                 .collect(),
         ));
         self.redo.clear();
-        self.revision += 1;
+        self.touch();
     }
 
     /// Takes back the last change.
@@ -495,6 +455,7 @@ impl<F: Flavor> Editor<F> {
             && let Ok(inverse) = self.sheet.apply(edit)
         {
             self.redo.push(inverse);
+            self.touch();
             self.changed(Change::Shape);
         }
     }
@@ -505,6 +466,7 @@ impl<F: Flavor> Editor<F> {
             && let Ok(inverse) = self.sheet.apply(edit)
         {
             self.undo.push(inverse);
+            self.touch();
             self.changed(Change::Shape);
         }
     }
@@ -513,7 +475,6 @@ impl<F: Flavor> Editor<F> {
         if change == Change::Shape {
             self.shape += 1;
         }
-        self.revision += 1;
         let graph = &self.sheet.graph;
         self.selected.retain(|node| graph.node(*node).is_some());
         self.rules = Ruleset {
@@ -521,9 +482,7 @@ impl<F: Flavor> Editor<F> {
             graphs: self
                 .others
                 .iter()
-                .map(|(name, kept)| {
-                    (name.clone(), kept.sheet.graph.clone())
-                })
+                .map(|(name, graph)| (name.clone(), graph.clone()))
                 .chain([(
                     self.name.clone(),
                     self.sheet.graph.clone(),
@@ -643,7 +602,7 @@ impl<F: Flavor> Editor<F> {
     fn free_name(
         &self,
         wanted: &str,
-        taken: impl Fn(&hamlet_graph::Graph) -> Vec<String>,
+        taken: impl Fn(&Graph) -> Vec<String>,
     ) -> String {
         let taken = taken(&self.sheet.graph);
         std::iter::once(wanted.to_owned())
@@ -676,8 +635,8 @@ impl<F: Flavor> Editor<F> {
 
     /// Adds the clipboard's nodes as new ones and selects them, the
     /// top left of their box at `at`, or a little off the originals
-    /// when there is none. A graph that is not in this book, or runs
-    /// the open one, is left out.
+    /// when there is none. A graph that is not among the library's,
+    /// or runs the open one, is left out.
     pub fn paste(&mut self, at: Option<Vec2>) {
         let Some(mut fragment) = self.clipboard.clone() else {
             return;
@@ -910,6 +869,24 @@ fn is_reshaping(
     }
 }
 
+/// Brings `sheet`, written for older kinds, up to date.
+fn upgrade<F: Flavor>(sheet: &mut Sheet) {
+    let graph = &mut sheet.graph;
+    F::upgrade(graph);
+    // A node's settings may still name an input removed earlier.
+    let names = graph
+        .inputs
+        .iter()
+        .map(|input| input.name.clone())
+        .collect::<BTreeSet<_>>();
+    for node in &mut graph.nodes {
+        node.settings.retain(|_, setting| match setting {
+            Setting::FromParent(name) => names.contains(name),
+            _ => true,
+        });
+    }
+}
+
 /// The Graph panel: its toolbar over the canvas, with the parameters
 /// floating over the canvas's corner, and the preview floating there
 /// too or beside it, sized by dragging the line between them. The
@@ -965,11 +942,12 @@ pub fn screen<F: Flavor>() -> impl View {
             .width(resource::<Layout<F>, _>(|layout| {
                 px(layout.preview)
             }))
+            .display(Layout::<F>::shows(Pane::Preview))
             .shrink(0.0);
         row((over, divider::<F>(), preview)).fills_height().boxed()
     };
     column((
-        tools::<F>(),
+        toolbar::view::<F>(),
         with_cx(|cx| hairline(cx.theme().palette.border)),
         column((body,))
             .width(percent(100.0))
@@ -980,133 +958,4 @@ pub fn screen<F: Flavor>() -> impl View {
     .fills_width()
     .fills_height()
     .gap(0.0)
-}
-
-/// The bar over the canvas: groups of tools for editing, for the
-/// graphs of the book and for its file, and what is known of both
-/// at the end.
-fn tools<F: Flavor>() -> impl View {
-    with_cx(|cx| {
-        let theme = cx.theme();
-        let gap = theme.space.gap;
-        let own = F::tools();
-        let own_shown = if own.is_empty() {
-            Display::None
-        } else {
-            Display::Flex
-        };
-        row((
-            cluster((
-                tool(Glyph::Undo, "Undo (Cmd+Z)", |world| {
-                    world.resource_mut::<Editor<F>>().undo();
-                }),
-                tool(Glyph::Redo, "Redo (Shift+Cmd+Z)", |world| {
-                    world.resource_mut::<Editor<F>>().redo();
-                }),
-            )),
-            cluster((tool(
-                Glyph::Aim,
-                "Fit every node in sight (F)",
-                canvas::fit::<F>,
-            ),)),
-            cluster((
-                switcher::<F>(),
-                tool(Glyph::Plus, "New graph", |world| {
-                    world.resource_mut::<Editor<F>>().new_graph();
-                    canvas::fit::<F>(world);
-                }),
-                tool(Glyph::Delete, "Delete this graph", |world| {
-                    let deleted = world
-                        .resource_mut::<Editor<F>>()
-                        .delete_graph();
-                    world.resource_mut::<files::Files<F>>().note =
-                        match deleted {
-                            Ok(()) => String::new(),
-                            Err(refusal) => refusal.to_string(),
-                        };
-                    canvas::fit::<F>(world);
-                }),
-            )),
-            cluster((
-                tool(
-                    Glyph::Folder,
-                    "Open a graph book (Cmd+O)",
-                    files::open::<F>,
-                ),
-                tool(
-                    Glyph::Save,
-                    "Save the graph book (Cmd+S; Shift for Save as)",
-                    files::save::<F>,
-                ),
-                dropdown(
-                    F::EXAMPLES.iter().map(|(name, _)| *name),
-                    usize::MAX,
-                    Glyph::Chevron.image(ICON),
-                    |world: &mut World, at| {
-                        let Some(book) = F::EXAMPLES
-                            .get(at)
-                            .and_then(|(_, text)| example(text))
-                        else {
-                            return;
-                        };
-                        world.resource_mut::<Editor<F>>().load(book);
-                        canvas::fit::<F>(world);
-                    },
-                )
-                .placeholder("Open an example")
-                .width(px(190.0)),
-            )),
-            row(own)
-                .gap(2.0)
-                .align(AlignItems::Center)
-                .display(own_shown),
-            frame().grow(1.0),
-            description(resource::<files::Files<F>, _>(|files| {
-                if files.note.is_empty() {
-                    files.name()
-                } else {
-                    files.note.clone()
-                }
-            })),
-            description(resource::<Editor<F>, _>(F::status)),
-        ))
-        .width(percent(100.0))
-        .min_width(px(0.0))
-        .overflow(Overflow::clip())
-        .padding(UiRect::all(px(gap)))
-        .gap(gap)
-        .align(AlignItems::Center)
-        .fill(theme.palette.card)
-    })
-}
-
-/// The graph open, chosen from every graph of the book.
-fn switcher<F: Flavor>() -> impl View {
-    keyed(
-        resource::<Editor<F>, _>(|editor| {
-            (editor.names(), editor.name.clone())
-        }),
-        |(names, open)| {
-            let at = names
-                .iter()
-                .position(|name| name == open)
-                .unwrap_or(0);
-            let options = names.clone();
-            let names = names.clone();
-            dropdown(
-                options,
-                at,
-                Glyph::Chevron.image(ICON),
-                move |world: &mut World, chosen| {
-                    if let Some(name) = names.get(chosen) {
-                        world.resource_mut::<Editor<F>>().go_to(name);
-                    }
-                    canvas::fit::<F>(world);
-                },
-            )
-            .width(px(150.0))
-            .boxed()
-        },
-    )
-    .within(row(()).gap(0.0))
 }

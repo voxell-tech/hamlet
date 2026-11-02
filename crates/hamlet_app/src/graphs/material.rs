@@ -10,7 +10,7 @@ mod swatch;
 use bevy::app::App;
 use hamlet_graph::{Error, GraphError, Registry};
 use hamlet_graph_editor::library::Kind;
-use hamlet_graph_editor::{Editor, Flavor};
+use hamlet_graph_editor::{Editor, Flavor, Nesting};
 use hamlet_material::{Compiled, compile};
 use hamlet_ui::AnyView;
 use hamlet_ui::widgets::icons::Glyph;
@@ -41,18 +41,19 @@ impl Flavor for Material {
     const ICON: Glyph = Glyph::Sphere;
     const FOLDER: &'static str = "materials";
     const KIND: Kind = Kind::Material;
+    const NESTING: Nesting = Nesting::Never;
     const EXAMPLES: &'static [(&'static str, &'static str)] = &[
-        ("Plaster", include_str!("material/examples/plaster.ron")),
+        ("plaster", include_str!("material/examples/plaster.ron")),
         (
-            "Stone wall",
+            "stone_wall",
             include_str!("material/examples/stone_wall.ron"),
         ),
-        ("Wood", include_str!("material/examples/wood.ron")),
+        ("wood", include_str!("material/examples/wood.ron")),
         (
-            "Emissive runes",
+            "emissive_runes",
             include_str!("material/examples/emissive_runes.ron"),
         ),
-        ("Water", include_str!("material/examples/water.ron")),
+        ("water", include_str!("material/examples/water.ron")),
     ];
     const ROOM: f32 = swatch::SIZE + 8.0;
     const PREVIEW_FLOATS: bool = true;
@@ -113,21 +114,17 @@ impl Flavor for Material {
 
 #[cfg(test)]
 mod tests {
-    use hamlet_graph::Book;
+    use hamlet_graph_editor::library::{lone, parse_book};
 
     use super::{Flavor, Material};
 
     #[test]
     fn every_example_compiles() {
         for (name, text) in Material::EXAMPLES {
-            let book = Book::from_ron(text).unwrap();
-            for (sheet_name, sheet) in &book.sheets {
-                let compiled = hamlet_material::compile(&sheet.graph)
-                    .unwrap_or_else(|error| {
-                        panic!("{name}, {sheet_name}: {error}")
-                    });
-                assert_eq!(compiled.errors, [], "{name}");
-            }
+            let sheet = lone(parse_book(text).unwrap());
+            let compiled = hamlet_material::compile(&sheet.graph)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert_eq!(compiled.errors, [], "{name}");
         }
     }
 }

@@ -2,9 +2,9 @@
 // UVs, with fine noise overlaid for grain. Change the rows in the
 // parameters.
 (
-    entry: "stone wall",
+    entry: "stone_wall",
     sheets: {
-        "stone wall": (
+        "stone_wall": (
             graph: (
                 inputs: [
                     (name: "rows", value_type: Number, default: Some(Number(3.0))),

@@ -1,10 +1,12 @@
 //! The library: every asset the editors share, in one folder in the
 //! window's folder. Meshes are `.glb` files in `meshes/`, each named
 //! in `catalogue.ron` with its slots' colours and its sockets;
-//! blueprint and material books are `.ron` files in `blueprints/` and
-//! `materials/`; textures are `.png` files in `textures/`. A book
-//! names the meshes it uses. A removed asset is moved to `.trash/`.
+//! blueprint and material graphs are `.ron` files in `blueprints/`
+//! and `materials/`, one graph to a file; textures are `.png` files
+//! in `textures/`. A graph names the meshes it uses and the other
+//! graphs of its kind it runs. A removed asset is moved to `.trash/`.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -17,7 +19,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::time::Time;
 use hamlet_client::ViewFolder;
-use hamlet_graph::{Asset, Book, Catalogue, Shape};
+use hamlet_graph::{Asset, Book, Catalogue, Does, Shape, Sheet};
 use hamlet_ui::widgets::icons::Glyph;
 
 pub mod picker;
@@ -39,9 +41,9 @@ pub fn plugin(app: &mut App) {
 /// The kind of an asset.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Kind {
-    /// A book of blueprint graphs.
+    /// A blueprint graph.
     Blueprint,
-    /// A book of material graphs.
+    /// A material graph.
     Material,
     /// A `.glb` mesh.
     Mesh,
@@ -95,9 +97,9 @@ impl Kind {
 pub enum Source {
     /// A file in the library.
     File(PathBuf),
-    /// One of the meshes every book has.
+    /// One of the meshes every graph has.
     BuiltIn,
-    /// An example book, its text in the window.
+    /// An example graph, its text in the window.
     Example(&'static str),
 }
 
@@ -121,13 +123,28 @@ impl Item {
     pub fn is_own(&self) -> bool {
         matches!(self.source, Source::File(_))
     }
+
+    /// The book its file or text holds.
+    pub fn read(&self) -> anyhow::Result<Book> {
+        match &self.source {
+            Source::File(path) => read_book(path),
+            Source::Example(text) => {
+                parse_book(text).with_context(|| {
+                    format!("{} is not a graph", self.name)
+                })
+            }
+            Source::BuiltIn => {
+                anyhow::bail!("{} is not a graph", self.name)
+            }
+        }
+    }
 }
 
 /// The library's folder and its contents.
 #[derive(Resource, Default)]
 pub struct Library {
     root: Option<PathBuf>,
-    /// The example books each kind of book starts from.
+    /// The example graphs of each kind.
     examples: Vec<(Kind, &'static [(&'static str, &'static str)])>,
     /// The meshes, by name.
     pub catalogue: Catalogue,
@@ -148,7 +165,7 @@ impl Library {
         self.root.as_deref()
     }
 
-    /// Lists `examples`, by name and text, as example books of
+    /// Lists `examples`, by name and text, as example graphs of
     /// `kind`.
     pub fn add_examples(
         &mut self,
@@ -287,12 +304,21 @@ impl Library {
         self.revision += 1;
     }
 
-    /// Writes `book` as the `kind` book `name`, and gives its path.
-    pub fn save_book(
+    /// The asset of `kind` named `name` that is the library's own,
+    /// else an example.
+    pub fn find(&self, kind: Kind, name: &str) -> Option<Item> {
+        self.items
+            .iter()
+            .find(|item| item.kind == kind && item.name == name)
+            .cloned()
+    }
+
+    /// Writes `sheet` as the `kind` graph `name`, and gives its path.
+    pub fn save_sheet(
         &mut self,
         kind: Kind,
         name: &str,
-        book: &Book,
+        sheet: &Sheet,
     ) -> anyhow::Result<PathBuf> {
         let path =
             self.path_of(kind, name).context("no library yet")?;
@@ -301,10 +327,108 @@ impl Library {
                 format!("making {}", parent.display())
             })?;
         }
-        let text = book.to_ron().context("writing the book")?;
+        let text = Book::of(name, sheet.clone())
+            .to_ron()
+            .context("writing the graph")?;
         write_atomic(&path, &text)?;
         self.scan();
         Ok(path)
+    }
+
+    /// Writes a new empty graph of `kind`, named `wanted` or the
+    /// nearest free name.
+    pub fn create(
+        &mut self,
+        kind: Kind,
+        wanted: &str,
+    ) -> anyhow::Result<Item> {
+        let name = self.free_name(kind, wanted);
+        self.save_sheet(kind, &name, &Sheet::default())?;
+        self.find(kind, &name)
+            .context("the new graph is not listed")
+    }
+
+    /// The sheet `item` holds, and the names of the assets split off
+    /// from it. A file of several sheets is split: the entry stays in
+    /// the file, and each other sheet becomes an asset of its own.
+    pub fn read(
+        &mut self,
+        item: &Item,
+    ) -> anyhow::Result<(Sheet, Vec<String>)> {
+        let book = item.read()?;
+        if book.sheets.len() < 2 || !item.is_own() {
+            return Ok((lone(book), Vec::new()));
+        }
+        let (main, placed) =
+            self.spread(item.kind, book, &item.name)?;
+        self.save_sheet(item.kind, &item.name, &main)?;
+        Ok((main, placed))
+    }
+
+    /// Adds the graph file at `from` to the library under the nearest
+    /// free name for its own, with the meshes beside it, and any
+    /// other graphs it holds as assets of their own. Gives the name.
+    pub fn import(
+        &mut self,
+        kind: Kind,
+        from: &Path,
+    ) -> anyhow::Result<String> {
+        let mut book = read_book(from)?;
+        let beside = from.parent().unwrap_or(Path::new("."));
+        self.adopt(&std::mem::take(&mut book.assets), beside)?;
+        let stem =
+            from.file_stem().map_or(kind.shelf().into(), |stem| {
+                stem.to_string_lossy()
+            });
+        let name = self.free_name(kind, &stem);
+        let (main, _) = self.spread(kind, book, &name)?;
+        self.save_sheet(kind, &name, &main)?;
+        Ok(name)
+    }
+
+    /// Writes every sheet of `book` but its entry as a `kind` asset
+    /// under a free name, with the graphs they run renamed to match,
+    /// and gives the entry's sheet, to be written as `entry`, and the
+    /// names written.
+    fn spread(
+        &mut self,
+        kind: Kind,
+        mut book: Book,
+        entry: &str,
+    ) -> anyhow::Result<(Sheet, Vec<String>)> {
+        let first = book.entry.clone();
+        let first = if book.sheets.contains_key(&first) {
+            first
+        } else {
+            book.sheets
+                .keys()
+                .next()
+                .cloned()
+                .context("a book with no graph")?
+        };
+        let mut main = book.sheets.remove(&first).unwrap_or_default();
+        let mut named = BTreeMap::from([(first, entry.to_owned())]);
+        let mut placed = Vec::new();
+        for (sheet, graph) in &book.sheets {
+            let mut wanted = sheet.clone();
+            let name = loop {
+                let free = self.free_name(kind, &wanted);
+                if free != entry {
+                    break free;
+                }
+                wanted = format!("{free}_2");
+            };
+            self.save_sheet(kind, &name, graph)?;
+            named.insert(sheet.clone(), name.clone());
+            placed.push(name);
+        }
+        runs_renamed(&mut main, &named);
+        for (sheet, mut graph) in book.sheets {
+            if runs_renamed(&mut graph, &named) {
+                self.save_sheet(kind, &named[&sheet], &graph)?;
+            }
+        }
+        Ok((main, placed))
     }
 
     /// Copies the texture at `from` into the library.
@@ -419,6 +543,51 @@ impl Library {
     }
 }
 
+/// The book a graph file's text holds, or a bare sheet as a book.
+pub fn parse_book(text: &str) -> Option<Book> {
+    Book::from_ron(text).ok().or_else(|| {
+        Sheet::from_ron(text)
+            .ok()
+            .map(|sheet| Book::of("main", sheet))
+    })
+}
+
+/// The book in the file at `path`.
+pub fn read_book(path: &Path) -> anyhow::Result<Book> {
+    let text = fs::read_to_string(path)
+        .with_context(|| format!("reading {}", path.display()))?;
+    parse_book(&text).with_context(|| {
+        format!("{} is not a graph file", path.display())
+    })
+}
+
+/// The only sheet of `book`, else its entry's.
+pub fn lone(mut book: Book) -> Sheet {
+    match book.sheets.remove(&book.entry) {
+        Some(sheet) => sheet,
+        None => book.sheets.into_values().next().unwrap_or_default(),
+    }
+}
+
+/// Points each node of `sheet` that runs a graph at its new name in
+/// `named`, and whether any changed.
+fn runs_renamed(
+    sheet: &mut Sheet,
+    named: &BTreeMap<String, String>,
+) -> bool {
+    let mut changed = false;
+    for node in &mut sheet.graph.nodes {
+        if let Does::Graph(name) = &mut node.does
+            && let Some(new) = named.get(name)
+            && new != name
+        {
+            name.clone_from(new);
+            changed = true;
+        }
+    }
+    changed
+}
+
 /// Where the file at `path`, as a mesh names it, is in the folder
 /// `root`.
 pub fn mesh_path(root: &Path, path: &str) -> anyhow::Result<PathBuf> {
@@ -490,6 +659,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use bevy::math::Vec3;
+    use hamlet_graph::{Graph, Node, NodeId};
     use hamlet_testing::Scratch;
 
     use super::*;
@@ -547,5 +717,51 @@ mod tests {
                 .iter()
                 .any(|item| item.source == Source::BuiltIn)
         );
+    }
+
+    #[test]
+    fn a_file_of_several_graphs_is_split_without_losing_one() {
+        let folder = Scratch::new("library-split");
+        let mut library = Library {
+            root: Some(folder.join("library")),
+            ..Library::default()
+        };
+        let sheet = |runs: Option<&str>| Sheet {
+            graph: Graph {
+                nodes: runs
+                    .map(|name| Node {
+                        id: NodeId(1),
+                        does: Does::Graph(name.to_owned()),
+                        settings: BTreeMap::new(),
+                    })
+                    .into_iter()
+                    .collect(),
+                ..Graph::default()
+            },
+            ..Sheet::default()
+        };
+        // An asset of the name the book's own `wall` would take.
+        library
+            .save_sheet(Kind::Blueprint, "wall", &sheet(None))
+            .unwrap();
+        let book = Book {
+            entry: "house".to_owned(),
+            sheets: BTreeMap::from([
+                ("house".to_owned(), sheet(Some("wall"))),
+                ("wall".to_owned(), sheet(None)),
+            ]),
+            assets: Catalogue::default(),
+        };
+        let path = library.path_of(Kind::Blueprint, "house").unwrap();
+        fs::write(&path, book.to_ron().unwrap()).unwrap();
+        library.scan();
+
+        let house = library.find(Kind::Blueprint, "house").unwrap();
+        let (main, split) = library.read(&house).unwrap();
+
+        assert_eq!(split, ["wall_2"]);
+        assert_eq!(main, sheet(Some("wall_2")));
+        assert_eq!(house.read().unwrap().sheets.len(), 1);
+        assert!(library.find(Kind::Blueprint, "wall_2").is_some());
     }
 }

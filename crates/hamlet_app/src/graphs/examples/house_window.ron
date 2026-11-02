@@ -1,0 +1,47 @@
+// The window of the medieval house: a pane in a frame over a stone sill.
+(
+    entry: "house_window",
+    sheets: {
+        "house_window": (
+            graph: (
+                inputs: [
+                    (name: "width", value_type: Number, default: Some(Number(0.7))),
+                    (name: "height", value_type: Number, default: Some(Number(0.8))),
+                ],
+                outputs: [(name: "objects", value_type: Objects, from: (node: 13, name: "objects"))],
+                nodes: [
+                    (id: 1, does: Kind("point"), settings: {"x": FromParent("width"), "y": FromParent("height"), "z": Fixed(Number(0.06))}),
+                    (id: 2, does: Kind("transform")),
+                    (id: 3, does: Kind("object"), settings: {"asset": Fixed(Choice("window"))}),
+                    (id: 4, does: Kind("math"), settings: {"op": Fixed(Choice("add")), "a": FromParent("width"), "b": Fixed(Number(0.14))}),
+                    (id: 5, does: Kind("math"), settings: {"op": Fixed(Choice("add")), "a": FromParent("height"), "b": Fixed(Number(0.14))}),
+                    (id: 6, does: Kind("point"), settings: {"z": Fixed(Number(0.08))}),
+                    (id: 7, does: Kind("transform"), settings: {"translation": Fixed(Point((0.0, -0.07, -0.03)))}),
+                    (id: 8, does: Kind("object"), settings: {"asset": Fixed(Choice("frame_timber"))}),
+                    (id: 9, does: Kind("math"), settings: {"op": Fixed(Choice("add")), "a": FromParent("width"), "b": Fixed(Number(0.26))}),
+                    (id: 10, does: Kind("point"), settings: {"y": Fixed(Number(0.07)), "z": Fixed(Number(0.18))}),
+                    (id: 11, does: Kind("transform"), settings: {"translation": Fixed(Point((0.0, -0.12, 0.06)))}),
+                    (id: 12, does: Kind("object"), settings: {"asset": Fixed(Choice("sill_stone"))}),
+                    (id: 13, does: Kind("combine")),
+                ],
+                wires: [
+                    (from: (node: 1, name: "point"), to: (node: 2, name: "scale")),
+                    (from: (node: 2, name: "transform"), to: (node: 3, name: "transform")),
+                    (from: (node: 4, name: "value"), to: (node: 6, name: "x")),
+                    (from: (node: 5, name: "value"), to: (node: 6, name: "y")),
+                    (from: (node: 6, name: "point"), to: (node: 7, name: "scale")),
+                    (from: (node: 7, name: "transform"), to: (node: 8, name: "transform")),
+                    (from: (node: 9, name: "value"), to: (node: 10, name: "x")),
+                    (from: (node: 10, name: "point"), to: (node: 11, name: "scale")),
+                    (from: (node: 11, name: "transform"), to: (node: 12, name: "transform")),
+                    (from: (node: 3, name: "objects"), to: (node: 13, name: "set_1")),
+                    (from: (node: 8, name: "objects"), to: (node: 13, name: "set_2")),
+                    (from: (node: 12, name: "objects"), to: (node: 13, name: "set_3")),
+                ],
+            ),
+            groups: [
+                (title: "Pane, frame and sill", nodes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+            ],
+        ),
+    },
+)

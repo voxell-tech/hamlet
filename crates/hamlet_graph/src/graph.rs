@@ -224,24 +224,6 @@ pub struct Ruleset {
 }
 
 impl Ruleset {
-    /// The ruleset of `sheets`, run from the one named `entry`.
-    pub fn export(
-        entry: &str,
-        sheets: &BTreeMap<String, Sheet>,
-        assets: &Catalogue,
-    ) -> Self {
-        Self {
-            entry: entry.to_owned(),
-            graphs: sheets
-                .iter()
-                .map(|(name, sheet)| {
-                    (name.clone(), sheet.graph.clone())
-                })
-                .collect(),
-            assets: assets.clone(),
-        }
-    }
-
     pub fn to_ron(&self) -> Result<String, ron::Error> {
         to_ron(self)
     }
@@ -253,9 +235,9 @@ impl Ruleset {
     }
 }
 
-/// The sheets an author edits together, by name: a graph and those it
-/// uses as nodes. The one named `entry` makes the thing. The assets
-/// the book adds are its, shared by every sheet.
+/// What a library file holds: one sheet, under the name of the asset
+/// in `entry`. The assets the book adds travel with it to a file it
+/// is exported to.
 #[derive(
     Clone, PartialEq, Debug, Default, Serialize, Deserialize,
 )]
@@ -274,11 +256,6 @@ impl Book {
             sheets: BTreeMap::from([(name.to_owned(), sheet)]),
             assets: Catalogue::default(),
         }
-    }
-
-    /// The ruleset the game runs from this book.
-    pub fn export(&self) -> Ruleset {
-        Ruleset::export(&self.entry, &self.sheets, &self.assets)
     }
 
     pub fn to_ron(&self) -> Result<String, ron::Error> {
