@@ -110,7 +110,7 @@ pub(super) fn plugin<F: Flavor>(app: &mut App) {
         )
         .add_systems(
             Update,
-            (forget_box::<F>, cancel::<F>, faint::<F>).chain(),
+            (forget_ended::<F>, cancel::<F>, faint::<F>).chain(),
         )
         .add_systems(Update, (titles::<F>, retitled::<F>));
 }
@@ -328,14 +328,34 @@ enum Gesture {
     /// A box from one corner on the sheet to the other, and what was
     /// selected before it.
     Lasso(Vec2, Vec2, BTreeSet<NodeId>),
-    /// A box let go of this frame, so the click its release makes on
-    /// the canvas keeps what it selected.
-    Boxed,
+    /// A box or a wire let go of this frame, so the click its release
+    /// makes neither clears what the box selected nor cuts the wire.
+    Ended,
     /// The cards dragged, each with where it was when the drag began.
     Cards(Vec<(NodeId, Vec2)>),
-    /// A wire out of an output's port, from where on the sheet, and
-    /// how far the pointer has gone.
-    Link(Port, ValueType, Vec2, Vec2),
+    /// A wire out of an output's port, dragged by its free end.
+    Link(Link),
+}
+
+/// A wire being dragged: the output it comes from, where on the sheet
+/// that port is and where its free end was taken hold of, how far the
+/// pointer has gone since, and the wire it was taken off an input as,
+/// which is hidden until it lands.
+#[derive(Clone)]
+struct Link {
+    from: Port,
+    value_type: ValueType,
+    start: Vec2,
+    grabbed: Vec2,
+    gone: Vec2,
+    lifted: Option<Wire>,
+}
+
+impl Link {
+    /// Where the free end is on the sheet.
+    fn end(&self) -> Vec2 {
+        self.grabbed + self.gone
+    }
 }
 
 pub(super) fn view<F: Flavor>() -> impl View {
@@ -1090,11 +1110,12 @@ fn build<F: Flavor>(
                 .id();
             let mut hit = commands.entity(area);
             hit.insert(Disc::<F>(disc, PhantomData));
-            if dot.is_output() {
-                hit.observe(start_link::<F>)
-                    .observe(drag_link::<F>)
-                    .observe(gesture_end::<F>);
-            } else {
+            // A drag from either end holds a wire: a new one out of
+            // an output, or an input's own taken off by its end.
+            hit.observe(start_link::<F>)
+                .observe(drag_link::<F>)
+                .observe(gesture_end::<F>);
+            if !dot.is_output() {
                 hit.observe(link::<F>).observe(cut::<F>);
             }
             hit.insert(dot);
@@ -1157,28 +1178,16 @@ fn place<F: Flavor>(
     }
     let palette = &theme.0.palette;
     let graph = &editor.sheet.graph;
-    let find = |port: &Port, side: Side| {
-        let node = graph.node(port.node)?;
-        let (inputs, outputs) = rows(&editor, node);
-        let (list, before) = match side {
-            Side::Input => (&inputs, 0),
-            Side::Output => (&outputs, inputs.len()),
-        };
-        let (row, dot) = list
-            .iter()
-            .enumerate()
-            .find(|(_, dot)| dot.port == *port)?;
-        Some((
-            dot_at::<F>(
-                card_at(&editor, port.node),
-                before + row,
-                side,
-            ),
-            dot.value_type,
-        ))
+    let find = |port: &Port, side: Side| port_at(&editor, port, side);
+    let lifted = match &**gesture {
+        Gesture::Link(link) => link.lifted.as_ref(),
+        _ => None,
     };
     let mut wanted = Vec::new();
     for wire in &graph.wires {
+        if lifted == Some(wire) {
+            continue;
+        }
         if let (Some((start, value_type)), Some((end, _))) = (
             find(&wire.from, Side::Output),
             find(&wire.to, Side::Input),
@@ -1188,11 +1197,11 @@ fn place<F: Flavor>(
             wanted.push((Some(wire.clone()), shape));
         }
     }
-    if let Gesture::Link(_, value_type, start, gone) = &**gesture {
+    if let Gesture::Link(link) = &**gesture {
         let shape = Shape::of(
-            *start,
-            *start + *gone,
-            tint(palette, *value_type),
+            link.start,
+            link.end(),
+            tint(palette, link.value_type),
         );
         wanted.push((None, shape));
     }
@@ -1295,9 +1304,7 @@ fn paint<F: Flavor>(
         };
     }
     let linking = match &**gesture {
-        Gesture::Link(from, value_type, ..) => {
-            Some((from, *value_type))
-        }
+        Gesture::Link(link) => Some((&link.from, link.value_type)),
         _ => None,
     };
     for (dot, hovered, disc) in &dots {
@@ -1351,17 +1358,29 @@ fn gesture_end<F: Flavor>(
             editor.dropped(moved);
         }
     }
+    // A wire taken off an input and let go anywhere but on another
+    // input is cut; one let go where it was taken stays.
+    if let Gesture::Link(link) = &**gesture
+        && let Some(lifted) = &link.lifted
+        && link.gone.length() > PUT_BACK
+    {
+        editor.apply(Edit::Disconnect(lifted.clone()));
+    }
     **gesture = match **gesture {
-        Gesture::Lasso(..) => Gesture::Boxed,
+        Gesture::Lasso(..) | Gesture::Link(..) => Gesture::Ended,
         _ => Gesture::None,
     };
     cursor.0 = None;
 }
 
-/// Forgets a box let go of last frame, once its release's click has
+/// How far, on the sheet, a wire taken off an input may be moved and
+/// still be put back as it was when let go.
+const PUT_BACK: f32 = 6.0;
+
+/// Forgets a drag let go of last frame, once its release's click has
 /// been seen.
-fn forget_box<F: Flavor>(mut gesture: ResMut<Held<F>>) {
-    if matches!(**gesture, Gesture::Boxed) {
+fn forget_ended<F: Flavor>(mut gesture: ResMut<Held<F>>) {
+    if matches!(**gesture, Gesture::Ended) {
         **gesture = Gesture::None;
     }
 }
@@ -1623,7 +1642,7 @@ fn deselect<F: Flavor>(
 ) {
     // The release that ends a box clicks the canvas too.
     let boxing =
-        matches!(**gesture, Gesture::Lasso(..) | Gesture::Boxed);
+        matches!(**gesture, Gesture::Lasso(..) | Gesture::Ended);
     if !boxing
         && click.entity == click.original_event_target()
         && click.button == PointerButton::Primary
@@ -1990,28 +2009,71 @@ fn start_link<F: Flavor>(
     let Ok(dot) = dots.get(start.entity) else {
         return;
     };
-    let Some(node) = editor.sheet.graph.node(dot.port.node) else {
-        return;
+    let link = if dot.is_output() {
+        let Some((at, value_type)) =
+            port_at(&editor, &dot.port, Side::Output)
+        else {
+            return;
+        };
+        Link {
+            from: dot.port.clone(),
+            value_type,
+            start: at,
+            grabbed: at,
+            gone: Vec2::ZERO,
+            lifted: None,
+        }
+    } else {
+        // An input's wire is taken off by its end, still out of the
+        // same output, to be dropped on another input or let go.
+        let Some(wire) = editor
+            .sheet
+            .graph
+            .wires
+            .iter()
+            .find(|wire| wire.to == dot.port)
+            .cloned()
+        else {
+            return;
+        };
+        let (Some((start, value_type)), Some((grabbed, _))) = (
+            port_at(&editor, &wire.from, Side::Output),
+            port_at(&editor, &dot.port, Side::Input),
+        ) else {
+            return;
+        };
+        Link {
+            from: wire.from.clone(),
+            value_type,
+            start,
+            grabbed,
+            gone: Vec2::ZERO,
+            lifted: Some(wire),
+        }
     };
-    let (inputs, outputs) = rows(&editor, node);
-    let Some(row) =
-        outputs.iter().position(|other| other.port == dot.port)
-    else {
-        return;
-    };
-    let at = dot_at::<F>(
-        card_at(&editor, dot.port.node),
-        inputs.len() + row,
-        Side::Output,
-    );
-    **gesture = Gesture::Link(
-        dot.port.clone(),
-        dot.value_type,
-        at,
-        Vec2::ZERO,
-    );
+    **gesture = Gesture::Link(link);
     // The wire is held, as a card is.
     cursor.0 = Some(SystemCursorIcon::Grabbing);
+}
+
+/// Where on the sheet the dot of `port` on `side` is, and its type.
+fn port_at<F: Flavor>(
+    editor: &Editor<F>,
+    port: &Port,
+    side: Side,
+) -> Option<(Vec2, ValueType)> {
+    let node = editor.sheet.graph.node(port.node)?;
+    let (inputs, outputs) = rows(editor, node);
+    let (list, before) = match side {
+        Side::Input => (&inputs, 0),
+        Side::Output => (&outputs, inputs.len()),
+    };
+    let (row, dot) =
+        list.iter().enumerate().find(|(_, dot)| dot.port == *port)?;
+    Some((
+        dot_at::<F>(card_at(editor, port.node), before + row, side),
+        dot.value_type,
+    ))
 }
 
 fn drag_link<F: Flavor>(
@@ -2020,8 +2082,8 @@ fn drag_link<F: Flavor>(
     mut gesture: ResMut<Held<F>>,
 ) {
     drag.propagate(false);
-    if let Gesture::Link(_, _, _, gone) = &mut **gesture {
-        *gone = drag.distance / sight.zoom;
+    if let Gesture::Link(link) = &mut **gesture {
+        link.gone = drag.distance / sight.zoom;
     }
 }
 
@@ -2050,23 +2112,31 @@ fn received<F: Flavor>(
     });
 }
 
-/// Wires the output dropped on an input's dot to it, in place of any
-/// wire it had.
+/// Wires the output of the wire dropped on an input's dot to it, in
+/// place of any wire it had and of the wire it was taken off, as one
+/// step.
 fn link<F: Flavor>(
     mut drop: On<PointerDragDrop>,
     dots: Query<&Dot<F>>,
+    mut gesture: ResMut<Held<F>>,
     mut editor: ResMut<Editor<F>>,
 ) {
     drop.propagate(false);
-    let (Ok(to), Ok(from)) =
-        (dots.get(drop.entity), dots.get(drop.dropped))
+    let (Ok(to), Gesture::Link(link)) =
+        (dots.get(drop.entity), &**gesture)
     else {
         return;
     };
-    if !from.is_output()
-        || to.is_output()
-        || !to.value_type.accepts(from.value_type)
-    {
+    if to.is_output() || !to.value_type.accepts(link.value_type) {
+        return;
+    }
+    let wire = Wire {
+        from: link.from.clone(),
+        to: to.port.clone(),
+    };
+    if link.lifted.as_ref() == Some(&wire) {
+        // Put back where it was taken from.
+        **gesture = Gesture::None;
         return;
     }
     let mut edits = editor
@@ -2074,24 +2144,31 @@ fn link<F: Flavor>(
         .graph
         .wires
         .iter()
-        .filter(|wire| wire.to == to.port)
+        .filter(|other| {
+            other.to == to.port
+                || link.lifted.as_ref() == Some(*other)
+        })
         .cloned()
         .map(Edit::Disconnect)
         .collect::<Vec<_>>();
-    edits.push(Edit::Connect(Wire {
-        from: from.port.clone(),
-        to: to.port.clone(),
-    }));
+    edits.push(Edit::Connect(wire));
     editor.apply(Edit::Batch(edits));
+    // Landed, so letting go does not cut it.
+    **gesture = Gesture::None;
 }
 
 /// Cuts the wire into an input whose dot is clicked.
 fn cut<F: Flavor>(
     mut click: On<PointerClick>,
     dots: Query<&Dot<F>>,
+    gesture: Res<Held<F>>,
     mut editor: ResMut<Editor<F>>,
 ) {
     click.propagate(false);
+    // The release of a wire dragged off this dot clicks it too.
+    if matches!(**gesture, Gesture::Link(..) | Gesture::Ended) {
+        return;
+    }
     let Ok(dot) = dots.get(click.entity) else {
         return;
     };
