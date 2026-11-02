@@ -1,8 +1,9 @@
 //! What travels on a wire.
 
 use bevy_math::{Quat, Vec3, Vec4};
-use hamlet_graph::{Constant, Initial, ValueType};
+use hamlet_graph::{Constant, Initial, PathPoint, ValueType};
 
+use crate::curve::Curve;
 use crate::field::Field;
 
 /// A value on a wire.
@@ -17,6 +18,7 @@ pub enum Value {
     PointField(Box<[Field; 3]>),
     Choice(String),
     Curve(Curve),
+    Path(Vec<PathPoint>),
     Transform(Box<TransformValue>),
     Field(Field),
     Objects(Vec<Object>),
@@ -34,6 +36,7 @@ impl Value {
             }
             Value::Choice(_) => ValueType::Choice,
             Value::Curve(_) => ValueType::Curve,
+            Value::Path(_) => ValueType::Path,
             Value::Transform(_) => ValueType::Transform,
             Value::Field(_) => ValueType::Field,
             Value::Objects(_) => ValueType::Objects,
@@ -51,6 +54,7 @@ impl From<Constant> for Value {
             Constant::Point(point) => Value::Point(point),
             Constant::Choice(choice) => Value::Choice(choice),
             Constant::Color(color) => Value::Color(color),
+            Constant::Path(points) => Value::Path(points),
         }
     }
 }
@@ -183,61 +187,6 @@ impl TransformValue {
     }
 }
 
-/// Points joined in order by straight edges, open or closed.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct Curve {
-    pub points: Vec<Vec3>,
-    pub closed: bool,
-}
-
-impl Curve {
-    /// Each edge's two ends, in order.
-    pub fn edges(&self) -> impl Iterator<Item = (Vec3, Vec3)> + '_ {
-        let count = self.points.len();
-        let edges = if self.closed && count > 2 {
-            count
-        } else {
-            count.saturating_sub(1)
-        };
-        (0..edges).map(move |i| {
-            (self.points[i], self.points[(i + 1) % count])
-        })
-    }
-
-    pub fn length(&self) -> f32 {
-        self.edges().map(|(a, b)| a.distance(b)).sum()
-    }
-
-    /// The point `distance` along the curve and the direction of the
-    /// edge it is on. A point on a corner is on the edge that starts
-    /// there. A closed curve wraps; an open one has nothing past its
-    /// end.
-    pub fn at(&self, distance: f32) -> Option<(Vec3, Vec3)> {
-        let length = self.length();
-        if length <= 0.0 {
-            return None;
-        }
-        let mut left = if self.closed {
-            distance.rem_euclid(length)
-        } else if (0.0..=length).contains(&distance) {
-            distance
-        } else {
-            return None;
-        };
-        let mut last = None;
-        for (a, b) in self.edges() {
-            let edge = a.distance(b);
-            let direction = (b - a).normalize_or_zero();
-            if left < edge {
-                return Some((a + direction * left, direction));
-            }
-            left -= edge;
-            last = Some((b, direction));
-        }
-        last
-    }
-}
-
 impl From<Initial> for Value {
     fn from(initial: Initial) -> Self {
         match initial {
@@ -249,6 +198,7 @@ impl From<Initial> for Value {
                 Value::Choice(choice.to_owned())
             }
             Initial::Color(color) => Value::Color(color),
+            Initial::Path(points) => Value::Path(points.to_vec()),
         }
     }
 }

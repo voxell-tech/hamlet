@@ -42,21 +42,25 @@ use hamlet_ui::{AnyView, Cx, View};
 
 use super::canvas::Input;
 use super::flavor::Flavor;
-use super::library::Item;
 use super::library::picker::picker;
+use super::library::{Item, Library};
 use super::{Editor, Place, canvas, controls, files};
 
-/// The group the book's other graphs are listed under.
+/// The group the library's other graphs are listed under.
 const GRAPHS: &str = "Graphs";
 
+/// The group the open graph's inputs are listed under.
+const PARAMETERS: &str = "Parameters";
+
 /// The groups in the order they are listed, before any others.
-const GROUPS: [&str; 7] = [
+const GROUPS: [&str; 8] = [
     "Objects",
     "Transforms",
     "Modifiers",
     "Curves",
     "Fields",
     "Math",
+    PARAMETERS,
     GRAPHS,
 ];
 
@@ -275,17 +279,25 @@ fn entries<F: Flavor>(editor: &Editor<F>) -> Vec<Entry> {
         }
     });
     let graphs = editor
-        .names()
-        .into_iter()
+        .others()
         .filter(|name| !editor.runs(name, &editor.name))
         .map(|name| Entry {
             group: GRAPHS,
-            doc: format!("The graph {name} of this book"),
-            does: Does::Graph(name.clone()),
+            doc: format!("The graph {name} of the library"),
+            does: Does::Graph(name.to_owned()),
             settings: BTreeMap::new(),
-            name,
+            name: name.to_owned(),
         });
-    let mut found = graphs.chain(kinds).collect::<Vec<_>>();
+    let parameters =
+        editor.sheet.graph.inputs.iter().map(|input| Entry {
+            group: PARAMETERS,
+            name: input.name.clone(),
+            doc: format!("The parameter {}", input.name),
+            does: Does::Input(input.name.clone()),
+            settings: BTreeMap::new(),
+        });
+    let mut found =
+        graphs.chain(kinds).chain(parameters).collect::<Vec<_>>();
     found.sort_by(|a, b| {
         (rank(a.group), a.group, &a.name).cmp(&(
             rank(b.group),
@@ -779,9 +791,6 @@ fn card<F: Flavor>(node: NodeId, opened_at: Vec2) -> AnyView {
             ));
         }
         items.extend([
-            item("Expose as output", "", |world, node| {
-                world.resource_mut::<Editor<F>>().expose_output(node);
-            }),
             item("Copy", "Cmd+C", |world, _| {
                 world.resource_mut::<Editor<F>>().copy();
             }),
@@ -967,8 +976,8 @@ fn action_item<F: Flavor>(
 }
 
 /// The menu on how an input of `node` is set, which exposes it as a
-/// parameter of the graph, gives it a value of its own, resets it to
-/// its default, or cuts its wire.
+/// parameter of the graph, resets it to its default, or cuts its
+/// wire.
 fn input_menu<F: Flavor>(
     node: NodeId,
     input: Input,
@@ -983,35 +992,23 @@ fn input_menu<F: Flavor>(
         });
         let written = controls::written(&input);
         let mut items = Vec::<AnyView>::new();
-        let name = input.name.clone();
-        match (&setting, written) {
-            (Some(Setting::FromParent(_)), _) => {
-                items.push(action_item::<F>(
-                    "Use a value",
-                    move |world| {
-                        controls::put::<F>(world, node, &name, None);
-                    },
-                ));
-            }
-            (_, Some(value_type)) if !wired => {
-                let read = input.clone();
-                items.push(action_item::<F>(
-                    "Make a parameter",
-                    move |world| {
-                        let default = controls::value_of(
-                            world.resource::<Editor<F>>(),
-                            node,
-                            &read,
-                        );
-                        world
-                            .resource_mut::<Editor<F>>()
-                            .expose_input(
-                                node, &read.name, value_type, default,
-                            );
-                    },
-                ));
-            }
-            _ => {}
+        if let Some(value_type) = written
+            && !wired
+        {
+            let read = input.clone();
+            items.push(action_item::<F>(
+                "Make a parameter",
+                move |world| {
+                    let default = controls::value_of(
+                        world.resource::<Editor<F>>(),
+                        node,
+                        &read,
+                    );
+                    world.resource_mut::<Editor<F>>().expose_input(
+                        node, &read.name, value_type, default,
+                    );
+                },
+            ));
         }
         if matches!(
             setting,
@@ -1074,9 +1071,10 @@ fn input_menu<F: Flavor>(
     })
 }
 
-/// Opens the graph `node` runs, if it runs one.
+/// Opens the asset `node` runs, if it runs one, saving the open one
+/// first when it is a file with changes.
 pub(super) fn open_graph<F: Flavor>(world: &mut World, node: NodeId) {
-    let mut editor = world.resource_mut::<Editor<F>>();
+    let editor = world.resource::<Editor<F>>();
     let name = match editor
         .sheet
         .graph
@@ -1086,19 +1084,30 @@ pub(super) fn open_graph<F: Flavor>(world: &mut World, node: NodeId) {
         Some(Does::Graph(name)) => name.clone(),
         _ => return,
     };
-    editor.go_to(&name);
-    canvas::fit::<F>(world);
+    let unsaved = editor.is_dirty() && editor.is_own();
+    let Some(item) = world.resource::<Library>().find(F::KIND, &name)
+    else {
+        world.resource_mut::<files::Files<F>>().note =
+            format!("{name} is not in the library");
+        return;
+    };
+    if unsaved {
+        files::save::<F>(world);
+    }
+    let _ = files::open_item::<F>(world, &item);
 }
 
-/// The graph's keys, while the pointer is on this canvas and nothing
-/// is being typed in.
+/// The graph's keys while nothing is being typed in: saving and the
+/// history anywhere on the editor, the rest while the pointer is on
+/// this canvas.
 fn keys<F: Flavor>(world: &mut World) {
     if **world.resource::<Menu<F>>() != Which::Closed
         || world.resource::<InputFocus>().get().is_some()
-        || !canvas::is_hovered::<F>(world)
+        || !super::is_screen_hovered::<F>(world)
     {
         return;
     }
+    let on_canvas = canvas::is_hovered::<F>(world);
     let keys = world.resource::<ButtonInput<KeyCode>>();
     let command = keys.any_pressed([
         KeyCode::SuperLeft,
@@ -1119,21 +1128,20 @@ fn keys<F: Flavor>(world: &mut World) {
     let paste = command && pressed(KeyCode::KeyV);
     let group = command && pressed(KeyCode::KeyG);
     let save = command && pressed(KeyCode::KeyS);
-    let open = command && pressed(KeyCode::KeyO);
     let fit = !command && pressed(KeyCode::KeyF);
     let selected = !world.resource::<Editor<F>>().selected.is_empty();
-    if space {
-        create_at_pointer::<F>(world);
-    } else if save && shift {
+    if save && shift {
         files::save_as::<F>(world);
     } else if save {
         files::save::<F>(world);
-    } else if open {
-        files::open::<F>(world);
     } else if undo && shift {
         world.resource_mut::<Editor<F>>().redo();
     } else if undo {
         world.resource_mut::<Editor<F>>().undo();
+    } else if !on_canvas {
+        // The rest act on the canvas under the pointer.
+    } else if space {
+        create_at_pointer::<F>(world);
     } else if group && shift {
         world.resource_mut::<Editor<F>>().ungroup_selected();
     } else if group && selected {

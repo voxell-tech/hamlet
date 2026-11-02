@@ -88,21 +88,3 @@ pub fn fbm(p: Vec2, octaves: u32, seed: u32) -> f32 {
     }
     sum / total
 }
-
-/// Ridged fractal noise in 0..1: sharp crests, each octave weighted
-/// by the one before so detail gathers on the ridges.
-pub(crate) fn ridged(p: Vec2, octaves: u32, seed: u32) -> f32 {
-    let (mut sum, mut amp, mut freq, mut total) =
-        (0.0, 1.0, 1.0, 0.0);
-    let mut weight = 1.0;
-    for o in 0..octaves {
-        let n = perlin(p * freq, seed.wrapping_add(100 + o));
-        let ridge = (1.0 - n.abs()).powi(2) * weight;
-        weight = (ridge * 2.0).clamp(0.0, 1.0);
-        sum += amp * ridge;
-        total += amp;
-        amp *= 0.5;
-        freq *= 2.1;
-    }
-    sum / total
-}

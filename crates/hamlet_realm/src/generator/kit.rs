@@ -3,23 +3,30 @@
 use bevy::light::NotShadowCaster;
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
+use bevy::render::renderer::RenderDevice;
+use bevy::render::settings::WgpuFeatures;
 use hamlet_vfx::ground::{self, GroundMaterial, GroundSettings};
 use hamlet_vfx::inlay::{InlayExt, InlayMaterial, InlayUniform};
+use hamlet_vfx::patch;
+use hamlet_vfx::water::{
+    self, WaterMaterial, WaterSettings, WaterUniform,
+};
 
 use super::land::Land;
 use super::loading::Bed;
-use super::{Tally, flora, traffic, yard};
-use crate::Stock;
+use super::{Tally, traffic, yard};
 use crate::keeper::KeeperState;
 use crate::lantern::lantern_glass;
 use crate::palette::Palette;
+use crate::{Sky, Stock};
 
 /// Handles shared by everything of a kind, so the renderer can batch
 /// them.
 #[derive(Resource)]
 pub(super) struct Kit {
     pub(super) matte: Handle<StandardMaterial>,
-    /// The tiles of ground: matte, with bumps in its light.
+    /// The ground's patches: matte, with bumps in its light, raised
+    /// to the land by its shader.
     pub(super) ground: Handle<GroundMaterial>,
     pub(super) windows: Handle<StandardMaterial>,
     /// One lantern material per state, in the order of
@@ -34,9 +41,13 @@ pub(super) struct Kit {
     pub(super) engine: Handle<Mesh>,
     /// The cart of the roads between towns.
     pub(super) cart: Handle<Mesh>,
-    /// The water of a tile, and a square for it to be drawn on.
-    pub(super) water: Handle<StandardMaterial>,
-    pub(super) pond: Handle<Mesh>,
+    /// The water: the sea, the rivers and every pool.
+    pub(super) water: Handle<WaterMaterial>,
+    /// The grid each patch of the ground and of the sea is drawn in.
+    pub(super) patch: Handle<Mesh>,
+    /// One quad, for each patch of the sea far enough off to lie
+    /// flat.
+    pub(super) flat_patch: Handle<Mesh>,
     pub(super) trees: Vec<Handle<Mesh>>,
     pub(super) groove: Handle<InlayMaterial>,
 }
@@ -54,15 +65,19 @@ pub(super) fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut inlays: ResMut<Assets<InlayMaterial>>,
     mut grounds: ResMut<Assets<GroundMaterial>>,
+    mut waters: ResMut<Assets<WaterMaterial>>,
     mut images: ResMut<Assets<Image>>,
     land: Res<Land>,
     pal: Res<Palette>,
     stock: Res<Stock>,
     bumps: Res<GroundSettings>,
+    flow: Res<WaterSettings>,
+    device: Option<Res<RenderDevice>>,
 ) {
     let ground = grounds.add(ground::material(
         &mut images,
         &bumps,
+        land.soil(),
         materials.get(&stock.matte).cloned().unwrap_or_default(),
     ));
     let lamps = KeeperState::ALL.map(|_| {
@@ -84,21 +99,27 @@ pub(super) fn setup(
         ),
     });
 
-    let water = materials.add(StandardMaterial {
-        base_color: pal.river,
-        perceptual_roughness: 0.22,
-        reflectance: 0.4,
-        ..default()
+    // One surface of water about the camera, for the sea, the rivers
+    // and every pool: wherever the ground dips under it, it shows. It
+    // is drawn in patches, which the loading lays. Its reflection is
+    // walked by squares of pixels together where the GPU can share
+    // values between them.
+    let quads = device.is_some_and(|d| {
+        d.features().contains(WgpuFeatures::SUBGROUP)
     });
-    // Plain ground under everything, kept under the camera: it
-    // shows where the ground itself has yet to come.
-    let plain = pal.grass_shade.lerp(pal.grass, 0.85);
+    let water =
+        waters.add(water::material(&mut images, &flow, quads));
+    let plane = meshes.add(Plane3d::new(Vec3::Y, Vec2::ONE).mesh());
+    let patch = meshes.add(patch::grid(patch::QUADS));
+    let flat_patch = meshes.add(patch::grid(1));
+    // The deep sea's floor under it, where the ground has yet to
+    // come and all about the island.
     commands.spawn((
         Bed,
-        Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::ONE).mesh())),
+        Mesh3d(plane),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::LinearRgba(LinearRgba::from_vec3(
-                plain,
+                pal.water_shade * 0.5,
             )),
             perceptual_roughness: 0.92,
             reflectance: 0.18,
@@ -108,9 +129,6 @@ pub(super) fn setup(
         NotShadowCaster,
     ));
 
-    let kinds = (0..flora::KINDS)
-        .map(|k| meshes.add(flora::mesh(&land.pal, k)))
-        .collect::<Vec<_>>();
     commands.init_resource::<Tally>();
 
     commands.insert_resource(Kit {
@@ -127,9 +145,45 @@ pub(super) fn setup(
             .add(yard::engine(&land.pal, &land.set.yard).build()),
         cart: meshes.add(traffic::cart(&land.pal).build()),
         water,
-        pond: meshes
-            .add(Plane3d::new(Vec3::Y, Vec2::splat(0.5)).mesh()),
-        trees: kinds,
+        patch,
+        flat_patch,
+        trees: stock.trees.clone(),
         groove,
     });
+}
+
+/// Paints the ground as the land has it, and the water as its
+/// settings and the sky have it, keeping the wind and the time.
+pub(super) fn repaint(
+    land: Res<Land>,
+    flow: Res<WaterSettings>,
+    sky: Res<Sky>,
+    kit: Res<Kit>,
+    mut grounds: ResMut<Assets<GroundMaterial>>,
+    mut waters: ResMut<Assets<WaterMaterial>>,
+) {
+    let soil = land.soil();
+    if let Some(mut ground) = grounds.get_mut(&kit.ground)
+        && ground.extension.soil != soil
+    {
+        ground.extension.soil = soil;
+    }
+    let Some(now) =
+        waters.get(&kit.water).map(|w| w.extension.water.clone())
+    else {
+        return;
+    };
+    let look = WaterUniform {
+        time: now.time,
+        wind: now.wind,
+        sky: LinearRgba::from(sky.look.haze)
+            .to_vec3()
+            .extend(flow.mirror),
+        ..WaterUniform::new(&flow)
+    };
+    if let Some(mut water) = waters.get_mut(&kit.water)
+        && water.extension.water != look
+    {
+        water.extension.water = look;
+    }
 }

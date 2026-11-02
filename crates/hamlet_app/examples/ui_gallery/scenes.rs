@@ -153,8 +153,6 @@ pub enum Scene {
     Icons,
     /// The panels with the HAMLET menu open.
     Menu,
-    /// The panels with the VIEW menu open.
-    ViewMenu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
 }

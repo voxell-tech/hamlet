@@ -1,10 +1,13 @@
-//! The gizmo's filled shapes: one mesh drawn over the scene.
+//! Filled shapes: a mesh drawn over the scene, for the gizmo and the
+//! overlay.
 
 use bevy::asset::{Asset, Assets, RenderAssetUsages};
 use bevy::camera::visibility::{
     NoFrustumCulling, RenderLayers, Visibility,
 };
 use bevy::color::{Color, ColorToComponents};
+use bevy::ecs::bundle::Bundle;
+use bevy::ecs::change_detection::{DetectChangesMut, Mut};
 use bevy::ecs::component::Component;
 use bevy::ecs::system::{Commands, ResMut};
 use bevy::light::NotShadowCaster;
@@ -30,14 +33,17 @@ use super::Arc;
 /// Sides of the cone that tips a translation handle.
 const CONE_SIDES: usize = 12;
 
-/// The material of the gizmo's filled shapes.
-pub(super) type FillMaterial =
+/// Sides of a disc.
+const DISC_SIDES: usize = 16;
+
+/// The material of filled shapes.
+pub(in crate::graphs) type FillMaterial =
     ExtendedMaterial<StandardMaterial, OnTop>;
 
 /// Extension of a [`StandardMaterial`] that draws over whatever is in
 /// front of it.
 #[derive(Asset, AsBindGroup, TypePath, Clone, Default)]
-pub(super) struct OnTop {}
+pub(in crate::graphs) struct OnTop {}
 
 impl MaterialExtension for OnTop {
     fn specialize(
@@ -69,8 +75,23 @@ pub(super) fn spawn_fills(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<FillMaterial>>,
 ) {
-    commands.spawn((
+    spawn_shape(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
         HandleFills,
+    );
+}
+
+/// Spawns an entity for a mesh of filled shapes, marked by `marker`.
+pub(in crate::graphs) fn spawn_shape(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<FillMaterial>,
+    marker: impl Bundle,
+) {
+    commands.spawn((
+        marker,
         Mesh3d(meshes.add(Fills::default().mesh())),
         MeshMaterial3d(materials.add(FillMaterial {
             base: StandardMaterial {
@@ -89,10 +110,10 @@ pub(super) fn spawn_fills(
     ));
 }
 
-/// The triangles of the gizmo's filled shapes, in the world. Only
-/// the side a triangle winds anticlockwise from is drawn.
+/// The triangles of filled shapes, in the world. Only the side a
+/// triangle winds anticlockwise from is drawn.
 #[derive(Default, PartialEq)]
-pub(super) struct Fills {
+pub(in crate::graphs) struct Fills {
     pub(super) positions: Vec<Vec3>,
     colors: Vec<[f32; 4]>,
 }
@@ -118,7 +139,7 @@ impl Fills {
 
     /// A flat fan from `hub` out to each pair of points along `rim`,
     /// seen from both sides.
-    pub(super) fn fan(
+    pub(in crate::graphs) fn fan(
         &mut self,
         hub: Vec3,
         rim: impl IntoIterator<Item = Vec3>,
@@ -128,6 +149,35 @@ impl Fills {
         for ends in rim.windows(2) {
             self.triangle([hub, ends[0], ends[1]], color);
             self.triangle([hub, ends[1], ends[0]], color);
+        }
+    }
+
+    /// A disc of `radius` around `centre`, square to `normal`.
+    pub(in crate::graphs) fn disc(
+        &mut self,
+        centre: Vec3,
+        normal: Vec3,
+        radius: f32,
+        color: Color,
+    ) {
+        self.fan(
+            centre,
+            Arc::full(normal).points(centre, radius, DISC_SIDES),
+            color,
+        );
+    }
+
+    /// A ribbon through `spine`, each of its points with the offset
+    /// from it to one edge, seen from both sides.
+    pub(in crate::graphs) fn ribbon(
+        &mut self,
+        spine: impl IntoIterator<Item = (Vec3, Vec3)>,
+        color: Color,
+    ) {
+        let spine = spine.into_iter().collect::<Vec<_>>();
+        for ends in spine.windows(2) {
+            let [(a, from), (b, to)] = [ends[0], ends[1]];
+            self.fan(a - from, [b - to, b + to, a + from], color);
         }
     }
 
@@ -172,6 +222,30 @@ impl Fills {
             };
             self.quad(face(out, across), color);
             self.quad(face(-out, -across), color);
+        }
+    }
+
+    /// Shows these as the mesh of `holder`, which is hidden when
+    /// there is nothing to draw, and keeps them in `drawn`.
+    pub(in crate::graphs) fn show(
+        self,
+        drawn: &mut Self,
+        holder: &Mesh3d,
+        mut visibility: Mut<Visibility>,
+        meshes: &mut Assets<Mesh>,
+    ) {
+        let empty = self.positions.is_empty();
+        visibility.set_if_neq(if empty {
+            Visibility::Hidden
+        } else {
+            Visibility::Visible
+        });
+        if !empty
+            && *drawn != self
+            && let Some(mut mesh) = meshes.get_mut(&holder.0)
+        {
+            *mesh = self.mesh();
+            *drawn = self;
         }
     }
 

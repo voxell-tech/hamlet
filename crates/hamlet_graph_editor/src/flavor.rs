@@ -11,6 +11,15 @@ use hamlet_ui::widgets::icons::Glyph;
 use super::Editor;
 use crate::library::{Item, Kind};
 
+/// Whether the graphs of a flavor may run each other as nodes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Nesting {
+    /// A node may run any other asset of the flavor's kind.
+    Runs,
+    /// A node runs only a kind of the registry.
+    Never,
+}
+
 /// A kind of graph the editor edits.
 pub trait Flavor: Sized + Send + Sync + 'static {
     /// The dock panel's id.
@@ -19,16 +28,22 @@ pub trait Flavor: Sized + Send + Sync + 'static {
     const TITLE: &'static str;
     /// The dock panel's icon.
     const ICON: Glyph;
-    /// The folder in the window's folder the book is kept in, as
-    /// `<FOLDER>/book.ron`, its assets beside it.
+    /// The folder in the window's folder that remembers which asset
+    /// is open and its unsaved changes.
     const FOLDER: &'static str;
-    /// The [`Kind`] of its books in the library.
+    /// The [`Kind`] of its graphs in the library.
     const KIND: Kind;
-    /// Books to start from, by name; the first opens at launch.
+    /// Whether its graphs run each other.
+    const NESTING: Nesting;
+    /// Example graphs, by asset name and text; the first opens at
+    /// launch.
     const EXAMPLES: &'static [(&'static str, &'static str)];
     /// Whether its preview floats over the canvas as a card of its
     /// own, rather than filling a side of the panel.
     const PREVIEW_FLOATS: bool = false;
+    /// Whether the sheet shows the Outputs card, where the graph's
+    /// outputs are wired.
+    const HAS_OUTPUTS: bool = true;
     /// The room a card leaves under its header for the flavor to
     /// fill, in sheet pixels; 0 for none.
     const ROOM: f32 = 0.0;
@@ -37,8 +52,8 @@ pub trait Flavor: Sized + Send + Sync + 'static {
     type Got: Default + Send + Sync + 'static;
     /// The kinds of node its graphs use.
     fn registry() -> Registry;
-    /// Brings `graph`, written for older kinds, up to date as its
-    /// book is opened.
+    /// Brings `graph`, written for older kinds, up to date as it is
+    /// opened.
     fn upgrade(_graph: &mut Graph) {}
     /// Works the open graph out again, filling `editor.got` and
     /// `editor.errors`.

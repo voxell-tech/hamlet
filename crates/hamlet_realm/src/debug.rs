@@ -7,8 +7,10 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::dev_tools::fps_overlay::{
     FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig,
 };
+use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::picking::pointer::PointerInteraction;
 use bevy::prelude::*;
+use bevy::render::RenderApp;
 use bevy::shape::Aabb3d;
 use hamlet_assets::tint;
 
@@ -23,8 +25,14 @@ pub fn plugin(app: &mut App) {
         .add_systems(Startup, spawn_readout)
         .add_systems(
             Update,
-            (toggle, apply.run_if(resource_changed::<DebugSettings>))
-                .chain()
+            (
+                (
+                    toggle,
+                    apply.run_if(resource_changed::<DebugSettings>),
+                )
+                    .chain(),
+                wireframe,
+            )
                 .in_set(RealmSystems::Act),
         )
         .add_systems(
@@ -45,6 +53,11 @@ pub fn plugin(app: &mut App) {
             },
         });
     }
+    if app.get_sub_app(RenderApp).is_some()
+        && !app.is_plugin_added::<WireframePlugin>()
+    {
+        app.add_plugins(WireframePlugin::default());
+    }
 }
 
 /// The debug overlay.
@@ -54,6 +67,9 @@ pub struct DebugSettings {
     pub shown: bool,
     /// The key that shows and hides it.
     pub key: KeyCode,
+    /// The key that draws every mesh as its edges, and back. The
+    /// water's waves do not show in it: its mesh is drawn flat.
+    pub wireframe: KeyCode,
     /// The box of everything the pointer can hit, and where the
     /// pointer's ray meets them.
     pub hit_boxes: bool,
@@ -135,6 +151,20 @@ fn toggle(
 ) {
     if keys.is_some_and(|keys| keys.just_pressed(set.key)) {
         set.shown = !set.shown;
+    }
+}
+
+/// Draws every mesh as its edges, or as itself again, when its key is
+/// pressed.
+fn wireframe(
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    set: Res<DebugSettings>,
+    edges: Option<ResMut<WireframeConfig>>,
+) {
+    if let Some(mut edges) = edges
+        && keys.is_some_and(|keys| keys.just_pressed(set.wireframe))
+    {
+        edges.global = !edges.global;
     }
 }
 

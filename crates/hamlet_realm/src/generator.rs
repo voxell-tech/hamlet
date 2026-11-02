@@ -17,6 +17,7 @@ mod lights;
 mod loading;
 mod magic;
 pub mod noise;
+mod relief;
 pub mod road;
 mod shift;
 pub mod society;
@@ -33,16 +34,17 @@ pub mod yard;
 use bevy::prelude::*;
 use hamlet_vfx::magic::MagicSettings;
 pub(crate) use hamlet_vfx::magic::glow;
+use hamlet_vfx::water::WaterSettings;
 use hamlet_vfx::{Density, Now, Tints, VfxPlugin, VfxSystems};
 
 pub use self::ground::DetailSettings;
 use self::house::HouseSettings;
-use self::kit::{Kit, setup, state_index};
+use self::kit::{Kit, repaint, setup, state_index};
 use self::land::{Land, LandSettings};
 use self::layout::TownSettings;
 use self::lights::{light_lanterns, light_roads, light_spills};
-pub use self::loading::{Ground, Loading};
 use self::loading::{Lanes, clear_lanes, finish_loading, stream};
+pub use self::loading::{Loading, Terrain};
 pub use self::magic::Thought;
 use self::road::RoadSettings;
 pub use self::shift::HouseMotion;
@@ -97,6 +99,7 @@ pub fn plugin(app: &mut App) {
         VfxPlugin,
         lights::plugin,
         sounds::plugin,
+        relief::plugin,
     ))
     // An effect a house is given plays the frame it is given.
     .configure_sets(
@@ -144,6 +147,12 @@ pub fn plugin(app: &mut App) {
                     .or_eager(resource_changed::<GeneratorOptions>),
             ),
             tell_states.run_if(resource_changed::<Society>),
+            repaint.run_if(
+                resource_changed::<Land>
+                    .or_else(resource_changed::<WaterSettings>)
+                    .or_else(resource_changed::<Sky>),
+            ),
+            settle.run_if(resource_changed::<Society>),
             shift_houses,
             magic::charm,
             run_traffic,
@@ -184,6 +193,15 @@ pub struct GeneratorSettings {
     pub house: HouseSettings,
     pub yard: YardSettings,
     pub road: RoadSettings,
+}
+
+/// Tells the land which sites have towns, so that the island reaches
+/// about them.
+fn settle(society: Res<Society>, mut land: ResMut<Land>) {
+    let settled = society.settled();
+    if land.settled() != settled {
+        land.settle(&settled);
+    }
 }
 
 /// Tells the effects the scene's time.
@@ -273,7 +291,7 @@ pub struct Tally {
     pub road_bytes: usize,
     /// Trees that stand as themselves.
     pub trees: usize,
-    /// Tiles of ground that are drawn.
+    /// Patches of ground that are drawn.
     pub tiles: usize,
 }
 
@@ -330,24 +348,8 @@ mod tests {
                 reach: (far * 2.6 + 150.0) * detail.ground_reach,
             };
             let began = std::time::Instant::now();
-            let tiles =
-                ground::wanted(&land, &detail, &sight, true, |_| {
-                    false
-                });
-            let drawn = tiles.iter().copied().collect();
-            let ground = tiles
-                .iter()
-                .map(|tile| {
-                    let recipe =
-                        ground::Recipe::of(&land, &detail, *tile);
-                    let sod = ground::sod(&land, recipe, &drawn);
-                    mesh_bytes(&sod.mesh)
-                })
-                .sum::<usize>();
             let woods =
-                ground::wanted(&land, &detail, &sight, false, |_| {
-                    false
-                });
+                ground::wanted(&land, &detail, &sight, |_| false);
             let (mut canopy, mut trees) = (0, 0);
             for tile in &woods {
                 let stand = ground::Stand::of(&detail, *tile);
@@ -356,10 +358,8 @@ mod tests {
                 trees += grove.trees.len();
             }
             println!(
-                "from {far}: {} tiles of ground, {ground} bytes; {} \
-                 of trees, {canopy} bytes and {trees} standing; \
-                 {:?} on one thread",
-                tiles.len(),
+                "from {far}: {} tiles of trees, {canopy} bytes and \
+                 {trees} standing; {:?} on one thread",
                 woods.len(),
                 began.elapsed()
             );
@@ -403,7 +403,13 @@ mod tests {
 
         let mut meshes = Assets::<Mesh>::default();
         let mut materials = Assets::<StandardMaterial>::default();
-        let stock = Stock::new(&mut materials, &land.pal);
+        // The stock's meshes apart, so that only the kit's are
+        // counted.
+        let stock = Stock::new(
+            &mut Assets::default(),
+            &mut materials,
+            &land.pal,
+        );
         Kit::new(&mut meshes, &mut materials, &stock, &land.pal);
         let kit =
             meshes.iter().map(|(_, m)| mesh_bytes(m)).sum::<usize>();

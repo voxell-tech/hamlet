@@ -1,4 +1,5 @@
-//! The Sight page: how much the world draws, the hour its sky shows,
+//! The Sight page: how much the world draws, whether the window waits
+//! for the screen, the camera put back, the hour its sky shows,
 //! how far the distance fog lies and the volumetric fog the sun
 //! throws shafts through.
 
@@ -14,6 +15,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ModifierExt, ViewExt, derived, every_frame, resource,
 };
+use hamlet_realm::pick::Orbit;
 use hamlet_realm::sky::{
     DistanceFogSettings, Quality, SkySettings, VolumetricFogSettings,
 };
@@ -26,6 +28,8 @@ use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{View, built, with_cx};
 
 use super::{field, told};
+use crate::roll::moved;
+use crate::window::{self, Vsync};
 use crate::world_view::{NorthTarget, TimeOfDay};
 
 pub(super) fn plugin(app: &mut App) {
@@ -252,6 +256,33 @@ pub(super) fn page() -> impl View {
             told(
                 quality(),
                 description("Particles, bloom, fog, shadows."),
+            ),
+        ),
+        field(
+            "Vsync",
+            told(
+                labelled_switch(
+                    "On",
+                    derived(|world: &World| {
+                        world
+                            .get_resource::<Vsync>()
+                            .is_none_or(|v| v.0)
+                    })
+                    .when(moved::<Vsync>()),
+                    window::set_vsync,
+                ),
+                description(
+                    "Waits for the screen, so no frame tears.",
+                ),
+            ),
+        ),
+        field(
+            "Camera",
+            told(
+                action(Glyph::Aim, "RESET", |world: &mut World| {
+                    *world.resource_mut::<Orbit>() = Orbit::default();
+                }),
+                description("Back to where it first looked."),
             ),
         ),
         field("Time of day", hour()),

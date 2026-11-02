@@ -1,17 +1,23 @@
 //! Nodes that make curves.
 
 use bevy_math::Vec3;
-use hamlet_graph::{Error, Initial, NodeKind, PortSpec, ValueType};
+use hamlet_graph::{
+    Error, Initial, NodeKind, PathPoint, PortSpec, ValueType,
+};
 
+use crate::curve::{Arc, Curve};
 use crate::eval::Run;
 use crate::kind::BlueprintKind;
+use crate::spline::{self, SplineKind};
 use crate::turn;
-use crate::value::{Curve, Value};
+use crate::value::Value;
 
 pub(super) const KINDS: &[BlueprintKind] = &[
     BlueprintKind::new(LINE, line),
     BlueprintKind::new(RECTANGLE, rectangle),
     BlueprintKind::new(POLYGON, polygon),
+    BlueprintKind::new(CIRCLE, circle),
+    BlueprintKind::new(SPLINE, spline),
 ];
 
 const CURVE_OUT: PortSpec =
@@ -33,10 +39,7 @@ const LINE: NodeKind = NodeKind {
 };
 
 fn line(run: &mut Run) -> Result<(), Error> {
-    let curve = Curve {
-        points: vec![run.point("from")?, run.point("to")?],
-        closed: false,
-    };
+    let curve = Curve::line(run.point("from")?, run.point("to")?);
     run.put("curve", Value::Curve(curve));
     Ok(())
 }
@@ -62,14 +65,11 @@ fn rectangle(run: &mut Run) -> Result<(), Error> {
         0.0,
         run.number("depth", None)?,
     ) * 0.5;
-    let curve = Curve {
-        points: [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
-            .map(|(x, z)| {
-                center + Vec3::new(half.x * x, 0.0, half.z * z)
-            })
-            .to_vec(),
-        closed: true,
-    };
+    let corners =
+        [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(
+            |(x, z)| center + Vec3::new(half.x * x, 0.0, half.z * z),
+        );
+    let curve = Curve::polyline(&corners, true);
     run.put("curve", Value::Curve(curve));
     Ok(())
 }
@@ -105,13 +105,123 @@ fn polygon(run: &mut Run) -> Result<(), Error> {
             );
             center + turn * Vec3::new(radius, 0.0, 0.0)
         })
-        .collect();
-    run.put(
-        "curve",
-        Value::Curve(Curve {
-            points,
-            closed: true,
-        }),
-    );
+        .collect::<Vec<_>>();
+    run.put("curve", Value::Curve(Curve::polyline(&points, true)));
+    Ok(())
+}
+
+const CIRCLE: NodeKind = NodeKind {
+    name: "circle",
+    doc: "A circle, or an arc of one, round a middle on the ground, \
+          starting on the side of greater x and going anticlockwise \
+          seen from above",
+    inputs: &[
+        CENTER,
+        PortSpec::new("radius", ValueType::Number, "Its radius")
+            .initial(Initial::Number(1.0)),
+        PortSpec::new(
+            "start",
+            ValueType::Number,
+            "Where it starts, in degrees round from greater x",
+        )
+        .initial(Initial::Number(0.0)),
+        PortSpec::new(
+            "sweep",
+            ValueType::Number,
+            "How far it goes round, in degrees; 360 makes it closed",
+        )
+        .initial(Initial::Number(360.0)),
+    ],
+    outputs: &[CURVE_OUT],
+};
+
+fn circle(run: &mut Run) -> Result<(), Error> {
+    let radius = run.number("radius", None)?;
+    if radius <= 0.0 {
+        return Err(run.invalid("radius", "must be above zero"));
+    }
+    let sweep = run.number("sweep", None)?.to_radians();
+    if sweep == 0.0 {
+        return Err(run.invalid("sweep", "must not be zero"));
+    }
+    let arc = Arc {
+        centre: run.point("center")?,
+        radius,
+        normal: Vec3::Y,
+        zero: Vec3::X,
+        start: run.number("start", None)?.to_radians(),
+        sweep,
+    };
+    run.put("curve", Value::Curve(Curve::from_arc(arc)));
+    Ok(())
+}
+
+/// Four points and their handles in a gentle S along x.
+const S_BEND: [PathPoint; 4] = [
+    PathPoint::new(
+        Vec3::new(-3.0, 0.0, -1.0),
+        Vec3::new(-1.0, 0.0, 0.0),
+        Vec3::new(1.0, 0.0, 0.0),
+    ),
+    PathPoint::new(
+        Vec3::new(-1.0, 0.0, -1.0),
+        Vec3::new(-0.7, 0.0, -0.35),
+        Vec3::new(0.7, 0.0, 0.35),
+    ),
+    PathPoint::new(
+        Vec3::new(1.0, 0.0, 1.0),
+        Vec3::new(-0.7, 0.0, -0.35),
+        Vec3::new(0.7, 0.0, 0.35),
+    ),
+    PathPoint::new(
+        Vec3::new(3.0, 0.0, 1.0),
+        Vec3::new(-1.0, 0.0, 0.0),
+        Vec3::new(1.0, 0.0, 0.0),
+    ),
+];
+
+const SPLINE: NodeKind = NodeKind {
+    name: "spline",
+    doc: "A smooth curve through its points, or by the handles of \
+          each; its points are edited in the preview",
+    inputs: &[
+        PortSpec::new(
+            "points",
+            ValueType::Path,
+            "The points, each with a handle on either side",
+        )
+        .initial(Initial::Path(&S_BEND)),
+        PortSpec::new(
+            "kind",
+            ValueType::Choice,
+            "Whether it goes through its points or follows their \
+             handles",
+        )
+        .choices(SplineKind::CHOICES)
+        .initial(Initial::Choice("through")),
+        PortSpec::new(
+            "closed",
+            ValueType::Bool,
+            "Whether the last point joins the first",
+        )
+        .initial(Initial::Bool(false)),
+    ],
+    outputs: &[CURVE_OUT],
+};
+
+fn spline(run: &mut Run) -> Result<(), Error> {
+    let points = run.path("points")?;
+    if points.len() < 2 {
+        return Err(
+            run.invalid("points", "needs at least two points")
+        );
+    }
+    let kind = SplineKind::from_choice(&run.choice("kind", None)?)
+        .ok_or_else(|| {
+            run.invalid("kind", "is not a kind of spline")
+        })?;
+    let curve =
+        spline::curve(points, kind, run.flag("closed", None)?);
+    run.put("curve", Value::Curve(curve));
     Ok(())
 }

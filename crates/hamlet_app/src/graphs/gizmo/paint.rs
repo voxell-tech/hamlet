@@ -6,7 +6,7 @@ use bevy::gizmos::gizmos::Gizmos;
 use super::fills::Fills;
 use super::{
     Arc, Frame, GizmoMode, Handle, HandleGizmos, Handles, RING_STEPS,
-    Style,
+    Shape, Style,
 };
 
 /// A gizmo as the preview shows it.
@@ -34,6 +34,10 @@ pub(super) fn paint(
         dragging,
         sweep,
     } = *shown;
+    if handles.shape != Shape::Axes {
+        knot(gizmos, fills, handles.shape, shown, style);
+        return;
+    }
     let mode = handles.mode;
     let toward = -frame.look;
     let plain = |handle: Handle| match handle {
@@ -173,4 +177,46 @@ pub(super) fn paint(
             ring(style.outer_ring);
         }
     }
+}
+
+/// Draws a spline point or the end of a tangent handle: a ring over a
+/// faint disc, and for a handle a hair back to its point.
+fn knot(
+    gizmos: &mut Gizmos<HandleGizmos>,
+    fills: &mut Fills,
+    shape: Shape,
+    shown: &Shown,
+    style: &Style,
+) {
+    let Shown { frame, hot, .. } = *shown;
+    let base = match shape {
+        Shape::Tangent { .. } => style.axes[2],
+        Shape::Axes | Shape::Knot => style.centre_color,
+    };
+    let opacity = if hot == Some(Handle::Centre) {
+        style.hot_alpha
+    } else {
+        style.rest_alpha
+    };
+    let color = base.with_alpha(base.alpha() * opacity);
+    if let Shape::Tangent { anchor } = shape {
+        let half = (frame.origin - anchor)
+            .cross(frame.look)
+            .normalize_or_zero()
+            * style.hair
+            * frame.scale;
+        fills.ribbon(
+            [(anchor, half), (frame.origin, half)],
+            color.with_alpha(color.alpha() * style.plane_fill),
+        );
+    }
+    let pixels = shape.ring(style);
+    let toward = -frame.look;
+    gizmos.linestrip(frame.ring(Arc::full(toward), pixels), color);
+    fills.disc(
+        frame.origin,
+        toward,
+        pixels * frame.scale,
+        color.with_alpha(color.alpha() * style.plane_fill),
+    );
 }

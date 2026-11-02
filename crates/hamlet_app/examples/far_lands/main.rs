@@ -493,16 +493,14 @@ fn run(
                 let tally =
                     tally.as_deref().copied().unwrap_or_default();
                 let megabytes = |bytes: usize| bytes as f32 / 1e6;
-                let (ground, woods) = loading.bytes();
                 println!(
-                    "{name}: built in {:.2} s; {} tiles of ground \
-                     in {:.1} MB, far trees in {:.1} MB, {} trees \
+                    "{name}: built in {:.2} s; {} patches of \
+                     ground, far trees in {:.1} MB, {} trees \
                      standing, {} towns, {} houses in {:.1} MB, {} \
                      roads in {:.1} MB, {} entities",
                     run.began.elapsed().as_secs_f32(),
                     tally.tiles,
-                    megabytes(ground),
-                    megabytes(woods),
+                    megabytes(loading.bytes()),
                     tally.trees,
                     tally.towns,
                     tally.houses,

@@ -30,7 +30,8 @@ use bevy_fynix::views::{
     frame, icon_button, row,
 };
 use bevy_fynix::{
-    EntityCursor, OverrideCursor, ScopedExt, ViewExt, resource,
+    EntityCursor, OverrideCursor, ScopedExt, Signal, ViewExt,
+    resource,
 };
 use hamlet_ui::styles::{ICON, note, section};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -114,6 +115,8 @@ impl Pane {
 /// Where a card floats and how. Places are in logical pixels from the
 /// canvas's top left corner.
 pub(super) struct Card {
+    /// Whether it is shown at all, or hidden by the toolbar.
+    pub visible: bool,
     /// Whether it is open, or folded to its header.
     pub open: bool,
     /// How wide it is.
@@ -135,6 +138,7 @@ pub(super) struct Card {
 impl Card {
     fn new(corner: Corner, width: f32) -> Self {
         Self {
+            visible: true,
             open: true,
             width,
             corner,
@@ -220,6 +224,23 @@ impl<F: Flavor> Layout<F> {
         &self.cards[pane.at()]
     }
 
+    /// Shows the card `pane` if it is hidden, else hides it.
+    pub(super) fn toggle(&mut self, pane: Pane) {
+        let card = self.card_mut(pane);
+        card.visible = !card.visible;
+    }
+
+    /// The display that shows while the card `pane` is visible.
+    pub(super) fn shows(pane: Pane) -> Signal<Display> {
+        resource::<Self, _>(move |layout| {
+            if layout.card(pane).visible {
+                Display::Flex
+            } else {
+                Display::None
+            }
+        })
+    }
+
     fn card_mut(&mut self, pane: Pane) -> &mut Card {
         &mut self.cards[pane.at()]
     }
@@ -253,9 +274,12 @@ struct Handle<F: Flavor>(Pane, PhantomData<F>);
 #[derive(Component)]
 struct Grip<F: Flavor>(Pane, PhantomData<F>);
 
-/// The line the dock's panels are parted by, grabbed the same way.
+/// The line the dock's panels are parted by, grabbed the same way,
+/// shown with the preview it parts from the canvas.
 pub(super) fn divider<F: Flavor>() -> impl View {
-    views::divider(Axis::Vertical).tagged(Divider::<F>(PhantomData))
+    views::divider(Axis::Vertical)
+        .display(Layout::<F>::shows(Pane::Preview))
+        .tagged(Divider::<F>(PhantomData))
 }
 
 /// The card `pane` floating over the canvas: a header of the chevron
@@ -364,6 +388,7 @@ pub(super) fn floating<F: Flavor>(
             .width(resource::<Layout<F>, _>(move |layout| {
                 px(layout.card(pane).width)
             }))
+            .display(Layout::<F>::shows(pane))
             .max_height(resource::<Layout<F>, _>(Layout::tallest))
             .overflow(Overflow::clip())
             .padding(UiRect::all(px(gap)))

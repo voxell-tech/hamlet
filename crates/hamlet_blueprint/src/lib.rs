@@ -7,20 +7,21 @@
 //! named assets.
 
 mod bundle;
+mod curve;
 mod eval;
 mod field;
 mod kind;
 mod nodes;
 mod seed;
+pub mod spline;
 mod turn;
 mod value;
 
 pub use bundle::Bundle;
+pub use curve::{Arc, Bezier, Corner, Curve, Segment};
 pub use eval::{Run, Seeds, evaluate, evaluate_partly};
 pub use field::{Field, Measure, Noise, NoiseKind, Op, Random};
 pub use kind::{BlueprintKind, registry};
 pub use nodes::upgrade;
 pub use seed::Seed;
-pub use value::{
-    Curve, Frame, Object, ObjectId, TransformValue, Value,
-};
+pub use value::{Frame, Object, ObjectId, TransformValue, Value};

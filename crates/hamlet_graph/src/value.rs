@@ -15,6 +15,9 @@ pub enum ValueType {
     Point,
     Choice,
     Curve,
+    /// A list of points with a tangent handle on each side, such as
+    /// the points a spline is drawn through.
+    Path,
     /// Where something stands, how it is turned, and its scale.
     Transform,
     Field,
@@ -73,6 +76,26 @@ pub enum Constant {
     Point(Vec3),
     Choice(String),
     Color(Vec4),
+    Path(Vec<PathPoint>),
+}
+
+/// A point of a path, and the offsets from it to the ends of its two
+/// tangent handles.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+pub struct PathPoint {
+    pub at: Vec3,
+    /// The handle on the side the path arrives from.
+    #[serde(default)]
+    pub before: Vec3,
+    /// The handle on the side the path leaves by.
+    #[serde(default)]
+    pub after: Vec3,
+}
+
+impl PathPoint {
+    pub const fn new(at: Vec3, before: Vec3, after: Vec3) -> Self {
+        Self { at, before, after }
+    }
 }
 
 impl Constant {
@@ -84,6 +107,7 @@ impl Constant {
             Constant::Point(_) => ValueType::Point,
             Constant::Choice(_) => ValueType::Choice,
             Constant::Color(_) => ValueType::Color,
+            Constant::Path(_) => ValueType::Path,
         }
     }
 }

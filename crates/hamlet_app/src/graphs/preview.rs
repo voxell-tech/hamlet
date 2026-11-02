@@ -625,6 +625,8 @@ fn open(
             .observe(gizmo::grab)
             .observe(gizmo::steer)
             .observe(gizmo::release)
+            .observe(gizmo::press)
+            .observe(gizmo::click)
             .observe(turn)
             .observe(zoom);
         *watched = Some(frame);

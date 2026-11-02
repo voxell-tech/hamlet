@@ -501,8 +501,9 @@ mod tests {
 
     /// Points at the ground at `at` from above and runs a frame.
     fn point(app: &mut App, at: Vec2) {
+        let y = app.world().resource::<Land>().height(at);
         let origin = Vec3::new(at.x, 200.0, at.y + 150.0);
-        let toward = Vec3::new(at.x, 1.3, at.y) - origin;
+        let toward = Vec3::new(at.x, y, at.y) - origin;
         app.world_mut().resource_mut::<Reach>().ray =
             Some(Ray3d::new(origin, Dir3::new(toward).unwrap()));
         app.update();
@@ -584,7 +585,7 @@ mod tests {
         let land = app.world().resource::<Land>().clone();
         let river = (0..4000)
             .map(|i| Vec2::new(i as f32 * 0.5 - 1000.0, 40.0))
-            .find(|&p| land.is_water(p))
+            .find(|&p| land.river_dist(p) < 1.0)
             .unwrap();
         point(&mut app, river);
         assert_eq!(carried(&app).unwrap().fits, Err(Unfit::Water));

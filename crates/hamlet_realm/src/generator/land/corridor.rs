@@ -325,8 +325,7 @@ impl LandData {
                 }
                 // Roads keep to low ground where they can.
                 let climb = 1.0
-                    + self.set.road.climb
-                        * self.mountain((p + q) * 0.5);
+                    + self.set.road.climb * self.mound((p + q) * 0.5);
                 let length = so_far + p.distance(q) * climb;
                 if reached.get(&next).is_none_or(|r| length < r.0) {
                     reached.insert(next, (length, Some(node)));

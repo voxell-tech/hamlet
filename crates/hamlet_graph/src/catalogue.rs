@@ -1,12 +1,15 @@
 //! The assets a book's graphs may put down, by name: the built-in
 //! ones and those the book adds.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path};
 
 use bevy_math::{Quat, Vec3};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
+
+use crate::graph::{Graph, Setting, Spread};
+use crate::value::Constant;
 
 /// The assets a book adds, by name, each in place of a built-in one
 /// of the same name.
@@ -197,6 +200,52 @@ impl Catalogue {
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// The book's assets that `graphs` name, as a choice they are set
+    /// to or may roll, or an input's default.
+    pub fn named_in<'a>(
+        &self,
+        graphs: impl IntoIterator<Item = &'a Graph>,
+    ) -> Catalogue {
+        let mut named = BTreeSet::new();
+        for graph in graphs {
+            for setting in graph
+                .nodes
+                .iter()
+                .flat_map(|node| node.settings.values())
+            {
+                match setting {
+                    Setting::Fixed(Constant::Choice(choice)) => {
+                        named.insert(choice.as_str());
+                    }
+                    Setting::Random(roll) => {
+                        if let Spread::Weights(weights) = &roll.spread
+                        {
+                            named.extend(
+                                weights.iter().map(|(choice, _)| {
+                                    choice.as_str()
+                                }),
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for input in &graph.inputs {
+                if let Some(Constant::Choice(choice)) = &input.default
+                {
+                    named.insert(choice.as_str());
+                }
+            }
+        }
+        Catalogue(
+            self.0
+                .iter()
+                .filter(|(name, _)| named.contains(name.as_str()))
+                .map(|(name, asset)| (name.clone(), asset.clone()))
+                .collect(),
+        )
     }
 
     pub fn to_ron(&self) -> Result<String, ron::Error> {

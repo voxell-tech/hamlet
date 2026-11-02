@@ -57,7 +57,7 @@ impl Compiled {
             let constant = match source {
                 Source::Input { node, input } => graph
                     .node(*node)
-                    .and_then(|found| set_to(graph, found, input)),
+                    .and_then(|found| set_to(found, input)),
                 Source::Parent(name) => graph
                     .inputs
                     .iter()
@@ -81,18 +81,9 @@ impl Compiled {
 
 /// What an unwired input of `node` is set to, or its kind's initial
 /// value.
-fn set_to(
-    graph: &Graph,
-    node: &Node,
-    input: &str,
-) -> Option<Constant> {
+fn set_to(node: &Node, input: &str) -> Option<Constant> {
     match node.settings.get(input) {
         Some(Setting::Fixed(constant)) => Some(constant.clone()),
-        Some(Setting::FromParent(name)) => graph
-            .inputs
-            .iter()
-            .find(|parent| parent.name == *name)
-            .and_then(|parent| parent.default.clone()),
         _ => {
             let Does::Kind(kind) = &node.does else {
                 return None;
@@ -119,7 +110,7 @@ fn as_slot(constant: Constant) -> Vec4 {
         }
         Constant::Point(point) => point.extend(0.0),
         Constant::Color(color) => color,
-        Constant::Choice(_) => Vec4::ZERO,
+        Constant::Choice(_) | Constant::Path(_) => Vec4::ZERO,
     }
 }
 
@@ -221,13 +212,28 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Error> {
         let Some(node) = graph.node(id) else {
             continue;
         };
-        let Does::Kind(name) = &node.does else {
-            compiler.errors.push(Error::Invalid {
-                node: id,
-                port: String::new(),
-                reason: "runs a graph, which a material cannot yet",
-            });
-            continue;
+        let name = match &node.does {
+            Does::Kind(name) => name,
+            Does::Input(input) => {
+                match compiler.parameter(id, input) {
+                    Ok(value_type) => shown.push((
+                        id,
+                        variable(id, Does::INPUT_PORT),
+                        value_type,
+                    )),
+                    Err(error) => compiler.errors.push(error),
+                }
+                continue;
+            }
+            Does::Graph(_) => {
+                compiler.errors.push(Error::Invalid {
+                    node: id,
+                    port: String::new(),
+                    reason: "runs a graph, which a material cannot \
+                             yet",
+                });
+                continue;
+            }
         };
         let Some(kind) = kinds::get(name) else {
             compiler.errors.push(Error::UnknownKind {
@@ -349,6 +355,52 @@ impl Compiler<'_> {
         }
         Some(at)
     }
+
+    /// Writes the value of the graph input `name`, which the node
+    /// `node` gives, from its slot, and gives its type.
+    fn parameter(
+        &mut self,
+        node: NodeId,
+        name: &str,
+    ) -> Result<ValueType, Error> {
+        let value_type = self
+            .graph
+            .inputs
+            .iter()
+            .find(|input| input.name == name)
+            .map(|input| input.value_type)
+            .ok_or_else(|| Error::UnknownInput {
+                node,
+                name: name.to_owned(),
+            })?;
+        let at = self
+            .slot(Source::Parent(name.to_owned()))
+            .ok_or_else(|| Error::Invalid {
+                node,
+                port: Does::INPUT_PORT.to_owned(),
+                reason: "needs more values than a material holds",
+            })?;
+        let _ = writeln!(
+            self.body,
+            "    let {}: {} = {};",
+            variable(node, Does::INPUT_PORT),
+            wgsl(value_type),
+            read_slot(at, value_type)
+        );
+        self.given
+            .insert((node, Does::INPUT_PORT.to_owned()), value_type);
+        Ok(value_type)
+    }
+}
+
+/// The code that reads slot `at` as a value of `value_type`.
+fn read_slot(at: usize, value_type: ValueType) -> String {
+    match value_type {
+        ValueType::Vector2 => format!("slots.v[{at}].xy"),
+        ValueType::Vector3 => format!("slots.v[{at}].xyz"),
+        ValueType::Color => format!("slots.v[{at}]"),
+        _ => format!("slots.v[{at}].x"),
+    }
 }
 
 /// What a kind's `emit` writes one node with.
@@ -460,14 +512,9 @@ impl Emit<'_, '_> {
         &mut self,
         spec: &'static PortSpec,
     ) -> Result<String, Error> {
-        let source = match self.node.settings.get(spec.name) {
-            Some(Setting::FromParent(name)) => {
-                Source::Parent(name.clone())
-            }
-            _ => Source::Input {
-                node: self.node.id,
-                input: spec.name,
-            },
+        let source = Source::Input {
+            node: self.node.id,
+            input: spec.name,
         };
         let at = self.compiler.slot(source).ok_or_else(|| {
             self.invalid(
@@ -475,12 +522,7 @@ impl Emit<'_, '_> {
                 "needs more values than a material holds",
             )
         })?;
-        Ok(match spec.value_type {
-            ValueType::Vector2 => format!("slots.v[{at}].xy"),
-            ValueType::Vector3 => format!("slots.v[{at}].xyz"),
-            ValueType::Color => format!("slots.v[{at}]"),
-            _ => format!("slots.v[{at}].x"),
-        })
+        Ok(read_slot(at, spec.value_type))
     }
 
     /// Gives `port` as `code`, of `value_type`.

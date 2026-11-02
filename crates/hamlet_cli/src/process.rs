@@ -773,7 +773,13 @@ fn shared(_: &fs::Metadata) -> Option<&'static str> {
     None
 }
 
-async fn dev_binary(name: &str, variable: &str) -> Result<PathBuf> {
+/// The checkout's `name` executable as Cargo builds it, with the
+/// cargo `features` given, else the one `variable` names.
+async fn dev_binary(
+    name: &str,
+    variable: &str,
+    features: &[&str],
+) -> Result<PathBuf> {
     if let Some(path) = nonempty(variable) {
         return Ok(path.into());
     }
@@ -792,6 +798,7 @@ async fn dev_binary(name: &str, variable: &str) -> Result<PathBuf> {
             name,
             "--message-format=json-render-diagnostics",
         ])
+        .args(features.iter().flat_map(|f| ["--features", f]))
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
     // `cargo run` set these for this process. Build scripts such as
@@ -892,16 +899,23 @@ fn window_closed(
     Ok(())
 }
 
+/// Serves a scratch home from the checkout's server and opens the
+/// checkout's window on it. With `hot`, the window reloads saved
+/// shaders and tuning files.
 pub async fn develop(
     port: u16,
     faux: Option<&str>,
     chosen: Option<&str>,
     isolation: Isolation,
+    hot: bool,
 ) -> Result<i32> {
     let home = dev_home(chosen)?;
     let server =
-        dev_binary("hamlet_server", "HAMLET_SERVER_BIN").await?;
-    let app = dev_binary("hamlet_app", "HAMLET_APP").await?;
+        dev_binary("hamlet_server", "HAMLET_SERVER_BIN", &[]).await?;
+    let features: &[&str] =
+        if hot { &["hamlet_app/hot-reload"] } else { &[] };
+    let app =
+        dev_binary("hamlet_app", "HAMLET_APP", features).await?;
     let mut stops = Stops::new()?;
     let mut command =
         server_command(&server, &home, port, faux, isolation);
@@ -945,6 +959,11 @@ pub async fn develop(
         );
         let mut command = window_command(&app, &address);
         command.env("HAMLET_VIEW", home.join("window"));
+        // Bevy watches the files under CARGO_MANIFEST_DIR, which must
+        // be the checkout for it to see the saved shaders and tuning.
+        if hot {
+            command.env("CARGO_MANIFEST_DIR", repo());
+        }
         session(&mut command);
         let child = tokio::process::Command::from(command)
             .spawn()

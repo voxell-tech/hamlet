@@ -2,8 +2,8 @@
 //! and searched by name. A click selects a tile and a double click
 //! opens it; a tile dragged onto a canvas adds what it is there. The
 //! selected tile is renamed, opened or removed in the strip under the
-//! grid. Meshes are added from `.glb` files and textures from `.png`
-//! files.
+//! grid. Blueprints and materials are made new here, meshes are added
+//! from `.glb` files and textures from `.png` files.
 
 use std::path::Path;
 
@@ -34,6 +34,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
+use hamlet_graph_editor::files::{self, Files};
 use hamlet_graph_editor::library::picker::{
     Section, picture, sections,
 };
@@ -48,6 +49,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::dock::{PanelAppExt, flush_panel};
+use crate::graphs::{Blueprint, Material};
 
 /// A tile's width; its picture is as tall.
 const TILE: f32 = 96.0;
@@ -181,6 +183,21 @@ fn bar() -> AnyView {
             .tagged(Variant::Default)
             .on_activate(move |world| import(world, kind))
         };
+        let new = |word: &'static str,
+                   tip: &'static str,
+                   make: fn(&mut World) -> String| {
+            button(
+                row((glyph(Glyph::Plus, ICON), label(word))).gap(4.0),
+            )
+            .padding(UiRect::axes(px(8.0), px(2.0)))
+            .tooltip(move || note(tip))
+            .rules(styles::button)
+            .tagged(Variant::Default)
+            .on_activate(move |world| {
+                let made = make(world);
+                world.resource_mut::<Library>().note = made;
+            })
+        };
         row((
             row(chips).gap(2.0).align(AlignItems::Center),
             frame().grow(1.0),
@@ -193,6 +210,14 @@ fn bar() -> AnyView {
             ))
             .gap(gap / 2.0)
             .align(AlignItems::Center),
+            new("Blueprint", "New blueprint", |world| {
+                files::create::<Blueprint>(world);
+                world.resource::<Files<Blueprint>>().note.clone()
+            }),
+            new("Material", "New material", |world| {
+                files::create::<Material>(world);
+                world.resource::<Files<Material>>().note.clone()
+            }),
             import("Mesh", "Add a mesh from a .glb file", Kind::Mesh),
             import(
                 "Texture",

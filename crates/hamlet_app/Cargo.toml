@@ -68,6 +68,9 @@ name = "town_gen"
 name = "far_lands"
 
 [[example]]
+name = "sea_bench"
+
+[[example]]
 name = "ui_gallery"
 
 [[example]]

@@ -5,16 +5,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use bevy_math::Vec3;
 use hamlet_graph::{
     Asset, Catalogue, Does, Error, Graph, GraphError, Node, NodeId,
-    NodeKind, Registry, Roll, Ruleset, Scope, Setting, Spread,
-    ValueType, order, ports, validate,
+    NodeKind, PathPoint, Registry, Roll, Ruleset, Scope, Setting,
+    Spread, ValueType, order, ports, validate,
 };
 
+use crate::curve::Curve;
 use crate::field::Field;
 use crate::kind;
 use crate::seed::Seed;
-use crate::value::{
-    Curve, Frame, Object, ObjectId, TransformValue, Value,
-};
+use crate::value::{Frame, Object, ObjectId, TransformValue, Value};
 
 /// The seeds a ruleset runs with, one for each scope above a
 /// transform.
@@ -215,8 +214,7 @@ impl Runner<'_> {
         let mut bound = BTreeMap::new();
         for port in &inputs {
             if let Some(binding) =
-                bind(graph, node, &port.name, made, given)
-                    .map_err(fail)?
+                bind(graph, node, &port.name, made).map_err(fail)?
             {
                 bound.insert(port.name.clone(), binding);
             }
@@ -294,6 +292,26 @@ impl Runner<'_> {
                 }
                 self.run(child, seed, &child_given)?
             }
+            Does::Input(input) => match given.get(input) {
+                Some(value) => BTreeMap::from([(
+                    Does::INPUT_PORT.to_owned(),
+                    value.clone(),
+                )]),
+                // A parameter that nothing reads needs no value.
+                None if graph
+                    .wires
+                    .iter()
+                    .all(|wire| wire.from.node != node.id)
+                    && graph.outputs.iter().all(|output| {
+                        output.from.node != node.id
+                    }) =>
+                {
+                    BTreeMap::new()
+                }
+                None => {
+                    return Err(fail(Error::NotGiven(input.clone())));
+                }
+            },
         };
         Ok(outputs)
     }
@@ -311,7 +329,6 @@ fn bind(
     node: &Node,
     port: &str,
     made: &BTreeMap<(NodeId, String), Value>,
-    given: &BTreeMap<String, Value>,
 ) -> Result<Option<Binding>, Error> {
     if let Some(wire) = graph
         .wires
@@ -332,12 +349,6 @@ fn bind(
         }
         Some(Setting::Random(roll)) => {
             Some(Binding::Roll(roll.clone()))
-        }
-        Some(Setting::FromParent(name)) => {
-            let value = given
-                .get(name)
-                .ok_or_else(|| Error::NotGiven(name.clone()))?;
-            Some(Binding::Value(value.clone()))
         }
         None => None,
     })
@@ -643,6 +654,13 @@ impl Run<'_> {
         match self.binding(port)? {
             Binding::Value(Value::Curve(curve)) => Ok(curve),
             _ => Err(self.wrong(port, ValueType::Curve)),
+        }
+    }
+
+    pub fn path(&self, port: &str) -> Result<&[PathPoint], Error> {
+        match self.binding(port)? {
+            Binding::Value(Value::Path(points)) => Ok(points),
+            _ => Err(self.wrong(port, ValueType::Path)),
         }
     }
 

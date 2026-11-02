@@ -1,7 +1,7 @@
-// A round stone tower: a stone at each corner of a polygon, laid along
-// its edge, and the ring repeated course upon course, each stone turned a
-// little its own way. Change its radius, its sides or its courses in the
-// parameters; more sides make it rounder.
+// A round stone tower: stones laid along a circle, each along its edge,
+// and the ring repeated course upon course, each stone turned a little
+// its own way. Change its radius, how close its stones sit or its courses
+// in the parameters.
 (
     entry: "stone_tower",
     sheets: {
@@ -9,21 +9,27 @@
             graph: (
                 inputs: [
                     (name: "radius", value_type: Number, default: Some(Number(1.4))),
-                    (name: "sides", value_type: Integer, default: Some(Integer(14))),
+                    (name: "stone_spacing", value_type: Number, default: Some(Number(0.62))),
                     (name: "courses", value_type: Integer, default: Some(Integer(8))),
                 ],
                 nodes: [
                     (id: 1, does: Kind("transform"), settings: {"scale": Fixed(Point((0.62, 0.28, 0.4)))}),
                     (id: 2, does: Kind("object"), settings: {"asset": Fixed(Choice("quoin"))}),
-                    (id: 3, does: Kind("polygon"), settings: {"radius": FromParent("radius"), "sides": FromParent("sides")}),
-                    (id: 4, does: Kind("curve_corners"), settings: {"align": Fixed(Bool(true))}),
-                    (id: 5, does: Kind("repeat"), settings: {"count": FromParent("courses"), "step": Fixed(Point((0.0, 0.3, 0.0)))}),
+                    (id: 3, does: Kind("circle")),
+                    (id: 4, does: Kind("along_curve"), settings: {"align": Fixed(Bool(true))}),
+                    (id: 5, does: Kind("repeat"), settings: {"step": Fixed(Point((0.0, 0.3, 0.0)))}),
                     (id: 6, does: Kind("random"), settings: {"low": Fixed(Number(-3.0)), "high": Fixed(Number(3.0))}),
                     (id: 7, does: Kind("point"), settings: {"x": Fixed(Number(0.0)), "z": Fixed(Number(0.0))}),
                     (id: 8, does: Kind("transform")),
                     (id: 9, does: Kind("matmul")),
+                    (id: 10, does: Input("radius")),
+                    (id: 11, does: Input("stone_spacing")),
+                    (id: 12, does: Input("courses")),
                 ],
                 wires: [
+                    (from: (node: 10, name: "value"), to: (node: 3, name: "radius")),
+                    (from: (node: 11, name: "value"), to: (node: 4, name: "spacing")),
+                    (from: (node: 12, name: "value"), to: (node: 5, name: "count")),
                     (from: (node: 1, name: "transform"), to: (node: 2, name: "transform")),
                     (from: (node: 2, name: "objects"), to: (node: 4, name: "objects")),
                     (from: (node: 3, name: "curve"), to: (node: 4, name: "curve")),
@@ -35,8 +41,8 @@
                 ],
             ),
             groups: [
-                (title: "A stone at each corner of a polygon, along its edge", nodes: [1, 2, 3, 4]),
-                (title: "The ring repeated course upon course", nodes: [5]),
+                (title: "Stones laid along a circle, each along its edge", nodes: [1, 2, 3, 4, 10, 11]),
+                (title: "The ring repeated course upon course", nodes: [5, 12]),
                 (title: "Each stone turned a little, its own way", nodes: [6, 7, 8, 9]),
             ],
         ),

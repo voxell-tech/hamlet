@@ -179,7 +179,7 @@ fn along_curve(run: &mut Run) -> Result<(), Error> {
     // keeps the copies a shorter one had.
     let steps =
         run.count("spacing", (length / spacing + 1e-4).floor())?;
-    let count = if curve.closed { steps } else { steps + 1 };
+    let count = if curve.is_closed() { steps } else { steps + 1 };
     let mut places = Vec::with_capacity(count as usize);
     for index in 0..count {
         // The tolerance above can put the last copy a hair past an
@@ -214,33 +214,24 @@ fn curve_corners(run: &mut Run) -> Result<(), Error> {
     let align = run.flag("align", None)?;
     let curve = run.curve("curve")?;
     let length = curve.length();
-    let mut travelled = 0.0;
-    let mut places = Vec::with_capacity(curve.points.len());
-    for (index, &point) in curve.points.iter().enumerate() {
-        let next = curve
-            .points
-            .get(index + 1)
-            .or(curve.closed.then_some(&curve.points[0]));
-        let previous = index.checked_sub(1).map(|i| curve.points[i]);
-        let direction = match (previous, next) {
-            (_, Some(&next)) => next - point,
-            (Some(previous), None) => point - previous,
-            (None, None) => Vec3::X,
-        };
-        let mut frame = Frame::at(point);
-        if align {
-            frame.rotation = turn::yaw_toward(direction);
-        }
-        places.push(Place {
-            frame,
-            along: if length > 0.0 {
-                travelled / length
-            } else {
-                0.0
-            },
-        });
-        travelled += next.map_or(0.0, |&next| point.distance(next));
-    }
+    let places = curve
+        .corners()
+        .into_iter()
+        .map(|corner| {
+            let mut frame = Frame::at(corner.at);
+            if align {
+                frame.rotation = turn::yaw_toward(corner.direction);
+            }
+            Place {
+                frame,
+                along: if length > 0.0 {
+                    corner.distance / length
+                } else {
+                    0.0
+                },
+            }
+        })
+        .collect::<Vec<_>>();
     let made = copies(run, run.objects("objects")?, &places);
     run.put("objects", Value::Objects(made));
     Ok(())

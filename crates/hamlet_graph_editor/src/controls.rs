@@ -3,8 +3,10 @@
 //! colour's four fields with a swatch, a choice that opens its list
 //! in the menu layer or the pictures of the library's meshes, and a
 //! mark that puts a fixed input back to its
-//! default. Changing a value fixes the input; until then it shows its
-//! default. A group's title is a field on its title bar.
+//! default. A path shows how many points it has, which the preview
+//! edits. Changing a value fixes the input; until then it shows its
+//! default. A group's title is a field on its title bar, and an
+//! output's name a field on its row of the Outputs card.
 
 use bevy::color::Color;
 use bevy::ecs::world::World;
@@ -131,10 +133,10 @@ pub(super) fn control<F: Flavor>(
     input: Input,
     setting: Option<&Setting>,
 ) -> Option<AnyView> {
+    if input.value_type == ValueType::Path {
+        return Some(points::<F>(node, input));
+    }
     let value = match setting {
-        Some(Setting::FromParent(name)) => {
-            return Some(pill(name.replace('_', " ")));
-        }
         Some(Setting::Random(_)) => {
             return Some(pill("random".into()));
         }
@@ -170,8 +172,33 @@ pub(super) fn control<F: Flavor>(
     )
 }
 
-/// What sets an input other than a value of its own, in place of its
-/// controls.
+/// The note on a path input: how many points it has, and the mark
+/// that puts them back to the default.
+fn points<F: Flavor>(node: NodeId, input: Input) -> AnyView {
+    let read = input.clone();
+    row((
+        label(resource::<Editor<F>, _>(
+            move |editor| match value_of(editor, node, &read) {
+                Some(Constant::Path(path)) if path.len() == 1 => {
+                    "1 point".to_owned()
+                }
+                Some(Constant::Path(path)) => {
+                    format!("{} points", path.len())
+                }
+                _ => String::new(),
+            },
+        ))
+        .wrap(false)
+        .tone(Tone::Dim),
+        reset::<F>(node, input.name),
+    ))
+    .gap(2.0)
+    .align(AlignItems::Center)
+    .boxed()
+}
+
+/// What sets an input other than a value of its own or a wire, in
+/// place of its controls.
 fn pill(text: String) -> AnyView {
     label(text).wrap(false).tone(Tone::Accent).boxed()
 }
@@ -220,8 +247,8 @@ fn number<F: Flavor>(
                 (Some(Constant::Integer(value)), Slot::Scalar) => {
                     f64::from(value)
                 }
-                // A book read from a file may hold a value of another
-                // shape than the input's, with no such axis.
+                // A graph read from a file may hold a value of
+                // another shape than the input's, with no such axis.
                 (Some(Constant::Point(point)), Slot::Axis(axis)) => {
                     point
                         .to_array()
@@ -455,6 +482,21 @@ pub(super) fn title<F: Flavor>(at: usize) -> AnyView {
         },
     )
     .width(px(NUMBER * 3.0))
+    .rules(text_input)
+    .boxed()
+}
+
+/// The field the name of the output `name` is written in on its row
+/// of the Outputs card.
+pub(super) fn output_name<F: Flavor>(name: String) -> AnyView {
+    let rename = name.clone();
+    text_field(name, move |world, text| {
+        world
+            .resource_mut::<Editor<F>>()
+            .rename_output(&rename, text);
+    })
+    .grow(1.0)
+    .min_width(px(0.0))
     .rules(text_input)
     .boxed()
 }
