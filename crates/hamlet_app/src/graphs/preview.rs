@@ -1,7 +1,10 @@
 //! The preview: what the graph puts down, as boxes in the world's
 //! colours, drawn by a camera of its own into the panel. The camera,
 //! its post processing, the hour's lights and the orbit by hand are
-//! the realm's, on a render layer of their own.
+//! the realm's, on a render layer of their own. F, Shift+R, B and L
+//! turn it to look at the front, the right, the back or the left.
+
+use core::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use bevy::app::{App, Startup, Update};
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
@@ -24,6 +27,7 @@ use bevy::ecs::system::{Commands, If, Local, Query, Res, ResMut};
 use bevy::ecs::world::{FromWorld, World};
 use bevy::image::Image;
 use bevy::input::ButtonInput;
+use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseButton;
 use bevy::light::DirectionalLight;
 use bevy::math::{Quat, Rect, Vec3};
@@ -45,6 +49,10 @@ use bevy::ui_widgets::popover::{
     PopoverAlign, PopoverPlacement, PopoverSide,
 };
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
+use bevy_fynix::shortcut::{
+    Chord, CommandId, CommandSpec, Invoke, Layer, Mods, Scope,
+    ScopeId, ScopeSpec, ShortcutAppExt,
+};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
     label, overlay, popup, row,
@@ -93,11 +101,20 @@ const YAW: f32 = 0.8;
 /// The camera's pitch before a hand has turned it, in radians.
 const PITCH: f32 = 0.55;
 
+/// The lowest the camera's pitch goes, in radians, as near level as
+/// it looks.
+const LOWEST: f32 = 0.1;
+
+/// The scope of the preview's commands, in force while the pointer is
+/// over it.
+const SCOPE: ScopeId = ScopeId("preview");
+
 pub(super) fn plugin(app: &mut App) {
     if !app.is_plugin_added::<InfiniteGridPlugin>() {
         app.add_plugins(InfiniteGridPlugin);
     }
-    app.init_resource::<Seat>()
+    app.add_plugins(keys)
+        .init_resource::<Seat>()
         .init_resource::<Framing>()
         .init_resource::<Backdrop>()
         .init_resource::<Daytime>()
@@ -107,6 +124,64 @@ pub(super) fn plugin(app: &mut App) {
             Update,
             (open, rebuild, grid, daylight, glide, aim).chain(),
         );
+}
+
+/// The views from the four sides: F the front, Shift+R the right, B
+/// the back and L the left, as Blender's. R alone is the gizmo's
+/// Rotate.
+fn keys(app: &mut App) {
+    let command = |id, label, run| CommandSpec {
+        id: CommandId(id),
+        label,
+        scope: SCOPE,
+        run,
+        enabled: |_| true,
+        repeat: false,
+    };
+    app.add_scope(ScopeSpec {
+        id: SCOPE,
+        label: "Preview",
+        layer: Layer::Panel,
+        active: None,
+    })
+    .add_command(
+        command("preview.front", "Front View", |world, _| {
+            face(world, 0.0);
+        }),
+        &[Chord::key(KeyCode::KeyF)],
+    )
+    .add_command(
+        command("preview.right", "Right View", |world, _| {
+            face(world, FRAC_PI_2);
+        }),
+        &[Chord {
+            key: KeyCode::KeyR,
+            mods: Mods::SHIFT,
+        }],
+    )
+    .add_command(
+        command("preview.back", "Back View", |world, _| {
+            face(world, PI);
+        }),
+        &[Chord::key(KeyCode::KeyB)],
+    )
+    .add_command(
+        command("preview.left", "Left View", |world, _| {
+            face(world, -FRAC_PI_2);
+        }),
+        &[Chord::key(KeyCode::KeyL)],
+    );
+}
+
+/// Turns the camera, easing, to look level at what is drawn from
+/// `yaw` round from its front (+z), keeping its distance and what it
+/// looks at.
+fn face(world: &mut World, yaw: f32) {
+    let mut seat = world.resource_mut::<Seat>();
+    // The short way round from where it is turned to.
+    let turn = yaw - YAW - seat.want.yaw;
+    seat.want.yaw += (turn + PI).rem_euclid(TAU) - PI;
+    seat.want.pitch = LOWEST - PITCH;
 }
 
 /// The hour the preview's lighting is set for, apart from the
@@ -200,7 +275,8 @@ pub(super) fn view() -> impl View {
                 .fills_height()
                 .overflow(Overflow::clip())
                 .fill(theme.palette.input)
-                .tagged(Shown);
+                .tagged(Shown)
+                .tagged(Scope(SCOPE));
         match cx
             .world
             .get_resource::<Preview>()
@@ -1040,7 +1116,7 @@ fn aim(
         return;
     };
     let yaw = YAW + seat.shown.yaw;
-    let pitch = (PITCH + seat.shown.pitch).clamp(0.1, 1.45);
+    let pitch = (PITCH + seat.shown.pitch).clamp(LOWEST, 1.45);
     let toward = backward(yaw, pitch);
     let distance = (reach * 2.2 + 2.0) * seat.shown.zoom;
     let slid = seat.shown.pan;

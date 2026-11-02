@@ -121,7 +121,8 @@ pub(super) enum GizmoMode {
 }
 
 /// Picks the gizmo's mode with G, R and S while nothing is typed in.
-/// A key held with a modifier is a command's, as Cmd+S is saving.
+/// A key held with a modifier is a command's, as Cmd+S is saving and
+/// Shift+R the preview's right view.
 fn pick_mode(
     keys: Res<ButtonInput<KeyCode>>,
     focus: Res<bevy::input_focus::InputFocus>,
@@ -135,6 +136,8 @@ fn pick_mode(
         KeyCode::ControlRight,
         KeyCode::AltLeft,
         KeyCode::AltRight,
+        KeyCode::ShiftLeft,
+        KeyCode::ShiftRight,
     ]);
     if focus.get().is_some() || dragging.0.is_some() || modified {
         return;
