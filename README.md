@@ -187,8 +187,8 @@ opens its sibling window.
 run `git submodule update --init vendor/fynix` once. `cargo xtask`
 fetches it itself.
 
-`cargo xtask check` runs the checks a commit needs on your platform, each
-as a step CI runs by name; CI also runs them on Windows. `cargo xtask
+`cargo xtask check` runs the same checks as CI. CI also runs them on
+Windows, so a pass on macOS or Linux can still fail there. `cargo xtask
 help` lists every task.
 
 - `rust-toolchain.toml` follows the latest stable, no older than
