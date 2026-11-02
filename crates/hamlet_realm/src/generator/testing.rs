@@ -53,6 +53,8 @@ pub(super) fn kit(world: &mut World) {
         trees: vec![Handle::default(); flora::FORMS],
         leaves: Handle::default(),
         still_leaves: Handle::default(),
+        pad: Handle::default(),
+        pads: vec![Handle::default(); flora::plants::PAD_LOOKS],
         groove: Handle::default(),
     });
 }

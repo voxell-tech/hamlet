@@ -158,6 +158,9 @@ pub struct Leaves {
     pub sway: Handle<LeafMaterial>,
     /// For many trees in one mesh, and leaves lying on the ground.
     pub still: Handle<LeafMaterial>,
+    /// The strokes they are painted with, which the lily pads are
+    /// painted with too.
+    pub strokes: Handle<Image>,
 }
 
 impl FromWorld for Leaves {
@@ -171,6 +174,7 @@ impl FromWorld for Leaves {
         Self {
             sway: materials.add(material(&set, &strokes, true)),
             still: materials.add(material(&set, &strokes, false)),
+            strokes,
         }
     }
 }

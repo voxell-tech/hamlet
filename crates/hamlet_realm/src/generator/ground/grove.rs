@@ -3,7 +3,8 @@
 use bevy::prelude::*;
 
 use super::{DetailSettings, Tile};
-use crate::generator::flora::{self, Tree, plants};
+use crate::generator::flora::plants::{self, Pad};
+use crate::generator::flora::{self, Tree};
 use crate::generator::land::Land;
 
 /// The drawing of a tile's trees.
@@ -47,6 +48,8 @@ pub struct Grove {
     /// Whether the mesh is of plants, which sway, and not of trees
     /// far off, which keep still.
     pub sways: bool,
+    /// The lily pads, each drawn alone.
+    pub pads: Vec<Pad>,
 }
 
 pub fn grove(land: &Land, tile: Tile, stand: Stand) -> Grove {
@@ -60,6 +63,7 @@ pub fn grove(land: &Land, tile: Tile, stand: Stand) -> Grove {
                 mesh: plants::plants(land, lo, hi, &trees),
                 trees,
                 sways: true,
+                pads: plants::pads(land, lo, hi),
             }
         }
         Stand::Canopy { every, crowns } => {
@@ -70,6 +74,7 @@ pub fn grove(land: &Land, tile: Tile, stand: Stand) -> Grove {
                 }),
                 trees: Vec::new(),
                 sways: false,
+                pads: Vec::new(),
             }
         }
     }

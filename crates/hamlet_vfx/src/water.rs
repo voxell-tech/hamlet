@@ -32,6 +32,7 @@ pub type WaterMaterial = ExtendedMaterial<StandardMaterial, WaterExt>;
 pub(crate) fn plugin(app: &mut App) {
     load_shader_library!(app, "patch.wesl");
     load_shader_library!(app, "waves.wesl");
+    load_shader_library!(app, "shore.wesl");
     embedded_asset!(app, "water.wesl");
     app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
         .init_resource::<WaterSettings>()

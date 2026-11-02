@@ -1,8 +1,9 @@
 //! What grows under the trees and between them, many to a tile's
-//! one mesh: shrubs at the edge of the woods, reeds and lily pads at
-//! the water, and toadstools in the deep woods that glow at night.
-//! Each bends in the wind as much as it is tall, as
-//! [`Meshing::grow`] marks it. The grass is the GPU's, about the eye.
+//! one mesh: shrubs at the edge of the woods, reeds at the water, and
+//! toadstools in the deep woods that glow at night. Each bends in the
+//! wind as much as it is tall, as [`Meshing::grow`] marks it. Lily
+//! pads lie on the water each alone, to ride its waves. The grass is
+//! the GPU's, about the eye.
 
 use std::f32::consts::TAU;
 
@@ -13,6 +14,7 @@ use super::{Tree, card, litter, shaded_card, spread};
 use crate::generator::land::Land;
 use crate::generator::noise::{key, unit};
 use crate::meshes::{Meshing, Rng, fbm, smoothstep};
+use crate::palette::Palette;
 
 /// Everything that grows between `lo` and `hi` under and about
 /// `trees`, with the leaves fallen from them, as one mesh. None where
@@ -30,9 +32,6 @@ pub(crate) fn plants(
     }
     for (p, h) in spots(land, lo, hi, 0.9, 83) {
         reeds(&mut meshing, land, p, h);
-    }
-    for (p, h) in spots(land, lo, hi, 1.1, 84) {
-        pad(&mut meshing, land, p, h);
     }
     for (p, h) in spots(land, lo, hi, 4.0, 85) {
         toadstools(&mut meshing, land, p, h);
@@ -212,50 +211,96 @@ fn reeds(meshing: &mut Meshing, land: &Land, p: Vec2, h: u32) {
     meshing.grow(from, at.y, tall, 0.0);
 }
 
-/// A lily pad lying on shallow water, in patches, some in flower.
-fn pad(meshing: &mut Meshing, land: &Land, p: Vec2, h: u32) {
-    let y = land.height(p);
+/// The lily pads lying on shallow water between `lo` and `hi`, in
+/// patches, some in flower. Each is drawn alone, to ride the waves.
+pub(crate) fn pads(land: &Land, lo: Vec2, hi: Vec2) -> Vec<Pad> {
     let water = land.set.land.water_y;
-    if y < water - 1.3 || y > water - 0.3 || is_kept(land, p) {
-        return;
+    spots(land, lo, hi, 1.1, 84)
+        .filter_map(|(p, h)| {
+            let y = land.height(p);
+            if y < water - 1.3 || y > water - 0.3 || is_kept(land, p)
+            {
+                return None;
+            }
+            let patch = smoothstep(
+                0.5,
+                0.65,
+                fbm(p.x * 0.1 + 41.0, p.y * 0.1 - 3.0),
+            );
+            if roll(h, 2) > 0.75 * patch {
+                return None;
+            }
+            let bloom = roll(h, 6);
+            Some(Pad {
+                at: Vec3::new(p.x, water + 0.03, p.y),
+                size: 0.4 + 0.35 * roll(h, 3),
+                yaw: roll(h, 4) * TAU,
+                look: if bloom < 0.075 {
+                    1
+                } else if bloom < 0.15 {
+                    2
+                } else {
+                    0
+                },
+            })
+        })
+        .collect()
+}
+
+/// A lily pad lying on the water, which rides its waves.
+#[derive(Clone, Copy)]
+pub struct Pad {
+    /// Its middle, on the still water.
+    pub(crate) at: Vec3,
+    pub(crate) size: f32,
+    pub(crate) yaw: f32,
+    /// Which of [`PAD_LOOKS`] it is.
+    pub(crate) look: usize,
+}
+
+impl Pad {
+    pub(crate) fn transform(&self) -> Transform {
+        Transform::from_translation(self.at)
+            .with_rotation(Quat::from_rotation_y(self.yaw))
+            .with_scale(Vec3::splat(self.size))
     }
-    let patch =
-        smoothstep(0.5, 0.65, fbm(p.x * 0.1 + 41.0, p.y * 0.1 - 3.0));
-    if roll(h, 2) > 0.75 * patch {
-        return;
-    }
-    let pal = &land.pal;
-    let s = 0.4 + 0.35 * roll(h, 3);
-    let at = Vec3::new(p.x, water + 0.03, p.y);
-    let spin = roll(h, 4) * TAU;
-    let along = Vec3::new(spin.cos(), 0.0, spin.sin());
+}
+
+/// Looks a lily pad has: bare, and in flower white or pink.
+pub(crate) const PAD_LOOKS: usize = 3;
+
+/// The lily pad of `look` of [`PAD_LOOKS`], a metre across, lying on
+/// its middle.
+pub(crate) fn pad_mesh(pal: &Palette, look: usize) -> Mesh {
+    let mut meshing = Meshing::new();
     card(
-        meshing,
-        at - along * s * 0.5,
-        along * s,
-        along.cross(Vec3::Y) * s,
+        &mut meshing,
+        -Vec3::X * 0.5,
+        Vec3::X,
+        Vec3::X.cross(Vec3::Y),
         Stroke::Pad,
-        pal.lily_pad * (0.85 + 0.3 * roll(h, 5)),
+        pal.lily_pad,
     );
-    if roll(h, 6) < 0.15 {
-        let colour = if roll(h, 7) < 0.5 {
-            pal.flowers[2]
-        } else {
-            pal.blossom
-        };
+    let flower = match look {
+        1 => Some(pal.flowers[2]),
+        2 => Some(pal.blossom),
+        _ => None,
+    };
+    if let Some(colour) = flower {
         for k in 0..3 {
-            let a = spin + k as f32 / 3.0 * TAU;
+            let a = k as f32 / 3.0 * TAU;
             let out = Vec3::new(a.cos(), 0.0, a.sin());
             card(
-                meshing,
-                at + Vec3::Y * 0.12 + out * 0.02,
-                out * 0.1 - Vec3::Y * 0.1,
-                out.cross(Vec3::Y) * 0.12,
+                &mut meshing,
+                Vec3::Y * 0.22 + out * 0.04,
+                (out - Vec3::Y) * 0.18,
+                out.cross(Vec3::Y) * 0.22,
                 Stroke::Blot,
                 colour,
             );
         }
     }
+    meshing.build()
 }
 
 /// A ring of toadstools in the deep woods, whose caps glow at night.

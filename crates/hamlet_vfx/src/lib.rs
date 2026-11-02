@@ -8,6 +8,7 @@ pub mod inlay;
 pub mod leaves;
 pub mod magic;
 pub mod mark;
+pub mod pads;
 pub mod patch;
 pub mod sparks;
 pub mod water;
@@ -45,6 +46,7 @@ impl Plugin for VfxPlugin {
             water::plugin,
             leaves::plugin,
             grass::plugin,
+            pads::plugin,
         ))
         .init_resource::<Now>();
     }

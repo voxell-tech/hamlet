@@ -313,6 +313,7 @@ pub(in crate::generator) fn stream(
                             (meshes.add(mesh), bytes)
                         }),
                         sways: grove.sways,
+                        pads: grove.pads,
                     };
                     shelf.put(seed, tile, kept.clone());
                     kept
@@ -342,6 +343,14 @@ pub(in crate::generator) fn stream(
                 commands.entity(wood).try_insert((
                     Mesh3d(mesh),
                     MeshMaterial3d(leaves.clone()),
+                ));
+            }
+            for pad in &grove.pads {
+                commands.spawn((
+                    Mesh3d(kit.pads[pad.look].clone()),
+                    MeshMaterial3d(kit.pad.clone()),
+                    pad.transform(),
+                    ChildOf(wood),
                 ));
             }
             waiting.extend(

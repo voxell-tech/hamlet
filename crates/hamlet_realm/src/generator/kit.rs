@@ -8,11 +8,13 @@ use bevy::render::settings::WgpuFeatures;
 use hamlet_vfx::ground::{self, GroundMaterial, GroundSettings};
 use hamlet_vfx::inlay::{InlayExt, InlayMaterial, InlayUniform};
 use hamlet_vfx::leaves::{LeafMaterial, LeafView, Leaves};
+use hamlet_vfx::pads::{self, PadMaterial};
 use hamlet_vfx::patch;
 use hamlet_vfx::water::{
     self, WaterMaterial, WaterSettings, WaterUniform,
 };
 
+use super::flora::plants::{PAD_LOOKS, pad_mesh};
 use super::land::Land;
 use super::loading::Bed;
 use super::{Tally, traffic, yard};
@@ -54,6 +56,10 @@ pub(super) struct Kit {
     /// The leaves of a tree drawn alone, and of many in one mesh.
     pub(super) leaves: Handle<LeafMaterial>,
     pub(super) still_leaves: Handle<LeafMaterial>,
+    /// The lily pads, riding the water's waves, and a mesh for each
+    /// look of [`PAD_LOOKS`].
+    pub(super) pad: Handle<PadMaterial>,
+    pub(super) pads: Vec<Handle<Mesh>>,
     pub(super) groove: Handle<InlayMaterial>,
 }
 
@@ -78,6 +84,7 @@ pub(super) fn setup(
     bumps: Res<GroundSettings>,
     flow: Res<WaterSettings>,
     leaves: Res<Leaves>,
+    mut pad_materials: ResMut<Assets<PadMaterial>>,
     device: Option<Res<RenderDevice>>,
 ) {
     let ground = grounds.add(ground::material(
@@ -156,8 +163,33 @@ pub(super) fn setup(
         trees: stock.trees.clone(),
         leaves: leaves.sway.clone(),
         still_leaves: leaves.still.clone(),
+        pad: pad_materials
+            .add(pads::material(&mut images, leaves.strokes.clone())),
+        pads: (0..PAD_LOOKS)
+            .map(|look| meshes.add(pad_mesh(&pal, look)))
+            .collect(),
         groove,
     });
+}
+
+/// Gives the lily pads the water's waves, so they ride them.
+pub(super) fn float_pads(
+    kit: Res<Kit>,
+    waters: Res<Assets<WaterMaterial>>,
+    mut pads: ResMut<Assets<PadMaterial>>,
+) {
+    let Some(water) = waters.get(&kit.water) else {
+        return;
+    };
+    let Some(pad) = pads.get(&kit.pad) else {
+        return;
+    };
+    let mut next = pad.extension.clone();
+    if next.follow(&water.extension)
+        && let Some(mut pad) = pads.get_mut(&kit.pad)
+    {
+        pad.extension = next;
+    }
 }
 
 /// Paints the ground as the land has it, and the water as its

@@ -22,10 +22,10 @@ import bevy_pbr::{
     },
     prepass::utils::prepass_depth,
 };
-import hamlet_vfx::ground_shape::Pages;
 import hamlet_vfx::patch::slid;
+import hamlet_vfx::shore::{PageCell, coast_at, page_cell, pages_at};
 import hamlet_vfx::waves::{
-    SHORE_REACH, SHAPES, SLOPE_MOST, TAU, Bend, Coast, bends, coast, crests, groups, noise_rise, wave,
+    SHAPES, SLOPE_MOST, TAU, Bend, Coast, bends, crests, groups, noise_rise, wave,
 };
 
 // The fields are explained on `WaterUniform` in `water.rs`.
@@ -51,8 +51,6 @@ struct Water {
 @group(constants::MATERIAL_BIND_GROUP) @binding(106) var sea_foam_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(113) var noise_slope: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(114) var noise_slope_sampler: sampler;
-@group(constants::MATERIAL_BIND_GROUP) @binding(115) var pages: texture_2d_array<u32>;
-@group(constants::MATERIAL_BIND_GROUP) @binding(116) var<uniform> pages_at: Pages;
 
 // How far from the eye, in units of the waves, the water lies flat.
 // `FLAT` in `water.rs`.
@@ -351,53 +349,6 @@ fn aa_step(edge: f32, v: f32) -> f32 {
     return clamp((v - edge) / width + 0.5, 0.0, 1.0);
 }
 
-// The four points of the land's pages about a point on the map, each the
-// height and the distance out from the shore, and where between them the
-// point lies.
-struct PageCell {
-    a: vec2<f32>,
-    b: vec2<f32>,
-    c: vec2<f32>,
-    d: vec2<f32>,
-    f: vec2<f32>,
-}
-
-// The height and the distance out from the shore at the texel `c` of the
-// page of size `level`, as `relief.wesl` packs them.
-fn page_texel(level: i32, c: vec2<i32>) -> vec2<f32> {
-    let t = textureLoad(pages, c, level, 0).xy;
-    return vec2<f32>(bitcast<f32>(t.x), (f32(t.y >> 16u) / 65535.0 * 2.0 - 1.0) * SHORE_REACH);
-}
-
-// The points about `p` on the finest of the land's pages from `least` up
-// that reaches it, as `page_at` in `ground_shape.wesl` finds them. False
-// until the pages are made.
-fn page_cell(p: vec2<f32>, least: i32, cell: ptr<function, PageCell>) -> bool {
-    let size = vec2<i32>(textureDimensions(pages)) - 2;
-    if any(size < vec2<i32>(1)) {
-        return false;
-    }
-    var level = least;
-    var g = vec2<f32>(0.0);
-    loop {
-        let at = pages_at.at[level];
-        g = (p - at.xy) / at.z;
-        if level >= 7 || (all(g >= vec2<f32>(0.0)) && all(g < vec2<f32>(size))) {
-            break;
-        }
-        level += 1;
-    }
-    let c = clamp(vec2<i32>(floor(g)), vec2<i32>(0), size);
-    *cell = PageCell(
-        page_texel(level, c),
-        page_texel(level, c + vec2<i32>(1, 0)),
-        page_texel(level, c + vec2<i32>(0, 1)),
-        page_texel(level, c + vec2<i32>(1, 1)),
-        fract(g),
-    );
-    return true;
-}
-
 // The height of the ground under the point `p` on the map, from the land's
 // pages, smoothly between their points: from the page whose points lie
 // about as far apart as a pixel, `pixel` metres, there, or the next larger
@@ -414,19 +365,9 @@ fn ground_under(p: vec2<f32>, pixel: f32) -> f32 {
     return mix(mix(cell.a.x, cell.b.x, cell.f.x), mix(cell.c.x, cell.d.x, cell.f.x), cell.f.y);
 }
 
-// How the shore bears on the waves at the point `p` on the map, from the
-// distance out from it the land's pages hold, smoothly between their points
-// and from the finest that reaches it, the way to it falling across them.
-// Open sea until the pages are made.
+// How the shore bears on the waves at the point `p` on the map.
 fn shore_at(p: vec2<f32>) -> Coast {
-    var cell: PageCell;
-    if !page_cell(p, 0, &cell) {
-        return coast(SHORE_REACH, vec2<f32>(0.0), water.time.z, water.calm.xy);
-    }
-    let f = cell.f;
-    let d = mix(mix(cell.a.y, cell.b.y, f.x), mix(cell.c.y, cell.d.y, f.x), f.y);
-    let rise = vec2<f32>(mix(cell.b.y - cell.a.y, cell.d.y - cell.c.y, f.y), mix(cell.c.y - cell.a.y, cell.d.y - cell.b.y, f.x));
-    return coast(d, -rise, water.time.z, water.calm.xy);
+    return coast_at(p, water.time.z, water.calm.xy);
 }
 
 // The depth drawn at the screen's point `uv`, from 0 far off to 1 near.

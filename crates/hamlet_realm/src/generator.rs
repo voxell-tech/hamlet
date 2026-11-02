@@ -40,7 +40,9 @@ use hamlet_vfx::{Density, Now, Tints, VfxPlugin, VfxSystems};
 
 pub use self::ground::DetailSettings;
 use self::house::HouseSettings;
-use self::kit::{Kit, repaint, setup, state_index, tell_leaves};
+use self::kit::{
+    Kit, float_pads, repaint, setup, state_index, tell_leaves,
+};
 use self::land::{Land, LandSettings};
 use self::layout::TownSettings;
 use self::lights::{light_lanterns, light_roads, light_spills};
@@ -156,6 +158,7 @@ pub fn plugin(app: &mut App) {
             ),
             settle.run_if(resource_changed::<Society>),
             tell_leaves,
+            float_pads,
             shift_houses,
             magic::charm,
             run_traffic,
