@@ -16,7 +16,6 @@ struct Relief {
     sizes: vec4<f32>,
     sea: vec4<f32>,
     rim: vec4<f32>,
-    stacks: vec4<f32>,
     town: vec4<f32>,
     river: vec4<f32>,
     drift: vec4<f32>,
@@ -204,57 +203,6 @@ fn unit_of(a: u32, b: u32, c: u32, d: u32) -> f32 {
     return f32(h >> 8u) * (1.0 / 16777216.0);
 }
 
-// A rock standing out of the sea: its middle, the radius of its flat top and
-// the width of its skirt, its height, and how far inside the coast it stands.
-struct Rock {
-    at: vec2<f32>,
-    flat: f32,
-    run: f32,
-    top: f32,
-    off: f32,
-}
-
-// The rock of the cell `(xi, zi)` of the rocks' grid, if one stands there.
-fn rock_in(xi: i32, zi: i32, rock: ptr<function, Rock>) -> bool {
-    let side = relief.stacks.x;
-    let s = seed() + 43u;
-    let x = bitcast<u32>(xi);
-    let z = bitcast<u32>(zi);
-    if unit_of(s, x, z, 0u) > relief.stacks.y {
-        return false;
-    }
-    let at = (vec2<f32>(f32(xi), f32(zi)) + 0.2
-        + vec2<f32>(unit_of(s, x, z, 1u), unit_of(s, x, z, 2u)) * 0.6) * side;
-    let off = inside(at);
-    if off < -24.0 || off > -5.0 {
-        return false;
-    }
-    *rock = Rock(
-        at,
-        0.8 + 1.4 * unit_of(s, x, z, 3u),
-        2.5 + 1.5 * unit_of(s, x, z, 5u),
-        relief.sea.w + relief.stacks.z * (0.4 + 0.6 * unit_of(s, x, z, 4u)),
-        off,
-    );
-    return true;
-}
-
-// `stack` in `terrain.rs`.
-fn stack(p: vec2<f32>, bed: f32) -> f32 {
-    let cell = floor(p / relief.stacks.x);
-    var top = -FAR;
-    var rock: Rock;
-    for (var dz = -1; dz <= 1; dz++) {
-        for (var dx = -1; dx <= 1; dx++) {
-            if rock_in(i32(cell.x) + dx, i32(cell.y) + dz, &rock) {
-                let rise = stroke(distance(rock.at, p), rock.flat, rock.run);
-                top = max(top, bed + (rock.top - bed) * rise);
-            }
-        }
-    }
-    return top;
-}
-
 // How far out from `stroke`'s flat top, as a share of its skirt, the ground
 // it lays falls through the water, where it falls from `top` to `bed`.
 fn waterline(top: f32, bed: f32) -> f32 {
@@ -263,27 +211,15 @@ fn waterline(top: f32, bed: f32) -> f32 {
 }
 
 // How far `p` lies out to sea from the nearest waterline, in metres, below
-// zero on land, at most `SHORE_REACH` either way: the island's, where its
-// skirt falls through the water, and each rock's. The island's is found
-// from how far inside its coast `p` lies, which grows about a metre to a
-// metre, so it runs smooth; the coast's raggedness is left out, and the
-// plains taken as level.
+// zero on land, at most `SHORE_REACH` either way, where the island's
+// skirt falls through the water. It is found from how far inside its
+// coast `p` lies, which grows about a metre to a metre, so it runs
+// smooth; the coast's raggedness is left out, and the plains taken as
+// level.
 fn shore_dist(p: vec2<f32>) -> f32 {
-    let water = relief.sea.w;
     let run = mix(relief.rim.y, relief.rim.z, 0.5 + 0.5 * perlin(p * 0.012, seed() + 41u));
-    let shelf = water - relief.rim.x;
-    var d = run * (1.0 - waterline(relief.plains.x, shelf)) - inside(p);
-    let cell = floor(p / relief.stacks.x);
-    var rock: Rock;
-    for (var dz = -1; dz <= 1; dz++) {
-        for (var dx = -1; dx <= 1; dx++) {
-            if rock_in(i32(cell.x) + dx, i32(cell.y) + dz, &rock) {
-                let bed = mix(shelf, water - relief.sea.z, smooth_step(0.0, -OPEN, rock.off));
-                let reach = rock.flat + rock.run * waterline(rock.top, bed);
-                d = min(d, distance(rock.at, p) - reach);
-            }
-        }
-    }
+    let shelf = relief.sea.w - relief.rim.x;
+    let d = run * (1.0 - waterline(relief.plains.x, shelf)) - inside(p);
     return clamp(d, -SHORE_REACH, SHORE_REACH);
 }
 
@@ -293,11 +229,7 @@ fn shore(p: vec2<f32>, h: f32) -> f32 {
     let into = inside(p) + ragged(p);
     let run = mix(relief.rim.y, relief.rim.z, 0.5 + 0.5 * perlin(p * 0.012, seed() + 41u));
     let bed = mix(water - relief.rim.x, water - relief.sea.z, smooth_step(0.0, -OPEN, into));
-    let ground = bed + (h - bed) * stroke(run - into, 0.0, run);
-    if into >= -30.0 && into < run {
-        return max(ground, stack(p, bed));
-    }
-    return ground;
+    return bed + (h - bed) * stroke(run - into, 0.0, run);
 }
 
 // `height_wide` in `terrain.rs`.

@@ -258,8 +258,7 @@ impl LandData {
     /// The ground `h` high at `p` as the coast leaves it. The island
     /// is one stroke: level inland, its rim falling in a skirt to the
     /// sea floor, steep in some stretches and gentle in others. Out
-    /// at sea the floor shelves away from the shore, and here and
-    /// there a small stroke stands out of the water.
+    /// at sea the floor shelves away from the shore.
     fn shore(&self, p: Vec2, h: f32) -> f32 {
         let set = &self.set.land;
         let water = set.water_y;
@@ -274,52 +273,7 @@ impl LandData {
             water - set.sea_floor,
             smoothstep(0.0, -OPEN, inside),
         );
-        let ground =
-            floor + (h - floor) * stroke(run - inside, 0.0, run);
-        if (-30.0..run).contains(&inside) {
-            ground.max(self.stack(p, floor))
-        } else {
-            ground
-        }
-    }
-
-    /// The rock standing out of the sea at `p`, if one does, over a
-    /// floor `floor` high: a small stroke with a narrow top and steep
-    /// sides. Far under the floor where none stands.
-    fn stack(&self, p: Vec2, floor: f32) -> f32 {
-        let set = &self.set.land;
-        let (side, share, tall) = set.stacks;
-        let cell = (p / side).floor();
-        let mut top = f32::MIN;
-        for dz in -1..=1 {
-            for dx in -1..=1 {
-                let (x, z) = (cell.x as i32 + dx, cell.y as i32 + dz);
-                let h = |k: u32| {
-                    unit(key(&[
-                        self.seed + 43,
-                        x as u32,
-                        z as u32,
-                        k,
-                    ]))
-                };
-                if h(0) > share {
-                    continue;
-                }
-                let at = (Vec2::new(x as f32, z as f32)
-                    + 0.2
-                    + Vec2::new(h(1), h(2)) * 0.6)
-                    * side;
-                if !(-24.0..=-5.0).contains(&self.inside(at)) {
-                    continue;
-                }
-                let flat = 0.8 + 1.4 * h(3);
-                let height = set.water_y + tall * (0.4 + 0.6 * h(4));
-                let rise =
-                    stroke(at.distance(p), flat, 2.5 + 1.5 * h(5));
-                top = top.max(floor + (height - floor) * rise);
-            }
-        }
-        top
+        floor + (h - floor) * stroke(run - inside, 0.0, run)
     }
 
     /// The height with every river `wide` wider on each side, for

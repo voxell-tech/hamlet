@@ -418,7 +418,6 @@ shelf = 1.0
 sea_floor = 5.0
 rim = [9.0, 24.0]
 ragged = 2.0
-stacks = [24.0, 0.18, 7.0]
 plains = 120.0
 edge = [0.006, 34.0]
 mounds = [80.0, 0.45]

@@ -88,8 +88,6 @@ struct ReliefInput {
     sea: Vec4,
     /// `shelf` and `rim`.
     rim: Vec4,
-    /// `stacks`.
-    stacks: Vec4,
     /// `site_y`, the towns' radius, and the way the rivers run.
     town: Vec4,
     /// `river_gap`, `bends` and the scale of the `kinks`.
@@ -162,12 +160,6 @@ impl ReliefInput {
                 set.water_y,
             ),
             rim: Vec4::new(set.shelf, set.rim.0, set.rim.1, 0.0),
-            stacks: Vec4::new(
-                set.stacks.0,
-                set.stacks.1,
-                set.stacks.2,
-                0.0,
-            ),
             town: Vec4::new(
                 set.site_y,
                 land.set.town.radius,
