@@ -1480,6 +1480,20 @@ fn paint<F: Flavor>(
         Gesture::Link(link) => Some((&link.from, link.value_type)),
         _ => None,
     };
+    // A wire taken off an input no longer counts for it.
+    let lifted = match &**gesture {
+        Gesture::Link(link) => link.lifted.clone(),
+        _ => None,
+    };
+    let wires = drawn_wires(&editor)
+        .into_iter()
+        .filter(|wire| lifted.as_ref() != Some(wire))
+        .collect::<Vec<_>>();
+    let is_wired = |port: &Port| {
+        wires
+            .iter()
+            .any(|wire| wire.from == *port || wire.to == *port)
+    };
     for (dot, hovered, disc) in &dots {
         let Ok((mut border, mut fill)) = discs.get_mut(disc.0) else {
             continue;
@@ -1491,12 +1505,20 @@ fn paint<F: Flavor>(
             }
             None => true,
         };
-        let colour = dot_tint(palette, dot);
-        fill.0 = if open { colour } else { colour.with_alpha(0.2) };
+        let tint = dot_tint(palette, dot);
+        let colour = if open { tint } else { tint.with_alpha(0.2) };
+        // Filled where a wire is joined, a ring of its colour where
+        // none is, so a wire passing by is not taken for one.
+        let (inside, rim) = if is_wired(&dot.port) {
+            (colour, palette.input)
+        } else {
+            (palette.input, colour)
+        };
+        fill.0 = inside;
         *border = BorderColor::all(if hovered.get() && open {
             palette.glow_core
         } else {
-            palette.input
+            rim
         });
     }
 }
