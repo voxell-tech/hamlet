@@ -2,7 +2,8 @@
 //! colours, drawn by a camera of its own into the panel. The camera,
 //! its post processing, the hour's lights and the orbit by hand are
 //! the realm's, on a render layer of their own. F, Shift+R, B and L
-//! turn it to look at the front, the right, the back or the left.
+//! turn it to look at the front, the right, the back or the left, and
+//! T and Shift+T down from above or up from below.
 
 use core::f32::consts::{FRAC_PI_2, PI, TAU};
 
@@ -101,9 +102,13 @@ const YAW: f32 = 0.8;
 /// The camera's pitch before a hand has turned it, in radians.
 const PITCH: f32 = 0.55;
 
-/// The lowest the camera's pitch goes, in radians, as near level as
-/// it looks.
+/// The lowest a hand turns the camera's pitch, in radians, as near
+/// level as it looks.
 const LOWEST: f32 = 0.1;
+
+/// The highest a hand turns the camera's pitch, in radians. Only the
+/// views from above and below go past it, to straight down or up.
+const HIGHEST: f32 = 1.45;
 
 /// The scope of the preview's commands, in force while the pointer is
 /// over it.
@@ -127,8 +132,8 @@ pub(super) fn plugin(app: &mut App) {
 }
 
 /// The views from the four sides: F the front, Shift+R the right, B
-/// the back and L the left, as Blender's. R alone is the gizmo's
-/// Rotate.
+/// the back and L the left, as Blender's; and T from the top and
+/// Shift+T from the bottom. R alone is the gizmo's Rotate.
 fn keys(app: &mut App) {
     let command = |id, label, run| CommandSpec {
         id: CommandId(id),
@@ -170,6 +175,21 @@ fn keys(app: &mut App) {
             face(world, -FRAC_PI_2);
         }),
         &[Chord::key(KeyCode::KeyL)],
+    )
+    .add_command(
+        command("preview.top", "Top View", |world, _| {
+            tilt(world, FRAC_PI_2);
+        }),
+        &[Chord::key(KeyCode::KeyT)],
+    )
+    .add_command(
+        command("preview.bottom", "Bottom View", |world, _| {
+            tilt(world, -FRAC_PI_2);
+        }),
+        &[Chord {
+            key: KeyCode::KeyT,
+            mods: Mods::SHIFT,
+        }],
     );
 }
 
@@ -182,6 +202,14 @@ fn face(world: &mut World, yaw: f32) {
     let turn = yaw - YAW - seat.want.yaw;
     seat.want.yaw += (turn + PI).rem_euclid(TAU) - PI;
     seat.want.pitch = LOWEST - PITCH;
+}
+
+/// Turns the camera, easing, to look straight down at what is drawn
+/// for a `pitch` of a quarter turn, or straight up for minus one,
+/// keeping which way round it is turned, its distance and what it
+/// looks at.
+fn tilt(world: &mut World, pitch: f32) {
+    world.resource_mut::<Seat>().want.pitch = pitch - PITCH;
 }
 
 /// The hour the preview's lighting is set for, apart from the
@@ -755,6 +783,12 @@ fn turn(
         PointerButton::Secondary => {
             steer.set_if_neq(Steer::Turn);
             seat.want = seat.want.turned(drag.delta, &set);
+            // A hand turns it back between level and steep, from
+            // straight above or below too.
+            seat.want.pitch = seat
+                .want
+                .pitch
+                .clamp(LOWEST - PITCH, HIGHEST - PITCH);
         }
         PointerButton::Middle => {}
     }
@@ -1116,14 +1150,21 @@ fn aim(
         return;
     };
     let yaw = YAW + seat.shown.yaw;
-    let pitch = (PITCH + seat.shown.pitch).clamp(LOWEST, 1.45);
+    let pitch = (PITCH + seat.shown.pitch).clamp(-FRAC_PI_2, FRAC_PI_2);
     let toward = backward(yaw, pitch);
+    // Up across the view, square to where it looks, so that it holds
+    // looking straight down or up too.
+    let up = Vec3::new(
+        -yaw.sin() * pitch.sin(),
+        pitch.cos(),
+        -yaw.cos() * pitch.sin(),
+    );
     let distance = (reach * 2.2 + 2.0) * seat.shown.zoom;
     let slid = seat.shown.pan;
     let focus = middle + Vec3::new(slid.x, 0.0, slid.y);
     *transform =
         Transform::from_translation(focus + toward * distance)
-            .looking_at(focus, Vec3::Y);
+            .looking_at(focus, up);
     seat.stance = (distance, pitch);
     fog.falloff = sky::fog_for(&set, distance);
     commands
