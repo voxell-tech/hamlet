@@ -108,7 +108,10 @@ pub(super) fn plugin<F: Flavor>(app: &mut App) {
             )
                 .chain(),
         )
-        .add_systems(Update, (cancel::<F>, faint::<F>).chain())
+        .add_systems(
+            Update,
+            (forget_box::<F>, cancel::<F>, faint::<F>).chain(),
+        )
         .add_systems(Update, (titles::<F>, retitled::<F>));
 }
 
@@ -325,6 +328,9 @@ enum Gesture {
     /// A box from one corner on the sheet to the other, and what was
     /// selected before it.
     Lasso(Vec2, Vec2, BTreeSet<NodeId>),
+    /// A box let go of this frame, so the click its release makes on
+    /// the canvas keeps what it selected.
+    Boxed,
     /// The cards dragged, each with where it was when the drag began.
     Cards(Vec<(NodeId, Vec2)>),
     /// A wire out of an output's port, from where on the sheet, and
@@ -1345,8 +1351,19 @@ fn gesture_end<F: Flavor>(
             editor.dropped(moved);
         }
     }
-    **gesture = Gesture::None;
+    **gesture = match **gesture {
+        Gesture::Lasso(..) => Gesture::Boxed,
+        _ => Gesture::None,
+    };
     cursor.0 = None;
+}
+
+/// Forgets a box let go of last frame, once its release's click has
+/// been seen.
+fn forget_box<F: Flavor>(mut gesture: ResMut<Held<F>>) {
+    if matches!(**gesture, Gesture::Boxed) {
+        **gesture = Gesture::None;
+    }
 }
 
 /// Selects a card alone, or with Shift adds it to the selection or
@@ -1601,9 +1618,14 @@ fn open_on_double<F: Flavor>(
 fn deselect<F: Flavor>(
     click: On<PointerClick>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
+    gesture: Res<Held<F>>,
     mut editor: ResMut<Editor<F>>,
 ) {
-    if click.entity == click.original_event_target()
+    // The release that ends a box clicks the canvas too.
+    let boxing =
+        matches!(**gesture, Gesture::Lasso(..) | Gesture::Boxed);
+    if !boxing
+        && click.entity == click.original_event_target()
         && click.button == PointerButton::Primary
         && !is_shift_held(keys.as_deref())
         && !editor.selected.is_empty()
@@ -1687,7 +1709,6 @@ fn pan_start<F: Flavor>(
                 BTreeSet::new()
             };
             **gesture = Gesture::Lasso(at, at, kept);
-            cursor.0 = Some(SystemCursorIcon::Crosshair);
         }
         PointerButton::Middle => {
             **gesture = Gesture::Pan;
