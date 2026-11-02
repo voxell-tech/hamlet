@@ -17,7 +17,7 @@
 
 // The farthest from the shore its distance tells, in metres. `SHORE_REACH`
 // in `water.rs`.
-const SHORE_REACH: f32 = 16.0;
+const SHORE_REACH: f32 = 40.0;
 const TAU: f32 = 6.28318531;
 // The steepest slope the noise's slope picture holds, which it is read back
 // by. `SLOPE_MOST` in `water.rs`.
@@ -185,7 +185,8 @@ struct Coast {
 
 // How the shore bears on the waves at a point `d` metres out to sea from
 // it, below zero inland, the way to it rising along `toward`. They turn to
-// it within `bend` metres of it, all the way by halfway in, and within
+// it within `bend` metres of it, slowly, all the way only a fifth of the
+// way out, so the open sea's waves give way to them softly; and within
 // `calm.x` metres of it die down, to `calm.y` of their height at the water's
 // edge. Water well inland, a river's or a pool's, is not the sea's: there
 // they do not turn.
@@ -194,7 +195,7 @@ fn coast(d: f32, toward: vec2<f32>, bend: f32, calm: vec2<f32>) -> Coast {
     // Only the sea's waves turn to the land. A river is narrow, and its
     // waves would turn to both banks at once and meet down its middle.
     let sea = smoothstep(-6.0, -2.0, d);
-    var turned = (1.0 - smoothstep(bend * 0.55, max(bend, 1e-3), d)) * sea;
+    var turned = (1.0 - smoothstep(bend * 0.2, max(bend, 1e-3), d)) * sea;
     var landward = vec2<f32>(0.0, 1.0);
     if dot(toward, toward) < 1e-6 {
         turned = 0.0;

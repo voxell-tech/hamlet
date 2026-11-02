@@ -44,7 +44,7 @@ const HOLD_EASE: f32 = 7.0;
 const OPEN: f32 = 40.0;
 // The farthest from the shore its distance tells, in metres. `SHORE_REACH`
 // in `hamlet_vfx`'s `water.rs`.
-const SHORE_REACH: f32 = 16.0;
+const SHORE_REACH: f32 = 40.0;
 
 fn seed() -> u32 {
     return relief.counts.x;

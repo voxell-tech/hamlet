@@ -187,7 +187,7 @@ impl WaterUniform {
 /// The farthest from the shore the land's pages tell its distance, in
 /// metres. Beyond, they tell this. `SHORE_REACH` in `waves.wesl` and
 /// in `hamlet_realm`'s `relief.wesl`.
-pub const SHORE_REACH: f32 = 16.0;
+pub const SHORE_REACH: f32 = 40.0;
 
 impl MaterialExtension for WaterExt {
     fn vertex_shader() -> ShaderRef {
