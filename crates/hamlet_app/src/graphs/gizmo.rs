@@ -7,7 +7,7 @@
 //! it.
 
 mod drag;
-mod fills;
+pub(super) mod fills;
 mod paint;
 
 use core::f32::consts::PI;
@@ -177,7 +177,7 @@ pub(super) struct Style {
 }
 
 impl Style {
-    fn of(palette: &Palette) -> Self {
+    pub(super) fn of(palette: &Palette) -> Self {
         use bevy::color::Alpha;
         Self {
             size: 90.0,
@@ -207,7 +207,7 @@ impl Style {
 
     /// This, its colours set against `background`: as made for a
     /// dark one, and darker and more opaque on a light one.
-    fn against(
+    pub(super) fn against(
         self,
         palette: &Palette,
         background: Background,
@@ -229,7 +229,7 @@ impl Style {
 }
 
 /// How much darker the axes are drawn on a light background.
-const LIGHT_DARKEN: f32 = 0.2;
+pub(super) const LIGHT_DARKEN: f32 = 0.2;
 
 /// The haze's luminance above which the preview's background counts
 /// as light.
@@ -374,7 +374,7 @@ pub(super) struct Frame {
 impl Frame {
     /// The gizmo at `origin`, its axes turned by `rotation`, as
     /// `camera` draws it.
-    fn of(
+    pub(super) fn of(
         origin: Vec3,
         rotation: Quat,
         camera: &Camera,
