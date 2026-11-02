@@ -9,7 +9,7 @@ import bevy_pbr::{
         view_transformations::position_world_to_clip,
     },
 };
-import hamlet_vfx::leaves_sway::{Leaves, swayed, is_cut, stroke_cover};
+import hamlet_vfx::leaves_sway::{Leaves, swayed, grown, is_cut, stroke_cover};
 import hamlet_vfx::wind::Wind;
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> leaves: Leaves;
@@ -22,6 +22,14 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     var out: VertexOutput;
     let vertex = decompress_vertex(vertex_in, vertex_in.instance_index);
     let world_from_local = mesh_functions::get_world_from_local(vertex_in.instance_index);
+@if(VERTEX_UVS_B)
+    let at = grown(
+        leaves,
+        wind,
+        (world_from_local * vec4<f32>(vertex.position, 1.0)).xyz,
+        vertex.uv_b.x,
+    );
+@else
     let at = swayed(leaves, wind, vertex.position, world_from_local);
     out.world_position = vec4<f32>(at, 1.0);
     out.position = position_world_to_clip(at);

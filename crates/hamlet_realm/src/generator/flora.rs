@@ -3,6 +3,8 @@
 //! tile. Where they stand follows from the seed and keeps clear of
 //! every town site.
 
+pub(crate) mod plants;
+
 use std::f32::consts::TAU;
 
 use bevy::mesh::MeshTag;
@@ -14,9 +16,13 @@ use super::noise::{key, unit};
 use crate::meshes::{Meshing, Rng, smoothstep};
 use crate::palette::Palette;
 
-/// Kinds of tree there are: broadleaves first, then conifers.
-pub(crate) const KINDS: usize = 8;
-const BROADLEAVES: usize = 5;
+/// Kinds of tree there are: broadleaves first, the green ones, then
+/// one in autumn and one in blossom, then conifers, the snowy one
+/// last.
+pub(crate) const KINDS: usize = 9;
+const BROADLEAVES: usize = 6;
+const AUTUMN: usize = 4;
+pub(crate) const BLOSSOM: usize = 5;
 /// Meshes of each kind, alike in kind and each its own shape.
 pub(crate) const VARIANTS: usize = 4;
 /// Tree meshes there are, each kind's variants in a row.
@@ -80,18 +86,28 @@ fn card(
     stroke: Stroke,
     colour: Vec3,
 ) {
+    shaded_card(meshing, top, down, across, stroke, [colour; 2]);
+}
+
+/// A [`card`] coloured `colours[0]` along its top edge and
+/// `colours[1]` along its bottom one.
+fn shaded_card(
+    meshing: &mut Meshing,
+    top: Vec3,
+    down: Vec3,
+    across: Vec3,
+    stroke: Stroke,
+    colours: [Vec3; 2],
+) {
     let (lo, hi) = stroke.cell();
     let n = across.cross(down).normalize_or_zero();
     let half = across * 0.5;
-    let a = meshing.vuv(top - half, n, colour, lo);
-    let b = meshing.vuv(top + half, n, colour, Vec2::new(hi.x, lo.y));
-    let c = meshing.vuv(top + half + down, n, colour, hi);
-    let d = meshing.vuv(
-        top - half + down,
-        n,
-        colour,
-        Vec2::new(lo.x, hi.y),
-    );
+    let [high, low] = colours;
+    let a = meshing.vuv(top - half, n, high, lo);
+    let b = meshing.vuv(top + half, n, high, Vec2::new(hi.x, lo.y));
+    let c = meshing.vuv(top + half + down, n, low, hi);
+    let d =
+        meshing.vuv(top - half + down, n, low, Vec2::new(lo.x, hi.y));
     meshing.quad(a, b, c, d);
 }
 
@@ -364,9 +380,11 @@ pub fn trees(
                     BROADLEAVES + (roll(4) * 2.0) as usize
                 }
             } else if roll(4) < 0.1 {
-                BROADLEAVES - 1
+                AUTUMN
+            } else if roll(8) < blossoms(land, p) {
+                BLOSSOM
             } else {
-                (roll(5) * (BROADLEAVES - 1) as f32) as usize
+                (roll(5) * AUTUMN as f32) as usize
             };
             out.push(Tree {
                 at: Vec3::new(p.x, y, p.y),
@@ -380,13 +398,22 @@ pub fn trees(
     out
 }
 
+/// The share of broadleaves in blossom at `p`: a few about the
+/// hamlets, where people would have planted them, and fewer wild.
+fn blossoms(land: &Land, p: Vec2) -> f32 {
+    let out = land.site_dist(p) - land.set.town.radius;
+    0.02 + 0.3 * smoothstep(40.0, 8.0, out)
+}
+
 /// The light and the shade of a kind of tree's leaves.
 fn leaves(pal: &Palette, kind: usize) -> (Vec3, Vec3) {
     if kind == KINDS - 1 {
         (pal.conifer_snow, pal.conifer)
     } else if kind >= BROADLEAVES {
         (pal.foliage_shade, pal.conifer)
-    } else if kind == BROADLEAVES - 1 {
+    } else if kind == BLOSSOM {
+        (pal.blossom, pal.blossom_shade)
+    } else if kind == AUTUMN {
         (pal.autumn, pal.autumn_shade)
     } else {
         (
@@ -465,22 +492,23 @@ pub(crate) fn canopy(
     meshing.build()
 }
 
-/// The leaves fallen about `trees`, as one mesh lying on the land:
-/// a ring of dabs about each tree a little past its crown, some
-/// kept and some not, in its leaves' colour gone dull on the ground.
-pub(crate) fn litter(land: &Land, trees: &[Tree]) -> Option<Mesh> {
+/// The leaves fallen about `trees`, lying on the land: a ring of
+/// dabs about each tree a little past its crown, some kept and some
+/// not, in its leaves' colour gone dull on the ground.
+fn litter(meshing: &mut Meshing, land: &Land, trees: &[Tree]) {
     /// Places tried about each tree.
     const AROUND: usize = 12;
-    let mut meshing = Meshing::new();
     for tree in trees {
         let (light, shade) = leaves(&land.pal, tree.kind);
         let tinted = tint(tag(tree.at));
         let h = key(&[tag(tree.at), 11]);
         let roll = |salt: u32| unit(key(&[h, salt]));
         let reach = tree.scale + 0.9;
+        // Blossom drops its petals the more thickly.
+        let bare = if tree.kind == BLOSSOM { 0.1 } else { 0.45 };
         for i in 0..AROUND {
             let salt = i as u32 * 8;
-            if roll(salt) < 0.45 {
+            if roll(salt) < bare {
                 continue;
             }
             let turn = (i as f32 + 0.6 * roll(salt + 1))
@@ -510,7 +538,7 @@ pub(crate) fn litter(land: &Land, trees: &[Tree]) -> Option<Mesh> {
                 shade.lerp(light, roll(salt + 6)) * tinted * 0.8;
             let at = Vec3::new(p.x, y + 0.03, p.y);
             card(
-                &mut meshing,
+                meshing,
                 at - along * size * 0.5,
                 along * size,
                 side * size,
@@ -519,7 +547,6 @@ pub(crate) fn litter(land: &Land, trees: &[Tree]) -> Option<Mesh> {
             );
         }
     }
-    (!meshing.is_empty()).then(|| meshing.build())
 }
 
 #[cfg(test)]

@@ -22,11 +22,13 @@ pub(super) enum Grown {
 }
 
 /// A tile's woods as built: the trees that stand as themselves, and
-/// the tile's one mesh already among the assets, with its bytes.
+/// the tile's one mesh already among the assets, with its bytes, and
+/// whether that mesh sways.
 #[derive(Clone)]
 pub(super) struct Kept {
     pub(super) trees: Vec<Tree>,
     pub(super) mesh: Option<(Handle<Mesh>, usize)>,
+    pub(super) sways: bool,
 }
 
 impl Kept {

@@ -15,6 +15,8 @@ struct Leaves {
     shade: vec4<f32>,
     // rgb: `rim`, linear. w: `rim_light`.
     rim: vec4<f32>,
+    // x: `night_glow`.
+    plants: vec4<f32>,
 }
 
 // Texels across the strokes' texture, `SIDE` in `leaves.rs`.
@@ -38,9 +40,29 @@ fn swayed(
     let size = length(world_from_local[1].xyz);
     let world = (world_from_local * vec4<f32>(local, 1.0)).xyz;
     let rise = clamp(local.y / CROWN, 0.0, 1.0);
-    let bent = rise * rise * size;
-    let strong = strength(wind, foot.xz);
-    let own = foot.x * 0.37 + foot.z * 0.23;
+    return blown(leaves, wind, world, foot.xz, rise * rise * size, rise * size);
+}
+
+// Where the point `world` of a plant among many in one mesh is blown
+// to. Its mesh gives each point how far it `bends`, as a share of how
+// far a tree's crown does, and it shivers as much as it bends.
+fn grown(leaves: Leaves, wind: Wind, world: vec3<f32>, bends: f32) -> vec3<f32> {
+    return blown(leaves, wind, world, world.xz, bends, sqrt(bends));
+}
+
+// Where the point `world` of a plant standing at `foot` is blown to,
+// leaning `bent` of the way a crown does and shivering as much as
+// `shaken`.
+fn blown(
+    leaves: Leaves,
+    wind: Wind,
+    world: vec3<f32>,
+    foot: vec2<f32>,
+    bent: f32,
+    shaken: f32,
+) -> vec3<f32> {
+    let strong = strength(wind, foot);
+    let own = foot.x * 0.37 + foot.y * 0.23;
     let t = leaves.sway.x;
     let rock = leaves.sway.z;
     let lean = leaves.sway.y * strong
@@ -53,8 +75,8 @@ fn swayed(
     let sink = -0.5 * (lean * lean + side * side) / CROWN;
     var moved = (down * lean + across * side + vec3<f32>(0.0, sink, 0.0)) * bent;
     // Slow across the crown, so a card moves as one and is not torn.
-    let leaf = dot(local, vec3<f32>(1.3, 1.1, 1.2)) + own;
-    let shiver = leaves.sway.w * strong * rise * size;
+    let leaf = dot(world, vec3<f32>(1.3, 1.1, 1.2));
+    let shiver = leaves.sway.w * strong * shaken;
     moved += shiver * vec3<f32>(
         sin(t * leaves.edge.x + leaf),
         0.5 * sin(t * leaves.edge.x * 1.31 + leaf * 1.7),

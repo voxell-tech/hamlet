@@ -15,7 +15,7 @@ import bevy_pbr::render::{
     shadows::fetch_directional_shadow,
     view_transformations::position_world_to_clip,
 };
-import hamlet_vfx::leaves_sway::{Leaves, swayed, is_cut, stroke_cover};
+import hamlet_vfx::leaves_sway::{Leaves, swayed, grown, is_cut, stroke_cover};
 import hamlet_vfx::wind::Wind;
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> leaves: Leaves;
@@ -41,6 +41,15 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     // The mesh's attributes may be stored compressed.
     let vertex = decompress_vertex(vertex_in, vertex_in.instance_index);
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+    // Plants many to a mesh carry how far they bend and glow.
+@if(VERTEX_UVS_B)
+    let at = grown(
+        leaves,
+        wind,
+        (world_from_local * vec4<f32>(vertex.position, 1.0)).xyz,
+        vertex.uv_b.x,
+    );
+@else
     let at = swayed(leaves, wind, vertex.position, world_from_local);
     out.world_position = vec4<f32>(at, 1.0);
     out.position = position_world_to_clip(at);
@@ -51,6 +60,8 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     );
 @if(VERTEX_UVS_A)
     out.uv = vertex.uv;
+@if(VERTEX_UVS_B)
+    out.uv_b = vertex.uv_b;
 @if(VERTEX_COLORS)
     out.color = vec4<f32>(
         vertex.color.rgb * tint(mesh_functions::get_tag(vertex.instance_index)),
@@ -130,6 +141,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // At night the crown's edge keeps a rim of the night's colour.
     let rim = leaves.rim.rgb * leaves.rim.w * leaves.edge.w * pow(edge, 3.0);
     colour += rim * albedo / max(max(albedo.r, albedo.g), max(albedo.b, 0.05));
+    // Glowing plants shine in their own colour after dark.
+@if(VERTEX_UVS_B)
+    colour += albedo * leaves.plants.x * leaves.edge.w * in.uv_b.y;
 
     out.color = vec4<f32>(colour, out.color.a);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);

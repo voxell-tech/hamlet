@@ -117,6 +117,9 @@ pub struct Meshing {
     normals: Vec<[f32; 3]>,
     colors: Vec<[f32; 4]>,
     uvs: Vec<[f32; 2]>,
+    /// For plants many to a mesh, each vertex's bend and glow, as
+    /// set by [`Meshing::grow`]; empty where none were.
+    grown: Vec<[f32; 2]>,
     indices: Vec<u32>,
     /// Applied to everything pushed after it is set.
     pub transform: Affine3A,
@@ -155,6 +158,28 @@ impl Meshing {
         }
     }
 
+    /// Marks the vertices from `from` on as a plant standing at the
+    /// height `foot`, `tall` high: each bends the more the higher it
+    /// is up the plant, as a share of how far a tree's crown does,
+    /// and glows at night as much as `glow`. Every vertex not marked
+    /// is still and dark.
+    pub fn grow(
+        &mut self,
+        from: usize,
+        foot: f32,
+        tall: f32,
+        glow: f32,
+    ) {
+        let foot = self.transform.transform_point3(Vec3::Y * foot).y;
+        self.grown.resize(self.positions.len(), [0.0; 2]);
+        for k in from..self.positions.len() {
+            let up = (self.positions[k][1] - foot).max(0.0) / tall;
+            // A plant of a metre bends a third as far as a crown.
+            let bends = up * up * tall.min(1.5) * 0.35;
+            self.grown[k] = [bends, glow];
+        }
+    }
+
     /// True when any vertex was given a UV.
     fn has_uvs(&self) -> bool {
         self.uvs.iter().any(|uv| *uv != [0.0; 2])
@@ -167,7 +192,10 @@ impl Meshing {
 
     /// Bytes of vertex and index data the built mesh holds.
     pub fn bytes(&self) -> usize {
-        let vertex = if self.has_uvs() { 48 } else { 40 };
+        let mut vertex = if self.has_uvs() { 48 } else { 40 };
+        if !self.grown.is_empty() {
+            vertex += 8;
+        }
         let index = if self.is_small() { 2 } else { 4 };
         self.positions.len() * vertex + self.indices.len() * index
     }
@@ -520,6 +548,9 @@ impl Meshing {
             self.indices = vec![at, at + 1, at + 2];
         }
         let (has_uvs, is_small) = (self.has_uvs(), self.is_small());
+        if !self.grown.is_empty() {
+            self.grown.resize(self.positions.len(), [0.0; 2]);
+        }
         let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::RENDER_WORLD,
@@ -532,6 +563,9 @@ impl Meshing {
         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors);
         if has_uvs {
             mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);
+        }
+        if !self.grown.is_empty() {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, self.grown);
         }
         mesh.with_inserted_indices(if is_small {
             Indices::U16(

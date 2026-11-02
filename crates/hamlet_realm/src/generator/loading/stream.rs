@@ -312,6 +312,7 @@ pub(in crate::generator) fn stream(
                             let bytes = mesh_bytes(&mesh);
                             (meshes.add(mesh), bytes)
                         }),
+                        sways: grove.sways,
                     };
                     shelf.put(seed, tile, kept.clone());
                     kept
@@ -333,9 +334,14 @@ pub(in crate::generator) fn stream(
             let mut bytes = 0;
             if let Some((mesh, size)) = grove.mesh {
                 bytes = size;
+                let leaves = if grove.sways {
+                    &kit.leaves
+                } else {
+                    &kit.still_leaves
+                };
                 commands.entity(wood).try_insert((
                     Mesh3d(mesh),
-                    MeshMaterial3d(kit.still_leaves.clone()),
+                    MeshMaterial3d(leaves.clone()),
                 ));
             }
             waiting.extend(

@@ -58,6 +58,9 @@ pub struct LeafSettings {
     /// how bright it is.
     pub rim: [f32; 3],
     pub rim_light: f32,
+    /// How brightly glowing plants shine at night, against their
+    /// colour by day.
+    pub night_glow: f32,
 }
 
 /// What the world tells the leaves of itself.
@@ -89,6 +92,7 @@ pub struct LeafUniform {
     pub edge: Vec4,
     pub shade: Vec4,
     pub rim: Vec4,
+    pub plants: Vec4,
 }
 
 impl LeafUniform {
@@ -124,6 +128,7 @@ impl LeafUniform {
                 rim.blue,
                 set.rim_light,
             ),
+            plants: Vec4::new(set.night_glow, 0.0, 0.0, 0.0),
         }
     }
 }
@@ -262,11 +267,21 @@ pub enum Stroke {
     Hang,
     /// A few short strokes fanned out from a point at the top.
     Fan,
+    /// Blades of grass rising from the bottom, thin to their tips.
+    Blades,
+    /// A round leaf lying on water, cut to its middle on one side.
+    Pad,
 }
 
 impl Stroke {
-    pub const ALL: [Stroke; 4] =
-        [Stroke::Dab, Stroke::Blot, Stroke::Hang, Stroke::Fan];
+    pub const ALL: [Stroke; 6] = [
+        Stroke::Dab,
+        Stroke::Blot,
+        Stroke::Hang,
+        Stroke::Fan,
+        Stroke::Blades,
+        Stroke::Pad,
+    ];
 
     /// The stroke's cell of the texture, as its UV corners: the top
     /// left, then the bottom right. Down the cell is down the stroke.
@@ -276,6 +291,8 @@ impl Stroke {
             Stroke::Blot => (1, 0),
             Stroke::Hang => (0, 1),
             Stroke::Fan => (1, 1),
+            Stroke::Blades => (0, 2),
+            Stroke::Pad => (1, 2),
         };
         let at = |x: usize, y: usize| {
             Vec2::new(
@@ -331,6 +348,28 @@ impl Stroke {
                         * smooth(0.0, 0.05, along)
                 })
                 .fold(0.0, f32::max),
+            Stroke::Blades => (0..7)
+                .map(|k| {
+                    let k = k as f32;
+                    // Each rises from its own foot, as high as its
+                    // own tip, and leans its own way.
+                    let foot = 0.2 + 0.1 * k;
+                    let lean =
+                        (k - 3.0) * 0.06 + 0.05 * (k * 2.7).sin();
+                    let tip = 0.05 + 0.15 * (1.0 + (k * 1.9).sin());
+                    let t = ((1.0 - y) / (1.0 - tip)).clamp(0.0, 1.0);
+                    let off = x - (foot + lean * t * t);
+                    let wide = 0.045 * (1.0 - 0.9 * t);
+                    smooth(1.0, 0.7, off.abs() / wide) * step(tip, y)
+                })
+                .fold(0.0, f32::max),
+            Stroke::Pad => {
+                let d = p - Vec2::splat(0.5);
+                let disc = body_of(d.length() / 0.44 + 0.08 * ragged);
+                // A narrow wedge cut from the edge to the middle.
+                let notch = smooth(0.1, 0.18, d.y.atan2(d.x).abs());
+                disc * notch
+            }
         };
         let tone = 0.8 + 0.14 * bristles + 0.08 * grain;
         (cover, tone)
@@ -347,8 +386,9 @@ const SIDE: usize = 512;
 /// Pixels across the solid band down its left side, where whatever
 /// is not a card takes its colour, at UV zero.
 const SOLID: usize = 64;
-/// Pixels across and down each stroke's cell.
-const CELL: (usize, usize) = ((SIDE - SOLID) / 2, SIDE / 2);
+/// Pixels across and down each stroke's cell, two across and three
+/// down.
+const CELL: (usize, usize) = ((SIDE - SOLID) / 2, SIDE / 3);
 
 /// The strokes' texture, with all its mip levels. Red, green and
 /// blue are the paint's tone, alpha how much of a stroke covers it.

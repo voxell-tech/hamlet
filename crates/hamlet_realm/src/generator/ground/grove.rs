@@ -1,9 +1,9 @@
-//! The trees of one tile.
+//! The trees and plants of one tile.
 
 use bevy::prelude::*;
 
 use super::{DetailSettings, Tile};
-use crate::generator::flora::{self, Tree};
+use crate::generator::flora::{self, Tree, plants};
 use crate::generator::land::Land;
 
 /// The drawing of a tile's trees.
@@ -44,6 +44,9 @@ pub struct Grove {
     /// stand as themselves, or all of them as one, where the tile is
     /// far enough for that. None where there is nothing to draw.
     pub mesh: Option<Mesh>,
+    /// Whether the mesh is of plants, which sway, and not of trees
+    /// far off, which keep still.
+    pub sways: bool,
 }
 
 pub fn grove(land: &Land, tile: Tile, stand: Stand) -> Grove {
@@ -51,10 +54,12 @@ pub fn grove(land: &Land, tile: Tile, stand: Stand) -> Grove {
     let (lo, side) = (tile.corner(chunk), tile.side(chunk));
     match stand {
         Stand::Trees => {
-            let trees = flora::trees(land, lo, lo + side, 1);
+            let (hi, sparse) = (lo + side, tile.level > 0);
+            let trees = flora::trees(land, lo, hi, 1);
             Grove {
-                mesh: flora::litter(land, &trees),
+                mesh: plants::plants(land, lo, hi, &trees, sparse),
                 trees,
+                sways: true,
             }
         }
         Stand::Canopy { every, crowns } => {
@@ -64,6 +69,7 @@ pub fn grove(land: &Land, tile: Tile, stand: Stand) -> Grove {
                     flora::canopy(&land.pal, &trees, crowns)
                 }),
                 trees: Vec::new(),
+                sways: false,
             }
         }
     }
