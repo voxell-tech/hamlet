@@ -80,6 +80,10 @@ impl Flavor for Blueprint {
         ("stone_wall", include_str!("examples/stone_wall.ron")),
         ("window", include_str!("examples/window.ron")),
         ("stone_tower", include_str!("examples/stone_tower.ron")),
+        (
+            "stepping_stones",
+            include_str!("examples/stepping_stones.ron"),
+        ),
         ("garden_bed", include_str!("examples/garden_bed.ron")),
         ("house_wall", include_str!("examples/house_wall.ron")),
         ("house_roof", include_str!("examples/house_roof.ron")),
