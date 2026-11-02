@@ -25,7 +25,7 @@ import bevy_pbr::{
 import hamlet_vfx::ground_shape::Pages;
 import hamlet_vfx::patch::slid;
 import hamlet_vfx::waves::{
-    SHORE_REACH, SHAPES, TAU, Bend, Coast, bends, coast, crests, groups, noise_rise, wave,
+    SHORE_REACH, SHAPES, SLOPE_MOST, TAU, Bend, Coast, bends, coast, crests, groups, noise_rise, wave,
 };
 
 // The fields are explained on `WaterUniform` in `water.rs`.
@@ -65,6 +65,10 @@ const SLOPE_FADE: vec2<f32> = vec2<f32>(200.0, 450.0);
 // where it is found from them alone: past where the ground's finest patches
 // end.
 const DEPTH_FROM_PAGES: vec2<f32> = vec2<f32>(60.0, 180.0);
+// Far off, where the waves have faded, the width in metres of the noise's
+// picture the sea's slow swells are laid from, and the most they tilt it.
+const FAR_SWELL: f32 = 600.0;
+const FAR_TILT: f32 = 0.05;
 
 // How far the waves move the point `pos` metres across.
 fn moved(pos: vec2<f32>) -> vec3<f32> {
@@ -488,6 +492,19 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let along_z = vec3<f32>(pull.y, rise.y, 1.0 + pull.w);
         N = normalize(cross(along_z, along_x));
     }
+    // Far off, where the waves are finer than a pixel and have faded, the
+    // sea is still rough: `rough` is how much of it they no longer show.
+    // Broad, slow swells of the drifting noise tilt it a little there, so
+    // the sky it mirrors breaks into soft patches rather than one sheet.
+    let rough = max(
+        smoothstep(0.5, TAU / (SHAPES[0].y * 4.0), footprint),
+        smoothstep(SLOPE_FADE.x * scale, SLOPE_FADE.y * scale, from_eye),
+    );
+    if rough > 0.0 {
+        let swell = textureSampleLevel(noise_slope, noise_slope_sampler, world_xz / FAR_SWELL + t * 0.002, 0.0).rg;
+        let tilt = swell * (SLOPE_MOST / 10.0) * FAR_TILT * rough;
+        N = normalize(N - vec3<f32>(tilt.x, 0.0, tilt.y));
+    }
 
     // What lies under the surface, bent by its slope as the eye sees it,
     // less so far off and where the water is thin, and how far beyond the
@@ -564,7 +581,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let tone = mix(0.72, 1.0, smoothstep(0.38, 0.44, dot(N, L)));
         light += light_in * max(L.y, 0.0) * tone;
         let H = normalize(L + V);
-        glint += light_in * smoothstep(0.993, 0.996, dot(N, H)) * 2.5;
+        // Crisp where the waves show; where the sea is rough past what can
+        // be seen, spread into a broad, dim sheen, as the waves would
+        // scatter it, rather than one blinding patch.
+        let crisp = smoothstep(0.993, 0.996, dot(N, H)) * 2.5;
+        let sheen = pow(smoothstep(0.9, 1.0, dot(N, H)), 2.0) * 0.25;
+        glint += light_in * mix(crisp, sheen, rough);
     }
     var colour = mix(body * light, under, water.foam_color.w * (1.0 - first));
 
