@@ -152,7 +152,7 @@ pub struct GrassReach {
     pub eye: Vec3,
     /// How high the eye stands over the ground under it.
     pub low: f32,
-    /// How far each detail reaches, as widened for the eye's height.
+    /// How far from the eye each detail reaches.
     pub rings: [f32; DETAILS],
 }
 

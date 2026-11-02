@@ -277,11 +277,9 @@ fn lay(
     let at = eye.translation();
     let centre = at.xz();
     let low = (at.y - land.height(centre)).max(0.0);
-    // Seen from higher up, even the nearest blades are further off:
-    // the rings, measured from the eye itself, widen with its height,
-    // so that the ground under it is still in the finest.
-    let wide = (low / 12.0).clamp(1.0, 1.8);
-    let rings = set.rings.map(|r| r * wide);
+    // The rings are measured from the eye itself, so seen from higher
+    // up even the ground under it falls to a coarser one.
+    let rings = set.rings;
     let far = rings[2];
     let reach = GrassReach {
         eye: at,
