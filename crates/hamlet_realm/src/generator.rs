@@ -7,6 +7,7 @@ mod common;
 mod debug;
 mod fireflies;
 pub(crate) mod flora;
+mod grass;
 pub mod ground;
 pub(crate) mod homing;
 pub mod house;
@@ -100,6 +101,7 @@ pub fn plugin(app: &mut App) {
         lights::plugin,
         sounds::plugin,
         relief::plugin,
+        grass::plugin,
     ))
     // An effect a house is given plays the frame it is given.
     .configure_sets(

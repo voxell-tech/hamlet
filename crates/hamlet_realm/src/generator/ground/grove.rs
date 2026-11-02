@@ -54,10 +54,10 @@ pub fn grove(land: &Land, tile: Tile, stand: Stand) -> Grove {
     let (lo, side) = (tile.corner(chunk), tile.side(chunk));
     match stand {
         Stand::Trees => {
-            let (hi, sparse) = (lo + side, tile.level > 0);
+            let hi = lo + side;
             let trees = flora::trees(land, lo, hi, 1);
             Grove {
-                mesh: plants::plants(land, lo, hi, &trees, sparse),
+                mesh: plants::plants(land, lo, hi, &trees),
                 trees,
                 sways: true,
             }

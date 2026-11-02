@@ -29,6 +29,7 @@ pub type GroundMaterial =
 pub(crate) fn plugin(app: &mut App) {
     load_shader_library!(app, "noise.wesl");
     load_shader_library!(app, "ground_shape.wesl");
+    load_shader_library!(app, "soil.wesl");
     embedded_asset!(app, "ground.wesl");
     embedded_asset!(app, "ground_prepass.wesl");
     app.add_plugins(MaterialPlugin::<GroundMaterial>::default())

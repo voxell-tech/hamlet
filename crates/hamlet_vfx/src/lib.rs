@@ -2,6 +2,7 @@
 //! When and where one is set off is the world's business.
 
 pub mod flag;
+pub mod grass;
 pub mod ground;
 pub mod inlay;
 pub mod leaves;
@@ -16,6 +17,7 @@ use bevy::prelude::*;
 use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
 
 use self::flag::FlagSettings;
+use self::grass::GrassSettings;
 use self::ground::GroundSettings;
 use self::inlay::InlayPlugin;
 use self::leaves::LeafSettings;
@@ -42,6 +44,7 @@ impl Plugin for VfxPlugin {
             ground::plugin,
             water::plugin,
             leaves::plugin,
+            grass::plugin,
         ))
         .init_resource::<Now>();
     }
@@ -88,6 +91,7 @@ pub(crate) struct VfxTuning {
     pub ground: GroundSettings,
     pub water: WaterSettings,
     pub leaves: LeafSettings,
+    pub grass: GrassSettings,
 }
 
 impl Tuning for VfxTuning {
@@ -101,6 +105,7 @@ impl Tuning for VfxTuning {
         follow(world, &was.ground, &self.ground);
         follow(world, &was.water, &self.water);
         follow(world, &was.leaves, &self.leaves);
+        follow(world, &was.grass, &self.grass);
     }
 }
 
@@ -112,4 +117,5 @@ designed!(VfxTuning {
     GroundSettings => ground,
     WaterSettings => water,
     LeafSettings => leaves,
+    GrassSettings => grass,
 });

@@ -1,8 +1,8 @@
 //! What grows under the trees and between them, many to a tile's
-//! one mesh: shrubs at the edge of the woods, grass and flowers on
-//! open ground, reeds and lily pads at the water, and toadstools in
-//! the deep woods that glow at night. Each bends in the wind as much
-//! as it is tall, as [`Meshing::grow`] marks it.
+//! one mesh: shrubs at the edge of the woods, reeds and lily pads at
+//! the water, and toadstools in the deep woods that glow at night.
+//! Each bends in the wind as much as it is tall, as
+//! [`Meshing::grow`] marks it. The grass is the GPU's, about the eye.
 
 use std::f32::consts::TAU;
 
@@ -15,22 +15,16 @@ use crate::generator::noise::{key, unit};
 use crate::meshes::{Meshing, Rng, fbm, smoothstep};
 
 /// Everything that grows between `lo` and `hi` under and about
-/// `trees`, with the leaves fallen from them, as one mesh. Where
-/// `sparse`, as on tiles further off, the grass is fewer and larger.
-/// None where nothing grows.
+/// `trees`, with the leaves fallen from them, as one mesh. None where
+/// nothing grows.
 pub(crate) fn plants(
     land: &Land,
     lo: Vec2,
     hi: Vec2,
     trees: &[Tree],
-    sparse: bool,
 ) -> Option<Mesh> {
     let mut meshing = Meshing::new();
     litter(&mut meshing, land, trees);
-    let grass = if sparse { 2.0 } else { 1.0 };
-    for (p, h) in spots(land, lo, hi, grass, 81) {
-        tuft(&mut meshing, land, p, h, grass.sqrt());
-    }
     for (p, h) in spots(land, lo, hi, 3.5, 82) {
         shrub(&mut meshing, land, p, h);
     }
@@ -89,89 +83,6 @@ fn is_kept(land: &Land, p: Vec2) -> bool {
 /// about 30 degrees.
 fn level(land: &Land, p: Vec2) -> f32 {
     smoothstep(0.14, 0.06, 1.0 - land.normal(p).y)
-}
-
-/// A tuft of grass, thicker on open level ground and in patches, and
-/// in some patches in flower.
-fn tuft(
-    meshing: &mut Meshing,
-    land: &Land,
-    p: Vec2,
-    h: u32,
-    size: f32,
-) {
-    let y = land.height(p);
-    let water = land.set.land.water_y;
-    if y < water + 0.35 || y > 26.0 || is_kept(land, p) {
-        return;
-    }
-    let open = 1.0 - land.forest(p);
-    let patch = smoothstep(0.35, 0.6, fbm(p.x * 0.06, p.y * 0.06));
-    let chance = level(land, p)
-        * (0.15 + 0.6 * open)
-        * (0.3 + 0.7 * patch)
-        * smoothstep(26.0, 18.0, y);
-    if roll(h, 2) > chance {
-        return;
-    }
-    let pal = &land.pal;
-    let high = smoothstep(12.0, 20.0, y);
-    let tip = pal.grass_tip.lerp(pal.grass_high, high)
-        * (0.9 + 0.2 * roll(h, 3));
-    let foot = pal.grass_shade.lerp(pal.grass_high * 0.7, high);
-    let tall = (0.3 + 0.3 * roll(h, 4)) * size;
-    let wide = tall * 1.3;
-    let at = Vec3::new(p.x, y - 0.05, p.y);
-    let from = meshing.vertices();
-    let turn = roll(h, 5) * TAU;
-    for k in 0..3 {
-        let a = turn + k as f32 / 3.0 * TAU * 0.5;
-        let across = Vec3::new(a.cos(), 0.0, a.sin()) * wide;
-        shaded_card(
-            meshing,
-            at + Vec3::Y * tall,
-            -Vec3::Y * tall,
-            across,
-            Stroke::Blades,
-            [tip, foot],
-        );
-    }
-    // Lit as the ground about it is, not by its sides.
-    meshing.round(from, at - Vec3::Y * 2.0, 0.85);
-    // Flowers, in patches of one colour each.
-    let blooms = fbm(p.x * 0.09 + 31.0, p.y * 0.09 - 17.0);
-    if open > 0.4 && blooms > 0.6 && roll(h, 6) < 0.7 {
-        let patch = key(&[
-            land.seed,
-            86,
-            (p.x / 9.0).floor() as u32,
-            (p.y / 9.0).floor() as u32,
-        ]);
-        let colour = pal.flowers[patch as usize % pal.flowers.len()];
-        for k in 0..2 + (roll(h, 7) * 3.0) as u32 {
-            let a = roll(h, 8 + k) * TAU;
-            let out = Vec3::new(a.cos(), 0.0, a.sin())
-                * wide
-                * 0.35
-                * roll(h, 12 + k);
-            let head = at
-                + out
-                + Vec3::Y * tall * (0.85 + 0.3 * roll(h, 16 + k));
-            let s = 0.13 + 0.06 * roll(h, 20 + k);
-            // Tipped toward the sky, so it shows from above.
-            let face = (Vec3::Y + out).normalize();
-            let (u, _) = face.any_orthonormal_pair();
-            card(
-                meshing,
-                head - u * s * 0.5,
-                u * s,
-                u.cross(face) * s,
-                Stroke::Blot,
-                colour * (0.9 + 0.2 * roll(h, 24 + k)),
-            );
-        }
-    }
-    meshing.grow(from, at.y, tall, 0.0);
 }
 
 /// A shrub: a few low clumps of leaves, most at the edge of the
