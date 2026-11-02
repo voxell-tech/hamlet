@@ -41,7 +41,7 @@ const PROBE: &str = "0123456789012345678901234567890123456789";
 /// negative one keeps it out of the Tab order, so Tab reaches the
 /// shell.
 #[derive(Component)]
-#[require(TabIndex = TabIndex(-1), Chosen)]
+#[require(TabIndex = TabIndex(-1), Chosen, Reporting)]
 pub struct Canvas(pub PanelId);
 
 /// What is drawn in a [`Canvas`].
@@ -103,6 +103,14 @@ impl Span {
         let ((first_row, first), (last_row, last)) = self.ends();
         screen.contents_between(first_row, first, last_row, last + 1)
     }
+}
+
+/// The button a canvas reported held to its terminal's program, and
+/// the cell it last reported, while the program reads the mouse.
+#[derive(Component, Default, Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Reporting {
+    pub(crate) held: Option<super::mouse::Button>,
+    pub(crate) cell: Option<(u16, u16)>,
 }
 
 /// The cells chosen in a canvas's terminal, and the cell a drag that
