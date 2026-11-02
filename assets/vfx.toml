@@ -138,5 +138,5 @@ sheen = 1.5
 flowers = 0.35
 glow = 3.0
 pulse = [7.0, 0.6]
-cell = 8.0
+slots = 11
 rings = [20.0, 40.0, 70.0]

@@ -1,12 +1,15 @@
 //! Grass: a meadow of tufts about the eye. Each tuft is one of a few
 //! shapes made at random when the grass is made, a clump of curved
-//! blades leaning out from its middle, and each is placed, scaled and
-//! turned by the world. On the GPU a tuft is set on the land under
-//! each of its points, takes the ground's own colour, darker at its
-//! roots and lighter to its tips, and is lit as the ground under it
-//! is, so that tufts crowding one another read as one soft surface.
-//! It shrinks away on whatever a mask marks trodden and toward the
-//! edge of the eye's reach, and bends in the wind's gusts.
+//! blades leaning out from its middle. The world lays only squares of
+//! slots, one tuft to each; the GPU does the rest. From each slot's
+//! place on the map alone it finds where in it its tuft stands, how
+//! it is scaled and turned, whether it grows there at all and whether
+//! it flowers, then sets it on the land under each of its points. A
+//! tuft takes the ground's own colour, darker at its roots and
+//! lighter to its tips, and is lit as the ground under it is, so that
+//! tufts crowding one another read as one soft surface. It shrinks
+//! away on whatever a mask marks trodden and toward the edge of the
+//! eye's reach, and bends in the wind's gusts.
 
 use std::f32::consts::TAU;
 
@@ -28,12 +31,11 @@ use crate::{Now, VfxSystems};
 
 pub type GrassMaterial = ExtendedMaterial<StandardMaterial, GrassExt>;
 
-/// Shapes of tuft there are. The first [`SHAPES`] are grass alone;
-/// the rest are the first few of those again, in flower.
+/// Shapes of tuft there are, and how many of the first carry flowers'
+/// heads, which show where a tuft flowers.
 pub const SHAPES: usize = 8;
 pub const IN_FLOWER: usize = 4;
-pub const TUFTS: usize = SHAPES + IN_FLOWER;
-/// Details each tuft is made in, the finest first.
+/// Details each square is made in, the finest first.
 pub const DETAILS: usize = 3;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -84,8 +86,9 @@ pub struct GrassSettings {
     /// noise of their own, not the wind's.
     pub glow: f32,
     pub pulse: (f32, f32),
-    /// The side of a square of tufts laid together, in metres.
-    pub cell: f32,
+    /// Tufts along the side of a square laid together, each
+    /// `spacing` apart.
+    pub slots: u32,
     /// How far from the eye each detail reaches, the finest first,
     /// where the eye stands low. The grass shortens to nothing over
     /// the last third of the last.
@@ -117,6 +120,8 @@ pub struct GrassExt {
 /// there.
 #[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
 pub struct GrassUniform {
+    pub grow: Vec4,
+    pub size: Vec4,
     pub look: Vec4,
     pub sway: Vec4,
     pub glow: Vec4,
@@ -138,6 +143,18 @@ impl GrassUniform {
         flowers: [Vec4; 5],
     ) -> Self {
         Self {
+            grow: Vec4::new(
+                set.spacing,
+                set.bare,
+                set.flowers,
+                set.slots as f32,
+            ),
+            size: Vec4::new(
+                set.across.0,
+                set.across.1,
+                set.up.0,
+                set.up.1,
+            ),
             look: Vec4::new(set.root, set.tip, set.sun, set.sheen),
             sway: Vec4::new(set.bend, now, 0.0, 0.0),
             glow: Vec4::new(
@@ -223,35 +240,80 @@ pub fn mask(side: u32) -> Image {
     image
 }
 
-/// Tuft `shape` of [`TUFTS`] at `detail` of [`DETAILS`], standing on
-/// the origin, made at random from its number alone: a clump of
-/// curved blades, the outer ones shorter and leaning out further.
-/// Each point's UV is how far up its blade it is, from 0 to 1, and a
+/// A square of `slots` by `slots` tufts at `detail` of [`DETAILS`],
+/// each one of the [`SHAPES`] standing on the origin, for the shader
+/// to place: which slot a point's tuft is in is its second UV. Each
+/// point's UV is how far up its blade it is, from 0 to 1, and a
 /// number of its blade's own; its colour is its blade's tone, which
-/// the shader multiplies the ground's colour by, with alpha 1, or a
-/// flower's head, with alpha 0.
-pub fn tuft(
+/// the shader multiplies the ground's colour by, with alpha 1. A
+/// flower's head, which only tufts in flower show, has alpha 0, all
+/// its points at the head's middle and their colours how far out of
+/// it each lies.
+pub fn square(set: &GrassSettings, detail: usize) -> Mesh {
+    let mut built = Built::default();
+    let slots = set.slots.max(1);
+    for slot in 0..slots * slots {
+        let shape = (hash(slot, 101) * SHAPES as f32) as usize;
+        let at = [(slot % slots) as f32, (slot / slots) as f32];
+        tuft(&mut built, set, shape.min(SHAPES - 1), detail, at);
+    }
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        built.positions,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, built.normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, built.uvs)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, built.slots)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, built.colours)
+    .with_inserted_indices(Indices::U32(built.indices))
+}
+
+/// A square's points as they are built.
+#[derive(Default)]
+struct Built {
+    positions: Vec<[f32; 3]>,
+    normals: Vec<[f32; 3]>,
+    uvs: Vec<[f32; 2]>,
+    slots: Vec<[f32; 2]>,
+    colours: Vec<[f32; 4]>,
+    indices: Vec<u32>,
+}
+
+/// Tuft `shape` of [`SHAPES`] at `detail`, in the slot `slot`, made
+/// at random from its number alone: a clump of curved blades, the
+/// outer ones shorter and leaning out further, and the first
+/// [`IN_FLOWER`] shapes with flowers' heads on their tallest blades.
+fn tuft(
+    built: &mut Built,
     set: &GrassSettings,
     shape: usize,
     detail: usize,
-) -> Mesh {
+    slot: [f32; 2],
+) {
     /// How far up each pair of points across a blade lies; its tip
     /// is one point.
     const RISE: [f32; 4] = [0.0, 0.3, 0.58, 0.82];
-    let seed = (shape % SHAPES) as u32 * 977 + 13;
+    let seed = shape as u32 * 977 + 13;
     let r = |i: u32, k: u32| hash(seed.wrapping_add(i * 7919), k);
     let finest = set.blades[0].max(1);
     let count = set.blades[detail].clamp(1, finest);
     // Fewer blades are drawn wider, to cover as much.
     let wider = (finest as f32 / count as f32).sqrt();
     let stride = finest / count;
-    let flowering = shape >= SHAPES;
+    let flowering = shape < IN_FLOWER;
 
-    let mut positions = Vec::new();
-    let mut normals = Vec::new();
-    let mut uvs = Vec::new();
-    let mut colours = Vec::new();
-    let mut indices = Vec::new();
+    let Built {
+        positions,
+        normals,
+        uvs,
+        slots,
+        colours,
+        indices,
+    } = built;
     for n in 0..count {
         let i = n * stride;
         // Thicker toward the middle.
@@ -290,6 +352,7 @@ pub fn tuft(
                 (if face.y < 0.0 { -face } else { face }).to_array(),
             );
             uvs.push([t, own]);
+            slots.push(slot);
             colours.push(c);
         };
         let grass = [tone.x, tone.y, tone.z, 1.0];
@@ -311,19 +374,17 @@ pub fn tuft(
             let head = centre(1.0);
             let size = 0.035 * wider.sqrt() * (0.8 + 0.4 * r(i, 10));
             let first = positions.len() as u32;
-            let flower = [1.0, 1.0, 1.0, 0.0];
-            let mut petal = |p: Vec3| {
-                positions.push(p.to_array());
+            let mut petal = |out: Vec3| {
+                positions.push(head.to_array());
                 normals.push([0.0, 1.0, 0.0]);
                 uvs.push([1.0, own]);
-                colours.push(flower);
+                slots.push(slot);
+                colours.push([out.x, out.y, out.z, 0.0]);
             };
-            petal(head);
+            petal(Vec3::ZERO);
             for k in 0..5 {
                 let a = k as f32 / 5.0 * TAU + turn;
-                petal(
-                    head + Vec3::new(a.cos(), 0.15, a.sin()) * size,
-                );
+                petal(Vec3::new(a.cos(), 0.15, a.sin()) * size);
             }
             for k in 0..5 {
                 indices.extend([
@@ -334,15 +395,6 @@ pub fn tuft(
             }
         }
     }
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colours)
-    .with_inserted_indices(Indices::U32(indices))
 }
 
 /// Tells the grass the time, the wind, how far into the night it is,

@@ -24,6 +24,7 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
         vertex.uv.y,
         vertex.color.rgb,
         vertex.color.a < 0.5,
+        vertex.uv_b,
         world_from_local,
     );
     out.world_position = vec4<f32>(b.position, 1.0);
