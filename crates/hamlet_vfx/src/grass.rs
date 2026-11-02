@@ -58,8 +58,10 @@ pub struct GrassSettings {
     pub spread: f32,
     /// How wide a blade is at its root, in metres.
     pub wide: f32,
-    /// Blades in a tuft at each detail, the finest first.
+    /// Blades in a tuft at each detail, the finest first, and the
+    /// share of the places a tuft might grow that keep one at each.
     pub blades: [u32; 3],
+    pub kept: [f32; 3],
     /// How far apart the tufts grow, in metres, and the share of the
     /// places one might grow that are left bare.
     pub spacing: f32,
@@ -252,10 +254,18 @@ pub fn mask(side: u32) -> Image {
 pub fn square(set: &GrassSettings, detail: usize) -> Mesh {
     let mut built = Built::default();
     let slots = set.slots.max(1);
+    // Further off, fewer slots hold a tuft, each spread the wider to
+    // cover as much.
+    let kept = set.kept[detail].clamp(0.05, 1.0);
+    let broad = kept.sqrt().recip();
     for slot in 0..slots * slots {
+        if hash(slot, 202) >= kept {
+            continue;
+        }
         let shape = (hash(slot, 101) * SHAPES as f32) as usize;
         let at = [(slot % slots) as f32, (slot / slots) as f32];
-        tuft(&mut built, set, shape.min(SHAPES - 1), detail, at);
+        let shape = shape.min(SHAPES - 1);
+        tuft(&mut built, set, shape, detail, broad, at);
     }
     Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -283,15 +293,17 @@ struct Built {
     indices: Vec<u32>,
 }
 
-/// Tuft `shape` of [`SHAPES`] at `detail`, in the slot `slot`, made
-/// at random from its number alone: a clump of curved blades, the
-/// outer ones shorter and leaning out further, and the first
-/// [`IN_FLOWER`] shapes with flowers' heads on their tallest blades.
+/// Tuft `shape` of [`SHAPES`] at `detail`, spread `broad` times as
+/// wide, in the slot `slot`, made at random from its number alone: a
+/// clump of curved blades, the outer ones shorter and leaning out
+/// further, and the first [`IN_FLOWER`] shapes with flowers' heads on
+/// their tallest blades.
 fn tuft(
     built: &mut Built,
     set: &GrassSettings,
     shape: usize,
     detail: usize,
+    broad: f32,
     slot: [f32; 2],
 ) {
     /// How far up each pair of points across a blade lies; its tip
@@ -320,7 +332,7 @@ fn tuft(
         let out = r(i, 0).powf(0.7);
         let turn = r(i, 1) * TAU;
         let way = Vec3::new(turn.cos(), 0.0, turn.sin());
-        let root = way * out * set.spread * 0.35;
+        let root = way * out * set.spread * 0.35 * broad;
         let height =
             set.tall * (0.5 + 0.5 * r(i, 2)) * (1.0 - 0.4 * out);
         // How far it leans out, and a little to one side.
@@ -338,7 +350,7 @@ fn tuft(
             * Vec3::new(1.0 + 0.12 * warm, 1.0, 1.0 - 0.25 * warm);
         let own = r(i, 9);
         let centre = |t: f32| {
-            root + lean_way * (lean * height * t * t)
+            root + lean_way * (lean * height * t * t * broad)
                 + Vec3::Y * height * (t - 0.3 * lean * lean * t * t)
         };
         let first = positions.len() as u32;
