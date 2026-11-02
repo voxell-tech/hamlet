@@ -15,8 +15,6 @@ struct Leaves {
     shade: vec4<f32>,
     // rgb: `rim`, linear. w: `rim_light`.
     rim: vec4<f32>,
-    // x: `night_glow`.
-    plants: vec4<f32>,
 }
 
 // Texels across the strokes' texture, `SIDE` in `leaves.rs`.

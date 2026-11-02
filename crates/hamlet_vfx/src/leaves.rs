@@ -58,9 +58,6 @@ pub struct LeafSettings {
     /// how bright it is.
     pub rim: [f32; 3],
     pub rim_light: f32,
-    /// How brightly glowing plants shine at night, against their
-    /// colour by day.
-    pub night_glow: f32,
 }
 
 /// What the world tells the leaves of itself.
@@ -92,7 +89,6 @@ pub struct LeafUniform {
     pub edge: Vec4,
     pub shade: Vec4,
     pub rim: Vec4,
-    pub plants: Vec4,
 }
 
 impl LeafUniform {
@@ -128,7 +124,6 @@ impl LeafUniform {
                 rim.blue,
                 set.rim_light,
             ),
-            plants: Vec4::new(set.night_glow, 0.0, 0.0, 0.0),
         }
     }
 }

@@ -88,6 +88,16 @@ pub struct GrassSettings {
     /// noise of their own, not the wind's.
     pub glow: f32,
     pub pulse: (f32, f32),
+    /// How brightly the grass in and about a patch of flowers glows
+    /// in their colour, against the flowers themselves.
+    pub halo: f32,
+    /// How many lights the flowers nearest the eye cast on what is
+    /// about them at night, how far from the eye they reach, and how
+    /// bright and how far each one shines, in lumens and metres.
+    pub lights: u32,
+    pub lit_within: f32,
+    pub lumens: f32,
+    pub lit_range: f32,
     /// Tufts along the side of a square laid together, each
     /// `spacing` apart.
     pub slots: u32,
@@ -187,7 +197,7 @@ impl GrassUniform {
                 set.glow * night,
                 1.0 / set.pulse.0.max(1e-3),
                 set.pulse.1,
-                0.0,
+                set.halo,
             ),
             mask_at,
             flowers,
@@ -431,6 +441,13 @@ fn tuft(
         {
             let head = centre(1.0);
             let size = 0.035 * (0.8 + 0.4 * r(i, 10));
+            // Each head faces its own way, tipped up to 70 degrees
+            // from the sky about an axis of its own.
+            let tip = Quat::from_axis_angle(
+                Vec3::new(r(i, 11) - 0.5, 0.0, r(i, 12) - 0.5)
+                    .normalize_or(Vec3::X),
+                r(i, 13) * 1.2,
+            );
             let first = positions.len() as u32;
             let mut petal = |out: Vec3| {
                 positions.push(head.to_array());
@@ -442,7 +459,7 @@ fn tuft(
             petal(Vec3::ZERO);
             for k in 0..5 {
                 let a = k as f32 / 5.0 * TAU + turn;
-                petal(Vec3::new(a.cos(), 0.15, a.sin()) * size);
+                petal(tip * Vec3::new(a.cos(), 0.15, a.sin()) * size);
             }
             for k in 0..5 {
                 indices.extend([

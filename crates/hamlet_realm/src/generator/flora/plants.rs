@@ -1,9 +1,8 @@
 //! What grows under the trees and between them, many to a tile's
-//! one mesh: shrubs at the edge of the woods, reeds at the water, and
-//! toadstools in the deep woods that glow at night. Each bends in the
-//! wind as much as it is tall, as [`Meshing::grow`] marks it. Lily
-//! pads lie on the water each alone, to ride its waves. The grass is
-//! the GPU's, about the eye.
+//! one mesh: shrubs at the edge of the woods and reeds at the water.
+//! Each bends in the wind as much as it is tall, as
+//! [`Meshing::grow`] marks it. Lily pads lie on the water each alone,
+//! to ride its waves. The grass is the GPU's, about the eye.
 
 use std::f32::consts::TAU;
 
@@ -33,12 +32,9 @@ pub(crate) fn plants(
     for (p, h) in spots(land, lo, hi, 0.9, 83) {
         reeds(&mut meshing, land, p, h);
     }
-    for (p, h) in spots(land, lo, hi, 4.0, 85) {
-        toadstools(&mut meshing, land, p, h);
-    }
     // Marks what was not grown as still, so that the whole mesh is
     // drawn as plants are and none of it as one tree.
-    meshing.grow(meshing.vertices(), 0.0, 1.0, 0.0);
+    meshing.grow(meshing.vertices(), 0.0, 1.0);
     (!meshing.is_empty()).then(|| meshing.build())
 }
 
@@ -149,7 +145,7 @@ fn shrub(meshing: &mut Meshing, land: &Land, p: Vec2, h: u32) {
         }
     }
     meshing.round(from, at + Vec3::Y * size * 0.3, 0.7);
-    meshing.grow(from, at.y, size, 0.0);
+    meshing.grow(from, at.y, size);
 }
 
 /// A clump of reeds where the ground runs into the water, some with
@@ -208,7 +204,7 @@ fn reeds(meshing: &mut Meshing, land: &Land, p: Vec2, h: u32) {
         );
     }
     meshing.round(from, at - Vec3::Y * 1.5, 0.6);
-    meshing.grow(from, at.y, tall, 0.0);
+    meshing.grow(from, at.y, tall);
 }
 
 /// The lily pads lying on shallow water between `lo` and `hi`, in
@@ -301,47 +297,4 @@ pub(crate) fn pad_mesh(pal: &Palette, look: usize) -> Mesh {
         }
     }
     meshing.build()
-}
-
-/// A ring of toadstools in the deep woods, whose caps glow at night.
-fn toadstools(meshing: &mut Meshing, land: &Land, p: Vec2, h: u32) {
-    let y = land.height(p);
-    if y < land.set.land.water_y + 0.5 || is_kept(land, p) {
-        return;
-    }
-    let deep = smoothstep(0.5, 0.75, land.forest(p));
-    if roll(h, 2) > 0.3 * deep * level(land, p) {
-        return;
-    }
-    let pal = &land.pal;
-    let count = 3 + (roll(h, 3) * 4.0) as u32;
-    for k in 0..count {
-        let a = roll(h, 4 + k) * TAU;
-        let q = p + Vec2::from_angle(a) * 0.7 * roll(h, 12 + k);
-        let foot = Vec3::new(q.x, land.height(q) - 0.02, q.y);
-        let tall = 0.08 + 0.14 * roll(h, 20 + k);
-        let r = 0.05 + 0.07 * roll(h, 28 + k);
-        let from = meshing.vertices();
-        meshing.tube(
-            foot,
-            foot + Vec3::Y * tall,
-            r * 0.35,
-            r * 0.3,
-            5,
-            pal.parchment,
-            false,
-        );
-        meshing.grow(from, foot.y, 1.0, 0.25);
-        let from = meshing.vertices();
-        let cap = pal.glow_cap * (0.85 + 0.3 * roll(h, 36 + k));
-        meshing.blob(
-            foot + Vec3::Y * tall,
-            Vec3::new(r, r * 0.55, r),
-            3,
-            0.1,
-            k as f32,
-            move |_| cap,
-        );
-        meshing.grow(from, foot.y, 1.0, 1.0);
-    }
 }

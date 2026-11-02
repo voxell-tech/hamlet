@@ -41,7 +41,7 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     // The mesh's attributes may be stored compressed.
     let vertex = decompress_vertex(vertex_in, vertex_in.instance_index);
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
-    // Plants many to a mesh carry how far they bend and glow.
+    // Plants many to a mesh carry how far they bend.
 @if(VERTEX_UVS_B)
     let at = grown(
         leaves,
@@ -60,8 +60,6 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     );
 @if(VERTEX_UVS_A)
     out.uv = vertex.uv;
-@if(VERTEX_UVS_B)
-    out.uv_b = vertex.uv_b;
 @if(VERTEX_COLORS)
     out.color = vec4<f32>(
         vertex.color.rgb * tint(mesh_functions::get_tag(vertex.instance_index)),
@@ -141,9 +139,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // At night the crown's edge keeps a rim of the night's colour.
     let rim = leaves.rim.rgb * leaves.rim.w * leaves.edge.w * pow(edge, 3.0);
     colour += rim * albedo / max(max(albedo.r, albedo.g), max(albedo.b, 0.05));
-    // Glowing plants shine in their own colour after dark.
-@if(VERTEX_UVS_B)
-    colour += albedo * leaves.plants.x * leaves.edge.w * in.uv_b.y;
 
     out.color = vec4<f32>(colour, out.color.a);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);

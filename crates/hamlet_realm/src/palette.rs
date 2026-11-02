@@ -99,9 +99,6 @@ pub struct Palette {
     pub reed: Vec3,
     #[serde(with = "tint::linear")]
     pub lily_pad: Vec3,
-    /// The caps of the toadstools that glow at night.
-    #[serde(with = "tint::linear")]
-    pub glow_cap: Vec3,
     #[serde(with = "tint::linear")]
     pub conifer: Vec3,
     #[serde(with = "tint::linear")]

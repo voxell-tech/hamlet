@@ -26,7 +26,7 @@ struct Grass {
     // x: `bend`. y: the time in seconds.
     sway: vec4<f32>,
     // x: `glow`, as far into the night as it is. y: one over the breadth
-    // of its patches. z: how fast they drift.
+    // of its patches. z: how fast they drift. w: `halo`.
     glow: vec4<f32>,
     // The share of tufts kept where the middle detail begins, and where
     // the farthest does; then the same for each tuft's blades.
@@ -51,12 +51,30 @@ struct Grass {
 const TAU: f32 = 6.2831853;
 
 // A point of a tuft as it is drawn: where, the ground's normal under it,
-// which it is lit by, its colour, and how brightly it glows.
+// which it is lit by, its colour, and the light it gives off.
 struct Blade {
     position: vec3<f32>,
     normal: vec3<f32>,
     colour: vec3<f32>,
-    glow: f32,
+    glow: vec3<f32>,
+}
+
+// Where the field of flowers is over this, tufts flower. `BLOOMS` in
+// `generator/grass.rs`, which lights the patches.
+const BLOOMS: f32 = 0.2;
+
+// The field the flowers grow in, in about -1..1, as `blooms` in
+// `generator/grass.rs` has it.
+fn blooms_at(p: vec2<f32>) -> f32 {
+    return fbm(p * 0.08 + vec2<f32>(31.0, -17.0), 2u, soil.seed + 91u);
+}
+
+// The colour of the flowers at `p` on the map: one to a patch, from broad
+// noise much larger than a patch, as `bloom` in `generator/grass.rs` has
+// it.
+fn bloom_colour(p: vec2<f32>) -> vec3<f32> {
+    let n = fbm(p * 0.02 + vec2<f32>(7.0, 3.0), 2u, soil.seed + 92u);
+    return grass.flowers[u32(clamp(n * 1.6 + 0.5, 0.0, 0.999) * 5.0)].rgb;
 }
 
 // A number from 0 to 1 of the tuft whose hash is `h`, one of many by
@@ -100,7 +118,7 @@ const FADING: f32 = 0.08;
 fn kept_at(d: f32, at_middle: f32, at_far: f32) -> f32 {
     let near = grass.rings.x;
     if d < near {
-        return mix(1.0 + FADING, at_middle, smooth_step(near * 0.5, near, d));
+        return mix(1.0 + FADING, at_middle, smooth_step(near * 0.6, near, d));
     }
     return mix(at_middle, at_far, smooth_step(near, grass.rings.y, d));
 }
@@ -141,7 +159,7 @@ fn blade(
 
     var drawn: Blade;
     drawn.normal = n;
-    drawn.glow = 0.0;
+    drawn.glow = vec3<f32>(0.0);
     // None grow in or by the water, on steep or high ground, on trodden
     // ground, nor in some places at random, and fewer in the woods. One
     // that does not is drawn as nothing, all its points at its middle;
@@ -159,8 +177,8 @@ fn blade(
 
     // Tufts flower in patches; a flower's head is drawn only on one that
     // does, and on others shrinks to nothing at its middle.
-    let blooms = fbm(p * 0.08 + vec2<f32>(31.0, -17.0), 2u, soil.seed + 91u);
-    let flowering = blooms > 0.2 && roll(h, 4u) < grass.grow.z * (1.0 - woods);
+    let blooms = blooms_at(p);
+    let flowering = blooms > BLOOMS && roll(h, 4u) < grass.grow.z * (1.0 - woods);
     // How far off it is, as the squares are laid by: across the map, and
     // the eye's height over the ground.
     let away = length(vec2<f32>(distance(p, grass.reach.xz), grass.rings.z));
@@ -224,13 +242,12 @@ fn blade(
     // flowers is one colour.
     let warm = fract(own * 7.31) - 0.5;
     let tone = (0.88 + 0.24 * fract(own * 13.7)) * vec3<f32>(1.0 + 0.12 * warm, 1.0, 1.0 - 0.25 * warm);
-    let bed = vec2<i32>(floor(p / 9.0));
-    let bloom = grass.flowers[u32(bed.x * 73 + bed.y * 19 + 100000) % 5u].rgb;
-    let shine = select(0.0, glow_at(p), grass.glow.x > 0.0 && flowering);
+    let bloom = bloom_colour(p);
+    let shine = select(0.0, glow_at(p), grass.glow.x > 0.0);
     var colour: vec3<f32>;
     if flower {
         colour = bloom;
-        drawn.glow = shine;
+        drawn.glow = bloom * shine;
     } else {
         colour = grass_colour(p, y, woods, heath) * tone * mix(grass.look.x, grass.look.y, up);
         colour = mix(colour, soil.grass_sun.rgb * grass.look.y, grass.look.z * up * up);
@@ -238,8 +255,12 @@ fn blade(
         if flowering {
             let tinted = (1.0 - heads) * up * up;
             colour = mix(colour, bloom, 0.7 * tinted);
-            drawn.glow = shine * tinted;
+            drawn.glow = bloom * shine * tinted;
         }
+        // The grass in and about a patch of flowers glows faintly in the
+        // flowers' colour, the more toward their middle and up the blade.
+        let about = smooth_step(BLOOMS - 0.15, BLOOMS + 0.1, blooms);
+        drawn.glow += bloom * shine * grass.glow.w * about * (0.3 + 0.7 * up);
     }
 
     drawn.position = at;

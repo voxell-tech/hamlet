@@ -117,8 +117,8 @@ pub struct Meshing {
     normals: Vec<[f32; 3]>,
     colors: Vec<[f32; 4]>,
     uvs: Vec<[f32; 2]>,
-    /// For plants many to a mesh, each vertex's bend and glow, as
-    /// set by [`Meshing::grow`]; empty where none were.
+    /// For plants many to a mesh, each vertex's bend, as set by
+    /// [`Meshing::grow`], and a spare 0; empty where none were.
     grown: Vec<[f32; 2]>,
     indices: Vec<u32>,
     /// Applied to everything pushed after it is set.
@@ -160,23 +160,16 @@ impl Meshing {
 
     /// Marks the vertices from `from` on as a plant standing at the
     /// height `foot`, `tall` high: each bends the more the higher it
-    /// is up the plant, as a share of how far a tree's crown does,
-    /// and glows at night as much as `glow`. Every vertex not marked
-    /// is still and dark.
-    pub fn grow(
-        &mut self,
-        from: usize,
-        foot: f32,
-        tall: f32,
-        glow: f32,
-    ) {
+    /// is up the plant, as a share of how far a tree's crown does.
+    /// Every vertex not marked is still.
+    pub fn grow(&mut self, from: usize, foot: f32, tall: f32) {
         let foot = self.transform.transform_point3(Vec3::Y * foot).y;
         self.grown.resize(self.positions.len(), [0.0; 2]);
         for k in from..self.positions.len() {
             let up = (self.positions[k][1] - foot).max(0.0) / tall;
             // A plant of a metre bends a third as far as a crown.
             let bends = up * up * tall.min(1.5) * 0.35;
-            self.grown[k] = [bends, glow];
+            self.grown[k] = [bends, 0.0];
         }
     }
 

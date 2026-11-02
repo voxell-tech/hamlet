@@ -1,22 +1,27 @@
 //! The grass about the eye: squares of tuft slots laid in rings, the
 //! nearest in the finest detail, on which the GPU grows, places and
-//! bends every tuft from the land's pages; and the mask that keeps it
-//! off the roads and the towns' squares.
+//! bends every tuft from the land's pages; the mask that keeps it off
+//! the roads and the towns' squares; and at night the lights the
+//! flowers nearest the eye cast.
 
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::NoAutoAabb;
 use bevy::light::NotShadowCaster;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use hamlet_vfx::Now;
 use hamlet_vfx::grass::{
     self, DETAILS, GrassMaterial, GrassReach, GrassSettings,
 };
 use hamlet_vfx::ground::GroundMaterial;
+use hamlet_vfx::leaves::LeafView;
 
 use super::Kit;
 use super::land::Land;
+use super::noise::{fbm, perlin};
 use super::sync::Drawn;
 use crate::WorldCamera;
+use crate::meshes::smoothstep;
 
 /// Texels across the mask, and metres to a texel: enough to reach
 /// past the furthest ring, as wide as the eye's height makes it.
@@ -29,7 +34,134 @@ const MASK_TEXEL: f32 = 0.5;
 const EDGE: f32 = 0.4;
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Update, (begin, (follow, lay, tread)).chain());
+    app.add_systems(
+        Update,
+        (begin, (follow, lay, tread, light_flowers)).chain(),
+    );
+}
+
+/// Where the field of flowers is over this, tufts flower. `BLOOMS` in
+/// `grass_shape.wesl`.
+const BLOOMS: f32 = 0.2;
+
+/// How far apart the places a flower light may stand are, in metres.
+const LIGHT_STEP: f32 = 6.0;
+
+/// The field the flowers grow in at `p`, as `blooms_at` in
+/// `grass_shape.wesl` has it.
+fn blooms(land: &Land, p: Vec2) -> f32 {
+    fbm(p * 0.08 + Vec2::new(31.0, -17.0), 2, land.seed + 91)
+}
+
+/// The colour of the flowers at `p`, as `bloom_colour` in
+/// `grass_shape.wesl` has it.
+fn bloom(land: &Land, p: Vec2) -> Vec3 {
+    let n = fbm(p * 0.02 + Vec2::new(7.0, 3.0), 2, land.seed + 92);
+    let k = ((n * 1.6 + 0.5).clamp(0.0, 0.999) * 5.0) as usize;
+    land.pal.flowers[k.min(land.pal.flowers.len() - 1)]
+}
+
+/// How brightly the flowers at `p` glow at time `now`, against their
+/// brightest, as `glow_at` in `grass_shape.wesl` has it.
+fn pulse(set: &GrassSettings, p: Vec2, now: f32) -> f32 {
+    let inv = 1.0 / set.pulse.0.max(1e-3);
+    let t = now * set.pulse.1;
+    let q = p * inv;
+    let n = perlin(q + Vec2::new(0.6, 0.8) * t * inv, 41)
+        + 0.5
+            * perlin(
+                q * 2.1 - Vec2::new(0.9, -0.4) * t * inv * 1.7,
+                42,
+            );
+    0.25 + 0.75 * smoothstep(-0.45, 0.6, n / 1.5)
+}
+
+/// The lights the flowers cast, one kept for each the settings ask
+/// for, moved each frame to the patches nearest the eye.
+#[derive(Resource, Default)]
+struct FlowerLights(Vec<Entity>);
+
+/// At night, lights the patches of flowers nearest the eye, each in
+/// its flowers' colour, fading in as the eye comes near and swelling
+/// and fading as the flowers' glow does. By day they are dark.
+fn light_flowers(
+    mut commands: Commands,
+    set: Res<GrassSettings>,
+    land: Res<Land>,
+    view: Res<LeafView>,
+    now: Res<Now>,
+    pool: Option<ResMut<FlowerLights>>,
+    camera: Query<&GlobalTransform, With<WorldCamera>>,
+    mut lights: Query<(&mut PointLight, &mut Transform)>,
+) {
+    let Some(mut pool) = pool else {
+        commands.init_resource::<FlowerLights>();
+        return;
+    };
+    while pool.0.len() < set.lights as usize {
+        pool.0.push(
+            commands
+                .spawn((
+                    PointLight {
+                        intensity: 0.0,
+                        shadow_maps_enabled: false,
+                        ..default()
+                    },
+                    Transform::default(),
+                ))
+                .id(),
+        );
+    }
+    while pool.0.len() > set.lights as usize {
+        if let Some(light) = pool.0.pop() {
+            commands.entity(light).despawn();
+        }
+    }
+    let Some(eye) = camera.iter().next() else {
+        return;
+    };
+    let eye = eye.translation();
+    let mut patches = Vec::new();
+    if view.night > 0.01 {
+        let reach = set.lit_within;
+        let lo = ((eye.xz() - reach) / LIGHT_STEP).floor().as_ivec2();
+        let hi = ((eye.xz() + reach) / LIGHT_STEP).ceil().as_ivec2();
+        let water = land.set.land.water_y;
+        for x in lo.x..=hi.x {
+            for z in lo.y..=hi.y {
+                let p = IVec2::new(x, z).as_vec2() * LIGHT_STEP;
+                let y = land.height(p);
+                if blooms(&land, p) < BLOOMS + 0.1 || y < water + 1.0
+                {
+                    continue;
+                }
+                let at = Vec3::new(p.x, y + 0.5, p.y);
+                let away = at.distance(eye);
+                if away < reach {
+                    patches.push((away, at, p));
+                }
+            }
+        }
+        patches.sort_by(|a, b| a.0.total_cmp(&b.0));
+    }
+    for (k, &entity) in pool.0.iter().enumerate() {
+        let Ok((mut light, mut transform)) = lights.get_mut(entity)
+        else {
+            continue;
+        };
+        let Some(&(away, at, p)) = patches.get(k) else {
+            light.intensity = 0.0;
+            continue;
+        };
+        let near =
+            smoothstep(set.lit_within, set.lit_within * 0.6, away);
+        light.intensity =
+            set.lumens * view.night * near * pulse(&set, p, now.0);
+        light.color =
+            Color::LinearRgba(LinearRgba::from_vec3(bloom(&land, p)));
+        light.range = set.lit_range;
+        transform.translation = at;
+    }
 }
 
 /// The field: its material and a square's mesh at each detail, the
