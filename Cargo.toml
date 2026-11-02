@@ -137,3 +137,8 @@ opt-level = 1
 opt-level = 3
 debug = false
 
+# Runs on every span of every frame, so its cost is what it measures
+# against.
+[profile.dev.package.hamlet_profiler]
+opt-level = 3
+

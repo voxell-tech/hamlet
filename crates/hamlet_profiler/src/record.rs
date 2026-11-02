@@ -1,8 +1,10 @@
 //! The frames recorded: each thread's spans as a tree, and the GPU's
 //! time.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::time::Duration;
+
+use bevy::platform::collections::HashMap;
 
 /// How many frames are kept.
 pub const KEPT: usize = 300;
@@ -10,6 +12,10 @@ pub const KEPT: usize = 300;
 /// The shortest span kept in a frame's tree. A shorter one's time
 /// stays in its parent's self time.
 pub const FLOOR: Duration = Duration::from_micros(10);
+
+/// How many main frames a spike waits for its render thread's and
+/// GPU's times before the recording stops without them.
+const SETTLE: u32 = 8;
 
 /// A thread whose work is recorded frame by frame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -52,6 +58,9 @@ pub struct Timing {
     /// The time the recorder took on this thread's spans, on every
     /// thread they ran on.
     pub cost: Duration,
+    /// How many spans were entered, the shorter ones dropped from
+    /// the tree included.
+    pub entered: u32,
     /// The frame's tree depth first, the root first.
     pub spans: Vec<Span>,
 }
@@ -69,17 +78,6 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// The longest of the main thread's, the render thread's and the
-    /// GPU's time.
-    pub fn longest(&self) -> Duration {
-        let total = |timing: &Option<Timing>| {
-            timing.as_ref().map_or(Duration::ZERO, |t| t.total)
-        };
-        total(&self.main)
-            .max(total(&self.render))
-            .max(self.gpu.unwrap_or_default())
-    }
-
     pub fn timing(&self, lane: Lane) -> Option<&Timing> {
         match lane {
             Lane::Main => self.main.as_ref(),
@@ -111,7 +109,12 @@ pub struct Recorder {
     /// The schedules each system is in, by their names.
     schedules_of: HashMap<NameId, Vec<NameId>>,
     spike: Option<Duration>,
+    /// The frame over the spike whose other times are still to come,
+    /// and how many main frames it has waited.
+    stopping: Option<(u64, u32)>,
     spiked: Option<u64>,
+    /// Whether the recording stopped since it was last asked.
+    stopped: bool,
     /// Kept here so a frame's tree is laid out without allocating.
     order: Vec<u32>,
     starts: Vec<u32>,
@@ -130,6 +133,7 @@ struct Live {
     /// node.
     schedules: Vec<(NameId, u32)>,
     cost: Duration,
+    entered: u32,
 }
 
 /// A span of a frame being recorded.
@@ -228,6 +232,13 @@ impl Recorder {
         name: NameId,
     ) -> Option<Entry> {
         let number = match lane {
+            Lane::Main if self.stopping.is_some() => {
+                if let Some((_, waited)) = &mut self.stopping {
+                    *waited += 1;
+                }
+                self.settle();
+                return None;
+            }
             Lane::Main => {
                 let number = self.next;
                 self.next += 1;
@@ -242,7 +253,16 @@ impl Recorder {
                 });
                 number
             }
-            Lane::Render => self.extracted.take()?,
+            Lane::Render => {
+                let number = self.extracted.take()?;
+                if self
+                    .stopping
+                    .is_some_and(|(stop, _)| stop != number)
+                {
+                    return None;
+                }
+                number
+            }
         };
         let live = &mut self.lanes[lane.at()];
         live.open = true;
@@ -252,6 +272,7 @@ impl Recorder {
         live.children.clear();
         live.schedules.clear();
         live.cost = Duration::ZERO;
+        live.entered = 1;
         live.nodes.push(Node {
             name,
             parent: 0,
@@ -293,6 +314,7 @@ impl Recorder {
             }
         };
         live.nodes[node as usize].calls += 1;
+        live.entered += 1;
         Some(Entry { node, ..parent })
     }
 
@@ -362,14 +384,11 @@ impl Recorder {
     }
 
     /// Leaves the span entered as `entry`, which took `took`. Leaving
-    /// a root ends its frame, and gives the frame's number if it
-    /// took longer than the spike allows.
-    pub(crate) fn exit(
-        &mut self,
-        entry: Entry,
-        took: Duration,
-    ) -> Option<u64> {
-        let live = self.live(entry)?;
+    /// a root ends its frame.
+    pub(crate) fn exit(&mut self, entry: Entry, took: Duration) {
+        let Some(live) = self.live(entry) else {
+            return;
+        };
         live.nodes[entry.node as usize].total += took;
         if live
             .schedules
@@ -378,10 +397,9 @@ impl Recorder {
         {
             live.schedules.pop();
         }
-        if entry.node != 0 {
-            return None;
+        if entry.node == 0 {
+            self.finish(entry.lane);
         }
-        self.finish(entry.lane)
     }
 
     /// Adds `cost` to the recorder's own time in `entry`'s frame.
@@ -391,19 +409,24 @@ impl Recorder {
         }
     }
 
-    /// Sets the GPU's time of frame `number`, and gives the number
-    /// if that is longer than the spike allows.
-    pub(crate) fn set_gpu(
-        &mut self,
-        number: u64,
-        took: Duration,
-    ) -> Option<u64> {
-        let first = self.frames.front()?.number;
-        let frame = self
-            .frames
-            .get_mut(number.checked_sub(first)? as usize)?;
+    /// Sets the GPU's time of frame `number`.
+    pub(crate) fn set_gpu(&mut self, number: u64, took: Duration) {
+        let Some(frame) = self.frame_mut(number) else {
+            return;
+        };
         frame.gpu = Some(took);
-        self.check(number, took)
+        self.check(number, took);
+    }
+
+    /// Whether the recording stopped at a spike since this was last
+    /// asked.
+    pub(crate) fn take_stopped(&mut self) -> bool {
+        std::mem::take(&mut self.stopped)
+    }
+
+    fn frame_mut(&mut self, number: u64) -> Option<&mut Frame> {
+        let first = self.frames.front()?.number;
+        self.frames.get_mut(number.checked_sub(first)? as usize)
     }
 
     /// Stops the frames being recorded, and drops the one the main
@@ -413,6 +436,7 @@ impl Recorder {
             live.open = false;
         }
         self.extracted = None;
+        self.stopping = None;
         if self
             .frames
             .back()
@@ -426,31 +450,46 @@ impl Recorder {
         self.spiked = None;
     }
 
-    fn check(&mut self, number: u64, took: Duration) -> Option<u64> {
+    /// Starts stopping at frame `number` if it `took` longer than the
+    /// spike allows: no frame after it is begun, and the recording
+    /// stops once its times are all in.
+    fn check(&mut self, number: u64, took: Duration) {
         let over = self.spike.is_some_and(|spike| took > spike);
-        if over {
-            self.spiked = Some(number);
-            self.close();
+        if over && self.stopping.is_none() && self.spiked.is_none() {
+            self.stopping = Some((number, 0));
         }
-        over.then_some(number)
+        self.settle();
+    }
+
+    fn settle(&mut self) {
+        let Some((number, waited)) = self.stopping else {
+            return;
+        };
+        let done = self.frame(number).is_none_or(|frame| {
+            frame.render.is_some() && frame.gpu.is_some()
+        });
+        if done || waited >= SETTLE {
+            self.close();
+            self.spiked = Some(number);
+            self.stopped = true;
+        }
     }
 
     /// Ends `lane`'s frame and keeps it.
-    fn finish(&mut self, lane: Lane) -> Option<u64> {
+    fn finish(&mut self, lane: Lane) {
         let timing = self.lay_out(lane);
         let live = &mut self.lanes[lane.at()];
         live.open = false;
         let number = live.number;
         let took = timing.total;
-        let first = self.frames.front()?.number;
-        let frame = self
-            .frames
-            .get_mut(number.checked_sub(first)? as usize)?;
+        let Some(frame) = self.frame_mut(number) else {
+            return;
+        };
         match lane {
             Lane::Main => frame.main = Some(timing),
             Lane::Render => frame.render = Some(timing),
         }
-        self.check(number, took)
+        self.check(number, took);
     }
 
     /// `lane`'s frame as a tree, depth first, without the spans
@@ -509,6 +548,7 @@ impl Recorder {
         Timing {
             total: nodes[0].total,
             cost: live.cost,
+            entered: live.entered,
             spans,
         }
     }

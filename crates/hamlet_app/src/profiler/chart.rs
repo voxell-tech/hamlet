@@ -148,36 +148,38 @@ fn draw(
     theme: Themed,
 ) {
     for (mut chart, image, node) in &mut charts {
-        let size = node.size().as_uvec2();
+        // Drawn a pixel to a logical pixel: the bars stay sharp
+        // scaled up, at a quarter of the upload on a 2x screen.
+        let size =
+            (node.size() * node.inverse_scale_factor()).as_uvec2();
         if size.x == 0 || size.y == 0 {
             continue;
         }
-        let recorder = profiler.lock();
         let slots = (size.x / NARROWEST).clamp(1, KEPT as u32);
-        let frames = recorder
+        // Copied out, so the lock that every span takes is held
+        // only as long as that.
+        let bars = profiler
+            .lock()
             .frames()
             .rev()
             .take(slots as usize)
+            .map(Bars::of)
             .collect::<Vec<_>>();
-        let filled = frames
+        let filled = bars
             .iter()
             .take(8)
-            .map(|frame| {
-                usize::from(frame.main.is_some())
-                    + usize::from(frame.render.is_some())
-                    + usize::from(frame.gpu.is_some())
-            })
-            .sum();
-        let count = frames.len() as u32;
+            .flat_map(|bars| bars.times)
+            .filter(Option::is_some)
+            .count();
         let drawn = Drawn {
             size,
             shown: watch.shown,
-            newest: frames.first().map(|frame| frame.number),
+            newest: bars.first().map(|bars| bars.number),
             filled,
             slots,
             first: (
-                slots - count,
-                frames.last().map_or(0, |frame| frame.number),
+                slots - bars.len() as u32,
+                bars.last().map_or(0, |bars| bars.number),
             ),
         };
         if chart.drawn == Some(drawn) {
@@ -190,11 +192,28 @@ fn draw(
             lines: [palette.gold_5, palette.red],
             shown: palette.border,
         };
-        let pixels =
-            paint(size, slots, &frames, watch.shown, &colours);
-        drop(recorder);
+        let pixels = paint(size, slots, &bars, watch.shown, &colours);
         if let Some(mut image) = images.get_mut(&image.image) {
             *image = canvas(size, pixels);
+        }
+    }
+}
+
+/// A frame's main thread, render thread and GPU times.
+struct Bars {
+    number: u64,
+    times: [Option<Duration>; 3],
+}
+
+impl Bars {
+    fn of(frame: &Frame) -> Self {
+        Self {
+            number: frame.number,
+            times: [
+                frame.main.as_ref().map(|timing| timing.total),
+                frame.render.as_ref().map(|timing| timing.total),
+                frame.gpu,
+            ],
         }
     }
 }
@@ -212,7 +231,7 @@ struct Colours {
 fn paint(
     size: UVec2,
     slots: u32,
-    frames: &[&Frame],
+    frames: &[Bars],
     shown: Option<u64>,
     colours: &Colours,
 ) -> Vec<u8> {
@@ -229,7 +248,8 @@ fn paint(
     };
     let top = frames
         .iter()
-        .map(|frame| frame.longest())
+        .flat_map(|frame| frame.times)
+        .flatten()
         .max()
         .unwrap_or_default()
         .max(LEAST_TOP);
@@ -246,13 +266,8 @@ fn paint(
         }
         // A pixel apart from the next frame when there is room.
         let span = right - left - u32::from(right - left > NARROWEST);
-        let times = [
-            frame.main.as_ref().map(|timing| timing.total),
-            frame.render.as_ref().map(|timing| timing.total),
-            frame.gpu,
-        ];
         for (at, (took, colour)) in
-            times.into_iter().zip(colours.bars).enumerate()
+            frame.times.into_iter().zip(colours.bars).enumerate()
         {
             let Some(took) = took else {
                 continue;

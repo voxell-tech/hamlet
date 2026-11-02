@@ -14,4 +14,4 @@ workspace = true
 # `trace` gives every system, schedule and frame a span to record.
 bevy = { workspace = true, features = ["bevy_log", "bevy_render", "trace"] }
 tracing.workspace = true
-wgpu.workspace = true
+wgpu = { workspace = true, features = ["wgsl"] }

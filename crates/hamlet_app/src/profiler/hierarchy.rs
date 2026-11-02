@@ -79,35 +79,9 @@ fn bind(
     mut tree: ResMut<Tree>,
     mut seen: Local<Option<(Option<u64>, [bool; 3])>>,
 ) {
-    let frame = {
-        let recorder = profiler.lock();
-        watch.shown.and_then(|number| recorder.frame(number)).map(
-            |frame| {
-                let names = |lane| {
-                    frame.timing(lane).map_or_else(
-                        Vec::new,
-                        |timing| {
-                            timing
-                                .spans
-                                .iter()
-                                .map(|span| {
-                                    ShortName(
-                                        recorder.name(span.name),
-                                    )
-                                    .to_string()
-                                })
-                                .collect::<Vec<_>>()
-                        },
-                    )
-                };
-                (
-                    frame.clone(),
-                    [names(Lane::Main), names(Lane::Render)],
-                )
-            },
-        )
-    };
-    let filled = frame.as_ref().map_or([false; 3], |(frame, _)| {
+    let recorder = profiler.lock();
+    let shown = watch.shown.and_then(|number| recorder.frame(number));
+    let filled = shown.map_or([false; 3], |frame| {
         [
             frame.main.is_some(),
             frame.render.is_some(),
@@ -119,6 +93,24 @@ fn bind(
         return;
     }
     *seen = Some(key);
+    // Copied out, so the lock that every span takes is held only as
+    // long as that.
+    let frame = shown.map(|frame| {
+        let names = |lane| {
+            frame.timing(lane).map_or_else(Vec::new, |timing| {
+                timing
+                    .spans
+                    .iter()
+                    .map(|span| {
+                        ShortName(recorder.name(span.name))
+                            .to_string()
+                    })
+                    .collect::<Vec<_>>()
+            })
+        };
+        (frame.clone(), [names(Lane::Main), names(Lane::Render)])
+    });
+    drop(recorder);
     let (summary, rows) = match &frame {
         Some((frame, names)) => {
             (summary(frame), rows(frame, names, &watch))
@@ -141,15 +133,14 @@ fn ms(took: Duration) -> String {
 fn summary(frame: &Frame) -> String {
     let time = |took: Option<Duration>| took.map_or("-".into(), ms);
     let total = |lane| frame.timing(lane).map(|timing| timing.total);
-    let cost = [Lane::Main, Lane::Render]
+    let timings = [Lane::Main, Lane::Render]
         .into_iter()
-        .filter_map(|lane| {
-            frame.timing(lane).map(|timing| timing.cost)
-        })
-        .sum::<Duration>();
+        .filter_map(|lane| frame.timing(lane));
+    let cost = timings.clone().map(|timing| timing.cost).sum();
+    let entered = timings.map(|timing| timing.entered).sum::<u32>();
     format!(
         "Frame {}   main {} ms   render {} ms   GPU {} ms   \
-         profiler {} ms",
+         profiler {} ms over {entered} spans",
         frame.number,
         time(total(Lane::Main)),
         time(total(Lane::Render)),

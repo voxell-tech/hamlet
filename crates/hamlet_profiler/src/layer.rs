@@ -126,6 +126,9 @@ where
                 }
                 (_, Some(near)) => recorder.enter(near, tag.name),
             };
+            if recorder.take_stopped() {
+                self.0.stop();
+            }
             let Some(entry) = entry else {
                 return;
             };
@@ -151,10 +154,9 @@ where
             return;
         }
         let mut recorder = self.0.lock();
-        let spiked = recorder.exit(open.entry, end - open.start);
+        recorder.exit(open.entry, end - open.start);
         recorder.add_cost(open.entry, end.elapsed());
-        drop(recorder);
-        if spiked.is_some() {
+        if recorder.take_stopped() {
             self.0.stop();
         }
     }

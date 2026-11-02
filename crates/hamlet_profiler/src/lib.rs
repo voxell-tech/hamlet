@@ -45,7 +45,10 @@ pub fn plugin(app: &mut App) {
             RenderGraph,
             (
                 gpu::begin.in_set(RenderGraphSystems::Begin),
-                gpu::end.in_set(RenderGraphSystems::Finish),
+                gpu::end
+                    .after(RenderGraphSystems::Render)
+                    .before(RenderGraphSystems::Submit),
+                gpu::read.in_set(RenderGraphSystems::Finish),
             ),
         );
 }
@@ -101,14 +104,16 @@ impl Profiler {
         self.lock().set_spike(spike);
     }
 
-    /// Stops recording, the recorder already closed.
+    /// Stops recording, the recorder already closed. Called with its
+    /// lock held, so the next span cannot slip in between.
     fn stop(&self) {
         self.0.recording.store(false, Ordering::Relaxed);
     }
 
     fn set_gpu(&self, number: u64, took: Duration) {
-        let spiked = self.lock().set_gpu(number, took);
-        if spiked.is_some() {
+        let mut recorder = self.lock();
+        recorder.set_gpu(number, took);
+        if recorder.take_stopped() {
             self.stop();
         }
     }

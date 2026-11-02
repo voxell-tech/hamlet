@@ -15,10 +15,13 @@ use bevy::ecs::system::{Local, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
 use bevy_fynix::dock::DockWindowKind;
-use bevy_fynix::views::{FrameProps, column, row};
-use bevy_fynix::{keyed, resource};
+use bevy_fynix::views::{BehaviorExt, FrameProps, column};
+use bevy_fynix::{ScopedExt, resource};
 use hamlet_profiler::{NameId, Profiler};
-use hamlet_ui::styles::{Fills, ICON, action, beside, group, note};
+use hamlet_ui::styles::{
+    Fills, ICON, beside, button, group, lettered, note,
+};
+use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{View, with_cx};
@@ -143,15 +146,14 @@ fn set_pause_on_spike(world: &mut World, on: bool) {
 
 /// The Profiler's contents.
 fn screen() -> impl View {
-    let record =
-        keyed(resource::<Watch, _>(|watch| watch.recording), |&on| {
-            if on {
-                action(Glyph::Stop, "Pause", toggle_recording)
-            } else {
-                action(Glyph::Play, "Record", toggle_recording)
-            }
-        })
-        .within(row(()));
+    // One button whose words follow the recording, so it is never
+    // built again.
+    let record = lettered(resource::<Watch, _>(|watch| {
+        if watch.recording { "Pause" } else { "Record" }.to_string()
+    }))
+    .rules(button)
+    .tagged(Variant::Default)
+    .on_activate(toggle_recording);
     let controls = beside((
         record,
         labelled_switch(
