@@ -70,7 +70,8 @@ pub fn mesh(pal: &Palette, form: usize) -> Mesh {
 }
 
 /// A card painted with `stroke`: its top edge's middle at `top`, the
-/// stroke running down along `down` and as wide as `across`.
+/// stroke running down along `down` and as wide as `across`. It faces
+/// `across` crossed with `down`, and is lit from that side.
 fn card(
     meshing: &mut Meshing,
     top: Vec3,
@@ -182,10 +183,9 @@ fn broadleaf(
             let face = (d + Vec3::Y * 0.25).normalize();
             let (u, w) = face.any_orthonormal_pair();
             let turn = rng.f() * TAU;
-            let (along, side) = (
-                u * turn.cos() + w * turn.sin(),
-                w * turn.cos() - u * turn.sin(),
-            );
+            let along = u * turn.cos() + w * turn.sin();
+            // So that the card faces out, as `card` takes its face.
+            let side = along.cross(face);
             let size = rng.range(0.5, 0.68) * wide;
             let stroke = if rng.f() < 0.6 {
                 Stroke::Dab
@@ -342,13 +342,16 @@ pub fn trees(
                 continue;
             }
             let high = smoothstep(5.0, 11.0, y);
-            let chance = if high > 0.5 {
-                let steep = 1.0 - land.normal(p).y;
-                0.75 * smoothstep(0.2, 0.08, steep)
-                    * smoothstep(36.0, 24.0, y)
-            } else {
-                0.07 + 0.88 * land.forest(p)
-            };
+            // None grow on a steep slope, low or high: from about 20
+            // degrees they thin, and past about 33 there are none.
+            let steep = 1.0 - land.normal(p).y;
+            let footing = smoothstep(0.16, 0.06, steep);
+            let chance = footing
+                * if high > 0.5 {
+                    0.75 * smoothstep(36.0, 24.0, y)
+                } else {
+                    0.07 + 0.88 * land.forest(p)
+                };
             if roll(2) > chance {
                 continue;
             }
@@ -495,7 +498,8 @@ pub(crate) fn litter(land: &Land, trees: &[Tree]) -> Option<Mesh> {
             let (u, w) = up.any_orthonormal_pair();
             let spin = roll(salt + 3) * TAU;
             let along = u * spin.cos() + w * spin.sin();
-            let side = up.cross(along);
+            // So that the leaf faces up, off the ground.
+            let side = along.cross(up);
             let size = 0.35 + 0.25 * roll(salt + 4);
             let stroke = if roll(salt + 5) < 0.5 {
                 Stroke::Dab
