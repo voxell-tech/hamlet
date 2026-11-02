@@ -41,6 +41,9 @@ pub trait Flavor: Sized + Send + Sync + 'static {
     /// Whether its preview floats over the canvas as a card of its
     /// own, rather than filling a side of the panel.
     const PREVIEW_FLOATS: bool = false;
+    /// Whether the sheet shows the Outputs card, where the graph's
+    /// outputs are wired.
+    const HAS_OUTPUTS: bool = true;
     /// The room a card leaves under its header for the flavor to
     /// fill, in sheet pixels; 0 for none.
     const ROOM: f32 = 0.0;

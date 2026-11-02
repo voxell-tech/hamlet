@@ -214,8 +214,7 @@ impl Runner<'_> {
         let mut bound = BTreeMap::new();
         for port in &inputs {
             if let Some(binding) =
-                bind(graph, node, &port.name, made, given)
-                    .map_err(fail)?
+                bind(graph, node, &port.name, made).map_err(fail)?
             {
                 bound.insert(port.name.clone(), binding);
             }
@@ -293,6 +292,26 @@ impl Runner<'_> {
                 }
                 self.run(child, seed, &child_given)?
             }
+            Does::Input(input) => match given.get(input) {
+                Some(value) => BTreeMap::from([(
+                    Does::INPUT_PORT.to_owned(),
+                    value.clone(),
+                )]),
+                // A parameter that nothing reads needs no value.
+                None if graph
+                    .wires
+                    .iter()
+                    .all(|wire| wire.from.node != node.id)
+                    && graph.outputs.iter().all(|output| {
+                        output.from.node != node.id
+                    }) =>
+                {
+                    BTreeMap::new()
+                }
+                None => {
+                    return Err(fail(Error::NotGiven(input.clone())));
+                }
+            },
         };
         Ok(outputs)
     }
@@ -310,7 +329,6 @@ fn bind(
     node: &Node,
     port: &str,
     made: &BTreeMap<(NodeId, String), Value>,
-    given: &BTreeMap<String, Value>,
 ) -> Result<Option<Binding>, Error> {
     if let Some(wire) = graph
         .wires
@@ -331,12 +349,6 @@ fn bind(
         }
         Some(Setting::Random(roll)) => {
             Some(Binding::Roll(roll.clone()))
-        }
-        Some(Setting::FromParent(name)) => {
-            let value = given
-                .get(name)
-                .ok_or_else(|| Error::NotGiven(name.clone()))?;
-            Some(Binding::Value(value.clone()))
         }
         None => None,
     })

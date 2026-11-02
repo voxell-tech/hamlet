@@ -4,8 +4,8 @@ use bevy_math::Vec2;
 use serde::{Deserialize, Serialize};
 
 use crate::graph::{
-    GraphInput, GraphOutput, Group, Node, NodeId, Setting, Sheet,
-    Wire,
+    Does, GraphInput, GraphOutput, Group, Node, NodeId, Setting,
+    Sheet, Wire,
 };
 
 /// A change to a [`Sheet`].
@@ -16,6 +16,8 @@ pub enum Edit {
         node: Node,
         at: Option<Vec2>,
     },
+    /// Takes a node from the graph, with its wires and the outputs
+    /// that came from it.
     RemoveNode(NodeId),
     Connect(Wire),
     Disconnect(Wire),
@@ -33,11 +35,10 @@ pub enum Edit {
     },
     /// Gives the graph an input, set by the graph above.
     AddInput(GraphInput),
-    /// Takes an input from the graph, and puts every node set from
-    /// it back to its default.
+    /// Takes an input from the graph, and the nodes that give it.
     RemoveInput(String),
     /// Puts `input` in place of the input named `name`. A new name is
-    /// carried to every node set from it.
+    /// carried to every node that gives it.
     ChangeInput {
         name: String,
         input: GraphInput,
@@ -45,6 +46,15 @@ pub enum Edit {
     /// Gives the graph an output, from a node's port.
     AddOutput(GraphOutput),
     RemoveOutput(String),
+    /// Puts `output` in place of the output named `name`.
+    ChangeOutput {
+        name: String,
+        output: GraphOutput,
+    },
+    /// Moves where the card of the outputs is drawn, or forgets it.
+    MoveOutputs {
+        to: Option<Vec2>,
+    },
     /// Puts a group at `at` among the sheet's groups.
     AddGroup {
         at: usize,
@@ -111,6 +121,13 @@ impl Sheet {
                 graph.wires = kept;
                 let mut undo = vec![Edit::AddNode { node, at }];
                 undo.extend(cut.into_iter().map(Edit::Connect));
+                let (gone, kept) = std::mem::take(&mut graph.outputs)
+                    .into_iter()
+                    .partition::<Vec<_>, _>(|output| {
+                        output.from.node == id
+                    });
+                graph.outputs = kept;
+                undo.extend(gone.into_iter().map(Edit::AddOutput));
                 for (at, group) in self.groups.iter_mut().enumerate()
                 {
                     if group.nodes.contains(&id) {
@@ -199,19 +216,21 @@ impl Sheet {
                     })?;
                 let mut undo =
                     vec![Edit::AddInput(graph.inputs.remove(index))];
-                let from = Setting::FromParent(name);
-                for node in &mut graph.nodes {
-                    node.settings.retain(|input, setting| {
-                        if *setting != from {
-                            return true;
-                        }
-                        undo.push(Edit::Set {
-                            node: node.id,
-                            input: input.clone(),
-                            setting: Some(setting.clone()),
-                        });
-                        false
-                    });
+                let giving = graph
+                    .nodes
+                    .iter()
+                    .filter(|node| {
+                        matches!(&node.does, Does::Input(other) if *other == name)
+                    })
+                    .map(|node| node.id)
+                    .collect::<Vec<_>>();
+                for id in giving {
+                    // The node is there, so this applies.
+                    if let Ok(restore) =
+                        self.apply(Edit::RemoveNode(id))
+                    {
+                        undo.push(restore);
+                    }
                 }
                 Ok(Edit::Batch(undo))
             }
@@ -232,17 +251,11 @@ impl Sheet {
                     return Err(EditRefusal::NameTaken(input.name));
                 }
                 if input.name != name {
-                    for setting in graph
-                        .nodes
-                        .iter_mut()
-                        .flat_map(|node| node.settings.values_mut())
-                    {
-                        if *setting
-                            == Setting::FromParent(name.clone())
+                    for node in &mut graph.nodes {
+                        if let Does::Input(giving) = &mut node.does
+                            && *giving == name
                         {
-                            *setting = Setting::FromParent(
-                                input.name.clone(),
-                            );
+                            giving.clone_from(&input.name);
                         }
                     }
                 }
@@ -276,6 +289,35 @@ impl Sheet {
                     .ok_or(EditRefusal::NoName(name))?;
                 Ok(Edit::AddOutput(graph.outputs.remove(index)))
             }
+            Edit::ChangeOutput { name, output } => {
+                let index = graph
+                    .outputs
+                    .iter()
+                    .position(|other| other.name == name)
+                    .ok_or_else(|| {
+                        EditRefusal::NoName(name.clone())
+                    })?;
+                if output.name != name
+                    && graph
+                        .outputs
+                        .iter()
+                        .any(|other| other.name == output.name)
+                {
+                    return Err(EditRefusal::NameTaken(output.name));
+                }
+                let new_name = output.name.clone();
+                let old = std::mem::replace(
+                    &mut graph.outputs[index],
+                    output,
+                );
+                Ok(Edit::ChangeOutput {
+                    name: new_name,
+                    output: old,
+                })
+            }
+            Edit::MoveOutputs { to } => Ok(Edit::MoveOutputs {
+                to: std::mem::replace(&mut self.outputs_at, to),
+            }),
             Edit::AddGroup { at, group } => {
                 if at > self.groups.len() {
                     return Err(EditRefusal::NoGroup(at));

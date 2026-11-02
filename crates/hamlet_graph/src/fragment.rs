@@ -6,7 +6,7 @@ use bevy_math::Vec2;
 use serde::{Deserialize, Serialize};
 
 use crate::edit::Edit;
-use crate::graph::{Node, NodeId, Setting, Sheet, Wire};
+use crate::graph::{Node, NodeId, Sheet, Wire};
 
 /// Nodes copied from a [`Sheet`], with where they were drawn and the
 /// wires among them.
@@ -79,15 +79,13 @@ impl Sheet {
     }
 
     /// The edit that adds `fragment` as new nodes, drawn `by` further
-    /// than they were, and the ids they get. A setting from an input
-    /// the graph does not have is left out.
+    /// than they were, and the ids they get.
     pub fn paste(
         &self,
         fragment: &Fragment,
         by: Vec2,
     ) -> (Edit, Vec<NodeId>) {
-        let graph = &self.graph;
-        let mut next = graph.next_id();
+        let mut next = self.graph.next_id();
         let mut fresh = BTreeMap::new();
         let mut edits = Vec::new();
         for node in &fragment.nodes {
@@ -99,13 +97,6 @@ impl Sheet {
                 .unwrap_or_default();
             fresh.insert(node.id, next);
             node.id = next;
-            node.settings.retain(|_, setting| match setting {
-                Setting::FromParent(name) => graph
-                    .inputs
-                    .iter()
-                    .any(|input| input.name == *name),
-                _ => true,
-            });
             edits.push(Edit::AddNode {
                 node,
                 at: Some(at + by),
@@ -131,10 +122,7 @@ mod tests {
         Node {
             id: NodeId(id),
             does: Does::Kind("math".to_owned()),
-            settings: BTreeMap::from([(
-                "a".to_owned(),
-                Setting::FromParent("size".to_owned()),
-            )]),
+            settings: BTreeMap::new(),
         }
     }
 
@@ -168,7 +156,5 @@ mod tests {
         assert_eq!(sheet.graph.wires.len(), 3);
         assert!(sheet.graph.wires.contains(&wire(4, 5)));
         assert_eq!(sheet.layout[&NodeId(5)], Vec2::new(12.0, 2.0));
-        // The graph has no input named `size`.
-        assert!(sheet.graph.nodes[3].settings.is_empty());
     }
 }

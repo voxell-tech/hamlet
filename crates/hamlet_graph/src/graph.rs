@@ -7,6 +7,7 @@ use bevy_math::Vec2;
 use serde::{Deserialize, Serialize};
 
 use crate::catalogue::Catalogue;
+use crate::lift::{GraphFile, SheetFile};
 use crate::value::{Constant, ValueType};
 
 /// An id of a node, unique in its graph and kept in the file, so
@@ -40,6 +41,14 @@ pub enum Does {
     Kind(String),
     /// Another graph of the ruleset, by name.
     Graph(String),
+    /// An input of this graph, by name, which its one output,
+    /// [`Does::INPUT_PORT`], gives.
+    Input(String),
+}
+
+impl Does {
+    /// The output of a node that does [`Does::Input`].
+    pub const INPUT_PORT: &'static str = "value";
 }
 
 /// A step of a graph, and how its unwired inputs are set.
@@ -57,8 +66,6 @@ pub struct Node {
 pub enum Setting {
     Fixed(Constant),
     Random(Roll),
-    /// An input of the graph, set by the graph above or the game.
-    FromParent(String),
 }
 
 /// A random value and how often it is rolled again.
@@ -151,6 +158,7 @@ pub struct GraphOutput {
 #[derive(
     Clone, PartialEq, Debug, Default, Serialize, Deserialize,
 )]
+#[serde(from = "GraphFile")]
 pub struct Graph {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inputs: Vec<GraphInput>,
@@ -179,14 +187,20 @@ impl Graph {
 }
 
 /// A graph as the editor keeps it: the graph, where each node is
-/// drawn, and the groups its nodes are framed in.
+/// drawn, where the card of its outputs is, and the groups its nodes
+/// are framed in.
 #[derive(
     Clone, PartialEq, Debug, Default, Serialize, Deserialize,
 )]
+#[serde(from = "SheetFile")]
 pub struct Sheet {
     pub graph: Graph,
     #[serde(default)]
     pub layout: BTreeMap<NodeId, Vec2>,
+    /// Where the card of the graph's outputs is drawn, none for
+    /// beside the nodes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outputs_at: Option<Vec2>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub groups: Vec<Group>,
 }

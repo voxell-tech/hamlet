@@ -34,8 +34,8 @@ use bevy_fynix::{ViewExt, resource};
 use hamlet_graph::{
     Book, Catalogue, Constant, Does, Edit, Fragment, Graph,
     GraphError, GraphInput, GraphOutput, Group, Initial, Node,
-    NodeId, Port, PortSpec, Registry, Ruleset, Setting, Sheet,
-    ValueType, Wire,
+    NodeId, PARAMETER_GAP, Port, PortSpec, Registry, Ruleset,
+    Setting, Sheet, ValueType, Wire,
 };
 use hamlet_ui::styles::{Fills, hairline};
 use hamlet_ui::widgets::icons::Glyph;
@@ -48,6 +48,10 @@ use self::split::{Layout, Pane, divider, floating, outline};
 /// How far a duplicate, or a paste with no place, lies from the
 /// original, in sheet pixels.
 const NUDGE: f32 = 28.0;
+
+/// The id the Outputs card has among the selected and in the names
+/// of its ports. No node has it, as the card is not one.
+pub(crate) const OUTPUTS: NodeId = NodeId(u32::MAX);
 
 /// Adds the editor for `F`: the open asset and what the editing
 /// needs, its examples in the library, and whatever `F` adds itself.
@@ -236,7 +240,7 @@ impl<F: Flavor> Editor<F> {
         };
         graph.nodes.iter().any(|node| match &node.does {
             Does::Graph(child) => self.can_reach(child, target, seen),
-            Does::Kind(_) => false,
+            Does::Kind(_) | Does::Input(_) => false,
         })
     }
 
@@ -256,7 +260,7 @@ impl<F: Flavor> Editor<F> {
             todo.extend(graph.nodes.iter().filter_map(|node| {
                 match &node.does {
                     Does::Graph(child) => Some(child.as_str()),
-                    Does::Kind(_) => None,
+                    Does::Kind(_) | Does::Input(_) => None,
                 }
             }));
         }
@@ -283,7 +287,7 @@ impl<F: Flavor> Editor<F> {
         source: Source,
         mut sheet: Sheet,
     ) {
-        upgrade::<F>(&mut sheet);
+        F::upgrade(&mut sheet.graph);
         self.sheet = sheet;
         self.name = name;
         self.source = source;
@@ -298,7 +302,7 @@ impl<F: Flavor> Editor<F> {
     /// Opens the unsaved `sheet` of the open asset again, as it was
     /// left, with nothing to take back.
     pub fn recover(&mut self, mut sheet: Sheet) {
-        upgrade::<F>(&mut sheet);
+        F::upgrade(&mut sheet.graph);
         self.sheet = sheet;
         self.selected.clear();
         self.undo.clear();
@@ -444,21 +448,31 @@ impl<F: Flavor> Editor<F> {
         ]));
     }
 
-    /// Moves a node while it is dragged, kept out of the history
-    /// until the drag ends.
+    /// Moves a node, or the Outputs card, while it is dragged, kept
+    /// out of the history until the drag ends.
     pub fn drag(&mut self, node: NodeId, to: Vec2) {
-        self.sheet.layout.insert(node, to);
+        if node == OUTPUTS {
+            self.sheet.outputs_at = Some(to);
+        } else {
+            self.sheet.layout.insert(node, to);
+        }
     }
 
-    /// Keeps the moves of a finished drag, each node with where it
+    /// Keeps the moves of a finished drag, each card with where it
     /// began, as one step.
     pub fn dropped(&mut self, moved: Vec<(NodeId, Vec2)>) {
         self.undo.push(Edit::Batch(
             moved
                 .into_iter()
-                .map(|(node, from)| Edit::Move {
-                    node,
-                    to: Some(from),
+                .map(|(node, from)| {
+                    if node == OUTPUTS {
+                        Edit::MoveOutputs { to: Some(from) }
+                    } else {
+                        Edit::Move {
+                            node,
+                            to: Some(from),
+                        }
+                    }
                 })
                 .collect(),
         ));
@@ -493,7 +507,10 @@ impl<F: Flavor> Editor<F> {
             self.shape += 1;
         }
         let graph = &self.sheet.graph;
-        self.selected.retain(|node| graph.node(*node).is_some());
+        self.selected.retain(|node| {
+            graph.node(*node).is_some()
+                || (*node == OUTPUTS && F::HAS_OUTPUTS)
+        });
         self.rules = Ruleset {
             entry: self.name.clone(),
             graphs: self
@@ -530,46 +547,11 @@ impl<F: Flavor> Editor<F> {
         self.selected = BTreeSet::from([id]);
     }
 
-    /// Makes the first of `node`'s outputs that puts something down
-    /// an output of the open graph, named after the port.
-    pub fn expose_output(&mut self, node: NodeId) {
-        let Some(found) = self.sheet.graph.node(node) else {
-            return;
-        };
-        let Ok((_, outputs)) = hamlet_graph::ports(
-            &self.registry,
-            &self.rules,
-            &self.sheet.graph,
-            found,
-        ) else {
-            return;
-        };
-        let Some(port) = outputs
-            .into_iter()
-            .find(|port| port.value_type == ValueType::Objects)
-        else {
-            return;
-        };
-        let name = self.free_name(&port.name, |graph| {
-            graph
-                .outputs
-                .iter()
-                .map(|output| output.name.clone())
-                .collect()
-        });
-        self.apply(Edit::AddOutput(GraphOutput {
-            name,
-            value_type: port.value_type,
-            from: Port {
-                node,
-                name: port.name,
-            },
-        }));
-    }
-
-    /// Sets `input` of `node` from an input of the open graph that
-    /// takes `value_type`, giving the graph one named after the port,
-    /// with `default`, when it has none.
+    /// Wires `input` of `node` from a parameter node placed beside
+    /// its card, for an input of the open graph that takes
+    /// `value_type`, giving the graph one named after the port, with
+    /// `default`, when it has none. A setting the port had gives way
+    /// to the wire.
     pub fn expose_input(
         &mut self,
         node: NodeId,
@@ -607,12 +589,81 @@ impl<F: Flavor> Editor<F> {
                 name
             }
         };
-        edits.push(Edit::Set {
-            node,
-            input: input.to_owned(),
-            setting: Some(Setting::FromParent(name)),
+        let parameter = self.sheet.graph.next_id();
+        let at = self
+            .sheet
+            .layout
+            .get(&node)
+            .map(|at| *at - Vec2::new(PARAMETER_GAP, 0.0));
+        edits.push(Edit::AddNode {
+            node: Node {
+                id: parameter,
+                does: Does::Input(name),
+                settings: BTreeMap::new(),
+            },
+            at,
         });
+        edits.push(Edit::Connect(Wire {
+            from: Port {
+                node: parameter,
+                name: Does::INPUT_PORT.to_owned(),
+            },
+            to: Port {
+                node,
+                name: input.to_owned(),
+            },
+        }));
+        if self
+            .sheet
+            .graph
+            .node(node)
+            .is_some_and(|found| found.settings.contains_key(input))
+        {
+            edits.push(Edit::Set {
+                node,
+                input: input.to_owned(),
+                setting: None,
+            });
+        }
         self.apply(Edit::Batch(edits));
+    }
+
+    /// The name for a new output of the open graph: `wanted`, or it
+    /// with a number after it.
+    pub(crate) fn free_output_name(&self, wanted: &str) -> String {
+        self.free_name(wanted, |graph| {
+            graph
+                .outputs
+                .iter()
+                .map(|output| output.name.clone())
+                .collect()
+        })
+    }
+
+    /// Renames the output `name` of the open graph to `to`, unless
+    /// that is empty or the name of another.
+    pub fn rename_output(&mut self, name: &str, to: String) {
+        let to = to.trim().to_owned();
+        let graph = &self.sheet.graph;
+        let Some(output) =
+            graph.outputs.iter().find(|output| output.name == name)
+        else {
+            return;
+        };
+        if to.is_empty()
+            || to == name
+            || graph.outputs.iter().any(|other| other.name == to)
+        {
+            return;
+        }
+        let output = GraphOutput {
+            name: to,
+            ..output.clone()
+        };
+        self.apply(Edit::ChangeOutput {
+            name: name.to_owned(),
+            output,
+        });
     }
 
     /// `wanted`, or it with a number after it, unused among `taken`.
@@ -653,7 +704,8 @@ impl<F: Flavor> Editor<F> {
     /// Adds the clipboard's nodes as new ones and selects them, the
     /// top left of their box at `at`, or a little off the originals
     /// when there is none. A graph that is not among the library's,
-    /// or runs the open one, is left out.
+    /// or runs the open one, is left out, as is a parameter the open
+    /// graph does not have.
     pub fn paste(&mut self, at: Option<Vec2>) {
         let Some(mut fragment) = self.clipboard.clone() else {
             return;
@@ -663,6 +715,12 @@ impl<F: Flavor> Editor<F> {
                 self.rules.graphs.contains_key(name)
                     && !self.runs(name, &self.name)
             }
+            Does::Input(name) => self
+                .sheet
+                .graph
+                .inputs
+                .iter()
+                .any(|input| input.name == *name),
             Does::Kind(_) => true,
         });
         let by = at.map_or(Vec2::splat(NUDGE), |at| {
@@ -682,12 +740,14 @@ impl<F: Flavor> Editor<F> {
         self.selected = added.into_iter().collect();
     }
 
-    /// Deletes every selected node, and each group left empty.
+    /// Deletes every selected node, and each group left empty. The
+    /// Outputs card stays.
     pub fn remove(&mut self) {
         let mut edits = self
             .selected
             .iter()
             .copied()
+            .filter(|node| *node != OUTPUTS)
             .map(Edit::RemoveNode)
             .collect::<Vec<_>>();
         if edits.is_empty() {
@@ -708,9 +768,11 @@ impl<F: Flavor> Editor<F> {
     }
 
     /// Frames the selected nodes in a new group, out of any group
-    /// they were in.
+    /// they were in. The Outputs card is not framed.
     pub fn group(&mut self) {
-        if self.selected.is_empty() {
+        let mut nodes = self.selected.clone();
+        nodes.remove(&OUTPUTS);
+        if nodes.is_empty() {
             return;
         }
         let (mut edits, emptied) = self.leave();
@@ -721,7 +783,7 @@ impl<F: Flavor> Editor<F> {
             at,
             group: Group {
                 title: "Group".to_owned(),
-                nodes: self.selected.clone(),
+                nodes,
             },
         });
         self.apply(Edit::Batch(edits));
@@ -864,7 +926,7 @@ fn is_reshaping(
             };
             kind(old) != kind(setting.as_ref())
         }
-        Edit::Move { .. } => false,
+        Edit::Move { .. } | Edit::MoveOutputs { .. } => false,
         // A title is drawn where it is.
         Edit::ChangeGroup { at, group } => sheet
             .groups
@@ -883,24 +945,6 @@ fn is_reshaping(
                     || old.vary.is_some() != input.vary.is_some()
             }),
         _ => true,
-    }
-}
-
-/// Brings `sheet`, written for older kinds, up to date.
-fn upgrade<F: Flavor>(sheet: &mut Sheet) {
-    let graph = &mut sheet.graph;
-    F::upgrade(graph);
-    // A node's settings may still name an input removed earlier.
-    let names = graph
-        .inputs
-        .iter()
-        .map(|input| input.name.clone())
-        .collect::<BTreeSet<_>>();
-    for node in &mut graph.nodes {
-        node.settings.retain(|_, setting| match setting {
-            Setting::FromParent(name) => names.contains(name),
-            _ => true,
-        });
     }
 }
 

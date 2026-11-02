@@ -8,6 +8,7 @@ mod edit;
 mod fragment;
 mod graph;
 mod grows;
+mod lift;
 mod node;
 mod value;
 
@@ -23,5 +24,6 @@ pub use graph::{
     to_ron,
 };
 pub use grows::pack;
+pub use lift::PARAMETER_GAP;
 pub use node::{Initial, Listed, NodeKind, PortSpec, Registry};
 pub use value::{Constant, PathPoint, ValueType};

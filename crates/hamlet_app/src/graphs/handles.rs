@@ -2,13 +2,14 @@
 //! translation, rotation and scale; a curve's ends or middle to move;
 //! a polygon's or circle's radius or a rectangle's sides to pull; and
 //! a spline's points, with the ends of their tangent handles. An
-//! input set from a parameter moves the parameter's default; a wired
-//! one offers nothing.
+//! input wired from a parameter node moves the parameter's default;
+//! one wired from anything else offers nothing.
 
 use bevy::math::{EulerRot, Quat, Vec3};
 use hamlet_blueprint::spline::SplineKind;
 use hamlet_graph::{
-    Constant, Does, Edit, NodeId, PathPoint, Setting,
+    Constant, Does, Edit, Graph, GraphInput, NodeId, PathPoint,
+    Setting,
 };
 use hamlet_graph_editor::Editor;
 
@@ -208,9 +209,29 @@ pub(super) fn degrees_of(rotation: Quat) -> Vec3 {
     Vec3::new(pitch.to_degrees(), yaw.to_degrees(), roll.to_degrees())
 }
 
+/// The input of the graph that a parameter node gives to `input` of
+/// `node` by a wire.
+fn parameter_of<'a>(
+    graph: &'a Graph,
+    node: NodeId,
+    input: &str,
+) -> Option<&'a GraphInput> {
+    let wire = graph
+        .wires
+        .iter()
+        .find(|wire| wire.to.node == node && wire.to.name == input)?;
+    let Does::Input(name) = &graph.node(wire.from.node)?.does else {
+        return None;
+    };
+    graph
+        .inputs
+        .iter()
+        .find(|parameter| parameter.name == *name)
+}
+
 /// The constant an input of `node` is set to: fixed, its parameter's
-/// default, or its kind's initial value. None for one that is wired,
-/// or set otherwise.
+/// default, or its kind's initial value. None for one that is wired
+/// from anything but a parameter, or set otherwise.
 fn constant_of(
     editor: &Editor<Blueprint>,
     node: NodeId,
@@ -222,16 +243,11 @@ fn constant_of(
         .iter()
         .any(|wire| wire.to.node == node && wire.to.name == input)
     {
-        return None;
+        return parameter_of(graph, node, input)?.default.clone();
     }
     let card = graph.node(node)?;
     match card.settings.get(input) {
         Some(Setting::Fixed(constant)) => Some(constant.clone()),
-        Some(Setting::FromParent(name)) => graph
-            .inputs
-            .iter()
-            .find(|parameter| parameter.name == *name)
-            .and_then(|parameter| parameter.default.clone()),
         Some(Setting::Random(_)) => None,
         None => {
             let Does::Kind(kind) = &card.does else {
@@ -311,32 +327,16 @@ fn number_of(
 }
 
 /// Sets `input` of `node` to `value`: the input itself, or the
-/// default of the parameter it is set from. Writes one after another
-/// of the same input are undone as one.
+/// default of the parameter it is wired from. Writes one after
+/// another of the same input are undone as one.
 pub(super) fn set(
     editor: &mut Editor<Blueprint>,
     node: NodeId,
     input: &str,
     value: Constant,
 ) {
-    let from = editor
-        .sheet
-        .graph
-        .node(node)
-        .and_then(|card| card.settings.get(input))
-        .and_then(|setting| match setting {
-            Setting::FromParent(name) => Some(name.clone()),
-            _ => None,
-        });
-    let parameter = from.and_then(|name| {
-        editor
-            .sheet
-            .graph
-            .inputs
-            .iter()
-            .find(|parameter| parameter.name == name)
-            .cloned()
-    });
+    let parameter =
+        parameter_of(&editor.sheet.graph, node, input).cloned();
     match parameter {
         Some(mut parameter) => {
             let name = parameter.name.clone();

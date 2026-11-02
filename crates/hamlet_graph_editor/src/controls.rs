@@ -5,7 +5,8 @@
 //! mark that puts a fixed input back to its
 //! default. A path shows how many points it has, which the preview
 //! edits. Changing a value fixes the input; until then it shows its
-//! default. A group's title is a field on its title bar.
+//! default. A group's title is a field on its title bar, and an
+//! output's name a field on its row of the Outputs card.
 
 use bevy::color::Color;
 use bevy::ecs::world::World;
@@ -136,9 +137,6 @@ pub(super) fn control<F: Flavor>(
         return Some(points::<F>(node, input));
     }
     let value = match setting {
-        Some(Setting::FromParent(name)) => {
-            return Some(pill(name.replace('_', " ")));
-        }
         Some(Setting::Random(_)) => {
             return Some(pill("random".into()));
         }
@@ -199,8 +197,8 @@ fn points<F: Flavor>(node: NodeId, input: Input) -> AnyView {
     .boxed()
 }
 
-/// What sets an input other than a value of its own, in place of its
-/// controls.
+/// What sets an input other than a value of its own or a wire, in
+/// place of its controls.
 fn pill(text: String) -> AnyView {
     label(text).wrap(false).tone(Tone::Accent).boxed()
 }
@@ -484,6 +482,21 @@ pub(super) fn title<F: Flavor>(at: usize) -> AnyView {
         },
     )
     .width(px(NUMBER * 3.0))
+    .rules(text_input)
+    .boxed()
+}
+
+/// The field the name of the output `name` is written in on its row
+/// of the Outputs card.
+pub(super) fn output_name<F: Flavor>(name: String) -> AnyView {
+    let rename = name.clone();
+    text_field(name, move |world, text| {
+        world
+            .resource_mut::<Editor<F>>()
+            .rename_output(&rename, text);
+    })
+    .grow(1.0)
+    .min_width(px(0.0))
     .rules(text_input)
     .boxed()
 }

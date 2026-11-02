@@ -274,11 +274,13 @@ const RISE: &str = r#"(
                   vary: Some((low: 1.0, high: 2.0, per: Item)))],
         outputs: [(name: "objects", value_type: Objects, from: (node: 3, name: "objects"))],
         nodes: [
-            (id: 1, does: Kind("point"), settings: {"x": Fixed(Number(1.0)), "y": FromParent("rise"), "z": Fixed(Number(1.0))}),
+            (id: 1, does: Kind("point"), settings: {"x": Fixed(Number(1.0)), "z": Fixed(Number(1.0))}),
             (id: 2, does: Kind("transform")),
             (id: 3, does: Kind("object")),
+            (id: 4, does: Input("rise")),
         ],
         wires: [
+            (from: (node: 4, name: "value"), to: (node: 1, name: "y")),
             (from: (node: 1, name: "point"), to: (node: 2, name: "scale")),
             (from: (node: 2, name: "transform"), to: (node: 3, name: "transform")),
         ],

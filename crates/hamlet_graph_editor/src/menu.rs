@@ -49,14 +49,18 @@ use super::{Editor, Place, canvas, controls, files};
 /// The group the library's other graphs are listed under.
 const GRAPHS: &str = "Graphs";
 
+/// The group the open graph's inputs are listed under.
+const PARAMETERS: &str = "Parameters";
+
 /// The groups in the order they are listed, before any others.
-const GROUPS: [&str; 7] = [
+const GROUPS: [&str; 8] = [
     "Objects",
     "Transforms",
     "Modifiers",
     "Curves",
     "Fields",
     "Math",
+    PARAMETERS,
     GRAPHS,
 ];
 
@@ -284,7 +288,16 @@ fn entries<F: Flavor>(editor: &Editor<F>) -> Vec<Entry> {
             settings: BTreeMap::new(),
             name: name.to_owned(),
         });
-    let mut found = graphs.chain(kinds).collect::<Vec<_>>();
+    let parameters =
+        editor.sheet.graph.inputs.iter().map(|input| Entry {
+            group: PARAMETERS,
+            name: input.name.clone(),
+            doc: format!("The parameter {}", input.name),
+            does: Does::Input(input.name.clone()),
+            settings: BTreeMap::new(),
+        });
+    let mut found =
+        graphs.chain(kinds).chain(parameters).collect::<Vec<_>>();
     found.sort_by(|a, b| {
         (rank(a.group), a.group, &a.name).cmp(&(
             rank(b.group),
@@ -778,9 +791,6 @@ fn card<F: Flavor>(node: NodeId, opened_at: Vec2) -> AnyView {
             ));
         }
         items.extend([
-            item("Expose as output", "", |world, node| {
-                world.resource_mut::<Editor<F>>().expose_output(node);
-            }),
             item("Copy", "Cmd+C", |world, _| {
                 world.resource_mut::<Editor<F>>().copy();
             }),
@@ -966,8 +976,8 @@ fn action_item<F: Flavor>(
 }
 
 /// The menu on how an input of `node` is set, which exposes it as a
-/// parameter of the graph, gives it a value of its own, resets it to
-/// its default, or cuts its wire.
+/// parameter of the graph, resets it to its default, or cuts its
+/// wire.
 fn input_menu<F: Flavor>(
     node: NodeId,
     input: Input,
@@ -982,35 +992,23 @@ fn input_menu<F: Flavor>(
         });
         let written = controls::written(&input);
         let mut items = Vec::<AnyView>::new();
-        let name = input.name.clone();
-        match (&setting, written) {
-            (Some(Setting::FromParent(_)), _) => {
-                items.push(action_item::<F>(
-                    "Use a value",
-                    move |world| {
-                        controls::put::<F>(world, node, &name, None);
-                    },
-                ));
-            }
-            (_, Some(value_type)) if !wired => {
-                let read = input.clone();
-                items.push(action_item::<F>(
-                    "Make a parameter",
-                    move |world| {
-                        let default = controls::value_of(
-                            world.resource::<Editor<F>>(),
-                            node,
-                            &read,
-                        );
-                        world
-                            .resource_mut::<Editor<F>>()
-                            .expose_input(
-                                node, &read.name, value_type, default,
-                            );
-                    },
-                ));
-            }
-            _ => {}
+        if let Some(value_type) = written
+            && !wired
+        {
+            let read = input.clone();
+            items.push(action_item::<F>(
+                "Make a parameter",
+                move |world| {
+                    let default = controls::value_of(
+                        world.resource::<Editor<F>>(),
+                        node,
+                        &read,
+                    );
+                    world.resource_mut::<Editor<F>>().expose_input(
+                        node, &read.name, value_type, default,
+                    );
+                },
+            ));
         }
         if matches!(
             setting,

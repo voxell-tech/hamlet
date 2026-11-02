@@ -20,8 +20,11 @@ pub enum Error {
     SameId(NodeId),
     #[error("{node} has no port {port}")]
     UnknownPort { node: NodeId, port: String },
-    #[error("the graph has no input {0}")]
-    UnknownInput(String),
+    #[error(
+        "{node} is the graph input {name}, which the graph does not \
+         have"
+    )]
+    UnknownInput { node: NodeId, name: String },
     #[error("{node}.{port} takes {expected:?}, not {found:?}")]
     WrongType {
         node: NodeId,
@@ -59,6 +62,7 @@ impl Error {
             | Error::TwoWires { node, .. }
             | Error::Unset { node, .. }
             | Error::Invalid { node, .. }
+            | Error::UnknownInput { node, .. }
             | Error::UnknownAsset { node, .. } => Some(*node),
             Error::UnknownNode(node) | Error::SameId(node) => {
                 Some(*node)
@@ -83,9 +87,9 @@ pub struct PortInfo {
     pub value_type: ValueType,
 }
 
-/// The inputs and outputs of `node` in `graph`, from its kind or the
-/// graph it runs. A growing input has a port for each wire into it,
-/// and one more.
+/// The inputs and outputs of `node` in `graph`, from its kind, the
+/// graph it runs or the graph input it gives. A growing input has a
+/// port for each wire into it, and one more.
 pub fn ports(
     registry: &Registry,
     ruleset: &Ruleset,
@@ -140,6 +144,23 @@ pub fn ports(
                 })
                 .collect();
             Ok((inputs, outputs))
+        }
+        Does::Input(name) => {
+            let input = graph
+                .inputs
+                .iter()
+                .find(|input| &input.name == name)
+                .ok_or_else(|| Error::UnknownInput {
+                    node: node.id,
+                    name: name.clone(),
+                })?;
+            Ok((
+                Vec::new(),
+                vec![PortInfo {
+                    name: Does::INPUT_PORT.to_owned(),
+                    value_type: input.value_type,
+                }],
+            ))
         }
     }
 }
@@ -201,7 +222,7 @@ fn check(
             Does::Kind(name) => {
                 registry.get(name).map(|kind| kind.inputs)
             }
-            Does::Graph(_) => None,
+            Does::Graph(_) | Does::Input(_) => None,
         };
         for (port, setting) in &node.settings {
             let Some(expected) = port_type(node.id, port, false)
@@ -233,26 +254,11 @@ fn check(
                             reason: "is not one of its choices",
                         });
                     }
-                    Some(constant.value_type())
+                    constant.value_type()
                 }
-                Setting::Random(roll) => {
-                    Some(roll.spread.value_type())
-                }
-                Setting::FromParent(name) => {
-                    let input = graph
-                        .inputs
-                        .iter()
-                        .find(|input| &input.name == name);
-                    if input.is_none() {
-                        errors
-                            .push(Error::UnknownInput(name.clone()));
-                    }
-                    input.map(|input| input.value_type)
-                }
+                Setting::Random(roll) => roll.spread.value_type(),
             };
-            if let Some(found) = found
-                && !expected.accepts(found)
-            {
+            if !expected.accepts(found) {
                 errors.push(Error::WrongType {
                     node: node.id,
                     port: port.clone(),
@@ -333,7 +339,7 @@ fn runs_itself(
     running.push(name.to_owned());
     let found = graph.nodes.iter().any(|node| match &node.does {
         Does::Graph(child) => runs_itself(ruleset, child, running),
-        Does::Kind(_) => false,
+        Does::Kind(_) | Does::Input(_) => false,
     });
     running.pop();
     found

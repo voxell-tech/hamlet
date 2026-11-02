@@ -8,9 +8,9 @@ use bevy::app::{App, Update};
 use bevy::ecs::system::{Local, Res, ResMut};
 use hamlet_graph::Graph;
 
+use super::Editor;
 use super::flavor::{Flavor, Nesting};
 use super::library::{Library, lone};
-use super::{Editor, upgrade};
 
 pub(super) fn plugin<F: Flavor>(app: &mut App) {
     app.add_systems(Update, refresh::<F>);
@@ -52,7 +52,7 @@ fn graphs<F: Flavor>(
             continue;
         };
         let mut sheet = lone(book);
-        upgrade::<F>(&mut sheet);
+        F::upgrade(&mut sheet.graph);
         graphs.entry(item.name.clone()).or_insert(sheet.graph);
     }
     graphs

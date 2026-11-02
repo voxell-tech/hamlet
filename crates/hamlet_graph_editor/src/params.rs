@@ -1,8 +1,8 @@
 //! The open graph's own inputs, as its parameters: each one's name
 //! and type, what it is when the graph above leaves it unset, and
 //! whether it is picked at random then, between which numbers and how
-//! often; and the graph's outputs. They float over the canvas, with
-//! the flavor's own tabs beside them.
+//! often. They float over the canvas, with the flavor's own tabs
+//! beside them.
 
 use bevy::color::Color;
 use bevy::ecs::world::World;
@@ -17,8 +17,7 @@ use hamlet_graph::{
     Constant, Edit, GraphInput, Scope, ValueType, Vary,
 };
 use hamlet_ui::styles::{
-    ICON, command, description, labelled, note, section, swatch,
-    text_input,
+    ICON, command, description, labelled, note, swatch, text_input,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::switch;
@@ -73,8 +72,7 @@ const PER: [(&str, Scope); 3] = [
 ];
 
 /// The open graph's parameters, the inputs the graph above sets, each
-/// with how it varies, and its outputs. Built again when the graph's
-/// shape changes.
+/// with how it varies. Built again when the graph's shape changes.
 pub(super) fn view<F: Flavor>() -> impl View {
     tab::<F>(panel::<F>)
 }
@@ -96,7 +94,8 @@ fn panel<F: Flavor>() -> AnyView {
         let mut parts = vec![
             description(
                 "What the graph above sets. Left unset, each takes \
-                 its default, or varies.",
+                 its default, or varies. Create a parameter node to \
+                 wire one in.",
             )
             .boxed(),
         ];
@@ -104,43 +103,6 @@ fn panel<F: Flavor>() -> AnyView {
             parts.push(input::<F>(found.name.clone()));
         }
         parts.push(add::<F>().boxed());
-        let port = |name: String,
-                    value_type: ValueType,
-                    edit: Edit| {
-            row((
-                column((note(format!("{name} ({value_type:?})")),))
-                    .width(percent(100.0))
-                    .min_width(px(0.0)),
-                button(glyph(Glyph::Cross, ICON))
-                    .rules(icon_button)
-                    .tooltip(|| note("Take it away"))
-                    .on_activate(move |world| {
-                        world
-                            .resource_mut::<Editor<F>>()
-                            .apply(edit.clone());
-                    }),
-            ))
-            .gap(gap)
-            .align(AlignItems::Center)
-            .boxed()
-        };
-        parts.push(section("Outputs").boxed());
-        for output in &editor.sheet.graph.outputs {
-            let edit = Edit::RemoveOutput(output.name.clone());
-            parts.push(port(
-                output.name.clone(),
-                output.value_type,
-                edit,
-            ));
-        }
-        if editor.sheet.graph.outputs.is_empty() {
-            parts.push(
-                description(
-                    "None. Right-click a node and Expose as output.",
-                )
-                .boxed(),
-            );
-        }
         column(parts).gap(gap)
     })
     .boxed()
