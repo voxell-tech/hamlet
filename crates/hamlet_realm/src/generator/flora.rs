@@ -15,6 +15,7 @@ use crate::palette::Palette;
 pub(crate) const KINDS: usize = 8;
 const BROADLEAVES: usize = 5;
 
+#[derive(Clone, Copy)]
 pub struct Tree {
     pub at: Vec3,
     pub kind: usize,

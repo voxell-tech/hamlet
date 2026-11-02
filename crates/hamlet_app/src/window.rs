@@ -6,15 +6,19 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use bevy::app::{App, Startup, Update};
 use bevy::ecs::message::MessageReader;
+use bevy::ecs::query::With;
+use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_exists;
-use bevy::ecs::system::{Local, Res};
+use bevy::ecs::system::{Commands, Local, Res};
+use bevy::ecs::world::World;
 use bevy::state::app::AppExtStates;
 use bevy::state::state::States;
 use bevy::time::Time;
 use bevy::window::{
-    ExitCondition, Window, WindowCloseRequested, WindowPlugin,
-    WindowResizeConstraints, WindowResized, WindowResolution,
+    ExitCondition, PresentMode, PrimaryWindow, Window,
+    WindowCloseRequested, WindowPlugin, WindowResizeConstraints,
+    WindowResized, WindowResolution,
 };
 use bevy::winit::{
     EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent,
@@ -36,8 +40,11 @@ pub fn plugin(app: &mut App) {
         .insert_resource(winit_settings())
         .add_systems(
             Startup,
-            wake_on_frames
-                .run_if(resource_exists::<EventLoopProxyWrapper>),
+            (
+                wake_on_frames
+                    .run_if(resource_exists::<EventLoopProxyWrapper>),
+                read_vsync,
+            ),
         )
         .add_systems(Update, (intercept_close, remember_size));
 }
@@ -46,17 +53,66 @@ pub fn plugin(app: &mut App) {
 #[derive(States, Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub(crate) struct WorldShown;
 
+/// Whether the window waits for the display before it shows each
+/// frame, so that no frame shows torn. On unless the chief turned it
+/// off, which the view folder keeps.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Vsync(pub(crate) bool);
+
 fn size_file(view: &Path) -> PathBuf {
     view.join("window")
 }
 
-/// The window plugin at the size last kept in the view folder.
+fn vsync_file(view: &Path) -> PathBuf {
+    view.join("vsync")
+}
+
+/// Whether vsync is kept on in the view folder: on unless it says
+/// off.
+fn saved_vsync(view: &Path) -> bool {
+    !std::fs::read_to_string(vsync_file(view))
+        .is_ok_and(|text| text.trim() == "off")
+}
+
+fn present_mode(vsync: bool) -> PresentMode {
+    if vsync {
+        PresentMode::AutoVsync
+    } else {
+        PresentMode::AutoNoVsync
+    }
+}
+
+fn read_vsync(mut commands: Commands, view: Res<ViewFolder>) {
+    commands.insert_resource(Vsync(saved_vsync(&view.0)));
+}
+
+/// Turns vsync on or off, on the window and in the view folder.
+pub(crate) fn set_vsync(world: &mut World, on: bool) {
+    world.insert_resource(Vsync(on));
+    let mut windows =
+        world.query_filtered::<&mut Window, With<PrimaryWindow>>();
+    for mut window in windows.iter_mut(world) {
+        window.present_mode = present_mode(on);
+    }
+    if let Some(view) = world.get_resource::<ViewFolder>()
+        && std::fs::create_dir_all(&view.0).is_ok()
+    {
+        let _ = std::fs::write(
+            vsync_file(&view.0),
+            if on { "on" } else { "off" },
+        );
+    }
+}
+
+/// The window plugin at the size last kept in the view folder, with
+/// vsync as kept there.
 pub fn window_plugin(view: &Path) -> Result<WindowPlugin> {
     let size = saved_size(view)?;
     Ok(WindowPlugin {
         primary_window: Some(Window {
             title: "Hamlet".into(),
             resolution: WindowResolution::new(size.0, size.1),
+            present_mode: present_mode(saved_vsync(view)),
             resize_constraints: WindowResizeConstraints {
                 min_width: LEAST_SIZE.0 as f32,
                 min_height: LEAST_SIZE.1 as f32,
@@ -138,7 +194,7 @@ pub(crate) fn winit_settings() -> WinitSettings {
 /// rather than at the loop's next timeout.
 fn wake_on_frames(
     proxy: Res<EventLoopProxyWrapper>,
-    mut commands: bevy::ecs::system::Commands,
+    mut commands: Commands,
 ) {
     let proxy = (**proxy).clone();
     commands.insert_resource(Wake::new(move || {
@@ -149,14 +205,14 @@ fn wake_on_frames(
 
 fn intercept_close(
     mut closes: MessageReader<WindowCloseRequested>,
-    mut commands: bevy::ecs::system::Commands,
+    mut commands: Commands,
 ) {
     if closes.read().count() > 0 {
         commands.queue(quit);
     }
 }
 
-pub(crate) fn quit(world: &mut bevy::ecs::world::World) {
+pub(crate) fn quit(world: &mut World) {
     crate::saving::close(world);
 }
 

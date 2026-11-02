@@ -1,5 +1,5 @@
 //! The pointer (docs/cursors.md): the chief's taper, whose flame is
-//! the point, and the chief's glove for what is held.
+//! the point, and the chief's glove for what is pressed or held.
 
 mod art;
 
@@ -67,10 +67,9 @@ pub enum Axis {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Point,
-    /// Over what can be pressed.
+    /// Over what can be pressed, or a thing of the world that can
+    /// be selected.
     Press,
-    /// Over a thing of the world that can be selected.
-    Pick,
     /// Over what can be taken hold of.
     Grab,
     /// Holding something.
@@ -109,7 +108,6 @@ impl Mode {
         let mut all = vec![
             Mode::Point,
             Mode::Press,
-            Mode::Pick,
             Mode::Grab,
             Mode::Carry,
             Mode::Slide,
@@ -134,8 +132,7 @@ impl Mode {
     pub(crate) fn of_system(icon: SystemCursorIcon) -> Option<Mode> {
         use SystemCursorIcon as S;
         Some(match icon {
-            S::Pointer => Mode::Press,
-            S::Cell | S::Crosshair => Mode::Pick,
+            S::Pointer | S::Cell | S::Crosshair => Mode::Press,
             S::Grab => Mode::Grab,
             S::Grabbing => Mode::Carry,
             S::Move | S::AllScroll => Mode::Slide,
@@ -178,10 +175,8 @@ impl Mode {
         }
         if facts.grip.is_some() {
             Mode::Grab
-        } else if facts.claimed {
+        } else if facts.claimed || facts.over.is_some() {
             Mode::Press
-        } else if facts.over.is_some() {
-            Mode::Pick
         } else {
             Mode::Point
         }
@@ -198,7 +193,6 @@ pub fn inks(theme: &HamletTheme) -> Inks {
         wax: p.gold_1,
         shade: p.gold_2,
         brass: p.gold_4,
-        rune: p.agent,
         coal: p.danger_glow,
         edge: p.surface,
     }

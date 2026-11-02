@@ -7,6 +7,7 @@ import bevy_pbr::render::{
     mesh_functions,
     view_transformations::position_world_to_clip,
 };
+import hamlet_vfx::wind::{Wind, strength};
 
 @if(PREPASS_PIPELINE)
 import bevy_pbr::prepass::io::{Vertex, VertexOutput, decompress_vertex};
@@ -22,12 +23,13 @@ struct Flag {
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> flag: Flag;
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var<uniform> wind: Wind;
 
 // Where a point of the cloth is blown to, and the slope of the cloth
-// there across the wind.
-fn blown(at: vec3<f32>, u: f32, own: f32) -> vec4<f32> {
+// there across the wind. It swings wider the harder the wind blows.
+fn blown(at: vec3<f32>, u: f32, own: f32, strong: f32) -> vec4<f32> {
     let long = max(flag.shape.x, 0.001);
-    let swing = flag.wave.z * long;
+    let swing = flag.wave.z * long * strong;
     let turn = 6.2832 * flag.wave.w;
     let a = turn * u - flag.wave.y * flag.wave.x + own;
     let b = a * 1.7 + 1.3;
@@ -57,7 +59,12 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     let u = vertex.uv.x;
 @else
     let u = 0.0;
-    let moved = blown(vertex.position, u, own);
+    let moved = blown(
+        vertex.position,
+        u,
+        own,
+        strength(wind, world_from_local[3].xz),
+    );
 
     out.world_position = mesh_functions::mesh_position_local_to_world(
         world_from_local,

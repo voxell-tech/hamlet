@@ -10,7 +10,7 @@ use bevy::render::render_resource::{AsBindGroup, Face, ShaderType};
 use bevy::shader::ShaderRef;
 use bevy::window::RequestRedraw;
 
-use crate::wind::{WindSettings, downwind};
+use crate::wind::{WindSettings, WindUniform, downwind};
 use crate::{Now, VfxSystems};
 
 pub type FlagMaterial = ExtendedMaterial<StandardMaterial, FlagExt>;
@@ -52,6 +52,8 @@ pub struct FlagSettings {
 pub struct FlagExt {
     #[uniform(100)]
     pub flag: FlagUniform,
+    #[uniform(101)]
+    pub wind: WindUniform,
 }
 
 /// Mirrors `Flag` in `flag.wesl`; the fields are explained there.
@@ -100,8 +102,10 @@ impl Waving {
                 cull_mode: None::<Face>,
                 ..default()
             },
+            // The wind is told in `wave`.
             extension: FlagExt {
                 flag: uniform(set, now, long),
+                wind: WindUniform::default(),
             },
         });
         self.0.push((long, waving.clone()));
@@ -198,15 +202,22 @@ fn wave(
     mut materials: ResMut<Assets<FlagMaterial>>,
     mut told: Local<Option<f32>>,
 ) {
-    if told.replace(now.0) == Some(now.0) && !set.is_changed() {
+    if told.replace(now.0) == Some(now.0)
+        && !set.is_changed()
+        && !wind.is_changed()
+        && !waving.is_changed()
+    {
         return;
     }
+    let blowing = wind.uniform(now.0);
     for (long, waving) in &waving.0 {
         let next = uniform(&set, now.0, *long);
         if let Some(mut waving) = materials.get_mut(waving)
-            && waving.extension.flag != next
+            && (waving.extension.flag != next
+                || waving.extension.wind != blowing)
         {
             waving.extension.flag = next;
+            waving.extension.wind = blowing.clone();
         }
     }
     let blown = downwind(wind.blowing(now.0));

@@ -39,17 +39,20 @@ impl Default for GeneratorView {
 
 impl GeneratorView {
     /// The height the camera looks at: the lie of the land about
-    /// its focus, taken wide so that the camera crosses a mountain
-    /// without following every rock of it.
+    /// its focus, taken wide so that the camera crosses a hill
+    /// without following every bump of it. Over the sea it is the
+    /// sea's surface, not its floor.
     fn level(&self, land: &Land) -> f32 {
         const SPOKES: usize = 8;
         let reach = self.dist * 0.4;
-        let mut sum = land.height(self.focus);
+        let seen =
+            |p: Vec2| land.height(p).max(land.set.land.water_y);
+        let mut sum = seen(self.focus);
         for ring in [0.5, 1.0] {
             for spoke in 0..SPOKES {
                 let turn = (spoke as f32 + ring) / SPOKES as f32
                     * std::f32::consts::TAU;
-                sum += land.height(
+                sum += seen(
                     self.focus
                         + Vec2::from_angle(turn) * reach * ring,
                 );
@@ -59,7 +62,7 @@ impl GeneratorView {
     }
 
     /// The camera's place for this view, over the point it looks at.
-    fn eye(&self, land: &Land) -> (Vec3, Vec3) {
+    pub(super) fn eye(&self, land: &Land) -> (Vec3, Vec3) {
         let focus = self.focus.extend(self.level(land) + 0.5).xzy();
         let pitch = self.pitch.to_radians();
         (focus + self.dist * backward(self.yaw, pitch), focus)

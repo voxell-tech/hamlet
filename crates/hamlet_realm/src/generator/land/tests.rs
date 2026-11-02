@@ -41,6 +41,7 @@ fn there_is_always_one_more_site() {
         assert_eq!(land.sites[..new], before[..]);
         let at = land.sites[new].at;
         assert_eq!(land.suits(at), Ok(()));
+        land.settle(&(0..=new).collect::<Vec<_>>());
         assert!(
             (land.height(at) - land.set.land.site_y).abs() < 1e-3
         );
@@ -58,7 +59,7 @@ fn there_is_always_one_more_site() {
 
 #[test]
 fn the_land_is_the_same_far_out_whatever_was_asked_first() {
-    let (a, b) = (land(), land());
+    let (a, b) = (testing::settled_land(1), testing::settled_land(1));
     let spots = (0..200)
         .map(|i| {
             let turn = Vec2::from_angle(i as f32 * 2.4);
@@ -78,7 +79,7 @@ fn the_land_is_the_same_far_out_whatever_was_asked_first() {
 
 #[test]
 fn a_moved_site_takes_its_level_ground_along() {
-    let mut land = land();
+    let mut land = testing::settled_land(1);
     let was = land.sites[4].at;
     let to = (0..400)
         .map(|i| {

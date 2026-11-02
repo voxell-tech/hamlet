@@ -48,6 +48,9 @@ musing_in = 0.4
 gap = [0.5, 1.6]
 heading = 70.0
 veer = 18.0
+band = [30.0, 6.0]
+shiver = [4.0, 9.0]
+calm = 0.45
 length = 17.0
 width = 0.42
 height = [1.8, 5.5]
@@ -85,3 +88,23 @@ bristles = 40.0
 dry = 0.35
 streaks = 0.15
 grain = 0.08
+
+[water]
+shallow = [0.53, 0.84, 0.76]
+mid = [0.18, 0.6, 0.6]
+deep = [0.07, 0.33, 0.45]
+depths = [0.6, 2.2]
+clear = 0.45
+scale = 1.3
+bend = 36.0
+calm = [16.0, 0.3]
+soft = 0.35
+normals = 0.45
+mirror = 1.0
+
+[water.foam]
+color = [0.96, 0.95, 0.9]
+fade = [60.0, 120.0]
+decay = 0.2
+erosion = 3.0
+streak = [0.06, -0.06]

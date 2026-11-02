@@ -256,7 +256,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
 
     let river = (0..4000)
         .map(|i| Vec2::new(i as f32 * 0.5 - 1000.0, 40.0))
-        .find(|&p| land.is_water(p))
+        .find(|&p| land.river_dist(p) < 1.0)
         .unwrap();
     refused(&mut s, &mut land, river, Unfit::Water);
 
@@ -269,7 +269,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
     );
     let peak = (0..4000)
         .map(|i| Vec2::from_angle(i as f32) * (300.0 + i as f32))
-        .find(|&p| land.mountain(p) > 0.5)
+        .find(|&p| land.mound(p) > 0.5)
         .unwrap();
     refused(&mut s, &mut land, peak, Unfit::Steep);
 
