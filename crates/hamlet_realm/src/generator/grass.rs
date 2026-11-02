@@ -252,14 +252,12 @@ fn tread(
     }
 }
 
-/// What treads the grass down: the ground held, each road's steps and
-/// each town's square, each as a line from one point to another with
-/// how far it reaches to each side.
+/// What treads the grass down: each road's steps and each town's
+/// square, each as a line from one point to another with how far it
+/// reaches to each side. Held ground is only levelled, and grows
+/// grass up to the walls on it.
 fn marks(land: &Land, drawn: &Drawn) -> Vec<(Vec2, Vec2, f32)> {
-    let mut out = land
-        .rounds()
-        .map(|(at, radius)| (at, at, radius + 0.3))
-        .collect::<Vec<_>>();
+    let mut out = Vec::new();
     let square = land.set.town.plaza_radius + 0.5;
     out.extend(land.settled().iter().filter_map(|&site| {
         land.sites.get(site).map(|s| (s.at, s.at, square))
