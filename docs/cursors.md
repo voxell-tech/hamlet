@@ -2,8 +2,8 @@
 
 The pointer is the chief's taper: a brass-handled taper whose flame leans
 toward what it points at. The tip of the flame is the hot spot. What is
-held is held in the chief's glove, the same hand that lifts a robot in the
-world.
+pressed or held is in the chief's glove, the same hand that lifts a robot
+in the world.
 
 `cargo run --example cursor_sheet` writes every cursor to one sheet, large
 and at its own size.
@@ -13,8 +13,7 @@ and at its own size.
 | Mode | Picture | When |
 |---|---|---|
 | `Point` | The lit taper | Nothing else holds |
-| `Press` | The flame flares | Over a button, a tab, a link, or something of the world that takes a click |
-| `Pick` | A glass on a brass handle | Over a thing of the world that can be selected |
+| `Press` | The glove with one finger out | Over a button, a tab, a link, or a thing of the world that takes a click or can be selected |
 | `Grab` | The open glove | Over a robot that can be lifted, or a dock tab |
 | `Carry` | The closed glove | A robot is off the ground, or a dock tab is being dragged |
 | `Slide` | Four arrowheads | The left button drags the ground |
@@ -40,9 +39,9 @@ these that holds is shown:
 4. The panels ask for a cursor. Fynix sets a system cursor on the window,
    and `Mode::of_system` turns it into a mode.
 5. The hand could take what is under the pointer: `Grab`.
-6. Something of the world takes the click: `Press`.
-7. A thing of the world is under the pointer: `Pick`.
-8. Otherwise `Point`.
+6. Something of the world takes the click, or a thing of the world is
+   under the pointer: `Press`.
+7. Otherwise `Point`.
 
 `cursor::dress` runs in `PostUpdate`, after fynix and the world have had
 their say, and replaces the window's cursor only when the wanted picture
