@@ -1,5 +1,5 @@
 //! The Sight page: how much the world draws, whether the window waits
-//! for the screen, the hour its sky shows,
+//! for the screen, the camera put back, the hour its sky shows,
 //! how far the distance fog lies and the volumetric fog the sun
 //! throws shafts through.
 
@@ -15,6 +15,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ModifierExt, ViewExt, derived, every_frame, resource,
 };
+use hamlet_realm::pick::Orbit;
 use hamlet_realm::sky::{
     DistanceFogSettings, Quality, SkySettings, VolumetricFogSettings,
 };
@@ -273,6 +274,15 @@ pub(super) fn page() -> impl View {
                 description(
                     "Waits for the screen, so no frame tears.",
                 ),
+            ),
+        ),
+        field(
+            "Camera",
+            told(
+                action(Glyph::Aim, "RESET", |world: &mut World| {
+                    *world.resource_mut::<Orbit>() = Orbit::default();
+                }),
+                description("Back to where it first looked."),
             ),
         ),
         field("Time of day", hour()),

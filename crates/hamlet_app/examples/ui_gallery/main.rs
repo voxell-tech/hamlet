@@ -40,16 +40,10 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 31] = [
+const SHOTS: [Shot; 30] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
-        size: UVec2::new(1440, 860),
-        scale: 1.0,
-    },
-    Shot {
-        name: "view-menu",
-        scene: Scene::ViewMenu,
         size: UVec2::new(1440, 860),
         scale: 1.0,
     },

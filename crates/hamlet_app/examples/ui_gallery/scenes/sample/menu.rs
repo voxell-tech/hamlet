@@ -9,7 +9,6 @@ use crate::scenes::Scene;
 pub(super) fn setup(world: &mut World, scene: Scene) {
     let open = match scene {
         Scene::Menu => Some((menu::Menu::App, 8.0, 95.0)),
-        Scene::ViewMenu => Some((menu::Menu::View, 104.0, 176.0)),
         _ => None,
     };
     if let Some((which, left, right)) = open {
