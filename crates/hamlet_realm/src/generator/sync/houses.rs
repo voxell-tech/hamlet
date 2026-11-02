@@ -1,6 +1,7 @@
 //! An agent's house, the furniture of its yard and its robot.
 
 use bevy::light::NotShadowCaster;
+use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 
 use super::{HouseSignature, Pass};
@@ -10,7 +11,7 @@ use crate::generator::shift::{Folded, Prop, Way};
 use crate::generator::society::{Agent, AgentId, Town};
 use crate::generator::work::{Engine, Lot, Robot};
 use crate::generator::yard::Yard;
-use crate::generator::{House, Passage, house, state_index};
+use crate::generator::{House, Passage, flora, house, state_index};
 use crate::keeper::{self, KeeperState};
 
 impl Pass<'_, '_, '_> {
@@ -160,11 +161,13 @@ impl Pass<'_, '_, '_> {
             house::garden_tree(land, agent.id, &yard)
             && !hall
         {
+            let tag = flora::tag(at);
             let at = Transform::from_translation(at)
                 .with_scale(Vec3::splat(scale));
             self.commands.spawn((
                 Mesh3d(kit.trees[kind].clone()),
-                MeshMaterial3d(kit.matte.clone()),
+                MeshMaterial3d(kit.leaves.clone()),
+                MeshTag::new(tag),
                 at,
                 Prop::tree(at),
                 Visibility::Inherited,

@@ -4,6 +4,7 @@
 pub mod flag;
 pub mod ground;
 pub mod inlay;
+pub mod leaves;
 pub mod magic;
 pub mod mark;
 pub mod patch;
@@ -17,6 +18,7 @@ use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
 use self::flag::FlagSettings;
 use self::ground::GroundSettings;
 use self::inlay::InlayPlugin;
+use self::leaves::LeafSettings;
 use self::magic::MagicSettings;
 use self::sparks::SparkSettings;
 use self::water::WaterSettings;
@@ -39,6 +41,7 @@ impl Plugin for VfxPlugin {
             flag::plugin,
             ground::plugin,
             water::plugin,
+            leaves::plugin,
         ))
         .init_resource::<Now>();
     }
@@ -84,6 +87,7 @@ pub(crate) struct VfxTuning {
     pub flag: FlagSettings,
     pub ground: GroundSettings,
     pub water: WaterSettings,
+    pub leaves: LeafSettings,
 }
 
 impl Tuning for VfxTuning {
@@ -96,6 +100,7 @@ impl Tuning for VfxTuning {
         follow(world, &was.flag, &self.flag);
         follow(world, &was.ground, &self.ground);
         follow(world, &was.water, &self.water);
+        follow(world, &was.leaves, &self.leaves);
     }
 }
 
@@ -106,4 +111,5 @@ designed!(VfxTuning {
     FlagSettings => flag,
     GroundSettings => ground,
     WaterSettings => water,
+    LeafSettings => leaves,
 });

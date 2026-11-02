@@ -40,23 +40,27 @@ impl Stand {
 pub struct Grove {
     /// Those that stand as themselves.
     pub trees: Vec<Tree>,
-    /// All of them as one mesh, where the tile is far enough for
-    /// that and has any.
-    pub canopy: Option<Mesh>,
+    /// One mesh for the tile: the leaves fallen about the trees that
+    /// stand as themselves, or all of them as one, where the tile is
+    /// far enough for that. None where there is nothing to draw.
+    pub mesh: Option<Mesh>,
 }
 
 pub fn grove(land: &Land, tile: Tile, stand: Stand) -> Grove {
     let chunk = land.set.land.chunk;
     let (lo, side) = (tile.corner(chunk), tile.side(chunk));
     match stand {
-        Stand::Trees => Grove {
-            trees: flora::trees(land, lo, lo + side, 1),
-            canopy: None,
-        },
+        Stand::Trees => {
+            let trees = flora::trees(land, lo, lo + side, 1);
+            Grove {
+                mesh: flora::litter(land, &trees),
+                trees,
+            }
+        }
         Stand::Canopy { every, crowns } => {
             let trees = flora::trees(land, lo, lo + side, every);
             Grove {
-                canopy: (!trees.is_empty()).then(|| {
+                mesh: (!trees.is_empty()).then(|| {
                     flora::canopy(&land.pal, &trees, crowns)
                 }),
                 trees: Vec::new(),

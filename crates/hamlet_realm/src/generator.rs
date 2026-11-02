@@ -39,7 +39,7 @@ use hamlet_vfx::{Density, Now, Tints, VfxPlugin, VfxSystems};
 
 pub use self::ground::DetailSettings;
 use self::house::HouseSettings;
-use self::kit::{Kit, repaint, setup, state_index};
+use self::kit::{Kit, repaint, setup, state_index, tell_leaves};
 use self::land::{Land, LandSettings};
 use self::layout::TownSettings;
 use self::lights::{light_lanterns, light_roads, light_spills};
@@ -153,6 +153,7 @@ pub fn plugin(app: &mut App) {
                     .or_else(resource_changed::<Sky>),
             ),
             settle.run_if(resource_changed::<Society>),
+            tell_leaves,
             shift_houses,
             magic::charm,
             run_traffic,
@@ -354,7 +355,7 @@ mod tests {
             for tile in &woods {
                 let stand = ground::Stand::of(&detail, *tile);
                 let grove = ground::grove(&land, *tile, stand);
-                canopy += grove.canopy.as_ref().map_or(0, mesh_bytes);
+                canopy += grove.mesh.as_ref().map_or(0, mesh_bytes);
                 trees += grove.trees.len();
             }
             println!(
@@ -364,10 +365,10 @@ mod tests {
                 began.elapsed()
             );
         }
-        let trees = (0..flora::KINDS)
+        let trees = (0..flora::FORMS)
             .map(|k| mesh_bytes(&flora::mesh(&land.pal, k)))
             .sum::<usize>();
-        println!("trees, {} meshes: {trees} bytes", flora::KINDS);
+        println!("trees, {} meshes: {trees} bytes", flora::FORMS);
         let style = TownStyle::of(&land, 0);
         let common = common::mesh(&land, 0, &style);
         println!("a common: {} bytes", common.bytes());

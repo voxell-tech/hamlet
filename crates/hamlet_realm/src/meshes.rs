@@ -137,6 +137,24 @@ impl Meshing {
         self.indices.len() / 3
     }
 
+    pub fn vertices(&self) -> usize {
+        self.positions.len()
+    }
+
+    /// Turns the normals of the vertices from `from` on by `share`
+    /// toward pointing out from `centre`, so that many lumps take the
+    /// light as one round mass.
+    pub fn round(&mut self, from: usize, centre: Vec3, share: f32) {
+        let centre = self.transform.transform_point3(centre);
+        for k in from..self.positions.len() {
+            let out = (Vec3::from(self.positions[k]) - centre)
+                .normalize_or_zero();
+            let n = Vec3::from(self.normals[k]);
+            self.normals[k] =
+                n.lerp(out, share).normalize_or_zero().to_array();
+        }
+    }
+
     /// True when any vertex was given a UV.
     fn has_uvs(&self) -> bool {
         self.uvs.iter().any(|uv| *uv != [0.0; 2])

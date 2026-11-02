@@ -50,7 +50,9 @@ pub(super) fn kit(world: &mut World) {
         water: Handle::default(),
         patch: Handle::default(),
         flat_patch: Handle::default(),
-        trees: vec![Handle::default(); flora::KINDS],
+        trees: vec![Handle::default(); flora::FORMS],
+        leaves: Handle::default(),
+        still_leaves: Handle::default(),
         groove: Handle::default(),
     });
 }
@@ -63,6 +65,8 @@ pub(crate) fn rehearse(app: &mut App) {
         .init_resource::<Assets<Image>>()
         .init_resource::<Assets<hamlet_vfx::mark::MarkMaterial>>()
         .init_resource::<hamlet_vfx::mark::Marks>()
+        .init_resource::<Assets<hamlet_vfx::leaves::LeafMaterial>>()
+        .init_resource::<hamlet_vfx::leaves::Leaves>()
         .add_message::<bevy::window::RequestRedraw>()
         .init_resource::<Clock>()
         .init_resource::<crate::Stage>()

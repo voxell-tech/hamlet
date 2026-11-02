@@ -7,6 +7,7 @@ use std::f32::consts::{FRAC_PI_2, PI};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 
+use super::flora;
 use super::land::Land;
 use super::noise::key;
 use super::society::AgentId;
@@ -185,7 +186,7 @@ pub(crate) fn garden_tree(
                 0.0,
                 -look.half.y - 0.55,
             ),
-            (h / 16 % 5) as usize,
+            flora::form((h / 16 % 5) as usize, (h / 1024) as usize),
             0.55 + 0.3 * ((h / 256 % 100) as f32 / 100.0),
         )
     })

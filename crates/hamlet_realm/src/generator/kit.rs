@@ -7,6 +7,7 @@ use bevy::render::renderer::RenderDevice;
 use bevy::render::settings::WgpuFeatures;
 use hamlet_vfx::ground::{self, GroundMaterial, GroundSettings};
 use hamlet_vfx::inlay::{InlayExt, InlayMaterial, InlayUniform};
+use hamlet_vfx::leaves::{LeafMaterial, LeafView, Leaves};
 use hamlet_vfx::patch;
 use hamlet_vfx::water::{
     self, WaterMaterial, WaterSettings, WaterUniform,
@@ -14,11 +15,13 @@ use hamlet_vfx::water::{
 
 use super::land::Land;
 use super::loading::Bed;
+use super::view::GeneratorView;
 use super::{Tally, traffic, yard};
 use crate::keeper::KeeperState;
 use crate::lantern::lantern_glass;
 use crate::palette::Palette;
-use crate::{Sky, Stock};
+use crate::sky::SkySettings;
+use crate::{Sky, Stock, WorldCamera};
 
 /// Handles shared by everything of a kind, so the renderer can batch
 /// them.
@@ -49,6 +52,9 @@ pub(super) struct Kit {
     /// flat.
     pub(super) flat_patch: Handle<Mesh>,
     pub(super) trees: Vec<Handle<Mesh>>,
+    /// The leaves of a tree drawn alone, and of many in one mesh.
+    pub(super) leaves: Handle<LeafMaterial>,
+    pub(super) still_leaves: Handle<LeafMaterial>,
     pub(super) groove: Handle<InlayMaterial>,
 }
 
@@ -72,6 +78,7 @@ pub(super) fn setup(
     stock: Res<Stock>,
     bumps: Res<GroundSettings>,
     flow: Res<WaterSettings>,
+    leaves: Res<Leaves>,
     device: Option<Res<RenderDevice>>,
 ) {
     let ground = grounds.add(ground::material(
@@ -148,6 +155,8 @@ pub(super) fn setup(
         patch,
         flat_patch,
         trees: stock.trees.clone(),
+        leaves: leaves.sway.clone(),
+        still_leaves: leaves.still.clone(),
         groove,
     });
 }
@@ -186,4 +195,24 @@ pub(super) fn repaint(
     {
         water.extension.water = look;
     }
+}
+
+/// Tells the leaves how far into the night it is, and what the eye
+/// watches: the ground the camera looks at, which the leaves between
+/// thin to show.
+pub(super) fn tell_leaves(
+    sky: Res<Sky>,
+    set: Res<SkySettings>,
+    view: Res<GeneratorView>,
+    camera: Query<&GlobalTransform, With<WorldCamera>>,
+    mut leaves: ResMut<LeafView>,
+) {
+    let watched = camera
+        .single()
+        .ok()
+        .map(|eye| eye.translation() + eye.forward() * view.dist);
+    leaves.set_if_neq(LeafView {
+        night: 1.0 - set.daylight(sky.hour),
+        watched,
+    });
 }

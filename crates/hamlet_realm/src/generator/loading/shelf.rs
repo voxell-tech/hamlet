@@ -22,16 +22,16 @@ pub(super) enum Grown {
 }
 
 /// A tile's woods as built: the trees that stand as themselves, and
-/// the rest as one mesh already among the assets, with its bytes.
+/// the tile's one mesh already among the assets, with its bytes.
 #[derive(Clone)]
 pub(super) struct Kept {
     pub(super) trees: Vec<Tree>,
-    pub(super) canopy: Option<(Handle<Mesh>, usize)>,
+    pub(super) mesh: Option<(Handle<Mesh>, usize)>,
 }
 
 impl Kept {
     fn bytes(&self) -> usize {
-        self.canopy.as_ref().map_or(0, |(_, bytes)| *bytes)
+        self.mesh.as_ref().map_or(0, |(_, bytes)| *bytes)
     }
 }
 

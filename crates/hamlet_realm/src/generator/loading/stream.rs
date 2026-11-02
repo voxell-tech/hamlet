@@ -308,9 +308,9 @@ pub(in crate::generator) fn stream(
                 Grown::New(grove) => {
                     let kept = Kept {
                         trees: grove.trees,
-                        canopy: grove.canopy.map(|canopy| {
-                            let bytes = mesh_bytes(&canopy);
-                            (meshes.add(canopy), bytes)
+                        mesh: grove.mesh.map(|mesh| {
+                            let bytes = mesh_bytes(&mesh);
+                            (meshes.add(mesh), bytes)
                         }),
                     };
                     shelf.put(seed, tile, kept.clone());
@@ -331,11 +331,11 @@ pub(in crate::generator) fn stream(
                 ))
                 .id();
             let mut bytes = 0;
-            if let Some((canopy, size)) = grove.canopy {
+            if let Some((mesh, size)) = grove.mesh {
                 bytes = size;
                 commands.entity(wood).try_insert((
-                    Mesh3d(canopy),
-                    MeshMaterial3d(kit.matte.clone()),
+                    Mesh3d(mesh),
+                    MeshMaterial3d(kit.still_leaves.clone()),
                 ));
             }
             waiting.extend(
@@ -379,8 +379,9 @@ pub(in crate::generator) fn stream(
         let tree = commands
             .spawn((
                 Standing,
-                Mesh3d(kit.trees[tree.kind].clone()),
-                MeshMaterial3d(kit.matte.clone()),
+                Mesh3d(kit.trees[tree.form()].clone()),
+                MeshMaterial3d(kit.leaves.clone()),
+                tree.tag(),
                 Transform::from_translation(tree.at)
                     .with_rotation(Quat::from_rotation_y(tree.yaw))
                     .with_scale(Vec3::splat(tree.scale)),

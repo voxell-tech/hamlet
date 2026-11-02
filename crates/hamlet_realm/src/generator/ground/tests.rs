@@ -106,7 +106,6 @@ fn tiles_share_no_tree_and_far_ones_hold_fewer() {
     let mut under = 0;
     for tile in over.quarters() {
         let grove = grove(&land, tile, Stand::of(&detail, tile));
-        assert!(grove.canopy.is_none());
         let (lo, side) = (tile.corner(chunk), tile.side(chunk));
         for tree in &grove.trees {
             let p = tree.at.xz();
@@ -149,7 +148,7 @@ fn tiles_share_no_tree_and_far_ones_hold_fewer() {
         }
     );
     let grove = grove(&land, wood, Stand::of(&detail, wood));
-    assert!(grove.trees.is_empty() && grove.canopy.is_some());
+    assert!(grove.trees.is_empty() && grove.mesh.is_some());
 }
 
 #[test]
