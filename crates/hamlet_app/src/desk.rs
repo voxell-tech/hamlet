@@ -30,18 +30,23 @@ const FIRST: &str = "Main";
 const LONGEST_NAME: usize = 40;
 
 pub(crate) fn plugin(app: &mut App) {
+    app.add_plugins(still_plugin).add_systems(
+        Update,
+        (
+            show.run_if(resource_changed::<Desks>),
+            capture.run_if(resource_changed::<DockTree>),
+        )
+            .chain(),
+    );
+}
+
+/// The desk switcher, with the dock left as it is laid out: for a
+/// still of the panels.
+pub fn still_plugin(app: &mut App) {
     app.init_resource::<DeskSettings>()
         .init_resource::<Desks>()
         .init_resource::<Shown>()
-        .add_plugins(switcher::plugin)
-        .add_systems(
-            Update,
-            (
-                show.run_if(resource_changed::<Desks>),
-                capture.run_if(resource_changed::<DockTree>),
-            )
-                .chain(),
-        );
+        .add_plugins(switcher::plugin);
 }
 
 /// The tuning of the desk switcher.

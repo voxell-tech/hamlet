@@ -85,6 +85,10 @@ pub(super) fn seed_dock(world: &mut World) {
         .icon(Glyph::Lens.image(ICON)),
     );
     registry.register(
+        hamlet_app::explorer::PANEL,
+        hamlet_app::explorer::window(),
+    );
+    registry.register(
         "settings",
         DockWindowKind::new("SETTINGS", || panel(settings::screen()))
             .icon(Glyph::Sliders.image(ICON)),
@@ -100,6 +104,9 @@ pub(super) fn seed_dock(world: &mut World) {
         && let Some(parent) = tree.parent_of(queue)
     {
         tree.set_fraction(parent, 0.24);
+        if scene == Scene::Explorer {
+            tree.add_tab(queue, hamlet_app::explorer::PANEL);
+        }
     }
     if let Some((side, agent)) =
         tree.split(centre, Edge::Right, "agent".into())

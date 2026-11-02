@@ -7,8 +7,9 @@ mod chief;
 pub mod chrome;
 mod convo;
 pub mod cursor;
-mod desk;
+pub mod desk;
 mod dock;
+pub mod explorer;
 mod folder;
 pub mod history;
 mod hover;
@@ -117,6 +118,7 @@ impl Plugin for UiPlugin {
                 screens::plugin,
                 chief::plugin,
                 folder::plugin,
+                explorer::plugin,
                 limits::plugin,
                 models::plugin,
                 asking::plugin,

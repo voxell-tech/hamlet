@@ -160,6 +160,21 @@ fn header(agent: Entity, with: Option<String>) -> impl View {
                     None => Display::None,
                 }
             }));
+        // The files of the folder its hamlet works on, in a panel
+        // of their own.
+        let files = hamlet.map(|hamlet| {
+            button(hamlet_ui::styles::raised(
+                hamlet_ui::widgets::icons::glyph(Glyph::Folder, ICON),
+            ))
+            .padding(UiRect::axes(px(10.0), px(0.0)))
+            .min_height(px(hamlet_ui::styles::CONTROL))
+            .tooltip(|| note("Its hamlet's files"))
+            .rules(hamlet_ui::styles::button)
+            .tagged(Variant::Default)
+            .on_activate(move |world| {
+                crate::explorer::browse(world, hamlet);
+            })
+        });
         // Everything else that can be done to it, as a right click
         // on it in the world offers.
         let more = button(hamlet_ui::styles::raised(
@@ -191,6 +206,7 @@ fn header(agent: Entity, with: Option<String>) -> impl View {
                         .align(AlignItems::Center),
                     frame().grow(1.0),
                     stop,
+                    row(files.into_iter().collect::<Vec<_>>()),
                     more,
                 ))
                 .gap(section)

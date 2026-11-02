@@ -64,6 +64,11 @@ pub(crate) fn window_button(world: &mut World) {
     world.write_message(cue(Sound::Sash));
 }
 
+/// The cue of a request that could not be done.
+pub(crate) fn denied(world: &mut World) {
+    world.write_message(cue(Sound::Deny));
+}
+
 /// Writes a cue with a number of its own, so that it is not played
 /// twice alike.
 pub(crate) fn write(
