@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use bevy_math::{Vec3, Vec4};
 
-use crate::value::{Constant, ValueType};
+use crate::value::{Constant, PathPoint, ValueType};
 
 /// A kind of node. Its names and words describe it to the editor, to
 /// plugin authors and to agents.
@@ -153,6 +153,7 @@ pub enum Initial {
     Point(Vec3),
     Choice(&'static str),
     Color(Vec4),
+    Path(&'static [PathPoint]),
 }
 
 impl From<Initial> for Constant {
@@ -166,6 +167,7 @@ impl From<Initial> for Constant {
                 Constant::Choice(choice.to_owned())
             }
             Initial::Color(color) => Constant::Color(color),
+            Initial::Path(points) => Constant::Path(points.to_vec()),
         }
     }
 }

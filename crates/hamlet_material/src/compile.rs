@@ -119,7 +119,7 @@ fn as_slot(constant: Constant) -> Vec4 {
         }
         Constant::Point(point) => point.extend(0.0),
         Constant::Color(color) => color,
-        Constant::Choice(_) => Vec4::ZERO,
+        Constant::Choice(_) | Constant::Path(_) => Vec4::ZERO,
     }
 }
 

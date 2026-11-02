@@ -23,7 +23,9 @@ use hamlet_graph_editor::canvas::corner;
 use hamlet_ui::theme::HamletTheme;
 
 use super::super::Blueprint;
-use super::super::handles::{Kind, Target, degrees_of, set, targets};
+use super::super::handles::{
+    Kind, POINTS, Part, Target, degrees_of, path_of, set, targets,
+};
 use super::super::preview::{Preview, Shown as PreviewFrame};
 use super::{Arc, Frame, GizmoMode, Handle, Hot, Style, handles_of};
 
@@ -246,7 +248,7 @@ impl Dragging {
 
 /// The pointer at `at` in the window, over the preview, through its
 /// camera.
-fn pointing(
+pub(super) fn pointing(
     at: Vec2,
     frames: &Query<
         (&ComputedNode, &UiGlobalTransform),
@@ -263,10 +265,15 @@ fn pointing(
 
 /// What a drag of `target` in `mode` writes, and its value now.
 fn written(
+    editor: &Editor<Blueprint>,
     target: &Target,
     mode: GizmoMode,
-) -> (&'static str, Constant) {
-    match &target.kind {
+) -> Option<(&'static str, Constant)> {
+    Some(match &target.kind {
+        Kind::Knot { .. } => (
+            POINTS,
+            Constant::Path(path_of(editor, target.node, POINTS)?),
+        ),
         Kind::Transform { rotation, scale } => match mode {
             GizmoMode::Translate => {
                 ("translation", Constant::Point(target.at))
@@ -288,7 +295,7 @@ fn written(
                 (target.at - *middle).dot(*axis) * times,
             ),
         ),
-    }
+    })
 }
 
 /// Takes hold of the handle under the pointer, if there is one; the
@@ -299,7 +306,7 @@ fn written(
 )]
 pub(crate) fn grab(
     start: On<PointerDragStart>,
-    editor: Res<Editor<Blueprint>>,
+    mut editor: ResMut<Editor<Blueprint>>,
     mode: Res<GizmoMode>,
     hot: Res<Hot>,
     preview: Option<Res<Preview>>,
@@ -334,7 +341,12 @@ pub(crate) fn grab(
     ) else {
         return;
     };
-    let (input, was) = written(&target, handles.mode);
+    let Some((input, was)) = written(&editor, &target, handles.mode)
+    else {
+        return;
+    };
+    // The drag is one step to undo.
+    editor.end_step();
     dragging.0 = Some(Drag {
         index,
         written: (target.node, input, was),
@@ -428,6 +440,48 @@ pub(crate) fn steer(
                 (length.max(0.01) * 100.0).round() / 100.0,
             )
         }
+        (
+            Kind::Knot {
+                index,
+                part,
+                anchor,
+            },
+            _,
+        ) => {
+            let Some(delta) = held.grab.translation(
+                &now,
+                snaps.then_some(style.translate_snap),
+            ) else {
+                return;
+            };
+            let Some(mut path) = path_of(&editor, node, input) else {
+                return;
+            };
+            let Some(point) = path.get_mut(*index) else {
+                return;
+            };
+            let moved = round(held.target.at + delta);
+            // Alt breaks the symmetry; otherwise the other handle
+            // mirrors this one.
+            let mirrors = !keys
+                .any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+            match part {
+                Part::Anchor => point.at = moved,
+                Part::After => {
+                    point.after = round(moved - *anchor);
+                    if mirrors {
+                        point.before = -point.after;
+                    }
+                }
+                Part::Before => {
+                    point.before = round(moved - *anchor);
+                    if mirrors {
+                        point.after = -point.before;
+                    }
+                }
+            }
+            Constant::Path(path)
+        }
         _ => {
             let Some(delta) = held.grab.translation(
                 &now,
@@ -445,9 +499,11 @@ pub(crate) fn steer(
 pub(crate) fn release(
     end: On<PointerDragEnd>,
     mut dragging: ResMut<Dragging>,
+    mut editor: ResMut<Editor<Blueprint>>,
 ) {
     if end.button == PointerButton::Primary && dragging.0.is_some() {
         dragging.0 = None;
+        editor.end_step();
     }
 }
 
@@ -463,6 +519,7 @@ pub(crate) fn cancel(
     if let Some(drag) = dragging.0.take() {
         let (node, input, was) = drag.written;
         set(&mut editor, node, input, was);
+        editor.end_step();
     }
 }
 

@@ -36,6 +36,9 @@ use super::preview::{Framing, Preview};
 /// How many squares a field is sampled in, on each side.
 const WASH: usize = 24;
 
+/// How far a drawn curve may stray from the curve, in metres.
+const CURVE_TOLERANCE: f32 = 0.01;
+
 /// The width of an outline or a ribbon, in logical pixels.
 const LINE: f32 = 2.0;
 
@@ -131,13 +134,7 @@ fn tone(
 /// The points a curve is drawn through, its first again at the end
 /// when it is closed.
 fn curve_points(curve: &Curve) -> Vec<Vec3> {
-    let mut points = curve.points.clone();
-    if curve.closed
-        && let Some(first) = points.first().copied()
-    {
-        points.push(first);
-    }
-    points
+    curve.sampled(CURVE_TOLERANCE)
 }
 
 /// The shapes of the overlay put into `fills`, as `camera` sees them.
@@ -185,6 +182,7 @@ impl Sketch<'_> {
             | Value::Integer(_)
             | Value::Bool(_)
             | Value::Choice(_)
+            | Value::Path(_)
             | Value::Color(_) => {}
         }
     }
@@ -248,20 +246,19 @@ impl Sketch<'_> {
     /// A ribbon through the curve's points, a dot at each and an
     /// arrowhead on its first edge for the way it runs.
     fn curve(&mut self, curve: &Curve, colour: Color) {
-        let points = curve_points(curve);
-        let path = points
+        let path = curve_points(curve)
             .iter()
             .filter_map(|point| self.see(*point))
             .collect::<Vec<_>>();
         self.stroke(&path, colour);
-        let dots =
-            points.len().saturating_sub(usize::from(curve.closed));
-        for point in &points[..dots] {
-            self.dot(*point, DOT, colour);
+        for point in curve.points() {
+            self.dot(point, DOT, colour);
         }
-        if let [first, second, ..] = points[..]
-            && let Some(seen) = self.see(first.lerp(second, 0.5))
-            && let Some(along) = (second - first).try_normalize()
+        if let Some((middle, along)) = curve
+            .segments()
+            .first()
+            .map(|first| first.at(first.length() * 0.5))
+            && let Some(seen) = self.see(middle)
         {
             let side = along.cross(seen.look).normalize_or_zero()
                 * ARROW.y

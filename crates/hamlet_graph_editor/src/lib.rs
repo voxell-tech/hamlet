@@ -116,6 +116,9 @@ pub struct Editor<F: Flavor> {
     pub registry: Registry,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
+    /// Whether the next edit starts a step of its own, however like
+    /// the last it is.
+    apart: bool,
     /// Changes whenever the nodes, the wires or the way an input is
     /// set change, or another asset is opened, so what is built from
     /// them is built again.
@@ -154,6 +157,7 @@ impl<F: Flavor> Editor<F> {
             registry: F::registry(),
             undo: Vec::new(),
             redo: Vec::new(),
+            apart: false,
             shape: 0,
             revision: 0,
             dirty: false,
@@ -345,31 +349,39 @@ impl<F: Flavor> Editor<F> {
         {
             inverse = Edit::Batch(vec![unpack, inverse]);
         }
-        let merges = matches!(
-            (&inverse, self.undo.last()),
-            (
-                Edit::Set { node, input, .. },
-                Some(Edit::Set { node: last, input: last_input, .. }),
-            ) if node == last && input == last_input
-        ) || matches!(
-            (&inverse, self.undo.last()),
-            (
-                Edit::ChangeInput { name, .. },
-                Some(Edit::ChangeInput { name: last, .. }),
-            ) if name == last
-        ) || matches!(
-            (&inverse, self.undo.last()),
-            (
-                Edit::ChangeGroup { at, group },
-                Some(Edit::ChangeGroup { at: last, group: was }),
-            ) if at == last && group.nodes == was.nodes
-        );
+        let merges = !self.apart
+            && (matches!(
+                (&inverse, self.undo.last()),
+                (
+                    Edit::Set { node, input, .. },
+                    Some(Edit::Set { node: last, input: last_input, .. }),
+                ) if node == last && input == last_input
+            ) || matches!(
+                (&inverse, self.undo.last()),
+                (
+                    Edit::ChangeInput { name, .. },
+                    Some(Edit::ChangeInput { name: last, .. }),
+                ) if name == last
+            ) || matches!(
+                (&inverse, self.undo.last()),
+                (
+                    Edit::ChangeGroup { at, group },
+                    Some(Edit::ChangeGroup { at: last, group: was }),
+                ) if at == last && group.nodes == was.nodes
+            ));
+        self.apart = false;
         if !merges {
             self.undo.push(inverse);
         }
         self.redo.clear();
         self.touch();
         self.changed(change);
+    }
+
+    /// Makes the next edit a step of its own to undo, however like
+    /// the last edit it is.
+    pub fn end_step(&mut self) {
+        self.apart = true;
     }
 
     /// The wired port of the same growing input of `node` as `port`,

@@ -4,11 +4,14 @@
 //! it comes to point at the viewer, the one under the pointer
 //! brighter. A transform node takes all three, G, R and S picking
 //! which; a point only moves; a radius or a side is one arrow along
-//! it.
+//! it. A spline's points are small rings to move, and its tangent
+//! handles rings joined to their points by a hair; clicking the curve
+//! adds a point and Alt-clicking a point takes it away.
 
 mod drag;
 pub(super) mod fills;
 mod paint;
+mod path;
 
 use core::f32::consts::PI;
 
@@ -44,8 +47,10 @@ use self::drag::cancel;
 pub(super) use self::drag::{Dragging, grab, release, steer};
 use self::fills::{FillMaterial, Fills, HandleFills, spawn_fills};
 use self::paint::{Shown, paint};
+use self::path::Pressed;
+pub(super) use self::path::{click, press};
 use super::Blueprint;
-use super::handles::{Kind, Target, targets};
+use super::handles::{Kind, Part, Target, targets};
 use super::preview::{LAYER, Preview, Shown as PreviewFrame};
 
 /// Segments a rotation ring is drawn and picked by.
@@ -57,6 +62,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<GizmoMode>()
         .init_resource::<Hot>()
         .init_resource::<Dragging>()
+        .init_resource::<Pressed>()
         .init_resource::<Background>()
         .add_systems(Startup, (style_handles, spawn_fills))
         .add_systems(
@@ -174,6 +180,12 @@ pub(super) struct Style {
     pub(super) axes: [Color; 3],
     pub(super) centre_color: Color,
     pub(super) sweep: Color,
+    /// The radius of a spline point's ring.
+    pub(super) knot: f32,
+    /// The radius of a tangent handle's ring.
+    pub(super) tangent: f32,
+    /// Half the width of the line to a tangent handle.
+    pub(super) hair: f32,
 }
 
 impl Style {
@@ -202,6 +214,9 @@ impl Style {
             axes: [palette.red, palette.green, palette.agent],
             centre_color: palette.gold_1,
             sweep: palette.gold_1.with_alpha(0.2),
+            knot: 7.0,
+            tangent: 5.0,
+            hair: 0.75,
         }
     }
 
@@ -463,12 +478,35 @@ impl Frame {
     }
 }
 
+/// How much of a gizmo a target shows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Shape {
+    /// Its arrows, rings or boxes.
+    Axes,
+    /// A small ring to move a point by.
+    Knot,
+    /// A smaller ring to move the end of a handle by, joined to the
+    /// point it belongs to at `anchor`.
+    Tangent { anchor: Vec3 },
+}
+
+impl Shape {
+    /// The radius of its ring in logical pixels.
+    fn ring(self, style: &Style) -> f32 {
+        match self {
+            Shape::Tangent { .. } => style.tangent,
+            Shape::Axes | Shape::Knot => style.knot,
+        }
+    }
+}
+
 /// The handles of a target's gizmo: what it edits, and, for a
 /// distance, the one axis it pulls along.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Handles {
     pub(super) mode: GizmoMode,
     pub(super) only: Option<usize>,
+    pub(super) shape: Shape,
 }
 
 /// The [`Handles`] of `target`'s gizmo in `mode`, and the turn of its
@@ -482,12 +520,33 @@ fn handles_of(target: &Target, mode: GizmoMode) -> (Handles, Quat) {
             } else {
                 Quat::IDENTITY
             };
-            (Handles { mode, only: None }, turn)
+            (
+                Handles {
+                    mode,
+                    only: None,
+                    shape: Shape::Axes,
+                },
+                turn,
+            )
         }
         Kind::Point { .. } => (
             Handles {
                 mode: GizmoMode::Translate,
                 only: None,
+                shape: Shape::Axes,
+            },
+            Quat::IDENTITY,
+        ),
+        Kind::Knot { part, anchor, .. } => (
+            Handles {
+                mode: GizmoMode::Translate,
+                only: None,
+                shape: match part {
+                    Part::Anchor => Shape::Knot,
+                    Part::Before | Part::After => {
+                        Shape::Tangent { anchor: *anchor }
+                    }
+                },
             },
             Quat::IDENTITY,
         ),
@@ -498,6 +557,7 @@ fn handles_of(target: &Target, mode: GizmoMode) -> (Handles, Quat) {
                 Handles {
                     mode: GizmoMode::Translate,
                     only: Some(index),
+                    shape: Shape::Axes,
                 },
                 Quat::IDENTITY,
             )
@@ -551,6 +611,11 @@ fn pick(
     project: impl Fn(Vec3) -> Option<Vec2>,
 ) -> Option<(Handle, f32)> {
     let from_centre = cursor.distance(project(frame.origin)?);
+    if handles.shape != Shape::Axes {
+        let reach = handles.shape.ring(style).max(style.pick_radius);
+        return (from_centre <= reach)
+            .then_some((Handle::Centre, from_centre));
+    }
     let arrow = |axis: usize| {
         if frame.axis_fade(axis, style) <= 0.0 {
             return None;

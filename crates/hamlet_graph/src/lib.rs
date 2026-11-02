@@ -24,4 +24,4 @@ pub use graph::{
 };
 pub use grows::pack;
 pub use node::{Initial, Listed, NodeKind, PortSpec, Registry};
-pub use value::{Constant, ValueType};
+pub use value::{Constant, PathPoint, ValueType};

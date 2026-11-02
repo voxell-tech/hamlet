@@ -1,11 +1,15 @@
 //! The targets the selected cards offer the gizmo: a transform node's
 //! translation, rotation and scale; a curve's ends or middle to move;
-//! and a polygon's radius or a rectangle's sides to pull. An input
-//! set from a parameter moves the parameter's default; a wired one
-//! offers nothing.
+//! a polygon's or circle's radius or a rectangle's sides to pull; and
+//! a spline's points, with the ends of their tangent handles. An
+//! input set from a parameter moves the parameter's default; a wired
+//! one offers nothing.
 
 use bevy::math::{EulerRot, Quat, Vec3};
-use hamlet_graph::{Constant, Does, Edit, NodeId, Setting};
+use hamlet_blueprint::spline::SplineKind;
+use hamlet_graph::{
+    Constant, Does, Edit, NodeId, PathPoint, Setting,
+};
 use hamlet_graph_editor::Editor;
 
 use super::Blueprint;
@@ -34,6 +38,31 @@ pub(super) enum Kind {
         axis: Vec3,
         times: f32,
     },
+    /// A spline's point `index`, or the end of one of its tangent
+    /// handles, which is `at` and starts from `anchor`.
+    Knot {
+        index: usize,
+        part: Part,
+        anchor: Vec3,
+    },
+}
+
+/// Which of a spline's point and its two handles a knot is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Part {
+    Anchor,
+    Before,
+    After,
+}
+
+/// The input of a spline node that holds its points.
+pub(super) const POINTS: &str = "points";
+
+/// A spline node's points and how they are followed.
+pub(super) struct Spline {
+    pub(super) points: Vec<PathPoint>,
+    pub(super) kind: SplineKind,
+    pub(super) closed: bool,
 }
 
 /// The targets of every selected card, in the order they are
@@ -80,14 +109,19 @@ pub(super) fn targets(editor: &Editor<Blueprint>) -> Vec<Target> {
                     }
                 }
             }
-            "polygon" | "rectangle" => {
+            "spline" => {
+                if let Some(spline) = spline_of(editor, *node) {
+                    knots(&spline, &mut add);
+                }
+            }
+            "polygon" | "rectangle" | "circle" => {
                 let middle = point("center");
                 if let Some(at) = middle {
                     add(at, Kind::Point { input: "center" });
                 }
                 let middle = middle.unwrap_or(Vec3::ZERO);
                 let sides: &[(&'static str, Vec3, f32)] =
-                    if kind == "polygon" {
+                    if kind != "rectangle" {
                         &[("radius", Vec3::X, 1.0)]
                     } else {
                         &[
@@ -113,6 +147,48 @@ pub(super) fn targets(editor: &Editor<Blueprint>) -> Vec<Target> {
         }
     }
     found
+}
+
+/// Gives `add` each point of `spline`, then the ends of the handles
+/// the path follows when it goes by them.
+fn knots(spline: &Spline, add: &mut impl FnMut(Vec3, Kind)) {
+    let Spline {
+        points,
+        kind,
+        closed,
+    } = spline;
+    for (index, point) in points.iter().enumerate() {
+        add(
+            point.at,
+            Kind::Knot {
+                index,
+                part: Part::Anchor,
+                anchor: point.at,
+            },
+        );
+    }
+    if *kind != SplineKind::Handles {
+        return;
+    }
+    for (index, point) in points.iter().enumerate() {
+        let before = *closed || index > 0;
+        let after = *closed || index + 1 < points.len();
+        for (part, offset, shown) in [
+            (Part::Before, point.before, before),
+            (Part::After, point.after, after),
+        ] {
+            if shown {
+                add(
+                    point.at + offset,
+                    Kind::Knot {
+                        index,
+                        part,
+                        anchor: point.at,
+                    },
+                );
+            }
+        }
+    }
 }
 
 /// A rotation input's degrees about x, y and z as a turn, about y
@@ -181,6 +257,46 @@ fn point_of(
         Constant::Point(point) => Some(point),
         _ => None,
     }
+}
+
+/// The path `input` of `node` is set to.
+pub(super) fn path_of(
+    editor: &Editor<Blueprint>,
+    node: NodeId,
+    input: &str,
+) -> Option<Vec<PathPoint>> {
+    match constant_of(editor, node, input)? {
+        Constant::Path(path) => Some(path),
+        _ => None,
+    }
+}
+
+/// The spline `node` is, when it is one with nothing wired to what
+/// it takes.
+pub(super) fn spline_of(
+    editor: &Editor<Blueprint>,
+    node: NodeId,
+) -> Option<Spline> {
+    let Does::Kind(kind) = &editor.sheet.graph.node(node)?.does
+    else {
+        return None;
+    };
+    if kind != "spline" {
+        return None;
+    }
+    let kind = match constant_of(editor, node, "kind")? {
+        Constant::Choice(choice) => SplineKind::from_choice(&choice)?,
+        _ => return None,
+    };
+    let Constant::Bool(closed) = constant_of(editor, node, "closed")?
+    else {
+        return None;
+    };
+    Some(Spline {
+        points: path_of(editor, node, POINTS)?,
+        kind,
+        closed,
+    })
 }
 
 fn number_of(

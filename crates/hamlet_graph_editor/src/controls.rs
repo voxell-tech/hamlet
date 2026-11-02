@@ -3,7 +3,8 @@
 //! colour's four fields with a swatch, a choice that opens its list
 //! in the menu layer or the pictures of the library's meshes, and a
 //! mark that puts a fixed input back to its
-//! default. Changing a value fixes the input; until then it shows its
+//! default. A path shows how many points it has, which the preview
+//! edits. Changing a value fixes the input; until then it shows its
 //! default. A group's title is a field on its title bar.
 
 use bevy::color::Color;
@@ -131,6 +132,9 @@ pub(super) fn control<F: Flavor>(
     input: Input,
     setting: Option<&Setting>,
 ) -> Option<AnyView> {
+    if input.value_type == ValueType::Path {
+        return Some(points::<F>(node, input));
+    }
     let value = match setting {
         Some(Setting::FromParent(name)) => {
             return Some(pill(name.replace('_', " ")));
@@ -168,6 +172,31 @@ pub(super) fn control<F: Flavor>(
             .align(AlignItems::Center)
             .boxed(),
     )
+}
+
+/// The note on a path input: how many points it has, and the mark
+/// that puts them back to the default.
+fn points<F: Flavor>(node: NodeId, input: Input) -> AnyView {
+    let read = input.clone();
+    row((
+        label(resource::<Editor<F>, _>(
+            move |editor| match value_of(editor, node, &read) {
+                Some(Constant::Path(path)) if path.len() == 1 => {
+                    "1 point".to_owned()
+                }
+                Some(Constant::Path(path)) => {
+                    format!("{} points", path.len())
+                }
+                _ => String::new(),
+            },
+        ))
+        .wrap(false)
+        .tone(Tone::Dim),
+        reset::<F>(node, input.name),
+    ))
+    .gap(2.0)
+    .align(AlignItems::Center)
+    .boxed()
 }
 
 /// What sets an input other than a value of its own, in place of its

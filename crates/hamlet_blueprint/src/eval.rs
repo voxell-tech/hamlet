@@ -5,16 +5,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use bevy_math::Vec3;
 use hamlet_graph::{
     Asset, Catalogue, Does, Error, Graph, GraphError, Node, NodeId,
-    NodeKind, Registry, Roll, Ruleset, Scope, Setting, Spread,
-    ValueType, order, ports, validate,
+    NodeKind, PathPoint, Registry, Roll, Ruleset, Scope, Setting,
+    Spread, ValueType, order, ports, validate,
 };
 
+use crate::curve::Curve;
 use crate::field::Field;
 use crate::kind;
 use crate::seed::Seed;
-use crate::value::{
-    Curve, Frame, Object, ObjectId, TransformValue, Value,
-};
+use crate::value::{Frame, Object, ObjectId, TransformValue, Value};
 
 /// The seeds a ruleset runs with, one for each scope above a
 /// transform.
@@ -643,6 +642,13 @@ impl Run<'_> {
         match self.binding(port)? {
             Binding::Value(Value::Curve(curve)) => Ok(curve),
             _ => Err(self.wrong(port, ValueType::Curve)),
+        }
+    }
+
+    pub fn path(&self, port: &str) -> Result<&[PathPoint], Error> {
+        match self.binding(port)? {
+            Binding::Value(Value::Path(points)) => Ok(points),
+            _ => Err(self.wrong(port, ValueType::Path)),
         }
     }
 

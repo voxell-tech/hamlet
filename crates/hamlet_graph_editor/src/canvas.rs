@@ -760,9 +760,10 @@ fn tint(palette: &Palette, value_type: ValueType) -> Color {
         ValueType::Number => palette.gold_3,
         ValueType::Integer => palette.gold_1,
         ValueType::Bool => palette.green,
-        ValueType::Point | ValueType::Curve | ValueType::Vector3 => {
-            palette.agent
-        }
+        ValueType::Point
+        | ValueType::Curve
+        | ValueType::Path
+        | ValueType::Vector3 => palette.agent,
         ValueType::Choice => palette.grey_1,
         ValueType::Transform => palette.glow,
         ValueType::Field => palette.particle,
