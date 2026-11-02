@@ -145,10 +145,10 @@ fn lay(
     let at = eye.translation();
     let centre = at.xz();
     let low = (at.y - land.height(centre)).max(0.0);
-    // Seen from higher up, the nearest blades are further off: the
-    // rings widen with the eye's height, and draw a detail coarser.
+    // Seen from higher up, even the nearest blades are further off:
+    // the rings, measured from the eye itself, widen with its height,
+    // so that the ground under it is still in the finest.
     let wide = (low / 12.0).clamp(1.0, 1.8);
-    let coarser = usize::from(wide > 1.4);
     let rings = set.rings.map(|r| r * wide);
     let far = rings[2];
     if let Some(mut grass) = materials.get_mut(&field.material) {
@@ -172,7 +172,7 @@ fn lay(
             let near = (centre - middle).abs() - side * 0.5;
             let away = near.max(Vec2::ZERO).length().hypot(low);
             if let Some(ring) = rings.iter().position(|r| away < *r) {
-                wanted.insert(cell, (ring + coarser).min(2));
+                wanted.insert(cell, ring);
             }
         }
     }
