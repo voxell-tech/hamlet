@@ -110,15 +110,16 @@ fn blade(
     var drawn: Blade;
     drawn.normal = n;
     drawn.glow = 0.0;
-    // None grow in or by the water, on steep or high ground, nor in some
-    // places at random, and fewer in the woods. One that does not is
-    // drawn as nothing, all its points at its middle.
+    // None grow in or by the water, on steep or high ground, on trodden
+    // ground, nor in some places at random, and fewer in the woods. One
+    // that does not is drawn as nothing, all its points at its middle;
+    // one that does grows whole, right up to the trodden ground's edge.
     let water = pages_at.water.x;
     let grows = smooth_step(water + 0.5, water + 1.0, y)
         * smooth_step(0.14, 0.07, 1.0 - n.y)
         * smooth_step(26.0, 18.0, y)
         * (1.0 - 0.7 * woods);
-    if roll(h, 2u) < grass.grow.y || roll(h, 3u) > grows {
+    if roll(h, 2u) < grass.grow.y || roll(h, 3u) > grows || trodden(p) > 0.5 {
         drawn.position = middle - vec3<f32>(0.0, 0.1, 0.0);
         drawn.colour = vec3<f32>(0.0);
         return drawn;
@@ -147,11 +148,10 @@ fn blade(
     );
 
     // How high over the ground the point stands, kept over the ground
-    // under it, and shrunk where trodden and far off.
+    // under it, and shrunk far off.
     let ground = page_at(0, at.xz).x;
     let away = distance(middle, grass.reach.xyz);
-    let kept = (1.0 - trodden(at.xz))
-        * smooth_step(grass.reach.w, grass.reach.w * 0.5, away);
+    let kept = smooth_step(grass.reach.w, grass.reach.w * 0.5, away);
     let rise = (at.y - y) * kept;
 
     // The wind bends the tips the most: down the wind in a gust, and

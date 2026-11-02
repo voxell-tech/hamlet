@@ -23,9 +23,10 @@ use crate::WorldCamera;
 const MASK: u32 = 1024;
 const MASK_TEXEL: f32 = 0.5;
 
-/// How far the trodden ground spreads past what treads it, in metres,
-/// as the grass thins to it.
-const EDGE: f32 = 0.6;
+/// How far the mask fades past what treads it, in metres. A tuft
+/// whose middle is more than half trodden does not grow, so the
+/// grass stops about halfway along it.
+const EDGE: f32 = 0.4;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(Update, (begin, (follow, lay, tread)).chain());
@@ -265,7 +266,7 @@ fn tread(
 /// grass up to the walls on it.
 fn marks(land: &Land, drawn: &Drawn) -> Vec<(Vec2, Vec2, f32)> {
     let mut out = Vec::new();
-    let square = land.set.town.plaza_radius + 0.5;
+    let square = land.set.town.plaza_radius;
     out.extend(land.settled().iter().filter_map(|&site| {
         land.sites.get(site).map(|s| (s.at, s.at, square))
     }));
