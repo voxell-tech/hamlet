@@ -99,16 +99,6 @@ This installs pi's packages, puts `hamlet`, `hamlet_server` and
 
 See [releases](docs/releases.md).
 
-### Other `cargo xtask` commands
-
-| Command | What it does |
-| --- | --- |
-| `cargo xtask build` | Builds without installing |
-| `cargo xtask all` | Builds every binary, including `hamlet_workspace` |
-| `cargo xtask uninstall` | Removes all three binaries |
-| `cargo xtask dev` | Tries the checkout without installing (see below) |
-| `cargo xtask help` | Lists every task |
-
 ## Try it without installing
 
 Use a scratch home so your real `~/.hamlet` is untouched:
@@ -203,7 +193,7 @@ cargo xtask check
 ```
 
 `cargo xtask check` runs every check a commit needs, each as a step CI
-runs by name; `cargo xtask help` lists them.
+runs by name. `cargo xtask help` lists every task.
 
 - `rust-toolchain.toml` follows the latest stable, no older than
   `rust-version` in `Cargo.toml`. If cargo says your compiler is too old,
