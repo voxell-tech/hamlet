@@ -6,10 +6,10 @@ use std::marker::PhantomData;
 
 use bevy::ui::{AlignItems, Display, Overflow, UiRect, percent, px};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, frame, menu_button,
-    row, text_field,
+    BehaviorExt, FrameProps, MenuEntry, TooltipExt, button, frame,
+    menu_button, row, text_field,
 };
-use bevy_fynix::{ScopedExt, resource};
+use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_ui::styles::{
     CONTROL, ICON, checked_when, cluster, description, note,
     text_input, toggle_button, tool,
@@ -20,7 +20,7 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::files::{self, Files, NamingField};
 use super::flavor::Flavor;
-use super::library::Kind;
+use super::library::{Item, Kind, Library};
 use super::split::{Layout, Pane};
 use super::{Editor, canvas};
 
@@ -40,6 +40,7 @@ pub(super) fn view<F: Flavor>() -> impl View {
         row((
             open_asset::<F>(),
             cluster((
+                opener::<F>(),
                 tool(
                     Glyph::Plus,
                     new_tip(F::KIND),
@@ -152,6 +153,52 @@ fn open_asset<F: Flavor>() -> impl View {
     ))
     .gap(4.0)
     .align(AlignItems::Center)
+}
+
+/// The menu of every asset of the flavor's kind, the library's own
+/// and then the built-in ones under headings, which opens the one
+/// chosen. Built again as the library changes.
+fn opener<F: Flavor>() -> impl View {
+    keyed(
+        resource::<Library, _>(|library| {
+            library
+                .items
+                .iter()
+                .filter(|item| item.kind == F::KIND)
+                .cloned()
+                .collect::<Vec<_>>()
+        }),
+        |items: &Vec<Item>| {
+            let (own, built_in): (Vec<Item>, Vec<Item>) =
+                items.iter().cloned().partition(Item::is_own);
+            let mut entries = Vec::new();
+            for (heading, part) in
+                [("Added", &own), ("Built-in", &built_in)]
+            {
+                if part.is_empty() {
+                    continue;
+                }
+                entries.push(MenuEntry::section(heading));
+                entries.extend(part.iter().map(|item| {
+                    MenuEntry::from(item.name.replace('_', " "))
+                }));
+            }
+            // Headings take no place in the order chosen from.
+            let order =
+                own.into_iter().chain(built_in).collect::<Vec<_>>();
+            menu_button("", entries, move |world, at| {
+                if let Some(item) = order.get(at) {
+                    // A refusal is written in the toolbar's note.
+                    let _ = files::open_item::<F>(world, item);
+                }
+            })
+            .icon(Glyph::Folder.image(ICON))
+            .padding(UiRect::axes(px(9.0), px(0.0)))
+            .min_height(px(CONTROL))
+            .boxed()
+        },
+    )
+    .within(row(()).gap(0.0))
 }
 
 /// The field Save as asks for a name in, and the button that drops
