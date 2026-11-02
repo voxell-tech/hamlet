@@ -72,6 +72,14 @@ pub fn encode(
     if mods.command {
         return None;
     }
+    // F13 to F24 are Shift with F1 to F12, as xterm sends them.
+    if let Some(low) = shifted_function(key) {
+        let mods = Mods {
+            shift: true,
+            ..mods
+        };
+        return encode(&low, text, mods, modes);
+    }
     let escape = |rest: &str| {
         if mods.alt {
             format!("\x1b{rest}")
@@ -151,6 +159,25 @@ pub fn encode(
     }
 }
 
+/// The key of F1 to F12 that F13 to F24 are with Shift.
+fn shifted_function(key: &Key) -> Option<Key> {
+    Some(match key {
+        Key::F13 => Key::F1,
+        Key::F14 => Key::F2,
+        Key::F15 => Key::F3,
+        Key::F16 => Key::F4,
+        Key::F17 => Key::F5,
+        Key::F18 => Key::F6,
+        Key::F19 => Key::F7,
+        Key::F20 => Key::F8,
+        Key::F21 => Key::F9,
+        Key::F22 => Key::F10,
+        Key::F23 => Key::F11,
+        Key::F24 => Key::F12,
+        _ => return None,
+    })
+}
+
 /// The control byte Ctrl makes of `c`.
 fn control(c: char) -> Option<u8> {
     Some(match c.to_ascii_lowercase() {
@@ -213,6 +240,11 @@ mod tests {
         assert_eq!(
             encode(&Key::F5, None, CTRL, app).unwrap(),
             "\x1b[15;5~"
+        );
+        assert_eq!(plain(&Key::F13, None).unwrap(), "\x1b[1;2P");
+        assert_eq!(
+            encode(&Key::F17, None, CTRL, app).unwrap(),
+            "\x1b[15;6~"
         );
     }
 

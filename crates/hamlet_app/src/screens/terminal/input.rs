@@ -678,8 +678,13 @@ fn paste(world: &mut World, terminal: Entity) {
 fn pasted(text: &str, bracketed: bool) -> String {
     let text = text.replace("\r\n", "\r").replace('\n', "\r");
     if bracketed {
-        // A paste that holds the end mark could end the paste early.
-        let text = text.replace("\x1b[201~", "");
+        // Without the escapes that begin a sequence, a paste cannot
+        // end itself early or type a sequence in: ESC, and the C1
+        // CSI. After ratty's `encode_paste` (github.com/orhun/ratty).
+        let text = text
+            .chars()
+            .filter(|c| !matches!(c, '\x1b' | '\u{9b}'))
+            .collect::<String>();
         format!("\x1b[200~{text}\x1b[201~")
     } else {
         text
@@ -694,8 +699,8 @@ mod tests {
     fn a_paste_ends_lines_with_enter_and_is_marked_when_asked() {
         assert_eq!(pasted("a\r\nb\nc", false), "a\rb\rc");
         assert_eq!(
-            pasted("x\x1b[201~y", true),
-            "\x1b[200~xy\x1b[201~"
+            pasted("x\x1b[201~y\u{9b}31mz", true),
+            "\x1b[200~x[201~y31mz\x1b[201~"
         );
     }
 }
