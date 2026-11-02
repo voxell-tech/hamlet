@@ -247,6 +247,8 @@ fn drawn_at(uv: vec2<f32>) -> vec3<f32> {
 // narrowed down by each along its own ray. So each takes a quarter of the
 // steps, which, each reading the depth somewhere else on the screen, are
 // most of the water's cost. All four must call it, with the same `steps`.
+// Where the GPU cannot share between them, without `QUADS`, each pixel
+// walks every step itself.
 @if(DEPTH_PREPASS && VIEW_TRANSMISSION_TEXTURE)
 fn mirror_hit(start: vec3<f32>, dir: vec3<f32>, pixel: vec2<f32>, steps: u32) -> vec4<f32> {
     let size = vec2<f32>(textureDimensions(view_bindings::view_transmission_texture));
@@ -280,10 +282,15 @@ fn mirror_hit(start: vec3<f32>, dir: vec3<f32>, pixel: vec2<f32>, steps: u32) ->
 
     // This pixel's share of the steps, and the first of them that hits.
     // A ray too short to cross a pixel tests none.
-    let lane = u32(pixel.x) % 2u + 2u * (u32(pixel.y) % 2u);
+    var lane = 0u;
+    var lanes = 1u;
+@if(QUADS) {
+    lane = u32(pixel.x) % 2u + 2u * (u32(pixel.y) % 2u);
+    lanes = 4u;
+}
     var first = steps;
     if pixels >= 1.0 {
-        for (var i = lane; i < steps; i += 4u) {
+        for (var i = lane; i < steps; i += lanes) {
             let along = stride * (jitter + f32(i));
             if along > leaves {
                 break;
@@ -300,8 +307,11 @@ fn mirror_hit(start: vec3<f32>, dir: vec3<f32>, pixel: vec2<f32>, steps: u32) ->
             }
         }
     }
-    var hit = min(first, quadSwapX(first));
+    var hit = first;
+@if(QUADS) {
+    hit = min(hit, quadSwapX(hit));
     hit = min(hit, quadSwapY(hit));
+}
     let along = stride * (jitter + f32(hit));
     if hit >= steps || pixels < 1.0 || along > leaves {
         return vec4<f32>(0.0);
@@ -601,8 +611,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 @if(DEPTH_PREPASS && VIEW_TRANSMISSION_TEXTURE) {
     // A square of two by two pixels walks its rays together, so it
     // decides together, as the one of them whose reflection shows most.
-    var most = max(weight, quadSwapX(weight));
+    var most = weight;
+@if(QUADS) {
+    most = max(most, quadSwapX(most));
     most = max(most, quadSwapY(most));
+}
     if most > 0.01 {
         // A faint reflection is found in fewer, coarser steps: what it
         // misses is hidden in how little of it shows.

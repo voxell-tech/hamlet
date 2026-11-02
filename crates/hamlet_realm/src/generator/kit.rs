@@ -3,6 +3,8 @@
 use bevy::light::NotShadowCaster;
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
+use bevy::render::renderer::RenderDevice;
+use bevy::render::settings::WgpuFeatures;
 use hamlet_vfx::ground::{self, GroundMaterial, GroundSettings};
 use hamlet_vfx::inlay::{InlayExt, InlayMaterial, InlayUniform};
 use hamlet_vfx::patch;
@@ -70,6 +72,7 @@ pub(super) fn setup(
     stock: Res<Stock>,
     bumps: Res<GroundSettings>,
     flow: Res<WaterSettings>,
+    device: Option<Res<RenderDevice>>,
 ) {
     let ground = grounds.add(ground::material(
         &mut images,
@@ -98,8 +101,14 @@ pub(super) fn setup(
 
     // One surface of water about the camera, for the sea, the rivers
     // and every pool: wherever the ground dips under it, it shows. It
-    // is drawn in patches, which the loading lays.
-    let water = waters.add(water::material(&mut images, &flow));
+    // is drawn in patches, which the loading lays. Its reflection is
+    // walked by squares of pixels together where the GPU can share
+    // values between them.
+    let quads = device.is_some_and(|d| {
+        d.features().contains(WgpuFeatures::SUBGROUP)
+    });
+    let water =
+        waters.add(water::material(&mut images, &flow, quads));
     let plane = meshes.add(Plane3d::new(Vec3::Y, Vec2::ONE).mesh());
     let patch = meshes.add(patch::grid(patch::QUADS));
     let flat_patch = meshes.add(patch::grid(1));

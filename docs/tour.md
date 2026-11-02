@@ -235,11 +235,11 @@ only its own view files under `HAMLET_VIEW`.
 
 ## Tuning and previewing the window
 
-Assets are embedded. The `hot-reload` feature also watches their source:
+Assets are embedded. The `hot-reload` feature also watches their source;
+`dev --hot` builds the window with it and points it at the checkout:
 
 ```sh
-cargo build --bin hamlet_app --features hot-reload
-HAMLET_HOME=/tmp/hamlet-try HAMLET_APP="$PWD/target/debug/hamlet_app" cargo run -p hamlet_cli -- dev
+HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev --hot
 ```
 
 The generator section of `world.toml` and existing mesh colors do not

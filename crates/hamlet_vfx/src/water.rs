@@ -10,11 +10,15 @@ use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::image::{
     ImageAddressMode, ImageSampler, ImageSamplerDescriptor,
 };
-use bevy::pbr::{ExtendedMaterial, MaterialExtension};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::pbr::{
+    ExtendedMaterial, MaterialExtension, MaterialExtensionKey,
+    MaterialExtensionPipeline,
+};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, Extent3d, ShaderType, TextureDimension,
-    TextureFormat,
+    AsBindGroup, Extent3d, RenderPipelineDescriptor, ShaderType,
+    SpecializedMeshPipelineError, TextureDimension, TextureFormat,
 };
 use bevy::shader::{ShaderRef, load_shader_library};
 use bevy::window::RequestRedraw;
@@ -90,9 +94,14 @@ pub struct FoamSettings {
 }
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+#[bind_group_data(WaterKey)]
 pub struct WaterExt {
     #[uniform(100)]
     pub water: WaterUniform,
+    /// Whether the GPU can share values between the pixels of a
+    /// square of two by two, which the reflection is walked faster
+    /// with.
+    pub quads: bool,
     /// The noise the waves are lifted by, and the foam born and
     /// eaten by.
     #[texture(101)]
@@ -207,6 +216,34 @@ impl MaterialExtension for WaterExt {
     fn enable_shadows() -> bool {
         false
     }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        if key.bind_group_data.quads
+            && let Some(fragment) = descriptor.fragment.as_mut()
+        {
+            fragment.shader_defs.push("QUADS".into());
+        }
+        Ok(())
+    }
+}
+
+/// What the water's pipeline is made for besides its bindings:
+/// whether `QUADS` is given to its shader.
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WaterKey {
+    quads: bool,
+}
+
+impl From<&WaterExt> for WaterKey {
+    fn from(water: &WaterExt) -> Self {
+        Self { quads: water.quads }
+    }
 }
 
 /// The side, in metres, of the sea's smallest patches, as
@@ -221,10 +258,12 @@ pub const FINEST: f32 = 8.0;
 /// `water.wesl`.
 pub const FLAT: f32 = 55.0;
 
-/// The water's material for the water of `set`.
+/// The water's material for the water of `set`, on a GPU that can
+/// share values between a square of pixels where `quads`.
 pub fn material(
     images: &mut Assets<Image>,
     set: &WaterSettings,
+    quads: bool,
 ) -> WaterMaterial {
     let noise = cellular(512, 5, 1);
     ExtendedMaterial {
@@ -236,6 +275,7 @@ pub fn material(
         },
         extension: WaterExt {
             water: WaterUniform::new(set),
+            quads,
             noise: images.add(tiling(noise.clone())),
             noise_slope: images.add(sloped(noise)),
             edge_noise: images.add(tiling(gradient(512, 5, 2))),
@@ -345,9 +385,10 @@ fn tiling((side, level): (usize, Vec<f32>)) -> Image {
 /// What foam looks like: a grey square that tiles.
 fn sea_foam() -> (usize, Vec<f32>) {
     let png = include_bytes!("water/sea_foam.png");
+    // An empty picture would leave `tiling` halving nothing forever.
     let foam = image::load_from_memory(png)
-        .map(|image| image.to_luma8())
-        .unwrap_or_default();
+        .expect("water/sea_foam.png is a built-in PNG")
+        .to_luma8();
     let side = foam.width().min(foam.height()) as usize;
     let level = (0..side * side)
         .map(|i| {

@@ -225,38 +225,9 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
         }
         "dev" => {
             prepare(&root)?;
-            if !rest.iter().any(|arg| arg == "--hot") {
-                return status(
-                    cargo(&["run", "-p", "hamlet_cli", "--", "dev"])
-                        .args(rest),
-                );
-            }
-            // A window that reads its shaders and tuning again when
-            // they are saved, which dev then opens instead of
-            // building its own. Bevy watches the files under
-            // CARGO_MANIFEST_DIR, which `cargo run` would set to the
-            // CLI's crate, so the CLI is run directly with it set to
-            // the workspace.
-            status(&mut cargo(&[
-                "build",
-                "-p",
-                "hamlet_app",
-                "--features",
-                "hot-reload",
-            ]))?;
-            status(&mut cargo(&["build", "-p", "hamlet_cli"]))?;
-            let binary = |name: &str| {
-                root.join("target/debug").join(format!(
-                    "{name}{}",
-                    env::consts::EXE_SUFFIX
-                ))
-            };
             status(
-                Command::new(binary("hamlet"))
-                    .arg("dev")
-                    .args(rest.iter().filter(|arg| *arg != "--hot"))
-                    .env("HAMLET_APP", binary("hamlet_app"))
-                    .env("CARGO_MANIFEST_DIR", &root),
+                cargo(&["run", "-p", "hamlet_cli", "--", "dev"])
+                    .args(rest),
             )
         }
         "check" => {
