@@ -18,7 +18,7 @@ use bevy::camera::Camera;
 use bevy::camera::visibility::{RenderLayers, Visibility};
 use bevy::color::Color;
 use bevy::ecs::change_detection::DetectChangesMut;
-use bevy::ecs::query::With;
+use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{If, Local, Query, Res, ResMut, Single};
 use bevy::gizmos::AppGizmoBuilder;
@@ -37,6 +37,7 @@ use bevy::window::{PrimaryWindow, SystemCursorIcon, Window};
 use bevy_fynix::{OverrideCursor, Theme};
 use hamlet_graph_editor::Editor;
 use hamlet_graph_editor::canvas::corner;
+use hamlet_realm::sky::OwnSky;
 use hamlet_ui::theme::{HamletTheme, Palette};
 
 use self::drag::cancel;
@@ -56,8 +57,12 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<GizmoMode>()
         .init_resource::<Hot>()
         .init_resource::<Dragging>()
+        .init_resource::<Background>()
         .add_systems(Startup, (style_handles, spawn_fills))
-        .add_systems(Update, (pick_mode, cancel, grab_cursor))
+        .add_systems(
+            Update,
+            (pick_mode, cancel, grab_cursor, read_background),
+        )
         .add_systems(PostUpdate, handles);
 }
 
@@ -198,6 +203,66 @@ impl Style {
             centre_color: palette.gold_1,
             sweep: palette.gold_1.with_alpha(0.2),
         }
+    }
+
+    /// This, its colours set against `background`: as made for a
+    /// dark one, and darker and more opaque on a light one.
+    fn against(
+        self,
+        palette: &Palette,
+        background: Background,
+    ) -> Self {
+        use bevy::color::{Alpha, Luminance};
+        match background {
+            Background::Dark => self,
+            Background::Light => Self {
+                axes: self
+                    .axes
+                    .map(|colour| colour.darker(LIGHT_DARKEN)),
+                centre_color: palette.input,
+                sweep: palette.input.with_alpha(0.2),
+                rest_alpha: 0.9,
+                ..self
+            },
+        }
+    }
+}
+
+/// How much darker the axes are drawn on a light background.
+const LIGHT_DARKEN: f32 = 0.2;
+
+/// The haze's luminance above which the preview's background counts
+/// as light.
+const LIGHT_HAZE: f32 = 0.45;
+
+/// Whether the preview's background is light or dark, from the haze
+/// of its sky, so the gizmo can be seen on either.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub(super) enum Background {
+    Light,
+    #[default]
+    Dark,
+}
+
+/// Sets [`Background`] from the preview camera's sky as it changes.
+fn read_background(
+    preview: Option<Res<Preview>>,
+    skies: Query<&OwnSky, Changed<OwnSky>>,
+    mut background: ResMut<Background>,
+) {
+    use bevy::color::Luminance;
+    let Some(sky) =
+        preview.and_then(|preview| skies.get(preview.camera).ok())
+    else {
+        return;
+    };
+    let now = if sky.0.look.haze.luminance() > LIGHT_HAZE {
+        Background::Light
+    } else {
+        Background::Dark
+    };
+    if *background != now {
+        *background = now;
     }
 }
 
@@ -567,6 +632,7 @@ fn handles(
     buttons: Res<ButtonInput<MouseButton>>,
     preview: Option<Res<Preview>>,
     If(theme): If<Res<Theme<HamletTheme>>>,
+    background: Res<Background>,
     frames: Query<
         (&ComputedNode, &UiGlobalTransform),
         With<PreviewFrame>,
@@ -578,7 +644,8 @@ fn handles(
     mut hot: ResMut<Hot>,
     mut drawn: Local<Fills>,
 ) {
-    let style = Style::of(&theme.0.palette);
+    let palette = &theme.0.palette;
+    let style = Style::of(palette).against(palette, *background);
     let mut fills = Fills::default();
     let view = preview
         .as_ref()
