@@ -22,6 +22,7 @@ use bevy::render::render_resource::{
 use bevy::shader::{ShaderRef, load_shader_library};
 
 use crate::ground::{PagesUniform, SoilUniform, blank_pages};
+use crate::leaves::LeafView;
 use crate::wind::{WindSettings, WindUniform};
 use crate::{Now, VfxSystems};
 
@@ -77,6 +78,12 @@ pub struct GrassSettings {
     pub sheen: f32,
     /// The share of tufts in flower where flowers grow.
     pub flowers: f32,
+    /// How brightly the flowers glow at the height of the night, and
+    /// the breadth in metres of the patches their glow swells and
+    /// fades in and how fast those drift, in metres a second, on a
+    /// noise of their own, not the wind's.
+    pub glow: f32,
+    pub pulse: (f32, f32),
     /// The side of a square of tufts laid together, in metres.
     pub cell: f32,
     /// How far from the eye each detail reaches, the finest first,
@@ -112,18 +119,20 @@ pub struct GrassExt {
 pub struct GrassUniform {
     pub look: Vec4,
     pub sway: Vec4,
+    pub glow: Vec4,
     pub reach: Vec4,
     pub mask_at: Vec4,
     pub flowers: [Vec4; 5],
 }
 
 impl GrassUniform {
-    /// The uniform for `set`, at the time `now`, drawn as far as
-    /// `reach` has it, with the mask laid at `mask_at` and the
-    /// flowers in `flowers`.
+    /// The uniform for `set`, at the time `now`, `night` of the way
+    /// into the night, drawn as far as `reach` has it, with the mask
+    /// laid at `mask_at` and the flowers in `flowers`.
     pub fn new(
         set: &GrassSettings,
         now: f32,
+        night: f32,
         reach: Vec4,
         mask_at: Vec4,
         flowers: [Vec4; 5],
@@ -131,6 +140,12 @@ impl GrassUniform {
         Self {
             look: Vec4::new(set.root, set.tip, set.sun, set.sheen),
             sway: Vec4::new(set.bend, now, 0.0, 0.0),
+            glow: Vec4::new(
+                set.glow * night,
+                1.0 / set.pulse.0.max(1e-3),
+                set.pulse.1,
+                0.0,
+            ),
             reach,
             mask_at,
             flowers,
@@ -174,6 +189,7 @@ pub fn material(
         extension: GrassExt {
             grass: GrassUniform::new(
                 set,
+                0.0,
                 0.0,
                 Vec4::ZERO,
                 Vec4::ZERO,
@@ -329,11 +345,13 @@ pub fn tuft(
     .with_inserted_indices(Indices::U32(indices))
 }
 
-/// Tells the grass the time, the wind and its settings.
+/// Tells the grass the time, the wind, how far into the night it is,
+/// as the leaves are told, and its settings.
 fn sway(
     now: Res<Now>,
     set: Res<GrassSettings>,
     wind: Res<WindSettings>,
+    view: Res<LeafView>,
     mut materials: ResMut<Assets<GrassMaterial>>,
 ) {
     let blowing = wind.uniform(now.0);
@@ -342,6 +360,7 @@ fn sway(
         let next = GrassUniform::new(
             &set,
             now.0,
+            view.night,
             was.reach,
             was.mask_at,
             was.flowers,

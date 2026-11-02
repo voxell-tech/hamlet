@@ -1,7 +1,7 @@
 // Grass: each tuft placed by `grass_shape.wesl`, coloured by its vertices,
-// lit as the ground under it is, a little wrapped so its shaded side is not
-// black, darker at its roots where the light does not reach, and with a
-// sheen seen low against the sun.
+// lit as the ground under it is, darker at its roots where the light does
+// not reach, and with a sheen seen low against the sun. Its flowers glow
+// at night.
 
 import bevy_pbr::render::{
     mesh_functions,
@@ -32,7 +32,8 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     // passes the prepass's however the two shaders round.
     out.position.z *= 1.00002;
     out.world_normal = b.normal;
-    out.uv = vertex.uv;
+    // How far up its blade, and how brightly it glows.
+    out.uv = vec2<f32>(vertex.uv.x, b.glow);
     out.color = vec4<f32>(b.colour, 1.0);
 @if(VERTEX_OUTPUT_INSTANCE_INDEX)
     out.instance_index = vertex.instance_index;
@@ -61,6 +62,8 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
         let sheen = grass.look.w * low * against * saturate(dot(n, l) + 0.3);
         out.color = vec4<f32>(out.color.rgb + albedo * light.color.rgb * view.exposure * sheen, out.color.a);
     }
+    // Flowers glow in their own colour at night.
+    out.color = vec4<f32>(out.color.rgb + albedo * in.uv.y, out.color.a);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;
 }

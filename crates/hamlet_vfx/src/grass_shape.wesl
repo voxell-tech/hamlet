@@ -5,6 +5,7 @@
 // over the field in the wind's own bands.
 
 import hamlet_vfx::ground_shape::{land_at, page_at};
+import hamlet_vfx::noise::perlin;
 import hamlet_vfx::soil::{soil, grass_colour};
 import hamlet_vfx::wind::{Wind, strength};
 
@@ -15,6 +16,9 @@ struct Grass {
     look: vec4<f32>,
     // x: `bend`. y: the time in seconds.
     sway: vec4<f32>,
+    // x: `glow`, as far into the night as it is. y: one over the breadth
+    // of its patches. z: how fast they drift.
+    glow: vec4<f32>,
     // xyz: the eye. w: how far from it the grass is gone, shortening
     // over the last third of the way.
     reach: vec4<f32>,
@@ -30,11 +34,24 @@ struct Grass {
 @group(constants::MATERIAL_BIND_GROUP) @binding(107) var mask_sampler: sampler;
 
 // A point of a tuft as it is drawn: where, the ground's normal under it,
-// which it is lit by, and its colour.
+// which it is lit by, its colour, and how brightly it glows.
 struct Blade {
     position: vec3<f32>,
     normal: vec3<f32>,
     colour: vec3<f32>,
+    glow: f32,
+}
+
+// How brightly a flower at `p` on the map glows: as far into the night as
+// it is, swelling and fading in patches that drift and change, on gradient
+// noise of their own seeds, two layers drifting different ways so the
+// patches change shape and do not merely slide.
+fn glow_at(p: vec2<f32>) -> f32 {
+    let t = grass.sway.y * grass.glow.z;
+    let q = p * grass.glow.y;
+    let n = perlin(q + vec2<f32>(0.6, 0.8) * t * grass.glow.y, 41u)
+        + 0.5 * perlin(q * 2.1 - vec2<f32>(0.9, -0.4) * t * grass.glow.y * 1.7, 42u);
+    return grass.glow.x * mix(0.25, 1.0, smoothstep(-0.45, 0.6, n / 1.5));
 }
 
 // How trodden the ground is at `p` on the map, from 0 to 1. None outside
@@ -90,15 +107,20 @@ fn blade(
         * mix(grass.look.x, grass.look.y, up);
     colour = mix(colour, soil.grass_sun.rgb * grass.look.y, grass.look.z * up * up);
     colour *= 1.0 + 0.15 * max(gust, 0.0) * up;
+    var glow = 0.0;
     if flower {
         let bed = vec2<i32>(floor(middle.xz / 9.0));
         let k = u32(bed.x * 73 + bed.y * 19 + 100000) % 5u;
         colour = grass.flowers[k].rgb * tone;
+        if grass.glow.x > 0.0 {
+            glow = glow_at(middle.xz);
+        }
     }
 
     var drawn: Blade;
     drawn.position = at;
     drawn.normal = normalize(land.normal);
     drawn.colour = colour;
+    drawn.glow = glow;
     return drawn;
 }
