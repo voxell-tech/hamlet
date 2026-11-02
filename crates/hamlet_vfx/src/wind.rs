@@ -1,4 +1,8 @@
-//! Wind made visible: now and then a pale line is drawn on the air,
+//! The wind: one way across the whole world, and a strength that
+//! rolls downwind in bands. Everything that moves in it reads the
+//! same [`WindSettings::strength`], or `wind.wesl` on the GPU.
+//!
+//! It is made visible now and then: a pale line is drawn on the air,
 //! runs along a ribbon with one curl in it and is gone. Each is a
 //! pure function of [`Now`].
 
@@ -10,19 +14,21 @@ use bevy::math::Affine2;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    Extent3d, Face, TextureDimension, TextureFormat,
+    Extent3d, Face, ShaderType, TextureDimension, TextureFormat,
 };
+use bevy::shader::load_shader_library;
 use bevy::window::RequestRedraw;
 
 use crate::{Now, Tints, VfxSystems};
 
 pub(crate) fn plugin(app: &mut App) {
+    load_shader_library!(app, "wind.wesl");
     app.init_resource::<WindSettings>()
         .add_systems(Startup, prepare)
         .add_systems(Update, blow.in_set(VfxSystems));
 }
 
-/// The wind's lines.
+/// The wind, and its lines.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WindSettings {
@@ -33,6 +39,13 @@ pub struct WindSettings {
     /// it veers to either side.
     pub heading: f32,
     pub veer: f32,
+    /// Breadth in metres of the bands of strong wind that roll
+    /// downwind, and their speed in metres a second.
+    pub band: (f32, f32),
+    /// The same for the small, quick shiver within a band.
+    pub shiver: (f32, f32),
+    /// The share of its full strength the wind keeps between gusts.
+    pub calm: f32,
     /// Length and width of a gust's ribbon, and its height over the
     /// ground at its lowest and highest.
     pub length: f32,
@@ -53,10 +66,73 @@ pub struct WindSettings {
 impl WindSettings {
     /// The way the wind blows at `now`, in radians from north. It
     /// veers slowly from side to side.
-    pub(crate) fn blowing(&self, now: f32) -> f32 {
+    pub fn blowing(&self, now: f32) -> f32 {
         (self.heading + self.veer * 0.5 * (now * 0.11).sin())
             .to_radians()
     }
+
+    /// How hard the wind blows at `at` on the ground at `now`, from
+    /// the calm share to 1. The same as `strength` in `wind.wesl`.
+    pub fn strength(&self, at: Vec2, now: f32) -> f32 {
+        self.uniform(now).strength(at)
+    }
+
+    /// What the shaders are told of the wind at `now`.
+    pub fn uniform(&self, now: f32) -> WindUniform {
+        let way = self.blowing(now);
+        WindUniform {
+            flow: Vec4::new(way.sin(), way.cos(), now, self.calm),
+            scale: Vec4::new(
+                1.0 / self.band.0.max(1e-3),
+                self.band.1,
+                1.0 / self.shiver.0.max(1e-3),
+                self.shiver.1,
+            ),
+        }
+    }
+}
+
+/// Mirrors `Wind` in `wind.wesl`; the fields are explained there.
+#[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
+pub struct WindUniform {
+    pub flow: Vec4,
+    pub scale: Vec4,
+}
+
+impl WindUniform {
+    fn strength(&self, at: Vec2) -> f32 {
+        let along = Vec2::new(self.flow.x, self.flow.y) * self.flow.z;
+        let band = noise((at - along * self.scale.y) * self.scale.x);
+        let shiver =
+            noise((at - along * self.scale.w) * self.scale.z);
+        let gust =
+            smoothstep(0.35, 0.85, band) * (0.7 + 0.3 * shiver);
+        self.flow.w + (1.0 - self.flow.w) * gust
+    }
+}
+
+fn hash(x: i32, y: i32) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x8da6_b343)
+        ^ (y as u32).wrapping_mul(0xd816_3841);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0x5bd1_e995);
+    h ^= h >> 15;
+    (h & 0xff_ffff) as f32 / 16_777_216.0
+}
+
+fn noise(p: Vec2) -> f32 {
+    let i = p.floor();
+    let f = p - i;
+    let u = f * f * (3.0 - 2.0 * f);
+    let (x, y) = (i.x as i32, i.y as i32);
+    let low = hash(x, y).lerp(hash(x + 1, y), u.x);
+    let high = hash(x, y + 1).lerp(hash(x + 1, y + 1), u.x);
+    low.lerp(high, u.y)
+}
+
+fn smoothstep(low: f32, high: f32, x: f32) -> f32 {
+    let t = ((x - low) / (high - low)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 /// The turn that lays something made along x down the wind that

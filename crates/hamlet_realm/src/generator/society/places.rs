@@ -187,7 +187,7 @@ impl Society {
                 })
             }
         };
-        self.found_on(site)
+        self.found_on(land, site)
     }
 
     /// Founds a town as [`Society::found_town`] does and sets it
@@ -204,7 +204,7 @@ impl Society {
             let _ = self.move_town(land, id, at);
             return id;
         };
-        let id = self.found_on(site);
+        let id = self.found_on(land, site);
         if self.move_town(land, id, at).is_ok() {
             return id;
         }
@@ -224,11 +224,21 @@ impl Society {
                 .iter_mut()
                 .filter(|town| town.id == id)
                 .for_each(|town| town.site = next);
+            land.settle(&self.settled());
         }
         id
     }
 
-    fn found_on(&mut self, site: usize) -> TownId {
+    /// The sites that have a town, in order.
+    pub fn settled(&self) -> Vec<usize> {
+        let mut settled =
+            self.towns.iter().map(|t| t.site).collect::<Vec<_>>();
+        settled.sort_unstable();
+        settled
+    }
+
+    /// Founds a town on `site` and grows the island about it.
+    fn found_on(&mut self, land: &mut Land, site: usize) -> TownId {
         let id = TownId(self.next_town);
         self.next_town += 1;
         let mayor = self.spawn_agent(id, HALL_PLOT);
@@ -238,6 +248,7 @@ impl Society {
         for other in others {
             self.add_road(mayor, other);
         }
+        land.settle(&self.settled());
         id
     }
 }

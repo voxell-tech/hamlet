@@ -1,5 +1,5 @@
-//! The view kept between launches: the desks, the choices of the
-//! View menu, and the selection.
+//! The view kept between launches: the desks, the sky as the Sight
+//! page sets it, and the selection.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

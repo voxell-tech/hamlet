@@ -15,7 +15,10 @@ use bevy::light::{
     Atmosphere, CascadeShadowConfig, DirectionalLightShadowMap,
     FogVolume, ShadowFilteringMethod, VolumetricFog, VolumetricLight,
 };
-use bevy::pbr::{AtmosphereSettings, ScreenSpaceAmbientOcclusion};
+use bevy::pbr::{
+    AtmosphereSettings, ScreenSpaceAmbientOcclusion,
+    ScreenSpaceTransmission,
+};
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::render_resource::{
@@ -671,8 +674,12 @@ pub fn spawn(mut commands: Commands, settings: Res<CameraSettings>) {
         WorldCamera,
         Camera3d::default(),
         // The marks of light on the ground are decals, which read
-        // the depth of what they fall on.
+        // the depth of what they fall on, and the water reads the
+        // depth of the ground under it.
         DepthPrepass,
+        // The water is seen through, so what is drawn before it is
+        // copied for it to look at.
+        ScreenSpaceTransmission::default(),
         Projection::Perspective(PerspectiveProjection {
             fov: settings.fov.to_radians(),
             near: settings.near,

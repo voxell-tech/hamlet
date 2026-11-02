@@ -18,7 +18,8 @@ Usage: cargo xtask <task> [args]
   install          put the CLI, server and window in ~/.cargo/bin
   uninstall        remove all three from ~/.cargo/bin
   dev              try this checkout on a scratch home (HAMLET_HOME \
-                     picks it)
+                     picks it); --hot reloads saved shaders and \
+                     tuning in the window
   check            every check a commit needs: the nine steps below, \
                      in order
   format           check that Rust is formatted (fmt formats it)

@@ -21,7 +21,7 @@ use bevy_fynix::views::{
     overlay, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
-use hamlet_realm::pick::{Orbit, Taken};
+use hamlet_realm::pick::Taken;
 use hamlet_ui::styles::ICON;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Underglow;
@@ -30,7 +30,6 @@ use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::window;
-use crate::world_view::TimeOfDay;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<OpenMenu>()
@@ -43,7 +42,6 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(Clone, Copy, PartialEq, Component)]
 pub enum Menu {
     App,
-    View,
 }
 
 /// The open menu and the rect of its title, in the window's logical
@@ -179,7 +177,7 @@ fn title(name: &'static str, menu: Menu) -> impl View {
 /// The menu titles, for the top bar.
 pub fn titles() -> impl View {
     with_cx(|cx| {
-        row((title("HAMLET", Menu::App), title("VIEW", Menu::View)))
+        row((title("HAMLET", Menu::App),))
             .gap(0.0)
             .height(px(cx.theme().space.bar))
             .align(AlignItems::Center)
@@ -222,20 +220,6 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
             items.push(item(Glyph::Power, "Close", window::quit));
             items
         }
-        Menu::View => vec![
-            item(Glyph::Aim, "Reset Camera", |w| {
-                *w.resource_mut::<Orbit>() = Orbit::default();
-            }),
-            item(Glyph::Clock, "Sky Follows the Clock", |w| {
-                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Clock;
-            }),
-            item(Glyph::Sun, "Sky at Day", |w| {
-                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Day;
-            }),
-            item(Glyph::Moon, "Sky at Night", |w| {
-                *w.resource_mut::<TimeOfDay>() = TimeOfDay::Night;
-            }),
-        ],
     }
 }
 

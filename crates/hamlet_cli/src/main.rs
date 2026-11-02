@@ -20,7 +20,7 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet status
        hamlet server [--port <n>] [--faux <script.json>] [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
-                     [--insecure]
+                     [--insecure] [--hot]
        hamlet window
        hamlet chat [--to <agent|name@hamlet|mayor@hamlet>]
        hamlet edit <charter|character|notes|limits|settings> \
@@ -31,7 +31,8 @@ const USAGE: &str = "usage: hamlet [--insecure]
 Bare hamlet starts or reuses a background server and opens a window.
 Closing a window stops no agent. hamlet stop stops the local server.
 dev builds the checkout's server and window and serves a scratch \
-                     home; Ctrl-C stops both.
+                     home; Ctrl-C stops both. --hot builds a window \
+                     that reloads saved shaders and tuning files.
 server serves in the foreground; Ctrl-C stops it.
 --insecure, on Windows only, runs agents' commands with no sandbox.
 
@@ -57,6 +58,8 @@ enum Command {
         faux: Option<String>,
         home: Option<String>,
         isolation: Isolation,
+        /// The window reloads saved shaders and tuning files.
+        hot: bool,
     },
     Window,
     Chat(String),
@@ -98,12 +101,17 @@ fn parse(args: &[String]) -> Result<Command> {
             let mut faux = None;
             let mut home = None;
             let mut isolation = Isolation::Sandboxed;
+            let mut hot = false;
             let mut to = hamlet_protocol::MAYOR.to_owned();
             let mut flags = rest.iter();
             while let Some(flag) = flags.next() {
                 let flag = flag.as_str();
                 if flag == "--insecure" && name != "chat" {
                     isolation = insecure()?;
+                    continue;
+                }
+                if flag == "--hot" && name == "dev" {
+                    hot = true;
                     continue;
                 }
                 let needs = match flag {
@@ -157,6 +165,7 @@ fn parse(args: &[String]) -> Result<Command> {
                     faux,
                     home,
                     isolation,
+                    hot,
                 },
                 _ => Command::Chat(to),
             })
@@ -282,12 +291,14 @@ fn main() {
                     faux,
                     home,
                     isolation,
+                    hot,
                 } => {
                     process::develop(
                         port,
                         faux.as_deref(),
                         home.as_deref(),
                         isolation,
+                        hot,
                     )
                     .await
                 }

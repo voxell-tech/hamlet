@@ -1,9 +1,13 @@
-//! The ground's material: the vertex colours of `StandardMaterial`,
-//! shaded lighter and darker in brush strokes and lit through soft
-//! bumps that the strokes bring out. Strokes and bumps are one baked
-//! texture that the shader lays down in hexagons, each moved and
-//! turned at random and blended by height, so that it never shows as
-//! repeating.
+//! The ground's material: coloured by its shader point by point, as
+//! [`SoilUniform`] and the vertex colours direct, then shaded lighter
+//! and darker in brush strokes and lit through soft bumps that the
+//! strokes bring out. Strokes and bumps are one baked texture that
+//! the shader lays down in hexagons, each moved and turned at random
+//! and blended by height, so that it never shows as repeating.
+//!
+//! A ground mesh's vertex colours are not colours: red is the share
+//! of woods there, green the share of heath, and blue how far the
+//! ground stands above where the vertex is drawn.
 
 use std::f32::consts::TAU;
 
@@ -15,15 +19,18 @@ use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, Extent3d, ShaderType, TextureDimension,
-    TextureFormat,
+    TextureFormat, TextureViewDescriptor, TextureViewDimension,
 };
-use bevy::shader::ShaderRef;
+use bevy::shader::{ShaderRef, load_shader_library};
 
 pub type GroundMaterial =
     ExtendedMaterial<StandardMaterial, GroundExt>;
 
 pub(crate) fn plugin(app: &mut App) {
+    load_shader_library!(app, "noise.wesl");
+    load_shader_library!(app, "ground_shape.wesl");
     embedded_asset!(app, "ground.wesl");
+    embedded_asset!(app, "ground_prepass.wesl");
     app.add_plugins(MaterialPlugin::<GroundMaterial>::default())
         .init_resource::<GroundSettings>()
         .add_systems(
@@ -90,11 +97,66 @@ pub struct GroundExt {
     #[texture(101)]
     #[sampler(102)]
     pub bumps: Handle<Image>,
+    #[uniform(103)]
+    pub soil: SoilUniform,
+    /// The land's pages, a layer for each size of patch, as the
+    /// realm makes them: in each texel the height's bits, and the
+    /// woods and the heath as two shares of 16 bits.
+    #[texture(104, dimension = "2d_array", sample_type = "u_int")]
+    pub pages: Handle<Image>,
+    #[uniform(105)]
+    pub pages_at: PagesUniform,
+}
+
+/// Sizes of patch the ground is drawn in, each twice the last, and
+/// so the layers of its pages.
+pub const LEVELS: usize = 8;
+
+/// Mirrors `Pages` in `ground_shape.wesl`: where the pages lie and
+/// how the patches stand on them.
+#[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
+pub struct PagesUniform {
+    /// Each page's corner on the map and the width of its texel.
+    pub at: [Vec4; LEVELS],
+    /// The side of the smallest patch, the height of the plane the
+    /// patches are chosen on, and the depth a patch of the second
+    /// size is sunk and the most any is.
+    pub shape: Vec4,
+    /// The height of the water, which ground below stays at.
+    pub water: Vec4,
+}
+
+/// Mirrors `Soil` in `ground.wesl`: the colours the ground is painted
+/// with, linear, the height of the water, which the shore follows,
+/// and the seed of the land's noise.
+#[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
+pub struct SoilUniform {
+    pub grass_shade: Vec4,
+    pub grass: Vec4,
+    pub grass_sun: Vec4,
+    pub grass_high: Vec4,
+    pub rock_dark: Vec4,
+    pub rock: Vec4,
+    pub rock_warm: Vec4,
+    pub snow: Vec4,
+    pub dirt: Vec4,
+    pub dirt_shade: Vec4,
+    pub mud: Vec4,
+    pub water: f32,
+    pub seed: u32,
 }
 
 impl MaterialExtension for GroundExt {
+    fn vertex_shader() -> ShaderRef {
+        "embedded://hamlet_vfx/ground.wesl".into()
+    }
+
     fn fragment_shader() -> ShaderRef {
         "embedded://hamlet_vfx/ground.wesl".into()
+    }
+
+    fn prepass_vertex_shader() -> ShaderRef {
+        "embedded://hamlet_vfx/ground_prepass.wesl".into()
     }
 }
 
@@ -129,10 +191,12 @@ impl From<&GroundSettings> for GroundUniform {
     }
 }
 
-/// The ground's material over `base`, with its texture baked anew.
+/// The ground's material over `base`, painted with `soil`, with its
+/// texture baked anew.
 pub fn material(
     images: &mut Assets<Image>,
     set: &GroundSettings,
+    soil: SoilUniform,
     base: StandardMaterial,
 ) -> GroundMaterial {
     ExtendedMaterial {
@@ -140,8 +204,31 @@ pub fn material(
         extension: GroundExt {
             u: set.into(),
             bumps: images.add(bumps(&set.strokes)),
+            soil,
+            pages: images.add(blank_pages()),
+            pages_at: PagesUniform::default(),
         },
     }
+}
+
+/// Pages of nothing, until the land's are made.
+pub(crate) fn blank_pages() -> Image {
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: LEVELS as u32,
+        },
+        TextureDimension::D2,
+        &[0; 8],
+        TextureFormat::Rg32Uint,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    image.texture_view_descriptor = Some(TextureViewDescriptor {
+        dimension: Some(TextureViewDimension::D2Array),
+        ..default()
+    });
+    image
 }
 
 /// Follows the settings: the uniform at once, the texture baked anew

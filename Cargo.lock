@@ -3556,6 +3556,7 @@ dependencies = [
  "bevy",
  "bevy_hanabi",
  "hamlet_assets",
+ "image",
  "serde",
 ]
 

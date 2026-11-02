@@ -228,7 +228,7 @@ fn raise(
             ChildOf(library),
         ))
         .id();
-    let wick = meshes.add(mascot::wick().build());
+    let wick = stock.wick.clone();
     let rig = Rig::spawn(
         &mut commands,
         keeper,
