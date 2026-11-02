@@ -1,8 +1,8 @@
 //! The output of each selected node, drawn over the preview in the
-//! colour of its card: transforms as outlined boxes with their
-//! axes, assets as their boxes, curves as lines through their points
-//! with an arrow the way they run, points as dots, and a field as a
-//! wash on the ground, brighter where it is higher.
+//! colour of its card: transforms as outlined boxes, whose axes the
+//! gizmo shows, assets as their boxes, curves as lines through their
+//! points with an arrow the way they run, points as dots, and a field
+//! as a wash on the ground, brighter where it is higher.
 
 use bevy::app::{App, Startup, Update};
 use bevy::camera::visibility::RenderLayers;
@@ -85,11 +85,6 @@ fn show(
                 Frame::IDENTITY,
             ));
             outline(gizmos, &frame, frame.scale, colour);
-            gizmos.axes(
-                Transform::from_translation(frame.translation)
-                    .with_rotation(frame.rotation),
-                0.35,
-            );
         }
         Value::Objects(objects) => {
             for object in objects {
