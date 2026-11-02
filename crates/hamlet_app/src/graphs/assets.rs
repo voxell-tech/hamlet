@@ -16,17 +16,20 @@ use bevy::ecs::system::{Commands, Res};
 use bevy::ecs::world::World;
 use bevy::math::{Mat4, Quat, Vec3};
 use bevy::ui::{AlignItems, UiRect, percent, px};
+use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
     icon_button, row, scroll,
 };
-use bevy_fynix::{ScopedExt, ViewExt};
+use bevy_fynix::{EntityCursor, ScopedExt, ViewExt};
 use hamlet_desktop::file::{ChooseFiles, FilesChosen};
 use hamlet_graph::{Asset, Catalogue, Paint, Shape, Socket};
 use hamlet_graph_editor::library::picker::{
     Section, grid, picture, sections, shown,
 };
-use hamlet_graph_editor::library::{Item, Kind, Library, mesh_file};
+use hamlet_graph_editor::library::{
+    Item, Kind, Library, Tile, mesh_file,
+};
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_ui::styles::{ICON, command, description, labelled, note};
@@ -439,12 +442,35 @@ fn card(name: String, asset: Asset) -> AnyView {
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
         let remove = name.clone();
+        let item = cx
+            .world
+            .resource::<Library>()
+            .items
+            .iter()
+            .find(|item| item.kind == Kind::Mesh && item.name == name)
+            .cloned();
+        // Dragged by its picture and name onto the canvas, it becomes
+        // an object node putting it down.
+        let mut handle = row((
+            picture(&name, PICTURE),
+            column((note(name.replace('_', " ")),))
+                .width(percent(100.0))
+                .min_width(px(0.0)),
+        ))
+        .gap(gap)
+        .grow(1.0)
+        .min_width(px(0.0))
+        .align(AlignItems::Center)
+        .boxed();
+        if let Some(item) = item {
+            handle = handle
+                .tagged(Tile(item))
+                .tagged(EntityCursor(SystemCursorIcon::Grab))
+                .boxed();
+        }
         let mut rows: Vec<AnyView> = vec![
             row((
-                picture(&name, PICTURE),
-                column((note(name.replace('_', " ")),))
-                    .width(percent(100.0))
-                    .min_width(px(0.0)),
+                handle,
                 button(glyph(Glyph::Cross, ICON))
                     .rules(icon_button)
                     .tooltip(|| {

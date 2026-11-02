@@ -63,7 +63,7 @@ use super::flavor::Flavor;
 use super::menu::Which;
 use super::wire::{Shape, WireMaterial};
 use super::{Editor, OUTPUTS, controls};
-use crate::library::Tile;
+use crate::library::{Item, Tile};
 
 /// The gap between two columns of cards laid out, and between the
 /// last card and the Outputs card.
@@ -2280,16 +2280,15 @@ fn drag_link<F: Flavor>(
 }
 
 /// Adds what a library tile dropped on the canvas is, where it is
-/// dropped.
+/// dropped. The drag may have begun on something inside the tile,
+/// such as its picture.
 fn received<F: Flavor>(
     drop: On<PointerDragDrop>,
     mut commands: Commands,
 ) {
     let dropped = drop.dropped;
     commands.queue(move |world: &mut World| {
-        let Some(item) =
-            world.get::<Tile>(dropped).map(|tile| tile.0.clone())
-        else {
+        let Some(item) = tile_of(world, dropped) else {
             return;
         };
         let at = world
@@ -2302,6 +2301,16 @@ fn received<F: Flavor>(
         };
         F::dropped(&mut world.resource_mut::<Editor<F>>(), &item, at);
     });
+}
+
+/// The asset of the tile that is `entity` or holds it.
+fn tile_of(world: &World, mut entity: Entity) -> Option<Item> {
+    loop {
+        if let Some(tile) = world.get::<Tile>(entity) {
+            return Some(tile.0.clone());
+        }
+        entity = world.get::<ChildOf>(entity)?.parent();
+    }
 }
 
 /// Wires the output of the wire dropped on an input's dot to it, in
