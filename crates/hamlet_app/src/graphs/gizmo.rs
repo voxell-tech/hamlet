@@ -33,8 +33,8 @@ use bevy::pbr::MaterialPlugin;
 use bevy::reflect::Reflect;
 use bevy::transform::components::GlobalTransform;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
-use bevy::window::{PrimaryWindow, Window};
-use bevy_fynix::Theme;
+use bevy::window::{PrimaryWindow, SystemCursorIcon, Window};
+use bevy_fynix::{OverrideCursor, Theme};
 use hamlet_graph_editor::Editor;
 use hamlet_graph_editor::canvas::corner;
 use hamlet_ui::theme::{HamletTheme, Palette};
@@ -57,8 +57,35 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<Hot>()
         .init_resource::<Dragging>()
         .add_systems(Startup, (style_handles, spawn_fills))
-        .add_systems(Update, (pick_mode, cancel))
+        .add_systems(Update, (pick_mode, cancel, grab_cursor))
         .add_systems(PostUpdate, handles);
+}
+
+/// Asks for the open hand while the pointer is on a handle and the
+/// closed one while a handle is dragged. It lets go of the cursor
+/// only when it was the one that asked for it.
+fn grab_cursor(
+    hot: Res<Hot>,
+    dragging: Res<Dragging>,
+    mut cursor: ResMut<OverrideCursor>,
+    mut asked: Local<Option<SystemCursorIcon>>,
+) {
+    let want = if dragging.0.is_some() {
+        Some(SystemCursorIcon::Grabbing)
+    } else if hot.0.is_some() {
+        Some(SystemCursorIcon::Grab)
+    } else {
+        None
+    };
+    if want == *asked {
+        return;
+    }
+    if want.is_some() {
+        cursor.0 = want;
+    } else if cursor.0 == *asked {
+        cursor.0 = None;
+    }
+    *asked = want;
 }
 
 /// The gizmo's lines, seen only by the preview's camera.
