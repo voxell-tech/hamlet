@@ -9,7 +9,7 @@ use bevy::light::NotShadowCaster;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use hamlet_vfx::grass::{
-    self, DETAILS, GrassMaterial, GrassSettings,
+    self, DETAILS, GrassMaterial, GrassReach, GrassSettings,
 };
 use hamlet_vfx::ground::GroundMaterial;
 
@@ -151,11 +151,16 @@ fn lay(
     let wide = (low / 12.0).clamp(1.0, 1.8);
     let rings = set.rings.map(|r| r * wide);
     let far = rings[2];
-    if let Some(mut grass) = materials.get_mut(&field.material) {
-        let reach = at.extend(far);
-        if grass.extension.grass.reach != reach {
-            grass.extension.grass.reach = reach;
-        }
+    let reach = GrassReach {
+        eye: at,
+        low,
+        rings,
+    };
+    if let Some(grass) = materials.get(&field.material)
+        && grass.extension.grass.reach() != reach
+        && let Some(mut grass) = materials.get_mut(&field.material)
+    {
+        grass.extension.grass.set_reach(reach);
     }
 
     // A whole number of tufts' squares, so the slots of one square

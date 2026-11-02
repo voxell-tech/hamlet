@@ -128,9 +128,22 @@ pub struct GrassUniform {
     pub look: Vec4,
     pub sway: Vec4,
     pub glow: Vec4,
+    pub thin: Vec4,
     pub reach: Vec4,
+    pub rings: Vec4,
     pub mask_at: Vec4,
     pub flowers: [Vec4; 5],
+}
+
+/// Where the grass is drawn about the eye, as the world lays it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GrassReach {
+    /// The eye.
+    pub eye: Vec3,
+    /// How high the eye stands over the ground under it.
+    pub low: f32,
+    /// How far each detail reaches, as widened for the eye's height.
+    pub rings: [f32; DETAILS],
 }
 
 impl GrassUniform {
@@ -141,11 +154,21 @@ impl GrassUniform {
         set: &GrassSettings,
         now: f32,
         night: f32,
-        reach: Vec4,
+        reach: GrassReach,
         mask_at: Vec4,
         flowers: [Vec4; 5],
     ) -> Self {
-        Self {
+        let finest = set.blades[0].max(1) as f32;
+        let share = |d: usize| set.blades[d] as f32 / finest;
+        let mut uniform = Self {
+            thin: Vec4::new(
+                set.kept[1],
+                set.kept[2],
+                share(1),
+                share(2),
+            ),
+            reach: Vec4::ZERO,
+            rings: Vec4::ZERO,
             grow: Vec4::new(
                 set.spacing,
                 set.bare,
@@ -166,9 +189,26 @@ impl GrassUniform {
                 set.pulse.1,
                 0.0,
             ),
-            reach,
             mask_at,
             flowers,
+        };
+        uniform.set_reach(reach);
+        uniform
+    }
+
+    /// Draws the grass as far as `reach` has it.
+    pub fn set_reach(&mut self, reach: GrassReach) {
+        self.reach = reach.eye.extend(reach.rings[2]);
+        self.rings =
+            Vec4::new(reach.rings[0], reach.rings[1], reach.low, 0.0);
+    }
+
+    /// Where the grass is drawn, as this has it.
+    pub fn reach(&self) -> GrassReach {
+        GrassReach {
+            eye: self.reach.xyz(),
+            low: self.rings.z,
+            rings: [self.rings.x, self.rings.y, self.reach.w],
         }
     }
 }
@@ -211,7 +251,7 @@ pub fn material(
                 set,
                 0.0,
                 0.0,
-                Vec4::ZERO,
+                GrassReach::default(),
                 Vec4::ZERO,
                 [Vec4::ONE; 5],
             ),
@@ -245,28 +285,35 @@ pub fn mask(side: u32) -> Image {
 
 /// A square of `slots` by `slots` tufts at `detail` of [`DETAILS`],
 /// each one of the [`SHAPES`] standing on the origin, for the shader
-/// to place: which slot a point's tuft is in is its second UV. Each
-/// point's UV is how far up its blade it is, from 0 to 1, and a
-/// number of its blade's own; its colour is its blade's tone, which
-/// the shader multiplies the ground's colour by, with alpha 1. A
-/// flower's head, which only tufts in flower show, has alpha 0, all
-/// its points at the head's middle and their colours how far out of
-/// it each lies.
+/// to place and thin. Each tuft has a rank and each blade one, from 0
+/// to 1; the shader keeps fewer of them the further off they are, the
+/// lowest ranked longest. A coarser detail holds only those the
+/// shader would keep that far off, in the same places, so that a
+/// square drawn coarser shows nothing new.
+///
+/// A point's second UV is its tuft's slot, x and z, with the tuft's
+/// rank in the fraction of x. Its UV is how far up its blade it is,
+/// from 0 to 1, and its blade's rank, which its tone follows. A
+/// blade's points lie on its middle line, their colours how far
+/// across it each lies, with alpha 1; a flower's head's points all
+/// lie at its middle, their colours how far out of it each lies, with
+/// alpha 0. So the shader can widen blades and heads alike.
 pub fn square(set: &GrassSettings, detail: usize) -> Mesh {
     let mut built = Built::default();
     let slots = set.slots.max(1);
-    // Further off, fewer slots hold a tuft, each spread the wider to
-    // cover as much.
     let kept = set.kept[detail].clamp(0.05, 1.0);
-    let broad = kept.sqrt().recip();
     for slot in 0..slots * slots {
-        if hash(slot, 202) >= kept {
+        let rank = hash(slot, 202);
+        if rank >= kept {
             continue;
         }
         let shape = (hash(slot, 101) * SHAPES as f32) as usize;
-        let at = [(slot % slots) as f32, (slot / slots) as f32];
+        let at = [
+            (slot % slots) as f32 + RANKED * rank,
+            (slot / slots) as f32,
+        ];
         let shape = shape.min(SHAPES - 1);
-        tuft(&mut built, set, shape, detail, broad, at);
+        tuft(&mut built, set, shape, detail, at);
     }
     Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -294,17 +341,21 @@ struct Built {
     indices: Vec<u32>,
 }
 
-/// Tuft `shape` of [`SHAPES`] at `detail`, spread `broad` times as
-/// wide, in the slot `slot`, made at random from its number alone: a
-/// clump of curved blades, the outer ones shorter and leaning out
-/// further, and the first [`IN_FLOWER`] shapes with flowers' heads on
-/// their tallest blades.
+/// How much of a whole slot a tuft's rank may take in its slot's x:
+/// under one, so the slot is its floor.
+const RANKED: f32 = 0.98;
+
+/// Tuft `shape` of [`SHAPES`] at `detail`, in the slot `slot`, made
+/// at random from its number alone: a clump of curved blades, the
+/// outer ones shorter and leaning out further, and the first
+/// [`IN_FLOWER`] shapes with flowers' heads on their tallest blades.
+/// Only the blades ranked under `detail`'s share of the finest's are
+/// made.
 fn tuft(
     built: &mut Built,
     set: &GrassSettings,
     shape: usize,
     detail: usize,
-    broad: f32,
     slot: [f32; 2],
 ) {
     /// How far up each pair of points across a blade lies; its tip
@@ -313,10 +364,8 @@ fn tuft(
     let seed = shape as u32 * 977 + 13;
     let r = |i: u32, k: u32| hash(seed.wrapping_add(i * 7919), k);
     let finest = set.blades[0].max(1);
-    let count = set.blades[detail].clamp(1, finest);
-    // Fewer blades are drawn wider, to cover as much.
-    let wider = (finest as f32 / count as f32).sqrt();
-    let stride = finest / count;
+    let share =
+        set.blades[detail].clamp(1, finest) as f32 / finest as f32;
     let flowering = shape < IN_FLOWER;
 
     let Built {
@@ -327,13 +376,16 @@ fn tuft(
         colours,
         indices,
     } = built;
-    for n in 0..count {
-        let i = n * stride;
+    for i in 0..finest {
+        let own = r(i, 9);
+        if own >= share {
+            continue;
+        }
         // Thicker toward the middle.
         let out = r(i, 0).powf(0.7);
         let turn = r(i, 1) * TAU;
         let way = Vec3::new(turn.cos(), 0.0, turn.sin());
-        let root = way * out * set.spread * 0.35 * broad;
+        let root = way * out * set.spread * 0.35;
         let height =
             set.tall * (0.5 + 0.5 * r(i, 2)) * (1.0 - 0.4 * out);
         // How far it leans out, and a little to one side.
@@ -344,37 +396,25 @@ fn tuft(
         let twist = (r(i, 5) - 0.5) * 1.2;
         let across =
             (side * twist.cos() + way * twist.sin()).normalize();
-        let wide = set.wide * wider * (0.75 + 0.5 * r(i, 6));
-        // Each blade a little lighter or darker, greener or yellower.
-        let warm = r(i, 7) - 0.5;
-        let tone = (0.88 + 0.24 * r(i, 8))
-            * Vec3::new(1.0 + 0.12 * warm, 1.0, 1.0 - 0.25 * warm);
-        let own = r(i, 9);
+        let wide = set.wide * (0.75 + 0.5 * r(i, 6));
         let centre = |t: f32| {
-            root + lean_way * (lean * height * t * t * broad)
+            root + lean_way * (lean * height * t * t)
                 + Vec3::Y * height * (t - 0.3 * lean * lean * t * t)
         };
         let first = positions.len() as u32;
-        let mut push = |p: Vec3, t: f32, c: [f32; 4]| {
-            let ahead = (centre((t + 0.05).min(1.0))
-                - centre((t - 0.05).max(0.0)))
-            .normalize_or(Vec3::Y);
-            let face = across.cross(ahead).normalize_or(Vec3::Y);
-            positions.push(p.to_array());
-            normals.push(
-                (if face.y < 0.0 { -face } else { face }).to_array(),
-            );
+        let mut push = |t: f32, off: Vec3| {
+            positions.push(centre(t).to_array());
+            normals.push([0.0, 1.0, 0.0]);
             uvs.push([t, own]);
             slots.push(slot);
-            colours.push(c);
+            colours.push([off.x, off.y, off.z, 1.0]);
         };
-        let grass = [tone.x, tone.y, tone.z, 1.0];
         for t in RISE {
             let half = across * wide * 0.5 * (1.0 - t).powf(0.6);
-            push(centre(t) - half, t, grass);
-            push(centre(t) + half, t, grass);
+            push(t, -half);
+            push(t, half);
         }
-        push(centre(1.0), 1.0, grass);
+        push(1.0, Vec3::ZERO);
         for k in 0..3 {
             let a = first + k * 2;
             indices.extend([a, a + 1, a + 3, a, a + 3, a + 2]);
@@ -386,11 +426,11 @@ fn tuft(
         // far off for heads, has none.
         if flowering
             && detail + 1 < DETAILS
-            && n % 6 == 0
+            && i % 6 == 0
             && out < 0.6
         {
             let head = centre(1.0);
-            let size = 0.035 * wider.sqrt() * (0.8 + 0.4 * r(i, 10));
+            let size = 0.035 * (0.8 + 0.4 * r(i, 10));
             let first = positions.len() as u32;
             let mut petal = |out: Vec3| {
                 positions.push(head.to_array());
@@ -431,7 +471,7 @@ fn sway(
             &set,
             now.0,
             view.night,
-            was.reach,
+            was.reach(),
             was.mask_at,
             was.flowers,
         );

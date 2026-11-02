@@ -28,9 +28,15 @@ struct Grass {
     // x: `glow`, as far into the night as it is. y: one over the breadth
     // of its patches. z: how fast they drift.
     glow: vec4<f32>,
+    // The share of tufts kept where the middle detail begins, and where
+    // the farthest does; then the same for each tuft's blades.
+    thin: vec4<f32>,
     // xyz: the eye. w: how far from it the grass is gone, shortening
     // over the last half of the way.
     reach: vec4<f32>,
+    // x: where the middle detail begins. y: where the farthest does. z:
+    // how high the eye stands over the ground under it.
+    rings: vec4<f32>,
     // xy: the mask's corner on the map. z: its side.
     mask_at: vec4<f32>,
     // The flowers' colours, linear.
@@ -81,23 +87,49 @@ fn trodden(p: vec2<f32>) -> f32 {
     return textureSampleLevel(mask, mask_sampler, uv, 0.0).r;
 }
 
+// How much of a whole slot a tuft's rank takes in its slot's x. `RANKED`
+// in `grass.rs`.
+const RANKED: f32 = 0.98;
+// How far below the share kept a rank begins to shrink away.
+const FADING: f32 = 0.08;
+
+// The share of tufts, or of a tuft's blades, kept `d` from the eye: all
+// near it, `at_middle` where the middle detail begins and `at_far` where
+// the farthest does, as the squares of those details hold. Near the eye it
+// is a little over all, so that none is shrinking there.
+fn kept_at(d: f32, at_middle: f32, at_far: f32) -> f32 {
+    let near = grass.rings.x;
+    if d < near {
+        return mix(1.0 + FADING, at_middle, smooth_step(near * 0.5, near, d));
+    }
+    return mix(at_middle, at_far, smooth_step(near, grass.rings.y, d));
+}
+
+// How much of itself something ranked `rank` keeps where `share` of its
+// kind are kept: all of it well under, and nothing over.
+fn fade(rank: f32, share: f32) -> f32 {
+    return clamp((share - rank) / FADING, 0.0, 1.0);
+}
+
 // The point `local` of the tuft in slot `slot` of a square whose corner
-// `world_from_local` moves it to; `up` is how far up its blade the point
-// is, from 0 to 1, `own` its blade's own number, and `tone` what its blade
-// multiplies the ground's colour by, or for a flower's head, as `flower`
-// says it is, how far out of the head's middle the point lies.
+// `world_from_local` moves it to, `off` across its blade's middle line, or
+// for a flower's head, as `flower` says it is, out of the head's middle;
+// `up` is how far up its blade the point is, from 0 to 1, and `own` its
+// blade's rank. The fraction of the slot's x is the tuft's rank.
 fn blade(
     local: vec3<f32>,
     up: f32,
     own: f32,
-    tone: vec3<f32>,
+    off: vec3<f32>,
     flower: bool,
     slot: vec2<f32>,
     world_from_local: mat4x4<f32>,
 ) -> Blade {
     // The square of the map the slot is, and where in it the tuft stands.
     let step = grass.grow.x;
-    let cell = vec2<i32>(round(world_from_local[3].xz / step)) + vec2<i32>(slot);
+    let whole = floor(slot);
+    let rank = (slot.x - whole.x) / RANKED;
+    let cell = vec2<i32>(round(world_from_local[3].xz / step)) + vec2<i32>(whole);
     let h = key(soil.seed ^ 0x6a09e667u, cell.x, cell.y);
     let p = (vec2<f32>(cell) + vec2<f32>(roll(h, 0u), roll(h, 1u))) * step;
     let here = land_at(0, p);
@@ -129,14 +161,29 @@ fn blade(
     // does, and on others shrinks to nothing at its middle.
     let blooms = fbm(p * 0.08 + vec2<f32>(31.0, -17.0), 2u, soil.seed + 91u);
     let flowering = blooms > 0.2 && roll(h, 4u) < grass.grow.z * (1.0 - woods);
+    // How far off it is, as the squares are laid by: across the map, and
+    // the eye's height over the ground.
+    let away = length(vec2<f32>(distance(p, grass.reach.xz), grass.rings.z));
+
+    // Further off, fewer tufts and fewer of each one's blades are kept, the
+    // lowest ranked longest, and the rest shrink away; those kept spread and
+    // widen to cover as much, so the field thins without a seam.
+    let tufts = kept_at(away, grass.thin.x, grass.thin.y);
+    let blades = kept_at(away, grass.thin.z, grass.thin.w);
+    let kept_tuft = fade(rank, tufts);
+    let kept_blade = fade(own, blades);
+    let spread = inverseSqrt(clamp(tufts, 0.05, 1.0));
+    let widen = inverseSqrt(clamp(blades, 0.05, 1.0));
+
     // Close by, a tuft in flower shows its flowers' heads. Further off,
     // where a head would be smaller than a pixel and flicker, the heads
     // shrink away and its tips take the flowers' colour instead.
-    let away = distance(middle, grass.reach.xyz);
     let heads = smooth_step(grass.reach.w * 0.3, grass.reach.w * 0.15, away);
-    var point = local;
-    if flower && flowering {
-        point += tone * heads;
+    var point = vec3<f32>(local.x * spread, local.y * kept_blade, local.z * spread);
+    if flower {
+        point += off * select(0.0, heads, flowering) * kept_blade;
+    } else {
+        point += off * widen * kept_blade * kept_tuft;
     }
 
     // Scaled and turned as its own; scaled more across than up.
@@ -155,7 +202,7 @@ fn blade(
     // How high over the ground the point stands, kept over the ground
     // under it, and shrunk far off.
     let ground = page_at(0, at.xz).x;
-    let kept = smooth_step(grass.reach.w, grass.reach.w * 0.5, away);
+    let kept = smooth_step(grass.reach.w, grass.reach.w * 0.5, away) * kept_tuft;
     let rise = (at.y - y) * kept;
 
     // The wind bends the tips the most: down the wind in a gust, and
@@ -172,8 +219,11 @@ fn blade(
     at = vec3<f32>(at.x + flow.x * push, ground + rise - sink, at.z + flow.y * push);
 
     // The ground's colour where the tuft stands, darker at the roots and
-    // lighter and sunnier to the tips.
-    // Each patch of flowers is one colour.
+    // lighter and sunnier to the tips, each blade a little lighter or
+    // darker, greener or yellower, as its rank falls. Each patch of
+    // flowers is one colour.
+    let warm = fract(own * 7.31) - 0.5;
+    let tone = (0.88 + 0.24 * fract(own * 13.7)) * vec3<f32>(1.0 + 0.12 * warm, 1.0, 1.0 - 0.25 * warm);
     let bed = vec2<i32>(floor(p / 9.0));
     let bloom = grass.flowers[u32(bed.x * 73 + bed.y * 19 + 100000) % 5u].rgb;
     let shine = select(0.0, glow_at(p), grass.glow.x > 0.0 && flowering);
