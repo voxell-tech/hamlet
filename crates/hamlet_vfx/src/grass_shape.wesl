@@ -8,7 +8,9 @@
 // wind's own bands.
 
 import hamlet_vfx::ground_shape::{land_at, page_at, pages_at};
-import hamlet_vfx::noise::{fbm, key, perlin, scramble};
+// `smooth_step`, not WGSL's `smoothstep`, wherever a share falls: WGSL
+// leaves a falling `smoothstep` undefined, and some GPUs give it wrong.
+import hamlet_vfx::noise::{fbm, key, perlin, scramble, smooth_step};
 import hamlet_vfx::soil::{soil, grass_colour};
 import hamlet_vfx::wind::{Wind, strength};
 
@@ -112,9 +114,9 @@ fn blade(
     // places at random, and fewer in the woods. One that does not is
     // drawn as nothing, all its points at its middle.
     let water = pages_at.water.x;
-    let grows = smoothstep(water + 0.5, water + 1.0, y)
-        * smoothstep(0.14, 0.07, 1.0 - n.y)
-        * smoothstep(26.0, 18.0, y)
+    let grows = smooth_step(water + 0.5, water + 1.0, y)
+        * smooth_step(0.14, 0.07, 1.0 - n.y)
+        * smooth_step(26.0, 18.0, y)
         * (1.0 - 0.7 * woods);
     if roll(h, 2u) < grass.grow.y || roll(h, 3u) > grows {
         drawn.position = middle - vec3<f32>(0.0, 0.1, 0.0);
@@ -149,7 +151,7 @@ fn blade(
     let ground = page_at(0, at.xz).x;
     let away = distance(middle, grass.reach.xyz);
     let kept = (1.0 - trodden(at.xz))
-        * smoothstep(grass.reach.w, grass.reach.w * 0.67, away);
+        * smooth_step(grass.reach.w, grass.reach.w * 0.67, away);
     let rise = (at.y - y) * kept;
 
     // The wind bends the tips the most: down the wind in a gust, and
