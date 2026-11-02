@@ -86,10 +86,14 @@ fn read_vsync(mut commands: Commands, view: Res<ViewFolder>) {
     commands.insert_resource(Vsync(saved_vsync(&view.0)));
 }
 
-/// Turns vsync off if it is on and on if it is off, on the window and
-/// in the view folder.
+/// Turns vsync off if it is on and on if it is off.
 pub(crate) fn toggle_vsync(world: &mut World) {
     let on = !world.get_resource::<Vsync>().is_none_or(|v| v.0);
+    set_vsync(world, on);
+}
+
+/// Turns vsync on or off, on the window and in the view folder.
+pub(crate) fn set_vsync(world: &mut World, on: bool) {
     world.insert_resource(Vsync(on));
     let mut windows =
         world.query_filtered::<&mut Window, With<PrimaryWindow>>();

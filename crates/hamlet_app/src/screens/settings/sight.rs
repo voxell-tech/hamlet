@@ -1,4 +1,5 @@
-//! The Sight page: how much the world draws, the hour its sky shows,
+//! The Sight page: how much the world draws, whether the window waits
+//! for the screen, the hour its sky shows,
 //! how far the distance fog lies and the volumetric fog the sun
 //! throws shafts through.
 
@@ -26,6 +27,8 @@ use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{View, built, with_cx};
 
 use super::{field, told};
+use crate::roll::moved;
+use crate::window::{self, Vsync};
 use crate::world_view::{NorthTarget, TimeOfDay};
 
 pub(super) fn plugin(app: &mut App) {
@@ -252,6 +255,24 @@ pub(super) fn page() -> impl View {
             told(
                 quality(),
                 description("Particles, bloom, fog, shadows."),
+            ),
+        ),
+        field(
+            "Vsync",
+            told(
+                labelled_switch(
+                    "On",
+                    derived(|world: &World| {
+                        world
+                            .get_resource::<Vsync>()
+                            .is_none_or(|v| v.0)
+                    })
+                    .when(moved::<Vsync>()),
+                    window::set_vsync,
+                ),
+                description(
+                    "Waits for the screen, so no frame tears.",
+                ),
             ),
         ),
         field("Time of day", hour()),
