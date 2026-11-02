@@ -30,11 +30,11 @@ Prefix every branch with the name of the person it is for, as in
 
 ## Pull requests
 
-A pull request's description says what changes, why, and what was
-left out. It has no testing section that only lists the checks that
-passed or the tests that were added: CI and the diff already show
-those. Say only what a reviewer cannot see there, such as something
-not yet tried by hand.
+A pull request's description says only what changed. It has no
+section for what was left out, what was not tried or what comes next,
+and none that lists the checks that passed or the tests that were
+added: CI and the diff already show those. Say those things in chat
+with the owner instead, not in the pull request.
 
 ## Running safely
 
