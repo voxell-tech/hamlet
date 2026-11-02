@@ -129,9 +129,14 @@ fn blade(
     // does, and on others shrinks to nothing at its middle.
     let blooms = fbm(p * 0.08 + vec2<f32>(31.0, -17.0), 2u, soil.seed + 91u);
     let flowering = blooms > 0.2 && roll(h, 4u) < grass.grow.z * (1.0 - woods);
+    // Close by, a tuft in flower shows its flowers' heads. Further off,
+    // where a head would be smaller than a pixel and flicker, the heads
+    // shrink away and its tips take the flowers' colour instead.
+    let away = distance(middle, grass.reach.xyz);
+    let heads = smooth_step(grass.reach.w * 0.3, grass.reach.w * 0.15, away);
     var point = local;
     if flower && flowering {
-        point += tone;
+        point += tone * heads;
     }
 
     // Scaled and turned as its own; scaled more across than up.
@@ -150,7 +155,6 @@ fn blade(
     // How high over the ground the point stands, kept over the ground
     // under it, and shrunk far off.
     let ground = page_at(0, at.xz).x;
-    let away = distance(middle, grass.reach.xyz);
     let kept = smooth_step(grass.reach.w, grass.reach.w * 0.5, away);
     let rise = (at.y - y) * kept;
 
@@ -169,18 +173,23 @@ fn blade(
 
     // The ground's colour where the tuft stands, darker at the roots and
     // lighter and sunnier to the tips.
+    // Each patch of flowers is one colour.
+    let bed = vec2<i32>(floor(p / 9.0));
+    let bloom = grass.flowers[u32(bed.x * 73 + bed.y * 19 + 100000) % 5u].rgb;
+    let shine = select(0.0, glow_at(p), grass.glow.x > 0.0 && flowering);
     var colour: vec3<f32>;
     if flower {
-        let bed = vec2<i32>(floor(p / 9.0));
-        let k = u32(bed.x * 73 + bed.y * 19 + 100000) % 5u;
-        colour = grass.flowers[k].rgb;
-        if grass.glow.x > 0.0 {
-            drawn.glow = glow_at(p);
-        }
+        colour = bloom;
+        drawn.glow = shine;
     } else {
         colour = grass_colour(p, y, woods, heath) * tone * mix(grass.look.x, grass.look.y, up);
         colour = mix(colour, soil.grass_sun.rgb * grass.look.y, grass.look.z * up * up);
         colour *= 1.0 + 0.15 * max(gust, 0.0) * up;
+        if flowering {
+            let tinted = (1.0 - heads) * up * up;
+            colour = mix(colour, bloom, 0.7 * tinted);
+            drawn.glow = shine * tinted;
+        }
     }
 
     drawn.position = at;

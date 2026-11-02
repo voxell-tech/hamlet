@@ -382,8 +382,13 @@ fn tuft(
         indices.extend([first + 6, first + 7, first + 8]);
 
         // The tallest blades of a tuft in flower carry a head: a few
-        // petals about the tip, facing up.
-        if flowering && n % 6 == 0 && out < 0.6 {
+        // petals about the tip, facing up. The coarsest detail, too
+        // far off for heads, has none.
+        if flowering
+            && detail + 1 < DETAILS
+            && n % 6 == 0
+            && out < 0.6
+        {
             let head = centre(1.0);
             let size = 0.035 * wider.sqrt() * (0.8 + 0.4 * r(i, 10));
             let first = positions.len() as u32;
