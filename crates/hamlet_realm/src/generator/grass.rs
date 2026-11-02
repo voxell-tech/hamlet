@@ -20,7 +20,7 @@ use crate::WorldCamera;
 
 /// Texels across the mask, and metres to a texel: enough to reach
 /// past the furthest ring, as wide as the eye's height makes it.
-const MASK: u32 = 512;
+const MASK: u32 = 1024;
 const MASK_TEXEL: f32 = 0.5;
 
 /// How far the trodden ground spreads past what treads it, in metres,
