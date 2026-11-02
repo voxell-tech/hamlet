@@ -1,17 +1,15 @@
 // Leaves in the prepass and the shadows: moved as `leaves_sway.wesl`
 // moves them, and cut where it cuts them, so their depth and shadow have
-// the holes the leaves have. The opening about what the eye watches is
-// cut only from the eye's depth, not from the sun's shadow.
+// the holes the leaves have.
 
 import bevy_pbr::{
     prepass::io::{Vertex, VertexOutput, FragmentOutput, decompress_vertex},
     render::{
         mesh_functions,
-        mesh_view_bindings::view,
         view_transformations::position_world_to_clip,
     },
 };
-import hamlet_vfx::leaves_sway::{Leaves, swayed, left_open, is_cut};
+import hamlet_vfx::leaves_sway::{Leaves, swayed, is_cut, stroke_cover};
 import hamlet_vfx::wind::Wind;
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> leaves: Leaves;
@@ -52,24 +50,22 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     return out;
 }
 
-// How much of the leaf this pixel shows: its stroke's cover, less the
-// opening when the view is the eye's. The sun's views are orthographic,
-// the eye's is not.
-fn shown(in: VertexOutput) -> f32 {
+// Whether to cut this pixel away, where its stroke does not cover it.
+fn cut(in: VertexOutput) -> bool {
 @if(VERTEX_UVS_A)
-    var cover = textureSample(strokes, strokes_sampler, in.uv).a;
+    let cover = stroke_cover(
+        textureSample(strokes, strokes_sampler, in.uv).a,
+        in.uv,
+    );
 @else
-    var cover = 1.0;
-    if view.clip_from_view[3][3] != 1.0 {
-        cover *= left_open(leaves, in.world_position.xyz, view.world_position);
-    }
-    return cover;
+    let cover = 1.0;
+    return is_cut(cover);
 }
 
 @if(PREPASS_FRAGMENT)
 @fragment
 fn fragment(in: VertexOutput) -> FragmentOutput {
-    if is_cut(shown(in), in.position.xy) {
+    if cut(in) {
         discard;
     }
     var out: FragmentOutput;
@@ -84,7 +80,7 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
 @else
 @fragment
 fn fragment(in: VertexOutput) {
-    if is_cut(shown(in), in.position.xy) {
+    if cut(in) {
         discard;
     }
 }

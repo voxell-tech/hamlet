@@ -1,9 +1,8 @@
-//! Leaves: cards painted with brush strokes, cut to the stroke's
-//! edge in a dither, set on a tree's crown and bent by the wind from
+//! Leaves: cards painted with brush strokes, cut sharp to the
+//! stroke's edge, set on a tree's crown and bent by the wind from
 //! its foot. Lit, they are warm; out of the sun they turn cool, glow
 //! at the crown's edge with the sun behind them and, at night, keep a
-//! rim of the night's colour. Between the eye and what it watches
-//! they thin so that it shows through. The colour is in the mesh's
+//! rim of the night's colour. The colour is in the mesh's
 //! vertices, tinted for each tree by its
 //! [`MeshTag`](bevy::mesh::MeshTag).
 
@@ -59,11 +58,6 @@ pub struct LeafSettings {
     /// how bright it is.
     pub rim: [f32; 3],
     pub rim_light: f32,
-    /// The radius in metres of the opening the leaves leave about
-    /// what the eye watches, and how much of them it takes away
-    /// there, from 0 to 1.
-    pub opening: f32,
-    pub clear: f32,
 }
 
 /// What the world tells the leaves of itself.
@@ -71,9 +65,6 @@ pub struct LeafSettings {
 pub struct LeafView {
     /// How far into the night it is, from 0 by day to 1.
     pub night: f32,
-    /// The point the eye watches, which the leaves keep out of the
-    /// way of.
-    pub watched: Option<Vec3>,
 }
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
@@ -98,8 +89,6 @@ pub struct LeafUniform {
     pub edge: Vec4,
     pub shade: Vec4,
     pub rim: Vec4,
-    pub open: Vec4,
-    pub watch: Vec4,
 }
 
 impl LeafUniform {
@@ -113,12 +102,6 @@ impl LeafUniform {
         let linear =
             |c: [f32; 3]| LinearRgba::from(Color::srgb_from_array(c));
         let (shade, rim) = (linear(set.shade), linear(set.rim));
-        let watched = view.watched.unwrap_or(Vec3::ZERO);
-        let opening = if view.watched.is_some() {
-            set.opening
-        } else {
-            0.0
-        };
         Self {
             sway: Vec4::new(
                 now,
@@ -141,8 +124,6 @@ impl LeafUniform {
                 rim.blue,
                 set.rim_light,
             ),
-            open: Vec4::new(set.clear, 0.0, 0.0, 0.0),
-            watch: watched.extend(opening),
         }
     }
 }
@@ -360,7 +341,8 @@ fn body_of(r: f32) -> f32 {
     smooth(1.04, 0.92, r)
 }
 
-/// Pixels across the strokes' texture.
+/// Pixels across the strokes' texture. `STROKES` in
+/// `leaves_sway.wesl`.
 const SIDE: usize = 512;
 /// Pixels across the solid band down its left side, where whatever
 /// is not a card takes its colour, at UV zero.

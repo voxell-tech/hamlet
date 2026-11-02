@@ -15,7 +15,7 @@ import bevy_pbr::render::{
     shadows::fetch_directional_shadow,
     view_transformations::position_world_to_clip,
 };
-import hamlet_vfx::leaves_sway::{Leaves, swayed, left_open, is_cut};
+import hamlet_vfx::leaves_sway::{Leaves, swayed, is_cut, stroke_cover};
 import hamlet_vfx::wind::Wind;
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> leaves: Leaves;
@@ -72,8 +72,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let paint = textureSample(strokes, strokes_sampler, in.uv);
 @else
     let paint = vec4<f32>(1.0);
-    let open = left_open(leaves, in.world_position.xyz, view.world_position);
-    if is_cut(paint.a * open, in.position.xy) {
+@if(VERTEX_UVS_A)
+    let cover = stroke_cover(paint.a, in.uv);
+@else
+    let cover = 1.0;
+    if is_cut(cover) {
         discard;
     }
 

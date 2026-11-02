@@ -15,13 +15,12 @@ use hamlet_vfx::water::{
 
 use super::land::Land;
 use super::loading::Bed;
-use super::view::GeneratorView;
 use super::{Tally, traffic, yard};
 use crate::keeper::KeeperState;
 use crate::lantern::lantern_glass;
 use crate::palette::Palette;
 use crate::sky::SkySettings;
-use crate::{Sky, Stock, WorldCamera};
+use crate::{Sky, Stock};
 
 /// Handles shared by everything of a kind, so the renderer can batch
 /// them.
@@ -197,22 +196,13 @@ pub(super) fn repaint(
     }
 }
 
-/// Tells the leaves how far into the night it is, and what the eye
-/// watches: the ground the camera looks at, which the leaves between
-/// thin to show.
+/// Tells the leaves how far into the night it is.
 pub(super) fn tell_leaves(
     sky: Res<Sky>,
     set: Res<SkySettings>,
-    view: Res<GeneratorView>,
-    camera: Query<&GlobalTransform, With<WorldCamera>>,
     mut leaves: ResMut<LeafView>,
 ) {
-    let watched = camera
-        .single()
-        .ok()
-        .map(|eye| eye.translation() + eye.forward() * view.dist);
     leaves.set_if_neq(LeafView {
         night: 1.0 - set.daylight(sky.hour),
-        watched,
     });
 }

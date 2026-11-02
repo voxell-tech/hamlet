@@ -15,11 +15,10 @@ struct Leaves {
     shade: vec4<f32>,
     // rgb: `rim`, linear. w: `rim_light`.
     rim: vec4<f32>,
-    // x: `clear`. The rest is unused.
-    open: vec4<f32>,
-    // xyz: the point the eye watches. w: `opening`, 0 for none.
-    watch: vec4<f32>,
 }
+
+// Texels across the strokes' texture, `SIDE` in `leaves.rs`.
+const STROKES: f32 = 512.0;
 
 // The height of a tree's crown on its mesh, which leans the most.
 const CROWN: f32 = 3.0;
@@ -64,35 +63,19 @@ fn swayed(
     return world + moved;
 }
 
-// A threshold from 0 to 1 for the pixel at `pixel`, spread so that
-// neighbours differ as much as they can: a dither that reads as an even
-// fade, not as a pattern.
-fn dither(pixel: vec2<f32>) -> f32 {
-    return fract(52.9829189 * fract(dot(pixel, vec2<f32>(0.06711056, 0.00583715))));
+// How much of a stroke covers the point `uv` of its card, where the
+// strokes' texture gives `cover`. Further down its levels a stroke is
+// blurred into the paper about it, so its cover is raised there by as
+// much as it is spread, and a far card keeps the size of a near one.
+fn stroke_cover(cover: f32, uv: vec2<f32>) -> f32 {
+    let texels = uv * STROKES;
+    let spread = max(length(dpdx(texels)), length(dpdy(texels)));
+    let level = clamp(log2(max(spread, 1.0)), 0.0, 4.0);
+    return cover * (1.0 + 0.25 * level);
 }
 
-// How much of a leaf at `at` is left between the eye at `eye` and the
-// point it watches: a cone from the eye that opens to `opening` metres
-// at that point. Leaves at or past the point are left whole.
-fn left_open(leaves: Leaves, at: vec3<f32>, eye: vec3<f32>) -> f32 {
-    let opening = leaves.watch.w;
-    if opening <= 0.0 {
-        return 1.0;
-    }
-    let to = leaves.watch.xyz - eye;
-    let far = length(to);
-    let way = to / max(far, 1e-3);
-    let along = dot(at - eye, way);
-    let k = along / max(far, 1e-3);
-    let off = length(at - eye - way * along);
-    let wide = opening * max(k, 0.15);
-    let inside = smoothstep(wide, wide * 0.55, off)
-        * smoothstep(0.0, 0.1, k)
-        * smoothstep(1.0, 0.85, k);
-    return 1.0 - inside * leaves.open.x;
-}
-
-// Whether to cut away the pixel at `pixel` of a leaf as much `cover`ed.
-fn is_cut(cover: f32, pixel: vec2<f32>) -> bool {
-    return cover <= dither(pixel);
+// Whether to cut away a pixel of a leaf `cover`ed so much by its
+// stroke: sharp, at the stroke's edge.
+fn is_cut(cover: f32) -> bool {
+    return cover < 0.5;
 }
