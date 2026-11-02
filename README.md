@@ -187,8 +187,9 @@ opens its sibling window.
 run `git submodule update --init vendor/fynix` once. `cargo xtask`
 fetches it itself.
 
-`cargo xtask check` runs every check a commit needs, each as a step CI
-runs by name. `cargo xtask help` lists every task.
+`cargo xtask check` runs the checks a commit needs on your platform, each
+as a step CI runs by name; CI also runs them on Windows. `cargo xtask
+help` lists every task.
 
 - `rust-toolchain.toml` follows the latest stable, no older than
   `rust-version` in `Cargo.toml`. If cargo says your compiler is too old,
