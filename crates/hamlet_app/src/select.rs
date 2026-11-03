@@ -36,11 +36,11 @@ use bevy::picking::events::{
     PointerDrag, PointerDragEnd, PointerPress,
 };
 use bevy::picking::pointer::PointerButton;
-use bevy::time::{Real, Time};
 use bevy::text::{
     ComputedTextBlock, EditableText, LineBreak, TextBrush,
     TextLayout, TextSpan,
 };
+use bevy::time::{Real, Time};
 use bevy::ui::widget::Text;
 use bevy::ui::{
     BackgroundColor, CalculatedClip, ComputedNode,
@@ -118,7 +118,11 @@ struct Click {
 /// entity under the pointer, each with a count of its own, so only
 /// the first of them is read, and the run is counted here, where the
 /// place of the press is known.
-fn pressed(last: Option<Click>, at: Duration, on: Vec2) -> Option<Click> {
+fn pressed(
+    last: Option<Click>,
+    at: Duration,
+    on: Vec2,
+) -> Option<Click> {
     let count = match last {
         Some(last) if last.at == at && last.on == on => return None,
         Some(last)
@@ -577,11 +581,9 @@ fn press(
     {
         return;
     }
-    let Some(click) = pressed(
-        *last,
-        time.elapsed(),
-        press.pointer.position,
-    ) else {
+    let Some(click) =
+        pressed(*last, time.elapsed(), press.pointer.position)
+    else {
         return;
     };
     *last = Some(click);
@@ -970,9 +972,15 @@ mod tests {
         let third = pressed(Some(second), ms(1600), at).unwrap();
         assert_eq!(third.count, 3);
         // Too late, or too far, starts over.
-        assert_eq!(pressed(Some(third), ms(2200), at).unwrap().count, 1);
+        assert_eq!(
+            pressed(Some(third), ms(2200), at).unwrap().count,
+            1
+        );
         let away = Vec2::new(40.0, 10.0);
-        assert_eq!(pressed(Some(third), ms(1700), away).unwrap().count, 1);
+        assert_eq!(
+            pressed(Some(third), ms(1700), away).unwrap().count,
+            1
+        );
     }
 
     #[test]
