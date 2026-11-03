@@ -244,7 +244,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     // The flowers, where the grass flowers and its own are too small to
     // show.
-    let pixel = max(max(length(dpdx(world)), length(dpdy(world))), 1e-4);
+    // A pixel's narrower way across the ground: seen at a glancing angle a
+    // pixel runs long along the ground, which would swell the dots into
+    // blobs as wide.
+    let pixel = max(min(length(dpdx(world)), length(dpdy(world))), 1e-4);
     let past = 1.0 - heads_shown(away, blooms.grow.y);
     let share = blooms.grow.x * (1.0 - given.x) * likely * past;
     var flower = vec3<f32>(0.0);
