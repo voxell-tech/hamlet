@@ -552,23 +552,6 @@ fn garden(
             );
         }
         2 => {
-            // A bed of flowers along the front wall.
-            for i in 0..7 {
-                let col = pal.flowers[i % 4] * rng.value(0.1);
-                let p = Vec3::new(
-                    -x * 0.25 - side * (0.3 + i as f32 * 0.17),
-                    0.14,
-                    look.half.y + 0.28 + rng.sym(0.06),
-                );
-                meshing.blob(
-                    p,
-                    Vec3::new(0.08, 0.11, 0.08),
-                    3,
-                    0.0,
-                    0.0,
-                    move |d| if d.y < -0.2 { col * 0.5 } else { col },
-                );
-            }
             bush(meshing, rng, pal, Vec3::new(x, 0.0, z - 0.6), 0.34);
         }
         3 => {
