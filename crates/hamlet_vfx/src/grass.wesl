@@ -13,14 +13,14 @@ import bevy_pbr::render::{
     },
     view_transformations::position_world_to_clip,
 };
-import hamlet_vfx::grass_shape::{grass, blade};
+import hamlet_vfx::grass_shape::{Tuft, grass, blade};
 
 // Where a list's tufts begin in the lists. `First` in `grass/draw.rs`.
 struct First {
     tuft: u32,
 }
 
-@group(constants::MATERIAL_BIND_GROUP) @binding(110) var<storage, read> tufts: array<vec2<i32>>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(110) var<storage, read> tufts: array<Tuft>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(111) var<uniform> first: First;
 
 struct Vertex {
@@ -41,8 +41,8 @@ struct Drawn {
 
 @vertex
 fn vertex(in: Vertex) -> Drawn {
-    let cell = tufts[first.tuft + in.tuft];
-    let b = blade(in.position, in.uv.x, in.uv.y, in.colour.rgb, in.colour.a < 0.5, cell);
+    let tuft = tufts[first.tuft + in.tuft];
+    let b = blade(in.position, in.uv.x, in.uv.y, in.colour.rgb, in.colour.a < 0.5, tuft);
     var out: Drawn;
     out.world_position = vec4<f32>(b.position, 1.0);
     out.position = position_world_to_clip(b.position);

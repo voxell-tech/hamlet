@@ -181,33 +181,35 @@ fn tufts_kept(away: f32) -> f32 {
     return kept_at(away, grass.thin.x * grass.rings.w, grass.thin.y * grass.rings.w);
 }
 
-// The point `local` of the tuft of the square `cell` of the map, `off`
-// across its blade's middle line, or for a flower's head, as `flower` says
-// it is, out of the head's middle; `up` is how far up its blade the point
-// is, from 0 to 1, and `rank` its blade's rank. The tuft is one the pass
-// kept, so it grows.
-fn blade(
-    local: vec3<f32>,
-    up: f32,
-    rank: f32,
-    off: vec3<f32>,
-    flower: bool,
-    cell: vec2<i32>,
-) -> Blade {
-    let here = spot(cell);
-    let h = here.h;
-    let p = here.p;
-    let y = here.y;
-    let woods = here.woods;
-    let heath = here.heath;
-    let middle = vec3<f32>(p.x, y, p.y);
+// What a kept tuft is drawn with, the same for each of its points, so the
+// pass that lists it finds it once. `TUFT_BYTES` in `grass/draw.rs`.
+struct Tuft {
+    // xy: its middle on the map. z: the land's height there. w: how much
+    // of a flower's heads it shows.
+    middle: vec4<f32>,
+    // x: how far across and y how tall it is scaled. zw: the cosine and
+    // sine of its turn.
+    shape: vec4<f32>,
+    // x: how much of it is kept. y: the share of its blades kept. z: how
+    // far it spreads and w how much its blades widen, to cover for those
+    // not kept.
+    kept: vec4<f32>,
+    // x: how hard the wind blows on it. y: how brightly its flowers glow.
+    // z: how near the middle of a patch of flowers it is. w: how much of
+    // its height it keeps, shrunk far off.
+    sway: vec4<f32>,
+    // xyz: the ground's normal under it. w: 1 where it is a flower.
+    normal: vec4<f32>,
+    // The ground's grass colour where it stands, linear.
+    grass: vec4<f32>,
+    // Its patch's flowers' colour, linear.
+    bloom: vec4<f32>,
+}
 
-    var drawn: Blade;
-    drawn.normal = here.normal;
-    drawn.glow = vec3<f32>(0.0);
-
-    let blooms = blooms_at(p);
-    let flowering = in_flower(h, p, woods);
+// The tuft at `s`, which the pass keeps.
+fn tuft_at(s: Spot) -> Tuft {
+    let p = s.p;
+    let h = s.h;
     let away = away_from_eye(p);
 
     // Further off, fewer tufts and fewer of each one's blades are kept, the
@@ -216,48 +218,92 @@ fn blade(
     let tufts = tufts_kept(away);
     let blades = kept_at(away, grass.thin.z, grass.thin.w);
     let kept_tuft = fade(rank_of(h), tufts);
-    let kept_blade = fade(rank, blades);
-    let spread = inverseSqrt(clamp(tufts, 0.05, 1.0));
-    let widen = inverseSqrt(clamp(blades, 0.05, 1.0));
-
-    // Close by, a flower shows its heads. Further off, where a head would
-    // be smaller than a pixel and flicker, the heads shrink away and its
-    // tips take the flowers' colour instead.
-    let heads = heads_shown(away, grass.reach.w);
-    var point = vec3<f32>(local.x * spread, local.y * kept_blade, local.z * spread);
-    if flower {
-        point += off * select(0.0, heads, flowering) * kept_blade;
-    } else {
-        point += off * widen * kept_blade * kept_tuft;
-    }
 
     // Scaled and turned as its own; scaled more across than up.
     let across = grass.size.x * pow(grass.size.y / grass.size.x, roll(h, 6u));
     let r = roll(h, 7u);
-    let tall = (grass.size.z + (grass.size.w - grass.size.z) * r * r) * (1.0 - 0.4 * woods);
+    let tall = (grass.size.z + (grass.size.w - grass.size.z) * r * r) * (1.0 - 0.4 * s.woods);
     let yaw = roll(h, 8u) * TAU;
-    let c = cos(yaw);
-    let s = sin(yaw);
+
+    let shine = select(0.0, glow_at(p), grass.glow.x > 0.0);
+    let about = smooth_step(BLOOMS - 0.15, BLOOMS + 0.1, blooms_at(p));
+    let flowering = select(0.0, 1.0, in_flower(h, p, s.woods));
+    return Tuft(
+        vec4<f32>(p, s.y, heads_shown(away, grass.reach.w)),
+        vec4<f32>(across, tall, cos(yaw), sin(yaw)),
+        vec4<f32>(
+            kept_tuft,
+            blades,
+            inverseSqrt(clamp(tufts, 0.05, 1.0)),
+            inverseSqrt(clamp(blades, 0.05, 1.0)),
+        ),
+        vec4<f32>(
+            strength(wind, p, grass.sway.y),
+            shine,
+            about,
+            smooth_step(grass.reach.w, grass.reach.w * 0.5, away) * kept_tuft,
+        ),
+        vec4<f32>(s.normal, flowering),
+        vec4<f32>(grass_colour(p, s.y, s.woods, s.heath), 0.0),
+        vec4<f32>(bloom_colour(p), 0.0),
+    );
+}
+
+// The point `local` of `tuft`, `off` across its blade's middle line, or
+// for a flower's head, as `flower` says it is, out of the head's middle;
+// `up` is how far up its blade the point is, from 0 to 1, and `rank` its
+// blade's rank.
+fn blade(
+    local: vec3<f32>,
+    up: f32,
+    rank: f32,
+    off: vec3<f32>,
+    flower: bool,
+    tuft: Tuft,
+) -> Blade {
+    let p = tuft.middle.xy;
+    let y = tuft.middle.z;
+    let middle = vec3<f32>(p.x, y, p.y);
+    let flowering = tuft.normal.w > 0.5;
+    let kept_tuft = tuft.kept.x;
+    let kept_blade = fade(rank, tuft.kept.y);
+
+    var drawn: Blade;
+    drawn.normal = tuft.normal.xyz;
+    drawn.glow = vec3<f32>(0.0);
+
+    // Close by, a flower shows its heads. Further off, where a head would
+    // be smaller than a pixel and flicker, the heads shrink away and its
+    // tips take the flowers' colour instead.
+    let heads = tuft.middle.w;
+    var point = vec3<f32>(local.x * tuft.kept.z, local.y * kept_blade, local.z * tuft.kept.z);
+    if flower {
+        point += off * select(0.0, heads, flowering) * kept_blade;
+    } else {
+        point += off * tuft.kept.w * kept_blade * kept_tuft;
+    }
+
+    let across = tuft.shape.x;
+    let c = tuft.shape.z;
+    let s = tuft.shape.w;
     var at = middle + vec3<f32>(
         (point.x * c + point.z * s) * across,
-        point.y * tall,
+        point.y * tuft.shape.y,
         (point.z * c - point.x * s) * across,
     );
 
     // How high over the ground the point stands, kept over the ground
     // under it, and shrunk far off.
     let ground = page_at(0, at.xz).x;
-    let kept = smooth_step(grass.reach.w, grass.reach.w * 0.5, away) * kept_tuft;
-    let rise = (at.y - y) * kept;
+    let rise = (at.y - y) * tuft.sway.w;
 
     // The wind bends the tips the most: down the wind in a gust, and
     // back a little past upright as it eases, each tuft at its own
     // moment. A bent tip comes down a little, as its blade's length is
     // kept.
     let t = grass.sway.y;
-    let strong = strength(wind, p, t);
     let phase = dot(p, vec2<f32>(0.37, 0.23)) + rank * 1.7;
-    let gust = 1.5 * strong - 0.55 + 0.25 * sin(t * 2.1 + phase);
+    let gust = 1.5 * tuft.sway.x - 0.55 + 0.25 * sin(t * 2.1 + phase);
     let flow = blowing(wind, t);
     let push = grass.sway.x * gust * up * up * rise;
     let sink = 0.5 * push * push / max(rise, 0.05);
@@ -269,8 +315,8 @@ fn blade(
     // flowers is one colour.
     let warm = fract(rank * 7.31) - 0.5;
     let tone = (0.88 + 0.24 * fract(rank * 13.7)) * vec3<f32>(1.0 + 0.12 * warm, 1.0, 1.0 - 0.25 * warm);
-    let bloom = bloom_colour(p);
-    let shine = select(0.0, glow_at(p), grass.glow.x > 0.0);
+    let bloom = tuft.bloom.rgb;
+    let shine = tuft.sway.y;
     var colour: vec3<f32>;
     if flower {
         // The head's middle, which alone lies at no offset, is its heart.
@@ -278,7 +324,7 @@ fn blade(
         colour = mix(bloom, soil.flower_heart.rgb, heart);
         drawn.glow = colour * shine;
     } else {
-        colour = grass_colour(p, y, woods, heath) * tone * mix(grass.shade.x, grass.shade.y, up);
+        colour = tuft.grass.rgb * tone * mix(grass.shade.x, grass.shade.y, up);
         colour = mix(colour, soil.grass_sun.rgb * grass.shade.y, grass.shade.z * up * up);
         colour *= 1.0 + 0.15 * max(gust, 0.0) * up;
         if flowering {
@@ -288,8 +334,7 @@ fn blade(
         }
         // The grass in and about a patch of flowers glows faintly in the
         // flowers' colour, the more toward their middle and up the blade.
-        let about = smooth_step(BLOOMS - 0.15, BLOOMS + 0.1, blooms);
-        drawn.glow += bloom * shine * grass.glow.w * about * (0.3 + 0.7 * up);
+        drawn.glow += bloom * shine * grass.glow.w * tuft.sway.z * (0.3 + 0.7 * up);
     }
 
     drawn.position = at;

@@ -72,6 +72,10 @@ const LISTS: usize = SHAPES * DETAILS;
 /// `CAPACITY` in `grass_place.wesl`.
 const CAPACITY: u32 = 8192;
 
+/// Bytes of what a listed tuft is drawn with: seven vectors of four
+/// floats. `Tuft` in `grass_shape.wesl`.
+const TUFT_BYTES: u64 = 7 * 16;
+
 /// Words in a list's draw's arguments: its tuft's indices, the tufts
 /// in it, its tuft's first index and first point, and its first tuft.
 const ARGUMENTS: usize = 5;
@@ -273,8 +277,8 @@ impl SpecializedMeshPipeline for GrassPipeline {
 /// are, written each frame.
 #[derive(Resource)]
 struct Lists {
-    /// Each tuft kept, as its place on the map, in tufts, list by
-    /// list, [`CAPACITY`] to a list.
+    /// Each tuft kept, as what it is drawn with, list by list,
+    /// [`CAPACITY`] to a list.
     tufts: Buffer,
     /// Each list's draw's arguments.
     arguments: Buffer,
@@ -396,7 +400,7 @@ fn build_lists(
     });
     let tufts = device.create_buffer(&BufferDescriptor {
         label: Some("grass lists"),
-        size: (LISTS as u64) * u64::from(CAPACITY) * 8,
+        size: (LISTS as u64) * u64::from(CAPACITY) * TUFT_BYTES,
         usage: BufferUsages::STORAGE,
         mapped_at_creation: false,
     });

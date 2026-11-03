@@ -1,12 +1,13 @@
 // The pass that lists the tufts to draw. Each invocation checks one square
 // of the map about the eye: if a tuft grows there, is kept that far off and
 // is in sight, it is listed under its shape and the detail its distance
-// calls for, and its list's draw is counted one more. A second step keeps
-// each count within what its list holds.
+// calls for, with what its points are drawn with, and its list's draw is
+// counted one more. A second step keeps each count within what its list
+// holds.
 
 import hamlet_vfx::grass_shape::{
-    DETAILS, SHAPES, away_from_eye, fade, grass, grows, rank_of, shape_of,
-    spot, tuft_hash, tuft_middle, tufts_kept,
+    DETAILS, SHAPES, Tuft, away_from_eye, fade, grass, grows, rank_of,
+    shape_of, spot, tuft_at, tuft_hash, tuft_middle, tufts_kept,
 };
 import hamlet_vfx::soil::{GRASS_HIGHEST, GRASS_OVER_WATER, soil};
 
@@ -36,7 +37,7 @@ struct Place {
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(120) var<uniform> place_at: Place;
-@group(constants::MATERIAL_BIND_GROUP) @binding(121) var<storage, read_write> tufts: array<vec2<i32>>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(121) var<storage, read_write> tufts: array<Tuft>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(122) var<storage, read_write> draws: array<atomic<u32>>;
 
 // Whether a tuft whose middle is `at`, reaching `reach` from it, is in
@@ -95,7 +96,7 @@ fn place(@builtin(global_invocation_id) id: vec3<u32>) {
     let list = detail * SHAPES + shape_of(s);
     let at = atomicAdd(&draws[list * ARGUMENTS + 1u], 1u);
     if at < CAPACITY {
-        tufts[list * CAPACITY + at] = cell;
+        tufts[list * CAPACITY + at] = tuft_at(s);
     }
 }
 
