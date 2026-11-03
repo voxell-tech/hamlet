@@ -149,6 +149,14 @@ fn tread(
     let side = MASK as f32 * MASK_TEXEL;
     let step = side / 8.0;
     let cell = (centre / step).round().as_ivec2();
+    // The marks are gathered only when the eye has moved far enough
+    // or what treads the grass may have changed.
+    if trodden.0.is_some_and(|(at, _)| at == cell)
+        && !land.is_changed()
+        && !drawn.is_changed()
+    {
+        return;
+    }
     let marks = marks(&land, &drawn);
     let sum = marks.iter().fold(0u64, |sum, (a, b, half)| {
         [a.x, a.y, b.x, b.y, *half].iter().fold(sum, |sum, v| {
