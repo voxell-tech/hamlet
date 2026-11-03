@@ -232,7 +232,7 @@ impl GrassUniform {
             sway: Vec4::new(set.bend, now, 0.0, 0.0),
             glow: Vec4::new(
                 set.glow * night,
-                1.0 / set.pulse.0.max(1e-3),
+                set.pulse.0.max(1e-3),
                 set.pulse.1,
                 set.halo,
             ),

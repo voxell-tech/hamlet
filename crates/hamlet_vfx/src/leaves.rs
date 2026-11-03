@@ -6,6 +6,8 @@
 //! vertices, tinted for each tree by its
 //! [`MeshTag`](bevy::mesh::MeshTag).
 
+use std::f32::consts::TAU;
+
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
@@ -370,13 +372,33 @@ impl Stroke {
                 disc * notch
             }
         };
-        let tone = 0.8 + 0.14 * bristles + 0.08 * grain;
+        let vein = match self {
+            Stroke::Pad => pad_veins(p, ragged),
+            _ => 0.0,
+        };
+        // Veins are paler than the leaf about them.
+        let tone = 0.8 + 0.14 * bristles + 0.08 * grain + 0.12 * vein;
         (cover, tone)
     }
 }
 
 fn body_of(r: f32) -> f32 {
     smooth(1.04, 0.92, r)
+}
+
+/// How much of a vein of a lily pad is at the point `p` of its
+/// cell: one of those that spread from its middle, thinning out
+/// short of its edge, `ragged` wobbling them.
+fn pad_veins(p: Vec2, ragged: f32) -> f32 {
+    const VEINS: f32 = 13.0;
+    let d = p - Vec2::splat(0.5);
+    let r = d.length();
+    let a = d.y.atan2(d.x) / TAU * VEINS;
+    let off =
+        ((a + 0.5).rem_euclid(1.0) - 0.5).abs() * TAU / VEINS * r;
+    smooth(0.011, 0.004, off + 0.003 * ragged)
+        * smooth(0.03, 0.09, r)
+        * smooth(0.42, 0.32, r)
 }
 
 /// Pixels across the strokes' texture. `STROKES` in

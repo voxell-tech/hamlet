@@ -23,6 +23,7 @@ use self::ground::GroundSettings;
 use self::inlay::InlayPlugin;
 use self::leaves::LeafSettings;
 use self::magic::MagicSettings;
+use self::pads::PadSettings;
 use self::sparks::SparkSettings;
 use self::water::WaterSettings;
 use self::wind::WindSettings;
@@ -94,6 +95,7 @@ pub(crate) struct VfxTuning {
     pub water: WaterSettings,
     pub leaves: LeafSettings,
     pub grass: GrassSettings,
+    pub pads: PadSettings,
 }
 
 impl Tuning for VfxTuning {
@@ -108,6 +110,7 @@ impl Tuning for VfxTuning {
         follow(world, &was.water, &self.water);
         follow(world, &was.leaves, &self.leaves);
         follow(world, &was.grass, &self.grass);
+        follow(world, &was.pads, &self.pads);
     }
 }
 
@@ -120,4 +123,5 @@ designed!(VfxTuning {
     WaterSettings => water,
     LeafSettings => leaves,
     GrassSettings => grass,
+    PadSettings => pads,
 });

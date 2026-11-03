@@ -283,6 +283,7 @@ pub(crate) fn pad_mesh(pal: &Palette, look: usize) -> Mesh {
         _ => None,
     };
     if let Some(colour) = flower {
+        let from = meshing.vertices();
         for k in 0..3 {
             let a = k as f32 / 3.0 * TAU;
             let out = Vec3::new(a.cos(), 0.0, a.sin());
@@ -295,6 +296,8 @@ pub(crate) fn pad_mesh(pal: &Palette, look: usize) -> Mesh {
                 colour,
             );
         }
+        // The pads' material lights what is marked 0 as a flower.
+        meshing.mark(from, 0.0);
     }
     meshing.build()
 }

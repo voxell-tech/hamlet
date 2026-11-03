@@ -1,6 +1,7 @@
 //! Lily pads: leaves lying on the water, painted with the leaves'
 //! strokes and cut to them, each riding the water's waves as one, as
-//! they move the water's surface at its middle.
+//! they move the water's surface at its middle. At night their
+//! flowers glow.
 
 use bevy::asset::embedded_asset;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
@@ -8,6 +9,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
 use bevy::shader::{ShaderRef, load_shader_library};
 
+use crate::grass::GrassSettings;
 use crate::ground::{PagesUniform, blank_pages};
 use crate::water::{WaterExt, WaterUniform};
 
@@ -16,12 +18,35 @@ pub type PadMaterial = ExtendedMaterial<StandardMaterial, PadExt>;
 pub(crate) fn plugin(app: &mut App) {
     load_shader_library!(app, "pads_ride.wesl");
     embedded_asset!(app, "pads.wesl");
-    app.add_plugins(MaterialPlugin::<PadMaterial>::default());
+    app.add_plugins(MaterialPlugin::<PadMaterial>::default())
+        .init_resource::<PadSettings>();
+}
+
+/// How the lily pads glow at night.
+#[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PadSettings {
+    /// How brightly a pad's flower glows at the height of the night,
+    /// swelling and fading as the grass's flowers do.
+    pub glow: f32,
+}
+
+impl PadSettings {
+    /// [`PadExt::glow`] for `night` of the way into the night, the
+    /// glow swelling as `grass` has the grass's flowers swell.
+    pub fn glow(&self, grass: &GrassSettings, night: f32) -> Vec4 {
+        Vec4::new(
+            self.glow * night,
+            grass.pulse.0.max(1e-3),
+            grass.pulse.1,
+            0.0,
+        )
+    }
 }
 
 /// What a pad rides and is painted with: the water's waves, as
 /// [`WaterExt`] has them, which the world keeps the same as the
-/// water's, and the leaves' strokes.
+/// water's, and the leaves' strokes; and how it glows.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 pub struct PadExt {
     #[uniform(100)]
@@ -36,6 +61,11 @@ pub struct PadExt {
     pub pages: Handle<Image>,
     #[uniform(116)]
     pub pages_at: PagesUniform,
+    /// How brightly the flowers glow, as far into the night as it
+    /// is, the breadth in metres of the patches their glow swells
+    /// in, and how fast those drift.
+    #[uniform(117)]
+    pub glow: Vec4,
 }
 
 impl PadExt {
@@ -93,8 +123,7 @@ pub fn material(
             reflectance: 0.3,
             double_sided: true,
             cull_mode: None,
-            // The shader cuts each pad to its stroke; a mask is what
-            // has the depth run it too.
+            // The shader cuts each pad to its stroke.
             alpha_mode: AlphaMode::Mask(0.0),
             ..default()
         },
@@ -104,6 +133,7 @@ pub fn material(
             strokes,
             pages: images.add(blank_pages()),
             pages_at: PagesUniform::default(),
+            glow: Vec4::ZERO,
         },
     }
 }

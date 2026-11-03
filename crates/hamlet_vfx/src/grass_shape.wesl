@@ -9,7 +9,7 @@
 import hamlet_vfx::ground_shape::{land_at, page_at, pages_at};
 // `smooth_step`, not WGSL's `smoothstep`, wherever a share falls: WGSL
 // leaves a falling `smoothstep` undefined, and some GPUs give it wrong.
-import hamlet_vfx::noise::{fbm, key, perlin, scramble, smooth_step};
+import hamlet_vfx::noise::{fbm, key, scramble, smooth_step, swell};
 import hamlet_vfx::soil::{soil, grass_colour};
 import hamlet_vfx::wind::{Wind, strength};
 
@@ -24,8 +24,8 @@ struct Grass {
     look: vec4<f32>,
     // x: `bend`. y: the time in seconds.
     sway: vec4<f32>,
-    // x: `glow`, as far into the night as it is. y: one over the breadth
-    // of its patches. z: how fast they drift. w: `halo`.
+    // x: `glow`, as far into the night as it is. y: the breadth of its
+    // patches. z: how fast they drift. w: `halo`.
     glow: vec4<f32>,
     // The share of tufts kept where the middle detail begins, and where
     // the farthest does; then the same for each tuft's blades.
@@ -81,15 +81,9 @@ fn roll(h: u32, salt: u32) -> f32 {
 }
 
 // How brightly a flower at `p` on the map glows: as far into the night as
-// it is, swelling and fading in patches that drift and change, on gradient
-// noise of their own seeds, two layers drifting different ways so the
-// patches change shape and do not merely slide.
+// it is, swelling and fading in patches that drift and change.
 fn glow_at(p: vec2<f32>) -> f32 {
-    let t = grass.sway.y * grass.glow.z;
-    let q = p * grass.glow.y;
-    let n = perlin(q + vec2<f32>(0.6, 0.8) * t * grass.glow.y, 41u)
-        + 0.5 * perlin(q * 2.1 - vec2<f32>(0.9, -0.4) * t * grass.glow.y * 1.7, 42u);
-    return grass.glow.x * mix(0.25, 1.0, smoothstep(-0.45, 0.6, n / 1.5));
+    return grass.glow.x * swell(p, grass.glow.y, grass.sway.y * grass.glow.z);
 }
 
 // How trodden the ground is at `p` on the map, from 0 to 1. None outside

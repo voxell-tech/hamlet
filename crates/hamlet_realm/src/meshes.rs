@@ -173,6 +173,15 @@ impl Meshing {
         }
     }
 
+    /// Gives the vertices from `from` on `alpha` as their colours'
+    /// alpha, for a material that reads it as a mark of its own.
+    /// Every vertex not marked has 1.
+    pub fn mark(&mut self, from: usize, alpha: f32) {
+        for colour in &mut self.colors[from..] {
+            colour[3] = alpha;
+        }
+    }
+
     /// True when any vertex was given a UV.
     fn has_uvs(&self) -> bool {
         self.uvs.iter().any(|uv| *uv != [0.0; 2])

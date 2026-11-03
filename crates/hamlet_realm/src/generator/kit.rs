@@ -5,10 +5,11 @@ use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 use bevy::render::settings::WgpuFeatures;
+use hamlet_vfx::grass::GrassSettings;
 use hamlet_vfx::ground::{self, GroundMaterial, GroundSettings};
 use hamlet_vfx::inlay::{InlayExt, InlayMaterial, InlayUniform};
 use hamlet_vfx::leaves::{LeafMaterial, LeafView, Leaves};
-use hamlet_vfx::pads::{self, PadMaterial};
+use hamlet_vfx::pads::{self, PadMaterial, PadSettings};
 use hamlet_vfx::patch;
 use hamlet_vfx::water::{
     self, WaterMaterial, WaterSettings, WaterUniform,
@@ -172,10 +173,14 @@ pub(super) fn setup(
     });
 }
 
-/// Gives the lily pads the water's waves, so they ride them.
+/// Gives the lily pads the water's waves, so they ride them, and
+/// tells them how far into the night it is, so they glow.
 pub(super) fn float_pads(
     kit: Res<Kit>,
     waters: Res<Assets<WaterMaterial>>,
+    set: Res<PadSettings>,
+    grass: Res<GrassSettings>,
+    view: Res<LeafView>,
     mut pads: ResMut<Assets<PadMaterial>>,
 ) {
     let Some(water) = waters.get(&kit.water) else {
@@ -185,9 +190,12 @@ pub(super) fn float_pads(
         return;
     };
     let mut next = pad.extension.clone();
-    if next.follow(&water.extension)
+    let rode = next.follow(&water.extension);
+    let glow = set.glow(&grass, view.night);
+    if (rode || next.glow != glow)
         && let Some(mut pad) = pads.get_mut(&kit.pad)
     {
+        next.glow = glow;
         pad.extension = next;
     }
 }
