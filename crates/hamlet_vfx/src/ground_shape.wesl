@@ -81,6 +81,35 @@ fn land_at(level: i32, p: vec2<f32>) -> Land {
     return Land(page_at(level, p), vec3<f32>(left - right, 2.0 * texel, ahead - behind));
 }
 
+// The land at `p` as the page of size `level` has it, or as the first page
+// up that holds it, should `p` lie off that page.
+fn held_land(level: i32, p: vec2<f32>) -> Land {
+    let side = vec2<f32>(textureDimensions(pages));
+    for (var l = level; l < LEVELS - 1; l++) {
+        let g = (p - pages_at.at[l].xy) / pages_at.at[l].z;
+        if all(g > vec2<f32>(2.0)) && all(g < side - 3.0) {
+            return land_at(l, p);
+        }
+    }
+    return land_at(LEVELS - 1, p);
+}
+
+// The land at `p` for a pixel `pixel` metres across, whatever patch it is
+// drawn on: from the page whose texels are as wide as the pixel, blended
+// into the next size up as the pixel nears its texels, so that no seam
+// shows where one gives way to the other.
+fn seen_land(p: vec2<f32>, pixel: f32) -> Land {
+    let level = clamp(log2(pixel / pages_at.at[0].z), 0.0, f32(LEVELS - 2));
+    let low = i32(level);
+    let fine = held_land(low, p);
+    let coarse = held_land(low + 1, p);
+    let t = fract(level);
+    return Land(
+        mix(fine.page, coarse.page, t),
+        mix(normalize(fine.normal), normalize(coarse.normal), t),
+    );
+}
+
 // The point `local` of the patch moved by `world_from_local`, from 0 to 1
 // over its side, as the ground draws it. As a point slides onto the grid
 // of the patch twice its size, it takes that size's page too, so where the

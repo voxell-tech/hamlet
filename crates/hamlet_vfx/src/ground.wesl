@@ -4,9 +4,9 @@
 // between them and lit across as the rounded ridge it is. Within the
 // grass's reach it is a little darker, as the roots of the tufts on it
 // are. Its points are laid on the patches of `patch.wesl` from the relief
-// pages, in `ground_shape.wesl`, which hands on in the vertex colour what
-// the shader cannot know alone: the woods in red, the heath in green and
-// in blue how far its patch is sunk. The blades are one texture laid over
+// pages, in `ground_shape.wesl`; each pixel reads the land under it, its
+// height, slope, woods and heath, from those pages itself, so the patches'
+// triangles, large far off, never show. The blades are one texture laid over
 // the world's x and z in a grid of hexagons. Each corner of the grid takes
 // the texture moved and turned at random, and every point blends the three
 // corners about it, the higher blade winning, so no repeat shows. The
@@ -27,7 +27,7 @@ import bevy_pbr::render::{
     forward_io::{Vertex, VertexOutput, FragmentOutput, decompress_vertex},
     view_transformations::position_world_to_clip,
 };
-import hamlet_vfx::ground_shape::ground_point;
+import hamlet_vfx::ground_shape::{ground_point, seen_land};
 import hamlet_vfx::noise::{key, scramble, smooth_step, swell};
 import hamlet_vfx::soil::{
     BLOOMS, bloom_colour, blooms_at, grass_likely, ground_colour, heads_shown, soil,
@@ -178,18 +178,19 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var pbr_input = pbr_input_from_standard_material(in, is_front);
 
     let world = in.world_position.xz;
-@if(VERTEX_COLORS)
-    let given = in.color.xyz;
-@else
-    let given = vec3<f32>(0.0);
+    // The land under the pixel, its height, slope, woods and heath, read
+    // from the pages here rather than from the patch's points, whose
+    // triangles grow large far off and would show through.
+    let span = dpdx(world);
+    let along = dpdy(world);
+    let land = seen_land(world, max(length(span), length(along)));
+    let height = land.page.x;
+    let woods = land.page.y;
+    let normal = normalize(land.normal);
+    pbr_input.N = normal;
+    pbr_input.world_normal = normal;
     // Faced as the ground itself, before the bumps tilt it.
-    let colour = ground_colour(
-        world,
-        in.world_position.y + given.z,
-        normalize(in.world_normal),
-        given.x,
-        given.y,
-    );
+    let colour = ground_colour(world, height, normal, woods, land.page.z);
     let uv = world / ground.repeat;
     let dx = dpdx(uv);
     let dy = dpdy(uv);
@@ -219,8 +220,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // Only where grass grows: rock, the shore and the bed under the water
     // are smooth, which the clear water would otherwise show as a pattern
     // repeating over the sea floor.
-    let height = in.world_position.y + given.z;
-    let up = normalize(in.world_normal).y;
+    let up = normal.y;
     let grassy = grass_likely(height, up, 0.0);
     let rough = mix(ground.calm, 1.0, noise(world / ground.patches)) * grassy;
     let slope = bump.xy * ground.strength * rough * mix(ground.bare, 1.0, blade);
@@ -238,7 +238,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // Darker within the grass's reach, as the roots of its tufts are,
     // fading out as the tufts shrink away.
     let away = distance(view.world_position, in.world_position.xyz);
-    let likely = grass_likely(height, up, given.x);
+    let likely = grass_likely(height, up, woods);
     let under = smooth_step(blooms.grow.y, blooms.grow.y * 0.5, away) * likely;
     painted_colour *= mix(1.0, UNDER_GRASS, under);
 
@@ -247,9 +247,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // A pixel's narrower way across the ground: seen at a glancing angle a
     // pixel runs long along the ground, which would swell the dots into
     // blobs as wide.
-    let pixel = max(min(length(dpdx(world)), length(dpdy(world))), 1e-4);
+    let pixel = max(min(length(span), length(along)), 1e-4);
     let past = 1.0 - heads_shown(away, blooms.grow.y);
-    let share = blooms.grow.x * (1.0 - given.x) * likely * past;
+    let share = blooms.grow.x * (1.0 - woods) * likely * past;
     var flower = vec3<f32>(0.0);
     var cover = 0.0;
     if share > 0.0 {
