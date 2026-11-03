@@ -16,7 +16,6 @@ pub type PadMaterial = ExtendedMaterial<StandardMaterial, PadExt>;
 pub(crate) fn plugin(app: &mut App) {
     load_shader_library!(app, "pads_ride.wesl");
     embedded_asset!(app, "pads.wesl");
-    embedded_asset!(app, "pads_prepass.wesl");
     app.add_plugins(MaterialPlugin::<PadMaterial>::default());
 }
 
@@ -66,12 +65,11 @@ impl MaterialExtension for PadExt {
         "embedded://hamlet_vfx/pads.wesl".into()
     }
 
-    fn prepass_vertex_shader() -> ShaderRef {
-        "embedded://hamlet_vfx/pads_prepass.wesl".into()
-    }
-
-    fn prepass_fragment_shader() -> ShaderRef {
-        "embedded://hamlet_vfx/pads_prepass.wesl".into()
+    // The water reads the depth the prepass leaves to tell how deep
+    // it is, so a pad just under it would read as a shore and turn
+    // the water over it white.
+    fn enable_prepass() -> bool {
+        false
     }
 
     // A pad rides the waves only as far as they are from the eye,
