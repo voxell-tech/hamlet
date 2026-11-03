@@ -10,17 +10,26 @@
 // blends the three corners about it, the higher bump winning, so no repeat
 // shows. The hexagons follow stochastic hex tiling; the slopes are turned
 // with the texture, so the light stays true.
+//
+// Where the grass's own flowers are too small to show, the ground is
+// painted with them instead, a dot to a flower, in the same patches and
+// colours, so they are seen to the horizon. Further off the dots grow, so
+// none is smaller than a pixel, and fewer, so the ground holds as much of
+// their colour.
 
 import bevy_pbr::render::{
     mesh_functions,
+    mesh_view_bindings::view,
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
     forward_io::{Vertex, VertexOutput, FragmentOutput, decompress_vertex},
     view_transformations::position_world_to_clip,
 };
 import hamlet_vfx::ground_shape::ground_point;
-import hamlet_vfx::noise::smooth_step;
-import hamlet_vfx::soil::{soil, ground_colour};
+import hamlet_vfx::noise::{key, scramble, smooth_step, swell};
+import hamlet_vfx::soil::{
+    BLOOMS, bloom_colour, blooms_at, grass_likely, ground_colour, heads_shown, soil,
+};
 
 // The fields are explained on `GroundSettings` in `ground.rs`.
 struct Ground {
@@ -35,9 +44,26 @@ struct Ground {
     bare: f32,
 }
 
+// `BloomsUniform` in `ground.rs`.
+struct Blooms {
+    // x: the share of tufts in flower where flowers grow. y: how far from
+    // the eye the grass reaches. z: how far apart its tufts are.
+    grow: vec4<f32>,
+    // x: how brightly they glow, as far into the night as it is. y: the
+    // breadth of the patches their glow swells in. z: how fast those drift.
+    // w: the time.
+    glow: vec4<f32>,
+}
+
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> ground: Ground;
 @group(constants::MATERIAL_BIND_GROUP) @binding(101) var bumps: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(102) var bumps_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(106) var<uniform> blooms: Blooms;
+
+// How far a painted flower reaches from its middle at its finest, against
+// how far apart the tufts are, and the least it reaches, in pixels.
+const FLOWER: f32 = 0.17;
+const FLOWER_PIXELS: f32 = 1.2;
 
 fn hash2(p: vec2<f32>) -> vec2<f32> {
     let q = vec2<f32>(dot(p, vec2<f32>(127.1, 311.7)), dot(p, vec2<f32>(269.5, 183.3)));
@@ -68,6 +94,39 @@ fn copy_at(uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, corner: vec2<f32>) -> ve
     let at = turn * uv + r * 17.0;
     let t = textureSampleGrad(bumps, bumps_sampler, at, turn * dx, turn * dy);
     return vec4<f32>(transpose(turn) * (t.xy * 2.0 - 1.0), t.z, t.w);
+}
+
+// How much of a painted flower covers `p` on the map, a pixel `pixel`
+// metres across, where `share` of the squares the dots are laid in hold
+// one: the squares `2^level` times as wide as the tufts lie apart, each
+// dot as many times as wide, so every level holds as much of their colour.
+fn painted_at(p: vec2<f32>, level: u32, share: f32, pixel: f32) -> f32 {
+    let side = blooms.grow.z * f32(1u << level);
+    let square = floor(p / side);
+    let h = key(soil.seed + 93u + level, i32(square.x), i32(square.y));
+    if f32(h >> 8u) / 16777216.0 >= share {
+        return 0.0;
+    }
+    let s = scramble(h);
+    let off = vec2<f32>(f32(s & 0xffffu), f32(s >> 16u)) / 65535.0;
+    let middle = (square + 0.25 + 0.5 * off) * side;
+    let reach = side * FLOWER;
+    return 1.0 - smoothstep(reach - pixel * 0.5, reach + pixel * 0.5, distance(p, middle));
+}
+
+// How much of the flowers painted on the ground covers `p` on the map,
+// where `share` of the places a tuft might grow hold one in flower, a pixel
+// `pixel` metres across: from the level whose dots are at least
+// `FLOWER_PIXELS` across, blended into the next as they near it.
+fn painted(p: vec2<f32>, share: f32, pixel: f32) -> f32 {
+    let finest = blooms.grow.z * FLOWER;
+    let level = clamp(log2(FLOWER_PIXELS * pixel / finest), 0.0, 16.0);
+    let low = u32(level);
+    return mix(
+        painted_at(p, low, share, pixel),
+        painted_at(p, low + 1u, share, pixel),
+        fract(level),
+    );
 }
 
 // A point of a patch of the ground, as `ground_shape.wesl` raises it.
@@ -150,10 +209,34 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     let dip = mix(1.0 - ground.cavity * rough, 1.0, bump.z);
     let tone = mix(vec3<f32>(1.0), mix(ground.dark.rgb, ground.light.rgb, stroke), dry);
-    pbr_input.material.base_color = vec4<f32>(colour * tone * dip, 1.0);
+    var painted_colour = colour * tone * dip;
+
+    // The flowers, where the grass flowers and its own are too small to
+    // show.
+    let pixel = max(max(length(dpdx(world)), length(dpdy(world))), 1e-4);
+    let away = distance(view.world_position, in.world_position.xyz);
+    let past = 1.0 - heads_shown(away, blooms.grow.y);
+    let likely = grass_likely(in.world_position.y + given.z, normalize(in.world_normal).y, given.x);
+    let share = blooms.grow.x * (1.0 - given.x) * likely * past;
+    var flower = vec3<f32>(0.0);
+    var cover = 0.0;
+    if share > 0.0 {
+        let field = smooth_step(BLOOMS - 0.02, BLOOMS + 0.02, blooms_at(world));
+        if field > 0.0 {
+            cover = painted(world, share * field, pixel);
+            flower = bloom_colour(world);
+            painted_colour = mix(painted_colour, flower, cover);
+        }
+    }
+    pbr_input.material.base_color = vec4<f32>(painted_colour, 1.0);
 
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
+    // At night they glow as the grass's flowers do.
+    if blooms.glow.x > 0.0 && cover > 0.0 {
+        let shine = blooms.glow.x * swell(world, blooms.glow.y, blooms.glow.w * blooms.glow.z);
+        out.color = vec4<f32>(out.color.rgb + flower * shine * cover, out.color.a);
+    }
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;
 }

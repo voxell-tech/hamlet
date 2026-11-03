@@ -54,21 +54,30 @@ fn begin(
     }
     let mut grass = Grass::new(&mut images, &set, land.soil());
     grass.mask = images.add(grass::mask(MASK));
-    grass.grass.flowers = land.pal.flowers.map(|c| c.extend(1.0));
     commands.insert_resource(grass);
     commands.init_resource::<Trodden>();
 }
 
 /// Gives the grass the land's pages and colours as the ground has
-/// them.
+/// them, and the ground the grass's flowers to paint where the
+/// grass's own are too small to show.
 fn follow(
     grass: Option<ResMut<Grass>>,
     kit: Option<Res<Kit>>,
-    grounds: Res<Assets<GroundMaterial>>,
+    mut grounds: ResMut<Assets<GroundMaterial>>,
 ) {
     let (Some(mut grass), Some(kit)) = (grass, kit) else {
         return;
     };
+    let Some(ground) = grounds.get(&kit.ground) else {
+        return;
+    };
+    let blooms = grass.grass.blooms();
+    if ground.extension.blooms != blooms
+        && let Some(mut ground) = grounds.get_mut(&kit.ground)
+    {
+        ground.extension.blooms = blooms;
+    }
     let Some(ground) = grounds.get(&kit.ground) else {
         return;
     };

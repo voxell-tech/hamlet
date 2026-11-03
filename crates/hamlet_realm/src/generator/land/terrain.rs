@@ -429,6 +429,7 @@ impl LandData {
             dirt: c(pal.dirt),
             dirt_shade: c(pal.dirt_shade),
             mud: c(pal.mud),
+            flowers: pal.flowers.map(c),
             water: self.set.land.water_y,
             seed: self.seed,
         }

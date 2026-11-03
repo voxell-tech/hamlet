@@ -1,6 +1,8 @@
 // The colour of the ground, point by point, from where it lies, its height
 // and its slope: shared by the ground and the grass on it, so the grass
-// grows from the ground's own colour.
+// grows from the ground's own colour. So are where the grass grows, and
+// where it flowers and in which colour, so the ground paints the flowers
+// past where the grass's own are too small to show.
 
 import hamlet_vfx::noise::{fbm, perlin, smooth_step};
 
@@ -18,11 +20,44 @@ struct Soil {
     dirt: vec4<f32>,
     dirt_shade: vec4<f32>,
     mud: vec4<f32>,
+    flowers: array<vec4<f32>, 5>,
     water: f32,
     seed: u32,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(103) var<uniform> soil: Soil;
+
+// Where the field of flowers is over this, tufts flower.
+const BLOOMS: f32 = 0.2;
+
+// The field the flowers grow in, in about -1..1.
+fn blooms_at(p: vec2<f32>) -> f32 {
+    return fbm(p * 0.08 + vec2<f32>(31.0, -17.0), 2u, soil.seed + 91u);
+}
+
+// The colour of the flowers at `p` on the map: one to a patch, from broad
+// noise much larger than a patch.
+fn bloom_colour(p: vec2<f32>) -> vec3<f32> {
+    let n = fbm(p * 0.02 + vec2<f32>(7.0, 3.0), 2u, soil.seed + 92u);
+    return soil.flowers[u32(clamp(n * 1.6 + 0.5, 0.0, 0.999) * 5.0)].rgb;
+}
+
+// How likely grass is to grow on ground `y` high, its normal rising `up`,
+// with `woods` the share of the woods there: none in or by the water, on
+// steep or high ground, and less in the woods.
+fn grass_likely(y: f32, up: f32, woods: f32) -> f32 {
+    return smooth_step(soil.water + 0.5, soil.water + 1.0, y)
+        * smooth_step(0.14, 0.07, 1.0 - up)
+        * smooth_step(26.0, 18.0, y)
+        * (1.0 - 0.7 * woods);
+}
+
+// How much of a flower's head the grass shows `away` from the eye when it
+// reaches `reach`: all of it close by; none further off, where a head would
+// be smaller than a pixel and flicker.
+fn heads_shown(away: f32, reach: f32) -> f32 {
+    return smooth_step(reach * 0.3, reach * 0.15, away);
+}
 
 // The colour of the grass at `p` on the map, `y` high, with `woods` and
 // `heath` the shares of each there.

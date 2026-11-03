@@ -6,11 +6,13 @@
 // as the finest page has it, shrunk toward the edge of the eye's reach, and
 // bent by the wind, which rolls over the field in the wind's own bands.
 
-import hamlet_vfx::ground_shape::{land_at, page_at, pages_at};
+import hamlet_vfx::ground_shape::{land_at, page_at};
 // `smooth_step`, not WGSL's `smoothstep`, wherever a share falls: WGSL
 // leaves a falling `smoothstep` undefined, and some GPUs give it wrong.
-import hamlet_vfx::noise::{fbm, key, scramble, smooth_step, swell};
-import hamlet_vfx::soil::{soil, grass_colour};
+import hamlet_vfx::noise::{key, scramble, smooth_step, swell};
+import hamlet_vfx::soil::{
+    BLOOMS, bloom_colour, blooms_at, grass_colour, grass_likely, heads_shown, soil,
+};
 import hamlet_vfx::wind::{Wind, strength};
 
 // `GrassUniform` in `grass.rs`; the settings are explained on
@@ -39,8 +41,6 @@ struct Grass {
     rings: vec4<f32>,
     // xy: the mask's corner on the map. z: its side.
     mask_at: vec4<f32>,
-    // The flowers' colours, linear.
-    flowers: array<vec4<f32>, 5>,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> grass: Grass;
@@ -57,21 +57,6 @@ struct Blade {
     normal: vec3<f32>,
     colour: vec3<f32>,
     glow: vec3<f32>,
-}
-
-// Where the field of flowers is over this, tufts flower.
-const BLOOMS: f32 = 0.2;
-
-// The field the flowers grow in, in about -1..1.
-fn blooms_at(p: vec2<f32>) -> f32 {
-    return fbm(p * 0.08 + vec2<f32>(31.0, -17.0), 2u, soil.seed + 91u);
-}
-
-// The colour of the flowers at `p` on the map: one to a patch, from broad
-// noise much larger than a patch.
-fn bloom_colour(p: vec2<f32>) -> vec3<f32> {
-    let n = fbm(p * 0.02 + vec2<f32>(7.0, 3.0), 2u, soil.seed + 92u);
-    return grass.flowers[u32(clamp(n * 1.6 + 0.5, 0.0, 0.999) * 5.0)].rgb;
 }
 
 // A number from 0 to 1 of the tuft whose hash is `h`, one of many by
@@ -145,11 +130,7 @@ fn spot(cell: vec2<i32>) -> Spot {
 // ground, on trodden ground, nor in some places at random, and fewer in the
 // woods. One that does grows whole, right up to the trodden ground's edge.
 fn grows(s: Spot) -> bool {
-    let water = pages_at.water.x;
-    let likely = smooth_step(water + 0.5, water + 1.0, s.y)
-        * smooth_step(0.14, 0.07, 1.0 - s.normal.y)
-        * smooth_step(26.0, 18.0, s.y)
-        * (1.0 - 0.7 * s.woods);
+    let likely = grass_likely(s.y, s.normal.y, s.woods);
     return roll(s.h, 2u) >= grass.grow.y && roll(s.h, 3u) <= likely && trodden(s.p) <= 0.5;
 }
 
@@ -218,7 +199,7 @@ fn blade(
     // Close by, a tuft in flower shows its flowers' heads. Further off,
     // where a head would be smaller than a pixel and flicker, the heads
     // shrink away and its tips take the flowers' colour instead.
-    let heads = smooth_step(grass.reach.w * 0.3, grass.reach.w * 0.15, away);
+    let heads = heads_shown(away, grass.reach.w);
     var point = vec3<f32>(local.x * spread, local.y * kept_blade, local.z * spread);
     if flower {
         point += off * select(0.0, heads, flowering) * kept_blade;

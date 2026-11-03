@@ -107,6 +107,25 @@ pub struct GroundExt {
     pub pages: Handle<Image>,
     #[uniform(105)]
     pub pages_at: PagesUniform,
+    /// The flowers it is painted with where the grass's own are too
+    /// small to show, as the grass has them.
+    #[uniform(106)]
+    pub blooms: BloomsUniform,
+}
+
+/// Mirrors `Blooms` in `ground.wesl`: the flowers the ground is
+/// painted with, as [`GrassUniform::blooms`] has them.
+///
+/// [`GrassUniform::blooms`]: crate::grass::GrassUniform::blooms
+#[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
+pub struct BloomsUniform {
+    /// The share of tufts in flower where flowers grow, how far from
+    /// the eye the grass reaches, and how far apart its tufts are.
+    pub grow: Vec4,
+    /// How brightly they glow, as far into the night as it is; the
+    /// breadth of the patches their glow swells in; how fast those
+    /// drift; and the time, which is still while they do not glow.
+    pub glow: Vec4,
 }
 
 /// Sizes of patch the ground is drawn in, each twice the last, and
@@ -127,9 +146,9 @@ pub struct PagesUniform {
     pub water: Vec4,
 }
 
-/// Mirrors `Soil` in `ground.wesl`: the colours the ground is painted
-/// with, linear, the height of the water, which the shore follows,
-/// and the seed of the land's noise.
+/// Mirrors `Soil` in `soil.wesl`: the colours the ground and the
+/// flowers on it are painted with, linear, the height of the water,
+/// which the shore follows, and the seed of the land's noise.
 #[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
 pub struct SoilUniform {
     pub grass_shade: Vec4,
@@ -143,6 +162,7 @@ pub struct SoilUniform {
     pub dirt: Vec4,
     pub dirt_shade: Vec4,
     pub mud: Vec4,
+    pub flowers: [Vec4; 5],
     pub water: f32,
     pub seed: u32,
 }
@@ -208,6 +228,7 @@ pub fn material(
             soil,
             pages: images.add(blank_pages()),
             pages_at: PagesUniform::default(),
+            blooms: BloomsUniform::default(),
         },
     }
 }

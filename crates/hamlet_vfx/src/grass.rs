@@ -29,7 +29,9 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::load_shader_library;
 
-use crate::ground::{PagesUniform, SoilUniform, blank_pages};
+use crate::ground::{
+    BloomsUniform, PagesUniform, SoilUniform, blank_pages,
+};
 use crate::leaves::LeafView;
 use crate::wind::{WindSettings, WindUniform};
 use crate::{Now, VfxSystems};
@@ -147,7 +149,6 @@ impl Grass {
                 0.0,
                 GrassReach::default(),
                 Vec4::ZERO,
-                [Vec4::ONE; 5],
             ),
             wind: WindUniform::default(),
             soil,
@@ -186,7 +187,6 @@ pub struct GrassUniform {
     pub reach: Vec4,
     pub rings: Vec4,
     pub mask_at: Vec4,
-    pub flowers: [Vec4; 5],
 }
 
 /// Where the grass is drawn about the eye, as the world lays it.
@@ -208,14 +208,13 @@ pub struct GrassReach {
 impl GrassUniform {
     /// The uniform for `set`, at the time `now`, `night` of the way
     /// into the night, drawn as far as `reach` has it, with the mask
-    /// laid at `mask_at` and the flowers in `flowers`.
+    /// laid at `mask_at`.
     pub fn new(
         set: &GrassSettings,
         now: f32,
         night: f32,
         reach: GrassReach,
         mask_at: Vec4,
-        flowers: [Vec4; 5],
     ) -> Self {
         let finest = set.blades[0].max(1) as f32;
         let share = |d: usize| set.blades[d] as f32 / finest;
@@ -244,10 +243,28 @@ impl GrassUniform {
                 set.halo,
             ),
             mask_at,
-            flowers,
         };
         uniform.set_reach(reach);
         uniform
+    }
+
+    /// The flowers the ground paints where these are too small to
+    /// show.
+    pub fn blooms(&self) -> BloomsUniform {
+        let glows = self.glow.x > 0.0;
+        BloomsUniform {
+            grow: Vec4::new(
+                self.grow.z,
+                self.reach.w,
+                self.grow.x,
+                0.0,
+            ),
+            glow: self.glow.truncate().extend(if glows {
+                self.sway.y
+            } else {
+                0.0
+            }),
+        }
     }
 
     /// Draws the grass as far as `reach` has it.
@@ -490,7 +507,6 @@ fn sway(
         view.night,
         was.reach(),
         was.mask_at,
-        was.flowers,
     );
     grass.grass = next;
     grass.wind = wind.uniform(now.0);
