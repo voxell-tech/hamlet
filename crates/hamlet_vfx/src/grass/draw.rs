@@ -289,7 +289,8 @@ struct Lists {
     offsets: Vec<u32>,
     /// How many places the pass looks at each way.
     size: UVec2,
-    /// Made each frame, when all they bind is ready.
+    /// Made each frame once all they bind is ready, and kept while
+    /// any of it is missing.
     groups: Option<(BindGroup, BindGroup)>,
 }
 
@@ -437,7 +438,9 @@ fn bind(
         return;
     };
     let lists = &mut *lists;
-    lists.groups = None;
+    // While the pages or the mask are made anew they may be missing
+    // for a frame: last frame's bindings are kept, rather than none
+    // drawn.
     let (Some(pages), Some(mask)) =
         (images.get(&grass.pages), images.get(&grass.mask))
     else {

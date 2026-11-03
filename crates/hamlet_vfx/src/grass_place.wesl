@@ -16,9 +16,12 @@ const CAPACITY: u32 = 8192u;
 // `grass/draw.rs`.
 const LISTS: u32 = SHAPES * DETAILS;
 const ARGUMENTS: u32 = 5u;
-// How far a tuft reaches from its middle, at most, in metres: a tuft
-// further than this outside a plane the eye sees between is out of sight.
-const TUFT_REACH: f32 = 1.5;
+// How far a tuft reaches from its middle, in metres, as drawn whole, and
+// what the wind and its height add: a tuft further than its reach outside
+// a plane the eye sees between is out of sight. Kept tufts spread to cover
+// for those thinned away, so further off they reach further.
+const TUFT_REACH: f32 = 1.2;
+const TUFT_MORE: f32 = 0.6;
 
 // `PlaceInput` in `grass/draw.rs`: the square, in tufts, the first
 // invocation looks at, how many each way there are, and the planes the eye
@@ -33,11 +36,12 @@ struct Place {
 @group(constants::MATERIAL_BIND_GROUP) @binding(121) var<storage, read_write> tufts: array<vec2<i32>>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(122) var<storage, read_write> draws: array<atomic<u32>>;
 
-// Whether a tuft whose middle is `at` is in sight.
-fn in_sight(at: vec3<f32>) -> bool {
+// Whether a tuft whose middle is `at`, reaching `reach` from it, is in
+// sight.
+fn in_sight(at: vec3<f32>, reach: f32) -> bool {
     for (var i = 0u; i < 6u; i++) {
         let plane = place_at.sight[i];
-        if dot(plane.xyz, at) + plane.w < -TUFT_REACH {
+        if dot(plane.xyz, at) + plane.w < -reach {
             return false;
         }
     }
@@ -55,10 +59,12 @@ fn place(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
     let away = away_from_eye(s.p);
-    if fade(rank_of(s.h), tufts_kept(away)) <= 0.0 {
+    let kept = tufts_kept(away);
+    if fade(rank_of(s.h), kept) <= 0.0 {
         return;
     }
-    if !in_sight(vec3<f32>(s.p.x, s.y + 0.3, s.p.y)) {
+    let reach = TUFT_REACH * inverseSqrt(clamp(kept, 0.05, 1.0)) + TUFT_MORE;
+    if !in_sight(vec3<f32>(s.p.x, s.y + 0.3, s.p.y), reach) {
         return;
     }
     let detail = select(select(2u, 1u, away < grass.rings.y), 0u, away < grass.rings.x);
