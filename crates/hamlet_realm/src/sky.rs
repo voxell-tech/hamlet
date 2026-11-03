@@ -455,23 +455,21 @@ impl Quality {
 
     /// How much of the grass it draws.
     pub fn grass(self) -> GrassShare {
-        // Tufts 0.7 m apart where the settings lay them 0.6 m apart.
-        let wider = 0.7 / 0.6;
         match self {
             Self::Low => GrassShare {
                 reach: 0.65,
                 kept: 0.75,
-                spacing: wider,
+                coarse: true,
             },
             Self::Medium => GrassShare {
                 reach: 0.8,
                 kept: 0.9,
-                spacing: wider,
+                coarse: true,
             },
             Self::High => GrassShare {
                 reach: 1.0,
                 kept: 1.0,
-                spacing: 1.0,
+                coarse: false,
             },
         }
     }
@@ -509,8 +507,8 @@ pub struct GrassShare {
     pub reach: f32,
     /// The share of the tufts kept past the nearest ring.
     pub kept: f32,
-    /// How many times as far apart its tufts are laid.
-    pub spacing: f32,
+    /// Whether its tufts are laid the coarser spacing apart.
+    pub coarse: bool,
 }
 
 /// The camera the world is seen through. The app points it at a

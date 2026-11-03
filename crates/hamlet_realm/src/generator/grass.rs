@@ -108,7 +108,11 @@ fn reach(
         low,
         rings: set.rings.map(|r| r * share.reach),
         kept: share.kept,
-        spacing: set.spacing * share.spacing,
+        spacing: if share.coarse {
+            set.coarse_spacing
+        } else {
+            set.spacing
+        },
     };
     grass.grass.set_reach(reach);
     grass.sight = frustum.0.half_spaces.map(|half| half.normal_d());

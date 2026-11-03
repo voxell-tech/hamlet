@@ -71,9 +71,11 @@ pub struct GrassSettings {
     /// share of the places a tuft might grow that keep one at each.
     pub blades: [u32; 3],
     pub kept: [f32; 3],
-    /// How far apart the tufts grow, in metres, and the share of the
-    /// places one might grow that are left bare.
+    /// How far apart the tufts grow, in metres, how far where the
+    /// quality lays them coarser, and the share of the places one
+    /// might grow that are left bare.
     pub spacing: f32,
+    pub coarse_spacing: f32,
     pub bare: f32,
     /// The least and the most a tuft is scaled across and up.
     pub across: (f32, f32),
