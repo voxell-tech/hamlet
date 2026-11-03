@@ -77,9 +77,16 @@ pub struct LeafExt {
     #[texture(102)]
     #[sampler(103)]
     pub strokes: Handle<Image>,
-    /// Whether the leaves move. Those of many trees in one mesh do
-    /// not, having no one foot to bend from.
-    pub sways: bool,
+    pub motion: LeafMotion,
+}
+
+/// Whether leaves move in the wind. Those of many trees in one mesh
+/// keep still, having no one foot to bend from.
+#[derive(Reflect, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LeafMotion {
+    Sway,
+    #[default]
+    Still,
 }
 
 /// Mirrors `Leaves` in `leaves_sway.wesl`; the fields are explained
@@ -97,9 +104,12 @@ impl LeafUniform {
         set: &LeafSettings,
         view: &LeafView,
         offset: NowOffset,
-        sways: bool,
+        motion: LeafMotion,
     ) -> Self {
-        let moves = if sways { 1.0 } else { 0.0 };
+        let moves = match motion {
+            LeafMotion::Sway => 1.0,
+            LeafMotion::Still => 0.0,
+        };
         let linear =
             |c: [f32; 3]| LinearRgba::from(Color::srgb_from_array(c));
         let (shade, rim) = (linear(set.shade), linear(set.rim));
@@ -167,18 +177,26 @@ impl FromWorld for Leaves {
         let mut materials =
             world.resource_mut::<Assets<LeafMaterial>>();
         Self {
-            sway: materials.add(material(&set, &strokes, true)),
-            still: materials.add(material(&set, &strokes, false)),
+            sway: materials.add(material(
+                &set,
+                &strokes,
+                LeafMotion::Sway,
+            )),
+            still: materials.add(material(
+                &set,
+                &strokes,
+                LeafMotion::Still,
+            )),
             strokes,
         }
     }
 }
 
-/// The leaves' material, which moves them where `sways`.
+/// The leaves' material.
 fn material(
     set: &LeafSettings,
     strokes: &Handle<Image>,
-    sways: bool,
+    motion: LeafMotion,
 ) -> LeafMaterial {
     ExtendedMaterial {
         base: StandardMaterial {
@@ -197,11 +215,11 @@ fn material(
                 set,
                 &LeafView::default(),
                 NowOffset::default(),
-                sways,
+                motion,
             ),
             wind: WindUniform::default(),
             strokes: strokes.clone(),
-            sways,
+            motion,
         },
     }
 }
@@ -226,7 +244,7 @@ fn sway(
             &set,
             &view,
             *offset,
-            leaves.extension.sways,
+            leaves.extension.motion,
         );
         if (leaves.extension.leaves != next
             || leaves.extension.wind != blowing)
