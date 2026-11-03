@@ -67,26 +67,25 @@ stripes = 4
 taper = 0.35
 
 [ground]
-repeat = 40.0
-strength = 0.55
-cavity = 0.15
+repeat = 3.0
+strength = 0.6
+cavity = 0.3
 patches = 140.0
-calm = 0.35
+calm = 0.45
 turn = 1.0
-dark = [0.86, 0.9, 0.84]
-light = [1.08, 1.07, 0.94]
-bare = 0.35
+dark = [0.72, 0.78, 0.7]
+light = [1.12, 1.1, 0.96]
+bare = 0.2
 
-[ground.strokes]
+[ground.blades]
 side = 512
-count = 100
-length = [0.35, 0.7]
-width = [0.11, 0.22]
-scatter = 1.0
-bristles = 40.0
-dry = 0.35
-streaks = 0.15
-grain = 0.08
+clumps = 420
+blades = 22
+spread = 0.035
+length = [0.035, 0.07]
+width = [0.007, 0.012]
+together = 0.6
+grain = 0.05
 
 [water]
 shallow = [0.53, 0.84, 0.76]

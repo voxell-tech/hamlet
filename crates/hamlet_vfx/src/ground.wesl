@@ -1,15 +1,17 @@
 // The ground: coloured here, point by point, from where it lies, its
-// height and its slope, then shaded in brush strokes and lit through soft
-// bumps, which show most within the strokes. Its points are laid on the
-// patches of `patch.wesl` from the relief pages, in `ground_shape.wesl`,
-// which hands on in the vertex colour what the shader cannot know alone:
-// the woods in red, the heath in green and in blue how far its patch is
-// sunk. Strokes and bumps are one
-// texture laid over the world's x and z in a grid of hexagons. Each corner of
-// the grid takes the texture moved and turned at random, and every point
-// blends the three corners about it, the higher bump winning, so no repeat
-// shows. The hexagons follow stochastic hex tiling; the slopes are turned
-// with the texture, so the light stays true.
+// height and its slope, then, where grass grows, shaded and lit as short
+// grass seen from above: clumps of blades, each lighter than the gaps
+// between them and lit across as the rounded ridge it is. Within the
+// grass's reach it is a little darker, as the roots of the tufts on it
+// are. Its points are laid on the patches of `patch.wesl` from the relief
+// pages, in `ground_shape.wesl`, which hands on in the vertex colour what
+// the shader cannot know alone: the woods in red, the heath in green and
+// in blue how far its patch is sunk. The blades are one texture laid over
+// the world's x and z in a grid of hexagons. Each corner of the grid takes
+// the texture moved and turned at random, and every point blends the three
+// corners about it, the higher blade winning, so no repeat shows. The
+// hexagons follow stochastic hex tiling; the slopes are turned with the
+// texture, so the light stays true.
 //
 // Where the grass's own flowers are too small to show, the ground is
 // painted with them instead, a dot to a flower, in the same patches and
@@ -60,6 +62,9 @@ struct Blooms {
 @group(constants::MATERIAL_BIND_GROUP) @binding(102) var bumps_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(106) var<uniform> blooms: Blooms;
 
+// What the ground's colour is multiplied by under the grass's tufts.
+const UNDER_GRASS: f32 = 0.85;
+
 // How far a painted flower's head reaches from its middle at its finest,
 // against how far apart the tufts are, and the least it reaches, in
 // pixels; how many heads a flower has, and how far they spread from its
@@ -87,7 +92,7 @@ fn noise(p: vec2<f32>) -> f32 {
 }
 
 // The texture as the grid's corner `corner` lays it: the bumps' slope along
-// x and z in xy, in texture units, their height in z and the strokes in w.
+// x and z in xy, in texture units, their height in z and their tone in w.
 fn copy_at(uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, corner: vec2<f32>) -> vec4<f32> {
     let r = hash2(corner);
     let a = (r.x - 0.5) * ground.turn * 6.2831853;
@@ -209,30 +214,38 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     k = k * k * k * k;
     k = k / (k.x + k.y + k.z);
     let bump = a * k.x + b * k.y + c * k.z;
-    let stroke = bump.w;
+    let blade = bump.w;
 
-    // Under the water the bed is smooth: no strokes, no clods, which the
-    // clear water would show as a pattern repeating over the sea floor.
-    let dry = smooth_step(soil.water - 0.6, soil.water + 0.1, in.world_position.y + given.z);
-    let rough = mix(ground.calm, 1.0, noise(world / ground.patches)) * dry;
-    let slope = bump.xy * ground.strength * rough * mix(ground.bare, 1.0, stroke);
+    // Only where grass grows: rock, the shore and the bed under the water
+    // are smooth, which the clear water would otherwise show as a pattern
+    // repeating over the sea floor.
+    let height = in.world_position.y + given.z;
+    let up = normalize(in.world_normal).y;
+    let grassy = grass_likely(height, up, 0.0);
+    let rough = mix(ground.calm, 1.0, noise(world / ground.patches)) * grassy;
+    let slope = bump.xy * ground.strength * rough * mix(ground.bare, 1.0, blade);
 
-    // The bumps' slope over x and z, laid along the surface, tilts the
+    // The blades' slope over x and z, laid along the surface, tilts the
     // normal away from the rise.
     let n = pbr_input.N;
     let rise = vec3<f32>(slope.x, 0.0, slope.y);
     pbr_input.N = normalize(n - (rise - n * dot(n, rise)));
 
     let dip = mix(1.0 - ground.cavity * rough, 1.0, bump.z);
-    let tone = mix(vec3<f32>(1.0), mix(ground.dark.rgb, ground.light.rgb, stroke), dry);
+    let tone = mix(vec3<f32>(1.0), mix(ground.dark.rgb, ground.light.rgb, blade), grassy);
     var painted_colour = colour * tone * dip;
+
+    // Darker within the grass's reach, as the roots of its tufts are,
+    // fading out as the tufts shrink away.
+    let away = distance(view.world_position, in.world_position.xyz);
+    let likely = grass_likely(height, up, given.x);
+    let under = smooth_step(blooms.grow.y, blooms.grow.y * 0.5, away) * likely;
+    painted_colour *= mix(1.0, UNDER_GRASS, under);
 
     // The flowers, where the grass flowers and its own are too small to
     // show.
     let pixel = max(max(length(dpdx(world)), length(dpdy(world))), 1e-4);
-    let away = distance(view.world_position, in.world_position.xyz);
     let past = 1.0 - heads_shown(away, blooms.grow.y);
-    let likely = grass_likely(in.world_position.y + given.z, normalize(in.world_normal).y, given.x);
     let share = blooms.grow.x * (1.0 - given.x) * likely * past;
     var flower = vec3<f32>(0.0);
     var cover = 0.0;
