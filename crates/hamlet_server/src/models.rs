@@ -977,6 +977,15 @@ fn plainly(error: &str, hello: bool) -> String {
                 some, then try again."
             .into();
     }
+    if ["usage limit", "rate limit", "http 429", "error: 429"]
+        .iter()
+        .any(|s| lower.contains(s))
+    {
+        return "The provider says a usage limit is reached. It \
+                lifts when the provider resets it; check again \
+                then, as nothing here keeps the limit."
+            .into();
+    }
     if lower.contains("could not reach") {
         return "Could not reach it. Check your connection and the \
                 address."

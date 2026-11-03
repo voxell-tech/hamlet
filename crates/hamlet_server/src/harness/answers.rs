@@ -143,6 +143,22 @@ pub(crate) fn charge(
     Ok(Some(()))
 }
 
+/// Marks the model's link connected after a call that answered, when
+/// the last check left it failed. The link is how the last check
+/// went, so a limit that has since lifted would show until the next
+/// check.
+pub(super) fn heal_link(store: &mut Store) -> Result<()> {
+    let db = store.connection();
+    let mut settings = crate::settings::stored(db)?;
+    if settings.link.state != hamlet_protocol::client::LinkState::Failed
+    {
+        return Ok(());
+    }
+    settings.link.state = hamlet_protocol::client::LinkState::Connected;
+    settings.link.words = None;
+    crate::settings::keep(db, &settings)
+}
+
 impl Harnesses {
     /// Answers whether the model call `attempt` may be made, and with
     /// which model and credential.
@@ -240,6 +256,11 @@ impl Harnesses {
         let re = report.id;
         match charged {
             Some(()) => {
+                if report.usage.stop.as_deref().is_some_and(|stop| {
+                    !matches!(stop, "error" | "aborted")
+                }) {
+                    heal_link(store)?;
+                }
                 self.send(index, |v, id| {
                     ServerMessage::Charged(runtime::Charged {
                         id,

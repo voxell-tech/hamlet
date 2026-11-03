@@ -200,6 +200,21 @@ fn an_identity_runs_one_call_and_its_marked_result_stands() {
 }
 
 #[test]
+fn an_answered_call_clears_a_failed_link() {
+    use hamlet_protocol::client::LinkState;
+    let scratch = Scratch::new("harness-link");
+    let (mut store, _) = bound(&scratch, 0);
+    let mut settings = crate::settings::stored(store.connection()).unwrap();
+    settings.link.state = LinkState::Failed;
+    settings.link.words = Some("The provider says a usage limit.".into());
+    crate::settings::keep(store.connection(), &settings).unwrap();
+    answers::heal_link(&mut store).unwrap();
+    let link = crate::settings::stored(store.connection()).unwrap().link;
+    assert_eq!(link.state, LinkState::Connected);
+    assert_eq!(link.words, None);
+}
+
+#[test]
 fn usage_is_charged_once_and_only_to_an_allowed_attempt() {
     let scratch = Scratch::new("harness-usage");
     let (mut store, binding) = bound(&scratch, 0);
