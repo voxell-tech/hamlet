@@ -91,13 +91,6 @@ pub struct GrassSettings {
     /// How brightly the grass in and about a patch of flowers glows
     /// in their colour, against the flowers themselves.
     pub halo: f32,
-    /// How many lights the flowers nearest the eye cast on what is
-    /// about them at night, how far from the eye they reach, and how
-    /// bright and how far each one shines, in lumens and metres.
-    pub lights: u32,
-    pub lit_within: f32,
-    pub lumens: f32,
-    pub lit_range: f32,
     /// Tufts along the side of a square laid together, each
     /// `spacing` apart.
     pub slots: u32,

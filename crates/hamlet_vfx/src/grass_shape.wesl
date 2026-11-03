@@ -59,19 +59,16 @@ struct Blade {
     glow: vec3<f32>,
 }
 
-// Where the field of flowers is over this, tufts flower. `BLOOMS` in
-// `generator/grass.rs`, which lights the patches.
+// Where the field of flowers is over this, tufts flower.
 const BLOOMS: f32 = 0.2;
 
-// The field the flowers grow in, in about -1..1, as `blooms` in
-// `generator/grass.rs` has it.
+// The field the flowers grow in, in about -1..1.
 fn blooms_at(p: vec2<f32>) -> f32 {
     return fbm(p * 0.08 + vec2<f32>(31.0, -17.0), 2u, soil.seed + 91u);
 }
 
 // The colour of the flowers at `p` on the map: one to a patch, from broad
-// noise much larger than a patch, as `bloom` in `generator/grass.rs` has
-// it.
+// noise much larger than a patch.
 fn bloom_colour(p: vec2<f32>) -> vec3<f32> {
     let n = fbm(p * 0.02 + vec2<f32>(7.0, 3.0), 2u, soil.seed + 92u);
     return grass.flowers[u32(clamp(n * 1.6 + 0.5, 0.0, 0.999) * 5.0)].rgb;
