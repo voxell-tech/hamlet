@@ -1,11 +1,10 @@
-// A point of a tuft of grass, the same in its own pass and in the
-// prepass. Its square lays only slots, one to a square `spacing` across
-// of the map; from that square alone it is found where in it the tuft
-// stands, how it is scaled and turned, whether it grows there at all and
-// whether it flowers. Then it is set on the land under it as the finest
-// page has it, shrunk where the ground is trodden and toward the edge of
-// the eye's reach, and bent by the wind, which rolls over the field in the
-// wind's own bands.
+// A tuft of grass, the same in the pass that lists the tufts and in their
+// draw. The map is cut into squares `spacing` across, a tuft in each; from
+// its square alone it is found where in it the tuft stands, how it is
+// scaled and turned, whether it grows there at all, its rank and shape,
+// and whether it flowers. Each of its points is set on the land under it
+// as the finest page has it, shrunk toward the edge of the eye's reach, and
+// bent by the wind, which rolls over the field in the wind's own bands.
 
 import hamlet_vfx::ground_shape::{land_at, page_at, pages_at};
 // `smooth_step`, not WGSL's `smoothstep`, wherever a share falls: WGSL
@@ -17,7 +16,7 @@ import hamlet_vfx::wind::{Wind, strength};
 // `GrassUniform` in `grass.rs`; the settings are explained on
 // `GrassSettings` there.
 struct Grass {
-    // x: `spacing`. y: `bare`. z: `flowers`. w: `slots`.
+    // x: `spacing`. y: `bare`. z: `flowers`.
     grow: vec4<f32>,
     // xy: `across`. zw: `up`.
     size: vec4<f32>,
@@ -103,9 +102,10 @@ fn trodden(p: vec2<f32>) -> f32 {
     return textureSampleLevel(mask, mask_sampler, uv, 0.0).r;
 }
 
-// How much of a whole slot a tuft's rank takes in its slot's x. `RANKED`
-// in `grass.rs`.
-const RANKED: f32 = 0.98;
+// Shapes of tuft, and details each is made in. `SHAPES` and `DETAILS` in
+// `grass.rs`.
+const SHAPES: u32 = 8u;
+const DETAILS: u32 = 3u;
 // How far below the share kept a rank begins to shrink away.
 const FADING: f32 = 0.08;
 
@@ -127,66 +127,96 @@ fn fade(rank: f32, share: f32) -> f32 {
     return clamp((share - rank) / FADING, 0.0, 1.0);
 }
 
-// The point `local` of the tuft in slot `slot` of a square whose corner
-// `world_from_local` moves it to, `off` across its blade's middle line, or
-// for a flower's head, as `flower` says it is, out of the head's middle;
-// `up` is how far up its blade the point is, from 0 to 1, and `own` its
-// blade's rank. The fraction of the slot's x is the tuft's rank.
+// The square of the map a tuft stands in, and where in it: its hash, its
+// middle on the map, the land's height, woods and heath there, and the
+// ground's normal under it.
+struct Spot {
+    h: u32,
+    p: vec2<f32>,
+    y: f32,
+    woods: f32,
+    heath: f32,
+    normal: vec3<f32>,
+}
+
+// The tuft of the square `cell` of the map, counted in tufts.
+fn spot(cell: vec2<i32>) -> Spot {
+    let h = key(soil.seed ^ 0x6a09e667u, cell.x, cell.y);
+    let p = (vec2<f32>(cell) + vec2<f32>(roll(h, 0u), roll(h, 1u))) * grass.grow.x;
+    let here = land_at(0, p);
+    return Spot(h, p, here.page.x, here.page.y, here.page.z, normalize(here.normal));
+}
+
+// Whether the tuft at `s` grows: none in or by the water, on steep or high
+// ground, on trodden ground, nor in some places at random, and fewer in the
+// woods. One that does grows whole, right up to the trodden ground's edge.
+fn grows(s: Spot) -> bool {
+    let water = pages_at.water.x;
+    let likely = smooth_step(water + 0.5, water + 1.0, s.y)
+        * smooth_step(0.14, 0.07, 1.0 - s.normal.y)
+        * smooth_step(26.0, 18.0, s.y)
+        * (1.0 - 0.7 * s.woods);
+    return roll(s.h, 2u) >= grass.grow.y && roll(s.h, 3u) <= likely && trodden(s.p) <= 0.5;
+}
+
+// How far off the tuft at `p` on the map is: across the map, and the
+// eye's height over the ground.
+fn away_from_eye(p: vec2<f32>) -> f32 {
+    return length(vec2<f32>(distance(p, grass.reach.xz), grass.rings.z));
+}
+
+// The tuft's rank, from 0 to 1, which decides how far off it is kept, and
+// its shape, of `SHAPES`.
+fn rank_of(h: u32) -> f32 {
+    return roll(h, 10u);
+}
+
+fn shape_of(h: u32) -> u32 {
+    return min(u32(roll(h, 11u) * f32(SHAPES)), SHAPES - 1u);
+}
+
+// The share of tufts kept `away` from the eye.
+fn tufts_kept(away: f32) -> f32 {
+    return kept_at(away, grass.thin.x * grass.rings.w, grass.thin.y * grass.rings.w);
+}
+
+// The point `local` of the tuft of the square `cell` of the map, `off`
+// across its blade's middle line, or for a flower's head, as `flower` says
+// it is, out of the head's middle; `up` is how far up its blade the point
+// is, from 0 to 1, and `own` its blade's rank. The tuft is one the pass
+// kept, so it grows.
 fn blade(
     local: vec3<f32>,
     up: f32,
     own: f32,
     off: vec3<f32>,
     flower: bool,
-    slot: vec2<f32>,
-    world_from_local: mat4x4<f32>,
+    cell: vec2<i32>,
 ) -> Blade {
-    // The square of the map the slot is, and where in it the tuft stands.
-    let step = grass.grow.x;
-    let whole = floor(slot);
-    let rank = (slot.x - whole.x) / RANKED;
-    let cell = vec2<i32>(round(world_from_local[3].xz / step)) + vec2<i32>(whole);
-    let h = key(soil.seed ^ 0x6a09e667u, cell.x, cell.y);
-    let p = (vec2<f32>(cell) + vec2<f32>(roll(h, 0u), roll(h, 1u))) * step;
-    let here = land_at(0, p);
-    let y = here.page.x;
-    let woods = here.page.y;
-    let heath = here.page.z;
-    let n = normalize(here.normal);
+    let here = spot(cell);
+    let h = here.h;
+    let p = here.p;
+    let y = here.y;
+    let woods = here.woods;
+    let heath = here.heath;
     let middle = vec3<f32>(p.x, y, p.y);
 
     var drawn: Blade;
-    drawn.normal = n;
+    drawn.normal = here.normal;
     drawn.glow = vec3<f32>(0.0);
-    // None grow in or by the water, on steep or high ground, on trodden
-    // ground, nor in some places at random, and fewer in the woods. One
-    // that does not is drawn as nothing, all its points at its middle;
-    // one that does grows whole, right up to the trodden ground's edge.
-    let water = pages_at.water.x;
-    let grows = smooth_step(water + 0.5, water + 1.0, y)
-        * smooth_step(0.14, 0.07, 1.0 - n.y)
-        * smooth_step(26.0, 18.0, y)
-        * (1.0 - 0.7 * woods);
-    if roll(h, 2u) < grass.grow.y || roll(h, 3u) > grows || trodden(p) > 0.5 {
-        drawn.position = middle - vec3<f32>(0.0, 0.1, 0.0);
-        drawn.colour = vec3<f32>(0.0);
-        return drawn;
-    }
 
     // Tufts flower in patches; a flower's head is drawn only on one that
     // does, and on others shrinks to nothing at its middle.
     let blooms = blooms_at(p);
     let flowering = blooms > BLOOMS && roll(h, 4u) < grass.grow.z * (1.0 - woods);
-    // How far off it is, as the squares are laid by: across the map, and
-    // the eye's height over the ground.
-    let away = length(vec2<f32>(distance(p, grass.reach.xz), grass.rings.z));
+    let away = away_from_eye(p);
 
     // Further off, fewer tufts and fewer of each one's blades are kept, the
     // lowest ranked longest, and the rest shrink away; those kept spread and
     // widen to cover as much, so the field thins without a seam.
-    let tufts = kept_at(away, grass.thin.x * grass.rings.w, grass.thin.y * grass.rings.w);
+    let tufts = tufts_kept(away);
     let blades = kept_at(away, grass.thin.z, grass.thin.w);
-    let kept_tuft = fade(rank, tufts);
+    let kept_tuft = fade(rank_of(h), tufts);
     let kept_blade = fade(own, blades);
     let spread = inverseSqrt(clamp(tufts, 0.05, 1.0));
     let widen = inverseSqrt(clamp(blades, 0.05, 1.0));

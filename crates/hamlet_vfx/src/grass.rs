@@ -1,50 +1,59 @@
 //! Grass: a meadow of tufts about the eye. Each tuft is one of a few
 //! shapes made at random when the grass is made, a clump of curved
-//! blades leaning out from its middle. The world lays only squares of
-//! slots, one tuft to each; the GPU does the rest. From each slot's
-//! place on the map alone it finds where in it its tuft stands, how
-//! it is scaled and turned, whether it grows there at all and whether
-//! it flowers, then sets it on the land under each of its points. A
-//! tuft takes the ground's own colour, darker at its roots and
-//! lighter to its tips, and is lit as the ground under it is, so that
-//! tufts crowding one another read as one soft surface. It shrinks
-//! away on whatever a mask marks trodden and toward the edge of the
-//! eye's reach, and bends in the wind's gusts.
+//! blades leaning out from its middle, at each of a few details. The
+//! GPU does the rest, in `draw`: a pass looks at every place a tuft
+//! might stand about the eye, keeps those that grow there, are near
+//! enough to keep and in sight, and lists each under its shape and
+//! the detail its distance calls for; then each list is drawn as many
+//! times as it holds. A tuft takes the ground's own colour, darker at
+//! its roots and lighter to its tips, and is lit as the ground under
+//! it is, so that tufts crowding one another read as one soft
+//! surface. None grows on whatever a mask marks trodden, it shrinks
+//! toward the edge of the eye's reach, and it bends in the wind's
+//! gusts.
+
+mod draw;
 
 use std::f32::consts::TAU;
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, PrimitiveTopology};
-use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
-use bevy::render::render_resource::{
-    AsBindGroup, Extent3d, ShaderType, TextureDimension,
-    TextureFormat,
+use bevy::render::RenderApp;
+use bevy::render::extract_resource::{
+    ExtractResource, ExtractResourcePlugin,
 };
-use bevy::shader::{ShaderRef, load_shader_library};
+use bevy::render::render_resource::{
+    Extent3d, ShaderType, TextureDimension, TextureFormat,
+};
+use bevy::shader::load_shader_library;
 
 use crate::ground::{PagesUniform, SoilUniform, blank_pages};
 use crate::leaves::LeafView;
 use crate::wind::{WindSettings, WindUniform};
 use crate::{Now, VfxSystems};
 
-pub type GrassMaterial = ExtendedMaterial<StandardMaterial, GrassExt>;
-
 /// Shapes of tuft there are, and how many of the first carry flowers'
-/// heads, which show where a tuft flowers.
+/// heads, which show where a tuft flowers. `SHAPES` in
+/// `grass_shape.wesl`.
 pub const SHAPES: usize = 8;
 pub const IN_FLOWER: usize = 4;
-/// Details each square is made in, the finest first.
+/// Details each tuft is made in, the finest first. `DETAILS` in
+/// `grass_shape.wesl`.
 pub const DETAILS: usize = 3;
 
 pub(crate) fn plugin(app: &mut App) {
     load_shader_library!(app, "grass_shape.wesl");
     embedded_asset!(app, "grass.wesl");
-    embedded_asset!(app, "grass_prepass.wesl");
-    app.add_plugins(MaterialPlugin::<GrassMaterial>::default())
-        .init_resource::<GrassSettings>()
-        .add_systems(Update, sway.in_set(VfxSystems));
+    embedded_asset!(app, "grass_place.wesl");
+    app.add_plugins((
+        ExtractResourcePlugin::<Grass>::default(),
+        ExtractResourcePlugin::<GrassTufts>::default(),
+        draw::plugin,
+    ))
+    .init_resource::<GrassSettings>()
+    .add_systems(Update, (shape, sway).in_set(VfxSystems));
 }
 
 /// How the grass grows, takes the light and moves, and how far
@@ -91,9 +100,6 @@ pub struct GrassSettings {
     /// How brightly the grass in and about a patch of flowers glows
     /// in their colour, against the flowers themselves.
     pub halo: f32,
-    /// Tufts along the side of a square laid together, each
-    /// `spacing` apart.
-    pub slots: u32,
     /// How far from the eye each detail reaches, the finest first,
     /// where the eye stands low. The grass shortens to nothing over
     /// the last half of the last, so the furthest blades, too small
@@ -101,26 +107,62 @@ pub struct GrassSettings {
     pub rings: [f32; 3],
 }
 
-#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
-pub struct GrassExt {
-    #[uniform(100)]
+/// What the grass is drawn from, as the world last told it: the
+/// GPU's to read each frame, as `grass_shape.wesl` binds it.
+#[derive(Resource, ExtractResource, Clone)]
+#[extract_app(RenderApp)]
+pub struct Grass {
     pub grass: GrassUniform,
-    #[uniform(101)]
     pub wind: WindUniform,
-    #[uniform(103)]
     pub soil: SoilUniform,
     /// The land's pages, as the ground has them.
-    #[texture(104, dimension = "2d_array", sample_type = "u_int")]
     pub pages: Handle<Image>,
-    #[uniform(105)]
     pub pages_at: PagesUniform,
     /// How trodden the ground is about the eye, from 0 where grass
     /// grows to 1 where none does, laid as `mask_at` in
     /// [`GrassUniform`] has it.
-    #[texture(106)]
-    #[sampler(107)]
     pub mask: Handle<Image>,
+    /// The planes the eye sees between, each as its normal and its
+    /// distance from the origin, the inside where the sum is over
+    /// nothing; a tuft wholly outside one is not drawn.
+    pub sight: [Vec4; 6],
+    /// Whether it is drawn at all.
+    pub shown: bool,
 }
+
+impl Grass {
+    /// The grass for `set`, painted with `soil`, its pages, mask and
+    /// sight blank until the world gives them.
+    pub fn new(
+        images: &mut Assets<Image>,
+        set: &GrassSettings,
+        soil: SoilUniform,
+    ) -> Self {
+        Self {
+            grass: GrassUniform::new(
+                set,
+                0.0,
+                0.0,
+                GrassReach::default(),
+                Vec4::ZERO,
+                [Vec4::ONE; 5],
+            ),
+            wind: WindUniform::default(),
+            soil,
+            pages: images.add(blank_pages()),
+            pages_at: PagesUniform::default(),
+            mask: images.add(mask(1)),
+            sight: [Vec4::ZERO; 6],
+            shown: true,
+        }
+    }
+}
+
+/// The tufts each list of them is drawn as: every shape at every
+/// detail, the finest first, [`SHAPES`] to a detail.
+#[derive(Resource, ExtractResource, Clone)]
+#[extract_app(RenderApp)]
+pub struct GrassTufts(pub Vec<Mesh>);
 
 /// Mirrors `Grass` in `grass_shape.wesl`; the fields are explained
 /// there.
@@ -177,12 +219,7 @@ impl GrassUniform {
             ),
             reach: Vec4::ZERO,
             rings: Vec4::ZERO,
-            grow: Vec4::new(
-                set.spacing,
-                set.bare,
-                set.flowers,
-                set.slots as f32,
-            ),
+            grow: Vec4::new(set.spacing, set.bare, set.flowers, 0.0),
             size: Vec4::new(
                 set.across.0,
                 set.across.1,
@@ -228,57 +265,6 @@ impl GrassUniform {
     }
 }
 
-impl MaterialExtension for GrassExt {
-    fn vertex_shader() -> ShaderRef {
-        "embedded://hamlet_vfx/grass.wesl".into()
-    }
-
-    fn fragment_shader() -> ShaderRef {
-        "embedded://hamlet_vfx/grass.wesl".into()
-    }
-
-    fn prepass_vertex_shader() -> ShaderRef {
-        "embedded://hamlet_vfx/grass_prepass.wesl".into()
-    }
-
-    fn enable_shadows() -> bool {
-        false
-    }
-}
-
-/// The grass's material, painted with `soil`, its pages and mask
-/// blank until the world gives them.
-pub fn material(
-    images: &mut Assets<Image>,
-    set: &GrassSettings,
-    soil: SoilUniform,
-) -> GrassMaterial {
-    ExtendedMaterial {
-        base: StandardMaterial {
-            perceptual_roughness: 0.9,
-            reflectance: 0.15,
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        },
-        extension: GrassExt {
-            grass: GrassUniform::new(
-                set,
-                0.0,
-                0.0,
-                GrassReach::default(),
-                Vec4::ZERO,
-                [Vec4::ONE; 5],
-            ),
-            wind: WindUniform::default(),
-            soil,
-            pages: images.add(blank_pages()),
-            pages_at: PagesUniform::default(),
-            mask: images.add(mask(1)),
-        },
-    }
-}
-
 /// A mask `side` texels across with nothing trodden, for the world
 /// to fill. Each texel is one byte, from 0 to 255.
 pub fn mask(side: u32) -> Image {
@@ -298,80 +284,71 @@ pub fn mask(side: u32) -> Image {
     image
 }
 
-/// A square of `slots` by `slots` tufts at `detail` of [`DETAILS`],
-/// each one of the [`SHAPES`] standing on the origin, for the shader
-/// to place and thin. Each tuft has a rank and each blade one, from 0
-/// to 1; the shader keeps fewer of them the further off they are, the
-/// lowest ranked longest. A coarser detail holds only those the
-/// shader would keep that far off, in the same places, so that a
-/// square drawn coarser shows nothing new.
+/// Every tuft the lists are drawn as, as [`GrassTufts`] holds them,
+/// each standing on the origin for the shader to place and thin.
+/// Each blade has a rank, from 0 to 1; the shader keeps fewer of
+/// them the further off they are, the lowest ranked longest. A
+/// coarser detail holds only those the shader would keep that far
+/// off, so that a tuft drawn coarser shows nothing new.
 ///
-/// A point's second UV is its tuft's slot, x and z, with the tuft's
-/// rank in the fraction of x. Its UV is how far up its blade it is,
-/// from 0 to 1, and its blade's rank, which its tone follows. A
-/// blade's points lie on its middle line, their colours how far
-/// across it each lies, with alpha 1; a flower's head's points all
-/// lie at its middle, their colours how far out of it each lies, with
-/// alpha 0. So the shader can widen blades and heads alike.
-pub fn square(set: &GrassSettings, detail: usize) -> Mesh {
-    let mut built = Built::default();
-    let slots = set.slots.max(1);
-    let kept = set.kept[detail].clamp(0.05, 1.0);
-    for slot in 0..slots * slots {
-        let rank = hash(slot, 202);
-        if rank >= kept {
-            continue;
-        }
-        let shape = (hash(slot, 101) * SHAPES as f32) as usize;
-        let at = [
-            (slot % slots) as f32 + RANKED * rank,
-            (slot / slots) as f32,
-        ];
-        let shape = shape.min(SHAPES - 1);
-        tuft(&mut built, set, shape, detail, at);
-    }
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::RENDER_WORLD,
-    )
-    .with_inserted_attribute(
-        Mesh::ATTRIBUTE_POSITION,
-        built.positions,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, built.normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, built.uvs)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, built.slots)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, built.colours)
-    .with_inserted_indices(Indices::U32(built.indices))
+/// A point's UV is how far up its blade it is, from 0 to 1, and its
+/// blade's rank, which its tone follows. A blade's points lie on its
+/// middle line, their colours how far across it each lies, with alpha
+/// 1; a flower's head's points all lie at its middle, their colours
+/// how far out of it each lies, with alpha 0. So the shader can widen
+/// blades and heads alike.
+pub fn tufts(set: &GrassSettings) -> Vec<Mesh> {
+    (0..DETAILS)
+        .flat_map(|detail| {
+            (0..SHAPES).map(move |shape| {
+                let mut built = Built::default();
+                tuft(&mut built, set, shape, detail);
+                Mesh::new(
+                    PrimitiveTopology::TriangleList,
+                    RenderAssetUsages::RENDER_WORLD,
+                )
+                .with_inserted_attribute(
+                    Mesh::ATTRIBUTE_POSITION,
+                    built.positions,
+                )
+                .with_inserted_attribute(
+                    Mesh::ATTRIBUTE_NORMAL,
+                    built.normals,
+                )
+                .with_inserted_attribute(
+                    Mesh::ATTRIBUTE_UV_0,
+                    built.uvs,
+                )
+                .with_inserted_attribute(
+                    Mesh::ATTRIBUTE_COLOR,
+                    built.colours,
+                )
+                .with_inserted_indices(Indices::U32(built.indices))
+            })
+        })
+        .collect()
 }
 
-/// A square's points as they are built.
+/// A tuft's points as they are built.
 #[derive(Default)]
 struct Built {
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
-    slots: Vec<[f32; 2]>,
     colours: Vec<[f32; 4]>,
     indices: Vec<u32>,
 }
 
-/// How much of a whole slot a tuft's rank may take in its slot's x:
-/// under one, so the slot is its floor.
-const RANKED: f32 = 0.98;
-
-/// Tuft `shape` of [`SHAPES`] at `detail`, in the slot `slot`, made
-/// at random from its number alone: a clump of curved blades, the
-/// outer ones shorter and leaning out further, and the first
-/// [`IN_FLOWER`] shapes with flowers' heads on their tallest blades.
-/// Only the blades ranked under `detail`'s share of the finest's are
-/// made.
+/// Tuft `shape` of [`SHAPES`] at `detail`, made at random from its
+/// number alone: a clump of curved blades, the outer ones shorter and
+/// leaning out further, and the first [`IN_FLOWER`] shapes with
+/// flowers' heads on their tallest blades. Only the blades ranked
+/// under `detail`'s share of the finest's are made.
 fn tuft(
     built: &mut Built,
     set: &GrassSettings,
     shape: usize,
     detail: usize,
-    slot: [f32; 2],
 ) {
     /// How far up each pair of points across a blade lies; its tip
     /// is one point.
@@ -387,7 +364,6 @@ fn tuft(
         positions,
         normals,
         uvs,
-        slots,
         colours,
         indices,
     } = built;
@@ -421,7 +397,6 @@ fn tuft(
             positions.push(centre(t).to_array());
             normals.push([0.0, 1.0, 0.0]);
             uvs.push([t, own]);
-            slots.push(slot);
             colours.push([off.x, off.y, off.z, 1.0]);
         };
         for t in RISE {
@@ -458,7 +433,6 @@ fn tuft(
                 positions.push(head.to_array());
                 normals.push([0.0, 1.0, 0.0]);
                 uvs.push([1.0, own]);
-                slots.push(slot);
                 colours.push([out.x, out.y, out.z, 0.0]);
             };
             petal(Vec3::ZERO);
@@ -477,6 +451,17 @@ fn tuft(
     }
 }
 
+/// Makes the tufts anew when the settings change.
+fn shape(
+    mut commands: Commands,
+    set: Res<GrassSettings>,
+    made: Option<Res<GrassTufts>>,
+) {
+    if made.is_none() || set.is_changed() {
+        commands.insert_resource(GrassTufts(tufts(&set)));
+    }
+}
+
 /// Tells the grass the time, the wind, how far into the night it is,
 /// as the leaves are told, and its settings.
 fn sway(
@@ -484,26 +469,22 @@ fn sway(
     set: Res<GrassSettings>,
     wind: Res<WindSettings>,
     view: Res<LeafView>,
-    mut materials: ResMut<Assets<GrassMaterial>>,
+    grass: Option<ResMut<Grass>>,
 ) {
-    let blowing = wind.uniform(now.0);
-    for (_, grass) in materials.iter_mut() {
-        let was = &grass.extension.grass;
-        let next = GrassUniform::new(
-            &set,
-            now.0,
-            view.night,
-            was.reach(),
-            was.mask_at,
-            was.flowers,
-        );
-        if *was != next {
-            grass.extension.grass = next;
-        }
-        if grass.extension.wind != blowing {
-            grass.extension.wind = blowing.clone();
-        }
-    }
+    let Some(mut grass) = grass else {
+        return;
+    };
+    let was = &grass.grass;
+    let next = GrassUniform::new(
+        &set,
+        now.0,
+        view.night,
+        was.reach(),
+        was.mask_at,
+        was.flowers,
+    );
+    grass.grass = next;
+    grass.wind = wind.uniform(now.0);
 }
 
 /// A number from 0 to 1 that follows from `i` and `k` alone.

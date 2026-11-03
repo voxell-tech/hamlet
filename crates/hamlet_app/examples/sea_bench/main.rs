@@ -30,7 +30,7 @@ use hamlet_realm::generator::{GeneratorView, Loading};
 use hamlet_realm::sky::{Quality, SkySettings};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_realm::{Hour, RealmPlugin, WorldCamera};
-use hamlet_vfx::grass::GrassMaterial;
+use hamlet_vfx::grass::Grass;
 use hamlet_vfx::water::Waves;
 
 use self::offscreen::Target;
@@ -48,7 +48,8 @@ const MEASURED: u32 = 180;
 /// A view: its name, the distance, the turn in radians and the tilt
 /// in degrees, and whether it looks at the sea off the coast rather
 /// than at the first town.
-const VIEWS: [(&str, f32, f32, f32, bool); 9] = [
+const VIEWS: [(&str, f32, f32, f32, bool); 10] = [
+    ("ground", 12.0, 0.0, 12.0, false),
     ("close", 30.0, 0.0, 40.0, false),
     ("default", 72.0, 0.0, 40.0, false),
     ("mid", 200.0, 0.0, 40.0, false),
@@ -313,10 +314,7 @@ fn run(
     mut society: ResMut<Society>,
     mut view: ResMut<GeneratorView>,
     mut water: Query<&mut Visibility, With<Waves>>,
-    mut grass: Query<
-        &mut Visibility,
-        (With<MeshMaterial3d<GrassMaterial>>, Without<Waves>),
-    >,
+    grass: Option<ResMut<Grass>>,
     mut quality: ResMut<Quality>,
     mut suns: Query<&mut DirectionalLight>,
     mut msaa: Query<&mut Msaa, With<WorldCamera>>,
@@ -383,17 +381,8 @@ fn run(
             *seen = next;
         }
     }
-    // Squares of grass come and go as the view moves, so each is
-    // hidden as it comes.
-    for mut seen in &mut grass {
-        let next = if scene.grass {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        };
-        if *seen != next {
-            *seen = next;
-        }
+    if let Some(mut grass) = grass {
+        grass.shown = !scene.grass;
     }
     quality.set_if_neq(scene.quality);
     for mut sun in &mut suns {
