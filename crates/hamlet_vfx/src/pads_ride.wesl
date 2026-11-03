@@ -31,9 +31,11 @@ struct Water {
 // `FLAT` in `water.wesl`.
 const FLAT: f32 = 55.0;
 
-// How much of the slope of the water under it a pad leans with: it is
-// stiff, and leans only slightly.
-const LEAN: f32 = 0.4;
+// How many times the slope of the water under it a pad leans with, and the
+// most it leans, as a slope. The water where pads grow is calmed by the
+// shore to a slope of a few degrees, too little to see a pad lean with.
+const LEAN: f32 = 2.0;
+const LEAN_MOST: f32 = 0.2;
 
 // How a pad rides the water: how far the waves move its middle, and the way
 // its face turns to.
@@ -50,8 +52,8 @@ fn surface(p: vec2<f32>, near: Coast, kept: f32) -> vec3<f32> {
 }
 
 // How the pad laid on the still water by `world_from_local` rides: moved as
-// the waves move the surface at its middle, leaning a little with the
-// surface's slope the way the waves run there, from its middle to half its
+// the waves move the surface at its middle, leaning with the surface's
+// slope the way the waves run there, from its middle to half its
 // width on, and still where the water lies flat.
 fn ride(world_from_local: mat4x4<f32>) -> Ride {
     let middle = world_from_local[3].xyz;
@@ -70,7 +72,7 @@ fn ride(world_from_local: mat4x4<f32>) -> Ride {
     let here = surface(c, near, kept);
     let on = surface(c + way * r, near, kept);
     let rise = (on.y - here.y) / max(distance(on.xz, here.xz), 1e-3);
-    let lean = rise * LEAN;
+    let lean = clamp(rise * LEAN, -LEAN_MOST, LEAN_MOST);
     return Ride(
         here - vec3<f32>(c.x, 0.0, c.y),
         normalize(vec3<f32>(-way.x * lean, 1.0, -way.y * lean)),
