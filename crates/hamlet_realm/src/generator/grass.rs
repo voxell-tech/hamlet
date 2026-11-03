@@ -5,6 +5,7 @@
 //! and the towns' squares.
 
 use bevy::camera::primitives::Frustum;
+use bevy::camera::visibility::VisibilitySystems;
 use bevy::prelude::*;
 use hamlet_vfx::grass::{self, Grass, GrassReach, GrassSettings};
 use hamlet_vfx::ground::GroundMaterial;
@@ -26,7 +27,13 @@ const MASK_TEXEL: f32 = 0.5;
 const EDGE: f32 = 0.4;
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Update, (begin, (follow, reach, tread)).chain());
+    app.add_systems(Update, (begin, (follow, tread)).chain())
+        // Once the eye has moved this frame and what it sees is
+        // known, so the grass is kept to the view it is drawn from.
+        .add_systems(
+            PostUpdate,
+            reach.after(VisibilitySystems::UpdateFrusta),
+        );
 }
 
 /// Where the mask was last made about, and for what treads it.
