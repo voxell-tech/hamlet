@@ -47,11 +47,16 @@ fn bloom_colour(p: vec2<f32>) -> vec3<f32> {
 // with `woods` the share of the woods there: none in or by the water, on
 // steep or high ground, and less in the woods.
 fn grass_likely(y: f32, up: f32, woods: f32) -> f32 {
-    return smooth_step(soil.water + 0.5, soil.water + 1.0, y)
+    return smooth_step(soil.water + GRASS_OVER_WATER, soil.water + 1.0, y)
         * smooth_step(0.14, 0.07, 1.0 - up)
-        * smooth_step(26.0, 18.0, y)
+        * smooth_step(GRASS_HIGHEST, 18.0, y)
         * (1.0 - 0.7 * woods);
 }
+
+// The least height over the water grass grows at, and the highest ground
+// it grows on.
+const GRASS_OVER_WATER: f32 = 0.5;
+const GRASS_HIGHEST: f32 = 26.0;
 
 // How much of a flower's head the grass shows `away` from the eye when it
 // reaches `reach`: all of it close by; none further off, where a head would
@@ -78,6 +83,10 @@ fn grass_colour(p: vec2<f32>, y: f32, woods: f32, heath: f32) -> vec3<f32> {
 // `woods` and `heath` the shares of each there: the grass, then rock, then
 // snow, and a sandy shore.
 fn ground_colour(p: vec2<f32>, y: f32, n: vec3<f32>, woods: f32, heath: f32) -> vec3<f32> {
+    // Under the water it is all mud.
+    if y <= soil.water - 0.3 {
+        return soil.mud.rgb;
+    }
     var c = grass_colour(p, y, woods, heath);
     let grain = perlin(p * 0.21, soil.seed + 82u);
     let steep = 1.0 - n.y;

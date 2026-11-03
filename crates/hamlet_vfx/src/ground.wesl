@@ -194,33 +194,37 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let dx = dpdx(uv);
     let dy = dpdy(uv);
 
-    // The triangle of the grid the point lies in, its three corners and
-    // the weight of each.
-    let grid = uv * 3.4641016;
-    let skewed = vec2<f32>(grid.x, grid.y * 1.1547005 - grid.x * 0.5773503);
-    let base = floor(skewed);
-    let f = fract(skewed);
-    let z = 1.0 - f.x - f.y;
-    let s = step(0.0, -z);
-    let s2 = 2.0 * s - 1.0;
-    let w = vec3<f32>(-z * s2, s - f.y * s2, s - f.x * s2);
-    let a = copy_at(uv, dx, dy, base + vec2<f32>(s, s));
-    let b = copy_at(uv, dx, dy, base + vec2<f32>(s, 1.0 - s));
-    let c = copy_at(uv, dx, dy, base + vec2<f32>(1.0 - s, s));
-
-    // The higher bump takes over near the middle of its corner, so the
-    // blend shows as one ground, not as a smear of three.
-    var k = w * (vec3<f32>(a.z, b.z, c.z) + 0.35);
-    k = k * k * k * k;
-    k = k / (k.x + k.y + k.z);
-    let bump = a * k.x + b * k.y + c * k.z;
-    let blade = bump.w;
-
     // Only where grass grows: rock, the shore and the bed under the water
     // are smooth, which the clear water would otherwise show as a pattern
     // repeating over the sea floor.
     let up = normal.y;
     let grassy = grass_likely(height, up, 0.0);
+
+    // Where none grows the blades leave no mark, so they are not read.
+    var bump = vec4<f32>(0.0, 0.0, 1.0, 0.0);
+    if grassy > 0.0 {
+        // The triangle of the grid the point lies in, its three corners
+        // and the weight of each.
+        let grid = uv * 3.4641016;
+        let skewed = vec2<f32>(grid.x, grid.y * 1.1547005 - grid.x * 0.5773503);
+        let base = floor(skewed);
+        let f = fract(skewed);
+        let z = 1.0 - f.x - f.y;
+        let s = step(0.0, -z);
+        let s2 = 2.0 * s - 1.0;
+        let w = vec3<f32>(-z * s2, s - f.y * s2, s - f.x * s2);
+        let a = copy_at(uv, dx, dy, base + vec2<f32>(s, s));
+        let b = copy_at(uv, dx, dy, base + vec2<f32>(s, 1.0 - s));
+        let c = copy_at(uv, dx, dy, base + vec2<f32>(1.0 - s, s));
+
+        // The higher bump takes over near the middle of its corner, so the
+        // blend shows as one ground, not as a smear of three.
+        var k = w * (vec3<f32>(a.z, b.z, c.z) + 0.35);
+        k = k * k * k * k;
+        k = k / (k.x + k.y + k.z);
+        bump = a * k.x + b * k.y + c * k.z;
+    }
+    let blade = bump.w;
     let rough = mix(ground.calm, 1.0, noise(world / ground.patches)) * grassy;
     let slope = bump.xy * ground.strength * rough * mix(ground.bare, 1.0, blade);
 
@@ -253,8 +257,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let field = smooth_step(BLOOMS - 0.02, BLOOMS + 0.02, blooms_at(world));
         if field > 0.0 {
             cover = painted(world, share * field, pixel);
-            flower = bloom_colour(world);
-            painted_colour = mix(painted_colour, flower, cover);
+            if cover > 0.0 {
+                flower = bloom_colour(world);
+                painted_colour = mix(painted_colour, flower, cover);
+            }
         }
     }
     pbr_input.material.base_color = vec4<f32>(painted_colour, 1.0);

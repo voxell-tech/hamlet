@@ -73,12 +73,42 @@ struct Land {
 }
 
 fn land_at(level: i32, p: vec2<f32>) -> Land {
-    let texel = pages_at.at[level].z;
-    let left = page_at(level, p - vec2<f32>(texel, 0.0)).x;
-    let right = page_at(level, p + vec2<f32>(texel, 0.0)).x;
-    let ahead = page_at(level, p - vec2<f32>(0.0, texel)).x;
-    let behind = page_at(level, p + vec2<f32>(0.0, texel)).x;
-    return Land(page_at(level, p), vec3<f32>(left - right, 2.0 * texel, ahead - behind));
+    let at = pages_at.at[level];
+    let g = (p - at.xy) / at.z;
+    let i = floor(g);
+    let f = g - i;
+    let c = vec2<i32>(i);
+    // The points a texel to each side lie between the same texels shifted
+    // by one, so the twelve about the point's own four serve all five.
+    let a = texel_near(level, c, 0, 0);
+    let b = texel_near(level, c, 1, 0);
+    let d = texel_near(level, c, 0, 1);
+    let e = texel_near(level, c, 1, 1);
+    let left = between(height_near(level, c, -1, 0), a.x, height_near(level, c, -1, 1), d.x, f);
+    let right = between(b.x, height_near(level, c, 2, 0), e.x, height_near(level, c, 2, 1), f);
+    let ahead = between(height_near(level, c, 0, -1), height_near(level, c, 1, -1), a.x, b.x, f);
+    let behind = between(d.x, e.x, height_near(level, c, 0, 2), height_near(level, c, 1, 2), f);
+    let page = mix(mix(a, b, f.x), mix(d, e, f.x), f.y);
+    return Land(page, vec3<f32>(left - right, 2.0 * at.z, ahead - behind));
+}
+
+// The texel `x` across and `y` along from `c` on the page of size `level`,
+// kept on the page.
+fn texel_near(level: i32, c: vec2<i32>, x: i32, y: i32) -> vec3<f32> {
+    let last = vec2<i32>(textureDimensions(pages)) - 1;
+    return texel(level, clamp(c + vec2<i32>(x, y), vec2<i32>(0), last));
+}
+
+// The height of that texel alone.
+fn height_near(level: i32, c: vec2<i32>, x: i32, y: i32) -> f32 {
+    let last = vec2<i32>(textureDimensions(pages)) - 1;
+    let at = clamp(c + vec2<i32>(x, y), vec2<i32>(0), last);
+    return bitcast<f32>(textureLoad(pages, at, level, 0).x);
+}
+
+// The value `f` of the way between four, as `page_at` blends its texels.
+fn between(a: f32, b: f32, d: f32, e: f32, f: vec2<f32>) -> f32 {
+    return mix(mix(a, b, f.x), mix(d, e, f.x), f.y);
 }
 
 // The land at `p` as the page of size `level` has it, or as the first page
@@ -102,8 +132,11 @@ fn seen_land(p: vec2<f32>, pixel: f32) -> Land {
     let level = clamp(log2(pixel / pages_at.at[0].z), 0.0, f32(LEVELS - 2));
     let low = i32(level);
     let fine = held_land(low, p);
-    let coarse = held_land(low + 1, p);
     let t = fract(level);
+    if t == 0.0 {
+        return fine;
+    }
+    let coarse = held_land(low + 1, p);
     return Land(
         mix(fine.page, coarse.page, t),
         mix(normalize(fine.normal), normalize(coarse.normal), t),
