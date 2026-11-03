@@ -36,7 +36,9 @@ use bevy::prelude::*;
 use hamlet_vfx::magic::MagicSettings;
 pub(crate) use hamlet_vfx::magic::glow;
 use hamlet_vfx::water::WaterSettings;
-use hamlet_vfx::{Density, Now, Tints, VfxPlugin, VfxSystems};
+use hamlet_vfx::{
+    Density, Now, NowOffset, Tints, VfxPlugin, VfxSystems,
+};
 
 pub use self::ground::DetailSettings;
 use self::house::HouseSettings;
@@ -218,8 +220,14 @@ fn settle(society: Res<Society>, mut land: ResMut<Land>) {
 }
 
 /// Tells the effects the scene's time.
-fn tell_effects(clock: Res<Clock>, mut now: ResMut<Now>) {
+fn tell_effects(
+    clock: Res<Clock>,
+    time: Res<Time>,
+    mut now: ResMut<Now>,
+    mut offset: ResMut<NowOffset>,
+) {
     now.0 = clock.t;
+    offset.follow(clock.t, time.elapsed_secs_wrapped());
 }
 
 /// The colours of the palette the effects glow in.

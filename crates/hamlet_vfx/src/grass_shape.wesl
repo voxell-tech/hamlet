@@ -13,7 +13,7 @@ import hamlet_vfx::noise::{key, scramble, smooth_step, swell};
 import hamlet_vfx::soil::{
     BLOOMS, bloom_colour, blooms_at, grass_colour, grass_likely, heads_shown, soil,
 };
-import hamlet_vfx::wind::{Wind, strength};
+import hamlet_vfx::wind::{Wind, blowing, strength};
 
 // `GrassUniform` in `grass.rs`; the settings are explained on
 // `GrassSettings` there.
@@ -254,11 +254,11 @@ fn blade(
     // back a little past upright as it eases, each tuft at its own
     // moment. A bent tip comes down a little, as its blade's length is
     // kept.
-    let strong = strength(wind, p);
     let t = grass.sway.y;
+    let strong = strength(wind, p, t);
     let phase = dot(p, vec2<f32>(0.37, 0.23)) + rank * 1.7;
     let gust = 1.5 * strong - 0.55 + 0.25 * sin(t * 2.1 + phase);
-    let flow = vec2<f32>(wind.flow.x, wind.flow.y);
+    let flow = blowing(wind, t);
     let push = grass.sway.x * gust * up * up * rise;
     let sink = 0.5 * push * push / max(rise, 0.05);
     at = vec3<f32>(at.x + flow.x * push, ground + rise - sink, at.z + flow.y * push);

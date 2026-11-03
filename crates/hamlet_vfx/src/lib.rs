@@ -15,6 +15,7 @@ pub mod water;
 pub mod wind;
 
 use bevy::prelude::*;
+use bevy::shader::load_shader_library;
 use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
 
 use self::flag::FlagSettings;
@@ -49,7 +50,9 @@ impl Plugin for VfxPlugin {
             grass::plugin,
             pads::plugin,
         ))
-        .init_resource::<Now>();
+        .init_resource::<Now>()
+        .init_resource::<NowOffset>();
+        load_shader_library!(app, "clock.wesl");
     }
 }
 
@@ -62,6 +65,27 @@ pub struct VfxSystems;
 /// scene's clock sets it.
 #[derive(Resource, Default, Clone, Copy)]
 pub struct Now(pub f32);
+
+/// How far [`Now`] is ahead of the view's time in the shaders, which
+/// `scene_time` in `clock.wesl` adds it to. Whoever sets [`Now`] sets
+/// it, through [`NowOffset::follow`], so that it moves only when the
+/// two clocks part: a material holding it need not change each frame.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
+pub struct NowOffset(pub f32);
+
+impl NowOffset {
+    /// The least the two clocks part by, in seconds, before it moves.
+    const SLACK: f32 = 1e-3;
+
+    /// Follows [`Now`] being `now` while the shaders' time is
+    /// `shaders`.
+    pub fn follow(&mut self, now: f32, shaders: f32) {
+        let next = now - shaders;
+        if (next - self.0).abs() > Self::SLACK {
+            self.0 = next;
+        }
+    }
+}
 
 /// The share of the particles asked for that are made. At 0 there
 /// are none.

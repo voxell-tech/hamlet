@@ -73,22 +73,30 @@ impl WindSettings {
     /// How hard the wind blows at `at` on the ground at `now`, from
     /// the calm share to 1. The same as `strength` in `wind.wesl`.
     pub fn strength(&self, at: Vec2, now: f32) -> f32 {
-        self.uniform(now).strength(at)
+        self.uniform().strength(at, now)
     }
 
-    /// What the shaders are told of the wind at `now`.
-    pub fn uniform(&self, now: f32) -> WindUniform {
-        let way = self.blowing(now);
+    /// What the shaders are told of the wind, from which they find
+    /// it at any time.
+    pub fn uniform(&self) -> WindUniform {
         let across = 1.0 / self.band.0.max(1e-3);
         // The bands roll along the wind's mean heading: by its
         // veering one, scaled by the time, they would swing ever
         // faster sideways.
         let mean = self.heading.to_radians();
-        let rolled = Vec2::new(mean.sin(), mean.cos())
-            * (now * self.band.1 * across);
         WindUniform {
-            flow: Vec4::new(way.sin(), way.cos(), now, self.calm),
-            scale: Vec4::new(across, 0.0, rolled.x, rolled.y),
+            flow: Vec4::new(
+                mean,
+                (self.veer * 0.5).to_radians(),
+                0.0,
+                self.calm,
+            ),
+            scale: Vec4::new(
+                across,
+                self.band.1 * across,
+                mean.sin(),
+                mean.cos(),
+            ),
         }
     }
 }
@@ -101,8 +109,9 @@ pub struct WindUniform {
 }
 
 impl WindUniform {
-    fn strength(&self, at: Vec2) -> f32 {
-        let rolled = Vec2::new(self.scale.z, self.scale.w);
+    fn strength(&self, at: Vec2, now: f32) -> f32 {
+        let rolled = Vec2::new(self.scale.z, self.scale.w)
+            * (now * self.scale.y);
         let band = 0.5 + 0.5 * fbm(at * self.scale.x - rolled);
         let gust = smoothstep(0.3, 0.75, band);
         self.flow.w + (1.0 - self.flow.w) * gust

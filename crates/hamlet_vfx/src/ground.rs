@@ -122,7 +122,7 @@ pub struct BloomsUniform {
     pub grow: Vec4,
     /// How brightly they glow, as far into the night as it is; the
     /// breadth of the patches their glow swells in; how fast those
-    /// drift; and the time, which is still while they do not glow.
+    /// drift; and [`NowOffset`](crate::NowOffset).
     pub glow: Vec4,
 }
 

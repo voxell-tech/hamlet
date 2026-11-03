@@ -18,7 +18,7 @@ use bevy::render::render_resource::{
 use bevy::shader::{ShaderRef, load_shader_library};
 
 use crate::wind::{WindSettings, WindUniform};
-use crate::{Now, VfxSystems};
+use crate::{NowOffset, VfxSystems};
 
 pub type LeafMaterial = ExtendedMaterial<StandardMaterial, LeafExt>;
 
@@ -96,7 +96,7 @@ impl LeafUniform {
     fn new(
         set: &LeafSettings,
         view: &LeafView,
-        now: f32,
+        offset: NowOffset,
         sways: bool,
     ) -> Self {
         let moves = if sways { 1.0 } else { 0.0 };
@@ -105,7 +105,7 @@ impl LeafUniform {
         let (shade, rim) = (linear(set.shade), linear(set.rim));
         Self {
             sway: Vec4::new(
-                now,
+                offset.0,
                 set.bend * moves,
                 set.rock,
                 set.flutter * moves,
@@ -196,7 +196,7 @@ fn material(
             leaves: LeafUniform::new(
                 set,
                 &LeafView::default(),
-                0.0,
+                NowOffset::default(),
                 sways,
             ),
             wind: WindUniform::default(),
@@ -207,31 +207,30 @@ fn material(
 }
 
 /// Passes the time, the wind and the [`LeafView`] to the materials.
+/// A material is changed only when what it holds is: every tree it
+/// is on is made anew for the renderer when it changes.
 fn sway(
-    now: Res<Now>,
+    offset: Res<NowOffset>,
     set: Res<LeafSettings>,
     view: Res<LeafView>,
     wind: Res<WindSettings>,
     mut materials: ResMut<Assets<LeafMaterial>>,
-    mut told: Local<Option<f32>>,
 ) {
-    if told.replace(now.0) == Some(now.0)
-        && !set.is_changed()
-        && !view.is_changed()
-        && !wind.is_changed()
-    {
-        return;
-    }
-    let blowing = wind.uniform(now.0);
-    for (_, leaves) in materials.iter_mut() {
+    let blowing = wind.uniform();
+    let ids = materials.ids().collect::<Vec<_>>();
+    for id in ids {
+        let Some(leaves) = materials.get(id) else {
+            continue;
+        };
         let next = LeafUniform::new(
             &set,
             &view,
-            now.0,
+            *offset,
             leaves.extension.sways,
         );
-        if leaves.extension.leaves != next
-            || leaves.extension.wind != blowing
+        if (leaves.extension.leaves != next
+            || leaves.extension.wind != blowing)
+            && let Some(mut leaves) = materials.get_mut(id)
         {
             leaves.extension.leaves = next;
             leaves.extension.wind = blowing.clone();

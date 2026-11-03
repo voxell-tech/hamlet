@@ -34,7 +34,7 @@ use crate::ground::{
 };
 use crate::leaves::LeafView;
 use crate::wind::{WindSettings, WindUniform};
-use crate::{Now, VfxSystems};
+use crate::{Now, NowOffset, VfxSystems};
 
 /// Shapes of tuft. `SHAPES` in `grass_shape.wesl`.
 pub const SHAPES: usize = 8;
@@ -248,8 +248,7 @@ impl GrassUniform {
 
     /// The flowers the ground paints where these are too small to
     /// show.
-    pub fn blooms(&self) -> BloomsUniform {
-        let glows = self.glow.x > 0.0;
+    pub fn blooms(&self, offset: NowOffset) -> BloomsUniform {
         BloomsUniform {
             grow: Vec4::new(
                 self.grow.z,
@@ -257,11 +256,7 @@ impl GrassUniform {
                 self.grow.x,
                 0.0,
             ),
-            glow: self.glow.truncate().extend(if glows {
-                self.sway.y
-            } else {
-                0.0
-            }),
+            glow: self.glow.truncate().extend(offset.0),
         }
     }
 
@@ -595,7 +590,7 @@ fn sway(
         current.mask_at,
     );
     grass.grass = next;
-    grass.wind = wind.uniform(now.0);
+    grass.wind = wind.uniform();
 }
 
 /// A number from 0 to 1 that follows from `i` and `k` alone.

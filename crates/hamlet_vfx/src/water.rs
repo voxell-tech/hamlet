@@ -25,7 +25,7 @@ use bevy::window::RequestRedraw;
 
 use crate::ground::{PagesUniform, blank_pages};
 use crate::wind::WindSettings;
-use crate::{Now, VfxSystems};
+use crate::{Now, NowOffset, VfxSystems};
 
 pub type WaterMaterial = ExtendedMaterial<StandardMaterial, WaterExt>;
 
@@ -145,7 +145,8 @@ pub struct WaterUniform {
     /// The foam's `fade`, and the share of `MIRROR_STEPS` in
     /// `water.wesl` a reflection is walked in.
     pub foam: Vec4,
-    /// The time, `scale` and `bend`.
+    /// [`NowOffset`], from which the shaders find the time, `scale`
+    /// and `bend`.
     pub time: Vec4,
     /// `calm`, `soft` and `normals`.
     pub calm: Vec4,
@@ -510,6 +511,7 @@ const TURN: f32 = 2.0;
 /// in view.
 pub(crate) fn flow(
     now: Res<Now>,
+    offset: Res<NowOffset>,
     set: Res<WaterSettings>,
     wind: Res<WindSettings>,
     waves: Query<&ViewVisibility, With<Waves>>,
@@ -523,7 +525,7 @@ pub(crate) fn flow(
     {
         return;
     }
-    let time = Vec4::new(now.0, set.scale, set.bend, 0.0);
+    let time = Vec4::new(offset.0, set.scale, set.bend, 0.0);
     // The waves run the way the wind settles on, not as it veers: the
     // whole sea turning with it would sweep its far waves round. When
     // that way changes, they turn to it slowly.
@@ -536,10 +538,14 @@ pub(crate) fn flow(
     *heading = Some(turned);
     let (x, z) = turned.to_radians().sin_cos();
     let way = Vec4::new(x, z, 0.0, 0.0);
-    for (_, water) in materials.iter_mut() {
-        if water.extension.water.time != time
-            || water.extension.water.wind != way
-        {
+    // A material is changed only when what it holds is.
+    let ids = materials.ids().collect::<Vec<_>>();
+    for id in ids {
+        let changed = materials.get(id).is_some_and(|water| {
+            water.extension.water.time != time
+                || water.extension.water.wind != way
+        });
+        if changed && let Some(mut water) = materials.get_mut(id) {
             water.extension.water.time = time;
             water.extension.water.wind = way;
         }

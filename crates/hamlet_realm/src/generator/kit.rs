@@ -212,9 +212,13 @@ pub(super) fn repaint(
     mut grounds: ResMut<Assets<GroundMaterial>>,
     mut waters: ResMut<Assets<WaterMaterial>>,
 ) {
+    // Each material is changed only when what it holds is: its whole
+    // ground or water is made anew for the renderer when it changes.
     let soil = land.soil();
-    if let Some(mut ground) = grounds.get_mut(&kit.ground)
-        && ground.extension.soil != soil
+    if grounds
+        .get(&kit.ground)
+        .is_some_and(|ground| ground.extension.soil != soil)
+        && let Some(mut ground) = grounds.get_mut(&kit.ground)
     {
         ground.extension.soil = soil;
     }
@@ -233,8 +237,8 @@ pub(super) fn repaint(
         foam: fresh.foam.with_z(quality.mirror()),
         ..fresh
     };
-    if let Some(mut water) = waters.get_mut(&kit.water)
-        && water.extension.water != uniform
+    if now != uniform
+        && let Some(mut water) = waters.get_mut(&kit.water)
     {
         water.extension.water = uniform;
     }

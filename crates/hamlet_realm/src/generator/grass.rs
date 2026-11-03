@@ -7,6 +7,7 @@
 use bevy::camera::primitives::Frustum;
 use bevy::camera::visibility::VisibilitySystems;
 use bevy::prelude::*;
+use hamlet_vfx::NowOffset;
 use hamlet_vfx::grass::{self, Grass, GrassReach, GrassSettings};
 use hamlet_vfx::ground::GroundMaterial;
 
@@ -67,6 +68,7 @@ fn begin(
 fn follow(
     grass: Option<ResMut<Grass>>,
     kit: Option<Res<Kit>>,
+    offset: Res<NowOffset>,
     mut grounds: ResMut<Assets<GroundMaterial>>,
 ) {
     let (Some(mut grass), Some(kit)) = (grass, kit) else {
@@ -75,7 +77,7 @@ fn follow(
     let Some(ground) = grounds.get(&kit.ground) else {
         return;
     };
-    let blooms = grass.grass.blooms();
+    let blooms = grass.grass.blooms(*offset);
     if ground.extension.blooms != blooms
         && let Some(mut ground) = grounds.get_mut(&kit.ground)
     {

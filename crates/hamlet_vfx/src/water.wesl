@@ -22,6 +22,7 @@ import bevy_pbr::{
     },
     prepass::utils::prepass_depth,
 };
+import hamlet_vfx::clock::scene_time;
 import hamlet_vfx::patch::slid;
 import hamlet_vfx::shore::{PageCell, coast_at, page_cell, pages_at};
 import hamlet_vfx::waves::{
@@ -70,7 +71,7 @@ const FAR_TILT: f32 = 0.05;
 
 // How far the waves move the point `pos` metres across.
 fn moved(pos: vec2<f32>) -> vec3<f32> {
-    return wave(noise, noise_sampler, shore_at(pos), pos, water.time.x, water.time.y, water.wind.xy);
+    return wave(noise, noise_sampler, shore_at(pos), pos, scene_time(water.time.x), water.time.y, water.wind.xy);
 }
 
 @vertex
@@ -141,7 +142,7 @@ fn held(fresh: f32, age: f32, decay: f32, eaten: f32) -> f32 {
 // `allowed` how much the noise lets be born, above zero.
 fn worked_foam(pos: vec2<f32>, allowed: f32, least: f32, near: Coast, kept: array<vec2<f32>, 5>) -> f32 {
     let world_uv = pos / 15.0;
-    let t = water.time.x;
+    let t = scene_time(water.time.x);
     let scale = water.time.y;
     let p = pos / scale;
     let downwind = water.wind.xy;
@@ -382,7 +383,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 @else
     let carried = vec4<f32>(in.world_position.xz, 0.0, 0.0);
     let world_xz = carried.xy;
-    let t = water.time.x;
+    let t = scene_time(water.time.x);
     let scale = water.time.y;
     let p = world_xz / scale;
     let downwind = water.wind.xy;

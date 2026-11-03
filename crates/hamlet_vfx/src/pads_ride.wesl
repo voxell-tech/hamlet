@@ -2,6 +2,7 @@
 // water's waves do to the surface under it, and the strokes it is cut to.
 
 import bevy_pbr::render::mesh_view_bindings::view;
+import hamlet_vfx::clock::scene_time;
 import hamlet_vfx::shore::coast_at;
 import hamlet_vfx::waves::{Coast, wave};
 
@@ -46,7 +47,7 @@ struct Ride {
 // the still point `p`, with the shore as it bears at `near`, which must be
 // found at `p` itself: near it the waves' phase is the distance to it.
 fn surface(p: vec2<f32>, near: Coast, kept: f32) -> vec3<f32> {
-    let lift = wave(noise, noise_sampler, near, p, water.time.x, water.time.y, water.wind.xy);
+    let lift = wave(noise, noise_sampler, near, p, scene_time(water.time.x), water.time.y, water.wind.xy);
     return vec3<f32>(p.x, 0.0, p.y) + lift * kept;
 }
 

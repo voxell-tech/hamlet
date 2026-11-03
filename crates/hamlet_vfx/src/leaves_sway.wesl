@@ -2,11 +2,12 @@
 // tree's shadow and depth move with it, and which of their pixels are
 // cut away, so its depth and shadow have the same holes.
 
-import hamlet_vfx::wind::{Wind, strength};
+import hamlet_vfx::clock::scene_time;
+import hamlet_vfx::wind::{Wind, blowing, strength};
 
 // The fields are explained on `LeafSettings` in `leaves.rs`.
 struct Leaves {
-    // x: time in seconds. y: `bend`, 0 for leaves that keep still. z:
+    // x: `NowOffset`. y: `bend`, 0 for leaves that keep still. z:
     // `rock`. w: `flutter`, 0 for leaves that keep still.
     sway: vec4<f32>,
     // x: `shiver`. y: `glow`. z: `sky`. w: how far into the night it is.
@@ -59,16 +60,17 @@ fn blown(
     bent: f32,
     shaken: f32,
 ) -> vec3<f32> {
-    let strong = strength(wind, foot);
+    let t = scene_time(leaves.sway.x);
+    let strong = strength(wind, foot, t);
     let own = foot.x * 0.37 + foot.y * 0.23;
-    let t = leaves.sway.x;
     let rock = leaves.sway.z;
     let lean = leaves.sway.y * strong
         * (0.7 + 0.3 * sin(t * rock + own));
     let side = leaves.sway.y * strong * 0.25
         * sin(t * rock * 0.71 + own * 1.9);
-    let down = vec3<f32>(wind.flow.x, 0.0, wind.flow.y);
-    let across = vec3<f32>(-wind.flow.y, 0.0, wind.flow.x);
+    let way = blowing(wind, t);
+    let down = vec3<f32>(way.x, 0.0, way.y);
+    let across = vec3<f32>(-way.y, 0.0, way.x);
     // A bent top comes down a little, as its length is kept.
     let sink = -0.5 * (lean * lean + side * side) / CROWN;
     var moved = (down * lean + across * side + vec3<f32>(0.0, sink, 0.0)) * bent;

@@ -10,6 +10,7 @@ import bevy_pbr::render::{
     forward_io::{Vertex, VertexOutput, FragmentOutput, decompress_vertex},
     view_transformations::position_world_to_clip,
 };
+import hamlet_vfx::clock::scene_time;
 import hamlet_vfx::leaves_sway::{is_cut, stroke_cover};
 import hamlet_vfx::noise::swell;
 import hamlet_vfx::pads_ride::{ride, ridden, turned, strokes, strokes_sampler, water};
@@ -50,7 +51,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // The flower is marked by its colour's alpha being 0.
     let flower = 1.0 - in.color.a;
     if glow.x > 0.0 && flower > 0.0 {
-        let shine = glow.x * swell(in.world_position.xz, glow.y, water.time.x * glow.z);
+        let shine = glow.x * swell(in.world_position.xz, glow.y, scene_time(water.time.x) * glow.z);
         out.color = vec4<f32>(out.color.rgb + in.color.rgb * shine * flower, out.color.a);
     }
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);

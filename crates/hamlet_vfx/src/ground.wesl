@@ -27,6 +27,7 @@ import bevy_pbr::render::{
     view_transformations::position_world_to_clip,
 };
 import hamlet_vfx::ground_shape::{ground_point, seen_land};
+import hamlet_vfx::clock::scene_time;
 import hamlet_vfx::noise::{key, scramble, smooth_step, swell};
 import hamlet_vfx::soil::{
     BLOOMS, bloom_colour, blooms_at, grass_likely, ground_colour, heads_shown, soil,
@@ -52,7 +53,7 @@ struct Blooms {
     grow: vec4<f32>,
     // x: how brightly they glow, as far into the night as it is. y: the
     // breadth of the patches their glow swells in. z: how fast those drift.
-    // w: the time.
+    // w: `NowOffset`.
     glow: vec4<f32>,
 }
 
@@ -269,7 +270,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     out.color = apply_pbr_lighting(pbr_input);
     // At night they glow as the grass's flowers do.
     if blooms.glow.x > 0.0 && cover > 0.0 {
-        let shine = blooms.glow.x * swell(world, blooms.glow.y, blooms.glow.w * blooms.glow.z);
+        let shine = blooms.glow.x * swell(world, blooms.glow.y, scene_time(blooms.glow.w) * blooms.glow.z);
         out.color = vec4<f32>(out.color.rgb + flower * shine * cover, out.color.a);
     }
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
