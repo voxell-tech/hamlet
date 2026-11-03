@@ -67,7 +67,7 @@ fn fbm(p: vec2<f32>, octaves: u32, seed: u32) -> f32 {
 // How swollen a glow is at `p` on the map, from 0.25 to 1, in patches
 // `breadth` metres across that have drifted `drifted` metres: on gradient
 // noise of its own seeds, two layers drifting different ways so the patches
-// change shape and do not merely slide.
+// change shape.
 fn swell(p: vec2<f32>, breadth: f32, drifted: f32) -> f32 {
     let q = p / breadth;
     let t = drifted / breadth;

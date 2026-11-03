@@ -1,14 +1,13 @@
 //! The grass's two passes. Before the cameras draw,
-//! `grass_place.wesl` looks at every place a tuft might stand about
-//! the eye and lists each it keeps under its shape and detail,
-//! counting each list into the arguments of its own draw. Then, in
-//! each camera's opaque pass, each list is drawn as many times as it
+//! `grass_place.wesl` checks every place a tuft might stand about the
+//! eye and lists each it keeps under its shape and detail, counting
+//! each list into the arguments of its own draw. Then, in each
+//! camera's opaque pass, each list is drawn as many times as it
 //! holds, as `grass.wesl` has it: the world never learns how many
 //! tufts there are.
 //!
-//! The grass is lit as everything else is, through the mesh
-//! pipeline's view bindings, but has no material and is not in the
-//! depth prepass.
+//! The grass takes the mesh pipeline's view bindings for its
+//! lighting, has no material and is not in the depth prepass.
 
 use bevy::core_pipeline::core_3d::{
     Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey,
@@ -77,7 +76,7 @@ const CAPACITY: u32 = 8192;
 /// in it, its tuft's first index and first point, and its first tuft.
 const ARGUMENTS: usize = 5;
 
-/// Places a tuft might stand that the pass looks at together, along
+/// Places a tuft might stand that the pass checks together, along
 /// each side. `@workgroup_size` of `place` in `grass_place.wesl`.
 const GROUP: u32 = 8;
 
@@ -107,8 +106,8 @@ pub(super) fn plugin(app: &mut App) {
 }
 
 /// What the pass reads besides the grass, as `Place` in
-/// `grass_place.wesl`: the place on the map, in tufts, its first look
-/// is at, how many it looks at each way, and the planes the eye sees
+/// `grass_place.wesl`: the first place the pass checks, on the map in
+/// tufts, how many it checks each way, and the planes the eye sees
 /// between.
 #[derive(ShaderType, Clone, Default)]
 struct PlaceInput {
@@ -193,7 +192,7 @@ fn start(
             ),
         ),
     );
-    // Embedded beside `grass.rs`, not in this module's own folder.
+    // Embedded from `grass.rs`.
     let shader =
         assets.load("embedded://hamlet_vfx/grass_place.wesl");
     let step = |entry: &'static str| {
@@ -292,7 +291,7 @@ struct Lists {
     firsts: DynamicUniformBuffer<First>,
     /// Each list's offset into `firsts`.
     offsets: Vec<u32>,
-    /// How many places the pass looks at each way.
+    /// How many places the pass checks each way.
     size: UVec2,
     /// Made each frame once all they bind is ready, and kept while
     /// any of it is missing.
@@ -317,7 +316,7 @@ fn prepare(
         Some(lists) if !tufts.is_changed() => lists,
         _ => {
             if let Some(lists) =
-                made(&tufts, &mut layouts, &device, &queue)
+                build_lists(&tufts, &mut layouts, &device, &queue)
             {
                 commands.insert_resource(lists);
             }
@@ -351,7 +350,7 @@ fn prepare(
 
 /// The lists for `tufts`: their tufts' points and indices one after
 /// another, and empty lists.
-fn made(
+fn build_lists(
     tufts: &GrassTufts,
     layouts: &mut MeshVertexBufferLayouts,
     device: &RenderDevice,
@@ -444,8 +443,7 @@ fn bind(
     };
     let lists = &mut *lists;
     // While the pages or the mask are made anew they may be missing
-    // for a frame: last frame's bindings are kept, rather than none
-    // drawn.
+    // for a frame; last frame's bindings are kept.
     let (Some(pages), Some(mask)) =
         (images.get(&grass.pages), images.get(&grass.mask))
     else {
@@ -542,9 +540,9 @@ fn place(
     compute.dispatch_workgroups(1, 1, 1);
 }
 
-/// Puts the grass in each camera's opaque pass, anew each frame, so
-/// that it is drawn with the pipeline the view now calls for, and
-/// takes it out when it is not drawn.
+/// Puts the grass in each camera's opaque pass each frame, with the
+/// pipeline the view calls for, and takes it out when it is not
+/// drawn.
 fn queue(
     grass: Option<Res<Grass>>,
     lists: Option<Res<Lists>>,

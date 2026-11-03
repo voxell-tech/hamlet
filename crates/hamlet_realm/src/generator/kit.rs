@@ -15,7 +15,7 @@ use hamlet_vfx::water::{
     self, WaterMaterial, WaterSettings, WaterUniform,
 };
 
-use super::flora::plants::{PAD_LOOKS, pad_mesh};
+use super::flora::plants::{PAD_KINDS, pad_mesh};
 use super::land::Land;
 use super::loading::Bed;
 use super::{Tally, traffic, yard};
@@ -58,7 +58,7 @@ pub(super) struct Kit {
     pub(super) leaves: Handle<LeafMaterial>,
     pub(super) still_leaves: Handle<LeafMaterial>,
     /// The lily pads, riding the water's waves, and a mesh for each
-    /// look of [`PAD_LOOKS`].
+    /// of [`PAD_KINDS`].
     pub(super) pad: Handle<PadMaterial>,
     pub(super) pads: Vec<Handle<Mesh>>,
     pub(super) groove: Handle<InlayMaterial>,
@@ -166,8 +166,8 @@ pub(super) fn setup(
         still_leaves: leaves.still.clone(),
         pad: pad_materials
             .add(pads::material(&mut images, leaves.strokes.clone())),
-        pads: (0..PAD_LOOKS)
-            .map(|look| meshes.add(pad_mesh(&pal, look)))
+        pads: (0..PAD_KINDS)
+            .map(|kind| meshes.add(pad_mesh(&pal, kind)))
             .collect(),
         groove,
     });
@@ -224,7 +224,7 @@ pub(super) fn repaint(
         return;
     };
     let fresh = WaterUniform::new(&flow);
-    let look = WaterUniform {
+    let uniform = WaterUniform {
         time: now.time,
         wind: now.wind,
         sky: LinearRgba::from(sky.look.haze)
@@ -234,9 +234,9 @@ pub(super) fn repaint(
         ..fresh
     };
     if let Some(mut water) = waters.get_mut(&kit.water)
-        && water.extension.water != look
+        && water.extension.water != uniform
     {
-        water.extension.water = look;
+        water.extension.water = uniform;
     }
 }
 

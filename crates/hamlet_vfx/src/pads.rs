@@ -1,7 +1,6 @@
 //! Lily pads: leaves lying on the water, painted with the leaves'
-//! strokes and cut to them, each riding the water's waves as one, as
-//! they move the water's surface at its middle. At night their
-//! flowers glow.
+//! strokes and cut to them, each riding the waves at its middle. At
+//! night their flowers glow.
 
 use bevy::asset::embedded_asset;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
@@ -44,9 +43,8 @@ impl PadSettings {
     }
 }
 
-/// What a pad rides and is painted with: the water's waves, as
-/// [`WaterExt`] has them, which the world keeps the same as the
-/// water's, and the leaves' strokes; and how it glows.
+/// The water's waves, as [`WaterExt`] has them, the leaves' strokes
+/// and the pads' glow.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 pub struct PadExt {
     #[uniform(100)]
@@ -102,10 +100,9 @@ impl MaterialExtension for PadExt {
         false
     }
 
-    // A pad rides the waves only as far as they are from the eye,
-    // which the sun's shadow pass would take to be the sun: its
-    // shadow would lie still under the pad as the pad rose and fell
-    // through it.
+    // A pad rides by its distance from the eye, which the shadow
+    // pass takes to be the sun, so its shadow would lie still while
+    // the pad rose and fell through it.
     fn enable_shadows() -> bool {
         false
     }

@@ -21,6 +21,7 @@ struct Soil {
     dirt_shade: vec4<f32>,
     mud: vec4<f32>,
     flowers: array<vec4<f32>, 5>,
+    flower_heart: vec4<f32>,
     water: f32,
     seed: u32,
 }

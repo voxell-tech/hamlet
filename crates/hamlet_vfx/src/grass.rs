@@ -1,16 +1,16 @@
 //! Grass: a meadow of tufts about the eye. Each tuft is one of a few
 //! shapes made at random when the grass is made, a clump of curved
 //! blades leaning out from its middle, at each of a few details. The
-//! GPU does the rest, in `draw`: a pass looks at every place a tuft
+//! GPU does the rest, in `draw`: a pass checks every place a tuft
 //! might stand about the eye, keeps those that grow there, are near
 //! enough to keep and in sight, and lists each under its shape and
 //! the detail its distance calls for; then each list is drawn as many
 //! times as it holds. A tuft takes the ground's own colour, darker at
-//! its roots and lighter to its tips, and is lit as the ground under
-//! it is, so that tufts crowding one another read as one soft
-//! surface. None grows on whatever a mask marks trodden, it shrinks
-//! toward the edge of the eye's reach, and it bends in the wind's
-//! gusts.
+//! its roots and lighter to its tips, and is shaded with the normal
+//! of the ground under it, so that tufts crowding one another read as
+//! one soft surface. None grows on whatever a mask marks trodden, it
+//! shrinks toward the edge of the eye's reach, and it bends in the
+//! wind's gusts.
 
 mod draw;
 
@@ -36,10 +36,10 @@ use crate::leaves::LeafView;
 use crate::wind::{WindSettings, WindUniform};
 use crate::{Now, VfxSystems};
 
-/// Shapes of tuft there are, and how many of the last are flowers,
-/// which grow where the grass flowers. `SHAPES` and `FLOWERS` in
-/// `grass_shape.wesl`.
+/// Shapes of tuft. `SHAPES` in `grass_shape.wesl`.
 pub const SHAPES: usize = 8;
+/// The last of the [`SHAPES`] that are flowers, which grow where the
+/// grass flowers. `FLOWERS` in `grass_shape.wesl`.
 pub const FLOWERS: usize = 2;
 /// Details each tuft is made in, the finest first. `DETAILS` in
 /// `grass_shape.wesl`.
@@ -111,8 +111,7 @@ pub struct GrassSettings {
     pub rings: [f32; 3],
 }
 
-/// What the grass is drawn from, as the world last told it: the
-/// GPU's to read each frame, as `grass_shape.wesl` binds it.
+/// What the grass is drawn from, as the world last told it.
 #[derive(Resource, ExtractResource, Clone)]
 #[extract_app(RenderApp)]
 pub struct Grass {
@@ -180,7 +179,7 @@ pub struct GrassTufts(pub Vec<Mesh>);
 pub struct GrassUniform {
     pub grow: Vec4,
     pub size: Vec4,
-    pub look: Vec4,
+    pub shade: Vec4,
     pub sway: Vec4,
     pub glow: Vec4,
     pub thin: Vec4,
@@ -206,9 +205,8 @@ pub struct GrassReach {
 }
 
 impl GrassUniform {
-    /// The uniform for `set`, at the time `now`, `night` of the way
-    /// into the night, drawn as far as `reach` has it, with the mask
-    /// laid at `mask_at`.
+    /// The uniform for `set` at the time `now`, `night` of the way
+    /// into the night, with the mask laid at `mask_at`.
     pub fn new(
         set: &GrassSettings,
         now: f32,
@@ -234,7 +232,7 @@ impl GrassUniform {
                 set.up.0,
                 set.up.1,
             ),
-            look: Vec4::new(set.root, set.tip, set.sun, set.sheen),
+            shade: Vec4::new(set.root, set.tip, set.sun, set.sheen),
             sway: Vec4::new(set.bend, now, 0.0, 0.0),
             glow: Vec4::new(
                 set.glow * night,
@@ -394,8 +392,8 @@ fn tuft(
 
     for i in 0..blades {
         // A flower's stems are ranked under its blades.
-        let own = if flower { 0.2 + 0.8 * r(i, 9) } else { r(i, 9) };
-        if own >= share {
+        let rank = if flower { 0.2 + 0.8 * r(i, 9) } else { r(i, 9) };
+        if rank >= share {
             continue;
         }
         // Thicker toward the middle.
@@ -418,7 +416,7 @@ fn tuft(
             across: (side * twist.cos() + way * twist.sin())
                 .normalize(),
             wide: set.wide * (0.75 + 0.5 * r(i, 6)),
-            own,
+            rank,
         });
     }
 
@@ -430,8 +428,8 @@ fn tuft(
     let stems = 3 + (r(0, 20) * 2.0) as u32;
     for k in 0..stems {
         let i = 100 + k;
-        let own = 0.2 * r(i, 9);
-        if own >= share {
+        let rank = 0.2 * r(i, 9);
+        if rank >= share {
             continue;
         }
         let turn = (k as f32 + r(i, 1) * 0.6) / stems as f32 * TAU;
@@ -444,7 +442,7 @@ fn tuft(
             lean_way: way,
             across: side,
             wide: set.wide * 0.45,
-            own,
+            rank,
         });
         if detail + 1 < DETAILS {
             let size = 0.075 * (0.8 + 0.4 * r(i, 10));
@@ -456,7 +454,7 @@ fn tuft(
                 r(i, 13) * 0.6,
             );
             let petals = if detail == 0 { 5 } else { 0 };
-            built.head(tip, size, facing, turn, petals, own);
+            built.head(tip, size, facing, turn, petals, rank);
         }
     }
 }
@@ -473,7 +471,7 @@ struct Blade {
     across: Vec3,
     wide: f32,
     /// Its rank.
-    own: f32,
+    rank: f32,
 }
 
 impl Built {
@@ -490,7 +488,7 @@ impl Built {
             lean_way,
             across,
             wide,
-            own,
+            rank,
         } = blade;
         let centre = |t: f32| {
             root + lean_way * (lean * height * t * t)
@@ -500,7 +498,7 @@ impl Built {
         let mut push = |t: f32, off: Vec3| {
             self.positions.push(centre(t).to_array());
             self.normals.push([0.0, 1.0, 0.0]);
-            self.uvs.push([t, own]);
+            self.uvs.push([t, rank]);
             self.colours.push([off.x, off.y, off.z, 1.0]);
         };
         for t in RISE {
@@ -529,14 +527,14 @@ impl Built {
         facing: Quat,
         turn: f32,
         petals: u32,
-        own: f32,
+        rank: f32,
     ) {
         let rim = if petals > 0 { petals * 2 } else { 5 };
         let first = self.positions.len() as u32;
         let mut point = |out: Vec3| {
             self.positions.push(at.to_array());
             self.normals.push([0.0, 1.0, 0.0]);
-            self.uvs.push([1.0, own]);
+            self.uvs.push([1.0, rank]);
             self.colours.push([out.x, out.y, out.z, 0.0]);
         };
         point(Vec3::ZERO);
@@ -576,8 +574,8 @@ fn shape(
     }
 }
 
-/// Tells the grass the time, the wind, how far into the night it is,
-/// as the leaves are told, and its settings.
+/// Gives the grass the time, the wind, how far into the night it is
+/// and its settings.
 fn sway(
     now: Res<Now>,
     set: Res<GrassSettings>,
@@ -588,13 +586,13 @@ fn sway(
     let Some(mut grass) = grass else {
         return;
     };
-    let was = &grass.grass;
+    let current = &grass.grass;
     let next = GrassUniform::new(
         &set,
         now.0,
         view.night,
-        was.reach(),
-        was.mask_at,
+        current.reach(),
+        current.mask_at,
     );
     grass.grass = next;
     grass.wind = wind.uniform(now.0);

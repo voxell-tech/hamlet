@@ -221,10 +221,8 @@ fn texel(cell: f32, level: usize) -> f32 {
     cell * (1u32 << level) as f32
 }
 
-/// Where the pages are laid about the eye and the ground and the
-/// water told where they lie. Whatever takes where they lie from the
-/// ground or the water runs after it, or for a frame it reads the new
-/// pages where the old ones lay.
+/// Laying the pages and telling the ground and the water where they
+/// lie. What reads where they lie from either runs after it.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct PagesLaid;
 

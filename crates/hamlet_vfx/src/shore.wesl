@@ -1,7 +1,6 @@
 // The land's pages as what floats on the water reads them: the height of
 // the ground and the distance out from the shore about a point, and how
-// the shore bears on the waves there. Shared by the water and the lily pads
-// riding it, so the two rise and fall as one.
+// the shore bears on the waves there.
 
 import hamlet_vfx::ground_shape::Pages;
 import hamlet_vfx::waves::{SHORE_REACH, Coast, coast};

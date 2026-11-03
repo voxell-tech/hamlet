@@ -20,7 +20,7 @@ use crate::palette::Palette;
 /// one in autumn and one in blossom, then conifers, the snowy one
 /// last.
 pub(crate) const KINDS: usize = 9;
-const BROADLEAVES: usize = 6;
+pub(crate) const BROADLEAVES: usize = 6;
 const AUTUMN: usize = 4;
 pub(crate) const BLOSSOM: usize = 5;
 /// Meshes of each kind, alike in kind and each its own shape.
@@ -77,7 +77,7 @@ pub fn mesh(pal: &Palette, form: usize) -> Mesh {
 
 /// A card painted with `stroke`: its top edge's middle at `top`, the
 /// stroke running down along `down` and as wide as `across`. It faces
-/// `across` crossed with `down`, and is lit from that side.
+/// `across` crossed with `down`.
 fn card(
     meshing: &mut Meshing,
     top: Vec3,
@@ -402,8 +402,7 @@ pub fn trees(
     out
 }
 
-/// The share of broadleaves in blossom at `p`: a few about the
-/// hamlets, where people would have planted them, and fewer wild.
+/// The share of broadleaves in blossom at `p`: more near a town.
 fn blossoms(land: &Land, p: Vec2) -> f32 {
     let out = land.site_dist(p) - land.set.town.radius;
     0.02 + 0.3 * smoothstep(40.0, 8.0, out)
@@ -428,8 +427,7 @@ fn leaves(pal: &Palette, kind: usize) -> (Vec3, Vec3) {
 }
 
 /// Many trees as one mesh, for where they are too far to tell
-/// apart: each a crown with no trunk, of a few faces, or with
-/// `crowns` off a mere speck.
+/// apart: each a crown with no trunk, or with `crowns` off a speck.
 pub(crate) fn canopy(
     pal: &Palette,
     trees: &[Tree],
@@ -462,7 +460,7 @@ pub(crate) fn canopy(
                 ),
                 (false, false) => (3.4, &[(1.5, 1.7)], 4),
             };
-        // Faced out from the crown's middle, so it is lit round.
+        // Normals point out from the crown's middle.
         let middle = tree.at + Vec3::Y * tip * 0.62 * s;
         let top =
             meshing.v(tree.at + Vec3::Y * tip * s, Vec3::Y, light);
@@ -496,9 +494,8 @@ pub(crate) fn canopy(
     meshing.build()
 }
 
-/// The leaves fallen about `trees`, lying on the land: a ring of
-/// dabs about each tree a little past its crown, some kept and some
-/// not, in its leaves' colour gone dull on the ground.
+/// The leaves fallen about `trees`: a sparse ring of dabs past each
+/// crown, in its leaves' colour gone dull.
 fn litter(meshing: &mut Meshing, land: &Land, trees: &[Tree]) {
     /// Places tried about each tree.
     const AROUND: usize = 12;

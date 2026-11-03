@@ -36,17 +36,17 @@ impl Stand {
     }
 }
 
-/// The trees of a tile as they come out of a background task.
+/// The trees and plants of a tile as they come out of a background
+/// task.
 #[derive(Default)]
 pub struct Grove {
     /// Those that stand as themselves.
     pub trees: Vec<Tree>,
-    /// One mesh for the tile: the leaves fallen about the trees that
-    /// stand as themselves, or all of them as one, where the tile is
-    /// far enough for that. None where there is nothing to draw.
+    /// One mesh for the tile: the plants about the trees that stand
+    /// as themselves, or all the trees as one where the tile is far
+    /// enough for that. None where there is nothing to draw.
     pub mesh: Option<Mesh>,
-    /// Whether the mesh is of plants, which sway, and not of trees
-    /// far off, which keep still.
+    /// Whether the mesh sways: plants do, far trees do not.
     pub sways: bool,
     /// The lily pads, each drawn alone.
     pub pads: Vec<Pad>,

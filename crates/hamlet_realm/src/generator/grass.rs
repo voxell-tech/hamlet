@@ -1,8 +1,8 @@
 //! The grass about the eye, which the GPU grows, places, thins and
-//! bends tuft by tuft from the land's pages. The world only tells it
-//! where the eye is and what it sees, how far the quality lets it
-//! reach, the land's pages, and the mask that keeps it off the roads
-//! and the towns' squares.
+//! bends tuft by tuft from the land's pages. The world tells it where
+//! the eye is and what it sees, how far the quality lets it reach,
+//! the land's pages, and the mask that keeps it off the roads and the
+//! towns' squares.
 
 use bevy::camera::primitives::Frustum;
 use bevy::camera::visibility::VisibilitySystems;
@@ -16,9 +16,9 @@ use super::{Kit, relief};
 use crate::WorldCamera;
 use crate::sky::Quality;
 
-/// Texels across the mask, and metres to a texel: enough to reach
-/// past the grass's reach, as wide as the eye's height makes it.
+/// Texels across the mask, enough to reach past the grass's reach.
 const MASK: u32 = 1024;
+/// Metres to a texel of the mask.
 const MASK_TEXEL: f32 = 0.5;
 
 /// How far the mask fades past what treads it, in metres. A tuft

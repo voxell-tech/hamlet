@@ -1,9 +1,8 @@
 // The ground: coloured here, point by point, from where it lies, its
-// height and its slope, then, where grass grows, shaded and lit as short
-// grass seen from above: clumps of blades, each lighter than the gaps
-// between them and lit across as the rounded ridge it is. Within the
-// grass's reach it is a little darker, as the roots of the tufts on it
-// are. Its points are laid on the patches of `patch.wesl` from the relief
+// height and its slope, then, where grass grows, shaded as short grass
+// seen from above: clumps of blades, each lighter than the gaps between
+// them and rounded across as the ridge it is. Within the grass's reach it
+// is a little darker, as the roots of the tufts on it are. Its points are laid on the patches of `patch.wesl` from the relief
 // pages, in `ground_shape.wesl`; each pixel reads the land under it, its
 // height, slope, woods and heath, from those pages itself, so the patches'
 // triangles, large far off, never show. The blades are one texture laid over
@@ -242,8 +241,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let under = smooth_step(blooms.grow.y, blooms.grow.y * 0.5, away) * likely;
     painted_colour *= mix(1.0, UNDER_GRASS, under);
 
-    // The flowers, where the grass flowers and its own are too small to
-    // show.
     // A pixel's narrower way across the ground: seen at a glancing angle a
     // pixel runs long along the ground, which would swell the dots into
     // blobs as wide.

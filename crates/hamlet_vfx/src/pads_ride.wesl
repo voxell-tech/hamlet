@@ -1,6 +1,5 @@
-// What every pass of the lily pads shares: how a pad rides the water,
-// moved and leaned as one by what the water's waves do to the surface
-// under it, and its strokes, which it is cut to.
+// How a lily pad rides the water, moved and leaned as one by what the
+// water's waves do to the surface under it, and the strokes it is cut to.
 
 import bevy_pbr::render::mesh_view_bindings::view;
 import hamlet_vfx::shore::coast_at;
@@ -52,9 +51,9 @@ fn surface(p: vec2<f32>, near: Coast, kept: f32) -> vec3<f32> {
 }
 
 // How the pad laid on the still water by `world_from_local` rides: moved as
-// the waves move the surface at its middle, leaning with the surface's
-// slope the way the waves run there, from its middle to half its
-// width on, and still where the water lies flat.
+// the waves move the surface at its middle, and leaned with the surface's
+// slope along the waves' way, taken half the pad's width on. Still where
+// the water lies flat.
 fn ride(world_from_local: mat4x4<f32>) -> Ride {
     let middle = world_from_local[3].xyz;
     let scale = water.time.y;

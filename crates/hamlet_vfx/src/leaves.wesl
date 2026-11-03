@@ -1,9 +1,9 @@
 // Leaves: placed as `leaves_sway.wesl` blows them, coloured by their
 // vertices and their tree's tint, painted with a stroke and cut to its
-// edge. Lit mostly by the sky, they turn toward a cool shade where the
-// sun does not reach them, glow at the crown's edge where the sun is
-// behind it, as light comes through thin leaves, and keep a rim of the
-// night's colour after dark.
+// edge. Taking mostly the sky's light, they turn toward a cool shade
+// where the sun does not reach them, glow at the crown's edge where the
+// sun is behind it, as light comes through thin leaves, and keep a rim
+// of the night's colour after dark.
 
 import bevy_pbr::render::{
     mesh_functions,
@@ -90,7 +90,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     }
 
     // Both faces of a card face out of the crown, as its normal does,
-    // so its back is lit as its front is.
+    // so its back takes the same lighting as its front.
     var pbr_input = pbr_input_from_standard_material(in, true);
     let n = pbr_input.N;
     let v = pbr_input.V;
@@ -99,7 +99,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // The sun is the light that casts shadows; the fill casts none.
     var sun = vec3<f32>(0.0);
     var to_sun = vec3<f32>(0.0, 1.0, 0.0);
-    var lit = 0.0;
+    var sunny = 0.0;
     let view_z = dot(vec4<f32>(
         view.view_from_world[0].z,
         view.view_from_world[1].z,
@@ -114,15 +114,15 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         sun = light.color.rgb;
         to_sun = light.direction_to_light;
         let shadow = fetch_directional_shadow(i, in.world_position, n, view_z, in.position.xy);
-        lit = saturate(dot(n, to_sun)) * shadow;
+        sunny = saturate(dot(n, to_sun)) * shadow;
         break;
     }
 
-    // Shaded leaves turn cool, not merely dark, and the sky lights them
-    // more than it lights the ground.
+    // Shaded leaves turn cool, and the sky lights them more than it
+    // lights the ground.
     let cool = mix(vec3<f32>(1.0), leaves.shade.rgb, leaves.shade.w);
     pbr_input.material.base_color = vec4<f32>(
-        albedo * mix(cool, vec3<f32>(1.0), sqrt(lit)),
+        albedo * mix(cool, vec3<f32>(1.0), sqrt(sunny)),
         1.0,
     );
     pbr_input.diffuse_occlusion *= leaves.edge.z;
@@ -131,7 +131,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     out.color = apply_pbr_lighting(pbr_input);
 
     // With the sun behind the crown, its edge glows in the leaves' own
-    // colour, brightest where the eye looks straight at the sun.
+    // colour, brightest where the eye is in line with the sun.
     let edge = 1.0 - saturate(dot(n, v));
     let behind = saturate(dot(-v, to_sun));
     let through = leaves.edge.y * pow(behind, 4.0) * (0.35 + 0.65 * edge * edge);

@@ -349,7 +349,7 @@ pub(in crate::generator) fn stream(
             }
             for pad in &grove.pads {
                 commands.spawn((
-                    Mesh3d(kit.pads[pad.look].clone()),
+                    Mesh3d(kit.pads[pad.kind].clone()),
                     MeshMaterial3d(kit.pad.clone()),
                     pad.transform(),
                     ChildOf(wood),

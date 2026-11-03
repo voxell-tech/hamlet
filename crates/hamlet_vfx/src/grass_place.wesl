@@ -1,4 +1,4 @@
-// The pass that lists the tufts to draw. Each invocation looks at one square
+// The pass that lists the tufts to draw. Each invocation checks one square
 // of the map about the eye: if a tuft grows there, is kept that far off and
 // is in sight, it is listed under its shape and the detail its distance
 // calls for, and its list's draw is counted one more. A second step keeps
@@ -24,7 +24,7 @@ const TUFT_REACH: f32 = 1.2;
 const TUFT_MORE: f32 = 0.6;
 
 // `PlaceInput` in `grass/draw.rs`: the square, in tufts, the first
-// invocation looks at, how many each way there are, and the planes the eye
+// invocation checks, how many each way there are, and the planes the eye
 // sees between.
 struct Place {
     origin: vec2<i32>,

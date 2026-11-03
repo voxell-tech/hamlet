@@ -1,10 +1,9 @@
 //! Leaves: cards painted with brush strokes, cut sharp to the
 //! stroke's edge, set on a tree's crown and bent by the wind from
-//! its foot. Lit, they are warm; out of the sun they turn cool, glow
+//! its foot. In the sun they are warm; out of it they turn cool, glow
 //! at the crown's edge with the sun behind them and, at night, keep a
-//! rim of the night's colour. The colour is in the mesh's
-//! vertices, tinted for each tree by its
-//! [`MeshTag`](bevy::mesh::MeshTag).
+//! rim of the night's colour. The colour is in the mesh's vertices,
+//! tinted for each tree by its [`MeshTag`](bevy::mesh::MeshTag).
 
 use std::f32::consts::TAU;
 
@@ -54,7 +53,7 @@ pub struct LeafSettings {
     /// against the sun on its face.
     pub glow: f32,
     /// How much more of the sky's light the leaves take than other
-    /// things do, so that they are lit mostly by the sky.
+    /// things do.
     pub sky: f32,
     /// The colour, in sRGB, of the rim the leaves keep at night, and
     /// how bright it is.
@@ -155,8 +154,7 @@ pub struct Leaves {
     pub sway: Handle<LeafMaterial>,
     /// For many trees in one mesh, and leaves lying on the ground.
     pub still: Handle<LeafMaterial>,
-    /// The strokes they are painted with, which the lily pads are
-    /// painted with too.
+    /// The strokes' texture, which the lily pads share.
     pub strokes: Handle<Image>,
 }
 
@@ -176,8 +174,7 @@ impl FromWorld for Leaves {
     }
 }
 
-/// The leaves' material: for trees each drawn alone where `sways`,
-/// each standing on its mesh's origin, else for many in one mesh.
+/// The leaves' material, which moves them where `sways`.
 fn material(
     set: &LeafSettings,
     strokes: &Handle<Image>,
@@ -189,12 +186,12 @@ fn material(
             reflectance: 0.18,
             double_sided: true,
             cull_mode: None,
-            // The shaders cut each card to its stroke; a mask is what
-            // has the depth and the shadows run them too.
+            // The shaders cut each card to its stroke; a mask runs
+            // them in the depth and shadow passes too.
             alpha_mode: AlphaMode::Mask(0.0),
             ..default()
         },
-        // The time and the wind are told in `sway`.
+        // `sway` sets the time and the wind.
         extension: LeafExt {
             leaves: LeafUniform::new(
                 set,
@@ -209,7 +206,7 @@ fn material(
     }
 }
 
-/// Tells the leaves the time, the wind and what the world tells them.
+/// Passes the time, the wind and the [`LeafView`] to the materials.
 fn sway(
     now: Res<Now>,
     set: Res<LeafSettings>,
@@ -386,9 +383,9 @@ fn body_of(r: f32) -> f32 {
     smooth(1.04, 0.92, r)
 }
 
-/// How much of a vein of a lily pad is at the point `p` of its
-/// cell: one of those that spread from its middle, thinning out
-/// short of its edge, `ragged` wobbling them.
+/// How much of a lily pad's veins cover the point `p` of its cell:
+/// they spread from its middle and thin out short of its edge,
+/// wobbled by `ragged`.
 fn pad_veins(p: Vec2, ragged: f32) -> f32 {
     const VEINS: f32 = 13.0;
     let d = p - Vec2::splat(0.5);

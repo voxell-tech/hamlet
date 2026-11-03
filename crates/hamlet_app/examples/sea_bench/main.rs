@@ -1,9 +1,8 @@
 //! Frame times of the realm from several views, each with parts of it
 //! turned off in turn or drawn at a lower quality, to find what a
-//! frame spends its time on. Drawn
-//! offscreen, with no window. With `--out`, it saves a still of each
-//! view instead, as it is and as its meshes' edges. With `--view`, it
-//! measures that one view alone.
+//! frame spends its time on. Drawn offscreen, with no window. With
+//! `--out`, it saves a still of each view instead, as it is and as
+//! its meshes' edges. With `--view`, it measures that one view alone.
 //!
 //! `cargo run --release --example sea_bench -- [--size 2720x1720]
 //! [--out <dir>] [--view <name>]`

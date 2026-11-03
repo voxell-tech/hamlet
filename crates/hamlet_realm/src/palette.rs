@@ -94,7 +94,6 @@ pub struct Palette {
     pub blossom: Vec3,
     #[serde(with = "tint::linear")]
     pub blossom_shade: Vec3,
-    /// Reeds at the water's edge, and the pads lying on it.
     #[serde(with = "tint::linear")]
     pub reed: Vec3,
     #[serde(with = "tint::linear")]
@@ -166,6 +165,9 @@ pub struct Palette {
     pub kite: Vec3,
     #[serde(with = "tint::linear_list")]
     pub flowers: [Vec3; 5],
+    /// The middle of a flower's head.
+    #[serde(with = "tint::linear")]
+    pub flower_heart: Vec3,
     /// One per town, by site.
     pub towns: [TownStyle; 8],
     /// Paints for doors and shutters: an agent's own colour.

@@ -23,7 +23,7 @@ struct Grass {
     // xy: `across`. zw: `up`.
     size: vec4<f32>,
     // x: `root`. y: `tip`. z: `sun`. w: `sheen`.
-    look: vec4<f32>,
+    shade: vec4<f32>,
     // x: `bend`. y: the time in seconds.
     sway: vec4<f32>,
     // x: `glow`, as far into the night as it is. y: the breadth of its
@@ -51,7 +51,7 @@ struct Grass {
 const TAU: f32 = 6.2831853;
 
 // A point of a tuft as it is drawn: where, the ground's normal under it,
-// which it is lit by, its colour, and the light it gives off.
+// its colour, and the light it gives off.
 struct Blade {
     position: vec3<f32>,
     normal: vec3<f32>,
@@ -86,9 +86,7 @@ fn trodden(p: vec2<f32>) -> f32 {
 const SHAPES: u32 = 8u;
 const FLOWERS: u32 = 2u;
 const DETAILS: u32 = 3u;
-// The colour of a flower's heart, linear, and how much of it the heart
-// takes over its petals' colour.
-const HEART: vec3<f32> = vec3<f32>(0.95, 0.62, 0.08);
+// How much of `flower_heart` a flower's heart takes over its petals' colour.
 const HEART_SHARE: f32 = 0.6;
 // How far below the share kept a rank begins to shrink away.
 const FADING: f32 = 0.08;
@@ -152,13 +150,13 @@ fn in_flower(h: u32, p: vec2<f32>, woods: f32) -> bool {
     return blooms_at(p) > BLOOMS && roll(h, 4u) < grass.grow.z * (1.0 - woods);
 }
 
-// The tuft's rank, from 0 to 1, which decides how far off it is kept, and
-// its shape, of `SHAPES`: one of the last `FLOWERS` where it is a flower,
-// else one of the others.
+// The tuft's rank, from 0 to 1, which decides how far off it is kept.
 fn rank_of(h: u32) -> f32 {
     return roll(h, 10u);
 }
 
+// The tuft's shape, of `SHAPES`: one of the last `FLOWERS` where it is a
+// flower, else one of the others.
 fn shape_of(s: Spot) -> u32 {
     let pick = roll(s.h, 11u);
     if in_flower(s.h, s.p, s.woods) {
@@ -176,12 +174,12 @@ fn tufts_kept(away: f32) -> f32 {
 // The point `local` of the tuft of the square `cell` of the map, `off`
 // across its blade's middle line, or for a flower's head, as `flower` says
 // it is, out of the head's middle; `up` is how far up its blade the point
-// is, from 0 to 1, and `own` its blade's rank. The tuft is one the pass
+// is, from 0 to 1, and `rank` its blade's rank. The tuft is one the pass
 // kept, so it grows.
 fn blade(
     local: vec3<f32>,
     up: f32,
-    own: f32,
+    rank: f32,
     off: vec3<f32>,
     flower: bool,
     cell: vec2<i32>,
@@ -198,7 +196,6 @@ fn blade(
     drawn.normal = here.normal;
     drawn.glow = vec3<f32>(0.0);
 
-    // Tufts flower in patches, where the flowers grow in their place.
     let blooms = blooms_at(p);
     let flowering = in_flower(h, p, woods);
     let away = away_from_eye(p);
@@ -209,7 +206,7 @@ fn blade(
     let tufts = tufts_kept(away);
     let blades = kept_at(away, grass.thin.z, grass.thin.w);
     let kept_tuft = fade(rank_of(h), tufts);
-    let kept_blade = fade(own, blades);
+    let kept_blade = fade(rank, blades);
     let spread = inverseSqrt(clamp(tufts, 0.05, 1.0));
     let widen = inverseSqrt(clamp(blades, 0.05, 1.0));
 
@@ -249,7 +246,7 @@ fn blade(
     // kept.
     let strong = strength(wind, p);
     let t = grass.sway.y;
-    let phase = dot(p, vec2<f32>(0.37, 0.23)) + own * 1.7;
+    let phase = dot(p, vec2<f32>(0.37, 0.23)) + rank * 1.7;
     let gust = 1.5 * strong - 0.55 + 0.25 * sin(t * 2.1 + phase);
     let flow = vec2<f32>(wind.flow.x, wind.flow.y);
     let push = grass.sway.x * gust * up * up * rise;
@@ -260,19 +257,19 @@ fn blade(
     // lighter and sunnier to the tips, each blade a little lighter or
     // darker, greener or yellower, as its rank falls. Each patch of
     // flowers is one colour.
-    let warm = fract(own * 7.31) - 0.5;
-    let tone = (0.88 + 0.24 * fract(own * 13.7)) * vec3<f32>(1.0 + 0.12 * warm, 1.0, 1.0 - 0.25 * warm);
+    let warm = fract(rank * 7.31) - 0.5;
+    let tone = (0.88 + 0.24 * fract(rank * 13.7)) * vec3<f32>(1.0 + 0.12 * warm, 1.0, 1.0 - 0.25 * warm);
     let bloom = bloom_colour(p);
     let shine = select(0.0, glow_at(p), grass.glow.x > 0.0);
     var colour: vec3<f32>;
     if flower {
         // The head's middle, which alone lies at no offset, is its heart.
         let heart = select(0.0, HEART_SHARE, dot(off, off) == 0.0);
-        colour = mix(bloom, HEART, heart);
+        colour = mix(bloom, soil.flower_heart.rgb, heart);
         drawn.glow = colour * shine;
     } else {
-        colour = grass_colour(p, y, woods, heath) * tone * mix(grass.look.x, grass.look.y, up);
-        colour = mix(colour, soil.grass_sun.rgb * grass.look.y, grass.look.z * up * up);
+        colour = grass_colour(p, y, woods, heath) * tone * mix(grass.shade.x, grass.shade.y, up);
+        colour = mix(colour, soil.grass_sun.rgb * grass.shade.y, grass.shade.z * up * up);
         colour *= 1.0 + 0.15 * max(gust, 0.0) * up;
         if flowering {
             let tinted = (1.0 - heads) * up * up;

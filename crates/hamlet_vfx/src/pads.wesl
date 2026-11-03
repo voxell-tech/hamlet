@@ -1,5 +1,5 @@
 // Lily pads: each ridden as `pads_ride.wesl` has it, coloured by its
-// vertices, painted with a stroke, cut to its edge and lit. At night the
+// vertices, painted with a stroke, cut to its edge and shaded. At night the
 // flower glows in its colour, swelling and fading as the grass's flowers
 // do.
 

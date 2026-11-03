@@ -1,8 +1,8 @@
 //! What grows under the trees and between them, many to a tile's
 //! one mesh: shrubs at the edge of the woods and reeds at the water.
 //! Each bends in the wind as much as it is tall, as
-//! [`Meshing::grow`] marks it. Lily pads lie on the water each alone,
-//! to ride its waves. The grass is the GPU's, about the eye.
+//! [`Meshing::grow`] marks it. Lily pads are drawn each alone, to
+//! ride the waves. Grass is drawn on the GPU, in `hamlet_vfx`.
 
 use std::f32::consts::TAU;
 
@@ -32,8 +32,8 @@ pub(crate) fn plants(
     for (p, h) in spots(land, lo, hi, 0.9, 83) {
         reeds(&mut meshing, land, p, h);
     }
-    // Marks what was not grown as still, so that the whole mesh is
-    // drawn as plants are and none of it as one tree.
+    // Marks the vertices not grown as still, so that the whole mesh
+    // is drawn as plants are and none of it as one tree.
     meshing.grow(meshing.vertices(), 0.0, 1.0);
     (!meshing.is_empty()).then(|| meshing.build())
 }
@@ -231,7 +231,7 @@ pub(crate) fn pads(land: &Land, lo: Vec2, hi: Vec2) -> Vec<Pad> {
                 at: Vec3::new(p.x, water + 0.03, p.y),
                 size: 0.4 + 0.35 * roll(h, 3),
                 yaw: roll(h, 4) * TAU,
-                look: if bloom < 0.075 {
+                kind: if bloom < 0.075 {
                     1
                 } else if bloom < 0.15 {
                     2
@@ -250,8 +250,8 @@ pub struct Pad {
     pub(crate) at: Vec3,
     pub(crate) size: f32,
     pub(crate) yaw: f32,
-    /// Which of [`PAD_LOOKS`] it is.
-    pub(crate) look: usize,
+    /// Its mesh, among [`PAD_KINDS`].
+    pub(crate) kind: usize,
 }
 
 impl Pad {
@@ -262,12 +262,12 @@ impl Pad {
     }
 }
 
-/// Looks a lily pad has: bare, and in flower white or pink.
-pub(crate) const PAD_LOOKS: usize = 3;
+/// Kinds of lily pad there are: bare, and in flower white or pink.
+pub(crate) const PAD_KINDS: usize = 3;
 
-/// The lily pad of `look` of [`PAD_LOOKS`], a metre across, lying on
+/// The lily pad of `kind` of [`PAD_KINDS`], a metre across, lying on
 /// its middle.
-pub(crate) fn pad_mesh(pal: &Palette, look: usize) -> Mesh {
+pub(crate) fn pad_mesh(pal: &Palette, kind: usize) -> Mesh {
     let mut meshing = Meshing::new();
     card(
         &mut meshing,
@@ -277,7 +277,7 @@ pub(crate) fn pad_mesh(pal: &Palette, look: usize) -> Mesh {
         Stroke::Pad,
         pal.lily_pad,
     );
-    let flower = match look {
+    let flower = match kind {
         1 => Some(pal.flowers[2]),
         2 => Some(pal.blossom),
         _ => None,
@@ -296,7 +296,7 @@ pub(crate) fn pad_mesh(pal: &Palette, look: usize) -> Mesh {
                 colour,
             );
         }
-        // The pads' material lights what is marked 0 as a flower.
+        // The pads' material draws what is marked 0 as a flower.
         meshing.mark(from, 0.0);
     }
     meshing.build()

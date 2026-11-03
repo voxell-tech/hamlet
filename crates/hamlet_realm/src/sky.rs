@@ -493,8 +493,7 @@ impl Quality {
         }
     }
 
-    /// Whether the trees cast shadows.
-    pub fn tree_shadows(self) -> bool {
+    pub fn has_tree_shadows(self) -> bool {
         self != Self::Low
     }
 }

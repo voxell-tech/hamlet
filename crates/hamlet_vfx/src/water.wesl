@@ -365,7 +365,6 @@ fn ground_under(p: vec2<f32>, pixel: f32) -> f32 {
     return mix(mix(cell.a.x, cell.b.x, cell.f.x), mix(cell.c.x, cell.d.x, cell.f.x), cell.f.y);
 }
 
-// How the shore bears on the waves at the point `p` on the map.
 fn shore_at(p: vec2<f32>) -> Coast {
     return coast_at(p, water.time.z, water.calm.xy);
 }

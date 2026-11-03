@@ -1,7 +1,7 @@
 // Grass: each tuft a list holds, placed by `grass_shape.wesl`, coloured by
-// its vertices, lit as the ground under it is, darker at its roots where
-// the light does not reach, and with a sheen seen low against the sun. Its
-// flowers, and faintly the grass about them, glow at night.
+// its vertices, shaded by the ground's normal under it, darker at its roots
+// where the light does not reach, and with a sheen seen low against the sun.
+// Its flowers, and faintly the grass about them, glow at night.
 
 import bevy_pbr::render::{
     mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT,
@@ -72,14 +72,14 @@ fn fragment(in: Drawn) -> @location(0) vec4<f32> {
 
     var colour = apply_pbr_lighting(pbr);
 
-    // A sheen where the eye looks low over the ground toward the sun.
+    // A sheen where the eye is low over the ground, toward the sun.
     if lights.n_directional_lights > 0u {
         let light = lights.directional_lights[0];
         let l = light.direction_to_light;
         let v = pbr.V;
         let low = pow(1.0 - saturate(dot(n, v)), 5.0);
         let against = pow(1.0 - saturate(dot(l, v)), 3.0);
-        let sheen = grass.look.w * low * against * saturate(dot(n, l) + 0.3);
+        let sheen = grass.shade.w * low * against * saturate(dot(n, l) + 0.3);
         colour = vec4<f32>(colour.rgb + in.colour * light.color.rgb * view.exposure * sheen, colour.a);
     }
     // Flowers, and the grass about them, glow in the flowers' colour at

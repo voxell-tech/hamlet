@@ -186,8 +186,11 @@ pub(crate) fn garden_tree(
                 0.0,
                 -look.half.y - 0.55,
             ),
-            // Any broadleaf, a blossom as likely as a green one.
-            flora::form((h / 16 % 6) as usize, (h / 1024) as usize),
+            // Any broadleaf, each as likely as another.
+            flora::form(
+                (h / 16) as usize % flora::BROADLEAVES,
+                (h / 1024) as usize,
+            ),
             0.55 + 0.3 * ((h / 256 % 100) as f32 / 100.0),
         )
     })

@@ -1,10 +1,10 @@
 //! The ground's material: coloured by its shader point by point, as
-//! [`SoilUniform`] and the vertex colours direct, then shaded and lit
-//! as short grass seen from above: clumps of blades, each blade
-//! lighter than the gaps between them and lit across as the rounded
-//! ridge it is. The blades are one baked texture that the shader
-//! lays down in hexagons, each moved and turned at random and
-//! blended by height, so that it never shows as repeating.
+//! [`SoilUniform`] and the vertex colours direct, then shaded as
+//! short grass seen from above: clumps of blades, each blade lighter
+//! than the gaps between them and rounded across as the ridge it
+//! is. The blades are one baked texture that the shader lays down
+//! in hexagons, each moved and turned at random and blended by
+//! height, so that it never shows as repeating.
 //!
 //! A ground mesh's vertex colours are not colours: red is the share
 //! of woods there, green the share of heath, and blue how far the
@@ -161,6 +161,7 @@ pub struct SoilUniform {
     pub dirt_shade: Vec4,
     pub mud: Vec4,
     pub flowers: [Vec4; 5],
+    pub flower_heart: Vec4,
     pub water: f32,
     pub seed: u32,
 }

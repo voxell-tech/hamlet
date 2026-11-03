@@ -97,8 +97,8 @@ pub(super) struct Bed;
 #[derive(Component)]
 pub(super) struct Sea;
 
-/// Lets the trees cast shadows only where the quality draws them,
-/// those just put in the world too.
+/// Keeps [`NotShadowCaster`] on the trees when the [`Quality`] draws
+/// no tree shadows, and off them when it does.
 pub(super) fn shade_trees(
     mut commands: Commands,
     quality: Res<Quality>,
@@ -111,7 +111,7 @@ pub(super) fn shade_trees(
         (Or<(With<Wood>, With<Standing>)>, With<NotShadowCaster>),
     >,
 ) {
-    if quality.tree_shadows() {
+    if quality.has_tree_shadows() {
         for tree in &shadowless {
             commands.entity(tree).remove::<NotShadowCaster>();
         }

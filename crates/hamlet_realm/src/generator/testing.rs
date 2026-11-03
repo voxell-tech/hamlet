@@ -54,7 +54,7 @@ pub(super) fn kit(world: &mut World) {
         leaves: Handle::default(),
         still_leaves: Handle::default(),
         pad: Handle::default(),
-        pads: vec![Handle::default(); flora::plants::PAD_LOOKS],
+        pads: vec![Handle::default(); flora::plants::PAD_KINDS],
         groove: Handle::default(),
     });
 }
