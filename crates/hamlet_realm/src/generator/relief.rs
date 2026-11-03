@@ -35,6 +35,7 @@ use bevy::render::renderer::{
 use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
 use bevy::render::texture::GpuImage;
 use bevy::render::{RenderApp, RenderStartup};
+use hamlet_vfx::grass::GrassPlaceSystems;
 use hamlet_vfx::ground::{GroundMaterial, LEVELS, PagesUniform};
 use hamlet_vfx::patch;
 use hamlet_vfx::water::WaterMaterial;
@@ -62,11 +63,12 @@ pub(super) fn plugin(app: &mut App) {
     };
     render
         .add_systems(RenderStartup, prepare)
-        // Before the cameras draw, so the ground reads this frame's
-        // pages.
+        // Before the cameras draw and the grass is placed, so both
+        // read this frame's pages.
         .add_systems(
             RenderGraph,
-            run.in_set(RenderGraphSystems::Begin),
+            run.in_set(RenderGraphSystems::Begin)
+                .before(GrassPlaceSystems),
         );
 }
 

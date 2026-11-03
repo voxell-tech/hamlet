@@ -58,7 +58,10 @@ use bevy::render::view::ExtractedView;
 use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 use bevy::shader::ShaderDefVal;
 
-use super::{DETAILS, Grass, GrassTufts, GrassUniform, SHAPES};
+use super::{
+    DETAILS, Grass, GrassPlaceSystems, GrassTufts, GrassUniform,
+    SHAPES,
+};
 use crate::ground::{PagesUniform, SoilUniform};
 use crate::wind::WindUniform;
 
@@ -97,7 +100,9 @@ pub(super) fn plugin(app: &mut App) {
         // Before the cameras draw, so they draw this frame's lists.
         .add_systems(
             RenderGraph,
-            place.in_set(RenderGraphSystems::Begin),
+            place
+                .in_set(RenderGraphSystems::Begin)
+                .in_set(GrassPlaceSystems),
         );
 }
 

@@ -160,6 +160,13 @@ impl Grass {
     }
 }
 
+/// The pass that lists the tufts to draw, in the render world's
+/// graph. Whatever writes the pages it reads them from runs before
+/// it, or a frame's tufts are found where the land was and drawn
+/// where it is.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GrassPlaceSystems;
+
 /// The tufts each list of them is drawn as: every shape at every
 /// detail, the finest first, [`SHAPES`] to a detail.
 #[derive(Resource, ExtractResource, Clone)]
