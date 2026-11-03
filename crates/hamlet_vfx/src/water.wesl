@@ -557,10 +557,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     most = max(most, quadSwapX(most));
     most = max(most, quadSwapY(most));
 }
-    if most > 0.01 {
+    // The quality's share of the steps; with none, only the sky shows.
+    let at_most = f32(MIRROR_STEPS) * water.foam.z;
+    if most > 0.01 && at_most >= 1.0 {
         // A faint reflection is found in fewer, coarser steps: what it
         // misses is hidden in how little of it shows.
-        let steps = u32(mix(8.0, f32(MIRROR_STEPS), smoothstep(0.02, 0.3, most)));
+        let steps = u32(mix(min(8.0, at_most), at_most, smoothstep(0.02, 0.3, most)));
         let hit = mirror_hit(in.world_position.xyz, R, in.position.xy, steps);
         mirrored = mix(mirrored, hit.rgb, hit.a);
     }

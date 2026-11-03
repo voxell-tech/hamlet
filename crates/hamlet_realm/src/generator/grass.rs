@@ -17,6 +17,7 @@ use super::Kit;
 use super::land::Land;
 use super::sync::Drawn;
 use crate::WorldCamera;
+use crate::sky::Quality;
 
 /// Texels across the mask, and metres to a texel: enough to reach
 /// past the furthest ring, as wide as the eye's height makes it.
@@ -126,6 +127,7 @@ fn lay(
     mut commands: Commands,
     field: Option<ResMut<Field>>,
     set: Res<GrassSettings>,
+    quality: Res<Quality>,
     land: Res<Land>,
     camera: Query<&GlobalTransform, With<WorldCamera>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -135,9 +137,16 @@ fn lay(
     else {
         return;
     };
-    if field.settings != *set {
-        field.settings = set.clone();
-        field.squares = squares(&mut meshes, &set);
+    // The quality draws the grass less far, and fewer of its tufts
+    // past the nearest ring, which the coarser squares leave out.
+    let (far_share, kept) = quality.grass();
+    let built = GrassSettings {
+        kept: [set.kept[0], set.kept[1] * kept, set.kept[2] * kept],
+        ..set.clone()
+    };
+    if field.settings != built {
+        field.squares = squares(&mut meshes, &built);
+        field.settings = built;
         for (entity, _) in field.laid.drain().map(|(_, laid)| laid) {
             commands.entity(entity).despawn();
         }
@@ -147,12 +156,13 @@ fn lay(
     let low = (at.y - land.height(centre)).max(0.0);
     // The rings are measured from the eye itself, so seen from higher
     // up even the ground under it falls to a coarser one.
-    let rings = set.rings;
+    let rings = set.rings.map(|r| r * far_share);
     let far = rings[2];
     let reach = GrassReach {
         eye: at,
         low,
         rings,
+        kept,
     };
     if let Some(grass) = materials.get(&field.material)
         && grass.extension.grass.reach() != reach

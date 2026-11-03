@@ -46,7 +46,9 @@ use self::kit::{
 use self::land::{Land, LandSettings};
 use self::layout::TownSettings;
 use self::lights::{light_lanterns, light_roads, light_spills};
-use self::loading::{Lanes, clear_lanes, finish_loading, stream};
+use self::loading::{
+    Lanes, clear_lanes, finish_loading, shade_trees, stream,
+};
 pub use self::loading::{Loading, Terrain};
 pub use self::magic::Thought;
 use self::road::RoadSettings;
@@ -154,7 +156,8 @@ pub fn plugin(app: &mut App) {
             repaint.run_if(
                 resource_changed::<Land>
                     .or_else(resource_changed::<WaterSettings>)
-                    .or_else(resource_changed::<Sky>),
+                    .or_else(resource_changed::<Sky>)
+                    .or_else(resource_changed::<Quality>),
             ),
             settle.run_if(resource_changed::<Society>),
             tell_leaves,
@@ -173,7 +176,11 @@ pub fn plugin(app: &mut App) {
                 robot_detail,
                 aim,
             ),
-            (clear_lanes.run_if(resource_changed::<Drawn>), stream)
+            (
+                clear_lanes.run_if(resource_changed::<Drawn>),
+                stream,
+                shade_trees,
+            )
                 .chain(),
             pass,
             work_robots,

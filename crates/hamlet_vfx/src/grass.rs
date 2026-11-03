@@ -147,6 +147,9 @@ pub struct GrassReach {
     pub low: f32,
     /// How far from the eye each detail reaches.
     pub rings: [f32; DETAILS],
+    /// The share of the tufts the settings keep past the finest
+    /// detail that are drawn.
+    pub kept: f32,
 }
 
 impl GrassUniform {
@@ -202,8 +205,12 @@ impl GrassUniform {
     /// Draws the grass as far as `reach` has it.
     pub fn set_reach(&mut self, reach: GrassReach) {
         self.reach = reach.eye.extend(reach.rings[2]);
-        self.rings =
-            Vec4::new(reach.rings[0], reach.rings[1], reach.low, 0.0);
+        self.rings = Vec4::new(
+            reach.rings[0],
+            reach.rings[1],
+            reach.low,
+            reach.kept,
+        );
     }
 
     /// Where the grass is drawn, as this has it.
@@ -212,6 +219,7 @@ impl GrassUniform {
             eye: self.reach.xyz(),
             low: self.rings.z,
             rings: [self.rings.x, self.rings.y, self.reach.w],
+            kept: self.rings.w,
         }
     }
 }

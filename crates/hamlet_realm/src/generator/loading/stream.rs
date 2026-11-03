@@ -21,7 +21,7 @@ use crate::generator::ground::{self, Sight, Stand};
 use crate::generator::land::{Land, LandData};
 use crate::generator::view::Ahead;
 use crate::generator::{DetailSettings, Kit, Tally};
-use crate::sky::{CameraSettings, DistanceFogSettings};
+use crate::sky::{CameraSettings, DistanceFogSettings, Quality};
 
 /// Where a patch is drawn: moved to its corner on the plane `y` high,
 /// and as large as its side.
@@ -79,10 +79,11 @@ pub(in crate::generator) fn stream(
     kit: Res<Kit>,
     lanes: Res<Lanes>,
     ahead: Option<Res<Ahead>>,
-    (lens, fog_set, flow): (
+    (lens, fog_set, flow, quality): (
         Option<Res<CameraSettings>>,
         Option<Res<DistanceFogSettings>>,
         Res<WaterSettings>,
+        Res<Quality>,
     ),
     camera: Query<
         (&Transform, &Projection, Option<&DistanceFog>),
@@ -121,11 +122,12 @@ pub(in crate::generator) fn stream(
     // and its shader raises them to the land; none is drawn where all
     // of it is the open sea's level floor, which the bed stands for.
     // The sea's lie flat on the water, each as one quad where the
-    // waves have died away.
+    // waves have died away, and are coarser at a lower quality.
     let water_y = land.set.land.water_y;
     let flat = water::FLAT * flow.scale;
+    let smallest = water::FINEST * quality.sea();
     let mut sea =
-        patch::choose(at.translation, water_y, water::FINEST, far)
+        patch::choose(at.translation, water_y, smallest, far)
             .into_iter()
             .map(|p| {
                 let lies_flat = patch::away(

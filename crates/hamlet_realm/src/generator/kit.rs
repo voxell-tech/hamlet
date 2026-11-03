@@ -21,7 +21,7 @@ use super::{Tally, traffic, yard};
 use crate::keeper::KeeperState;
 use crate::lantern::lantern_glass;
 use crate::palette::Palette;
-use crate::sky::SkySettings;
+use crate::sky::{Quality, SkySettings};
 use crate::{Sky, Stock};
 
 /// Handles shared by everything of a kind, so the renderer can batch
@@ -193,11 +193,13 @@ pub(super) fn float_pads(
 }
 
 /// Paints the ground as the land has it, and the water as its
-/// settings and the sky have it, keeping the wind and the time.
+/// settings, the sky and the quality have it, keeping the wind and
+/// the time.
 pub(super) fn repaint(
     land: Res<Land>,
     flow: Res<WaterSettings>,
     sky: Res<Sky>,
+    quality: Res<Quality>,
     kit: Res<Kit>,
     mut grounds: ResMut<Assets<GroundMaterial>>,
     mut waters: ResMut<Assets<WaterMaterial>>,
@@ -213,13 +215,15 @@ pub(super) fn repaint(
     else {
         return;
     };
+    let fresh = WaterUniform::new(&flow);
     let look = WaterUniform {
         time: now.time,
         wind: now.wind,
         sky: LinearRgba::from(sky.look.haze)
             .to_vec3()
             .extend(flow.mirror),
-        ..WaterUniform::new(&flow)
+        foam: fresh.foam.with_z(quality.mirror()),
+        ..fresh
     };
     if let Some(mut water) = waters.get_mut(&kit.water)
         && water.extension.water != look

@@ -402,11 +402,12 @@ impl CameraSettings {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Quality {
-    /// No particles, no bloom, no shafts of light, plain edges and
-    /// small shadows.
+    /// No particles, no bloom, no shafts of light, plain edges, small
+    /// shadows and none from the trees, half the grass, a coarser sea
+    /// that mirrors only the sky.
     Low,
-    /// Fewer particles, middling shadows and half the steps through
-    /// the volumetric fog.
+    /// Fewer particles, middling shadows, half the steps through the
+    /// volumetric fog and the water's reflection, and less grass.
     Medium,
     #[default]
     High,
@@ -450,6 +451,40 @@ impl Quality {
             Self::Medium => 0.5,
             Self::High => 1.0,
         }
+    }
+
+    /// The share of the grass's full reach it draws, and of the tufts
+    /// it keeps past the nearest ring.
+    pub fn grass(self) -> (f32, f32) {
+        match self {
+            Self::Low => (0.5, 0.6),
+            Self::Medium => (0.75, 0.8),
+            Self::High => (1.0, 1.0),
+        }
+    }
+
+    /// The share of the full steps a reflection on the water is
+    /// walked in. None mirrors only the sky.
+    pub fn mirror(self) -> f32 {
+        match self {
+            Self::Low => 0.0,
+            Self::Medium => 0.5,
+            Self::High => 1.0,
+        }
+    }
+
+    /// How many times as wide the sea's smallest patches are as at
+    /// their finest.
+    pub fn sea(self) -> f32 {
+        match self {
+            Self::Low => 2.0,
+            Self::Medium | Self::High => 1.0,
+        }
+    }
+
+    /// Whether the trees cast shadows.
+    pub fn tree_shadows(self) -> bool {
+        self != Self::Low
     }
 }
 

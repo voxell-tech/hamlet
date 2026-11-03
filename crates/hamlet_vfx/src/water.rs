@@ -142,7 +142,8 @@ pub struct WaterUniform {
     pub deep: Vec4,
     /// The foam's colour, linear, and `clear`.
     pub foam_color: Vec4,
-    /// The foam's `fade`.
+    /// The foam's `fade`, and the share of `MIRROR_STEPS` in
+    /// `water.wesl` a reflection is walked in.
     pub foam: Vec4,
     /// The time, `scale` and `bend`.
     pub time: Vec4,
@@ -172,7 +173,7 @@ impl WaterUniform {
             foam: Vec4::new(
                 set.foam.fade.0,
                 set.foam.fade.1,
-                0.0,
+                1.0,
                 0.0,
             ),
             time: Vec4::new(0.0, set.scale, set.bend, 0.0),

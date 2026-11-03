@@ -35,7 +35,8 @@ struct Grass {
     // over the last half of the way.
     reach: vec4<f32>,
     // x: where the middle detail begins. y: where the farthest does. z:
-    // how high the eye stands over the ground under it.
+    // how high the eye stands over the ground under it. w: the share of
+    // `thin`'s tufts the world keeps.
     rings: vec4<f32>,
     // xy: the mask's corner on the map. z: its side.
     mask_at: vec4<f32>,
@@ -183,7 +184,7 @@ fn blade(
     // Further off, fewer tufts and fewer of each one's blades are kept, the
     // lowest ranked longest, and the rest shrink away; those kept spread and
     // widen to cover as much, so the field thins without a seam.
-    let tufts = kept_at(away, grass.thin.x, grass.thin.y);
+    let tufts = kept_at(away, grass.thin.x * grass.rings.w, grass.thin.y * grass.rings.w);
     let blades = kept_at(away, grass.thin.z, grass.thin.w);
     let kept_tuft = fade(rank, tufts);
     let kept_blade = fade(own, blades);
