@@ -1,5 +1,5 @@
-// Lily pads in the prepass and the shadows: ridden as `pads_ride.wesl` has
-// it, and cut where the main pass cuts them.
+// Lily pads in the prepass: ridden as `pads_ride.wesl` has it, and cut
+// where the main pass cuts them.
 
 import bevy_pbr::{
     prepass::io::{Vertex, VertexOutput, FragmentOutput, decompress_vertex},

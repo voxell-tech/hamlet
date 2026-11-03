@@ -32,8 +32,8 @@ struct Water {
 const FLAT: f32 = 55.0;
 
 // How much of the slope of the water under it a pad leans with: it is
-// stiff, and floats across more than one ripple.
-const LEAN: f32 = 0.6;
+// stiff, and leans only slightly.
+const LEAN: f32 = 0.4;
 
 // How a pad rides the water: how far the waves move its middle, and the way
 // its face turns to.
@@ -50,8 +50,9 @@ fn surface(p: vec2<f32>, near: Coast, kept: f32) -> vec3<f32> {
 }
 
 // How the pad laid on the still water by `world_from_local` rides: moved as
-// the waves move the surface at its middle, leaning with the surface found
-// half its width out on each side, and still where the water lies flat.
+// the waves move the surface at its middle, leaning a little with the
+// surface's slope the way the waves run there, from its middle to half its
+// width on, and still where the water lies flat.
 fn ride(world_from_local: mat4x4<f32>) -> Ride {
     let middle = world_from_local[3].xyz;
     let scale = water.time.y;
@@ -62,13 +63,17 @@ fn ride(world_from_local: mat4x4<f32>) -> Ride {
     }
     let c = middle.xz;
     let near = coast_at(c, water.time.z, water.calm.xy);
+    // Near the shore the waves turn to run in to it.
+    let runs = mix(water.wind.xy, near.landward, near.turned);
+    let way = select(vec2<f32>(0.0, 1.0), normalize(runs), dot(runs, runs) > 1e-6);
     let r = max(0.5 * length(world_from_local[0].xyz), 0.2);
-    let across = surface(c + vec2<f32>(r, 0.0), near, kept) - surface(c - vec2<f32>(r, 0.0), near, kept);
-    let along = surface(c + vec2<f32>(0.0, r), near, kept) - surface(c - vec2<f32>(0.0, r), near, kept);
-    let slope = normalize(cross(along, across));
+    let here = surface(c, near, kept);
+    let on = surface(c + way * r, near, kept);
+    let rise = (on.y - here.y) / max(distance(on.xz, here.xz), 1e-3);
+    let lean = rise * LEAN;
     return Ride(
-        surface(c, near, kept) - vec3<f32>(c.x, 0.0, c.y),
-        normalize(mix(still.up, slope, LEAN)),
+        here - vec3<f32>(c.x, 0.0, c.y),
+        normalize(vec3<f32>(-way.x * lean, 1.0, -way.y * lean)),
     );
 }
 

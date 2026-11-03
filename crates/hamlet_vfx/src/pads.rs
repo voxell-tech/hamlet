@@ -73,6 +73,14 @@ impl MaterialExtension for PadExt {
     fn prepass_fragment_shader() -> ShaderRef {
         "embedded://hamlet_vfx/pads_prepass.wesl".into()
     }
+
+    // A pad rides the waves only as far as they are from the eye,
+    // which the sun's shadow pass would take to be the sun: its
+    // shadow would lie still under the pad as the pad rose and fell
+    // through it.
+    fn enable_shadows() -> bool {
+        false
+    }
 }
 
 /// The pads' material, painted with `strokes`, on still water until
