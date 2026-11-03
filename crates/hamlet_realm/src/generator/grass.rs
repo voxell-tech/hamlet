@@ -137,11 +137,17 @@ fn lay(
     else {
         return;
     };
-    // The quality draws the grass less far, and fewer of its tufts
-    // past the nearest ring, which the coarser squares leave out.
-    let (far_share, kept) = quality.grass();
+    // The quality draws the grass less far, its tufts further apart,
+    // and fewer of them past the nearest ring, which the coarser
+    // squares leave out.
+    let share = quality.grass();
     let built = GrassSettings {
-        kept: [set.kept[0], set.kept[1] * kept, set.kept[2] * kept],
+        kept: [
+            set.kept[0],
+            set.kept[1] * share.kept,
+            set.kept[2] * share.kept,
+        ],
+        spacing: set.spacing * share.spacing,
         ..set.clone()
     };
     if field.settings != built {
@@ -156,13 +162,14 @@ fn lay(
     let low = (at.y - land.height(centre)).max(0.0);
     // The rings are measured from the eye itself, so seen from higher
     // up even the ground under it falls to a coarser one.
-    let rings = set.rings.map(|r| r * far_share);
+    let rings = set.rings.map(|r| r * share.reach);
     let far = rings[2];
     let reach = GrassReach {
         eye: at,
         low,
         rings,
-        kept,
+        kept: share.kept,
+        spacing: field.settings.spacing,
     };
     if let Some(grass) = materials.get(&field.material)
         && grass.extension.grass.reach() != reach
@@ -173,7 +180,7 @@ fn lay(
 
     // A whole number of tufts' squares, so the slots of one square
     // run on from the last's.
-    let side = set.spacing * set.slots.max(1) as f32;
+    let side = field.settings.spacing * set.slots.max(1) as f32;
     let lo = ((centre - far) / side).floor().as_ivec2();
     let hi = ((centre + far) / side).ceil().as_ivec2();
     let mut wanted = HashMap::new();

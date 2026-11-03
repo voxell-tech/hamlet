@@ -150,6 +150,8 @@ pub struct GrassReach {
     /// The share of the tufts the settings keep past the finest
     /// detail that are drawn.
     pub kept: f32,
+    /// How far apart the tufts are laid, in place of `spacing`.
+    pub spacing: f32,
 }
 
 impl GrassUniform {
@@ -211,6 +213,7 @@ impl GrassUniform {
             reach.low,
             reach.kept,
         );
+        self.grow.x = reach.spacing;
     }
 
     /// Where the grass is drawn, as this has it.
@@ -220,6 +223,7 @@ impl GrassUniform {
             low: self.rings.z,
             rings: [self.rings.x, self.rings.y, self.reach.w],
             kept: self.rings.w,
+            spacing: self.grow.x,
         }
     }
 }

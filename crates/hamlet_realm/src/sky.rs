@@ -403,8 +403,8 @@ impl CameraSettings {
 #[serde(rename_all = "lowercase")]
 pub enum Quality {
     /// No particles, no bloom, no shafts of light, plain edges, small
-    /// shadows and none from the trees, the least grass, a coarser sea
-    /// that mirrors only the sky.
+    /// shadows and none from the trees, the least grass, a coarser
+    /// sea that mirrors only the sky.
     Low,
     /// Fewer particles, middling shadows, half the steps through the
     /// volumetric fog and the water's reflection, and less grass.
@@ -453,13 +453,26 @@ impl Quality {
         }
     }
 
-    /// The share of the grass's full reach it draws, and of the tufts
-    /// it keeps past the nearest ring.
-    pub fn grass(self) -> (f32, f32) {
+    /// How much of the grass it draws.
+    pub fn grass(self) -> GrassShare {
+        // Tufts 0.7 m apart where the settings lay them 0.6 m apart.
+        let wider = 0.7 / 0.6;
         match self {
-            Self::Low => (0.65, 0.75),
-            Self::Medium => (0.8, 0.9),
-            Self::High => (1.0, 1.0),
+            Self::Low => GrassShare {
+                reach: 0.65,
+                kept: 0.75,
+                spacing: wider,
+            },
+            Self::Medium => GrassShare {
+                reach: 0.8,
+                kept: 0.9,
+                spacing: wider,
+            },
+            Self::High => GrassShare {
+                reach: 1.0,
+                kept: 1.0,
+                spacing: 1.0,
+            },
         }
     }
 
@@ -486,6 +499,18 @@ impl Quality {
     pub fn tree_shadows(self) -> bool {
         self != Self::Low
     }
+}
+
+/// How much of the grass a [`Quality`] draws, each against its
+/// settings.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct GrassShare {
+    /// The share of how far it reaches.
+    pub reach: f32,
+    /// The share of the tufts kept past the nearest ring.
+    pub kept: f32,
+    /// How many times as far apart its tufts are laid.
+    pub spacing: f32,
 }
 
 /// The camera the world is seen through. The app points it at a
