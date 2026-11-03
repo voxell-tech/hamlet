@@ -403,7 +403,7 @@ impl CameraSettings {
 #[serde(rename_all = "lowercase")]
 pub enum Quality {
     /// No particles, no bloom, no shafts of light, plain edges, small
-    /// shadows and none from the trees, half the grass, a coarser sea
+    /// shadows and none from the trees, the least grass, a coarser sea
     /// that mirrors only the sky.
     Low,
     /// Fewer particles, middling shadows, half the steps through the
@@ -457,8 +457,8 @@ impl Quality {
     /// it keeps past the nearest ring.
     pub fn grass(self) -> (f32, f32) {
         match self {
-            Self::Low => (0.5, 0.6),
-            Self::Medium => (0.75, 0.8),
+            Self::Low => (0.65, 0.75),
+            Self::Medium => (0.8, 0.9),
             Self::High => (1.0, 1.0),
         }
     }
