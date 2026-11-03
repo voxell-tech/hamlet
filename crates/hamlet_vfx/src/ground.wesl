@@ -60,10 +60,14 @@ struct Blooms {
 @group(constants::MATERIAL_BIND_GROUP) @binding(102) var bumps_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(106) var<uniform> blooms: Blooms;
 
-// How far a painted flower reaches from its middle at its finest, against
-// how far apart the tufts are, and the least it reaches, in pixels.
-const FLOWER: f32 = 0.17;
+// How far a painted flower's head reaches from its middle at its finest,
+// against how far apart the tufts are, and the least it reaches, in
+// pixels; how many heads a flower has, and how far they spread from its
+// middle, against how far apart the tufts are.
+const FLOWER: f32 = 0.06;
 const FLOWER_PIXELS: f32 = 1.2;
+const HEADS: u32 = 3u;
+const HEADS_SPREAD: f32 = 0.2;
 
 fn hash2(p: vec2<f32>) -> vec2<f32> {
     let q = vec2<f32>(dot(p, vec2<f32>(127.1, 311.7)), dot(p, vec2<f32>(269.5, 183.3)));
@@ -96,10 +100,16 @@ fn copy_at(uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, corner: vec2<f32>) -> ve
     return vec4<f32>(transpose(turn) * (t.xy * 2.0 - 1.0), t.z, t.w);
 }
 
+// A point from 0 to 1 each way, from the hash `h`.
+fn unit(h: u32) -> vec2<f32> {
+    return vec2<f32>(f32(h & 0xffffu), f32(h >> 16u)) / 65535.0;
+}
+
 // How much of a painted flower covers `p` on the map, a pixel `pixel`
-// metres across, where `share` of the squares the dots are laid in hold
-// one: the squares `2^level` times as wide as the tufts lie apart, each
-// dot as many times as wide, so every level holds as much of their colour.
+// metres across, where `share` of the squares the flowers are laid in hold
+// one: a few heads about its middle, the squares `2^level` times as wide as
+// the tufts lie apart and each head as many times as wide, so every level
+// holds as much of their colour.
 fn painted_at(p: vec2<f32>, level: u32, share: f32, pixel: f32) -> f32 {
     let side = blooms.grow.z * f32(1u << level);
     let square = floor(p / side);
@@ -107,11 +117,17 @@ fn painted_at(p: vec2<f32>, level: u32, share: f32, pixel: f32) -> f32 {
     if f32(h >> 8u) / 16777216.0 >= share {
         return 0.0;
     }
-    let s = scramble(h);
-    let off = vec2<f32>(f32(s & 0xffffu), f32(s >> 16u)) / 65535.0;
-    let middle = (square + 0.25 + 0.5 * off) * side;
+    var s = scramble(h);
+    let middle = (square + 0.3 + 0.4 * unit(s)) * side;
     let reach = side * FLOWER;
-    return 1.0 - smoothstep(reach - pixel * 0.5, reach + pixel * 0.5, distance(p, middle));
+    var cover = 0.0;
+    for (var k = 0u; k < HEADS; k++) {
+        s = scramble(s);
+        let head = middle + (unit(s) - 0.5) * 2.0 * HEADS_SPREAD * side;
+        let d = distance(p, head);
+        cover = max(cover, 1.0 - smoothstep(reach - pixel * 0.5, reach + pixel * 0.5, d));
+    }
+    return cover;
 }
 
 // How much of the flowers painted on the ground covers `p` on the map,

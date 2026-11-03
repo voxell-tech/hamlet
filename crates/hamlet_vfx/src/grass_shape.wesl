@@ -81,10 +81,15 @@ fn trodden(p: vec2<f32>) -> f32 {
     return textureSampleLevel(mask, mask_sampler, uv, 0.0).r;
 }
 
-// Shapes of tuft, and details each is made in. `SHAPES` and `DETAILS` in
-// `grass.rs`.
+// Shapes of tuft, how many of the last are flowers, and details each is
+// made in. `SHAPES`, `FLOWERS` and `DETAILS` in `grass.rs`.
 const SHAPES: u32 = 8u;
+const FLOWERS: u32 = 2u;
 const DETAILS: u32 = 3u;
+// The colour of a flower's heart, linear, and how much of it the heart
+// takes over its petals' colour.
+const HEART: vec3<f32> = vec3<f32>(0.95, 0.62, 0.08);
+const HEART_SHARE: f32 = 0.6;
 // How far below the share kept a rank begins to shrink away.
 const FADING: f32 = 0.08;
 
@@ -140,14 +145,27 @@ fn away_from_eye(p: vec2<f32>) -> f32 {
     return length(vec2<f32>(distance(p, grass.reach.xz), grass.rings.z));
 }
 
+// Whether the tuft whose hash is `h`, at `p` on the map with `woods` the
+// share of the woods there, is a flower: they grow in patches, fewer in
+// the woods.
+fn in_flower(h: u32, p: vec2<f32>, woods: f32) -> bool {
+    return blooms_at(p) > BLOOMS && roll(h, 4u) < grass.grow.z * (1.0 - woods);
+}
+
 // The tuft's rank, from 0 to 1, which decides how far off it is kept, and
-// its shape, of `SHAPES`.
+// its shape, of `SHAPES`: one of the last `FLOWERS` where it is a flower,
+// else one of the others.
 fn rank_of(h: u32) -> f32 {
     return roll(h, 10u);
 }
 
-fn shape_of(h: u32) -> u32 {
-    return min(u32(roll(h, 11u) * f32(SHAPES)), SHAPES - 1u);
+fn shape_of(s: Spot) -> u32 {
+    let pick = roll(s.h, 11u);
+    if in_flower(s.h, s.p, s.woods) {
+        return SHAPES - FLOWERS + min(u32(pick * f32(FLOWERS)), FLOWERS - 1u);
+    }
+    let grasses = SHAPES - FLOWERS;
+    return min(u32(pick * f32(grasses)), grasses - 1u);
 }
 
 // The share of tufts kept `away` from the eye.
@@ -180,10 +198,9 @@ fn blade(
     drawn.normal = here.normal;
     drawn.glow = vec3<f32>(0.0);
 
-    // Tufts flower in patches; a flower's head is drawn only on one that
-    // does, and on others shrinks to nothing at its middle.
+    // Tufts flower in patches, where the flowers grow in their place.
     let blooms = blooms_at(p);
-    let flowering = blooms > BLOOMS && roll(h, 4u) < grass.grow.z * (1.0 - woods);
+    let flowering = in_flower(h, p, woods);
     let away = away_from_eye(p);
 
     // Further off, fewer tufts and fewer of each one's blades are kept, the
@@ -196,9 +213,9 @@ fn blade(
     let spread = inverseSqrt(clamp(tufts, 0.05, 1.0));
     let widen = inverseSqrt(clamp(blades, 0.05, 1.0));
 
-    // Close by, a tuft in flower shows its flowers' heads. Further off,
-    // where a head would be smaller than a pixel and flicker, the heads
-    // shrink away and its tips take the flowers' colour instead.
+    // Close by, a flower shows its heads. Further off, where a head would
+    // be smaller than a pixel and flicker, the heads shrink away and its
+    // tips take the flowers' colour instead.
     let heads = heads_shown(away, grass.reach.w);
     var point = vec3<f32>(local.x * spread, local.y * kept_blade, local.z * spread);
     if flower {
@@ -249,8 +266,10 @@ fn blade(
     let shine = select(0.0, glow_at(p), grass.glow.x > 0.0);
     var colour: vec3<f32>;
     if flower {
-        colour = bloom;
-        drawn.glow = bloom * shine;
+        // The head's middle, which alone lies at no offset, is its heart.
+        let heart = select(0.0, HEART_SHARE, dot(off, off) == 0.0);
+        colour = mix(bloom, HEART, heart);
+        drawn.glow = colour * shine;
     } else {
         colour = grass_colour(p, y, woods, heath) * tone * mix(grass.look.x, grass.look.y, up);
         colour = mix(colour, soil.grass_sun.rgb * grass.look.y, grass.look.z * up * up);

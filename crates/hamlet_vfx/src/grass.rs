@@ -36,11 +36,11 @@ use crate::leaves::LeafView;
 use crate::wind::{WindSettings, WindUniform};
 use crate::{Now, VfxSystems};
 
-/// Shapes of tuft there are, and how many of the first carry flowers'
-/// heads, which show where a tuft flowers. `SHAPES` in
+/// Shapes of tuft there are, and how many of the last are flowers,
+/// which grow where the grass flowers. `SHAPES` and `FLOWERS` in
 /// `grass_shape.wesl`.
 pub const SHAPES: usize = 8;
-pub const IN_FLOWER: usize = 4;
+pub const FLOWERS: usize = 2;
 /// Details each tuft is made in, the finest first. `DETAILS` in
 /// `grass_shape.wesl`.
 pub const DETAILS: usize = 3;
@@ -367,34 +367,34 @@ struct Built {
 
 /// Tuft `shape` of [`SHAPES`] at `detail`, made at random from its
 /// number alone: a clump of curved blades, the outer ones shorter and
-/// leaning out further, and the first [`IN_FLOWER`] shapes with
-/// flowers' heads on their tallest blades. Only the blades ranked
-/// under `detail`'s share of the finest's are made.
+/// leaning out further; or, for the last [`FLOWERS`] shapes, a few
+/// shorter blades about stems that stand over the grass, each with a
+/// flower's head. Only the blades ranked under `detail`'s share of
+/// the finest's are made. The stems are ranked lowest, so they are
+/// kept longest; the coarsest detail, too far off for heads, has
+/// none.
 fn tuft(
     built: &mut Built,
     set: &GrassSettings,
     shape: usize,
     detail: usize,
 ) {
-    /// How far up each pair of points across a blade lies; its tip
-    /// is one point.
-    const RISE: [f32; 4] = [0.0, 0.3, 0.58, 0.82];
     let seed = shape as u32 * 977 + 13;
     let r = |i: u32, k: u32| hash(seed.wrapping_add(i * 7919), k);
     let finest = set.blades[0].max(1);
     let share =
         set.blades[detail].clamp(1, finest) as f32 / finest as f32;
-    let flowering = shape < IN_FLOWER;
+    let flower = shape >= SHAPES - FLOWERS;
+    // A flower has a third as many blades, and shorter.
+    let (blades, short) = if flower {
+        (finest / 3, 0.65)
+    } else {
+        (finest, 1.0)
+    };
 
-    let Built {
-        positions,
-        normals,
-        uvs,
-        colours,
-        indices,
-    } = built;
-    for i in 0..finest {
-        let own = r(i, 9);
+    for i in 0..blades {
+        // A flower's stems are ranked under its blades.
+        let own = if flower { 0.2 + 0.8 * r(i, 9) } else { r(i, 9) };
         if own >= share {
             continue;
         }
@@ -402,28 +402,106 @@ fn tuft(
         let out = r(i, 0).powf(0.7);
         let turn = r(i, 1) * TAU;
         let way = Vec3::new(turn.cos(), 0.0, turn.sin());
-        let root = way * out * set.spread * 0.35;
-        let height =
-            set.tall * (0.5 + 0.5 * r(i, 2)) * (1.0 - 0.4 * out);
-        // How far it leans out, and a little to one side.
-        let lean = (0.15 + 0.85 * out) * (0.35 + 0.5 * r(i, 3));
+        let height = set.tall
+            * short
+            * (0.5 + 0.5 * r(i, 2))
+            * (1.0 - 0.4 * out);
         let side = Vec3::new(-way.z, 0.0, way.x);
-        let lean_way =
-            (way + side * (r(i, 4) - 0.5) * 0.8).normalize();
         let twist = (r(i, 5) - 0.5) * 1.2;
-        let across =
-            (side * twist.cos() + way * twist.sin()).normalize();
-        let wide = set.wide * (0.75 + 0.5 * r(i, 6));
+        built.blade(Blade {
+            root: way * out * set.spread * 0.35,
+            height,
+            // How far it leans out, and a little to one side.
+            lean: (0.15 + 0.85 * out) * (0.35 + 0.5 * r(i, 3)),
+            lean_way: (way + side * (r(i, 4) - 0.5) * 0.8)
+                .normalize(),
+            across: (side * twist.cos() + way * twist.sin())
+                .normalize(),
+            wide: set.wide * (0.75 + 0.5 * r(i, 6)),
+            own,
+        });
+    }
+
+    if !flower {
+        return;
+    }
+    // Stems near the middle, standing over the grass and leaning a
+    // little, each with a head facing up and tipped its own way.
+    let stems = 3 + (r(0, 20) * 2.0) as u32;
+    for k in 0..stems {
+        let i = 100 + k;
+        let own = 0.2 * r(i, 9);
+        if own >= share {
+            continue;
+        }
+        let turn = (k as f32 + r(i, 1) * 0.6) / stems as f32 * TAU;
+        let way = Vec3::new(turn.cos(), 0.0, turn.sin());
+        let side = Vec3::new(-way.z, 0.0, way.x);
+        let tip = built.blade(Blade {
+            root: way * r(i, 0) * set.spread * 0.12,
+            height: set.tall * (1.05 + 0.35 * r(i, 2)),
+            lean: 0.12 + 0.2 * r(i, 3),
+            lean_way: way,
+            across: side,
+            wide: set.wide * 0.45,
+            own,
+        });
+        if detail + 1 < DETAILS {
+            let size = 0.075 * (0.8 + 0.4 * r(i, 10));
+            // Tipped up to 35 degrees from the sky about an axis of
+            // its own.
+            let facing = Quat::from_axis_angle(
+                Vec3::new(r(i, 11) - 0.5, 0.0, r(i, 12) - 0.5)
+                    .normalize_or(Vec3::X),
+                r(i, 13) * 0.6,
+            );
+            let petals = if detail == 0 { 5 } else { 0 };
+            built.head(tip, size, facing, turn, petals, own);
+        }
+    }
+}
+
+/// A blade as [`Built::blade`] lays it.
+struct Blade {
+    /// Where it rises from, how high, and how far it leans along
+    /// `lean_way`.
+    root: Vec3,
+    height: f32,
+    lean: f32,
+    lean_way: Vec3,
+    /// The way across it, and how wide it is at its root.
+    across: Vec3,
+    wide: f32,
+    /// Its rank.
+    own: f32,
+}
+
+impl Built {
+    /// Lays `blade` curving up and out, narrowing to its tip, and
+    /// gives back where its tip is.
+    fn blade(&mut self, blade: Blade) -> Vec3 {
+        /// How far up each pair of points across a blade lies; its
+        /// tip is one point.
+        const RISE: [f32; 4] = [0.0, 0.3, 0.58, 0.82];
+        let Blade {
+            root,
+            height,
+            lean,
+            lean_way,
+            across,
+            wide,
+            own,
+        } = blade;
         let centre = |t: f32| {
             root + lean_way * (lean * height * t * t)
                 + Vec3::Y * height * (t - 0.3 * lean * lean * t * t)
         };
-        let first = positions.len() as u32;
+        let first = self.positions.len() as u32;
         let mut push = |t: f32, off: Vec3| {
-            positions.push(centre(t).to_array());
-            normals.push([0.0, 1.0, 0.0]);
-            uvs.push([t, own]);
-            colours.push([off.x, off.y, off.z, 1.0]);
+            self.positions.push(centre(t).to_array());
+            self.normals.push([0.0, 1.0, 0.0]);
+            self.uvs.push([t, own]);
+            self.colours.push([off.x, off.y, off.z, 1.0]);
         };
         for t in RISE {
             let half = across * wide * 0.5 * (1.0 - t).powf(0.6);
@@ -433,46 +511,56 @@ fn tuft(
         push(1.0, Vec3::ZERO);
         for k in 0..3 {
             let a = first + k * 2;
-            indices.extend([a, a + 1, a + 3, a, a + 3, a + 2]);
+            self.indices.extend([a, a + 1, a + 3, a, a + 3, a + 2]);
         }
-        indices.extend([first + 6, first + 7, first + 8]);
+        self.indices.extend([first + 6, first + 7, first + 8]);
+        centre(1.0)
+    }
 
-        // The tallest blades of a tuft in flower carry a head: a few
-        // petals about the tip, facing up. The coarsest detail, too
-        // far off for heads, has none.
-        if flowering
-            && detail + 1 < DETAILS
-            && i % 6 == 0
-            && out < 0.6
-        {
-            let head = centre(1.0);
-            let size = 0.035 * (0.8 + 0.4 * r(i, 10));
-            // Each head faces its own way, tipped up to 70 degrees
-            // from the sky about an axis of its own.
-            let tip = Quat::from_axis_angle(
-                Vec3::new(r(i, 11) - 0.5, 0.0, r(i, 12) - 0.5)
-                    .normalize_or(Vec3::X),
-                r(i, 13) * 1.2,
-            );
-            let first = positions.len() as u32;
-            let mut petal = |out: Vec3| {
-                positions.push(head.to_array());
-                normals.push([0.0, 1.0, 0.0]);
-                uvs.push([1.0, own]);
-                colours.push([out.x, out.y, out.z, 0.0]);
+    /// Lays a flower's head at `at`, `size` across, facing up as
+    /// `facing` turns it and turned `turn` about itself: with
+    /// `petals` petals, each a point out of the head's middle with a
+    /// notch between it and the next, or with none, a plain disc. Its
+    /// middle, which is its heart, has no offset at all.
+    fn head(
+        &mut self,
+        at: Vec3,
+        size: f32,
+        facing: Quat,
+        turn: f32,
+        petals: u32,
+        own: f32,
+    ) {
+        let rim = if petals > 0 { petals * 2 } else { 5 };
+        let first = self.positions.len() as u32;
+        let mut point = |out: Vec3| {
+            self.positions.push(at.to_array());
+            self.normals.push([0.0, 1.0, 0.0]);
+            self.uvs.push([1.0, own]);
+            self.colours.push([out.x, out.y, out.z, 0.0]);
+        };
+        point(Vec3::ZERO);
+        for k in 0..rim {
+            let a = k as f32 / rim as f32 * TAU + turn;
+            // Petals' tips cup up a little; between them, a notch.
+            let (reach, rise) = if petals > 0 && k % 2 == 1 {
+                (0.45, 0.05)
+            } else {
+                (1.0, 0.2)
             };
-            petal(Vec3::ZERO);
-            for k in 0..5 {
-                let a = k as f32 / 5.0 * TAU + turn;
-                petal(tip * Vec3::new(a.cos(), 0.15, a.sin()) * size);
-            }
-            for k in 0..5 {
-                indices.extend([
-                    first,
-                    first + 1 + k,
-                    first + 1 + (k + 1) % 5,
-                ]);
-            }
+            point(
+                facing
+                    * Vec3::new(a.cos(), rise, a.sin())
+                    * size
+                    * reach,
+            );
+        }
+        for k in 0..rim {
+            self.indices.extend([
+                first,
+                first + 1 + k,
+                first + 1 + (k + 1) % rim,
+            ]);
         }
     }
 }

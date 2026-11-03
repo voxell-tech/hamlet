@@ -68,7 +68,7 @@ fn place(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
     let detail = select(select(2u, 1u, away < grass.rings.y), 0u, away < grass.rings.x);
-    let list = detail * SHAPES + shape_of(s.h);
+    let list = detail * SHAPES + shape_of(s);
     let at = atomicAdd(&draws[list * ARGUMENTS + 1u], 1u);
     if at < CAPACITY {
         tufts[list * CAPACITY + at] = cell;
