@@ -6,8 +6,9 @@
 
 import hamlet_vfx::grass_shape::{
     DETAILS, SHAPES, away_from_eye, fade, grass, grows, rank_of, shape_of,
-    spot, tufts_kept,
+    spot, tuft_hash, tuft_middle, tufts_kept,
 };
+import hamlet_vfx::soil::{GRASS_HIGHEST, GRASS_OVER_WATER, soil};
 
 // The most tufts a list holds. `CAPACITY` in `grass/draw.rs`.
 const CAPACITY: u32 = 8192u;
@@ -22,6 +23,8 @@ const ARGUMENTS: u32 = 5u;
 // for those thinned away, so further off they reach further.
 const TUFT_REACH: f32 = 1.2;
 const TUFT_MORE: f32 = 0.6;
+// How far over the ground a tuft's middle is taken to stand.
+const TUFT_RISE: f32 = 0.3;
 
 // `PlaceInput` in `grass/draw.rs`: the square, in tufts, the first
 // invocation checks, how many each way there are, and the planes the eye
@@ -48,23 +51,44 @@ fn in_sight(at: vec3<f32>, reach: f32) -> bool {
     return true;
 }
 
+// Whether a tuft at `p` on the map, reaching `reach` from its middle, may
+// be in sight at any height grass grows at, for before the land is read.
+fn may_be_in_sight(p: vec2<f32>, reach: f32) -> bool {
+    let low = soil.water + GRASS_OVER_WATER + TUFT_RISE;
+    let high = GRASS_HIGHEST + TUFT_RISE;
+    for (var i = 0u; i < 6u; i++) {
+        let plane = place_at.sight[i];
+        let y = select(low, high, plane.y > 0.0);
+        if dot(plane.xyz, vec3<f32>(p.x, y, p.y)) + plane.w < -reach {
+            return false;
+        }
+    }
+    return true;
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn place(@builtin(global_invocation_id) id: vec3<u32>) {
     if any(id.xy >= place_at.size) {
         return;
     }
     let cell = place_at.origin + vec2<i32>(id.xy);
-    let s = spot(cell);
-    if distance(s.p, grass.reach.xz) > grass.reach.w || !grows(s) {
+    // What needs only the tuft's square first, then the land under it.
+    let h = tuft_hash(cell);
+    let p = tuft_middle(cell, h);
+    if distance(p, grass.reach.xz) > grass.reach.w {
         return;
     }
-    let away = away_from_eye(s.p);
+    let away = away_from_eye(p);
     let kept = tufts_kept(away);
-    if fade(rank_of(s.h), kept) <= 0.0 {
+    if fade(rank_of(h), kept) <= 0.0 {
         return;
     }
     let reach = TUFT_REACH * inverseSqrt(clamp(kept, 0.05, 1.0)) + TUFT_MORE;
-    if !in_sight(vec3<f32>(s.p.x, s.y + 0.3, s.p.y), reach) {
+    if !may_be_in_sight(p, reach) {
+        return;
+    }
+    let s = spot(cell);
+    if !grows(s) || !in_sight(vec3<f32>(s.p.x, s.y + TUFT_RISE, s.p.y), reach) {
         return;
     }
     let detail = select(select(2u, 1u, away < grass.rings.y), 0u, away < grass.rings.x);

@@ -121,10 +121,20 @@ struct Spot {
     normal: vec3<f32>,
 }
 
+// The hash of the tuft of the square `cell` of the map, counted in tufts.
+fn tuft_hash(cell: vec2<i32>) -> u32 {
+    return key(soil.seed ^ 0x6a09e667u, cell.x, cell.y);
+}
+
+// The middle on the map of that tuft, whose hash is `h`.
+fn tuft_middle(cell: vec2<i32>, h: u32) -> vec2<f32> {
+    return (vec2<f32>(cell) + vec2<f32>(roll(h, 0u), roll(h, 1u))) * grass.grow.x;
+}
+
 // The tuft of the square `cell` of the map, counted in tufts.
 fn spot(cell: vec2<i32>) -> Spot {
-    let h = key(soil.seed ^ 0x6a09e667u, cell.x, cell.y);
-    let p = (vec2<f32>(cell) + vec2<f32>(roll(h, 0u), roll(h, 1u))) * grass.grow.x;
+    let h = tuft_hash(cell);
+    let p = tuft_middle(cell, h);
     let here = land_at(0, p);
     return Spot(h, p, here.page.x, here.page.y, here.page.z, normalize(here.normal));
 }
