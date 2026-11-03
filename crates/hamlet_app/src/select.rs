@@ -9,10 +9,12 @@
 //! presses.
 
 use std::ops::Range;
+use std::time::Duration;
 
 use bevy::app::{App, PostUpdate, Startup, Update};
 use bevy::camera::visibility::InheritedVisibility;
 use bevy::clipboard::Clipboard;
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -34,6 +36,7 @@ use bevy::picking::events::{
     PointerDrag, PointerDragEnd, PointerPress,
 };
 use bevy::picking::pointer::PointerButton;
+use bevy::time::{Real, Time};
 use bevy::text::{
     ComputedTextBlock, EditableText, LineBreak, TextBrush,
     TextLayout, TextSpan,
@@ -94,6 +97,39 @@ enum Grain {
     Letter,
     Word,
     Line,
+}
+
+/// How long after a press the next one still counts as part of the
+/// same run of clicks, and how far from it, in logical pixels.
+const MULTI: Duration = Duration::from_millis(500);
+const NEAR: f32 = 4.0;
+
+/// The latest press of the primary button: when and where it was, and
+/// how many in a row it makes.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Click {
+    at: Duration,
+    on: Vec2,
+    count: u8,
+}
+
+/// The press at `on` after `last`, if it is a new one. `None` for the
+/// same press seen again: the picking backend sends one to each
+/// entity under the pointer, each with a count of its own, so only
+/// the first of them is read, and the run is counted here, where the
+/// place of the press is known.
+fn pressed(last: Option<Click>, at: Duration, on: Vec2) -> Option<Click> {
+    let count = match last {
+        Some(last) if last.at == at && last.on == on => return None,
+        Some(last)
+            if at.saturating_sub(last.at) <= MULTI
+                && last.on.distance(on) <= NEAR =>
+        {
+            last.count.saturating_add(1)
+        }
+        _ => 1,
+    };
+    Some(Click { at, on, count })
 }
 
 /// A place in selectable words: a text node and the bytes of it that
@@ -530,6 +566,8 @@ fn press(
     rows: Query<&Quotable>,
     keeps: Query<(), With<Keeps>>,
     texts: Texts,
+    time: Res<Time<Real>>,
+    mut last: Local<Option<Click>>,
     mut focus: ResMut<InputFocus>,
     mut selecting: ResMut<Selecting>,
 ) {
@@ -539,6 +577,14 @@ fn press(
     {
         return;
     }
+    let Some(click) = pressed(
+        *last,
+        time.elapsed(),
+        press.pointer.position,
+    ) else {
+        return;
+    };
+    *last = Some(click);
     let chain = std::iter::once(press.entity)
         .chain(texts.parents.iter_ancestors(press.entity))
         .collect::<Vec<_>>();
@@ -565,7 +611,7 @@ fn press(
         }
         return;
     };
-    let grain = match press.count {
+    let grain = match click.count {
         0 | 1 => Grain::Letter,
         2 => Grain::Word,
         _ => Grain::Line,
@@ -702,6 +748,7 @@ fn light(
     sizes: Query<(&ComputedNode, &UiGlobalTransform)>,
     layer: Option<Single<(Entity, Option<&Children>), With<Lit>>>,
     glows: Query<(), With<Glow>>,
+    mut placed: Query<&mut Node, With<Glow>>,
     theme: Themed,
     mut shown: Local<Vec<Rect>>,
     mut selecting: ResMut<Selecting>,
@@ -754,27 +801,43 @@ fn light(
         && *shown != boxes
     {
         let (layer, lit) = *layer;
-        for glow in lit.into_iter().flatten() {
-            if glows.contains(*glow) {
-                commands.entity(*glow).despawn();
-            }
-        }
+        // The boxes already there are moved rather than made anew: a
+        // node made after the layout of this frame is not drawn until
+        // the next, which showed as a flicker at each change.
+        let mut old = lit
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|glow| glows.contains(*glow));
         let fill = theme.palette.text_selection;
         for b in &boxes {
-            commands.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: px(b.min.x),
-                    top: px(b.min.y),
-                    width: px(b.width()),
-                    height: px(b.height()),
-                    ..Node::default()
-                },
-                BackgroundColor(fill),
-                Pickable::IGNORE,
-                Glow,
-                ChildOf(layer),
-            ));
+            let node = Node {
+                position_type: PositionType::Absolute,
+                left: px(b.min.x),
+                top: px(b.min.y),
+                width: px(b.width()),
+                height: px(b.height()),
+                ..Node::default()
+            };
+            match old.next().and_then(|glow| {
+                placed.get_mut(glow).ok().map(|p| (glow, p))
+            }) {
+                Some((_, mut at)) => {
+                    at.set_if_neq(node);
+                }
+                None => {
+                    commands.spawn((
+                        node,
+                        BackgroundColor(fill),
+                        Pickable::IGNORE,
+                        Glow,
+                        ChildOf(layer),
+                    ));
+                }
+            }
+        }
+        for spare in old {
+            commands.entity(spare).despawn();
         }
         // The button stands under the end of what is lit, in its
         // area.
@@ -892,6 +955,24 @@ mod tests {
             covered(&order, spot(b, 8, 8), spot(c, 9, 9), short),
             vec![(b, 8..10), (c, 0..3)]
         );
+    }
+
+    #[test]
+    fn a_press_counts_with_the_ones_close_to_it_in_time_and_place() {
+        let ms = Duration::from_millis;
+        let at = Vec2::new(10.0, 10.0);
+        let first = pressed(None, ms(1000), at).unwrap();
+        assert_eq!(first.count, 1);
+        // The same press, seen from another entity under the pointer.
+        assert_eq!(pressed(Some(first), ms(1000), at), None);
+        let second = pressed(Some(first), ms(1300), at).unwrap();
+        assert_eq!(second.count, 2);
+        let third = pressed(Some(second), ms(1600), at).unwrap();
+        assert_eq!(third.count, 3);
+        // Too late, or too far, starts over.
+        assert_eq!(pressed(Some(third), ms(2200), at).unwrap().count, 1);
+        let away = Vec2::new(40.0, 10.0);
+        assert_eq!(pressed(Some(third), ms(1700), away).unwrap().count, 1);
     }
 
     #[test]
