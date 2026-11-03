@@ -10,9 +10,9 @@ use bevy::prelude::*;
 use hamlet_vfx::grass::{self, Grass, GrassReach, GrassSettings};
 use hamlet_vfx::ground::GroundMaterial;
 
-use super::Kit;
 use super::land::Land;
 use super::sync::Drawn;
+use super::{Kit, relief};
 use crate::WorldCamera;
 use crate::sky::Quality;
 
@@ -27,13 +27,16 @@ const MASK_TEXEL: f32 = 0.5;
 const EDGE: f32 = 0.4;
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Update, (begin, (follow, tread)).chain())
-        // Once the eye has moved this frame and what it sees is
-        // known, so the grass is kept to the view it is drawn from.
-        .add_systems(
-            PostUpdate,
-            reach.after(VisibilitySystems::UpdateFrusta),
-        );
+    app.add_systems(
+        Update,
+        (begin, (follow.after(relief::PagesLaid), tread)).chain(),
+    )
+    // Once the eye has moved this frame and what it sees is
+    // known, so the grass is kept to the view it is drawn from.
+    .add_systems(
+        PostUpdate,
+        reach.after(VisibilitySystems::UpdateFrusta),
+    );
 }
 
 /// Where the mask was last made about, and for what treads it.

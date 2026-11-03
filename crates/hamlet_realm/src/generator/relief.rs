@@ -57,7 +57,7 @@ const STEP: f32 = 32.0;
 pub(super) fn plugin(app: &mut App) {
     embedded_asset!(app, "relief.wesl");
     app.add_plugins(ExtractResourcePlugin::<Job>::default())
-        .add_systems(Update, follow);
+        .add_systems(Update, follow.in_set(PagesLaid));
     let Some(render) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
@@ -220,6 +220,13 @@ struct Pages {
 fn texel(cell: f32, level: usize) -> f32 {
     cell * (1u32 << level) as f32
 }
+
+/// Where the pages are laid about the eye and the ground and the
+/// water told where they lie. Whatever takes where they lie from the
+/// ground or the water runs after it, or for a frame it reads the new
+/// pages where the old ones lay.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct PagesLaid;
 
 /// Lays the pages about the eye, makes anew those it has moved far
 /// enough over and all of them when the land changes, and tells the

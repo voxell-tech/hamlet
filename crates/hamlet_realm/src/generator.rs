@@ -161,7 +161,7 @@ pub fn plugin(app: &mut App) {
             ),
             settle.run_if(resource_changed::<Society>),
             tell_leaves,
-            float_pads,
+            float_pads.after(relief::PagesLaid),
             shift_houses,
             magic::charm,
             run_traffic,
