@@ -1,10 +1,10 @@
 // What every pass of the lily pads shares: how a pad rides the water,
-// moved as one by what the water's waves do to the surface at its middle,
-// and its strokes, which it is cut to.
+// moved and leaned as one by what the water's waves do to the surface
+// under it, and its strokes, which it is cut to.
 
 import bevy_pbr::render::mesh_view_bindings::view;
 import hamlet_vfx::shore::coast_at;
-import hamlet_vfx::waves::wave;
+import hamlet_vfx::waves::{Coast, wave};
 
 // Mirrors `Water` in `water.wesl`; the fields are explained on
 // `WaterUniform` in `water.rs`.
@@ -31,17 +31,58 @@ struct Water {
 // `FLAT` in `water.wesl`.
 const FLAT: f32 = 55.0;
 
-// Where the point `local` of a pad moved by `world_from_local`, which lays
-// it on the still water, rides: as far as the waves move the water's
-// surface at the pad's middle, and not at all where the water lies flat.
-fn ridden(local: vec3<f32>, world_from_local: mat4x4<f32>) -> vec3<f32> {
+// How much of the slope of the water under it a pad leans with: it is
+// stiff, and floats across more than one ripple.
+const LEAN: f32 = 0.6;
+
+// How a pad rides the water: how far the waves move its middle, and the way
+// its face turns to.
+struct Ride {
+    lift: vec3<f32>,
+    up: vec3<f32>,
+}
+
+// Where the waves, `kept` of their height, move the water's surface over
+// the still point `p`, with the shore as it bears at `near`.
+fn surface(p: vec2<f32>, near: Coast, kept: f32) -> vec3<f32> {
+    let lift = wave(noise, noise_sampler, near, p, water.time.x, water.time.y, water.wind.xy);
+    return vec3<f32>(p.x, 0.0, p.y) + lift * kept;
+}
+
+// How the pad laid on the still water by `world_from_local` rides: moved as
+// the waves move the surface at its middle, leaning with the surface found
+// half its width out on each side, and still where the water lies flat.
+fn ride(world_from_local: mat4x4<f32>) -> Ride {
     let middle = world_from_local[3].xyz;
-    let at = (world_from_local * vec4<f32>(local, 1.0)).xyz;
     let scale = water.time.y;
     let kept = 1.0 - smoothstep(25.0 * scale, FLAT * scale, distance(middle, view.world_position));
+    let still = Ride(vec3<f32>(0.0), vec3<f32>(0.0, 1.0, 0.0));
     if kept <= 0.0 {
-        return at;
+        return still;
     }
-    let near = coast_at(middle.xz, water.time.z, water.calm.xy);
-    return at + wave(noise, noise_sampler, near, middle.xz, water.time.x, scale, water.wind.xy) * kept;
+    let c = middle.xz;
+    let near = coast_at(c, water.time.z, water.calm.xy);
+    let r = max(0.5 * length(world_from_local[0].xyz), 0.2);
+    let across = surface(c + vec2<f32>(r, 0.0), near, kept) - surface(c - vec2<f32>(r, 0.0), near, kept);
+    let along = surface(c + vec2<f32>(0.0, r), near, kept) - surface(c - vec2<f32>(0.0, r), near, kept);
+    let slope = normalize(cross(along, across));
+    return Ride(
+        surface(c, near, kept) - vec3<f32>(c.x, 0.0, c.y),
+        normalize(mix(still.up, slope, LEAN)),
+    );
+}
+
+// `v` turned as straight up is turned to `up`, which leans less than a
+// right angle.
+fn turned(v: vec3<f32>, up: vec3<f32>) -> vec3<f32> {
+    let w = cross(vec3<f32>(0.0, 1.0, 0.0), up);
+    return v * up.y + cross(w, v) + w * dot(w, v) / (1.0 + up.y);
+}
+
+// Where the point `local` of the pad laid by `world_from_local` rides, as
+// `ride` has the pad.
+fn ridden(local: vec3<f32>, world_from_local: mat4x4<f32>, ride: Ride) -> vec3<f32> {
+    let middle = world_from_local[3].xyz;
+    let at = (world_from_local * vec4<f32>(local, 1.0)).xyz;
+    return middle + ride.lift + turned(at - middle, ride.up);
 }
