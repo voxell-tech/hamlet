@@ -31,10 +31,9 @@ struct Water {
 // `FLAT` in `water.wesl`.
 const FLAT: f32 = 55.0;
 
-// How many times the slope of the water under it a pad leans with, and the
-// most it leans, as a slope. The water where pads grow is calmed by the
-// shore to a slope of a few degrees, too little to see a pad lean with.
-const LEAN: f32 = 2.0;
+// How much of the slope of the water under it a pad leans with, and the
+// most it leans, as a slope, so it only ever rocks a little.
+const LEAN: f32 = 1.0;
 const LEAN_MOST: f32 = 0.2;
 
 // How a pad rides the water: how far the waves move its middle, and the way
@@ -45,7 +44,8 @@ struct Ride {
 }
 
 // Where the waves, `kept` of their height, move the water's surface over
-// the still point `p`, with the shore as it bears at `near`.
+// the still point `p`, with the shore as it bears at `near`, which must be
+// found at `p` itself: near it the waves' phase is the distance to it.
 fn surface(p: vec2<f32>, near: Coast, kept: f32) -> vec3<f32> {
     let lift = wave(noise, noise_sampler, near, p, water.time.x, water.time.y, water.wind.xy);
     return vec3<f32>(p.x, 0.0, p.y) + lift * kept;
@@ -70,8 +70,9 @@ fn ride(world_from_local: mat4x4<f32>) -> Ride {
     let way = select(vec2<f32>(0.0, 1.0), normalize(runs), dot(runs, runs) > 1e-6);
     let r = max(0.5 * length(world_from_local[0].xyz), 0.2);
     let here = surface(c, near, kept);
-    let on = surface(c + way * r, near, kept);
-    let rise = (on.y - here.y) / max(distance(on.xz, here.xz), 1e-3);
+    let ahead = c + way * r;
+    let on = surface(ahead, coast_at(ahead, water.time.z, water.calm.xy), kept);
+    let rise = (on.y - here.y) / max(dot(on.xz - here.xz, way), 1e-3);
     let lean = clamp(rise * LEAN, -LEAN_MOST, LEAN_MOST);
     return Ride(
         here - vec3<f32>(c.x, 0.0, c.y),
