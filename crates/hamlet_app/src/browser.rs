@@ -2,7 +2,7 @@
 //! and searched by name. A click selects a tile and a double click
 //! opens it; a tile dragged onto a canvas adds what it is there. The
 //! selected tile is renamed, opened or removed in the strip under the
-//! grid. Blueprints and materials are made new here, meshes are added
+//! grid. Blueprints and shaders are made new here, meshes are added
 //! from `.glb` files and textures from `.png` files.
 
 use std::path::Path;
@@ -49,7 +49,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::dock::{PanelAppExt, flush_panel};
-use crate::graphs::{Blueprint, Material};
+use crate::graphs::{Blueprint, ShaderGraph};
 
 /// A tile's width; its picture is as tall.
 const TILE: f32 = 96.0;
@@ -165,7 +165,7 @@ fn bar() -> AnyView {
         chips.extend(
             [
                 ("Blueprints", Kind::Blueprint),
-                ("Materials", Kind::Material),
+                ("Shaders", Kind::Shader),
                 ("Meshes", Kind::Mesh),
                 ("Textures", Kind::Texture),
             ]
@@ -214,9 +214,9 @@ fn bar() -> AnyView {
                 files::create::<Blueprint>(world);
                 world.resource::<Files<Blueprint>>().note.clone()
             }),
-            new("Material", "New material", |world| {
-                files::create::<Material>(world);
-                world.resource::<Files<Material>>().note.clone()
+            new("Shader", "New shader", |world| {
+                files::create::<ShaderGraph>(world);
+                world.resource::<Files<ShaderGraph>>().note.clone()
             }),
             import("Mesh", "Add a mesh from a .glb file", Kind::Mesh),
             import(
@@ -287,8 +287,7 @@ fn grid() -> AnyView {
                     return cx.build(
                         column((description(
                             "Nothing here yet. Add a mesh or a \
-                             texture, or save a blueprint or \
-                             material.",
+                             texture, or save a blueprint or shader.",
                         ),))
                         .padding(UiRect::all(px(gap * 2.0))),
                     );
@@ -323,7 +322,7 @@ fn tile(item: Item, selected: bool) -> AnyView {
         let palette = &theme.palette;
         let tint = match item.kind {
             Kind::Blueprint => palette.gold_3,
-            Kind::Material => palette.red,
+            Kind::Shader => palette.red,
             Kind::Mesh => palette.agent,
             Kind::Texture => palette.green,
         };

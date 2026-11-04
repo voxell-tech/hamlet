@@ -1,4 +1,4 @@
-//! A material graph compiled to WGSL: a function from what a surface
+//! A shader graph compiled to WGSL: a function from what a surface
 //! is read from to what it gives, and one that shows what any node
 //! gives, for its swatch. Every value set on the graph is read from a
 //! slot, so a value changed is a slot written, not a shader compiled
@@ -13,12 +13,12 @@ use hamlet_graph::{
     ValueType,
 };
 
-use crate::kinds::{self, MaterialKind, SURFACE};
+use crate::kinds::{self, SURFACE, ShaderKind};
 
 /// The slots a graph may set; slot 0 is the time.
 pub const SLOTS: usize = 256;
 
-/// The WGSL every compiled material shares.
+/// The WGSL every compiled shader shares.
 pub const LIBRARY: &str = include_str!("library.wgsl");
 
 /// Where a slot's value comes from.
@@ -229,8 +229,7 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Error> {
                 compiler.errors.push(Error::Invalid {
                     node: id,
                     port: String::new(),
-                    reason: "runs a graph, which a material cannot \
-                             yet",
+                    reason: "runs a graph, which a shader cannot yet",
                 });
                 continue;
             }
@@ -378,7 +377,7 @@ impl Compiler<'_> {
             .ok_or_else(|| Error::Invalid {
                 node,
                 port: Does::INPUT_PORT.to_owned(),
-                reason: "needs more values than a material holds",
+                reason: "needs more values than a shader holds",
             })?;
         let _ = writeln!(
             self.body,
@@ -407,7 +406,7 @@ fn read_slot(at: usize, value_type: ValueType) -> String {
 pub(crate) struct Emit<'a, 'b> {
     compiler: &'b mut Compiler<'a>,
     node: &'b Node,
-    kind: &'static MaterialKind,
+    kind: &'static ShaderKind,
     lines: String,
     given: Vec<(String, ValueType)>,
 }
@@ -519,7 +518,7 @@ impl Emit<'_, '_> {
         let at = self.compiler.slot(source).ok_or_else(|| {
             self.invalid(
                 spec.name,
-                "needs more values than a material holds",
+                "needs more values than a shader holds",
             )
         })?;
         Ok(read_slot(at, spec.value_type))

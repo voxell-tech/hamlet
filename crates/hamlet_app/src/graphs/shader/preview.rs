@@ -1,8 +1,8 @@
-//! The material's preview, floating over the canvas in a card of the
-//! editor's: a mesh with the material, shaded by the hour's
-//! directional lights through the realm's camera and post processing,
-//! as on a house in the realm. Dragging turns the shape and scrolling
-//! brings it nearer. The surface colour a graph reads
+//! The shader's preview, floating over the canvas in a card of the
+//! editor's: a mesh with a material of the shader, shaded by the
+//! hour's directional lights through the realm's camera and post
+//! processing, as on a house in the realm. Dragging turns the shape
+//! and scrolling brings it nearer. The surface colour a graph reads
 //! is a palette colour picked here, as a mesh in the realm gives its
 //! own.
 
@@ -52,18 +52,18 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, resource};
 use hamlet_graph_editor::Editor;
-use hamlet_material::surface_shader;
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
+use hamlet_shader::surface_shader;
 use hamlet_ui::styles::{self, description, note};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{AnyView, Cx};
 
 use super::swatch::Slots;
-use super::{Got, Material};
+use super::{Got, ShaderGraph};
 use crate::graphs::assets::{COLOURS, palette_colour};
 
-/// The render layer only the material preview's camera, lights and
+/// The render layer only the shader preview's camera, lights and
 /// shape are on: apart from the blueprint preview's 8 and the
 /// realm's debug overlay's 7.
 const LAYER: usize = 9;
@@ -77,7 +77,7 @@ const SHADER: Handle<Shader> =
 /// sphere, a unit across, fills about two thirds of the picture.
 const DISTANCE: f32 = 3.4;
 
-/// The shapes the material can be seen on.
+/// The shapes the shader can be seen on.
 const SHAPES: [&str; 3] = ["Sphere", "Cube", "Quad"];
 
 pub(super) fn plugin(app: &mut App) {
@@ -183,15 +183,15 @@ fn error() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
         cx.build(
-            column((description(resource::<Editor<Material>, _>(
-                |editor| {
+            column((description(
+                resource::<Editor<ShaderGraph>, _>(|editor| {
                     editor
                         .errors
                         .first()
                         .map(|error| format!("Not compiled: {error}"))
                         .unwrap_or_default()
-                },
-            )),))
+                }),
+            ),))
             .position(PositionType::Absolute)
             .inset(UiRect {
                 left: px(8.0),
@@ -202,7 +202,7 @@ fn error() -> AnyView {
             .padding(UiRect::axes(px(8.0), px(4.0)))
             .fill(theme.palette.card)
             .radius(theme.space.round)
-            .display(resource::<Editor<Material>, _>(|editor| {
+            .display(resource::<Editor<ShaderGraph>, _>(|editor| {
                 if editor.errors.is_empty() {
                     Display::None
                 } else {
@@ -230,7 +230,7 @@ fn switches() -> AnyView {
     };
     row((
         switch(
-            "The shape the material is shown on",
+            "The shape the shader is shown on",
             |stand| SHAPES[stand.shape].to_owned(),
             |stand| stand.shape = (stand.shape + 1) % SHAPES.len(),
         ),
@@ -477,7 +477,7 @@ fn shade(
         SHADER.id(),
         Shader::from_wesl(
             surface_shader(compiled),
-            "hamlet_material/surface.wesl",
+            "hamlet_shader/surface.wesl",
         ),
     );
 }
@@ -485,7 +485,7 @@ fn shade(
 /// Fills the material's slots with the graph's values, again each
 /// frame while the graph reads the time.
 fn feed(
-    editor: Res<Editor<Material>>,
+    editor: Res<Editor<ShaderGraph>>,
     got: Res<Got>,
     stage: Option<Res<Stage>>,
     time: Res<Time>,

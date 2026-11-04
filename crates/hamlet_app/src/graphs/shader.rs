@@ -1,8 +1,8 @@
-//! The material editor: material graphs edited with the same canvas,
-//! menu and parameters as blueprints, compiled to a shader on every
-//! change. The preview shades the material on a mesh with the
-//! realm's camera and lights, and each card shows its node's output
-//! on a small sphere.
+//! The shader editor: shader graphs edited with the same canvas, menu
+//! and parameters as blueprints, compiled to WGSL on every change.
+//! The preview shades a mesh with the shader under the realm's camera
+//! and lights, and each card shows its node's output on a small
+//! sphere.
 
 mod preview;
 mod swatch;
@@ -19,7 +19,7 @@ use hamlet_graph_editor::{
     Editor, Nesting, Setup, editor, keep, parameters, preview_card,
     toolbar,
 };
-use hamlet_material::{Compiled, compile};
+use hamlet_shader::{Compiled, compile};
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{self, description};
 use hamlet_ui::widgets::icons::Glyph;
@@ -27,48 +27,48 @@ use hamlet_ui::widgets::icons::Glyph;
 use crate::dock::{PanelAppExt, flush_panel};
 use crate::roll::moved;
 
-/// Material graphs.
-pub(crate) struct Material;
+/// Shader graphs.
+pub(crate) struct ShaderGraph;
 
-/// The icon of the material editor's panel and preview.
+/// The icon of the shader editor's panel and preview.
 const ICON: Glyph = Glyph::Sphere;
 
-/// Material graphs, and how the editor keeps them.
+/// Shader graphs, and how the editor keeps them.
 pub(crate) const SETUP: Setup = Setup {
-    kind: Kind::Material,
-    folder: "materials",
-    registry: hamlet_material::registry,
+    kind: Kind::Shader,
+    folder: "shaders",
+    registry: hamlet_shader::registry,
     upgrade: keep,
     nesting: Nesting::Never,
     outputs: false,
     room: swatch::SIZE + 8.0,
     examples: &[
-        ("plaster", include_str!("material/examples/plaster.ron")),
+        ("plaster", include_str!("shader/examples/plaster.ron")),
         (
             "stone_wall",
-            include_str!("material/examples/stone_wall.ron"),
+            include_str!("shader/examples/stone_wall.ron"),
         ),
-        ("wood", include_str!("material/examples/wood.ron")),
+        ("wood", include_str!("shader/examples/wood.ron")),
         (
             "emissive_runes",
-            include_str!("material/examples/emissive_runes.ron"),
+            include_str!("shader/examples/emissive_runes.ron"),
         ),
-        ("water", include_str!("material/examples/water.ron")),
+        ("water", include_str!("shader/examples/water.ron")),
     ],
 };
 
-/// Adds the material editor in a panel of the dock, compiled again on
+/// Adds the shader editor in a panel of the dock, compiled again on
 /// every change, its preview floating over the canvas.
 pub(super) fn plugin(app: &mut App) {
     app.add_panel(
-        "materials",
-        DockWindowKind::new("MATERIAL", || flush_panel(screen()))
+        "shaders",
+        DockWindowKind::new("SHADER", || flush_panel(screen()))
             .icon(ICON.image(styles::ICON)),
     )
     .init_resource::<Got>()
     .add_systems(Update, run)
     .add_plugins((
-        hamlet_graph_editor::plugin::<Material>(SETUP),
+        hamlet_graph_editor::plugin::<ShaderGraph>(SETUP),
         preview::plugin,
         swatch::plugin,
     ));
@@ -80,27 +80,27 @@ fn screen() -> AnyView {
     let status = description(
         derived(|world: &World| {
             status(
-                world.resource::<Editor<Material>>(),
+                world.resource::<Editor<ShaderGraph>>(),
                 world.resource::<Got>(),
             )
         })
         .when(moved::<Got>()),
     );
     let toolbar = toolbar::bar(
-        vec![toolbar::asset::<Material>()],
+        vec![toolbar::asset::<ShaderGraph>()],
         vec![
-            toolbar::file_note::<Material>(),
+            toolbar::file_note::<ShaderGraph>(),
             status.boxed(),
-            toolbar::history::<Material>(),
-            toolbar::fit::<Material>(),
-            toolbar::cards::<Material>(ICON),
+            toolbar::history::<ShaderGraph>(),
+            toolbar::fit::<ShaderGraph>(),
+            toolbar::cards::<ShaderGraph>(ICON),
         ],
     );
-    editor::<Material>(
+    editor::<ShaderGraph>(
         toolbar,
         vec![
-            parameters::<Material>(Vec::new()),
-            preview_card::<Material>(ICON, preview::view()),
+            parameters::<ShaderGraph>(Vec::new()),
+            preview_card::<ShaderGraph>(ICON, preview::view()),
         ],
         None,
     )
@@ -127,14 +127,17 @@ impl Got {
 }
 
 /// Compiles the open graph again when it changed.
-fn run(mut editor: ResMut<Editor<Material>>, mut got: ResMut<Got>) {
+fn run(
+    mut editor: ResMut<Editor<ShaderGraph>>,
+    mut got: ResMut<Got>,
+) {
     if got.ran != Some(editor.changes) {
         evaluate(&mut editor, &mut got);
     }
 }
 
 /// What the end of the toolbar says of the last compile.
-fn status(editor: &Editor<Material>, got: &Got) -> String {
+fn status(editor: &Editor<ShaderGraph>, got: &Got) -> String {
     match (&got.compiled, editor.errors.first()) {
         (Some(Ok(_)), None) => "Compiled".to_owned(),
         (_, Some(error)) => {
@@ -150,7 +153,7 @@ fn status(editor: &Editor<Material>, got: &Got) -> String {
 
 /// Compiles the open graph into `got`, and writes its errors to the
 /// editor.
-fn evaluate(editor: &mut Editor<Material>, got: &mut Got) {
+fn evaluate(editor: &mut Editor<ShaderGraph>, got: &mut Got) {
     got.ran = Some(editor.changes);
     let compiled = compile(&editor.sheet.graph);
     let old = got.compiled().map(|old| old.code.clone());
@@ -188,7 +191,7 @@ mod tests {
     fn every_example_compiles() {
         for (name, text) in SETUP.examples {
             let sheet = lone(parse_book(text).unwrap());
-            let compiled = hamlet_material::compile(&sheet.graph)
+            let compiled = hamlet_shader::compile(&sheet.graph)
                 .unwrap_or_else(|error| panic!("{name}: {error}"));
             assert_eq!(compiled.errors, [], "{name}");
         }

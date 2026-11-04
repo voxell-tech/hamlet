@@ -1,4 +1,4 @@
-//! The kinds of node a material graph is made of, each with the WGSL
+//! The kinds of node a shader graph is made of, each with the WGSL
 //! it compiles to. Math works on the widest of its inputs, so one
 //! node adds numbers, vectors or colours.
 
@@ -13,13 +13,13 @@ use hamlet_graph::{
 use crate::compile::{Emit, convert, width};
 
 /// A kind of node and how it is compiled.
-pub struct MaterialKind {
+pub struct ShaderKind {
     pub kind: NodeKind,
     pub(crate) emit: fn(&mut Emit) -> Result<(), Error>,
 }
 
 /// The kinds, by the group each is listed under.
-const GROUPS: [(&str, &[MaterialKind]); 6] = [
+const GROUPS: [(&str, &[ShaderKind]); 6] = [
     ("Inputs", INPUTS),
     ("Math", MATH),
     ("Vectors", VECTORS),
@@ -28,7 +28,7 @@ const GROUPS: [(&str, &[MaterialKind]); 6] = [
     ("Surface", &[SURFACE]),
 ];
 
-/// The kinds a material graph may use.
+/// The kinds a shader graph may use.
 pub fn registry() -> Registry {
     let mut registry = Registry::default();
     for (group, kinds) in GROUPS {
@@ -39,7 +39,7 @@ pub fn registry() -> Registry {
     registry
 }
 
-pub(crate) fn get(name: &str) -> Option<&'static MaterialKind> {
+pub(crate) fn get(name: &str) -> Option<&'static ShaderKind> {
     GROUPS
         .iter()
         .flat_map(|(_, kinds)| kinds.iter())
@@ -52,8 +52,8 @@ const fn kind(
     inputs: &'static [PortSpec],
     outputs: &'static [PortSpec],
     emit: fn(&mut Emit) -> Result<(), Error>,
-) -> MaterialKind {
-    MaterialKind {
+) -> ShaderKind {
+    ShaderKind {
         kind: NodeKind {
             name,
             doc,
@@ -115,7 +115,7 @@ fn wider(a: ValueType, b: ValueType) -> ValueType {
     if width(b) > width(a) { b } else { a }
 }
 
-const INPUTS: &[MaterialKind] = &[
+const INPUTS: &[ShaderKind] = &[
     kind(
         "uv",
         "Where on its texture the surface is, from 0 to 1 across it",
@@ -158,8 +158,8 @@ const INPUTS: &[MaterialKind] = &[
     ),
     kind(
         "surface colour",
-        "The colour the mesh gives: its palette colour, so a \
-         material keeps the hamlet's palette",
+        "The colour the mesh gives: its palette colour, so a shader \
+         keeps the hamlet's palette",
         &[],
         &[out("colour", Color, "The mesh's colour")],
         |emit| {
@@ -220,7 +220,7 @@ const BINARY: &[&str] = &[
     "modulo", "less", "greater",
 ];
 
-const MATH: &[MaterialKind] = &[
+const MATH: &[ShaderKind] = &[
     kind(
         "math",
         "a and b worked out axis by axis, as wide as the wider of \
@@ -406,7 +406,7 @@ const MATH: &[MaterialKind] = &[
     ),
 ];
 
-const VECTORS: &[MaterialKind] = &[
+const VECTORS: &[ShaderKind] = &[
     kind(
         "split",
         "A vector or colour's axes, each as a number",
@@ -557,7 +557,7 @@ const VECTORS: &[MaterialKind] = &[
     ),
 ];
 
-const PATTERNS: &[MaterialKind] = &[
+const PATTERNS: &[ShaderKind] = &[
     kind(
         "noise",
         "Smooth noise in layers, each finer and fainter than the \
@@ -859,7 +859,7 @@ const PATTERNS: &[MaterialKind] = &[
     ),
 ];
 
-const COLOURS: &[MaterialKind] = &[
+const COLOURS: &[ShaderKind] = &[
     kind(
         "blend",
         "A layer over a base, by factor, as a paint program blends",
@@ -1023,13 +1023,13 @@ const COLOURS: &[MaterialKind] = &[
     ),
 ];
 
-/// The surface the material gives, shaded by the realm's PBR
+/// The surface the shader gives, shaded by the realm's PBR
 /// lighting.
-pub(crate) const SURFACE: MaterialKind = kind(
+pub(crate) const SURFACE: ShaderKind = kind(
     "surface",
-    "What the material gives to PBR shading: base colour, \
-     roughness, metallic, emission and normal. Unlit writes base \
-     colour plus emission unshaded",
+    "What the shader gives to PBR shading: base colour, roughness, \
+     metallic, emission and normal. Unlit writes base colour plus \
+     emission unshaded",
     &[
         color("base colour", "Its colour", GREY),
         number("roughness", "From 0, a mirror, to 1, chalk", 0.5),

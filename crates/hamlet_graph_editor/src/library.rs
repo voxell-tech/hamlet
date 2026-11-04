@@ -1,8 +1,8 @@
 //! The library: every asset the editors share, in one folder in the
 //! window's folder. Meshes are `.glb` files in `meshes/`, each named
 //! in `catalogue.ron` with its slots' colours and its sockets;
-//! blueprint and material graphs are `.ron` files in `blueprints/`
-//! and `materials/`, one graph to a file; textures are `.png` files
+//! blueprint and shader graphs are `.ron` files in `blueprints/`
+//! and `shaders/`, one graph to a file; textures are `.png` files
 //! in `textures/`. A graph names the meshes it uses and the other
 //! graphs of its kind it runs. A removed asset is moved to `.trash/`.
 
@@ -43,8 +43,8 @@ pub fn plugin(app: &mut App) {
 pub enum Kind {
     /// A blueprint graph.
     Blueprint,
-    /// A material graph.
-    Material,
+    /// A shader graph.
+    Shader,
     /// A `.glb` mesh.
     Mesh,
     /// A `.png` texture.
@@ -56,7 +56,7 @@ impl Kind {
     pub fn shelf(self) -> &'static str {
         match self {
             Kind::Blueprint => "blueprints",
-            Kind::Material => "materials",
+            Kind::Shader => "shaders",
             Kind::Mesh => "meshes",
             Kind::Texture => "textures",
         }
@@ -65,7 +65,7 @@ impl Kind {
     /// Its files' extension.
     pub fn extension(self) -> &'static str {
         match self {
-            Kind::Blueprint | Kind::Material => "ron",
+            Kind::Blueprint | Kind::Shader => "ron",
             Kind::Mesh => "glb",
             Kind::Texture => "png",
         }
@@ -75,7 +75,7 @@ impl Kind {
     pub fn word(self) -> &'static str {
         match self {
             Kind::Blueprint => "Blueprint",
-            Kind::Material => "Material",
+            Kind::Shader => "Shader",
             Kind::Mesh => "Mesh",
             Kind::Texture => "Texture",
         }
@@ -85,7 +85,7 @@ impl Kind {
     pub fn glyph(self) -> Glyph {
         match self {
             Kind::Blueprint => Glyph::Signpost,
-            Kind::Material => Glyph::Sphere,
+            Kind::Shader => Glyph::Sphere,
             Kind::Mesh => Glyph::Cube,
             Kind::Texture => Glyph::Mountains,
         }
@@ -190,7 +190,7 @@ impl Library {
             .and_then(|text| Catalogue::from_ron(&text).ok())
             .unwrap_or_default();
         let mut items = Vec::new();
-        for kind in [Kind::Blueprint, Kind::Material, Kind::Texture] {
+        for kind in [Kind::Blueprint, Kind::Shader, Kind::Texture] {
             let Ok(entries) = fs::read_dir(root.join(kind.shelf()))
             else {
                 continue;
