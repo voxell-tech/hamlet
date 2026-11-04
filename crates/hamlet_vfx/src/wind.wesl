@@ -1,44 +1,36 @@
 // The wind, as `WindSettings::strength` in `wind.rs` has it: one way
-// across the whole world, and a strength that rolls downwind in bands.
-// The two must give the same answer, so a change to one is a change to
-// the other.
+// across the whole world, veering slowly, and a strength that rolls
+// downwind in bands, smaller gusts within each. The two must give the same
+// answer, so a change to one is a change to the other.
+
+import hamlet_vfx::noise::fbm;
 
 struct Wind {
-    // xy: the way it blows on the ground, as world x and z. z: time in
-    // seconds. w: the share of its strength it keeps between gusts.
+    // x: the way it blows on the whole, in radians from north. y: how far
+    // it veers to either side. w: the share of its strength it keeps
+    // between gusts.
     flow: vec4<f32>,
-    // x: one over the breadth of a band of strong wind. y: the band's
-    // speed. z and w: the same for the shiver within it.
+    // x: one over the breadth of a band of strong wind. y: how far the
+    // bands roll in a second, in breadths. zw: the way they roll, as world
+    // x and z.
     scale: vec4<f32>,
 }
 
-fn hash(x: i32, y: i32) -> f32 {
-    var h = (bitcast<u32>(x) * 0x8da6b343u) ^ (bitcast<u32>(y) * 0xd8163841u);
-    h ^= h >> 13u;
-    h *= 0x5bd1e995u;
-    h ^= h >> 15u;
-    return f32(h & 0xffffffu) / 16777216.0;
+// The seed of the wind's noise. `SEED` in `wind.rs`.
+const SEED: u32 = 7u;
+
+// The way the wind blows on the ground at `t` seconds, as world x and z,
+// as `WindSettings::blowing` in `wind.rs` has it.
+fn blowing(wind: Wind, t: f32) -> vec2<f32> {
+    let a = wind.flow.x + wind.flow.y * sin(t * 0.11);
+    return vec2<f32>(sin(a), cos(a));
 }
 
-fn noise(p: vec2<f32>) -> f32 {
-    let i = floor(p);
-    let f = p - i;
-    let u = f * f * (3.0 - 2.0 * f);
-    let x = i32(i.x);
-    let y = i32(i.y);
-    return mix(
-        mix(hash(x, y), hash(x + 1, y), u.x),
-        mix(hash(x, y + 1), hash(x + 1, y + 1), u.x),
-        u.y,
-    );
-}
-
-// How hard the wind blows at a place on the ground, from the calm share
-// to 1.
-fn strength(wind: Wind, at: vec2<f32>) -> f32 {
-    let along = wind.flow.xy * wind.flow.z;
-    let band = noise((at - along * wind.scale.y) * wind.scale.x);
-    let shiver = noise((at - along * wind.scale.w) * wind.scale.z);
-    let gust = smoothstep(0.35, 0.85, band) * (0.7 + 0.3 * shiver);
+// How hard the wind blows at a place on the ground at `t` seconds, from
+// the calm share to 1.
+fn strength(wind: Wind, at: vec2<f32>, t: f32) -> f32 {
+    let rolled = wind.scale.zw * (t * wind.scale.y);
+    let band = 0.5 + 0.5 * fbm(at * wind.scale.x - rolled, 2u, SEED);
+    let gust = smoothstep(0.3, 0.75, band);
     return wind.flow.w + (1.0 - wind.flow.w) * gust;
 }

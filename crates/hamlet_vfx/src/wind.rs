@@ -40,10 +40,9 @@ pub struct WindSettings {
     pub heading: f32,
     pub veer: f32,
     /// Breadth in metres of the bands of strong wind that roll
-    /// downwind, and their speed in metres a second.
+    /// downwind, and their speed in metres a second. Each band has
+    /// smaller gusts within it, half its breadth.
     pub band: (f32, f32),
-    /// The same for the small, quick shiver within a band.
-    pub shiver: (f32, f32),
     /// The share of its full strength the wind keeps between gusts.
     pub calm: f32,
     /// Length and width of a gust's ribbon, and its height over the
@@ -74,19 +73,29 @@ impl WindSettings {
     /// How hard the wind blows at `at` on the ground at `now`, from
     /// the calm share to 1. The same as `strength` in `wind.wesl`.
     pub fn strength(&self, at: Vec2, now: f32) -> f32 {
-        self.uniform(now).strength(at)
+        self.uniform().strength(at, now)
     }
 
-    /// What the shaders are told of the wind at `now`.
-    pub fn uniform(&self, now: f32) -> WindUniform {
-        let way = self.blowing(now);
+    /// What the shaders are told of the wind, from which they find
+    /// it at any time.
+    pub fn uniform(&self) -> WindUniform {
+        let across = 1.0 / self.band.0.max(1e-3);
+        // The bands roll along the wind's mean heading: by its
+        // veering one, scaled by the time, they would swing ever
+        // faster sideways.
+        let mean = self.heading.to_radians();
         WindUniform {
-            flow: Vec4::new(way.sin(), way.cos(), now, self.calm),
+            flow: Vec4::new(
+                mean,
+                (self.veer * 0.5).to_radians(),
+                0.0,
+                self.calm,
+            ),
             scale: Vec4::new(
-                1.0 / self.band.0.max(1e-3),
-                self.band.1,
-                1.0 / self.shiver.0.max(1e-3),
-                self.shiver.1,
+                across,
+                self.band.1 * across,
+                mean.sin(),
+                mean.cos(),
             ),
         }
     }
@@ -100,34 +109,51 @@ pub struct WindUniform {
 }
 
 impl WindUniform {
-    fn strength(&self, at: Vec2) -> f32 {
-        let along = Vec2::new(self.flow.x, self.flow.y) * self.flow.z;
-        let band = noise((at - along * self.scale.y) * self.scale.x);
-        let shiver =
-            noise((at - along * self.scale.w) * self.scale.z);
-        let gust =
-            smoothstep(0.35, 0.85, band) * (0.7 + 0.3 * shiver);
+    fn strength(&self, at: Vec2, now: f32) -> f32 {
+        let rolled = Vec2::new(self.scale.z, self.scale.w)
+            * (now * self.scale.y);
+        let band = 0.5 + 0.5 * fbm(at * self.scale.x - rolled);
+        let gust = smoothstep(0.3, 0.75, band);
         self.flow.w + (1.0 - self.flow.w) * gust
     }
 }
 
-fn hash(x: i32, y: i32) -> f32 {
-    let mut h = (x as u32).wrapping_mul(0x8da6_b343)
-        ^ (y as u32).wrapping_mul(0xd816_3841);
-    h ^= h >> 13;
-    h = h.wrapping_mul(0x5bd1_e995);
-    h ^= h >> 15;
-    (h & 0xff_ffff) as f32 / 16_777_216.0
+/// The seed of the wind's noise. `SEED` in `wind.wesl`.
+const SEED: u32 = 7;
+
+/// `scramble` in `noise.wesl`.
+fn scramble(x: u32) -> u32 {
+    let state =
+        x.wrapping_mul(747_796_405).wrapping_add(2_891_336_453);
+    let word = ((state >> ((state >> 28) + 4)) ^ state)
+        .wrapping_mul(277_803_737);
+    (word >> 22) ^ word
 }
 
-fn noise(p: Vec2) -> f32 {
-    let i = p.floor();
-    let f = p - i;
-    let u = f * f * (3.0 - 2.0 * f);
-    let (x, y) = (i.x as i32, i.y as i32);
-    let low = hash(x, y).lerp(hash(x + 1, y), u.x);
-    let high = hash(x, y + 1).lerp(hash(x + 1, y + 1), u.x);
-    low.lerp(high, u.y)
+/// `gradient` in `noise.wesl`: one of sixteen directions.
+fn gradient(x: i32, z: i32, seed: u32) -> Vec2 {
+    let mut h = scramble(0x51ed_270b ^ seed);
+    h = scramble(h ^ x as u32);
+    h = scramble(h ^ z as u32);
+    Vec2::from_angle((h & 15) as f32 * std::f32::consts::FRAC_PI_8)
+}
+
+/// `perlin` in `noise.wesl`, in about -1..1.
+fn perlin(p: Vec2, seed: u32) -> f32 {
+    let cell = p.floor();
+    let f = p - cell;
+    let (x, z) = (cell.x as i32, cell.y as i32);
+    let fade = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let a = gradient(x, z, seed).dot(f);
+    let b = gradient(x + 1, z, seed).dot(f - Vec2::X);
+    let c = gradient(x, z + 1, seed).dot(f - Vec2::Y);
+    let d = gradient(x + 1, z + 1, seed).dot(f - Vec2::ONE);
+    a.lerp(b, fade.x).lerp(c.lerp(d, fade.x), fade.y) * 1.41
+}
+
+/// `fbm` in `noise.wesl` of two octaves, with the wind's seed.
+fn fbm(p: Vec2) -> f32 {
+    (perlin(p, SEED) + 0.5 * perlin(p * 2.03, SEED + 1)) / 1.5
 }
 
 fn smoothstep(low: f32, high: f32, x: f32) -> f32 {

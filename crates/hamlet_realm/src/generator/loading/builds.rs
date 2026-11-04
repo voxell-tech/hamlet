@@ -3,12 +3,12 @@
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
+use hamlet_vfx::NowOffset;
 use hamlet_vfx::flag::{
     FlagMaterial, FlagSettings, Waving, cloth, flag,
 };
 
 use super::Loading;
-use crate::Clock;
 use crate::generator::building::Finished;
 use crate::generator::lights::{Lamp, Spill};
 use crate::generator::shift::Shift;
@@ -38,7 +38,7 @@ pub(in crate::generator) fn finish_loading(
         ResMut<Assets<FlagMaterial>>,
         Res<FlagSettings>,
     )>,
-    clock: Res<Clock>,
+    offset: Res<NowOffset>,
     mut redraw: MessageWriter<RequestRedraw>,
 ) {
     if loading.landed && *phase.get() == Phase::Loading {
@@ -60,7 +60,7 @@ pub(in crate::generator) fn finish_loading(
         flags.as_mut().map(|(waving, materials, set)| {
             (&mut **waving, &mut **materials, &**set)
         }),
-        clock.t,
+        *offset,
     );
     tally.count(&society, &drawn);
     // Keep frames coming while the world fills in.
@@ -83,7 +83,7 @@ fn place_builds(
         &mut Assets<FlagMaterial>,
         &FlagSettings,
     )>,
-    now: f32,
+    offset: NowOffset,
 ) {
     for (entity, mesh) in finished.commons {
         if let Ok(mut common) = commands.get_entity(entity) {
@@ -138,7 +138,7 @@ fn place_builds(
                         waving,
                         flags,
                         set,
-                        now,
+                        offset,
                         mesh,
                         house::BANNER.x,
                     ),

@@ -402,11 +402,12 @@ impl CameraSettings {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Quality {
-    /// No particles, no bloom, no shafts of light, plain edges and
-    /// small shadows.
+    /// No particles, no bloom, no shafts of light, plain edges, small
+    /// shadows and none from the trees, the least grass, a coarser
+    /// sea that mirrors only the sky.
     Low,
-    /// Fewer particles, middling shadows and half the steps through
-    /// the volumetric fog.
+    /// Fewer particles, middling shadows, half the steps through the
+    /// volumetric fog and the water's reflection, and less grass.
     Medium,
     #[default]
     High,
@@ -451,6 +452,62 @@ impl Quality {
             Self::High => 1.0,
         }
     }
+
+    /// How much of the grass it draws.
+    pub fn grass(self) -> GrassShare {
+        match self {
+            Self::Low => GrassShare {
+                reach: 0.65,
+                kept: 0.75,
+                coarse: true,
+            },
+            Self::Medium => GrassShare {
+                reach: 0.8,
+                kept: 0.9,
+                coarse: true,
+            },
+            Self::High => GrassShare {
+                reach: 1.0,
+                kept: 1.0,
+                coarse: false,
+            },
+        }
+    }
+
+    /// The share of the full steps a reflection on the water is
+    /// walked in. None mirrors only the sky.
+    pub fn mirror(self) -> f32 {
+        match self {
+            Self::Low => 0.0,
+            Self::Medium => 0.5,
+            Self::High => 1.0,
+        }
+    }
+
+    /// How many times as wide the sea's smallest patches are as at
+    /// their finest.
+    pub fn sea(self) -> f32 {
+        match self {
+            Self::Low => 2.0,
+            Self::Medium | Self::High => 1.0,
+        }
+    }
+
+    pub fn has_tree_shadows(self) -> bool {
+        self != Self::Low
+    }
+}
+
+/// How much of the grass a [`Quality`] draws, each against its
+/// settings.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct GrassShare {
+    /// The share of how far it reaches.
+    pub reach: f32,
+    /// The share of the tufts kept past the nearest ring.
+    pub kept: f32,
+    /// Whether its tufts are laid the coarser spacing apart.
+    pub coarse: bool,
 }
 
 /// The camera the world is seen through. The app points it at a
