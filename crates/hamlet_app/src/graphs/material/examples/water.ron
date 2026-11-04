@@ -1,0 +1,31 @@
+// Water: noise drifting with the time, mapped from deep to shallow
+// blue, smooth and with a fresnel term added as emission at grazing
+// angles.
+(
+    entry: "water",
+    sheets: {
+        "water": (
+            graph: (
+                nodes: [
+                    (id: 1, does: Kind("position")),
+                    (id: 2, does: Kind("time"), settings: {"speed": Fixed(Number(0.3))}),
+                    (id: 3, does: Kind("math"), settings: {"op": Fixed(Choice("add"))}),
+                    (id: 4, does: Kind("noise"), settings: {"scale": Fixed(Number(2.5)), "distortion": Fixed(Number(0.6))}),
+                    (id: 5, does: Kind("ramp"), settings: {"from": Fixed(Number(0.3)), "to": Fixed(Number(0.7)), "colour a": Fixed(Color((0.03, 0.15, 0.3, 1.0))), "colour b": Fixed(Color((0.2, 0.6, 0.75, 1.0))), "blend": Fixed(Choice("smooth"))}),
+                    (id: 6, does: Kind("fresnel"), settings: {"power": Fixed(Number(4.0))}),
+                    (id: 7, does: Kind("math"), settings: {"op": Fixed(Choice("multiply")), "b": Fixed(Number(0.4))}),
+                    (id: 8, does: Kind("surface"), settings: {"roughness": Fixed(Number(0.08))}),
+                ],
+                wires: [
+                    (from: (node: 1, name: "position"), to: (node: 3, name: "a")),
+                    (from: (node: 2, name: "time"), to: (node: 3, name: "b")),
+                    (from: (node: 3, name: "value"), to: (node: 4, name: "vector")),
+                    (from: (node: 4, name: "value"), to: (node: 5, name: "factor")),
+                    (from: (node: 5, name: "colour"), to: (node: 8, name: "base colour")),
+                    (from: (node: 6, name: "value"), to: (node: 7, name: "a")),
+                    (from: (node: 7, name: "value"), to: (node: 8, name: "emission")),
+                ],
+            ),
+        ),
+    },
+)

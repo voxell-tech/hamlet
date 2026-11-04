@@ -62,6 +62,8 @@ pub enum Glyph {
     Rename,
     /// Arrows to the four sides.
     Move,
+    /// A small box and an arrow out from its corner: made larger.
+    Scale,
     /// A struck ring: gone, or to be closed down.
     Gone,
     /// A bin.
@@ -117,6 +119,10 @@ pub enum Glyph {
     /// Three lines: a list folded away.
     Menu,
     Folder,
+    /// A cube seen from a corner: things put down in a scene.
+    Cube,
+    /// A ball shaded from the top left: a material.
+    Sphere,
     /// A compass needle, its north half filled, pointing up.
     Compass,
     Eye,
@@ -130,6 +136,14 @@ pub enum Glyph {
     Drop,
     /// An arrow rising from the ground.
     Rise,
+    /// An arrow bending back to the left: undo.
+    Undo,
+    /// An arrow bending on to the right: redo.
+    Redo,
+    /// A die: roll again.
+    Dice,
+    /// A disk: save.
+    Save,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -158,7 +172,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 53] = [
+    pub const ALL: [Glyph; 60] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -173,6 +187,7 @@ impl Glyph {
         Glyph::History,
         Glyph::Rename,
         Glyph::Move,
+        Glyph::Scale,
         Glyph::Gone,
         Glyph::Delete,
         Glyph::Stop,
@@ -204,6 +219,8 @@ impl Glyph {
         Glyph::More,
         Glyph::Menu,
         Glyph::Folder,
+        Glyph::Cube,
+        Glyph::Sphere,
         Glyph::Compass,
         Glyph::Eye,
         Glyph::Mountains,
@@ -212,6 +229,10 @@ impl Glyph {
         Glyph::Scatter,
         Glyph::Drop,
         Glyph::Rise,
+        Glyph::Undo,
+        Glyph::Redo,
+        Glyph::Dice,
+        Glyph::Save,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -326,6 +347,11 @@ impl Glyph {
                 Path(&[[6.0, 12.0], [8.0, 14.0], [10.0, 12.0]]),
                 Path(&[[4.0, 6.0], [2.0, 8.0], [4.0, 10.0]]),
                 Path(&[[12.0, 6.0], [14.0, 8.0], [12.0, 10.0]]),
+            ],
+            Glyph::Scale => &[
+                Round(2.5, 8.5, 7.5, 13.5, 1.0),
+                Line(9.0, 7.0, 13.5, 2.5),
+                Path(&[[9.5, 2.5], [13.5, 2.5], [13.5, 6.5]]),
             ],
             Glyph::Gone => &[
                 Ring(8.0, 8.0, 5.75),
@@ -538,6 +564,24 @@ impl Glyph {
                 [14.0, 12.75],
                 [2.0, 12.75],
             ])],
+            // Its edges at thirty degrees, as an isometric view has
+            // them.
+            Glyph::Cube => &[
+                Loop(&[
+                    [8.0, 2.0],
+                    [13.2, 5.0],
+                    [13.2, 11.0],
+                    [8.0, 14.0],
+                    [2.8, 11.0],
+                    [2.8, 5.0],
+                ]),
+                Path(&[[2.8, 5.0], [8.0, 8.0], [13.2, 5.0]]),
+                Line(8.0, 8.0, 8.0, 14.0),
+            ],
+            Glyph::Sphere => &[
+                Ring(8.0, 8.0, 6.0),
+                Arc(9.5, 9.5, 4.5, 190.0, 260.0),
+            ],
             Glyph::Compass => &[
                 Loop(&[
                     [8.0, 2.0],
@@ -589,6 +633,36 @@ impl Glyph {
                 Line(8.0, 11.0, 8.0, 2.25),
                 Path(&[[4.75, 5.5], [8.0, 2.25], [11.25, 5.5]]),
                 Line(3.0, 13.75, 13.0, 13.75),
+            ],
+            Glyph::Undo => &[
+                Curve(3.5, 6.5, 14.0, 5.0, 10.5, 13.0),
+                Path(&[[6.5, 3.5], [3.5, 6.5], [6.5, 9.5]]),
+            ],
+            Glyph::Redo => &[
+                Curve(12.5, 6.5, 2.0, 5.0, 5.5, 13.0),
+                Path(&[[9.5, 3.5], [12.5, 6.5], [9.5, 9.5]]),
+            ],
+            Glyph::Dice => &[
+                Round(2.5, 2.5, 13.5, 13.5, 2.5),
+                Dot(5.5, 5.5, 1.1),
+                Dot(8.0, 8.0, 1.1),
+                Dot(10.5, 10.5, 1.1),
+            ],
+            Glyph::Save => &[
+                Loop(&[
+                    [2.5, 2.5],
+                    [11.5, 2.5],
+                    [13.5, 4.5],
+                    [13.5, 13.5],
+                    [2.5, 13.5],
+                ]),
+                Path(&[
+                    [5.0, 2.5],
+                    [5.0, 6.0],
+                    [10.5, 6.0],
+                    [10.5, 2.5],
+                ]),
+                Round(5.0, 9.0, 11.0, 13.5, 0.5),
             ],
         }
     }

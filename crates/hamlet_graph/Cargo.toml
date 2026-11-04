@@ -1,0 +1,17 @@
+[package]
+name = "hamlet_graph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Node graphs as data: sheets, rulesets, edits, kinds of node and the checks that do not depend on what a kind does"
+
+[lints]
+workspace = true
+
+[dependencies]
+bevy_math = { workspace = true, features = ["serialize"] }
+ron.workspace = true
+serde.workspace = true
+thiserror.workspace = true

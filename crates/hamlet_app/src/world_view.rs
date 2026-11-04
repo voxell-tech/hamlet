@@ -41,7 +41,7 @@ use hamlet_realm::needs::NeedTag;
 use hamlet_realm::pick::{NameTag, Sign, WorldSurface};
 use hamlet_realm::sky::SkySettings;
 use hamlet_realm::{
-    Hour, North, RealmSystems, Sky, Stage, WorldCamera,
+    Hour, North, RealmSystems, Sky, SkyView, Stage, WorldCamera,
 };
 use hamlet_ui::styles::{Fills, ICON};
 use hamlet_ui::widgets::icons::Glyph;
@@ -266,27 +266,33 @@ pub(crate) fn follow_scale(
     }
 }
 
-/// Keeps the world's picture no larger than the window. Bevy sizes it
-/// from the panel's layout, and a minimized window on Windows lays
-/// the panel out at a size far past what the GPU allows, which fails
-/// the bloom texture and every pass after it.
+/// Keeps the picture of each [`SkyView`] within what the GPU and
+/// bloom allow, since a texture past them fails every pass after it
+/// and closes the window.
 pub(crate) fn cap_picture(
     window: Single<&Window, With<PrimaryWindow>>,
-    target: Single<&RenderTarget, With<WorldCamera>>,
+    targets: Query<&RenderTarget, With<SkyView>>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    let Some(handle) = target.as_image() else {
-        return;
-    };
-    let Some(image) = images.get(handle) else {
-        return;
-    };
+    // A minimized window on Windows lays a panel out at a size far
+    // past what the GPU allows.
     let most =
         UVec2::new(window.physical_width(), window.physical_height())
             .max(UVec2::ONE);
-    if image.size().cmpgt(most).any() {
-        let size = image.size().min(most);
-        if let Some(mut image) = images.get_mut(handle) {
+    for target in &targets {
+        let Some(handle) = target.as_image() else {
+            continue;
+        };
+        let Some(image) = images.get(handle) else {
+            continue;
+        };
+        let mut size = image.size().min(most);
+        // Bloom is drawn 512 pixels tall and at most 32768 wide, so
+        // at most 64 times as wide as tall; 32 leaves a margin.
+        size.y = size.y.max(size.x.div_ceil(32));
+        if size != image.size()
+            && let Some(mut image) = images.get_mut(handle)
+        {
             image.resize(size.to_extents());
         }
     }

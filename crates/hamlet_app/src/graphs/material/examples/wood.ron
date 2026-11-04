@@ -1,0 +1,32 @@
+// Wood: rings about the vertical axis, stretched along it and bent by
+// noise, mapped from dark to light brown. Change the rings in the
+// parameters.
+(
+    entry: "wood",
+    sheets: {
+        "wood": (
+            graph: (
+                inputs: [
+                    (name: "rings", value_type: Number, default: Some(Number(6.0))),
+                ],
+                nodes: [
+                    (id: 1, does: Kind("position")),
+                    (id: 2, does: Kind("vector"), settings: {"value": Fixed(Point((1.0, 0.12, 1.0)))}),
+                    (id: 3, does: Kind("math"), settings: {"op": Fixed(Choice("multiply"))}),
+                    (id: 4, does: Kind("wave"), settings: {"shape": Fixed(Choice("rings")), "distortion": Fixed(Number(1.5)), "profile": Fixed(Choice("saw"))}),
+                    (id: 5, does: Kind("ramp"), settings: {"colour a": Fixed(Color((0.32, 0.18, 0.09, 1.0))), "colour b": Fixed(Color((0.62, 0.42, 0.24, 1.0))), "blend": Fixed(Choice("smooth"))}),
+                    (id: 6, does: Kind("surface"), settings: {"roughness": Fixed(Number(0.7))}),
+                    (id: 7, does: Input("rings")),
+                ],
+                wires: [
+                    (from: (node: 7, name: "value"), to: (node: 4, name: "scale")),
+                    (from: (node: 1, name: "position"), to: (node: 3, name: "a")),
+                    (from: (node: 2, name: "value"), to: (node: 3, name: "b")),
+                    (from: (node: 3, name: "value"), to: (node: 4, name: "vector")),
+                    (from: (node: 4, name: "value"), to: (node: 5, name: "factor")),
+                    (from: (node: 5, name: "colour"), to: (node: 6, name: "base colour")),
+                ],
+            ),
+        ),
+    },
+)

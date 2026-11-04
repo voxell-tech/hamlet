@@ -1,0 +1,28 @@
+// A stone wall: bricks of two greys in pale mortar, laid on the mesh's
+// UVs, with fine noise overlaid for grain. Change the rows in the
+// parameters.
+(
+    entry: "stone_wall",
+    sheets: {
+        "stone_wall": (
+            graph: (
+                inputs: [
+                    (name: "rows", value_type: Number, default: Some(Number(3.0))),
+                ],
+                nodes: [
+                    (id: 1, does: Kind("brick"), settings: {"width": Fixed(Number(1.6)), "mortar": Fixed(Number(0.12)), "colour a": Fixed(Color((0.52, 0.5, 0.47, 1.0))), "colour b": Fixed(Color((0.4, 0.38, 0.36, 1.0))), "mortar colour": Fixed(Color((0.72, 0.69, 0.62, 1.0)))}),
+                    (id: 2, does: Kind("noise"), settings: {"scale": Fixed(Number(12.0))}),
+                    (id: 3, does: Kind("blend"), settings: {"mode": Fixed(Choice("overlay")), "factor": Fixed(Number(0.5))}),
+                    (id: 4, does: Kind("surface"), settings: {"roughness": Fixed(Number(0.85))}),
+                    (id: 5, does: Input("rows")),
+                ],
+                wires: [
+                    (from: (node: 5, name: "value"), to: (node: 1, name: "scale")),
+                    (from: (node: 1, name: "colour"), to: (node: 3, name: "base")),
+                    (from: (node: 2, name: "value"), to: (node: 3, name: "layer")),
+                    (from: (node: 3, name: "colour"), to: (node: 4, name: "base colour")),
+                ],
+            ),
+        ),
+    },
+)

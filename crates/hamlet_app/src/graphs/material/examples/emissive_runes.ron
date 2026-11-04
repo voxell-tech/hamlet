@@ -1,0 +1,42 @@
+// Emissive runes: dots at the points of a Voronoi pattern on dark
+// slate, emitting cyan that pulses with a sine of the time. Change the
+// emission strength in the parameters.
+(
+    entry: "emissive_runes",
+    sheets: {
+        "emissive_runes": (
+            graph: (
+                inputs: [
+                    (name: "strength", value_type: Number, default: Some(Number(4.0))),
+                ],
+                nodes: [
+                    (id: 1, does: Kind("voronoi"), settings: {"scale": Fixed(Number(4.0)), "randomness": Fixed(Number(0.9))}),
+                    (id: 2, does: Kind("smoothstep"), settings: {"low": Fixed(Number(0.04)), "high": Fixed(Number(0.16))}),
+                    (id: 3, does: Kind("math"), settings: {"op": Fixed(Choice("one minus"))}),
+                    (id: 4, does: Kind("time"), settings: {"speed": Fixed(Number(2.0))}),
+                    (id: 5, does: Kind("math"), settings: {"op": Fixed(Choice("sin"))}),
+                    (id: 6, does: Kind("remap"), settings: {"from low": Fixed(Number(-1.0)), "from high": Fixed(Number(1.0)), "to low": Fixed(Number(0.4)), "to high": Fixed(Number(1.0))}),
+                    (id: 7, does: Kind("math"), settings: {"op": Fixed(Choice("multiply"))}),
+                    (id: 8, does: Kind("colour"), settings: {"colour": Fixed(Color((0.25, 0.85, 0.95, 1.0)))}),
+                    (id: 9, does: Kind("math"), settings: {"op": Fixed(Choice("multiply"))}),
+                    (id: 10, does: Kind("math"), settings: {"op": Fixed(Choice("multiply"))}),
+                    (id: 11, does: Kind("surface"), settings: {"base colour": Fixed(Color((0.12, 0.13, 0.16, 1.0))), "roughness": Fixed(Number(0.6))}),
+                    (id: 12, does: Input("strength")),
+                ],
+                wires: [
+                    (from: (node: 12, name: "value"), to: (node: 10, name: "b")),
+                    (from: (node: 1, name: "distance"), to: (node: 2, name: "value")),
+                    (from: (node: 2, name: "value"), to: (node: 3, name: "a")),
+                    (from: (node: 4, name: "time"), to: (node: 5, name: "a")),
+                    (from: (node: 5, name: "value"), to: (node: 6, name: "value")),
+                    (from: (node: 3, name: "value"), to: (node: 7, name: "a")),
+                    (from: (node: 6, name: "value"), to: (node: 7, name: "b")),
+                    (from: (node: 8, name: "colour"), to: (node: 9, name: "a")),
+                    (from: (node: 7, name: "value"), to: (node: 9, name: "b")),
+                    (from: (node: 9, name: "value"), to: (node: 10, name: "a")),
+                    (from: (node: 10, name: "value"), to: (node: 11, name: "emission")),
+                ],
+            ),
+        ),
+    },
+)

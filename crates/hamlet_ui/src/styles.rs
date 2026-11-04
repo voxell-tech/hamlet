@@ -1,13 +1,14 @@
 //! The styles of the buttons and fields, and the view shapes the
 //! panels share.
 
-use bevy::color::Color;
+use bevy::color::{Alpha, Color};
+use bevy::ecs::component::Component;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
+use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    self, BehaviorExt, Frame, FrameProps, Icon, Stack, column, frame,
-    label, row, scroll, tinted_icon,
+    self, BehaviorExt, Frame, FrameProps, Icon, Stack, TooltipExt,
+    column, frame, label, row, scroll, tinted_icon,
 };
 use bevy_fynix::{
     Bevy, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
@@ -89,6 +90,69 @@ pub fn primary_button(cx: &mut Cx) {
         })
         .transition(Motion::Interact)
         .apply(cx);
+}
+
+/// On a [`toggle_button`] while it is checked.
+#[derive(Component)]
+pub struct Checked;
+
+/// The opacity of an unchecked [`toggle_button`]'s fill.
+const UNCHECKED_FILL: f32 = 0.45;
+
+/// A button that is checked or not, alone as a switch or as one of a
+/// few: faded while unchecked, its fill at [`UNCHECKED_FILL`] with a
+/// `gold_6` border and faint text, and a [`button`] with a `gold_3`
+/// border and body text while [`Checked`].
+pub fn toggle_button(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(t.palette.button.with_alpha(UNCHECKED_FILL))
+                .border(t.space.border)
+                .border_color(t.palette.gold_6)
+                .radius(t.space.round)
+        })
+        .label(|l, t| {
+            l.tone(Tone::Faint).size(t.text.small).bold(true)
+        })
+        .icon(|i, _| i.tone(Tone::Faint))
+        .hovered(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.gold_hover)
+                    .border_color(t.palette.gold_5)
+            })
+            .tone(Tone::Dim)
+        })
+        .when::<Checked>(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.button)
+                    .border_color(t.palette.gold_3)
+            })
+            .tone(Tone::Body)
+        })
+        .transition(Motion::Interact)
+        .apply(cx);
+}
+
+/// `view` with [`Checked`] on its root while `checked` holds. The
+/// view is built once; only the component changes.
+pub fn checked_when(
+    view: impl View + 'static,
+    checked: impl Into<Prop<bool>>,
+) -> AnyView {
+    let checked = checked.into();
+    AnyView::new(move |cx: &mut Cx| {
+        let node = cx.build(view);
+        cx.effect(node, checked, |world, node, &checked| {
+            if let Ok(mut entity) = world.get_entity_mut(node) {
+                if checked {
+                    entity.insert(Checked);
+                } else {
+                    entity.remove::<Checked>();
+                }
+            }
+        });
+        node
+    })
 }
 
 /// A link back to the page the current one was reached from: an
@@ -566,6 +630,62 @@ pub fn command(text: &'static str, act: fn(&mut World)) -> impl View {
         .rules(button)
         .tagged(Variant::Default)
         .on_activate(act)
+}
+
+/// A button of one icon that runs `act`, named by `tip` under the
+/// pointer.
+pub fn tool(
+    which: Glyph,
+    tip: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> impl View {
+    views::button(raised(glyph(which, ICON)))
+        .padding(UiRect::axes(px(9.0), px(0.0)))
+        .min_height(px(CONTROL))
+        .tooltip(move || note(tip))
+        .rules(button)
+        .tagged(Variant::Default)
+        .on_activate(act)
+}
+
+/// Tools side by side, set apart from the next group.
+pub fn cluster(
+    tools: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    row(tools).gap(2.0).align(AlignItems::Center)
+}
+
+/// `control` after a word on what it sets.
+pub fn labelled(word: &str, control: AnyView) -> AnyView {
+    let word = word.to_owned();
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        row((
+            column((note(word.clone()),)).width(px(64.0)).shrink(0.0),
+            column((control,))
+                .width(percent(100.0))
+                .min_width(px(0.0)),
+        ))
+        .gap(gap)
+        .align(AlignItems::Center)
+    })
+    .boxed()
+}
+
+/// A square `side` wide filled with `colour`.
+pub fn swatch(side: f32, colour: impl Into<Prop<Color>>) -> AnyView {
+    let colour = colour.into();
+    with_cx(move |cx| {
+        frame()
+            .width(px(side))
+            .height(px(side))
+            .shrink(0.0)
+            .radius(2.0)
+            .border(1.0)
+            .border_color(cx.theme().palette.border)
+            .fill(colour)
+    })
+    .boxed()
 }
 
 /// The way back to `text`, which `act` takes.

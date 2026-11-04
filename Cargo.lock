@@ -2828,6 +2828,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastnoise-lite"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e5f3c3cc9081e5d0e18bcd50e80cd33cba47fc22f88a9da9c33ecd1c87ea5c0"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3351,9 +3360,14 @@ dependencies = [
  "bevy_app",
  "bevy_fynix",
  "chrono",
+ "gltf",
  "hamlet_assets",
+ "hamlet_blueprint",
  "hamlet_client",
  "hamlet_desktop",
+ "hamlet_graph",
+ "hamlet_graph_editor",
+ "hamlet_material",
  "hamlet_protocol",
  "hamlet_realm",
  "hamlet_testing",
@@ -3365,6 +3379,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
  "tokio",
  "toml",
  "unicode-segmentation",
@@ -3383,6 +3398,19 @@ dependencies = [
  "bevy_reflect",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "hamlet_blueprint"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bevy_math",
+ "fastnoise-lite",
+ "hamlet_graph",
+ "libm",
+ "ron",
+ "serde",
 ]
 
 [[package]]
@@ -3439,6 +3467,42 @@ dependencies = [
  "rfd",
  "tokio",
  "winit",
+]
+
+[[package]]
+name = "hamlet_graph"
+version = "0.1.0"
+dependencies = [
+ "bevy_math",
+ "ron",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "hamlet_graph_editor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "bevy_fynix",
+ "hamlet_client",
+ "hamlet_desktop",
+ "hamlet_graph",
+ "hamlet_testing",
+ "hamlet_ui",
+ "ron",
+ "serde",
+]
+
+[[package]]
+name = "hamlet_material"
+version = "0.1.0"
+dependencies = [
+ "bevy_math",
+ "hamlet_graph",
+ "naga",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

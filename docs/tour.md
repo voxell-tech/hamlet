@@ -55,6 +55,10 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and gifts read in parts off the frame |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
+| `hamlet_graph` | Node graphs as data: sheets, rulesets, the registry of node kinds, edits, the asset catalogue, and the checks that need only a kind's description |
+| `hamlet_blueprint` | Procedural graphs: the built-in nodes with what they run, bundles, and the evaluator that turns a ruleset and seeds into placed assets |
+| `hamlet_material` | Material graphs: the node kinds of a surface's colour, roughness, metallic, emission and normal, and the compiler from a graph to a fragment shader |
+| `hamlet_graph_editor` | The node-graph editor, generic over a `Flavor`: canvas, menus, parameters, the toolbar, the open library asset and its files, and the asset library it saves into |
 | `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, sound and camera |
 | `hamlet_ui` | The widget kit: theme, styles, controls and their effects, with no client state |
 | `hamlet_vfx` | Visual effects |
@@ -220,6 +224,12 @@ ordinary tools.
 | Panels' colors, controls and icons | `assets/theme.toml`, `effects.toml`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
 | Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |
+| Procedural graph nodes, or the BLUEPRINT panel | `hamlet_blueprint/src/nodes/`; `hamlet_graph_editor/src/` for the editor every kind of graph shares; `hamlet_app/src/graphs/` for the blueprint and material flavors, whose `examples/` folders hold the example graphs they offer, one graph to a file, the first of which each opens with |
+| Material graph nodes, or the MATERIAL panel | `hamlet_material/src/kinds.rs` for the nodes, `compile.rs` for the shader they compile to; `hamlet_app/src/graphs/material.rs` and `material/` for the flavor and its preview |
+| What is open in a graph editor, its Save, Save as, rename, Import and Export, and the toolbar | `hamlet_graph_editor/src/files.rs` and `toolbar.rs`; the editor's `open`, dirty flag and other assets in `lib.rs` and `others.rs`; the window's folder keeps which asset was open and its unsaved changes in `<FOLDER>/open.ron` |
+| The ASSETS panel and the asset library | `hamlet_graph_editor/src/library.rs` for the library; `hamlet_app/src/browser.rs` for the panel |
+| Mesh pictures and the mesh picker | `hamlet_graph_editor/src/library/thumbnails.rs` for what is asked for and when it is drawn again, `library/picker.rs` for the view that takes a callback; `hamlet_app/src/graphs/thumbnails.rs` for the camera that draws them |
+| The assets a graph puts down | `hamlet_graph/src/catalogue.rs` for the built-in ones and what an entry holds; `hamlet_app/src/graphs/assets.rs` for importing a `.glb`, its sockets, and drawing it in the preview |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Wizard, Hearth, camera or sound | `hamlet_realm/src/chief/`, `pick/camera.rs`, `sound/` |
 | Helpers several modules' tests share | `testing.rs` in `hamlet_server`, `hamlet_app` and `hamlet_realm`; fixtures crates share in `hamlet_testing` |

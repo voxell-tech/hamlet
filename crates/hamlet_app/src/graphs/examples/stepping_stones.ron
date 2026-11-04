@@ -1,0 +1,41 @@
+// Stepping stones: a flagstone laid along a winding spline, each along
+// its way and turned a little its own way. Select the spline to drag its
+// points in the preview, click the curve to add one, or Alt-click a point
+// to take it away. Change how far apart the stones are in the parameters.
+(
+    entry: "stepping_stones",
+    sheets: {
+        "stepping_stones": (
+            graph: (
+                inputs: [
+                    (name: "stone_spacing", value_type: Number, default: Some(Number(0.7))),
+                ],
+                nodes: [
+                    (id: 1, does: Kind("transform"), settings: {"scale": Fixed(Point((0.5, 0.08, 0.42)))}),
+                    (id: 2, does: Kind("object"), settings: {"asset": Fixed(Choice("flagstone"))}),
+                    (id: 3, does: Kind("spline")),
+                    (id: 4, does: Kind("along_curve"), settings: {"align": Fixed(Bool(true))}),
+                    (id: 5, does: Kind("random"), settings: {"low": Fixed(Number(-12.0)), "high": Fixed(Number(12.0))}),
+                    (id: 6, does: Kind("point"), settings: {"x": Fixed(Number(0.0)), "z": Fixed(Number(0.0))}),
+                    (id: 7, does: Kind("transform")),
+                    (id: 8, does: Kind("matmul")),
+                    (id: 9, does: Input("stone_spacing")),
+                ],
+                wires: [
+                    (from: (node: 9, name: "value"), to: (node: 4, name: "spacing")),
+                    (from: (node: 1, name: "transform"), to: (node: 2, name: "transform")),
+                    (from: (node: 2, name: "objects"), to: (node: 4, name: "objects")),
+                    (from: (node: 3, name: "curve"), to: (node: 4, name: "curve")),
+                    (from: (node: 5, name: "field"), to: (node: 6, name: "y")),
+                    (from: (node: 6, name: "point"), to: (node: 7, name: "rotation")),
+                    (from: (node: 4, name: "objects"), to: (node: 8, name: "objects")),
+                    (from: (node: 7, name: "transform"), to: (node: 8, name: "transform")),
+                ],
+            ),
+            groups: [
+                (title: "A flagstone laid along a winding spline", nodes: [1, 2, 3, 4, 9]),
+                (title: "Each stone turned a little, its own way", nodes: [5, 6, 7, 8]),
+            ],
+        ),
+    },
+)
