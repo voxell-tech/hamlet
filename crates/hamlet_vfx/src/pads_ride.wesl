@@ -4,7 +4,7 @@
 import bevy_pbr::render::mesh_view_bindings::view;
 import hamlet_vfx::clock::scene_time;
 import hamlet_vfx::shore::coast_at;
-import hamlet_vfx::waves::{Coast, kept_waves, wave};
+import hamlet_vfx::waves::{Coast, kept_waves, run, wave};
 
 // Mirrors `Water` in `water.wesl`; the fields are explained on
 // `WaterUniform` in `water.rs`.
@@ -61,9 +61,9 @@ fn ride(world_from_local: mat4x4<f32>) -> Ride {
     }
     let c = middle.xz;
     let near = coast_at(c, water.time.z, water.calm.xy);
-    // Near the shore the waves turn to run in to it.
-    let runs = mix(water.wind.xy, near.landward, near.turned);
-    let way = select(vec2<f32>(0.0, 1.0), normalize(runs), dot(runs, runs) > 1e-6);
+    // The way the longest wave runs, turned in to the shore near it; its
+    // phase grows against that way.
+    let way = -run(-water.wind.xy, near, scale).way;
     let r = max(0.5 * length(world_from_local[0].xyz), 0.2);
     let here = surface(c, near, kept);
     let ahead = c + way * r;

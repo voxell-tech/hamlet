@@ -3,12 +3,12 @@
 // MIT-licensed water shader; its notice is in `water/LICENSE`.
 //
 // Five Gerstner waves of set heading, height, length and speed, each
-// roughened by a drifting noise. Out at sea they keep their headings; as the
-// water nears land they turn to run in to it, as shallowing water turns
-// waves: within `bend` metres of the shore the same five waves, running
-// straight in, take over by degrees. Positions and heights are in units
-// `scale` metres long, so the whole sea can be made larger or smaller at
-// once.
+// roughened by a drifting noise. Out at sea they keep their headings; within
+// `bend` metres of the shore they turn to run in to it and shorten, as
+// shallowing water turns and shortens waves: each one's phase grows the
+// faster toward the land the nearer it is, which turns its crests without
+// tearing them. Positions and heights are in units `scale` metres long, so
+// the whole sea can be made larger or smaller at once.
 //
 // What the noise gives each wave at a point is read once, by `groups`, and
 // shared by the waves out at sea and those turned to the shore, by the
@@ -26,6 +26,14 @@ const SLOPE_MOST: f32 = 64.0;
 // where the water lies flat. `FLAT` in `water.rs`.
 const CALMING: f32 = 25.0;
 const FLAT: f32 = 55.0;
+
+// How much faster than out at sea a wave's phase grows toward the land
+// where it has turned all the way.
+const SHOALING: f32 = 1.75;
+// The share of its height each wave keeps where it has turned all the way:
+// running one way, their crests meet and stack, so all five together are
+// kept to the root of their heights' squares summed, against their sum.
+const STACKED: f32 = 0.63;
 
 // The share of the waves' height kept `away` metres from the eye, the
 // waves `scale` metres long.
@@ -99,18 +107,49 @@ fn groups(
     return out;
 }
 
+// How a wave runs at a point where the shore bears on it as `near` has it:
+// the way its phase grows and how many times as fast as out at sea, how far
+// its phase is moved there, how much of it is left, how much it rises and
+// how steep it is, against its own height and steepness out at sea.
+struct Run {
+    way: vec2<f32>,
+    stretch: f32,
+    shift: f32,
+    left: f32,
+    rise: f32,
+    steep: f32,
+}
+
+// How the wave whose phase grows along `open` out at sea runs where the
+// shore bears on it as `near` has it, the waves `scale` metres long.
+fn run(open: vec2<f32>, near: Coast, scale: f32) -> Run {
+    // Its phase grows the faster toward the sea the further it has turned,
+    // so it runs in to the land; and is moved as much as that has added up
+    // to since it began to turn, so its crests stay whole.
+    let grows = open - near.landward * (SHOALING * near.turned);
+    let stretch = length(grows);
+    // A wave that runs out to sea turns about through a place where its
+    // phase hardly grows and it would be endlessly long: there it fades,
+    // and comes back running in.
+    let left = smoothstep(0.25, 0.6, stretch) * mix(1.0, STACKED, near.turned);
+    // Turned to the shore, they rise and steepen as the water shallows,
+    // `close` to it, then break. Further out they draw the water toward
+    // their crests less: running in from every side of a rock, they would
+    // squeeze all the water about it together.
+    let rise = 1.0 + 0.6 * near.close * near.turned;
+    let steep = mix(1.0, mix(0.5, 1.0, near.close), near.turned);
+    return Run(grows / max(stretch, 1e-4), stretch, -SHOALING * near.inward / scale, left, rise, steep);
+}
+
 // The five waves at `p` at time `t`, keeping `kept` of their height and
-// phase, each turned to `turn` by as much as `bent`: where it is whole, each
-// runs along `turn`, `along` the distance along it. Without the noise's
-// lift, which is the same turned or not.
+// phase, where the shore bears on them as `near` has it. Without the
+// noise's lift.
 fn five(
     p: vec2<f32>,
     t: f32,
-    turn: vec2<f32>,
-    along: f32,
-    bent: bool,
+    near: Coast,
+    scale: f32,
     downwind: vec2<f32>,
-    close: f32,
     kept: array<vec2<f32>, 5>,
 ) -> vec3<f32> {
     let turned_to = to_wind(downwind);
@@ -120,19 +159,14 @@ fn five(
     var d = vec3<f32>(0.0);
     for (var i = 0u; i < 5u; i++) {
         let open = turned_to * ways[i];
-        let way = select(open, turn, bent);
-        let distance = select(dot(open, p), along, bent);
+        let r = run(open, near, scale);
         let s = shapes[i];
         let v = by[i];
-        // Turned to the shore, they rise and steepen as the water
-        // shallows, `close` to it, then break. Further out they draw the
-        // water toward their crests less: running in from every side of
-        // a rock, they would squeeze all the water about it together.
-        let rise = select(1.0, 1.0 + 0.6 * close, bent);
-        let steep = select(s.w, s.w * mix(0.5, 1.0, close), bent);
-        let phase = t * s.z + distance * s.y + v.y;
-        let push = way * cos(phase) * steep * v.x;
-        d += vec3<f32>(push.x, sin(phase) * s.x * rise * v.x, push.y);
+        let phase = t * s.z + (dot(open, p) + r.shift) * s.y + v.y;
+        let held = v.x * r.left;
+        // Shorter, it pushes the water as far for its length.
+        let push = r.way * cos(phase) * s.w * r.steep / r.stretch * held;
+        d += vec3<f32>(push.x, sin(phase) * s.x * r.rise * held, push.y);
     }
     return d;
 }
@@ -171,11 +205,7 @@ fn wave(
 ) -> vec3<f32> {
     let p = pos / scale;
     let kept = groups(noise, noise_sampler, p, t, downwind);
-    var d = five(p, t, vec2<f32>(0.0), 0.0, false, downwind, 0.0, kept);
-    if near.turned > 0.0 {
-        let shoreward = five(p, t, -near.landward, near.along / scale, true, downwind, near.close, kept);
-        d = mix(d, shoreward, near.turned);
-    }
+    var d = five(p, t, near, scale, downwind, kept);
     d.y += lifted(noise, noise_sampler, p, t, downwind);
     return d * near.gain * scale;
 }
@@ -191,6 +221,16 @@ struct Coast {
     // The metres to the shore, and the way to it.
     along: f32,
     landward: vec2<f32>,
+    // How much they have turned on their way in from `bend` metres out,
+    // added up over each metre: `turned` summed from here out to there.
+    inward: f32,
+}
+
+// What `smoothstep(e0, e1, y)` adds up to over each metre `y` up to `x`.
+fn risen(e0: f32, e1: f32, x: f32) -> f32 {
+    let span = max(e1 - e0, 1e-3);
+    let u = clamp((x - e0) / span, 0.0, 1.0);
+    return span * (u * u * u - 0.5 * u * u * u * u) + max(x - e1, 0.0);
 }
 
 // How the shore bears on the waves at a point `d` metres out to sea from
@@ -205,17 +245,21 @@ fn coast(d: f32, toward: vec2<f32>, bend: f32, calm: vec2<f32>) -> Coast {
     // Only the sea's waves turn to the land. A river is narrow, and its
     // waves would turn to both banks at once and meet down its middle.
     let sea = smoothstep(-6.0, -2.0, d);
-    var turned = (1.0 - smoothstep(bend * 0.2, max(bend, 1e-3), d)) * sea;
+    let reach = max(bend, 1e-3);
+    var turned = (1.0 - smoothstep(reach * 0.2, reach, d)) * sea;
+    // The turn falls in from `bend` and the sea's edge rises inland apart,
+    // so what it adds up to out to `bend` is theirs apart.
+    var inward = risen(-6.0, -2.0, reach) - risen(-6.0, -2.0, d)
+        - (risen(reach * 0.2, reach, reach) - risen(reach * 0.2, reach, d));
     var landward = vec2<f32>(0.0, 1.0);
     if dot(toward, toward) < 1e-6 {
         turned = 0.0;
+        inward = 0.0;
     } else {
         landward = normalize(toward);
     }
-    // Running in to the land, the phase falls toward the shore, so each
-    // crest comes in from the sea.
-    let close = 1.0 - clamp(d / max(bend, 1e-3), 0.0, 1.0);
-    return Coast(gain, turned, close, d, landward);
+    let close = 1.0 - clamp(d / reach, 0.0, 1.0);
+    return Coast(gain, turned, close, d, landward, inward);
 }
 
 // How the waves tilt and draw together the surface about a point.
@@ -234,11 +278,9 @@ struct Bend {
 fn bends(
     p: vec2<f32>,
     t: f32,
-    turn: vec2<f32>,
-    along: f32,
-    bent: bool,
+    near: Coast,
+    scale: f32,
     downwind: vec2<f32>,
-    close: f32,
     kept: array<vec2<f32>, 5>,
     footprint: f32,
 ) -> Bend {
@@ -249,17 +291,15 @@ fn bends(
     var out = Bend(vec2<f32>(0.0), vec4<f32>(0.0));
     for (var i = 0u; i < 5u; i++) {
         let open = turned_to * ways[i];
-        let way = select(open, turn, bent);
-        let distance = select(dot(open, p), along, bent);
+        let r = run(open, near, scale);
         let s = shapes[i];
         let v = by[i];
-        let rise = select(1.0, 1.0 + 0.6 * close, bent);
-        let steep = select(s.w, s.w * mix(0.5, 1.0, close), bent);
-        let phase = t * s.z + distance * s.y + v.y;
-        let pixels = TAU / (s.y * max(footprint, 1e-6));
-        let seen = v.x * s.y * smoothstep(4.0, 8.0, pixels);
-        out.rise += way * (cos(phase) * s.x * rise * seen);
-        let pinch = steep * seen * sin(phase);
+        let way = r.way;
+        let phase = t * s.z + (dot(open, p) + r.shift) * s.y + v.y;
+        let pixels = TAU / (s.y * r.stretch * max(footprint, 1e-6));
+        let seen = v.x * r.left * s.y * smoothstep(4.0, 8.0, pixels);
+        out.rise += way * (cos(phase) * s.x * r.rise * r.stretch * seen);
+        let pinch = s.w * r.steep * seen * sin(phase);
         out.pull -= pinch * vec4<f32>(way.x * way.x, way.x * way.y, way.y * way.x, way.y * way.y);
     }
     return out;
@@ -291,9 +331,8 @@ fn noise_rise(
 fn crests(
     p: vec2<f32>,
     t: f32,
-    turn: vec2<f32>,
-    along: f32,
-    bent: bool,
+    near: Coast,
+    scale: f32,
     downwind: vec2<f32>,
     kept: array<vec2<f32>, 5>,
 ) -> array<vec2<f32>, 5> {
@@ -303,7 +342,8 @@ fn crests(
     var by = kept;
     var out: array<vec2<f32>, 5>;
     for (var i = 0u; i < 5u; i++) {
-        let distance = select(dot(turned_to * ways[i], p), along, bent);
+        let open = turned_to * ways[i];
+        let distance = dot(open, p) + run(open, near, scale).shift;
         let s = shapes[i];
         // Its crest stands where the phase is a quarter turn.
         let past = t * s.z + distance * s.y + by[i].y - TAU * 0.25;

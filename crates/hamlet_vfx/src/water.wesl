@@ -26,8 +26,7 @@ import hamlet_vfx::clock::scene_time;
 import hamlet_vfx::patch::slid;
 import hamlet_vfx::shore::{PageCell, coast_at, page_cell, pages_at};
 import hamlet_vfx::waves::{
-    SHAPES, SLOPE_MOST, TAU, Bend, Coast, bends, crests, groups, kept_waves, noise_rise,
-    wave,
+    SHAPES, SLOPE_MOST, TAU, Coast, bends, crests, groups, kept_waves, noise_rise, wave,
 };
 
 // The fields are explained on `WaterUniform` in `water.rs`.
@@ -134,10 +133,9 @@ fn held(fresh: f32, age: f32, decay: f32, eaten: f32) -> f32 {
 // looked at now and as each wave's last two crests passed, with all five
 // waves as they were then. Where the noise lets none be born, none is
 // looked for, nor in a past that has faded too far to leave more than is
-// found already, or than `least`, the least that shows; the waves turned
-// to the shore count only where they have turned enough to show. `near` is
-// how the shore bears on the waves there, `kept` what each keeps, and
-// `allowed` how much the noise lets be born, above zero.
+// found already, or than `least`, the least that shows. `near` is how the
+// shore bears on the waves there, `kept` what each keeps, and `allowed` how
+// much the noise lets be born, above zero.
 fn worked_foam(pos: vec2<f32>, allowed: f32, least: f32, near: Coast, kept: array<vec2<f32>, 5>) -> f32 {
     let world_uv = pos / 15.0;
     let t = scene_time(water.time.x);
@@ -145,14 +143,8 @@ fn worked_foam(pos: vec2<f32>, allowed: f32, least: f32, near: Coast, kept: arra
     let p = pos / scale;
     let downwind = water.wind.xy;
     let streak = water.fading.zw;
-    let landward = -near.landward;
-    let shoreward = near.turned > 0.05;
     let eaten = textureSampleLevel(noise, noise_sampler, world_uv * 24.0, 0.0).r * water.fading.y;
-    // The crests of the waves that hold sway here.
-    var times = crests(p, t, vec2<f32>(0.0), 0.0, false, downwind, kept);
-    if near.turned > 0.5 {
-        times = crests(p, t, landward, near.along / scale, true, downwind, kept);
-    }
+    let times = crests(p, t, near, scale, downwind, kept);
     var most = 0.0;
     for (var k = 0u; k < 11u; k++) {
         var age = 0.0;
@@ -164,11 +156,7 @@ fn worked_foam(pos: vec2<f32>, allowed: f32, least: f32, near: Coast, kept: arra
             continue;
         }
         let then = t - age;
-        var d = bends(p, then, vec2<f32>(0.0), 0.0, false, downwind, 0.0, kept, 0.0).pull;
-        if shoreward {
-            let turned = bends(p, then, landward, near.along / scale, true, downwind, near.close, kept, 0.0).pull;
-            d = mix(d, turned, near.turned);
-        }
+        var d = bends(p, then, near, scale, downwind, kept, 0.0).pull;
         // The drifting noise pushes it by `streak` too, so the foam it
         // leaves lies in streaks, crisp along the crests.
         let g = noise_rise(noise_slope, noise_slope_sampler, p, then, downwind);
@@ -427,11 +415,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // found at all.
     var N = vec3<f32>(0.0, 1.0, 0.0);
     if detail > 0.0 {
-        var bend = bends(p, t, vec2<f32>(0.0), 0.0, false, downwind, 0.0, kept, footprint);
-        if at_shore.turned > 0.0 {
-            let turned = bends(p, t, -at_shore.landward, at_shore.along / scale, true, downwind, at_shore.close, kept, footprint);
-            bend = Bend(mix(bend.rise, turned.rise, at_shore.turned), mix(bend.pull, turned.pull, at_shore.turned));
-        }
+        let bend = bends(p, t, at_shore, scale, downwind, kept, footprint);
         let fine = 1.0 - smoothstep(0.4, 1.8, footprint);
         let lift = 0.05 * fine * noise_rise(noise_slope, noise_slope_sampler, p, t, downwind);
         let by = at_shore.gain * detail;
