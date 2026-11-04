@@ -22,6 +22,16 @@ const TAU: f32 = 6.28318531;
 // The steepest slope the noise's slope picture holds, which it is read back
 // by. `SLOPE_MOST` in `water.rs`.
 const SLOPE_MOST: f32 = 64.0;
+// How far from the eye, in units of the waves, they begin to flatten, and
+// where the water lies flat. `FLAT` in `water.rs`.
+const CALMING: f32 = 25.0;
+const FLAT: f32 = 55.0;
+
+// The share of the waves' height kept `away` metres from the eye, the
+// waves `scale` metres long.
+fn kept_waves(away: f32, scale: f32) -> f32 {
+    return 1.0 - smoothstep(CALMING * scale, FLAT * scale, away);
+}
 
 // The way each wave runs, the first downwind and the rest about it, in the
 // wind's frame.

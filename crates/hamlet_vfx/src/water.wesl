@@ -26,7 +26,8 @@ import hamlet_vfx::clock::scene_time;
 import hamlet_vfx::patch::slid;
 import hamlet_vfx::shore::{PageCell, coast_at, page_cell, pages_at};
 import hamlet_vfx::waves::{
-    SHAPES, SLOPE_MOST, TAU, Bend, Coast, bends, crests, groups, noise_rise, wave,
+    SHAPES, SLOPE_MOST, TAU, Bend, Coast, bends, crests, groups, kept_waves, noise_rise,
+    wave,
 };
 
 // The fields are explained on `WaterUniform` in `water.rs`.
@@ -53,9 +54,6 @@ struct Water {
 @group(constants::MATERIAL_BIND_GROUP) @binding(113) var noise_slope: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(114) var noise_slope_sampler: sampler;
 
-// How far from the eye, in units of the waves, the water lies flat.
-// `FLAT` in `water.rs`.
-const FLAT: f32 = 55.0;
 // How far from the eye, in units of the waves, each point's own slope
 // begins to fade, and where it is gone.
 const SLOPE_FADE: vec2<f32> = vec2<f32>(200.0, 450.0);
@@ -93,7 +91,7 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     // from the eye itself, so that seen from high over it the whole sea
     // lies flat.
     let scale = water.time.y;
-    let kept = 1.0 - smoothstep(25.0 * scale, FLAT * scale, distance(flat, view.world_position));
+    let kept = kept_waves(distance(flat, view.world_position), scale);
     // Where it lies flat the waves are not worked out at all. Each
     // fragment finds its own slope, so none is found here.
     var displacement = vec3<f32>(0.0);

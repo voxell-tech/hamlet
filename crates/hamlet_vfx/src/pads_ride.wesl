@@ -4,7 +4,7 @@
 import bevy_pbr::render::mesh_view_bindings::view;
 import hamlet_vfx::clock::scene_time;
 import hamlet_vfx::shore::coast_at;
-import hamlet_vfx::waves::{Coast, wave};
+import hamlet_vfx::waves::{Coast, kept_waves, wave};
 
 // Mirrors `Water` in `water.wesl`; the fields are explained on
 // `WaterUniform` in `water.rs`.
@@ -26,10 +26,6 @@ struct Water {
 @group(constants::MATERIAL_BIND_GROUP) @binding(102) var noise_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(110) var strokes: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(111) var strokes_sampler: sampler;
-
-// How far from the eye, in units of the waves, the water lies flat.
-// `FLAT` in `water.wesl`.
-const FLAT: f32 = 55.0;
 
 // How much of the slope of the water under it a pad leans with, and the
 // most it leans, as a slope, so it only ever rocks a little.
@@ -58,7 +54,7 @@ fn surface(p: vec2<f32>, near: Coast, kept: f32) -> vec3<f32> {
 fn ride(world_from_local: mat4x4<f32>) -> Ride {
     let middle = world_from_local[3].xyz;
     let scale = water.time.y;
-    let kept = 1.0 - smoothstep(25.0 * scale, FLAT * scale, distance(middle, view.world_position));
+    let kept = kept_waves(distance(middle, view.world_position), scale);
     let still = Ride(vec3<f32>(0.0), vec3<f32>(0.0, 1.0, 0.0));
     if kept <= 0.0 {
         return still;
