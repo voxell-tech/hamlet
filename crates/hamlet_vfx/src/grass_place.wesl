@@ -53,7 +53,8 @@ fn in_sight(at: vec3<f32>, reach: f32) -> bool {
 }
 
 // Whether a tuft at `p` on the map, reaching `reach` from its middle, may
-// be in sight at any height grass grows at, for before the land is read.
+// be in sight at any height grass grows at, so it can be told before the
+// land is read.
 fn may_be_in_sight(p: vec2<f32>, reach: f32) -> bool {
     let low = soil.water + GRASS_OVER_WATER + TUFT_RISE;
     let high = GRASS_HIGHEST + TUFT_RISE;
@@ -73,7 +74,7 @@ fn place(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
     let cell = place_at.origin + vec2<i32>(id.xy);
-    // What needs only the tuft's square first, then the land under it.
+    // The tests that need only the tuft's square first; the land last.
     let h = tuft_hash(cell);
     let p = tuft_middle(cell, h);
     if distance(p, grass.reach.xz) > grass.reach.w {

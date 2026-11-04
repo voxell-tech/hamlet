@@ -538,7 +538,8 @@ pub(crate) fn flow(
     *heading = Some(turned);
     let (x, z) = turned.to_radians().sin_cos();
     let way = Vec4::new(x, z, 0.0, 0.0);
-    // A material is changed only when what it holds is.
+    // `get_mut` alone marks a material changed, so only one that
+    // differs is taken.
     let ids = materials.ids().collect::<Vec<_>>();
     for id in ids {
         let changed = materials.get(id).is_some_and(|water| {

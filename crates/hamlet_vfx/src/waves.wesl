@@ -107,10 +107,9 @@ fn groups(
     return out;
 }
 
-// How a wave runs at a point where the shore bears on it as `near` has it:
-// the way its phase grows and how many times as fast as out at sea, how far
-// its phase is moved there, how much of it is left, how much it rises and
-// how steep it is, against its own height and steepness out at sea.
+// How a wave runs at a point near the shore: the way its phase grows and how
+// many times as fast as out at sea, how far its phase is moved, and the
+// share of its height left, its rise and its steepness.
 struct Run {
     way: vec2<f32>,
     stretch: f32,
@@ -123,9 +122,9 @@ struct Run {
 // How the wave whose phase grows along `open` out at sea runs where the
 // shore bears on it as `near` has it, the waves `scale` metres long.
 fn run(open: vec2<f32>, near: Coast, scale: f32) -> Run {
-    // Its phase grows the faster toward the sea the further it has turned,
-    // so it runs in to the land; and is moved as much as that has added up
-    // to since it began to turn, so its crests stay whole.
+    // Its phase grows faster toward the sea the further it has turned, so
+    // it runs in to the land, and is moved by all that growth since it
+    // began to turn, so its crests stay whole.
     let grows = open - near.landward * (SHOALING * near.turned);
     let stretch = length(grows);
     // A wave that runs out to sea turns about through a place where its
@@ -247,8 +246,8 @@ fn coast(d: f32, toward: vec2<f32>, bend: f32, calm: vec2<f32>) -> Coast {
     let sea = smoothstep(-6.0, -2.0, d);
     let reach = max(bend, 1e-3);
     var turned = (1.0 - smoothstep(reach * 0.2, reach, d)) * sea;
-    // The turn falls in from `bend` and the sea's edge rises inland apart,
-    // so what it adds up to out to `bend` is theirs apart.
+    // `turned` is the sea's edge less the turn's fall from `bend`, which
+    // lie apart, so its sum is theirs summed apart.
     var inward = risen(-6.0, -2.0, reach) - risen(-6.0, -2.0, d)
         - (risen(reach * 0.2, reach, reach) - risen(reach * 0.2, reach, d));
     var landward = vec2<f32>(0.0, 1.0);

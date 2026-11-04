@@ -1,6 +1,6 @@
-// The scene's time in a material's shaders, in its main pass and its
-// prepass alike: the view's own time, which runs every frame without the
-// material changing, and `NowOffset` in `lib.rs`, which the material holds.
+// The scene's time in a material's shaders, in its main pass and prepass
+// alike: the view's own time plus `NowOffset` in `lib.rs`, which the
+// material holds.
 
 import bevy_render::globals::Globals;
 @if(!PREPASS_PIPELINE) import bevy_pbr::render::mesh_view_bindings::globals;

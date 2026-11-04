@@ -212,8 +212,8 @@ pub(super) fn repaint(
     mut grounds: ResMut<Assets<GroundMaterial>>,
     mut waters: ResMut<Assets<WaterMaterial>>,
 ) {
-    // Each material is changed only when what it holds is: its whole
-    // ground or water is made anew for the renderer when it changes.
+    // `get_mut` alone marks a material changed, so only one that
+    // differs is taken.
     let soil = land.soil();
     if grounds
         .get(&kit.ground)

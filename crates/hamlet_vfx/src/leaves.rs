@@ -192,7 +192,6 @@ impl FromWorld for Leaves {
     }
 }
 
-/// The leaves' material.
 fn material(
     set: &LeafSettings,
     strokes: &Handle<Image>,
@@ -225,8 +224,8 @@ fn material(
 }
 
 /// Passes the time, the wind and the [`LeafView`] to the materials.
-/// A material is changed only when what it holds is: every tree it
-/// is on is made anew for the renderer when it changes.
+/// `get_mut` alone marks a material changed, which has the renderer
+/// make every tree it is on anew, so only one that differs is taken.
 fn sway(
     offset: Res<NowOffset>,
     set: Res<LeafSettings>,

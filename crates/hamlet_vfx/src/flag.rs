@@ -214,8 +214,8 @@ fn wave(
     {
         return;
     }
-    // A material is changed only when what it holds is, so the flags
-    // are not made anew for the renderer each frame.
+    // `get_mut` alone marks a material changed, so only one that
+    // differs is taken.
     let blowing = wind.uniform();
     for (long, waving) in &waving.0 {
         let next = uniform(&set, *offset, *long);
