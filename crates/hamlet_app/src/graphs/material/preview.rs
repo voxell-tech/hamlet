@@ -59,8 +59,8 @@ use hamlet_ui::styles::{self, description, note};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{AnyView, Cx};
 
-use super::Material;
 use super::swatch::Slots;
+use super::{Got, Material};
 use crate::graphs::assets::{COLOURS, palette_colour};
 
 /// The render layer only the material preview's camera, lights and
@@ -462,17 +462,17 @@ fn pose(
 
 /// Writes the preview's shader again when the graph's code changes.
 fn shade(
-    editor: Res<Editor<Material>>,
+    got: Res<Got>,
     mut shaders: ResMut<Assets<Shader>>,
     mut shaded: Local<Option<u64>>,
 ) {
-    if *shaded == Some(editor.got.version) {
+    if *shaded == Some(got.version) {
         return;
     }
-    let Some(compiled) = editor.got.compiled() else {
+    let Some(compiled) = got.compiled() else {
         return;
     };
-    *shaded = Some(editor.got.version);
+    *shaded = Some(got.version);
     let _ = shaders.insert(
         SHADER.id(),
         Shader::from_wesl(
@@ -486,16 +486,19 @@ fn shade(
 /// frame while the graph reads the time.
 fn feed(
     editor: Res<Editor<Material>>,
+    got: Res<Got>,
     stage: Option<Res<Stage>>,
     time: Res<Time>,
     mut materials: ResMut<Assets<SurfaceMaterial>>,
 ) {
-    let (Some(stage), Some(compiled)) =
-        (stage, editor.got.compiled())
+    let (Some(stage), Some(compiled)) = (stage, got.compiled())
     else {
         return;
     };
-    if !compiled.reads_time() && !editor.is_changed() {
+    if !compiled.reads_time()
+        && !editor.is_changed()
+        && !got.is_changed()
+    {
         return;
     }
     if let Some(mut material) = materials.get_mut(&stage.material) {

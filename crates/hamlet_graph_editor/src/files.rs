@@ -29,7 +29,7 @@ use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_graph::{Book, Shape, Sheet};
 use serde::{Deserialize, Serialize};
 
-use super::flavor::Flavor;
+use super::setup::{EditorKey, Setup};
 use super::{Editor, canvas};
 use crate::library::{
     Item, Kind, Library, Source, mesh_path, temp_of, write_atomic,
@@ -39,12 +39,12 @@ use crate::library::{
 /// remembered of it is written.
 const SETTLE: Duration = Duration::from_secs(1);
 
-pub(super) fn plugin<F: Flavor>(app: &mut App) {
-    app.init_resource::<Files<F>>()
-        .add_observer(chosen::<F>)
+pub(super) fn plugin<K: EditorKey>(app: &mut App) {
+    app.init_resource::<Files<K>>()
+        .add_observer(chosen::<K>)
         .add_systems(
             Update,
-            (restore::<F>, keep::<F>, focus_naming::<F>),
+            (restore::<K>, keep::<K>, focus_naming::<K>),
         );
 }
 
@@ -58,7 +58,7 @@ enum Dialog {
 /// The name being asked for, and a note on the last thing done with
 /// a file.
 #[derive(Resource)]
-pub struct Files<F: Flavor> {
+pub struct Files<K: EditorKey> {
     /// The last thing done with a file, or its error.
     pub note: String,
     /// The name Save as is asking for, while it asks.
@@ -73,10 +73,10 @@ pub struct Files<F: Flavor> {
     asker: Option<Entity>,
     /// What the dialog open now is for.
     asking: Dialog,
-    flavor: PhantomData<F>,
+    key: PhantomData<K>,
 }
 
-impl<F: Flavor> Default for Files<F> {
+impl<K: EditorKey> Default for Files<K> {
     fn default() -> Self {
         Self {
             note: String::new(),
@@ -86,12 +86,12 @@ impl<F: Flavor> Default for Files<F> {
             restored: false,
             asker: None,
             asking: Dialog::Import,
-            flavor: PhantomData,
+            key: PhantomData,
         }
     }
 }
 
-impl<F: Flavor> Files<F> {
+impl<K: EditorKey> Files<K> {
     /// Whether `asker` is the entity the import and export dialogs
     /// answer to.
     pub fn is_asker(&self, asker: Entity) -> bool {
@@ -101,7 +101,7 @@ impl<F: Flavor> Files<F> {
 
 /// On the field Save as asks for a name in.
 #[derive(Component)]
-pub(super) struct NamingField<F: Flavor>(pub PhantomData<F>);
+pub(super) struct NamingField<K: EditorKey>(pub PhantomData<K>);
 
 /// Where an open asset was found.
 #[derive(Serialize, Deserialize)]
@@ -122,7 +122,7 @@ struct Remembered {
 }
 
 impl Remembered {
-    fn of<F: Flavor>(editor: &Editor<F>) -> Self {
+    fn of<K: EditorKey>(editor: &Editor<K>) -> Self {
         Self {
             origin: if editor.is_own() {
                 Origin::File
@@ -135,9 +135,10 @@ impl Remembered {
     }
 }
 
-/// Where the window remembers the open asset.
-fn remembered_at<F: Flavor>(folder: &Path) -> PathBuf {
-    folder.join(F::FOLDER).join("open.ron")
+/// Where the window, keeping its files in `folder`, remembers the
+/// open asset of the editor of `setup`.
+fn remembered_at(folder: &Path, setup: &Setup) -> PathBuf {
+    folder.join(setup.folder).join("open.ron")
 }
 
 fn write_remembered(
@@ -217,9 +218,9 @@ fn beside(path: &Path) -> &Path {
 
 /// Opens `item` in the editor, and gives the names of the graphs
 /// split off from its file when it held several.
-fn load<F: Flavor>(
+fn load<K: EditorKey>(
     library: &mut Library,
-    editor: &mut Editor<F>,
+    editor: &mut Editor<K>,
     item: &Item,
 ) -> anyhow::Result<Vec<String>> {
     let (sheet, split) = library.read(item)?;
@@ -230,11 +231,11 @@ fn load<F: Flavor>(
 /// Opens the asset the window remembered, with the changes it had
 /// not saved, once, as soon as the window's folder and the library
 /// are known.
-fn restore<F: Flavor>(
+fn restore<K: EditorKey>(
     folder: Option<Res<ViewFolder>>,
     mut library: ResMut<Library>,
-    mut files: ResMut<Files<F>>,
-    mut editor: ResMut<Editor<F>>,
+    mut files: ResMut<Files<K>>,
+    mut editor: ResMut<Editor<K>>,
 ) {
     let Some(folder) = folder else {
         return;
@@ -244,7 +245,7 @@ fn restore<F: Flavor>(
     }
     files.restored = true;
     let remembered =
-        fs::read_to_string(remembered_at::<F>(&folder.0))
+        fs::read_to_string(remembered_at(&folder.0, &editor.setup))
             .ok()
             .and_then(|text| ron::from_str::<Remembered>(&text).ok());
     if let Some(remembered) = remembered {
@@ -252,7 +253,7 @@ fn restore<F: Flavor>(
             .items
             .iter()
             .find(|item| {
-                item.kind == F::KIND
+                item.kind == editor.setup.kind
                     && item.name == remembered.name
                     && item.is_own()
                         == matches!(remembered.origin, Origin::File)
@@ -273,9 +274,9 @@ fn restore<F: Flavor>(
 
 /// Opens `found`, else saves the unsaved sheet as a new asset, and
 /// gives the note on what was recovered.
-fn restored<F: Flavor>(
+fn restored<K: EditorKey>(
     library: &mut Library,
-    editor: &mut Editor<F>,
+    editor: &mut Editor<K>,
     found: Option<Item>,
     remembered: Remembered,
 ) -> anyhow::Result<String> {
@@ -291,8 +292,9 @@ fn restored<F: Flavor>(
             })
         }
         (None, Some(sheet)) => {
-            let name = library.free_name(F::KIND, &remembered.name);
-            let path = library.save_sheet(F::KIND, &name, &sheet)?;
+            let kind = editor.setup.kind;
+            let name = library.free_name(kind, &remembered.name);
+            let path = library.save_sheet(kind, &name, &sheet)?;
             editor.open(name.clone(), Source::File(path), sheet);
             Ok(format!(
                 "{} was gone; kept its changes as {name}",
@@ -305,11 +307,11 @@ fn restored<F: Flavor>(
 
 /// Writes what the window remembers of the open asset once it has
 /// stayed the same for a moment.
-fn keep<F: Flavor>(
+fn keep<K: EditorKey>(
     time: Res<Time>,
     folder: Option<Res<ViewFolder>>,
-    editor: Res<Editor<F>>,
-    mut files: ResMut<Files<F>>,
+    editor: Res<Editor<K>>,
+    mut files: ResMut<Files<K>>,
 ) {
     let Some(folder) = folder else {
         return;
@@ -330,7 +332,7 @@ fn keep<F: Flavor>(
         }
     }
     match write_remembered(
-        &remembered_at::<F>(&folder.0),
+        &remembered_at(&folder.0, &editor.setup),
         &Remembered::of(&editor),
     ) {
         Ok(()) => files.kept = editor.revision,
@@ -346,16 +348,16 @@ fn keep<F: Flavor>(
 
 /// Opens `item`, which discards the changes the open asset has not
 /// saved. The note says which, in [`Files::note`].
-pub fn open_item<F: Flavor>(
+pub fn open_item<K: EditorKey>(
     world: &mut World,
     item: &Item,
 ) -> anyhow::Result<()> {
-    let editor = world.resource::<Editor<F>>();
+    let editor = world.resource::<Editor<K>>();
     let discarded = editor.is_dirty().then(|| editor.name.clone());
     let opened =
         world.resource_scope(|world, mut library: Mut<Library>| {
-            let mut editor = world.resource_mut::<Editor<F>>();
-            load::<F>(&mut library, &mut editor, item)
+            let mut editor = world.resource_mut::<Editor<K>>();
+            load::<K>(&mut library, &mut editor, item)
         });
     let note = match &opened {
         Ok(split) => {
@@ -375,27 +377,33 @@ pub fn open_item<F: Flavor>(
         }
         Err(error) => format!("{error:#}"),
     };
-    let mut files = world.resource_mut::<Files<F>>();
+    let mut files = world.resource_mut::<Files<K>>();
     files.note = note;
     files.naming = None;
     if opened.is_ok() {
-        canvas::fit::<F>(world);
+        canvas::fit::<K>(world);
     }
     opened.map(|_| ())
 }
 
+/// The kind of the graphs the editor `K` edits.
+fn kind<K: EditorKey>(world: &World) -> Kind {
+    world.resource::<Editor<K>>().setup.kind
+}
+
 /// Makes a new empty graph in the library and opens it.
-pub fn create<F: Flavor>(world: &mut World) {
-    let wanted = format!("new_{}", F::KIND.word().to_lowercase());
+pub fn create<K: EditorKey>(world: &mut World) {
+    let kind = kind::<K>(world);
+    let wanted = format!("new_{}", kind_word(kind));
     let created =
-        world.resource_mut::<Library>().create(F::KIND, &wanted);
+        world.resource_mut::<Library>().create(kind, &wanted);
     match created {
         // Opening notes its own outcome.
         Ok(item) => {
-            let _ = open_item::<F>(world, &item);
+            let _ = open_item::<K>(world, &item);
         }
         Err(error) => {
-            world.resource_mut::<Files<F>>().note =
+            world.resource_mut::<Files<K>>().note =
                 format!("{error:#}");
         }
     }
@@ -404,58 +412,65 @@ pub fn create<F: Flavor>(world: &mut World) {
 /// Writes the open graph to its file in the library. An example has
 /// no file of its own to write, so it is saved under a name asked
 /// for, as by [`save_as`].
-pub fn save<F: Flavor>(world: &mut World) {
-    if world.resource::<Editor<F>>().is_own() {
-        let name = world.resource::<Editor<F>>().name.clone();
-        write_as::<F>(world, name, "Saved");
+pub fn save<K: EditorKey>(world: &mut World) {
+    if world.resource::<Editor<K>>().is_own() {
+        let name = world.resource::<Editor<K>>().name.clone();
+        write_as::<K>(world, name, "Saved");
     } else {
-        save_as::<F>(world);
+        save_as::<K>(world);
     }
 }
 
 /// Starts asking for the name to save a copy of the open graph
 /// under, ready with the nearest free name to the open one's.
-pub fn save_as<F: Flavor>(world: &mut World) {
-    let name = world.resource::<Editor<F>>().name.clone();
-    let free = world.resource::<Library>().free_name(F::KIND, &name);
-    world.resource_mut::<Files<F>>().naming = Some(free);
+pub fn save_as<K: EditorKey>(world: &mut World) {
+    let name = world.resource::<Editor<K>>().name.clone();
+    let free = world
+        .resource::<Library>()
+        .free_name(kind::<K>(world), &name);
+    world.resource_mut::<Files<K>>().naming = Some(free);
 }
 
 /// Saves the open graph as `wanted`, or the nearest free name, and
 /// goes on editing the copy.
-pub fn save_named<F: Flavor>(world: &mut World, wanted: &str) {
-    world.resource_mut::<Files<F>>().naming = None;
-    let name = world.resource::<Library>().free_name(F::KIND, wanted);
-    write_as::<F>(world, name, "Saved as");
+pub fn save_named<K: EditorKey>(world: &mut World, wanted: &str) {
+    world.resource_mut::<Files<K>>().naming = None;
+    let name = world
+        .resource::<Library>()
+        .free_name(kind::<K>(world), wanted);
+    write_as::<K>(world, name, "Saved as");
 }
 
 /// Writes the open graph to the library as `name`, and makes it the
 /// open asset.
-fn write_as<F: Flavor>(world: &mut World, name: String, word: &str) {
+fn write_as<K: EditorKey>(
+    world: &mut World,
+    name: String,
+    word: &str,
+) {
     let saved = {
-        let sheet = world.resource::<Editor<F>>().sheet.clone();
-        world.resource_mut::<Library>().save_sheet(
-            F::KIND,
-            &name,
-            &sheet,
-        )
+        let editor = world.resource::<Editor<K>>();
+        let (kind, sheet) = (editor.setup.kind, editor.sheet.clone());
+        world
+            .resource_mut::<Library>()
+            .save_sheet(kind, &name, &sheet)
     };
     let note = match saved {
         Ok(path) => {
             world
-                .resource_mut::<Editor<F>>()
+                .resource_mut::<Editor<K>>()
                 .saved(name.clone(), Source::File(path));
             format!("{word} {name}")
         }
         Err(error) => format!("{error:#}"),
     };
-    world.resource_mut::<Files<F>>().note = note;
+    world.resource_mut::<Files<K>>().note = note;
 }
 
 /// Gives the open graph's file the name `wanted`, or the nearest free
 /// name, keeping the changes not yet saved.
-pub fn rename<F: Flavor>(world: &mut World, wanted: &str) {
-    let item = world.resource::<Editor<F>>().item();
+pub fn rename<K: EditorKey>(world: &mut World, wanted: &str) {
+    let item = world.resource::<Editor<K>>().item();
     if wanted.trim() == item.name {
         return;
     }
@@ -463,7 +478,7 @@ pub fn rename<F: Flavor>(world: &mut World, wanted: &str) {
         let mut library = world.resource_mut::<Library>();
         library.rename(&item, wanted).and_then(|name| {
             let path = library
-                .path_of(F::KIND, &name)
+                .path_of(item.kind, &name)
                 .context("no library yet")?;
             Ok((name, path))
         })
@@ -471,46 +486,47 @@ pub fn rename<F: Flavor>(world: &mut World, wanted: &str) {
     let note = match renamed {
         Ok((name, path)) => {
             world
-                .resource_mut::<Editor<F>>()
+                .resource_mut::<Editor<K>>()
                 .renamed(name.clone(), Source::File(path));
             format!("Renamed to {name}")
         }
         Err(error) => format!("{error:#}"),
     };
-    world.resource_mut::<Files<F>>().note = note;
+    world.resource_mut::<Files<K>>().note = note;
 }
 
 /// Asks for a graph file to add to the library and open.
-pub fn import<F: Flavor>(world: &mut World) {
-    ask::<F>(world, Dialog::Import);
+pub fn import<K: EditorKey>(world: &mut World) {
+    ask::<K>(world, Dialog::Import);
 }
 
 /// Asks for a file to write the open graph to, with the files of the
 /// assets it adds beside it.
-pub fn export<F: Flavor>(world: &mut World) {
-    ask::<F>(world, Dialog::Export);
+pub fn export<K: EditorKey>(world: &mut World) {
+    ask::<K>(world, Dialog::Export);
 }
 
-fn ask<F: Flavor>(world: &mut World, asking: Dialog) {
-    let asker = match world.resource::<Files<F>>().asker {
+fn ask<K: EditorKey>(world: &mut World, asking: Dialog) {
+    let asker = match world.resource::<Files<K>>().asker {
         Some(asker) => asker,
         None => {
             let asker = world.spawn_empty().id();
-            world.resource_mut::<Files<F>>().asker = Some(asker);
+            world.resource_mut::<Files<K>>().asker = Some(asker);
             asker
         }
     };
-    world.resource_mut::<Files<F>>().asking = asking;
+    world.resource_mut::<Files<K>>().asking = asking;
+    let word = kind_word(kind::<K>(world));
     let (mode, title, name) = match asking {
         Dialog::Import => (
             FileMode::Open,
-            format!("Add a {} from a file", kind_word(F::KIND)),
+            format!("Add a {word} from a file"),
             String::new(),
         ),
         Dialog::Export => (
             FileMode::Save,
-            format!("Export the {}", kind_word(F::KIND)),
-            format!("{}.ron", world.resource::<Editor<F>>().name),
+            format!("Export the {word}"),
+            format!("{}.ron", world.resource::<Editor<K>>().name),
         ),
     };
     world.trigger(ChooseFile {
@@ -527,9 +543,9 @@ fn kind_word(kind: Kind) -> String {
 }
 
 /// Imports or exports with the file the chief chose.
-fn chosen<F: Flavor>(
+fn chosen<K: EditorKey>(
     chosen: On<FileChosen>,
-    files: Res<Files<F>>,
+    files: Res<Files<K>>,
     mut commands: Commands,
 ) {
     if files.asker != Some(chosen.asker) {
@@ -544,39 +560,40 @@ fn chosen<F: Flavor>(
     };
     commands.queue(move |world: &mut World| {
         let note = match asking {
-            Dialog::Import => import_from::<F>(world, &path),
-            Dialog::Export => export_to::<F>(world, &path),
+            Dialog::Import => import_from::<K>(world, &path),
+            Dialog::Export => export_to::<K>(world, &path),
         };
         match note {
             Ok(note) => {
-                world.resource_mut::<Files<F>>().note = note;
+                world.resource_mut::<Files<K>>().note = note;
             }
             Err(error) => {
-                world.resource_mut::<Files<F>>().note =
+                world.resource_mut::<Files<K>>().note =
                     format!("{error:#}");
             }
         }
     });
 }
 
-fn import_from<F: Flavor>(
+fn import_from<K: EditorKey>(
     world: &mut World,
     path: &Path,
 ) -> anyhow::Result<String> {
+    let kind = kind::<K>(world);
     let mut library = world.resource_mut::<Library>();
-    let name = library.import(F::KIND, path)?;
+    let name = library.import(kind, path)?;
     let item = library
-        .find(F::KIND, &name)
+        .find(kind, &name)
         .context("the added graph is not listed")?;
-    open_item::<F>(world, &item)?;
+    open_item::<K>(world, &item)?;
     Ok(format!("Added {name}"))
 }
 
-fn export_to<F: Flavor>(
+fn export_to<K: EditorKey>(
     world: &mut World,
     path: &Path,
 ) -> anyhow::Result<String> {
-    let editor = world.resource::<Editor<F>>();
+    let editor = world.resource::<Editor<K>>();
     let book = editor
         .book(editor.rules.assets.named_in([&editor.sheet.graph]));
     let library = world
@@ -604,9 +621,9 @@ enum Focusing {
 }
 
 /// Focuses the field Save as asks in once, a moment after it shows.
-fn focus_naming<F: Flavor>(
-    files: Res<Files<F>>,
-    fields: Query<&Children, With<NamingField<F>>>,
+fn focus_naming<K: EditorKey>(
+    files: Res<Files<K>>,
+    fields: Query<&Children, With<NamingField<K>>>,
     mut texts: Query<&mut EditableText>,
     mut focus: ResMut<InputFocus>,
     mut stage: Local<Focusing>,

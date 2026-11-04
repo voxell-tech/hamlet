@@ -77,8 +77,9 @@ use hamlet_ui::{AnyView, Cx, View};
 
 use super::Blueprint;
 use super::assets::{Meshes, Model, palette_colour};
-use super::blueprint::{roll_hamlet, roll_item};
+use super::blueprint::{Got, roll_hamlet, roll_item};
 use super::gizmo::{self, Dragging, GizmoMode};
+use crate::roll::moved;
 
 /// The asset name a transform is shown as when nothing is put there.
 pub(super) const MARKER: &str = "marker";
@@ -219,29 +220,31 @@ pub(super) fn view() -> impl View {
 fn error() -> AnyView {
     AnyView::new(|cx: &mut Cx| {
         let theme = cx.theme();
-        let shown = resource::<Editor<Blueprint>, _>(|editor| {
-            if editor.got.outcome.is_ok() && editor.errors.is_empty()
-            {
+        // The run writes the editor's errors as it writes what it
+        // got, so a change of the one is a change of both.
+        let note = |world: &World| {
+            let errors =
+                &world.resource::<Editor<Blueprint>>().errors;
+            match (&world.resource::<Got>().outcome, errors.first()) {
+                (Err(error), _) => format!("Not drawn: {error}"),
+                (Ok(_), Some(error)) => {
+                    format!("Not all drawn: {error}")
+                }
+                (Ok(_), None) => String::new(),
+            }
+        };
+        let shown = derived(move |world| {
+            if note(world).is_empty() {
                 Display::None
             } else {
                 Display::Flex
             }
-        });
+        })
+        .when(moved::<Got>());
         cx.build(
-            column((description(resource::<Editor<Blueprint>, _>(
-                |editor| match (
-                    &editor.got.outcome,
-                    editor.errors.first(),
-                ) {
-                    (Err(error), _) => {
-                        format!("Not drawn: {error}")
-                    }
-                    (Ok(_), Some(error)) => {
-                        format!("Not all drawn: {error}")
-                    }
-                    (Ok(_), None) => String::new(),
-                },
-            )),))
+            column(
+                (description(derived(note).when(moved::<Got>())),),
+            )
             .position(PositionType::Absolute)
             .inset(UiRect {
                 left: px(BAR_INSET),
@@ -263,14 +266,14 @@ fn error() -> AnyView {
 fn switches() -> AnyView {
     let dice = |word: &'static str,
                 tip: &'static str,
-                roll: fn(&mut Editor<Blueprint>)| {
+                roll: fn(&mut Got)| {
         button(row((glyph(Glyph::Dice, ICON), label(word))).gap(4.0))
             .padding(UiRect::axes(px(8.0), px(2.0)))
             .tooltip(move || note(tip))
             .rules(styles::button)
             .tagged(Variant::Default)
             .on_activate(move |world| {
-                roll(&mut world.resource_mut::<Editor<Blueprint>>());
+                roll(&mut world.resource_mut::<Got>());
             })
     };
     // A part of the backdrop, checked while it is shown.
@@ -718,6 +721,7 @@ fn glide(
 fn rebuild(
     mut commands: Commands,
     editor: Res<Editor<Blueprint>>,
+    got: Res<Got>,
     preview: Option<Res<Preview>>,
     colours: Option<Res<Colours>>,
     mut library: ResMut<Library>,
@@ -732,6 +736,7 @@ fn rebuild(
         return;
     };
     if !editor.is_changed()
+        && !got.is_changed()
         && !backdrop.is_changed()
         && drawn.is_some()
     {
@@ -739,11 +744,12 @@ fn rebuild(
     }
     // A graph that fails, as one with an input not yet wired, leaves
     // the last drawing as it was.
-    let Ok(objects) = &editor.got.outcome else {
+    let Ok(objects) = &got.outcome else {
         return;
     };
-    // The editor changes with a selection and a dragged card too,
-    // which draw the same.
+    // The editor changes with a selection and a dragged card too, and
+    // the graph runs again as the selection changes, which draw the
+    // same.
     if !backdrop.is_changed()
         && drawn.as_ref().is_some_and(|drawn| {
             drawn.objects == *objects

@@ -39,7 +39,7 @@ use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::canvas::Canvas;
-use super::flavor::Flavor;
+use super::setup::EditorKey;
 
 /// The least the preview is wide, in logical pixels.
 const PREVIEW: f32 = 120.0;
@@ -57,13 +57,13 @@ const WIDEST: f32 = 640.0;
 /// How fast a card closes on where it is going, per second.
 const GLIDE: f32 = 14.0;
 
-pub(super) fn plugin<F: Flavor>(app: &mut App) {
-    app.init_resource::<Layout<F>>()
-        .init_resource::<Shown<F>>()
-        .add_observer(grab::<F>)
-        .add_observer(drag::<F>)
-        .add_observer(drop::<F>)
-        .add_systems(Update, (glide::<F>, tabs::mark::<Shown<F>>));
+pub(super) fn plugin<K: EditorKey>(app: &mut App) {
+    app.init_resource::<Layout<K>>()
+        .init_resource::<Shown<K>>()
+        .add_observer(grab::<K>)
+        .add_observer(drag::<K>)
+        .add_observer(drop::<K>)
+        .add_systems(Update, (glide::<K>, tabs::mark::<Shown<K>>));
 }
 
 /// A corner of the canvas.
@@ -153,30 +153,30 @@ impl Card {
 
 /// Which tab of the card with tabs, the parameters, is shown.
 #[derive(Resource)]
-pub(super) struct Shown<F: Flavor>(usize, PhantomData<F>);
+pub(super) struct Shown<K: EditorKey>(usize, PhantomData<K>);
 
-impl<F: Flavor> Shown<F> {
+impl<K: EditorKey> Shown<K> {
     fn at(at: usize) -> Self {
         Self(at, PhantomData)
     }
 }
 
-impl<F: Flavor> Default for Shown<F> {
+impl<K: EditorKey> Default for Shown<K> {
     fn default() -> Self {
         Self::at(0)
     }
 }
 
-// By hand, as derived ones would ask the same of `F`.
-impl<F: Flavor> Clone for Shown<F> {
+// By hand, as derived ones would ask the same of `K`.
+impl<K: EditorKey> Clone for Shown<K> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<F: Flavor> Copy for Shown<F> {}
+impl<K: EditorKey> Copy for Shown<K> {}
 
-impl<F: Flavor> PartialEq for Shown<F> {
+impl<K: EditorKey> PartialEq for Shown<K> {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
@@ -184,7 +184,7 @@ impl<F: Flavor> PartialEq for Shown<F> {
 
 /// The Graph panel's layout.
 #[derive(Resource)]
-pub(super) struct Layout<F: Flavor> {
+pub(super) struct Layout<K: EditorKey> {
     /// The width of the preview beside the canvas, when it does not
     /// float.
     pub preview: f32,
@@ -192,10 +192,10 @@ pub(super) struct Layout<F: Flavor> {
     cards: [Card; 2],
     /// The canvas's size, as last laid out. Zero until it is.
     area: Vec2,
-    flavor: PhantomData<F>,
+    key: PhantomData<K>,
 }
 
-impl<F: Flavor> Default for Layout<F> {
+impl<K: EditorKey> Default for Layout<K> {
     fn default() -> Self {
         Self {
             preview: 360.0,
@@ -204,12 +204,12 @@ impl<F: Flavor> Default for Layout<F> {
                 Card::new(Corner::BottomRight, 280.0),
             ],
             area: Vec2::ZERO,
-            flavor: PhantomData,
+            key: PhantomData,
         }
     }
 }
 
-impl<F: Flavor> Layout<F> {
+impl<K: EditorKey> Layout<K> {
     /// The tallest a card is drawn: the canvas less a margin above
     /// and below.
     fn tallest(&self) -> Val {
@@ -260,33 +260,33 @@ fn inset_at(at: Vec2) -> UiRect {
 
 /// Marks the line between the canvas and the preview.
 #[derive(Component)]
-struct Divider<F: Flavor>(PhantomData<F>);
+struct Divider<K: EditorKey>(PhantomData<K>);
 
 /// Marks a card floating over the canvas.
 #[derive(Component)]
-struct Floating<F: Flavor>(Pane, PhantomData<F>);
+struct Floating<K: EditorKey>(Pane, PhantomData<K>);
 
 /// Marks the header a card is dragged by.
 #[derive(Component)]
-struct Handle<F: Flavor>(Pane, PhantomData<F>);
+struct Handle<K: EditorKey>(Pane, PhantomData<K>);
 
 /// Marks the left edge a card is sized by.
 #[derive(Component)]
-struct Grip<F: Flavor>(Pane, PhantomData<F>);
+struct Grip<K: EditorKey>(Pane, PhantomData<K>);
 
 /// The line the dock's panels are parted by, grabbed the same way,
 /// shown with the preview it parts from the canvas.
-pub(super) fn divider<F: Flavor>() -> impl View {
+pub(super) fn divider<K: EditorKey>() -> impl View {
     views::divider(Axis::Vertical)
-        .display(Layout::<F>::shows(Pane::Preview))
-        .tagged(Divider::<F>(PhantomData))
+        .display(Layout::<K>::shows(Pane::Preview))
+        .tagged(Divider::<K>(PhantomData))
 }
 
 /// The card `pane` floating over the canvas: a header of the chevron
 /// that folds it, and the body of the tab shown under it. With one
 /// tab the header names it beside `icon`; with more, it is the strip
 /// of the inspector's tabs, choosing [`Shown`].
-pub(super) fn floating<F: Flavor>(
+pub(super) fn floating<K: EditorKey>(
     pane: Pane,
     icon: Glyph,
     tabs: Vec<(Glyph, &'static str, AnyView)>,
@@ -294,12 +294,12 @@ pub(super) fn floating<F: Flavor>(
     with_cx(move |cx| {
         let theme = cx.theme();
         let gap = theme.space.gap;
-        let open = move |layout: &Layout<F>| layout.card(pane).open;
+        let open = move |layout: &Layout<K>| layout.card(pane).open;
         let title = tabs.first().map_or("", |(_, name, _)| name);
         // The chevron points down while open and left while folded.
         let fold = button(
             glyph(Glyph::Chevron, ICON)
-                .rotation(resource::<Layout<F>, _>(move |layout| {
+                .rotation(resource::<Layout<K>, _>(move |layout| {
                     if open(layout) { 180.0 } else { 270.0 }
                 }))
                 .transition(Motion::Interact),
@@ -309,7 +309,7 @@ pub(super) fn floating<F: Flavor>(
             note(format!("Fold or open the {}", title.to_lowercase()))
         })
         .on_activate(move |world| {
-            let mut layout = world.resource_mut::<Layout<F>>();
+            let mut layout = world.resource_mut::<Layout<K>>();
             let card = layout.card_mut(pane);
             card.open = !card.open;
         });
@@ -324,11 +324,11 @@ pub(super) fn floating<F: Flavor>(
                 .iter()
                 .enumerate()
                 .map(|(at, (which, name, _))| {
-                    (Shown::<F>::at(at), *which, *name)
+                    (Shown::<K>::at(at), *which, *name)
                 })
                 .collect::<Vec<_>>();
             tabs::strip(&strip, |world, shown| {
-                *world.resource_mut::<Shown<F>>() = shown;
+                *world.resource_mut::<Shown<K>>() = shown;
             })
             .boxed()
         };
@@ -340,7 +340,7 @@ pub(super) fn floating<F: Flavor>(
         ))
         .gap(gap / 2.0)
         .align(AlignItems::Center)
-        .tagged(Handle::<F>(pane, PhantomData))
+        .tagged(Handle::<K>(pane, PhantomData))
         .tagged(EntityCursor(SystemCursorIcon::Grab));
         let bodies = tabs
             .into_iter()
@@ -349,10 +349,10 @@ pub(super) fn floating<F: Flavor>(
                 if single {
                     return body;
                 }
-                let chosen = Shown::<F>::at(at);
+                let chosen = Shown::<K>::at(at);
                 column((body,))
                     .min_height(px(0.0))
-                    .display(resource::<Shown<F>, _>(move |shown| {
+                    .display(resource::<Shown<K>, _>(move |shown| {
                         if *shown == chosen {
                             Display::Flex
                         } else {
@@ -362,7 +362,7 @@ pub(super) fn floating<F: Flavor>(
                     .boxed()
             })
             .collect::<Vec<_>>();
-        let display = resource::<Layout<F>, _>(move |layout| {
+        let display = resource::<Layout<K>, _>(move |layout| {
             if open(layout) {
                 Display::Flex
             } else {
@@ -378,18 +378,18 @@ pub(super) fn floating<F: Flavor>(
             .position(PositionType::Absolute)
             .inset(UiRect::new(px(-3.0), Val::Auto, px(0.0), px(0.0)))
             .width(px(6.0))
-            .tagged(Grip::<F>(pane, PhantomData))
+            .tagged(Grip::<K>(pane, PhantomData))
             .tagged(EntityCursor(SystemCursorIcon::EwResize));
         column((header, shown, grip))
             .position(PositionType::Absolute)
-            .inset(resource::<Layout<F>, _>(move |layout| {
+            .inset(resource::<Layout<K>, _>(move |layout| {
                 inset_at(layout.card(pane).shown)
             }))
-            .width(resource::<Layout<F>, _>(move |layout| {
+            .width(resource::<Layout<K>, _>(move |layout| {
                 px(layout.card(pane).width)
             }))
-            .display(Layout::<F>::shows(pane))
-            .max_height(resource::<Layout<F>, _>(Layout::tallest))
+            .display(Layout::<K>::shows(pane))
+            .max_height(resource::<Layout<K>, _>(Layout::tallest))
             .overflow(Overflow::clip())
             .padding(UiRect::all(px(gap)))
             .gap(gap / 2.0)
@@ -397,30 +397,30 @@ pub(super) fn floating<F: Flavor>(
             .border(theme.space.border)
             .border_color(theme.palette.border)
             .radius(theme.space.round)
-            .tagged(Floating::<F>(pane, PhantomData))
+            .tagged(Floating::<K>(pane, PhantomData))
     })
     .boxed()
 }
 
 /// The hint of where a dragged card will settle, drawn as the dock
 /// hints where a dragged tab will go.
-pub(super) fn outline<F: Flavor>() -> AnyView {
+pub(super) fn outline<K: EditorKey>() -> AnyView {
     with_cx(|cx| {
         let theme = cx.theme();
         frame()
             .position(PositionType::Absolute)
-            .inset(resource::<Layout<F>, _>(|layout| {
+            .inset(resource::<Layout<K>, _>(|layout| {
                 inset_at(
                     layout.ghost().map_or(Vec2::ZERO, |(at, _)| at),
                 )
             }))
-            .width(resource::<Layout<F>, _>(|layout| {
+            .width(resource::<Layout<K>, _>(|layout| {
                 px(layout.ghost().map_or(0.0, |(_, size)| size.x))
             }))
-            .height(resource::<Layout<F>, _>(|layout| {
+            .height(resource::<Layout<K>, _>(|layout| {
                 px(layout.ghost().map_or(0.0, |(_, size)| size.y))
             }))
-            .display(resource::<Layout<F>, _>(|layout| {
+            .display(resource::<Layout<K>, _>(|layout| {
                 if layout.ghost().is_some() {
                     Display::Flex
                 } else {
@@ -439,11 +439,11 @@ fn logical(node: &ComputedNode) -> Vec2 {
 
 /// Moves each card toward where it belongs: under the pointer while
 /// dragged, else its corner, easing there from where it is.
-fn glide<F: Flavor>(
+fn glide<K: EditorKey>(
     time: Res<Time>,
-    floating: Query<(&Floating<F>, &ComputedNode)>,
-    canvas: Query<&ComputedNode, With<Canvas<F>>>,
-    mut layout: ResMut<Layout<F>>,
+    floating: Query<(&Floating<K>, &ComputedNode)>,
+    canvas: Query<&ComputedNode, With<Canvas<K>>>,
+    mut layout: ResMut<Layout<K>>,
 ) {
     let Some(area) = canvas.iter().next() else {
         return;
@@ -486,12 +486,12 @@ fn glide<F: Flavor>(
     }
 }
 
-fn grab<F: Flavor>(
+fn grab<K: EditorKey>(
     start: On<PointerDragStart>,
-    dividers: Query<(), With<Divider<F>>>,
-    handles: Query<&Handle<F>>,
-    grips: Query<(), With<Grip<F>>>,
-    mut layout: ResMut<Layout<F>>,
+    dividers: Query<(), With<Divider<K>>>,
+    handles: Query<&Handle<K>>,
+    grips: Query<(), With<Grip<K>>>,
+    mut layout: ResMut<Layout<K>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
     if dividers.contains(start.entity) || grips.contains(start.entity)
@@ -504,13 +504,13 @@ fn grab<F: Flavor>(
     }
 }
 
-fn drag<F: Flavor>(
+fn drag<K: EditorKey>(
     drag: On<PointerDrag>,
-    dividers: Query<(), With<Divider<F>>>,
-    handles: Query<&Handle<F>>,
-    grips: Query<&Grip<F>>,
-    canvas: Query<&ComputedNode, With<Canvas<F>>>,
-    mut layout: ResMut<Layout<F>>,
+    dividers: Query<(), With<Divider<K>>>,
+    handles: Query<&Handle<K>>,
+    grips: Query<&Grip<K>>,
+    canvas: Query<&ComputedNode, With<Canvas<K>>>,
+    mut layout: ResMut<Layout<K>>,
 ) {
     if dividers.contains(drag.entity) {
         let canvas = canvas
@@ -536,12 +536,12 @@ fn drag<F: Flavor>(
 /// middle, and puts the cursor back. A card held is settled whatever
 /// the drag ends on, so a drag started on something in its header
 /// never leaves it held.
-fn drop<F: Flavor>(
+fn drop<K: EditorKey>(
     end: On<PointerDragEnd>,
-    dividers: Query<(), With<Divider<F>>>,
-    grips: Query<(), With<Grip<F>>>,
-    canvas: Query<&ComputedNode, With<Canvas<F>>>,
-    mut layout: ResMut<Layout<F>>,
+    dividers: Query<(), With<Divider<K>>>,
+    grips: Query<(), With<Grip<K>>>,
+    canvas: Query<&ComputedNode, With<Canvas<K>>>,
+    mut layout: ResMut<Layout<K>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
     let area = canvas.iter().next().map(logical);

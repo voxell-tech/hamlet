@@ -23,7 +23,7 @@ use hamlet_graph_editor::Editor;
 use hamlet_graph_editor::canvas::Room;
 use hamlet_material::{SLOTS, swatch_shader};
 
-use super::Material;
+use super::{Got, Material};
 
 /// A swatch's width and height, in sheet pixels.
 pub(super) const SIZE: f32 = 64.0;
@@ -106,17 +106,17 @@ fn fill(
 
 /// Writes the swatches' shader again when the graph's code changes.
 fn shade(
-    editor: Res<Editor<Material>>,
+    got: Res<Got>,
     mut shaders: ResMut<Assets<Shader>>,
     mut shaded: Local<Option<u64>>,
 ) {
-    if *shaded == Some(editor.got.version) {
+    if *shaded == Some(got.version) {
         return;
     }
-    let Some(compiled) = editor.got.compiled() else {
+    let Some(compiled) = got.compiled() else {
         return;
     };
-    *shaded = Some(editor.got.version);
+    *shaded = Some(got.version);
     let _ = shaders.insert(
         SHADER.id(),
         Shader::from_wesl(
@@ -130,15 +130,17 @@ fn shade(
 /// frame while the graph reads the time.
 fn feed(
     editor: Res<Editor<Material>>,
+    got: Res<Got>,
     time: Res<Time>,
     mut materials: ResMut<Assets<SwatchMaterial>>,
     added: Query<(), Added<MaterialNode<SwatchMaterial>>>,
 ) {
-    let Some(compiled) = editor.got.compiled() else {
+    let Some(compiled) = got.compiled() else {
         return;
     };
     if !compiled.reads_time()
         && !editor.is_changed()
+        && !got.is_changed()
         && added.is_empty()
     {
         return;

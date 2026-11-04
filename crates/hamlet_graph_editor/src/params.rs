@@ -1,8 +1,8 @@
 //! The open graph's own inputs, as its parameters: each one's name
 //! and type, what it is when the graph above leaves it unset, and
 //! whether it is picked at random then, between which numbers and how
-//! often. They float over the canvas, with the flavor's own tabs
-//! beside them.
+//! often. They float over the canvas, with any tabs the editor's
+//! layout gives beside them.
 
 use bevy::color::Color;
 use bevy::ecs::world::World;
@@ -24,7 +24,7 @@ use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Editor;
-use super::flavor::Flavor;
+use super::setup::EditorKey;
 
 /// The types an input can take, as offered.
 const TYPES: [(&str, ValueType); 5] = [
@@ -39,7 +39,7 @@ const TYPES: [(&str, ValueType); 5] = [
 const SWATCH: f32 = 16.0;
 
 /// The types of vector and colour, offered when some kind of the
-/// flavor takes one.
+/// editor's registry takes one.
 const MORE: [(&str, ValueType); 3] = [
     ("Vector 2", ValueType::Vector2),
     ("Vector 3", ValueType::Vector3),
@@ -47,8 +47,8 @@ const MORE: [(&str, ValueType); 3] = [
 ];
 
 /// The types an input of the open graph can take, as offered.
-fn types<F: Flavor>(
-    editor: &Editor<F>,
+fn types<K: EditorKey>(
+    editor: &Editor<K>,
 ) -> Vec<(&'static str, ValueType)> {
     let used = |value_type| {
         editor.registry.kinds().any(|(_, kind)| {
@@ -73,23 +73,23 @@ const PER: [(&str, Scope); 3] = [
 
 /// The open graph's parameters, the inputs the graph above sets, each
 /// with how it varies. Built again when the graph's shape changes.
-pub(super) fn view<F: Flavor>() -> impl View {
-    tab::<F>(panel::<F>)
+pub(super) fn view<K: EditorKey>() -> impl View {
+    tab::<K>(panel::<K>)
 }
 
 /// A tab of the parameters card, built by `body` again when the
 /// graph's shape changes.
-pub(super) fn tab<F: Flavor>(body: fn() -> AnyView) -> impl View {
+pub(super) fn tab<K: EditorKey>(body: fn() -> AnyView) -> impl View {
     keyed(
-        resource::<Editor<F>, _>(|editor| editor.shape),
+        resource::<Editor<K>, _>(|editor| editor.shape),
         move |_| body(),
     )
     .within(column(()).gap(0.0))
 }
 
-fn panel<F: Flavor>() -> AnyView {
+fn panel<K: EditorKey>() -> AnyView {
     with_cx(|cx| {
-        let editor = cx.world.resource::<Editor<F>>();
+        let editor = cx.world.resource::<Editor<K>>();
         let gap = cx.theme().space.gap;
         let mut parts = vec![
             description(
@@ -100,16 +100,16 @@ fn panel<F: Flavor>() -> AnyView {
             .boxed(),
         ];
         for found in &editor.sheet.graph.inputs {
-            parts.push(input::<F>(found.name.clone()));
+            parts.push(input::<K>(found.name.clone()));
         }
-        parts.push(add::<F>().boxed());
+        parts.push(add::<K>().boxed());
         column(parts).gap(gap)
     })
     .boxed()
 }
 
-fn find<F: Flavor>(
-    editor: &Editor<F>,
+fn find<K: EditorKey>(
+    editor: &Editor<K>,
     name: &str,
 ) -> Option<GraphInput> {
     editor
@@ -122,12 +122,12 @@ fn find<F: Flavor>(
 }
 
 /// Changes the input `name` as `change` says.
-fn change<F: Flavor>(
+fn change<K: EditorKey>(
     world: &mut World,
     name: &str,
     change: impl FnOnce(&mut GraphInput),
 ) {
-    let mut editor = world.resource_mut::<Editor<F>>();
+    let mut editor = world.resource_mut::<Editor<K>>();
     let Some(mut input) = find(&editor, name) else {
         return;
     };
@@ -158,9 +158,9 @@ fn blank(value_type: ValueType) -> Constant {
 }
 
 /// The button that gives the graph a new number input.
-pub(super) fn add<F: Flavor>() -> impl View {
+pub(super) fn add<K: EditorKey>() -> impl View {
     command("Add input", |world| {
-        let mut editor = world.resource_mut::<Editor<F>>();
+        let mut editor = world.resource_mut::<Editor<K>>();
         let taken = editor
             .sheet
             .graph
@@ -182,29 +182,29 @@ pub(super) fn add<F: Flavor>() -> impl View {
 }
 
 /// One input's controls.
-pub(super) fn input<F: Flavor>(name: String) -> AnyView {
+pub(super) fn input<K: EditorKey>(name: String) -> AnyView {
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
         let Some(found) =
-            find(cx.world.resource::<Editor<F>>(), &name)
+            find(cx.world.resource::<Editor<K>>(), &name)
         else {
             return column(Vec::<AnyView>::new());
         };
         let mut parts =
-            vec![head::<F>(name.clone(), found.value_type)];
+            vec![head::<K>(name.clone(), found.value_type)];
         parts.push(labelled(
             "default",
-            default::<F>(name.clone(), found.value_type),
+            default::<K>(name.clone(), found.value_type),
         ));
         if matches!(
             found.value_type,
             ValueType::Number | ValueType::Integer
         ) {
-            parts.push(labelled("varies", varies::<F>(name.clone())));
+            parts.push(labelled("varies", varies::<K>(name.clone())));
             if found.vary.is_some() {
                 parts.push(labelled(
                     "between",
-                    between::<F>(name.clone()),
+                    between::<K>(name.clone()),
                 ));
             }
         }
@@ -219,13 +219,16 @@ pub(super) fn input<F: Flavor>(name: String) -> AnyView {
 }
 
 /// The input's name, its type, and a way to take it away.
-fn head<F: Flavor>(name: String, value_type: ValueType) -> AnyView {
+fn head<K: EditorKey>(
+    name: String,
+    value_type: ValueType,
+) -> AnyView {
     let rename = name.clone();
     let retype = name.clone();
     let remove = name.clone();
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
-        let offered = types(cx.world.resource::<Editor<F>>());
+        let offered = types(cx.world.resource::<Editor<K>>());
         let at = offered
             .iter()
             .position(|(_, kind)| *kind == value_type)
@@ -239,7 +242,7 @@ fn head<F: Flavor>(name: String, value_type: ValueType) -> AnyView {
             text_field(name.clone(), move |world, text| {
                 let text = text.trim().to_owned();
                 if !text.is_empty() && text != rename {
-                    change::<F>(world, &rename, |input| {
+                    change::<K>(world, &rename, |input| {
                         input.name = text;
                     });
                 }
@@ -255,7 +258,7 @@ fn head<F: Flavor>(name: String, value_type: ValueType) -> AnyView {
                     let Some(&(_, kind)) = offered.get(chosen) else {
                         return;
                     };
-                    change::<F>(world, &retype, |input| {
+                    change::<K>(world, &retype, |input| {
                         if input.value_type != kind {
                             input.value_type = kind;
                             input.default = Some(blank(kind));
@@ -271,7 +274,7 @@ fn head<F: Flavor>(name: String, value_type: ValueType) -> AnyView {
                 .tooltip(|| note("Take this input away"))
                 .on_activate(move |world| {
                     world
-                        .resource_mut::<Editor<F>>()
+                        .resource_mut::<Editor<K>>()
                         .apply(Edit::RemoveInput(remove.clone()));
                 }),
         ))
@@ -283,19 +286,19 @@ fn head<F: Flavor>(name: String, value_type: ValueType) -> AnyView {
 
 /// A number field bound to what `read` finds in the input `name`,
 /// changing it as `write` says.
-fn number<F: Flavor>(
+fn number<K: EditorKey>(
     name: String,
     read: impl Fn(&GraphInput) -> f32 + Send + Sync + 'static,
     write: impl Fn(&mut GraphInput, f32) + Send + Sync + 'static,
 ) -> AnyView {
     let reading = name.clone();
     number_field(
-        resource::<Editor<F>, _>(move |editor| {
+        resource::<Editor<K>, _>(move |editor| {
             find(editor, &reading)
                 .map_or(0.0, |input| f64::from(read(&input)))
         }),
         move |world: &mut World, value: f64| {
-            change::<F>(world, &name, |input| {
+            change::<K>(world, &name, |input| {
                 write(input, value as f32);
             });
         },
@@ -310,14 +313,14 @@ fn number<F: Flavor>(
 
 /// A field for each of the first `count` axes of the input's default,
 /// a point, a vector or a colour, and for a colour a swatch of it.
-fn axes<F: Flavor>(
+fn axes<K: EditorKey>(
     name: String,
     value_type: ValueType,
     count: usize,
 ) -> AnyView {
     let colour = value_type == ValueType::Color;
     let axis = |index: usize| {
-        number::<F>(
+        number::<K>(
             name.clone(),
             move |input| match input.default {
                 Some(Constant::Point(point)) if !colour => {
@@ -347,14 +350,14 @@ fn axes<F: Flavor>(
     };
     let mut fields = (0..count).map(axis).collect::<Vec<_>>();
     if colour {
-        fields.push(swatch_of::<F>(name.clone()));
+        fields.push(swatch_of::<K>(name.clone()));
     }
     row(fields).gap(4.0).align(AlignItems::Center).boxed()
 }
 
 /// A small square of the colour the input's default is.
-fn swatch_of<F: Flavor>(name: String) -> AnyView {
-    let shown = resource::<Editor<F>, _>(move |editor| {
+fn swatch_of<K: EditorKey>(name: String) -> AnyView {
+    let shown = resource::<Editor<K>, _>(move |editor| {
         match find(editor, &name).and_then(|input| input.default) {
             Some(Constant::Color(c)) => {
                 Color::srgba(c.x, c.y, c.z, c.w)
@@ -367,7 +370,7 @@ fn swatch_of<F: Flavor>(name: String) -> AnyView {
 
 /// The control for what the input is when the graph above leaves it
 /// unset.
-fn default<F: Flavor>(
+fn default<K: EditorKey>(
     name: String,
     value_type: ValueType,
 ) -> AnyView {
@@ -375,7 +378,7 @@ fn default<F: Flavor>(
         ValueType::Bool => {
             let reading = name.clone();
             switch(
-                resource::<Editor<F>, _>(move |editor| {
+                resource::<Editor<K>, _>(move |editor| {
                     matches!(
                         find(editor, &reading)
                             .and_then(|input| input.default),
@@ -383,7 +386,7 @@ fn default<F: Flavor>(
                     )
                 }),
                 move |world, on| {
-                    change::<F>(world, &name, |input| {
+                    change::<K>(world, &name, |input| {
                         input.default = Some(Constant::Bool(on));
                     });
                 },
@@ -391,14 +394,14 @@ fn default<F: Flavor>(
             .boxed()
         }
         ValueType::Point | ValueType::Vector3 => {
-            axes::<F>(name, value_type, 3)
+            axes::<K>(name, value_type, 3)
         }
-        ValueType::Vector2 => axes::<F>(name, value_type, 2),
-        ValueType::Color => axes::<F>(name, value_type, 4),
+        ValueType::Vector2 => axes::<K>(name, value_type, 2),
+        ValueType::Color => axes::<K>(name, value_type, 4),
         ValueType::Choice => {
             let reading = name.clone();
             text_field(
-                resource::<Editor<F>, _>(move |editor| {
+                resource::<Editor<K>, _>(move |editor| {
                     match find(editor, &reading)
                         .and_then(|input| input.default)
                     {
@@ -407,7 +410,7 @@ fn default<F: Flavor>(
                     }
                 }),
                 move |world, text| {
-                    change::<F>(world, &name, |input| {
+                    change::<K>(world, &name, |input| {
                         input.default = Some(Constant::Choice(text));
                     });
                 },
@@ -416,7 +419,7 @@ fn default<F: Flavor>(
             .rules(text_input)
             .boxed()
         }
-        ValueType::Integer => number::<F>(
+        ValueType::Integer => number::<K>(
             name,
             |input| match input.default {
                 Some(Constant::Integer(n)) => n as f32,
@@ -427,7 +430,7 @@ fn default<F: Flavor>(
                     Some(Constant::Integer(value.round() as i32));
             },
         ),
-        _ => number::<F>(
+        _ => number::<K>(
             name,
             |input| match input.default {
                 Some(Constant::Number(n)) => n,
@@ -442,11 +445,11 @@ fn default<F: Flavor>(
 
 /// The control for whether the input is picked at random when unset,
 /// and how often.
-fn varies<F: Flavor>(name: String) -> AnyView {
+fn varies<K: EditorKey>(name: String) -> AnyView {
     let reading = name.clone();
     dropdown(
         std::iter::once("Never").chain(PER.map(|(word, _)| word)),
-        resource::<Editor<F>, _>(move |editor| {
+        resource::<Editor<K>, _>(move |editor| {
             match find(editor, &reading).and_then(|input| input.vary)
             {
                 None => 0,
@@ -467,7 +470,7 @@ fn varies<F: Flavor>(name: String) -> AnyView {
                     None => return,
                 },
             };
-            change::<F>(world, &name, |input| {
+            change::<K>(world, &name, |input| {
                 input.vary = match per {
                     None => None,
                     Some(per) => {
@@ -498,9 +501,9 @@ enum Bound {
 }
 
 /// The two numbers a varying input is picked between.
-fn between<F: Flavor>(name: String) -> AnyView {
+fn between<K: EditorKey>(name: String) -> AnyView {
     let end = |bound: Bound| {
-        number::<F>(
+        number::<K>(
             name.clone(),
             move |input| match (input.vary, bound) {
                 (Some(vary), Bound::High) => vary.high,
