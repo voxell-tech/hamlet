@@ -11,6 +11,8 @@ mod roads;
 mod tests;
 
 use anyhow::{Context, Result, ensure};
+use diesel::prelude::*;
+use diesel::upsert::excluded;
 pub use document::{
     Agent, AgentRef, Amount, Archived, BroughtFile, Decision,
     DecisionKind, End, Hamlet, InheritedRoad, Limits, Merge,
@@ -20,9 +22,9 @@ pub use document::{
 pub use names::{NameFallback, check_name, tidy_name};
 pub use refusals::{Action, Audience, Reason, Refusal};
 pub use roads::level;
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
+use crate::schema::{record_hamlet, record_name, record_road_charge};
 use crate::{Operation, Outcome, Store};
 
 /// The authenticated author of a record change.
@@ -304,79 +306,86 @@ pub enum RecordResult {
 
 impl Store {
     /// A hamlet's complete record, detached from the database.
-    pub fn record(&self, hamlet: &str) -> Result<Option<Hamlet>> {
+    pub fn record(&mut self, hamlet: &str) -> Result<Option<Hamlet>> {
         read(self.connection(), hamlet)
     }
 
     /// The current location of a living realm-wide name.
     pub fn agent_named(
-        &self,
+        &mut self,
         name: &str,
     ) -> Result<Option<AgentRef>> {
-        Ok(self
-            .connection()
-            .query_row(
-                "SELECT hamlet, number FROM record_name WHERE name \
-                 = ?1",
-                [name],
-                |row| {
-                    Ok(AgentRef {
-                        hamlet: row.get(0)?,
-                        number: unsigned(row, 1)?,
-                    })
-                },
-            )
-            .optional()?)
+        record_name::table
+            .find(name)
+            .select((record_name::hamlet, record_name::number))
+            .first::<(String, i64)>(self.connection())
+            .optional()?
+            .map(|(hamlet, number)| {
+                Ok(AgentRef {
+                    hamlet,
+                    number: u64::try_from(number)?,
+                })
+            })
+            .transpose()
     }
 
     /// All committed road charges for this hamlet, in charge order.
     pub fn road_charges(
-        &self,
+        &mut self,
         hamlet: &str,
     ) -> Result<Vec<RoadCharge>> {
-        let mut query = self.connection().prepare(
-            "SELECT agent, task, at, tokens, micros, ms FROM \
-             record_road_charge WHERE hamlet = ?1 ORDER BY id",
-        )?;
-        Ok(query
-            .query_map([hamlet], |row| {
+        record_road_charge::table
+            .filter(record_road_charge::hamlet.eq(hamlet))
+            .order(record_road_charge::id)
+            .select((
+                record_road_charge::agent,
+                record_road_charge::task,
+                record_road_charge::at,
+                record_road_charge::tokens,
+                record_road_charge::micros,
+                record_road_charge::ms,
+            ))
+            .load::<(i64, Option<String>, i64, i64, i64, i64)>(
+                self.connection(),
+            )?
+            .into_iter()
+            .map(|(agent, task, at, tokens, micros, ms)| {
                 Ok(RoadCharge {
-                    agent: unsigned(row, 0)?,
-                    task: row.get(1)?,
-                    at: row.get(2)?,
+                    agent: u64::try_from(agent)?,
+                    task,
+                    at,
                     amount: Amount {
-                        tokens: unsigned(row, 3)?,
-                        micros: unsigned(row, 4)?,
-                        ms: unsigned(row, 5)?,
+                        tokens: u64::try_from(tokens)?,
+                        micros: u64::try_from(micros)?,
+                        ms: u64::try_from(ms)?,
                     },
                 })
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?)
+            })
+            .collect()
     }
 }
 
 /// The record of `hamlet` as the transaction `db` holds it.
 pub(crate) fn read(
-    db: &Connection,
+    db: &mut SqliteConnection,
     hamlet: &str,
 ) -> Result<Option<Hamlet>> {
-    db.query_row(
-        "SELECT document FROM record_hamlet WHERE id = ?1",
-        [hamlet],
-        |row| row.get::<_, String>(0),
-    )
-    .optional()?
-    .map(|value| {
-        serde_json::from_str(&value)
-            .context("reading a hamlet record")
-    })
-    .transpose()
+    record_hamlet::table
+        .find(hamlet)
+        .select(record_hamlet::document)
+        .first::<String>(db)
+        .optional()?
+        .map(|value| {
+            serde_json::from_str(&value)
+                .context("reading a hamlet record")
+        })
+        .transpose()
 }
 
 /// Sets the guards on the decisions of `hamlet`, which their owners
 /// keep, in the transaction `db`.
 pub(crate) fn guard(
-    db: &Connection,
+    db: &mut SqliteConnection,
     hamlet: &str,
     open_votes: Vec<OpenVote>,
     protected: Vec<Protection>,
@@ -403,7 +412,7 @@ pub(crate) fn guard(
 /// Keeps the decision of chief `chief` giving agent `to` of `hamlet`
 /// the skill `skill`, which was already delivered.
 pub(crate) fn give_skill(
-    db: &Connection,
+    db: &mut SqliteConnection,
     chief: &str,
     hamlet: &str,
     to: u64,
@@ -430,20 +439,20 @@ pub(crate) fn give_skill(
 /// Takes the living names of `hamlet` out of the realm's index, as
 /// the hamlet closes.
 pub(crate) fn release_names(
-    db: &Connection,
+    db: &mut SqliteConnection,
     hamlet: &str,
 ) -> Result<()> {
-    db.execute(
-        "DELETE FROM record_name WHERE hamlet = ?1",
-        [hamlet],
-    )?;
+    diesel::delete(
+        record_name::table.filter(record_name::hamlet.eq(hamlet)),
+    )
+    .execute(db)?;
     Ok(())
 }
 
 /// Puts the living names of `hamlet` back in the realm's index, as
 /// the hamlet lives again.
 pub(crate) fn claim_names(
-    db: &Connection,
+    db: &mut SqliteConnection,
     hamlet: &str,
 ) -> Result<()> {
     match read(db, hamlet)? {
@@ -453,35 +462,31 @@ pub(crate) fn claim_names(
 }
 
 /// Keeps `record` and its living names in the transaction `db`.
-fn save(db: &Connection, record: &Hamlet) -> Result<()> {
-    db.execute(
-        "INSERT INTO record_hamlet(id, document) VALUES (?1, ?2) ON \
-         CONFLICT(id) DO UPDATE SET document = excluded.document",
-        params![record.id, serde_json::to_string(record)?],
-    )?;
+fn save(db: &mut SqliteConnection, record: &Hamlet) -> Result<()> {
+    diesel::insert_into(record_hamlet::table)
+        .values((
+            record_hamlet::id.eq(&record.id),
+            record_hamlet::document
+                .eq(serde_json::to_string(record)?),
+        ))
+        .on_conflict(record_hamlet::id)
+        .do_update()
+        .set(
+            record_hamlet::document
+                .eq(excluded(record_hamlet::document)),
+        )
+        .execute(db)?;
     release_names(db, &record.id)?;
     for agent in &record.agents {
-        db.execute(
-            "INSERT INTO record_name(name, hamlet, number) VALUES \
-             (?1, ?2, ?3)",
-            params![
-                agent.name,
-                record.id,
-                i64::try_from(agent.number)?
-            ],
-        )?;
+        diesel::insert_into(record_name::table)
+            .values((
+                record_name::name.eq(&agent.name),
+                record_name::hamlet.eq(&record.id),
+                record_name::number.eq(i64::try_from(agent.number)?),
+            ))
+            .execute(db)?;
     }
     Ok(())
-}
-
-fn unsigned(
-    row: &rusqlite::Row<'_>,
-    index: usize,
-) -> rusqlite::Result<u64> {
-    let value = row.get::<_, i64>(index)?;
-    u64::try_from(value).map_err(|_| {
-        rusqlite::Error::IntegralValueOutOfRange(index, value)
-    })
 }
 
 impl Hamlet {
@@ -555,7 +560,10 @@ impl Operation for RecordOperation {
     type Done = RecordResult;
     type Refusal = Refusal;
 
-    fn authorize(&self, db: &Connection) -> Result<Option<Refusal>> {
+    fn authorize(
+        &self,
+        db: &mut SqliteConnection,
+    ) -> Result<Option<Refusal>> {
         let Some(record) = read(db, &self.hamlet)? else {
             return Ok(Some(self.refuse(Reason::HamletMissing)));
         };
@@ -685,7 +693,7 @@ impl Operation for RecordOperation {
 
     fn apply(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
     ) -> Result<Outcome<RecordResult, Refusal>> {
         let mut record = read(db, &self.hamlet)?
             .context("authorized hamlet missing")?;
@@ -847,7 +855,10 @@ impl Operation for FoundRecord {
     type Done = AgentRef;
     type Refusal = Refusal;
 
-    fn authorize(&self, db: &Connection) -> Result<Option<Refusal>> {
+    fn authorize(
+        &self,
+        db: &mut SqliteConnection,
+    ) -> Result<Option<Refusal>> {
         // The first request is made by home setup after
         // authenticating its chief.
         Ok(read(db, "home")?
@@ -863,7 +874,7 @@ impl Operation for FoundRecord {
 
     fn apply(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
     ) -> Result<Outcome<AgentRef, Refusal>> {
         let refuse = |reason| {
             Ok(Outcome::Refused(Refusal::new(

@@ -33,6 +33,8 @@ mod record;
 mod requests;
 mod runtime;
 mod sandbox;
+#[rustfmt::skip]
+mod schema;
 mod scrub;
 pub mod serve;
 mod service;

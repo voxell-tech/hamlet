@@ -33,6 +33,7 @@ fn refusal(home: &Scratch, env: &[(&str, &str)]) -> String {
 
 #[test]
 fn a_home_record_without_a_chief_is_refused() {
+    use diesel::RunQueryDsl;
     use hamlet_server::{FoundRecord, OperationId, RuntimeInstance};
 
     let dir = Scratch::new("server-chiefless");
@@ -49,14 +50,12 @@ fn a_home_record_without_a_chief_is_refused() {
         at: 0,
     };
     home.store().run(&id, &found).unwrap();
-    home.store()
-        .connection()
-        .execute(
-            "UPDATE record_hamlet SET document = json_set(document, \
-             '$.chiefs', json('[]')) WHERE id = 'home'",
-            [],
-        )
-        .unwrap();
+    diesel::sql_query(
+        "UPDATE record_hamlet SET document = json_set(document, \
+         '$.chiefs', json('[]')) WHERE id = 'home'",
+    )
+    .execute(home.store().connection())
+    .unwrap();
     home.close().unwrap();
     let words = refusal(&dir, &[]);
     assert!(

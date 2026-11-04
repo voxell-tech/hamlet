@@ -2,10 +2,12 @@
 //! decisions.
 
 use anyhow::{Context, Result};
+use diesel::dsl::sql;
+use diesel::prelude::*;
+use diesel::sql_types::{BigInt, Bool, Text};
 use hamlet_protocol::client::{
     self as protocol, VoteView, Voter, VoterCast,
 };
-use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -16,6 +18,9 @@ use crate::limits::Limits;
 use crate::protocol::Refusal;
 use crate::record::{
     self, Actor, AgentRef, Change, NameFallback, RecordOperation,
+};
+use crate::schema::{
+    harness_input, society_binding, society_call, society_document,
 };
 use crate::service::Service;
 
@@ -85,7 +90,10 @@ impl Vote {
 }
 
 /// Every vote of `hamlet`, in the order called.
-fn read(db: &Connection, hamlet: &str) -> Result<Vec<Vote>> {
+fn read(
+    db: &mut SqliteConnection,
+    hamlet: &str,
+) -> Result<Vec<Vote>> {
     let mut votes = super::document::<Vec<Vote>>(db, DONE, hamlet)?;
     votes.extend(super::document::<Vec<Vote>>(db, DUE, hamlet)?);
     votes.sort_by_key(|v| v.id);
@@ -94,15 +102,16 @@ fn read(db: &Connection, hamlet: &str) -> Result<Vec<Vote>> {
 
 /// Keeps `votes` of `hamlet`, which hold all its due votes, and the
 /// open ones as its record's guards.
-fn save(db: &Connection, hamlet: &str, votes: &[Vote]) -> Result<()> {
+fn save(
+    db: &mut SqliteConnection,
+    hamlet: &str,
+    votes: &[Vote],
+) -> Result<()> {
     let (due, done) =
         votes.iter().cloned().partition::<Vec<_>, _>(Vote::is_due);
     if due.is_empty() {
-        db.execute(
-            "DELETE FROM society_document WHERE kind = ?1 AND key = \
-             ?2",
-            [DUE, hamlet],
-        )?;
+        diesel::delete(society_document::table.find((DUE, hamlet)))
+            .execute(db)?;
     } else {
         super::keep(db, DUE, hamlet, &due)?;
     }
@@ -223,7 +232,7 @@ fn report(v: &Vote, r: &record::Hamlet, limits: &Limits) -> String {
 }
 
 pub(crate) fn views(
-    db: &Connection,
+    db: &mut SqliteConnection,
     r: &record::Hamlet,
 ) -> Result<Vec<VoteView>> {
     let limits = crate::limits::of(db, &r.id)?;
@@ -424,10 +433,10 @@ fn call(
         announced: false,
         reported: false,
     });
-    let tx = service.home.store().transaction()?;
-    save(&tx, hamlet, &votes)?;
+    let mut tx = service.home.store().transaction()?;
+    save(&mut tx, hamlet, &votes)?;
     if let Some(owner) = owner {
-        super::keep(&tx, "vote-call", owner, &id)?;
+        super::keep(&mut tx, "vote-call", owner, &id)?;
     }
     tx.commit()?;
     Ok(Ok(id))
@@ -505,13 +514,11 @@ pub(super) fn ballot(
     args: Cast,
 ) -> Result<SocietyOutcome> {
     let db = service.db();
-    let owner = db
-        .query_row(
-            "SELECT owner FROM society_binding WHERE binding=?1 AND \
-             errand='ballot'",
-            [caller.binding.id.0],
-            |row| row.get::<_, String>(0),
-        )
+    let owner = society_binding::table
+        .filter(society_binding::binding.eq(caller.binding.id.0))
+        .filter(society_binding::errand.eq("ballot"))
+        .select(society_binding::owner.assume_not_null())
+        .first::<String>(db)
         .optional()?;
     let Some(owner) = owner else {
         return Ok(SocietyOutcome::failed(
@@ -618,22 +625,31 @@ async fn cancel_errands(
     hamlet: &str,
     vote: u64,
 ) -> Result<()> {
-    let bindings = service
-        .db()
-        .prepare(&format!(
-            "SELECT s.binding FROM society_binding s JOIN \
-             harness_input i ON i.binding=s.binding WHERE s.errand \
-             IN ('hearing','ballot') AND \
-             json_extract(s.owner,'$.hamlet')=?1 AND \
-             json_extract(s.owner,'$.vote')=?2 AND \
-             i.state!='dropped' AND NOT {}",
-            crate::harness::ended("i.status")
-        ))?
-        .query_map(
-            rusqlite::params![hamlet, i64::try_from(vote)?],
-            |row| Ok(crate::harness::BindingId(row.get(0)?)),
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let vote = i64::try_from(vote)?;
+    let bindings = society_binding::table
+        .inner_join(
+            harness_input::table
+                .on(harness_input::binding
+                    .eq(society_binding::binding)),
+        )
+        .filter(society_binding::errand.eq_any(["hearing", "ballot"]))
+        .filter(
+            sql::<Bool>(
+                "json_extract(society_binding.owner, '$.hamlet') = ",
+            )
+            .bind::<Text, _>(hamlet)
+            .sql(
+                " AND json_extract(society_binding.owner, '$.vote') \
+                 = ",
+            )
+            .bind::<BigInt, _>(vote),
+        )
+        .filter(harness_input::state.ne("dropped"))
+        .filter(crate::harness::unended())
+        .select(society_binding::binding)
+        .load::<i64>(service.db())?
+        .into_iter()
+        .map(crate::harness::BindingId);
     for binding in bindings {
         harnesses.cancel(service.home.store(), binding).await?;
     }
@@ -646,11 +662,10 @@ pub(crate) async fn sweep(
     service: &mut Service,
     harnesses: &mut Harnesses,
 ) -> Result<bool> {
-    let hamlets = service
-        .db()
-        .prepare("SELECT key FROM society_document WHERE kind = ?1")?
-        .query_map([DUE], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let hamlets = society_document::table
+        .filter(society_document::kind.eq(DUE))
+        .select(society_document::key)
+        .load::<String>(service.db())?;
     if hamlets.is_empty() {
         return Ok(false);
     }
@@ -946,13 +961,13 @@ async fn decide(
     votes: &mut [Vote],
     index: usize,
 ) -> Result<bool> {
-    let tx = service.home.store().transaction()?;
+    let mut tx = service.home.store().transaction()?;
     let v = &mut votes[index];
     if v.standing == Standing::Passed {
         let refused = match v.kind {
-            VoteKind::ReplaceMayor => seat(&tx, hamlet, v)?,
+            VoteKind::ReplaceMayor => seat(&mut tx, hamlet, v)?,
             VoteKind::FoundHamlet => {
-                found(&tx, hamlet, r, limits, v)?
+                found(&mut tx, hamlet, r, limits, v)?
             }
         };
         if let Some(reason) = refused {
@@ -962,7 +977,7 @@ async fn decide(
     let founded = (v.standing == Standing::Passed
         && v.kind == VoteKind::FoundHamlet)
         .then(|| (v.destination.clone(), v.id));
-    save(&tx, hamlet, votes)?;
+    save(&mut tx, hamlet, votes)?;
     tx.commit()?;
     if let Some((destination, vote)) = founded {
         let initialize = service.houses.initialize(&destination, 0);
@@ -975,7 +990,7 @@ async fn decide(
 
 /// Seats the candidate of the passed vote `v`; the words of why not.
 fn seat(
-    tx: &Connection,
+    tx: &mut SqliteConnection,
     hamlet: &str,
     v: &Vote,
 ) -> Result<Option<String>> {
@@ -1009,7 +1024,7 @@ fn seat(
 /// Founds the hamlet of the passed vote `v` called in `r`; the words
 /// of why not.
 fn found(
-    tx: &Connection,
+    tx: &mut SqliteConnection,
     hamlet: &str,
     r: &record::Hamlet,
     limits: &Limits,
@@ -1056,16 +1071,10 @@ pub(super) async fn changed(
     harnesses: &mut Harnesses,
 ) -> Result<()> {
     super::reconfigure(service, harnesses).await?;
-    let owners = service
-        .db()
-        .prepare(
-            "SELECT runtime,key FROM society_call WHERE \
-             tool='call_vote'",
-        )?
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let owners = society_call::table
+        .filter(society_call::tool.eq("call_vote"))
+        .select((society_call::runtime, society_call::key))
+        .load::<(String, String)>(service.db())?;
     for (runtime, key) in owners {
         harnesses
             .wake(&crate::RuntimeInstance::new(runtime)?, &key)
@@ -1153,7 +1162,7 @@ pub(super) async fn deed(
             "Only a passed or open vote can be overturned.".into(),
         ))));
     }
-    let tx = service.home.store().transaction()?;
+    let mut tx = service.home.store().transaction()?;
     let mut closed = None;
     let text = if v.standing == Standing::Open {
         v.standing = Standing::Closed("stopped by a chief".into());
@@ -1168,7 +1177,7 @@ pub(super) async fn deed(
             let name = r.name_of(v.mayor, NameFallback::Recorded);
             if let Outcome::Refused(refusal) =
                 crate::operation::change(
-                    &tx,
+                    &mut tx,
                     &RecordOperation {
                         hamlet: hamlet.into(),
                         actor: Actor::Chief(service.chief.clone()),
@@ -1185,7 +1194,7 @@ pub(super) async fn deed(
             }
             format!("`{name}` is the mayor again.")
         } else {
-            let mut realm = crate::realm::read(&tx)?;
+            let mut realm = crate::realm::read(&mut tx)?;
             let Some(place) =
                 realm.hamlets.iter_mut().find(|place| {
                     place.id == v.destination
@@ -1202,9 +1211,9 @@ pub(super) async fn deed(
                 by: service.chief.clone(),
                 reason: reason.clone(),
             });
-            crate::realm::write(&tx, &realm)?;
-            record::release_names(&tx, &v.destination)?;
-            closed = record::read(&tx, &v.destination)?;
+            crate::realm::write(&mut tx, &realm)?;
+            record::release_names(&mut tx, &v.destination)?;
+            closed = record::read(&mut tx, &v.destination)?;
             format!(
                 "The hamlet `{}` is removed and archived.",
                 v.destination
@@ -1213,7 +1222,7 @@ pub(super) async fn deed(
         v.standing = Standing::Overturned;
         format!("Vote {} is overturned. {done}", v.id)
     };
-    save(&tx, hamlet, &votes)?;
+    save(&mut tx, hamlet, &votes)?;
     tx.commit()?;
     crate::fault::point("after_vote_overturn");
     cancel_errands(service, harnesses, hamlet, id).await?;
@@ -1273,11 +1282,12 @@ mod tests {
     #[test]
     fn finished_votes_leave_the_sweep_and_stay_readable() {
         let scratch = Scratch::new("votes-due");
-        let store =
+        let mut store =
             Store::open(&scratch.join("realm.sqlite")).unwrap();
         let db = store.connection();
-        let due =
-            || super::super::document::<Vec<Vote>>(db, DUE, "home");
+        let due = |db: &mut SqliteConnection| {
+            super::super::document::<Vec<Vote>>(db, DUE, "home")
+        };
         // Votes that finished since the sweep last saved them.
         super::super::keep(
             db,
@@ -1290,18 +1300,19 @@ mod tests {
             ],
         )
         .unwrap();
-        save(db, "home", &read(db, "home").unwrap()).unwrap();
-        assert_eq!(ids(&due().unwrap()), [2, 3]);
-        let mut swept = due().unwrap();
+        let votes = read(db, "home").unwrap();
+        save(db, "home", &votes).unwrap();
+        assert_eq!(ids(&due(db).unwrap()), [2, 3]);
+        let mut swept = due(db).unwrap();
         swept[1].reported = true;
         save(db, "home", &swept).unwrap();
-        assert_eq!(ids(&due().unwrap()), [2]);
+        assert_eq!(ids(&due(db).unwrap()), [2]);
         assert_eq!(ids(&read(db, "home").unwrap()), [1, 2, 3]);
-        let mut swept = due().unwrap();
+        let mut swept = due(db).unwrap();
         swept[0].standing = Standing::Lapsed;
         swept[0].reported = true;
         save(db, "home", &swept).unwrap();
-        assert!(due().unwrap().is_empty());
+        assert!(due(db).unwrap().is_empty());
         assert_eq!(ids(&read(db, "home").unwrap()), [1, 2, 3]);
     }
 }

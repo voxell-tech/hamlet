@@ -1,9 +1,67 @@
 //! The realm database: what Hamlet owns for a home, with its schema.
 
+#[cfg(test)]
+mod tests;
+
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, Transaction, TransactionBehavior};
+use diesel::connection::{
+    AnsiTransactionManager, Connection, SimpleConnection,
+    TransactionManager,
+};
+use diesel::dsl::sql;
+use diesel::sql_types::BigInt;
+use diesel::{RunQueryDsl, SqliteConnection};
+
+/// Stores a type as the text of its `as_str`, read back by its
+/// `named`. The type derives `AsExpression` and `FromSqlRow` as
+/// `Text`.
+macro_rules! named_text {
+    ($type:ty) => {
+        impl
+            ::diesel::serialize::ToSql<
+                ::diesel::sql_types::Text,
+                ::diesel::sqlite::Sqlite,
+            > for $type
+        {
+            fn to_sql<'b>(
+                &'b self,
+                out: &mut ::diesel::serialize::Output<
+                    'b,
+                    '_,
+                    ::diesel::sqlite::Sqlite,
+                >,
+            ) -> ::diesel::serialize::Result {
+                out.set_value(self.as_str());
+                Ok(::diesel::serialize::IsNull::No)
+            }
+        }
+
+        impl
+            ::diesel::deserialize::FromSql<
+                ::diesel::sql_types::Text,
+                ::diesel::sqlite::Sqlite,
+            > for $type
+        {
+            fn from_sql(
+                value: ::diesel::sqlite::SqliteValue<'_, '_, '_>,
+            ) -> ::diesel::deserialize::Result<Self> {
+                let name =
+                    <String as ::diesel::deserialize::FromSql<
+                        ::diesel::sql_types::Text,
+                        ::diesel::sqlite::Sqlite,
+                    >>::from_sql(value)?;
+                Self::named(&name).ok_or_else(|| {
+                    format!("not a {}: {name:?}", stringify!($type))
+                        .into()
+                })
+            }
+        }
+    };
+}
+pub(crate) use named_text;
 
 /// The schema's version. A store of any other version is refused.
 const VERSION: i64 = 1;
@@ -48,7 +106,7 @@ const SCHEMA: &[&str] = &[
 
 /// A home's realm database, open in this process alone.
 pub struct Store {
-    db: Connection,
+    db: SqliteConnection,
 }
 
 impl Store {
@@ -56,20 +114,23 @@ impl Store {
     /// missing.
     pub fn open(path: &Path) -> Result<Self> {
         let fresh = !path.try_exists()?;
-        let mut db = Connection::open(path)
+        let url =
+            path.to_str().context("the store's path is not UTF-8")?;
+        let mut db = SqliteConnection::establish(url)
             .with_context(|| format!("opening {}", path.display()))?;
+        db.batch_execute("PRAGMA busy_timeout = 5000;")?;
         if fresh {
             create(&mut db).with_context(|| {
                 format!("creating {}", path.display())
             })?;
         } else {
-            check(&db).with_context(|| {
+            check(&mut db).with_context(|| {
                 format!("opening {}", path.display())
             })?;
         }
         // A reply goes out after its commit, so the commit must be on
         // disk by then.
-        db.execute_batch(
+        db.batch_execute(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = FULL;
              PRAGMA foreign_keys = ON;",
@@ -78,54 +139,103 @@ impl Store {
     }
 
     /// The open database.
-    pub fn connection(&self) -> &Connection {
-        &self.db
+    pub fn connection(&mut self) -> &mut SqliteConnection {
+        &mut self.db
     }
 
     /// The rows inserted, updated or deleted since the store opened,
     /// counting those of statements that rolled back. Only this
     /// connection writes the store, so it moves with every change.
-    pub(crate) fn changes(&self) -> u64 {
-        self.db.total_changes()
+    pub(crate) fn changes(&mut self) -> Result<u64> {
+        let changes =
+            diesel::select(sql::<BigInt>("total_changes()"))
+                .get_result::<i64>(&mut self.db)?;
+        Ok(u64::try_from(changes)?)
     }
 
     /// A transaction that takes the write lock at its first write.
-    pub(crate) fn transaction(&mut self) -> Result<Transaction<'_>> {
-        Ok(self.db.transaction()?)
+    pub(crate) fn transaction(&mut self) -> Result<Tx<'_>> {
+        Tx::begin(&mut self.db, "BEGIN")
     }
 
     /// A transaction that holds the write lock from its start.
-    pub(crate) fn immediate(&mut self) -> Result<Transaction<'_>> {
-        Ok(self.db.transaction_with_behavior(
-            TransactionBehavior::Immediate,
-        )?)
+    pub(crate) fn immediate(&mut self) -> Result<Tx<'_>> {
+        Tx::begin(&mut self.db, "BEGIN IMMEDIATE")
     }
 
-    /// Closes the database and reports any closing error.
+    /// Closes the database.
     pub fn close(self) -> Result<()> {
-        self.db.close().map_err(|(_, error)| error.into())
+        drop(self.db);
+        Ok(())
+    }
+}
+
+/// A transaction on the store, rolled back when dropped uncommitted.
+pub(crate) struct Tx<'a> {
+    db: &'a mut SqliteConnection,
+    open: bool,
+}
+
+impl<'a> Tx<'a> {
+    fn begin(
+        db: &'a mut SqliteConnection,
+        sql: &str,
+    ) -> Result<Self> {
+        AnsiTransactionManager::begin_transaction_sql(db, sql)?;
+        Ok(Self { db, open: true })
+    }
+
+    /// Commits the transaction.
+    pub(crate) fn commit(mut self) -> Result<()> {
+        self.open = false;
+        AnsiTransactionManager::commit_transaction(self.db)?;
+        Ok(())
+    }
+}
+
+impl Deref for Tx<'_> {
+    type Target = SqliteConnection;
+
+    fn deref(&self) -> &SqliteConnection {
+        self.db
+    }
+}
+
+impl DerefMut for Tx<'_> {
+    fn deref_mut(&mut self) -> &mut SqliteConnection {
+        self.db
+    }
+}
+
+impl Drop for Tx<'_> {
+    fn drop(&mut self) {
+        if self.open {
+            let _ =
+                AnsiTransactionManager::rollback_transaction(self.db);
+        }
     }
 }
 
 /// Creates the schema in `db`, all in one transaction.
-fn create(db: &mut Connection) -> Result<()> {
-    let tx =
-        db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+fn create(db: &mut SqliteConnection) -> Result<()> {
+    let mut tx = Tx::begin(db, "BEGIN IMMEDIATE")?;
     for part in SCHEMA {
-        tx.execute_batch(part)?;
+        tx.batch_execute(part)?;
     }
-    tx.pragma_update(None, "application_id", APPLICATION)?;
-    tx.pragma_update(None, "user_version", VERSION)?;
-    tx.commit()?;
-    Ok(())
+    tx.batch_execute(&format!(
+        "PRAGMA application_id = {APPLICATION};
+         PRAGMA user_version = {VERSION};"
+    ))?;
+    tx.commit()
 }
 
 /// Refuses `db` unless it is a realm store of this schema's version.
-fn check(db: &Connection) -> Result<()> {
-    let pragma = |name: &str| {
-        db.query_row(&format!("PRAGMA {name}"), [], |row| {
-            row.get::<_, i64>(0)
-        })
+fn check(db: &mut SqliteConnection) -> Result<()> {
+    let mut pragma = |name: &str| {
+        diesel::select(sql::<BigInt>(&format!(
+            "(SELECT {name} FROM pragma_{name}())"
+        )))
+        .get_result::<i64>(db)
     };
     ensure!(
         pragma("application_id")? == APPLICATION,

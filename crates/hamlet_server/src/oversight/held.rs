@@ -2,10 +2,7 @@
 //! them, as the realm database keeps them in `gate_call` and `wait`.
 
 use anyhow::Result;
-use rusqlite::types::{
-    FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef,
-};
-use rusqlite::{Connection, OptionalExtension, ToSql, params};
+use diesel::prelude::*;
 use serde_json::Value;
 
 use super::{
@@ -13,6 +10,7 @@ use super::{
 };
 use crate::harness::BindingId;
 use crate::record::AgentRef;
+use crate::schema::{gate_call, wait};
 use crate::{OperationId, RuntimeInstance};
 
 /// What the gate keeps of one tool call.
@@ -54,31 +52,33 @@ pub(crate) enum CallState {
 /// Reserves the call `id` for `binding` and the request `digest`;
 /// gives whether the kept reservation is that one.
 pub(crate) fn reserve(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
     binding: BindingId,
     digest: &[u8],
 ) -> Result<bool> {
     let (runtime, key) = (id.runtime.as_str(), id.key.as_str());
     // A call's marker is written only after its reservation.
-    db.execute(
-        "INSERT INTO gate_call (runtime, key, binding, digest) \
-         VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
-        params![runtime, key, binding.0, digest],
-    )?;
-    let (kept, kept_digest) = db.query_row(
-        "SELECT binding, digest FROM gate_call WHERE runtime = ?1 \
-         AND key = ?2",
-        params![runtime, key],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?)),
-    )?;
+    diesel::insert_into(gate_call::table)
+        .values((
+            gate_call::runtime.eq(runtime),
+            gate_call::key.eq(key),
+            gate_call::binding.eq(binding.0),
+            gate_call::digest.eq(digest),
+        ))
+        .on_conflict_do_nothing()
+        .execute(db)?;
+    let (kept, kept_digest) = gate_call::table
+        .find((runtime, key))
+        .select((gate_call::binding, gate_call::digest))
+        .first::<(i64, Vec<u8>)>(db)?;
     Ok(kept == binding.0 && kept_digest == digest)
 }
 
 /// Keeps that the gate let the call `id` run, with the network when
 /// `net`.
 pub(crate) fn allow(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
     binding: BindingId,
     input: Option<&str>,
@@ -90,7 +90,7 @@ pub(crate) fn allow(
 
 /// Keeps that the call `id` may not run, in `words`.
 pub(crate) fn block(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
     binding: BindingId,
     input: Option<&str>,
@@ -101,7 +101,7 @@ pub(crate) fn block(
 }
 
 fn decide(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
     binding: BindingId,
     input: Option<&str>,
@@ -109,119 +109,128 @@ fn decide(
     block: Option<&str>,
     change: Option<&Value>,
 ) -> Result<()> {
-    db.execute(
-        "UPDATE gate_call SET input = ?4, net = ?5, block = ?6, \
-         change = ?7 WHERE runtime = ?1 AND key = ?2 AND binding = \
-         ?3",
-        params![
-            id.runtime.as_str(),
-            id.key,
-            binding.0,
-            input,
-            net,
-            block,
-            change.map(Value::to_string)
-        ],
-    )?;
+    diesel::update(
+        gate_call::table
+            .find((id.runtime.as_str(), &id.key))
+            .filter(gate_call::binding.eq(binding.0)),
+    )
+    .set((
+        gate_call::input.eq(input),
+        gate_call::net.eq(net),
+        gate_call::block.eq(block),
+        gate_call::change.eq(change.map(Value::to_string)),
+    ))
+    .execute(db)?;
     Ok(())
 }
 
 /// What the gate keeps of the call `id`.
 pub(crate) fn decision(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
 ) -> Result<Option<HeldCall>> {
-    db.query_row(
-        "SELECT binding, input, change, net, block, wait, how, \
-         text, (SELECT questions IS NOT NULL FROM wait WHERE id = \
-         gate_call.wait) FROM gate_call WHERE runtime = ?1 AND key \
-         = ?2",
-        params![id.runtime.as_str(), id.key],
-        |row| {
-            let net = row.get::<_, Option<bool>>(3)?;
-            let block = row.get::<_, Option<String>>(4)?;
-            let wait = row.get::<_, Option<String>>(5)?;
-            let ruling = row.get::<_, Option<Ruling>>(6)?;
-            let state = match (block, wait, ruling) {
-                (Some(words), ..) => CallState::Blocked(words),
-                (None, Some(wait), Some(ruling)) => {
-                    CallState::Ruled {
-                        wait,
-                        ruling,
-                        text: row
-                            .get::<_, Option<String>>(7)?
-                            .unwrap_or_default(),
-                        net: net.unwrap_or(false),
-                        structured: row
-                            .get::<_, Option<bool>>(8)?
-                            .unwrap_or(false),
+    gate_call::table
+        .left_join(wait::table)
+        .filter(gate_call::runtime.eq(id.runtime.as_str()))
+        .filter(gate_call::key.eq(&id.key))
+        .select((
+            gate_call::binding,
+            gate_call::input,
+            gate_call::change,
+            gate_call::net,
+            gate_call::block,
+            gate_call::wait,
+            gate_call::how,
+            gate_call::text,
+            wait::questions.is_not_null().nullable(),
+        ))
+        .first::<(
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<bool>,
+            Option<String>,
+            Option<String>,
+            Option<Ruling>,
+            Option<String>,
+            Option<bool>,
+        )>(db)
+        .optional()?
+        .map(
+            |(
+                binding,
+                input,
+                change,
+                net,
+                block,
+                wait,
+                ruling,
+                text,
+                structured,
+            )| {
+                let state = match (block, wait, ruling) {
+                    (Some(words), ..) => CallState::Blocked(words),
+                    (None, Some(wait), Some(ruling)) => {
+                        CallState::Ruled {
+                            wait,
+                            ruling,
+                            text: text.unwrap_or_default(),
+                            net: net.unwrap_or(false),
+                            structured: structured.unwrap_or(false),
+                        }
                     }
-                }
-                (None, Some(wait), None) => CallState::Held { wait },
-                (None, None, _) => match net {
-                    Some(net) => CallState::Allowed { net },
-                    None => CallState::Open,
-                },
-            };
-            Ok((
-                BindingId(row.get(0)?),
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                state,
-            ))
-        },
-    )
-    .optional()?
-    .map(|(binding, input, change, state)| {
-        Ok(HeldCall {
-            binding,
-            input,
-            change: change
-                .map(|change| serde_json::from_str(&change))
-                .transpose()?,
-            state,
-        })
-    })
-    .transpose()
+                    (None, Some(wait), None) => {
+                        CallState::Held { wait }
+                    }
+                    (None, None, _) => match net {
+                        Some(net) => CallState::Allowed { net },
+                        None => CallState::Open,
+                    },
+                };
+                Ok(HeldCall {
+                    binding: BindingId(binding),
+                    input,
+                    change: change
+                        .map(|change| serde_json::from_str(&change))
+                        .transpose()?,
+                    state,
+                })
+            },
+        )
+        .transpose()
 }
 
 /// Sets whether the call `id`, allowed by a chief, has the network.
 pub(crate) fn set_net(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
     net: bool,
 ) -> Result<()> {
-    db.execute(
-        "UPDATE gate_call SET net = ?3 WHERE runtime = ?1 AND key = \
-         ?2",
-        params![id.runtime.as_str(), id.key, net],
-    )?;
+    diesel::update(
+        gate_call::table.find((id.runtime.as_str(), &id.key)),
+    )
+    .set(gate_call::net.eq(net))
+    .execute(db)?;
     Ok(())
 }
 
 /// Refuses, in `words`, every call of `binding` not yet carried out
 /// or refused. A marked result stands.
 pub(crate) fn block_unrun(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     words: &str,
 ) -> Result<()> {
-    let open = db
-        .prepare(
-            "SELECT runtime, key FROM gate_call WHERE binding = ?1 \
-             AND block IS NULL",
-        )?
-        .query_map([binding.0], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let open = gate_call::table
+        .filter(gate_call::binding.eq(binding.0))
+        .filter(gate_call::block.is_null())
+        .select((gate_call::runtime, gate_call::key))
+        .load::<(String, String)>(db)?;
     for (runtime, key) in open {
         if !crate::operation::is_marked(db, &runtime, &key)? {
-            db.execute(
-                "UPDATE gate_call SET block = ?3 WHERE runtime = ?1 \
-                 AND key = ?2",
-                params![runtime, key, words],
-            )?;
+            diesel::update(gate_call::table.find((&runtime, &key)))
+                .set(gate_call::block.eq(words))
+                .execute(db)?;
         }
     }
     Ok(())
@@ -236,39 +245,37 @@ pub(crate) struct Unruled {
 
 /// The calls the wait `wait` holds and nobody ruled on yet.
 pub(crate) fn unruled(
-    db: &Connection,
+    db: &mut SqliteConnection,
     wait: &str,
 ) -> Result<Vec<Unruled>> {
-    db.prepare(
-        "SELECT runtime, key, binding, input FROM gate_call WHERE \
-         wait = ?1 AND how IS NULL",
-    )?
-    .query_map([wait], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            BindingId(row.get(2)?),
-            row.get::<_, Option<String>>(3)?,
+    gate_call::table
+        .filter(gate_call::wait.eq(wait))
+        .filter(gate_call::how.is_null())
+        .select((
+            gate_call::runtime,
+            gate_call::key,
+            gate_call::binding,
+            gate_call::input,
         ))
-    })?
-    .map(|row| {
-        let (runtime, key, binding, input) = row?;
-        Ok(Unruled {
-            id: OperationId {
-                runtime: RuntimeInstance::new(runtime)?,
-                key,
-            },
-            binding,
-            input,
+        .load::<(String, String, i64, Option<String>)>(db)?
+        .into_iter()
+        .map(|(runtime, key, binding, input)| {
+            Ok(Unruled {
+                id: OperationId {
+                    runtime: RuntimeInstance::new(runtime)?,
+                    key,
+                },
+                binding: BindingId(binding),
+                input,
+            })
         })
-    })
-    .collect()
+        .collect()
 }
 
 /// Rules on each call the wait `wait` holds that nobody ruled on
 /// yet; gives them.
 pub(crate) fn rule(
-    db: &Connection,
+    db: &mut SqliteConnection,
     wait: &str,
     ruling: Ruling,
     text: &str,
@@ -277,69 +284,62 @@ pub(crate) fn rule(
         .into_iter()
         .map(|call| (call.id.runtime, call.id.key))
         .collect();
-    db.execute(
-        "UPDATE gate_call SET how = ?2, text = ?3 WHERE wait = ?1 \
-         AND how IS NULL",
-        params![wait, ruling, text],
-    )?;
+    diesel::update(
+        gate_call::table
+            .filter(gate_call::wait.eq(wait))
+            .filter(gate_call::how.is_null()),
+    )
+    .set((gate_call::how.eq(ruling), gate_call::text.eq(text)))
+    .execute(db)?;
     Ok(woken)
 }
 
 /// The open waits that hold calls of `binding` not ruled on.
 pub(crate) fn waits_holding(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<Vec<String>> {
-    Ok(db
-        .prepare(
-            "SELECT DISTINCT wait FROM gate_call WHERE binding = ?1 \
-             AND wait IS NOT NULL AND how IS NULL",
-        )?
-        .query_map([binding.0], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
+    Ok(gate_call::table
+        .filter(gate_call::binding.eq(binding.0))
+        .filter(gate_call::wait.is_not_null())
+        .filter(gate_call::how.is_null())
+        .select(gate_call::wait.assume_not_null())
+        .distinct()
+        .load(db)?)
 }
 
 /// The open wait that holds the call `id`.
 #[cfg(feature = "harness")]
 pub(crate) fn open_wait_of(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
 ) -> Result<Option<String>> {
-    Ok(db
-        .query_row(
-            "SELECT g.wait FROM gate_call g JOIN wait w ON w.id = \
-             g.wait WHERE g.runtime = ?1 AND g.key = ?2 AND w.open \
-             = 1",
-            params![id.runtime.as_str(), id.key],
-            |row| row.get(0),
-        )
+    Ok(gate_call::table
+        .inner_join(wait::table)
+        .filter(gate_call::runtime.eq(id.runtime.as_str()))
+        .filter(gate_call::key.eq(&id.key))
+        .filter(wait::open.eq(true))
+        .select(gate_call::wait.assume_not_null())
+        .first(db)
         .optional()?)
 }
 
 /// Whether the call `key` of `runtime` belongs to a turn that still
 /// runs, and was not carried out.
 pub(crate) fn unfinished(
-    db: &Connection,
+    db: &mut SqliteConnection,
     runtime: &str,
     key: &str,
 ) -> Result<bool> {
-    let binding = db
-        .query_row(
-            "SELECT binding, input FROM gate_call WHERE runtime = \
-             ?1 AND key = ?2",
-            params![runtime, key],
-            |row| {
-                Ok((
-                    BindingId(row.get(0)?),
-                    row.get::<_, Option<String>>(1)?,
-                ))
-            },
-        )
+    let binding = gate_call::table
+        .find((runtime, key))
+        .select((gate_call::binding, gate_call::input))
+        .first::<(i64, Option<String>)>(db)
         .optional()?;
     let Some((binding, Some(input))) = binding else {
         return Ok(false);
     };
-    Ok(crate::harness::input_runs(db, binding, &input)?
+    Ok(crate::harness::input_runs(db, BindingId(binding), &input)?
         && !crate::operation::is_marked(db, runtime, key)?)
 }
 
@@ -347,7 +347,7 @@ pub(crate) fn unfinished(
 /// by the same agent, and holds its call. A call already held finds
 /// its wait again; one already ruled raises nothing.
 pub(crate) fn raise(
-    db: &Connection,
+    db: &mut SqliteConnection,
     raising: Raising,
     at: i64,
 ) -> Result<Option<String>> {
@@ -363,7 +363,7 @@ pub(crate) fn raise(
 
 /// Keeps a wait, or asks the open one like it again.
 pub(crate) fn put(
-    db: &Connection,
+    db: &mut SqliteConnection,
     raising: Raising,
     at: i64,
 ) -> Result<String> {
@@ -373,213 +373,225 @@ pub(crate) fn put(
         .map(serde_json::to_string)
         .transpose()?;
     let (kind, danger) = (raising.kind.name(), raising.kind.danger());
-    let same = db
-        .query_row(
-            "SELECT id FROM wait WHERE open = 1 AND kind = ?1 AND \
-             danger IS ?2 AND by = ?3 AND about = ?4 AND questions \
-             IS ?5",
-            params![
-                kind,
-                danger,
-                raising.by,
-                raising.about,
-                questions
-            ],
-            |row| row.get::<_, String>(0),
-        )
+    let same = wait::table
+        .filter(wait::open.eq(true))
+        .filter(wait::kind.eq(kind))
+        .filter(wait::danger.is(danger))
+        .filter(wait::by.eq(&raising.by))
+        .filter(wait::about.eq(&raising.about))
+        .filter(wait::questions.is(&questions))
+        .select(wait::id)
+        .first::<String>(db)
         .optional()?;
     let id = match same {
         Some(id) => {
-            db.execute(
-                "UPDATE wait SET asked = asked + 1 WHERE id = ?1",
-                [&id],
-            )?;
+            diesel::update(wait::table.find(&id))
+                .set(wait::asked.eq(wait::asked + 1))
+                .execute(db)?;
             id
         }
         None => {
-            let ordinal = db.query_row(
-                "SELECT coalesce(max(ordinal), 0) + 1 FROM wait",
-                [],
-                |row| row.get::<_, i64>(0),
-            )?;
+            let ordinal = wait::table
+                .select(diesel::dsl::max(wait::ordinal))
+                .first::<Option<i64>>(db)?
+                .unwrap_or(0)
+                + 1;
             let id = format!("{at}-{ordinal}");
             let chat = raising.chat.as_ref();
-            db.execute(
-                "INSERT INTO wait (id, ordinal, kind, danger, by, \
-                 hamlet, number, about, change, answers, since, \
-                 asked, chat_hamlet, chat_number, chat_chief, \
-                 chat_session, questions) VALUES (?1, ?2, ?3, ?4, \
-                 ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12, ?13, ?14, \
-                 ?15, ?16)",
-                params![
-                    id,
-                    ordinal,
-                    kind,
-                    danger,
-                    raising.by,
-                    raising.agent.as_ref().map(|a| a.hamlet.clone()),
-                    raising
+            diesel::insert_into(wait::table)
+                .values((
+                    wait::id.eq(&id),
+                    wait::ordinal.eq(ordinal),
+                    wait::kind.eq(kind),
+                    wait::danger.eq(danger),
+                    wait::by.eq(&raising.by),
+                    wait::hamlet.eq(raising
+                        .agent
+                        .as_ref()
+                        .map(|a| &a.hamlet)),
+                    wait::number.eq(raising
                         .agent
                         .as_ref()
                         .map(|a| i64::try_from(a.number))
-                        .transpose()?,
-                    raising.about,
-                    raising.change.as_ref().map(Value::to_string),
-                    serde_json::to_string(&raising.answers)?,
-                    at,
-                    chat.map(|c| c.hamlet.clone()),
-                    chat.map(|c| i64::try_from(c.number))
-                        .transpose()?,
-                    chat.map(|c| c.chief.clone()),
-                    chat.map(|c| c.session),
-                    questions,
-                ],
-            )?;
+                        .transpose()?),
+                    wait::about.eq(&raising.about),
+                    wait::change.eq(raising
+                        .change
+                        .as_ref()
+                        .map(Value::to_string)),
+                    wait::answers
+                        .eq(serde_json::to_string(&raising.answers)?),
+                    wait::since.eq(at),
+                    wait::asked.eq(1),
+                    wait::chat_hamlet.eq(chat.map(|c| &c.hamlet)),
+                    wait::chat_number.eq(chat
+                        .map(|c| i64::try_from(c.number))
+                        .transpose()?),
+                    wait::chat_chief.eq(chat.map(|c| &c.chief)),
+                    wait::chat_session.eq(chat.map(|c| c.session)),
+                    wait::questions.eq(&questions),
+                ))
+                .execute(db)?;
             id
         }
     };
     if let Some(call) = &raising.call {
-        db.execute(
-            "UPDATE gate_call SET input = ?4, net = NULL, block = \
-             NULL, change = ?5, wait = ?6 WHERE runtime = ?1 AND \
-             key = ?2 AND binding = ?3",
-            params![
-                call.id.runtime.as_str(),
-                call.id.key,
-                call.binding.0,
-                call.input,
-                call.change.as_ref().map(Value::to_string),
-                id
-            ],
-        )?;
+        diesel::update(
+            gate_call::table
+                .find((call.id.runtime.as_str(), &call.id.key))
+                .filter(gate_call::binding.eq(call.binding.0)),
+        )
+        .set((
+            gate_call::input.eq(&call.input),
+            gate_call::net.eq(None::<bool>),
+            gate_call::block.eq(None::<String>),
+            gate_call::change
+                .eq(call.change.as_ref().map(Value::to_string)),
+            gate_call::wait.eq(&id),
+        ))
+        .execute(db)?;
     }
     Ok(id)
 }
 
 /// Ends the open wait `id` with `ruling`.
 pub(crate) fn close(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &str,
     ruling: Ruling,
     text: &str,
     chief: Option<&str>,
     at: i64,
 ) -> Result<()> {
-    db.execute(
-        "UPDATE wait SET open = 0, how = ?2, text = ?3, chief = ?4, \
-         settled = ?5 WHERE id = ?1",
-        params![id, ruling, text, chief, at],
-    )?;
+    diesel::update(wait::table.find(id))
+        .set((
+            wait::open.eq(false),
+            wait::how.eq(ruling),
+            wait::text.eq(text),
+            wait::chief.eq(chief),
+            wait::settled.eq(at),
+        ))
+        .execute(db)?;
     Ok(())
 }
 
 /// Lets the open wait `id` be only dismissed, with `note` added to
 /// its text.
 pub(crate) fn only_dismiss(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &str,
     note: &str,
 ) -> Result<()> {
-    db.execute(
-        "UPDATE wait SET answers = '[\"dismiss\"]', about = about \
-         || char(10) || ?2 WHERE id = ?1 AND open = 1 AND answers \
-         != '[\"dismiss\"]'",
-        params![id, note],
-    )?;
+    const DISMISS: &str = r#"["dismiss"]"#;
+    diesel::update(
+        wait::table
+            .find(id)
+            .filter(wait::open.eq(true))
+            .filter(wait::answers.ne(DISMISS)),
+    )
+    .set((
+        wait::answers.eq(DISMISS),
+        wait::about.eq(wait::about.concat("\n").concat(note)),
+    ))
+    .execute(db)?;
     Ok(())
 }
 
 /// The open waits in the order they were raised.
-pub(crate) fn open(db: &Connection) -> Result<Vec<Wait>> {
-    let mut query = db.prepare(&format!(
-        "{WAIT} WHERE open = 1 ORDER BY ordinal"
-    ))?;
-    query.query_map([], wait_row)?.map(|row| row?).collect()
+pub(crate) fn open(db: &mut SqliteConnection) -> Result<Vec<Wait>> {
+    wait::table
+        .filter(wait::open.eq(true))
+        .order(wait::ordinal)
+        .select(WaitRow::as_select())
+        .load(db)?
+        .into_iter()
+        .map(WaitRow::wait)
+        .collect()
 }
 
 /// The open wait `id`.
 pub(crate) fn find(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &str,
 ) -> Result<Option<Wait>> {
-    db.query_row(
-        &format!("{WAIT} WHERE open = 1 AND id = ?1"),
-        [id],
-        wait_row,
-    )
-    .optional()?
-    .transpose()
+    wait::table
+        .find(id)
+        .filter(wait::open.eq(true))
+        .select(WaitRow::as_select())
+        .first(db)
+        .optional()?
+        .map(WaitRow::wait)
+        .transpose()
 }
 
 /// How the wait `id` ended, if it did and that was kept.
 pub(crate) fn ended(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &str,
 ) -> Result<Option<Ruling>> {
-    Ok(db
-        .query_row(
-            "SELECT how FROM wait WHERE id = ?1 AND open = 0",
-            [id],
-            |row| row.get::<_, Option<Ruling>>(0),
-        )
+    Ok(wait::table
+        .find(id)
+        .filter(wait::open.eq(false))
+        .select(wait::how)
+        .first::<Option<Ruling>>(db)
         .optional()?
         .flatten())
 }
 
-const WAIT: &str = "SELECT id, kind, danger, by, hamlet, number, \
-                    about, change, answers, since, asked, \
-                    chat_hamlet, chat_number, chat_chief, \
-                    chat_session, questions FROM wait";
+/// A row of `wait`, as [`Wait`] reads it.
+#[derive(Queryable, Selectable)]
+#[diesel(table_name = wait)]
+struct WaitRow {
+    id: String,
+    kind: String,
+    danger: Option<Danger>,
+    by: String,
+    hamlet: Option<String>,
+    number: Option<i64>,
+    about: String,
+    change: Option<String>,
+    answers: String,
+    since: i64,
+    asked: i64,
+    chat_hamlet: Option<String>,
+    chat_number: Option<i64>,
+    chat_chief: Option<String>,
+    chat_session: Option<i64>,
+    questions: Option<String>,
+}
 
-fn wait_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<Result<Wait>> {
-    let id = row.get::<_, String>(0)?;
-    let kind = row.get::<_, String>(1)?;
-    let danger = row.get::<_, Option<Danger>>(2)?;
-    let by = row.get::<_, String>(3)?;
-    let hamlet = row.get::<_, Option<String>>(4)?;
-    let number = row.get::<_, Option<i64>>(5)?;
-    let about = row.get::<_, String>(6)?;
-    let change = row.get::<_, Option<String>>(7)?;
-    let answers = row.get::<_, String>(8)?;
-    let since = row.get::<_, i64>(9)?;
-    let asked = row.get::<_, i64>(10)?;
-    let chat_hamlet = row.get::<_, Option<String>>(11)?;
-    let chat_number = row.get::<_, Option<i64>>(12)?;
-    let chat_chief = row.get::<_, Option<String>>(13)?;
-    let chat_session = row.get::<_, Option<i64>>(14)?;
-    let questions = row.get::<_, Option<String>>(15)?;
-    Ok((|| {
+impl WaitRow {
+    fn wait(self) -> Result<Wait> {
         Ok(Wait {
-            id,
+            id: self.id,
             kind: WaitKind::of(
-                &kind,
-                danger,
-                questions
+                &self.kind,
+                self.danger,
+                self.questions
                     .map(|q| serde_json::from_str(&q))
                     .transpose()?,
             )?,
-            by,
-            agent: match (hamlet, number) {
+            by: self.by,
+            agent: match (self.hamlet, self.number) {
                 (Some(hamlet), Some(number)) => Some(AgentRef {
                     hamlet,
                     number: u64::try_from(number)?,
                 }),
                 _ => None,
             },
-            about,
-            change: change
+            about: self.about,
+            change: self
+                .change
                 .map(|c| serde_json::from_str(&c))
                 .transpose()?,
-            answers: serde_json::from_str(&answers)?,
-            since,
-            asked,
+            answers: serde_json::from_str(&self.answers)?,
+            since: self.since,
+            asked: self.asked,
             chat: match (
-                chat_hamlet,
-                chat_number,
-                chat_chief,
-                chat_session,
+                self.chat_hamlet,
+                self.chat_number,
+                self.chat_chief,
+                self.chat_session,
             ) {
                 (
                     Some(hamlet),
@@ -595,31 +607,5 @@ fn wait_row(
                 _ => None,
             },
         })
-    })())
-}
-
-impl ToSql for Ruling {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.as_str().into())
-    }
-}
-
-impl FromSql for Ruling {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        Ruling::named(value.as_str()?)
-            .ok_or(FromSqlError::InvalidType)
-    }
-}
-
-impl ToSql for Danger {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.as_str().into())
-    }
-}
-
-impl FromSql for Danger {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        Danger::named(value.as_str()?)
-            .ok_or(FromSqlError::InvalidType)
     }
 }

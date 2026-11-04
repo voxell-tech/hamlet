@@ -227,7 +227,7 @@ pub(crate) async fn advance(
             && !active.applying
             && !service.house_work.is_pending(id)
             && !crate::oversight::held::unfinished(
-                service.db(),
+                service.home.connection(),
                 id.runtime.as_str(),
                 &id.key,
             )?

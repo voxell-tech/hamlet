@@ -185,7 +185,7 @@ fn limits_name(agent: &Agent, mayor: bool) -> &str {
 
 /// The limits of `hamlet`, as its record keeps them.
 pub(crate) fn of(
-    db: &rusqlite::Connection,
+    db: &mut diesel::SqliteConnection,
     hamlet: &str,
 ) -> Result<Limits> {
     let Some(record) = record::read(db, hamlet)? else {

@@ -2,10 +2,13 @@
 //! each agent.
 
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
+use diesel::prelude::*;
 
 use crate::harness::BindingId;
 use crate::record::AgentRef;
+use crate::schema::{
+    chat, chat_conversation, chat_instruction, chat_session,
+};
 
 /// Whom a conversation is with: an agent, the chief who talks to it,
 /// and its session number in their chat (C22, C24).
@@ -40,19 +43,11 @@ pub(crate) struct Kept {
 /// The session of `chief`'s chat with `agent` in use, if the chat was
 /// begun.
 pub(crate) fn current(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     chief: &str,
 ) -> Result<Option<ChatSession>> {
-    let number = db
-        .query_row(
-            "SELECT current FROM chat WHERE hamlet = ?1 AND number \
-             = ?2 AND chief = ?3",
-            params![agent.hamlet, number_of(agent)?, chief],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?;
-    match number {
+    match current_number(db, agent, chief)? {
         Some(number) => session(db, agent, chief, number),
         None => Ok(None),
     }
@@ -60,72 +55,72 @@ pub(crate) fn current(
 
 /// The session `number` of `chief`'s chat with `agent`.
 pub(crate) fn session(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     chief: &str,
     number: i64,
 ) -> Result<Option<ChatSession>> {
-    Ok(db
-        .query_row(
-            "SELECT session, binding, began FROM chat_session WHERE \
-             hamlet = ?1 AND number = ?2 AND chief = ?3 AND session \
-             = ?4",
-            params![agent.hamlet, number_of(agent)?, chief, number],
-            |row| {
-                Ok(ChatSession {
-                    number: row.get(0)?,
-                    binding: BindingId(row.get(1)?),
-                    began: row.get(2)?,
-                })
-            },
-        )
-        .optional()?)
+    Ok(chat_session::table
+        .find((&agent.hamlet, number_of(agent)?, chief, number))
+        .select((
+            chat_session::session,
+            chat_session::binding,
+            chat_session::began,
+        ))
+        .first::<(i64, i64, i64)>(db)
+        .optional()?
+        .map(chat_session_of))
 }
 
 /// Every session of `chief`'s chat with `agent`, oldest first.
 pub(crate) fn sessions(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     chief: &str,
 ) -> Result<Vec<ChatSession>> {
-    let mut query = db.prepare(
-        "SELECT session, binding, began FROM chat_session WHERE \
-         hamlet = ?1 AND number = ?2 AND chief = ?3 ORDER BY session",
-    )?;
-    Ok(query
-        .query_map(
-            params![agent.hamlet, number_of(agent)?, chief],
-            |row| {
-                Ok(ChatSession {
-                    number: row.get(0)?,
-                    binding: BindingId(row.get(1)?),
-                    began: row.get(2)?,
-                })
-            },
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
+    Ok(chat_session::table
+        .filter(chat_session::hamlet.eq(&agent.hamlet))
+        .filter(chat_session::number.eq(number_of(agent)?))
+        .filter(chat_session::chief.eq(chief))
+        .order(chat_session::session)
+        .select((
+            chat_session::session,
+            chat_session::binding,
+            chat_session::began,
+        ))
+        .load::<(i64, i64, i64)>(db)?
+        .into_iter()
+        .map(chat_session_of)
+        .collect())
+}
+
+fn chat_session_of(
+    (number, binding, began): (i64, i64, i64),
+) -> ChatSession {
+    ChatSession {
+        number,
+        binding: BindingId(binding),
+        began,
+    }
 }
 
 /// The session number of the chat's current conversation.
 pub(crate) fn current_number(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     chief: &str,
 ) -> Result<Option<i64>> {
-    Ok(db
-        .query_row(
-            "SELECT current FROM chat WHERE hamlet = ?1 AND number \
-             = ?2 AND chief = ?3",
-            params![agent.hamlet, number_of(agent)?, chief],
-            |row| row.get(0),
-        )
+    Ok(chat::table
+        .find((&agent.hamlet, number_of(agent)?, chief))
+        .select(chat::current)
+        .first(db)
         .optional()?)
 }
 
 /// Keeps `binding` as the session `number` of the chat and points the
 /// chat at it, beginning the chat when it is new.
 pub(crate) fn point(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     chief: &str,
     number: i64,
@@ -133,184 +128,206 @@ pub(crate) fn point(
     at: i64,
 ) -> Result<()> {
     let n = number_of(agent)?;
-    db.execute(
-        "INSERT INTO chat (hamlet, number, chief, current) VALUES \
-         (?1, ?2, ?3, ?4) ON CONFLICT (hamlet, number, chief) DO \
-         UPDATE SET current = excluded.current",
-        params![agent.hamlet, n, chief, number],
-    )?;
-    db.execute(
-        "INSERT INTO chat_session (hamlet, number, chief, session, \
-         binding, began) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON \
-         CONFLICT (hamlet, number, chief, session) DO UPDATE SET \
-         binding = excluded.binding",
-        params![agent.hamlet, n, chief, number, binding.0, at],
-    )?;
+    diesel::insert_into(chat::table)
+        .values((
+            chat::hamlet.eq(&agent.hamlet),
+            chat::number.eq(n),
+            chat::chief.eq(chief),
+            chat::current.eq(number),
+        ))
+        .on_conflict((chat::hamlet, chat::number, chat::chief))
+        .do_update()
+        .set(
+            chat::current.eq(diesel::upsert::excluded(chat::current)),
+        )
+        .execute(db)?;
+    diesel::insert_into(chat_session::table)
+        .values((
+            chat_session::hamlet.eq(&agent.hamlet),
+            chat_session::number.eq(n),
+            chat_session::chief.eq(chief),
+            chat_session::session.eq(number),
+            chat_session::binding.eq(binding.0),
+            chat_session::began.eq(at),
+        ))
+        .on_conflict((
+            chat_session::hamlet,
+            chat_session::number,
+            chat_session::chief,
+            chat_session::session,
+        ))
+        .do_update()
+        .set(
+            chat_session::binding
+                .eq(diesel::upsert::excluded(chat_session::binding)),
+        )
+        .execute(db)?;
     Ok(())
 }
 
 /// Points the chat at its session `number`, which it has.
 pub(crate) fn select(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     chief: &str,
     number: i64,
 ) -> Result<()> {
-    db.execute(
-        "UPDATE chat SET current = ?4 WHERE hamlet = ?1 AND number \
-         = ?2 AND chief = ?3",
-        params![agent.hamlet, number_of(agent)?, chief, number],
-    )?;
+    diesel::update(chat::table.find((
+        &agent.hamlet,
+        number_of(agent)?,
+        chief,
+    )))
+    .set(chat::current.eq(number))
+    .execute(db)?;
     Ok(())
 }
 
 /// The next reflection's number in the chat, reserved now.
 pub(crate) fn reserve_reflection(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     chief: &str,
 ) -> Result<i64> {
     let n = number_of(agent)?;
-    db.execute(
-        "UPDATE chat SET reflections = reflections + 1 WHERE hamlet \
-         = ?1 AND number = ?2 AND chief = ?3",
-        params![agent.hamlet, n, chief],
-    )?;
-    Ok(db.query_row(
-        "SELECT reflections FROM chat WHERE hamlet = ?1 AND number \
-         = ?2 AND chief = ?3",
-        params![agent.hamlet, n, chief],
-        |row| row.get(0),
-    )?)
+    diesel::update(chat::table.find((&agent.hamlet, n, chief)))
+        .set(chat::reflections.eq(chat::reflections + 1))
+        .execute(db)?;
+    Ok(chat::table
+        .find((&agent.hamlet, n, chief))
+        .select(chat::reflections)
+        .first(db)?)
 }
 
 /// Keeps whom the conversation of `binding` is with.
 pub(crate) fn keep(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     place: &Place,
     previous: Option<BindingId>,
     unreflected: i64,
 ) -> Result<()> {
-    db.execute(
-        "INSERT INTO chat_conversation (binding, hamlet, number, \
-         chief, session, previous, unreflected) VALUES (?1, ?2, ?3, \
-         ?4, ?5, ?6, ?7)",
-        params![
-            binding.0,
-            place.agent.hamlet,
-            number_of(&place.agent)?,
-            place.chief,
-            place.session,
-            previous.map(|p| p.0),
-            unreflected
-        ],
-    )?;
+    diesel::insert_into(chat_conversation::table)
+        .values((
+            chat_conversation::binding.eq(binding.0),
+            chat_conversation::hamlet.eq(&place.agent.hamlet),
+            chat_conversation::number.eq(number_of(&place.agent)?),
+            chat_conversation::chief.eq(&place.chief),
+            chat_conversation::session.eq(place.session),
+            chat_conversation::previous.eq(previous.map(|p| p.0)),
+            chat_conversation::unreflected.eq(unreflected),
+        ))
+        .execute(db)?;
     Ok(())
 }
 
 /// What the server keeps of the conversation of `binding`.
 pub(crate) fn kept(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<Option<Kept>> {
-    db.query_row(
-        "SELECT hamlet, number, chief, session, previous, \
-         unreflected, retiring, entered, last, last_input FROM \
-         chat_conversation WHERE binding = ?1",
-        [binding.0],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, Option<i64>>(4)?,
-                row.get::<_, i64>(5)?,
-                row.get::<_, bool>(6)?,
-                row.get::<_, Option<String>>(7)?,
-                row.get::<_, Option<String>>(8)?,
-                row.get::<_, Option<String>>(9)?,
-            ))
-        },
-    )
-    .optional()?
-    .map(
-        |(
-            hamlet,
-            number,
-            chief,
-            session,
-            previous,
-            unreflected,
-            retiring,
-            entered,
-            last,
-            last_input,
-        )| {
-            Ok(Kept {
-                place: Place {
-                    agent: AgentRef {
-                        hamlet,
-                        number: u64::try_from(number)?,
-                    },
-                    chief,
-                    session,
-                },
-                previous: previous.map(BindingId),
+    chat_conversation::table
+        .find(binding.0)
+        .select((
+            chat_conversation::hamlet,
+            chat_conversation::number,
+            chat_conversation::chief,
+            chat_conversation::session,
+            chat_conversation::previous,
+            chat_conversation::unreflected,
+            chat_conversation::retiring,
+            chat_conversation::entered,
+            chat_conversation::last,
+            chat_conversation::last_input,
+        ))
+        .first::<(
+            String,
+            i64,
+            Option<String>,
+            i64,
+            Option<i64>,
+            i64,
+            bool,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )>(db)
+        .optional()?
+        .map(
+            |(
+                hamlet,
+                number,
+                chief,
+                session,
+                previous,
                 unreflected,
                 retiring,
                 entered,
                 last,
                 last_input,
-            })
-        },
-    )
-    .transpose()
+            )| {
+                Ok(Kept {
+                    place: Place {
+                        agent: AgentRef {
+                            hamlet,
+                            number: u64::try_from(number)?,
+                        },
+                        chief,
+                        session,
+                    },
+                    previous: previous.map(BindingId),
+                    unreflected,
+                    retiring,
+                    entered,
+                    last,
+                    last_input,
+                })
+            },
+        )
+        .transpose()
 }
 
 /// Every conversation of `agent`, oldest first.
 pub(crate) fn conversations_of(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
 ) -> Result<Vec<BindingId>> {
-    let mut query = db.prepare(
-        "SELECT binding FROM chat_conversation WHERE hamlet = ?1 \
-         AND number = ?2 ORDER BY binding",
-    )?;
-    Ok(query
-        .query_map(params![agent.hamlet, number_of(agent)?], |row| {
-            Ok(BindingId(row.get(0)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
+    Ok(chat_conversation::table
+        .filter(chat_conversation::hamlet.eq(&agent.hamlet))
+        .filter(chat_conversation::number.eq(number_of(agent)?))
+        .order(chat_conversation::binding)
+        .select(chat_conversation::binding)
+        .load::<i64>(db)?
+        .into_iter()
+        .map(BindingId)
+        .collect())
 }
 
 /// Every conversation kept for an agent, oldest first.
-pub(crate) fn all(db: &Connection) -> Result<Vec<BindingId>> {
-    let mut query = db.prepare(
-        "SELECT binding FROM chat_conversation ORDER BY binding",
-    )?;
-    Ok(query
-        .query_map([], |row| Ok(BindingId(row.get(0)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
+pub(crate) fn all(
+    db: &mut SqliteConnection,
+) -> Result<Vec<BindingId>> {
+    Ok(chat_conversation::table
+        .order(chat_conversation::binding)
+        .select(chat_conversation::binding)
+        .load::<i64>(db)?
+        .into_iter()
+        .map(BindingId)
+        .collect())
 }
 
 /// The conversations that led to `binding` through rewinds and forks,
 /// from `binding` back.
 pub(crate) fn lineage(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<Vec<BindingId>> {
     let mut chain = vec![binding];
     let mut at = binding;
     loop {
-        let previous = match db
-            .query_row(
-                "SELECT previous FROM chat_conversation WHERE \
-                 binding = ?1",
-                [at.0],
-                |row| row.get::<_, Option<i64>>(0),
-            )
+        let previous = match chat_conversation::table
+            .find(at.0)
+            .select(chat_conversation::previous)
+            .first::<Option<i64>>(db)
             .optional()?
             .flatten()
         {
@@ -328,21 +345,19 @@ pub(crate) fn lineage(
 }
 
 pub(crate) fn set_retiring(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     retiring: bool,
 ) -> Result<()> {
-    db.execute(
-        "UPDATE chat_conversation SET retiring = ?2 WHERE binding = \
-         ?1",
-        params![binding.0, retiring],
-    )?;
+    diesel::update(chat_conversation::table.find(binding.0))
+        .set(chat_conversation::retiring.eq(retiring))
+        .execute(db)?;
     Ok(())
 }
 
 /// A chief's instruction to an agent, kept with the latest twenty.
 pub(crate) fn instruct(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     task: &str,
     chief: &str,
@@ -350,57 +365,75 @@ pub(crate) fn instruct(
     at: i64,
 ) -> Result<()> {
     let n = number_of(agent)?;
-    db.execute(
-        "INSERT INTO chat_instruction (hamlet, number, task, chief, \
-         text, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT DO \
-         NOTHING",
-        params![agent.hamlet, n, task, chief, text, at],
-    )?;
-    db.execute(
-        "DELETE FROM chat_instruction WHERE hamlet = ?1 AND number \
-         = ?2 AND task NOT IN (SELECT task FROM chat_instruction \
-         WHERE hamlet = ?1 AND number = ?2 ORDER BY at DESC LIMIT \
-         20)",
-        params![agent.hamlet, n],
-    )?;
+    diesel::insert_into(chat_instruction::table)
+        .values((
+            chat_instruction::hamlet.eq(&agent.hamlet),
+            chat_instruction::number.eq(n),
+            chat_instruction::task.eq(task),
+            chat_instruction::chief.eq(chief),
+            chat_instruction::text.eq(text),
+            chat_instruction::at.eq(at),
+        ))
+        .on_conflict_do_nothing()
+        .execute(db)?;
+    let latest = chat_instruction::table
+        .filter(chat_instruction::hamlet.eq(&agent.hamlet))
+        .filter(chat_instruction::number.eq(n))
+        .order(chat_instruction::at.desc())
+        .limit(20)
+        .select(chat_instruction::task)
+        .load::<String>(db)?;
+    diesel::delete(
+        chat_instruction::table
+            .filter(chat_instruction::hamlet.eq(&agent.hamlet))
+            .filter(chat_instruction::number.eq(n))
+            .filter(chat_instruction::task.ne_all(latest)),
+    )
+    .execute(db)?;
     Ok(())
 }
 
 /// Keeps that the instruction `task` to `agent` was carried out.
 pub(crate) fn instruction_done(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     task: &str,
     at: i64,
 ) -> Result<()> {
-    db.execute(
-        "UPDATE chat_instruction SET done = ?4 WHERE hamlet = ?1 \
-         AND number = ?2 AND task = ?3",
-        params![agent.hamlet, number_of(agent)?, task, at],
-    )?;
+    diesel::update(chat_instruction::table.find((
+        &agent.hamlet,
+        number_of(agent)?,
+        task,
+    )))
+    .set(chat_instruction::done.eq(at))
+    .execute(db)?;
     Ok(())
 }
 
 /// The instructions to the agents of `hamlet`, each agent's oldest
 /// first.
 pub(crate) fn instructions(
-    db: &Connection,
+    db: &mut SqliteConnection,
     hamlet: &str,
 ) -> Result<Vec<crate::prompt::Instruction>> {
-    let mut query = db.prepare(
-        "SELECT number, chief, text, at FROM chat_instruction WHERE \
-         hamlet = ?1 ORDER BY number, at",
-    )?;
-    Ok(query
-        .query_map([hamlet], |row| {
-            Ok(crate::prompt::Instruction {
-                agent: row.get(0)?,
-                chief: row.get(1)?,
-                text: row.get(2)?,
-                at: row.get(3)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
+    Ok(chat_instruction::table
+        .filter(chat_instruction::hamlet.eq(hamlet))
+        .order((chat_instruction::number, chat_instruction::at))
+        .select((
+            chat_instruction::number,
+            chat_instruction::chief,
+            chat_instruction::text,
+            chat_instruction::at,
+        ))
+        .load::<(i64, String, String, i64)>(db)?
+        .into_iter()
+        .map(|(agent, chief, text, at)| crate::prompt::Instruction {
+            agent,
+            chief,
+            text,
+            at,
+        })
+        .collect())
 }
 
 fn number_of(agent: &AgentRef) -> Result<i64> {
@@ -409,82 +442,88 @@ fn number_of(agent: &AgentRef) -> Result<i64> {
 
 /// Keeps how the last followed input of `binding` ended.
 pub(crate) fn followed(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     last: &str,
     input: Option<&str>,
 ) -> Result<()> {
-    db.execute(
-        "UPDATE chat_conversation SET last = ?2, last_input = ?3 \
-         WHERE binding = ?1",
-        params![binding.0, last, input],
-    )?;
+    diesel::update(chat_conversation::table.find(binding.0))
+        .set((
+            chat_conversation::last.eq(last),
+            chat_conversation::last_input.eq(input),
+        ))
+        .execute(db)?;
     Ok(())
 }
 
 /// Adds `by` to the answered turns of `binding` since its last
 /// reflection, or sets them to none.
 pub(crate) fn count_turns(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     by: Option<i64>,
 ) -> Result<()> {
+    let conversation = chat_conversation::table.find(binding.0);
     match by {
-        Some(by) => db.execute(
-            "UPDATE chat_conversation SET unreflected = unreflected \
-             + ?2 WHERE binding = ?1",
-            params![binding.0, by],
-        )?,
-        None => db.execute(
-            "UPDATE chat_conversation SET unreflected = 0 WHERE \
-             binding = ?1",
-            [binding.0],
-        )?,
+        Some(by) => diesel::update(conversation)
+            .set(
+                chat_conversation::unreflected
+                    .eq(chat_conversation::unreflected + by),
+            )
+            .execute(db)?,
+        None => diesel::update(conversation)
+            .set(chat_conversation::unreflected.eq(0))
+            .execute(db)?,
     };
     Ok(())
 }
 
 /// Keeps that the reflection input `input` of `binding` was entered.
 pub(crate) fn enter(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     input: &str,
 ) -> Result<bool> {
-    Ok(db.execute(
-        "UPDATE chat_conversation SET entered = ?2, unreflected = 0 \
-         WHERE binding = ?1 AND entered IS NOT ?2",
-        params![binding.0, input],
-    )? == 1)
+    Ok(diesel::update(
+        chat_conversation::table
+            .find(binding.0)
+            .filter(chat_conversation::entered.is_not(input)),
+    )
+    .set((
+        chat_conversation::entered.eq(input),
+        chat_conversation::unreflected.eq(0),
+    ))
+    .execute(db)?
+        == 1)
 }
 
 /// The budget words kept for the turn of `input`, if any.
 pub(crate) fn budget_words(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     input: &str,
 ) -> Result<Option<String>> {
-    Ok(db
-        .query_row(
-            "SELECT budget_words FROM chat_conversation WHERE \
-             binding = ?1 AND budget_input = ?2",
-            params![binding.0, input],
-            |row| row.get(0),
-        )
+    Ok(chat_conversation::table
+        .find(binding.0)
+        .filter(chat_conversation::budget_input.eq(input))
+        .select(chat_conversation::budget_words)
+        .first::<Option<String>>(db)
         .optional()?
         .flatten())
 }
 
 /// Keeps the budget words shown through the turn of `input`.
 pub(crate) fn keep_budget_words(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     input: &str,
     words: &str,
 ) -> Result<()> {
-    db.execute(
-        "UPDATE chat_conversation SET budget_input = ?2, \
-         budget_words = ?3 WHERE binding = ?1",
-        params![binding.0, input, words],
-    )?;
+    diesel::update(chat_conversation::table.find(binding.0))
+        .set((
+            chat_conversation::budget_input.eq(input),
+            chat_conversation::budget_words.eq(words),
+        ))
+        .execute(db)?;
     Ok(())
 }

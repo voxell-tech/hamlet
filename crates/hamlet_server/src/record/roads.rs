@@ -1,13 +1,16 @@
 //! Local roads, office roads and their atomic charges.
 
 use anyhow::{Result, ensure};
+use diesel::dsl::sql;
+use diesel::prelude::*;
+use diesel::sql_types::BigInt;
 use hamlet_protocol::client::RoadLevel;
-use rusqlite::{Connection, params};
 
 use super::{
     Action, By, DecisionKind, End, Hamlet, Reason, RecordOperation,
     RecordResult, Refusal, Road,
 };
+use crate::schema::record_road_charge;
 use crate::spend::money;
 
 impl Hamlet {
@@ -89,7 +92,7 @@ pub fn level(
 impl RecordOperation {
     pub(super) fn lay_road(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
         r: &mut Hamlet,
         a: &str,
         b: &str,
@@ -139,20 +142,19 @@ impl RecordOperation {
             return Ok(refuse(Reason::RoadBudget { text }));
         }
         let price = r.limits.chief.road_price();
-        db.execute(
-            "INSERT INTO record_road_charge(hamlet, agent, task, \
-             at, tokens, micros, ms) VALUES (?1, ?2, ?3, ?4, ?5, \
-             ?6, ?7)",
-            params![
-                r.id,
-                i64::try_from(r.mayor)?,
-                self.task,
-                self.at,
-                i64::try_from(price.tokens)?,
-                i64::try_from(price.micros)?,
-                i64::try_from(price.ms)?
-            ],
-        )?;
+        diesel::insert_into(record_road_charge::table)
+            .values((
+                record_road_charge::hamlet.eq(&r.id),
+                record_road_charge::agent.eq(i64::try_from(r.mayor)?),
+                record_road_charge::task.eq(&self.task),
+                record_road_charge::at.eq(self.at),
+                record_road_charge::tokens
+                    .eq(i64::try_from(price.tokens)?),
+                record_road_charge::micros
+                    .eq(i64::try_from(price.micros)?),
+                record_road_charge::ms.eq(i64::try_from(price.ms)?),
+            ))
+            .execute(db)?;
         let road = Road::new(aa, bb, self.at, self.actor.by());
         r.roads.push(road.clone());
         self.decision(
@@ -165,7 +167,7 @@ impl RecordOperation {
 
     fn road_afford(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
         r: &Hamlet,
     ) -> Result<Option<String>> {
         let Some(budget) = &r.limits.road_budget else {
@@ -177,18 +179,18 @@ impl RecordOperation {
             (budget.start..budget.end).contains(&self.at),
             "the road budget window must be refreshed"
         );
-        let (micros, ms) = db.query_row(
-            "SELECT coalesce(sum(micros), 0), coalesce(sum(ms), 0) \
-             FROM record_road_charge WHERE hamlet = ?1 AND at >= ?2 \
-             AND at < ?3",
-            params![r.id, budget.start, budget.end],
-            |row| {
-                Ok((
-                    super::unsigned(row, 0)?,
-                    super::unsigned(row, 1)?,
-                ))
-            },
-        )?;
+        let (micros, ms) = record_road_charge::table
+            .filter(record_road_charge::hamlet.eq(&r.id))
+            .filter(record_road_charge::at.ge(budget.start))
+            .filter(record_road_charge::at.lt(budget.end))
+            // `sum` of an integer column is `Numeric` to Diesel.
+            .select((
+                sql::<BigInt>("coalesce(sum(micros), 0)"),
+                sql::<BigInt>("coalesce(sum(ms), 0)"),
+            ))
+            .get_result::<(i64, i64)>(db)?;
+        let (micros, ms) =
+            (u64::try_from(micros)?, u64::try_from(ms)?);
         let price = r.limits.chief.road_price();
         let cost_after = budget
             .other

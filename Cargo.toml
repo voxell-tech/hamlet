@@ -53,9 +53,12 @@ bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", rev = "d277555d4
 anyhow = "1"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+diesel = { version = "2.3", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35", "32-column-tables"] }
 futures = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 interprocess = "2"
+# SQLite itself, built in, for Diesel.
+libsqlite3-sys = { version = "0.38", features = ["bundled"] }
 keyring = "4"
 libc = "0.2"
 # The text layout Bevy's text is built on, for selecting drawn words.
@@ -67,7 +70,6 @@ regex = "1"
 rfd = "0.17"
 ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
 rustix = "1"
 serde = { version = "1.0.229", features = ["derive"] }
 schemars = "1.2.3"

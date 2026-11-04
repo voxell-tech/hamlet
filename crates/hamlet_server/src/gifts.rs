@@ -691,9 +691,10 @@ impl Skill {
 
     /// Keeps the gift in the record.
     fn record(self, service: &mut Service) -> Result<String> {
+        let chief = service.chief.clone();
         crate::record::give_skill(
             service.db(),
-            &service.chief,
+            &chief,
             &self.target.hamlet,
             self.target.number,
             &self.name,

@@ -6,6 +6,9 @@ pub(crate) mod lane;
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
+use diesel::dsl::sql;
+use diesel::prelude::*;
+use diesel::sql_types::{Bool, Text};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -19,6 +22,7 @@ use crate::record::{
     self, Actor, AgentRef, BroughtFile, Change, Departure,
     MergeFiles, MergeNotes, RecordOperation, RecordResult,
 };
+use crate::schema::society_document;
 use crate::service::Service;
 use crate::{OperationId, Outcome};
 
@@ -162,10 +166,10 @@ fn preparing(
             },
         },
     };
-    let tx = service.home.store().transaction()?;
-    super::leaving::guards(&tx, hamlet)?;
-    let checked = crate::operation::change(&tx, &operation)?;
-    tx.rollback()?;
+    let mut tx = service.home.store().transaction()?;
+    super::leaving::guards(&mut tx, hamlet)?;
+    let checked = crate::operation::change(&mut tx, &operation)?;
+    drop(tx);
     if let Outcome::Refused(refusal) = checked {
         return Ok(Err(Unplanned::Refused(refusal)));
     }
@@ -806,11 +810,11 @@ fn let_go(
     archive: &str,
     snapshot: &str,
 ) -> Result<()> {
-    service.db().execute(
-        "DELETE FROM society_document WHERE \
-         kind='remote-merge-attempt' AND key=?1",
-        [format!("{hamlet}:{archive}")],
-    )?;
+    diesel::delete(society_document::table.find((
+        "remote-merge-attempt",
+        format!("{hamlet}:{archive}"),
+    )))
+    .execute(service.db())?;
     tree::erase_snapshot(service.houses.root(), snapshot)
 }
 
@@ -866,16 +870,17 @@ pub(crate) async fn finish(service: &mut Service) -> Result<()> {
             work.done().applied(service)?;
         }
     }
-    let kept = service
-        .db()
-        .prepare(
-            "SELECT json_extract(value,'$.snapshot') FROM \
-             society_document WHERE kind IN \
-             ('merge','merge-plan','library-consult') AND \
-             json_type(value,'$.snapshot')='text'",
-        )?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let kept = society_document::table
+        .filter(society_document::kind.eq_any([
+            "merge",
+            "merge-plan",
+            "library-consult",
+        ]))
+        .filter(sql::<Bool>(
+            "json_type(value, '$.snapshot') = 'text'",
+        ))
+        .select(sql::<Text>("json_extract(value, '$.snapshot')"))
+        .load::<String>(service.db())?;
     tree::sweep_snapshots(service.houses.root(), &kept)?;
     Ok(())
 }

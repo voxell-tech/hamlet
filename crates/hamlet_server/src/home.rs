@@ -5,10 +5,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OptionalExtension};
+use diesel::prelude::*;
 
 use crate::claim::Claim;
 use crate::operation::RuntimeInstance;
+use crate::schema::store_identity;
 use crate::store::Store;
 
 /// The realm database, which only this server opens.
@@ -99,7 +100,7 @@ impl Home {
 
     /// The realm store's open database, reached without the
     /// store's transactions.
-    pub(crate) fn connection(&self) -> &Connection {
+    pub(crate) fn connection(&mut self) -> &mut SqliteConnection {
         self.store.connection()
     }
 
@@ -112,13 +113,11 @@ impl Home {
 /// Checks the identity pair, or creates it for a fresh home.
 fn identify(layout: &Layout, store: &mut Store) -> Result<()> {
     let path = layout.root.join(IDENTITY);
-    let tx = store.transaction()?;
-    let identity = tx
-        .query_row(
-            "SELECT home FROM store_identity WHERE id = 1",
-            [],
-            |row| row.get::<_, String>(0),
-        )
+    let mut tx = store.transaction()?;
+    let identity = store_identity::table
+        .find(1)
+        .select(store_identity::home)
+        .first::<String>(&mut *tx)
         .optional()?;
     if let Some(identity) = identity {
         let kept = std::fs::read_to_string(&path).context(
@@ -146,10 +145,12 @@ fn identify(layout: &Layout, store: &mut Store) -> Result<()> {
         std::fs::File::open(&layout.root)?.sync_all()?;
         // A failure before commit leaves an incomplete pair, which
         // reopening refuses.
-        tx.execute(
-            "INSERT INTO store_identity (id, home) VALUES (1, ?1)",
-            [&identity],
-        )?;
+        diesel::insert_into(store_identity::table)
+            .values((
+                store_identity::id.eq(1),
+                store_identity::home.eq(&identity),
+            ))
+            .execute(&mut *tx)?;
     }
     tx.commit()?;
     Ok(())

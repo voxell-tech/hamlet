@@ -155,7 +155,7 @@ impl Work {
     /// Forgets the read and cleaned results of calls that stopped.
     pub fn retire(
         &mut self,
-        db: &rusqlite::Connection,
+        db: &mut diesel::SqliteConnection,
     ) -> Result<()> {
         let ids = self
             .offers

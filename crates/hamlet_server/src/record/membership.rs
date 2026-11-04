@@ -1,7 +1,7 @@
 //! Admission, departure, restoration and moves between records.
 
 use anyhow::{Context, Result};
-use rusqlite::Connection;
+use diesel::SqliteConnection;
 
 use super::{
     Action, Actor, Admit, Agent, AgentRef, Archived, DecisionKind,
@@ -56,7 +56,7 @@ impl Hamlet {
 impl RecordOperation {
     pub(super) fn admit(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
         r: &mut Hamlet,
         given: &Admit,
     ) -> Result<Result<RecordResult, Refusal>> {
@@ -317,7 +317,7 @@ impl RecordOperation {
 
     pub(super) fn restore(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
         r: &mut Hamlet,
         archive: &str,
         name: &str,
@@ -549,7 +549,7 @@ impl RecordOperation {
 
     pub(super) fn move_member(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
         old: &mut Hamlet,
         number: u64,
         to: &str,

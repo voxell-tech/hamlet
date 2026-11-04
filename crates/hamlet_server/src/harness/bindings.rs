@@ -2,17 +2,24 @@
 //! the inputs owed to them, as the realm database keeps them.
 
 use anyhow::{Context, Result};
+use diesel::deserialize::FromSqlRow;
+use diesel::dsl::{self, case_when, exists, max, sql};
+use diesel::expression::AsExpression;
+use diesel::prelude::*;
+use diesel::sql_types::{BigInt, Bool, Nullable, SingleValue, Text};
+use diesel::sqlite::Sqlite;
+use diesel::upsert::excluded;
 use hamlet_protocol::runtime::{
     AdmittedStatus, ConfigureTools, Item, Mark, ModelRef,
     SettledStatus,
 };
-use rusqlite::types::{
-    FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef,
-};
-use rusqlite::{Connection, OptionalExtension, ToSql, params};
 
 use super::mark::InputMark;
 use crate::record::AgentRef;
+use crate::schema::{
+    harness_agent, harness_binding, harness_input, harness_item,
+    harness_runtime,
+};
 use crate::{RuntimeInstance, Store};
 
 /// The harness an agent's new conversations run in unless it has
@@ -74,7 +81,10 @@ pub struct Input<'a> {
 }
 
 /// Where an input is in its runtime, as it last told it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, AsExpression, FromSqlRow,
+)]
+#[diesel(sql_type = Text)]
 pub enum InputStatus {
     Queued,
     Placed,
@@ -96,7 +106,15 @@ impl InputStatus {
             Self::Unanswered => "unanswered",
         }
     }
+
+    fn named(name: &str) -> Option<Self> {
+        [Self::Queued, Self::Placed, Self::Done, Self::Unanswered]
+            .into_iter()
+            .find(|status| status.as_str() == name)
+    }
 }
+
+crate::store::named_text!(InputStatus);
 
 impl From<AdmittedStatus> for InputStatus {
     fn from(status: AdmittedStatus) -> Self {
@@ -118,21 +136,6 @@ impl From<SettledStatus> for InputStatus {
     }
 }
 
-impl ToSql for InputStatus {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.as_str().into())
-    }
-}
-
-impl FromSql for InputStatus {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        [Self::Queued, Self::Placed, Self::Done, Self::Unanswered]
-            .into_iter()
-            .find(|status| value.as_str() == Ok(status.as_str()))
-            .ok_or(FromSqlError::InvalidType)
-    }
-}
-
 /// How an input stands, as its runtime last told it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Standing {
@@ -145,15 +148,11 @@ pub struct Standing {
 
 impl Store {
     /// The harness `agent`'s new conversations run in.
-    pub fn harness_of(&self, agent: &AgentRef) -> Result<String> {
-        Ok(self
-            .connection()
-            .query_row(
-                "SELECT harness FROM harness_agent WHERE hamlet = \
-                 ?1 AND number = ?2",
-                params![agent.hamlet, i64::try_from(agent.number)?],
-                |row| row.get::<_, String>(0),
-            )
+    pub fn harness_of(&mut self, agent: &AgentRef) -> Result<String> {
+        Ok(harness_agent::table
+            .find((&agent.hamlet, i64::try_from(agent.number)?))
+            .select(harness_agent::harness)
+            .first::<String>(self.connection())
             .optional()?
             .unwrap_or_else(|| DEFAULT_HARNESS.into()))
     }
@@ -165,67 +164,74 @@ impl Store {
         agent: &AgentRef,
         harness: &str,
     ) -> Result<()> {
-        self.connection().execute(
-            "INSERT INTO harness_agent (hamlet, number, harness) \
-             VALUES (?1, ?2, ?3) ON CONFLICT (hamlet, number) DO \
-             UPDATE SET harness = excluded.harness",
-            params![
-                agent.hamlet,
-                i64::try_from(agent.number)?,
-                harness
-            ],
-        )?;
+        diesel::insert_into(harness_agent::table)
+            .values((
+                harness_agent::hamlet.eq(&agent.hamlet),
+                harness_agent::number
+                    .eq(i64::try_from(agent.number)?),
+                harness_agent::harness.eq(harness),
+            ))
+            .on_conflict((
+                harness_agent::hamlet,
+                harness_agent::number,
+            ))
+            .do_update()
+            .set(
+                harness_agent::harness
+                    .eq(excluded(harness_agent::harness)),
+            )
+            .execute(self.connection())?;
         Ok(())
     }
 
     /// The binding `id`.
-    pub fn binding(&self, id: BindingId) -> Result<Option<Binding>> {
-        self.connection()
-            .query_row(
-                &format!("{BINDING} WHERE id = ?1"),
-                [id.0],
-                binding_row,
-            )
+    pub fn binding(
+        &mut self,
+        id: BindingId,
+    ) -> Result<Option<Binding>> {
+        harness_binding::table
+            .find(id.0)
+            .select(BindingRow::as_select())
+            .first(self.connection())
             .optional()?
+            .map(BindingRow::binding)
             .transpose()
     }
 
     /// The binding of the runtime `runtime`'s conversation
     /// `conversation`.
     pub fn bound(
-        &self,
+        &mut self,
         runtime: &RuntimeInstance,
         conversation: &str,
     ) -> Result<Option<Binding>> {
-        self.connection()
-            .query_row(
-                &format!(
-                    "{BINDING} WHERE runtime = ?1 AND conversation \
-                     = ?2"
-                ),
-                params![runtime.as_str(), conversation],
-                binding_row,
-            )
+        harness_binding::table
+            .filter(harness_binding::runtime.eq(runtime.as_str()))
+            .filter(harness_binding::conversation.eq(conversation))
+            .select(BindingRow::as_select())
+            .first(self.connection())
             .optional()?
+            .map(BindingRow::binding)
             .transpose()
     }
 
     pub(crate) fn bindings_of(
-        &self,
+        &mut self,
         runtime: &RuntimeInstance,
     ) -> Result<Vec<Binding>> {
-        let mut query = self.connection().prepare(&format!(
-            "{BINDING} WHERE runtime = ?1 ORDER BY id"
-        ))?;
-        query
-            .query_map([runtime.as_str()], binding_row)?
-            .map(|row| row?)
+        harness_binding::table
+            .filter(harness_binding::runtime.eq(runtime.as_str()))
+            .order(harness_binding::id)
+            .select(BindingRow::as_select())
+            .load(self.connection())?
+            .into_iter()
+            .map(BindingRow::binding)
             .collect()
     }
 
     /// The runtime `id`, as the server keeps it.
     pub(crate) fn runtime(
-        &self,
+        &mut self,
         id: &RuntimeInstance,
     ) -> Result<RuntimeRow> {
         self.runtimes()?
@@ -234,22 +240,20 @@ impl Store {
             .context("a runtime the store does not keep")
     }
 
-    pub(crate) fn runtimes(&self) -> Result<Vec<RuntimeRow>> {
-        let mut query = self.connection().prepare(
-            "SELECT id, adapter, version, begun FROM \
-             harness_runtime ORDER BY id",
-        )?;
-        query
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, bool>(3)?,
-                ))
-            })?
-            .map(|row| {
-                let (id, adapter, version, begun) = row?;
+    pub(crate) fn runtimes(&mut self) -> Result<Vec<RuntimeRow>> {
+        harness_runtime::table
+            .order(harness_runtime::id)
+            .select((
+                harness_runtime::id,
+                harness_runtime::adapter,
+                harness_runtime::version,
+                harness_runtime::begun,
+            ))
+            .load::<(String, Option<String>, Option<String>, bool)>(
+                self.connection(),
+            )?
+            .into_iter()
+            .map(|(id, adapter, version, begun)| {
                 Ok(RuntimeRow {
                     id: RuntimeInstance::new(id)?,
                     adapter,
@@ -266,14 +270,11 @@ impl Store {
         &mut self,
         harness: &str,
     ) -> Result<RuntimeInstance> {
-        let kept = self
-            .connection()
-            .query_row(
-                "SELECT id FROM harness_runtime WHERE harness = ?1 \
-                 ORDER BY id LIMIT 1",
-                [harness],
-                |row| row.get::<_, String>(0),
-            )
+        let kept = harness_runtime::table
+            .filter(harness_runtime::harness.eq(harness))
+            .order(harness_runtime::id)
+            .select(harness_runtime::id)
+            .first::<String>(self.connection())
             .optional()?;
         if let Some(id) = kept {
             return RuntimeInstance::new(id);
@@ -282,11 +283,12 @@ impl Store {
             "{harness}-{}",
             uuid::Uuid::new_v4().simple()
         ))?;
-        self.connection().execute(
-            "INSERT INTO harness_runtime (id, harness) VALUES (?1, \
-             ?2)",
-            params![id.as_str(), harness],
-        )?;
+        diesel::insert_into(harness_runtime::table)
+            .values((
+                harness_runtime::id.eq(id.as_str()),
+                harness_runtime::harness.eq(harness),
+            ))
+            .execute(self.connection())?;
         Ok(id)
     }
 
@@ -298,11 +300,13 @@ impl Store {
         adapter: &str,
         version: &str,
     ) -> Result<()> {
-        self.connection().execute(
-            "UPDATE harness_runtime SET adapter = ?2, version = ?3, \
-             begun = 1 WHERE id = ?1",
-            params![runtime.as_str(), adapter, version],
-        )?;
+        diesel::update(harness_runtime::table.find(runtime.as_str()))
+            .set((
+                harness_runtime::adapter.eq(adapter),
+                harness_runtime::version.eq(version),
+                harness_runtime::begun.eq(true),
+            ))
+            .execute(self.connection())?;
         Ok(())
     }
 
@@ -313,18 +317,19 @@ impl Store {
         model: &ModelRef,
         runtime: &RuntimeInstance,
     ) -> Result<BindingId> {
-        self.connection().execute(
-            "INSERT INTO harness_binding (hamlet, number, errand, \
-             model, runtime) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                agent.hamlet,
-                i64::try_from(agent.number)?,
-                errand,
-                serde_json::to_string(model)?,
-                runtime.as_str()
-            ],
-        )?;
-        Ok(BindingId(self.connection().last_insert_rowid()))
+        let id = diesel::insert_into(harness_binding::table)
+            .values((
+                harness_binding::hamlet.eq(&agent.hamlet),
+                harness_binding::number
+                    .eq(i64::try_from(agent.number)?),
+                harness_binding::errand.eq(errand),
+                harness_binding::model
+                    .eq(serde_json::to_string(model)?),
+                harness_binding::runtime.eq(runtime.as_str()),
+            ))
+            .returning(harness_binding::id)
+            .get_result(self.connection())?;
+        Ok(BindingId(id))
     }
 
     /// Binds a copy of `parent` up to its entry `at`, in its runtime,
@@ -335,21 +340,51 @@ impl Store {
         at: &str,
     ) -> Result<BindingId> {
         let ordinal = ordinal_of(at)?;
-        let tx = self.transaction()?;
-        tx.execute(
-            "INSERT INTO harness_binding (hamlet, number, errand, \
-             model, runtime, fork_of, fork_at) SELECT hamlet, \
-             number, errand, model, runtime, id, ?2 FROM \
-             harness_binding WHERE id = ?1",
-            params![parent.id.0, at],
-        )?;
-        let fork = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO harness_item (binding, entry, ordinal, \
-             item) SELECT ?2, entry, ordinal, item FROM \
-             harness_item WHERE binding = ?1 AND ordinal <= ?3",
-            params![parent.id.0, fork, ordinal],
-        )?;
+        let mut tx = self.transaction()?;
+        let fork = diesel::insert_into(harness_binding::table)
+            .values(
+                harness_binding::table
+                    .filter(harness_binding::id.eq(parent.id.0))
+                    .select((
+                        harness_binding::hamlet,
+                        harness_binding::number,
+                        harness_binding::errand,
+                        harness_binding::model,
+                        harness_binding::runtime,
+                        harness_binding::id.nullable(),
+                        at.into_sql::<Nullable<Text>>(),
+                    )),
+            )
+            .into_columns((
+                harness_binding::hamlet,
+                harness_binding::number,
+                harness_binding::errand,
+                harness_binding::model,
+                harness_binding::runtime,
+                harness_binding::fork_of,
+                harness_binding::fork_at,
+            ))
+            .returning(harness_binding::id)
+            .get_result::<i64>(&mut *tx)?;
+        diesel::insert_into(harness_item::table)
+            .values(
+                harness_item::table
+                    .filter(harness_item::binding.eq(parent.id.0))
+                    .filter(harness_item::ordinal.le(ordinal))
+                    .select((
+                        fork.into_sql::<BigInt>(),
+                        harness_item::entry,
+                        harness_item::ordinal,
+                        harness_item::item,
+                    )),
+            )
+            .into_columns((
+                harness_item::binding,
+                harness_item::entry,
+                harness_item::ordinal,
+                harness_item::item,
+            ))
+            .execute(&mut *tx)?;
         tx.commit()?;
         Ok(BindingId(fork))
     }
@@ -363,12 +398,17 @@ impl Store {
         adapter: &str,
         version: &str,
     ) -> Result<()> {
-        self.connection().execute(
-            "UPDATE harness_binding SET conversation = ?2, adapter \
-             = ?3, version = ?4 WHERE id = ?1 AND conversation IS \
-             NULL",
-            params![binding.0, conversation, adapter, version],
-        )?;
+        diesel::update(
+            harness_binding::table
+                .filter(harness_binding::id.eq(binding.0))
+                .filter(harness_binding::conversation.is_null()),
+        )
+        .set((
+            harness_binding::conversation.eq(conversation),
+            harness_binding::adapter.eq(adapter),
+            harness_binding::version.eq(version),
+        ))
+        .execute(self.connection())?;
         Ok(())
     }
 
@@ -379,27 +419,34 @@ impl Store {
         binding: BindingId,
         tools: &ConfigureTools,
     ) -> Result<bool> {
-        Ok(self.connection().execute(
-            "UPDATE harness_binding SET tools = ?2 WHERE id = ?1 \
-             AND tools IS NOT ?2",
-            params![binding.0, serde_json::to_string(tools)?],
-        )? == 1)
+        let tools = serde_json::to_string(tools)?;
+        Ok(diesel::update(
+            harness_binding::table
+                .filter(harness_binding::id.eq(binding.0))
+                .filter(harness_binding::tools.is_not(&tools)),
+        )
+        .set(harness_binding::tools.eq(&tools))
+        .execute(self.connection())?
+            == 1)
     }
 
     /// The tools `binding` offers, when its runtime has not been told
     /// them.
     pub(crate) fn tools_owed(
-        &self,
+        &mut self,
         binding: BindingId,
     ) -> Result<Option<ConfigureTools>> {
-        self.connection()
-            .query_row(
-                "SELECT tools FROM harness_binding WHERE id = ?1 \
-                 AND tools IS NOT NULL AND tools IS NOT tools_told",
-                [binding.0],
-                |row| row.get::<_, String>(0),
+        harness_binding::table
+            .filter(harness_binding::id.eq(binding.0))
+            .filter(harness_binding::tools.is_not_null())
+            .filter(
+                harness_binding::tools
+                    .is_not(harness_binding::tools_told),
             )
+            .select(harness_binding::tools)
+            .first::<Option<String>>(self.connection())
             .optional()?
+            .flatten()
             .map(|tools| Ok(serde_json::from_str(&tools)?))
             .transpose()
     }
@@ -410,11 +457,9 @@ impl Store {
         binding: BindingId,
         tools: &str,
     ) -> Result<()> {
-        self.connection().execute(
-            "UPDATE harness_binding SET tools_told = ?2 WHERE id = \
-             ?1",
-            params![binding.0, tools],
-        )?;
+        diesel::update(harness_binding::table.find(binding.0))
+            .set(harness_binding::tools_told.eq(tools))
+            .execute(self.connection())?;
         Ok(())
     }
 
@@ -427,22 +472,43 @@ impl Store {
     ) -> Result<bool> {
         let mark =
             input.mark.map(serde_json::to_string).transpose()?;
-        let kept = self.connection().execute(
-            "INSERT INTO harness_input (binding, request, ordinal, \
-             content, steer, state, mark, write, boundary) SELECT \
-             ?1, ?2, coalesce(max(ordinal), 0) + 1, ?3, ?4, 'kept', \
-             ?5, ?6, ?7 FROM harness_input WHERE binding = ?1 ON \
-             CONFLICT (binding, request) DO NOTHING",
-            params![
-                binding.0,
-                input.request,
-                input.content,
-                input.steer,
-                mark,
-                input.write,
-                input.boundary
-            ],
-        )?;
+        let kept = diesel::insert_into(harness_input::table)
+            .values(
+                harness_input::table
+                    .filter(harness_input::binding.eq(binding.0))
+                    .select((
+                        binding.0.into_sql::<BigInt>(),
+                        input.request.into_sql::<Text>(),
+                        ifnull(
+                            max(harness_input::ordinal + 1),
+                            Some(1).into_sql::<Nullable<BigInt>>(),
+                        )
+                        .assume_not_null(),
+                        input.content.into_sql::<Text>(),
+                        input.steer.into_sql::<Bool>(),
+                        "kept".into_sql::<Text>(),
+                        mark.into_sql::<Nullable<Text>>(),
+                        input.write.into_sql::<Bool>(),
+                        input.boundary.into_sql::<Bool>(),
+                    )),
+            )
+            .into_columns((
+                harness_input::binding,
+                harness_input::request,
+                harness_input::ordinal,
+                harness_input::content,
+                harness_input::steer,
+                harness_input::state,
+                harness_input::mark,
+                harness_input::write,
+                harness_input::boundary,
+            ))
+            .on_conflict((
+                harness_input::binding,
+                harness_input::request,
+            ))
+            .do_nothing()
+            .execute(self.connection())?;
         Ok(kept == 1)
     }
 
@@ -450,63 +516,69 @@ impl Store {
     /// those not yet admitted, then, when `unsettled`, those
     /// admitted whose end the server has not heard.
     pub(crate) fn owed(
-        &self,
+        &mut self,
         binding: BindingId,
         unsettled: bool,
     ) -> Result<Vec<Owed>> {
-        let mut query = self.connection().prepare(&format!(
-            "SELECT request, content, steer, mark, write, boundary \
-             FROM harness_input WHERE binding = ?1 AND (state = \
-             'kept' OR (?2 AND state = 'admitted' AND followed = 0 \
-             AND NOT {})) ORDER BY ordinal",
-            ended("status")
-        ))?;
-        query
-            .query_map(params![binding.0, unsettled], |row| {
-                Ok((
-                    Owed {
-                        request: row.get(0)?,
-                        content: row.get(1)?,
-                        steer: row.get(2)?,
-                        mark: None,
-                        write: row.get(4)?,
-                        boundary: row.get(5)?,
-                    },
-                    row.get::<_, Option<String>>(3)?,
-                ))
-            })?
-            .map(|row| {
-                let (mut owed, mark) = row?;
-                owed.mark = mark
-                    .map(|m| serde_json::from_str(&m))
-                    .transpose()?;
-                Ok(owed)
+        harness_input::table
+            .filter(harness_input::binding.eq(binding.0))
+            .filter(
+                harness_input::state.eq("kept").or(unsettled
+                    .into_sql::<Bool>()
+                    .and(harness_input::state.eq("admitted"))
+                    .and(harness_input::followed.eq(false))
+                    .and(unended())),
+            )
+            .order(harness_input::ordinal)
+            .select((
+                harness_input::request,
+                harness_input::content,
+                harness_input::steer,
+                harness_input::mark,
+                harness_input::write,
+                harness_input::boundary,
+            ))
+            .load::<(String, String, bool, Option<String>, bool, bool)>(
+                self.connection(),
+            )?
+            .into_iter()
+            .map(|(request, content, steer, mark, write, boundary)| {
+                Ok(Owed {
+                    request,
+                    content,
+                    steer,
+                    mark: mark
+                        .map(|m| serde_json::from_str(&m))
+                        .transpose()?,
+                    write,
+                    boundary,
+                })
             })
             .collect()
     }
 
     /// How the input `request` of `binding` stands.
     pub fn standing(
-        &self,
+        &mut self,
         binding: BindingId,
         request: &str,
     ) -> Result<Option<Standing>> {
-        self.connection()
-            .query_row(
-                "SELECT submission, status, reason, detail, \
-                 followed FROM harness_input WHERE binding = ?1 AND \
-                 request = ?2",
-                params![binding.0, request],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<String>>(0)?,
-                        row.get::<_, Option<InputStatus>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, bool>(4)?,
-                    ))
-                },
-            )
+        harness_input::table
+            .find((binding.0, request))
+            .select((
+                harness_input::submission,
+                harness_input::status,
+                harness_input::reason,
+                harness_input::detail,
+                harness_input::followed,
+            ))
+            .first::<(
+                Option<String>,
+                Option<InputStatus>,
+                Option<String>,
+                Option<String>,
+                bool,
+            )>(self.connection())
             .optional()?
             .map(|(submission, status, reason, detail, followed)| {
                 Ok(Standing {
@@ -524,34 +596,28 @@ impl Store {
 
     /// The request whose input the runtime admitted as `submission`.
     pub fn request_of(
-        &self,
+        &mut self,
         binding: BindingId,
         submission: &str,
     ) -> Result<Option<String>> {
-        Ok(self
-            .connection()
-            .query_row(
-                "SELECT request FROM harness_input WHERE binding = \
-                 ?1 AND submission = ?2",
-                params![binding.0, submission],
-                |row| row.get(0),
-            )
+        Ok(harness_input::table
+            .filter(harness_input::binding.eq(binding.0))
+            .filter(harness_input::submission.eq(submission))
+            .select(harness_input::request)
+            .first(self.connection())
             .optional()?)
     }
 
     /// The mark of the input `request` of `binding`.
     pub(crate) fn mark_of(
-        &self,
+        &mut self,
         binding: BindingId,
         request: &str,
     ) -> Result<Option<InputMark>> {
-        self.connection()
-            .query_row(
-                "SELECT mark FROM harness_input WHERE binding = ?1 \
-                 AND request = ?2",
-                params![binding.0, request],
-                |row| row.get::<_, Option<String>>(0),
-            )
+        harness_input::table
+            .find((binding.0, request))
+            .select(harness_input::mark)
+            .first::<Option<String>>(self.connection())
             .optional()?
             .flatten()
             .map(|mark| {
@@ -563,7 +629,7 @@ impl Store {
 
     /// The mark of the input the runtime admitted as `submission`.
     pub(crate) fn input_mark(
-        &self,
+        &mut self,
         binding: BindingId,
         submission: Option<&str>,
     ) -> Result<Option<InputMark>> {
@@ -579,22 +645,26 @@ impl Store {
     /// The chief's lines `binding` holds queued behind its turn,
     /// whose input is `turn`.
     pub(crate) fn queued_lines(
-        &self,
+        &mut self,
         binding: BindingId,
         turn: Option<&str>,
     ) -> Result<usize> {
-        let marks = self
-            .connection()
-            .prepare(
-                "SELECT mark FROM harness_input WHERE binding = ?1 \
-                 AND write = 0 AND (state = 'kept' OR (state = \
-                 'admitted' AND status = 'queued' AND submission IS \
-                 NOT ?2))",
-            )?
-            .query_map(params![binding.0, turn], |row| {
-                row.get::<_, Option<String>>(0)
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let marks = harness_input::table
+            .filter(harness_input::binding.eq(binding.0))
+            .filter(harness_input::write.eq(false))
+            .filter(
+                harness_input::state.eq("kept").or(
+                    harness_input::state
+                        .eq("admitted")
+                        .and(
+                            harness_input::status
+                                .eq(InputStatus::Queued),
+                        )
+                        .and(harness_input::submission.is_not(turn)),
+                ),
+            )
+            .select(harness_input::mark)
+            .load::<Option<String>>(self.connection())?;
         let mut lines = 0;
         for mark in marks.into_iter().flatten() {
             if let InputMark::Chief { .. } =
@@ -609,20 +679,22 @@ impl Store {
 
     /// Whether the input `request` of `binding` placed an entry.
     pub(crate) fn placed(
-        &self,
+        &mut self,
         binding: BindingId,
         request: &str,
     ) -> Result<bool> {
-        Ok(self
-            .connection()
-            .query_row(
-                "SELECT 1 FROM harness_item WHERE binding = ?1 AND \
-                 json_extract(item, '$.request') = ?2",
-                params![binding.0, request],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some())
+        Ok(diesel::select(exists(
+            harness_item::table
+                .filter(harness_item::binding.eq(binding.0))
+                .filter(
+                    sql::<Nullable<Text>>(
+                        "json_extract(harness_item.item, \
+                         '$.request')",
+                    )
+                    .eq(request),
+                ),
+        ))
+        .get_result(self.connection())?)
     }
 
     /// Keeps how the input `request` of `binding` stands now.
@@ -636,22 +708,30 @@ impl Store {
         detail: Option<&serde_json::Value>,
     ) -> Result<()> {
         let detail = detail.map(serde_json::to_string).transpose()?;
+        let state = case_when::<_, _, Text>(
+            (status == InputStatus::Unanswered).into_sql::<Bool>(),
+            "dropped",
+        )
+        .when(harness_input::state.eq("kept"), "admitted")
+        .otherwise(harness_input::state);
         // A status never goes back once the input ended.
-        self.connection().execute(
-            &format!(
-                "UPDATE harness_input SET submission = coalesce(?3, \
-                 submission), status = ?4, reason = ?5, detail = \
-                 ?6, state = CASE WHEN ?4 = 'unanswered' THEN \
-                 'dropped' WHEN state = 'kept' THEN 'admitted' ELSE \
-                 state END WHERE binding = ?1 AND request = ?2 AND \
-                 NOT {}",
-                ended("status")
-            ),
-            params![
-                binding.0, request, submission, status, reason,
-                detail
-            ],
-        )?;
+        diesel::update(
+            harness_input::table
+                .filter(harness_input::binding.eq(binding.0))
+                .filter(harness_input::request.eq(request))
+                .filter(unended()),
+        )
+        .set((
+            harness_input::submission.eq(ifnull(
+                submission.into_sql::<Nullable<Text>>(),
+                harness_input::submission,
+            )),
+            harness_input::status.eq(status),
+            harness_input::reason.eq(reason),
+            harness_input::detail.eq(detail),
+            harness_input::state.eq(state),
+        ))
+        .execute(self.connection())?;
         Ok(())
     }
 
@@ -662,25 +742,28 @@ impl Store {
         binding: BindingId,
         request: &str,
     ) -> Result<bool> {
-        Ok(self.connection().execute(
-            "UPDATE harness_input SET followed = 1 WHERE binding = \
-             ?1 AND request = ?2 AND followed = 0",
-            params![binding.0, request],
-        )? == 1)
+        Ok(diesel::update(
+            harness_input::table
+                .filter(harness_input::binding.eq(binding.0))
+                .filter(harness_input::request.eq(request))
+                .filter(harness_input::followed.eq(false)),
+        )
+        .set(harness_input::followed.eq(true))
+        .execute(self.connection())?
+            == 1)
     }
 
     /// The inputs whose end the server has heard and not acted on.
-    pub fn unfollowed(&self) -> Result<Vec<(BindingId, String)>> {
-        let mut query = self.connection().prepare(&format!(
-            "SELECT binding, request FROM harness_input WHERE \
-             followed = 0 AND {} ORDER BY binding, ordinal",
-            ended("status")
-        ))?;
-        Ok(query
-            .query_map([], |row| {
-                Ok((BindingId(row.get(0)?), row.get(1)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?)
+    pub fn unfollowed(&mut self) -> Result<Vec<(BindingId, String)>> {
+        Ok(harness_input::table
+            .filter(harness_input::followed.eq(false))
+            .filter(harness_input::status.eq_any(ended()))
+            .order((harness_input::binding, harness_input::ordinal))
+            .select((harness_input::binding, harness_input::request))
+            .load::<(i64, String)>(self.connection())?
+            .into_iter()
+            .map(|(binding, request)| (BindingId(binding), request))
+            .collect())
     }
 
     /// Keeps `item` of `binding`; returns whether it is new.
@@ -689,39 +772,33 @@ impl Store {
         binding: BindingId,
         item: &Item,
     ) -> Result<bool> {
-        Ok(self.connection().execute(
-            "INSERT INTO harness_item (binding, entry, ordinal, \
-             item) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
-            params![
-                binding.0,
-                item.entry,
-                ordinal_of(&item.entry)?,
-                serde_json::to_string(item)?
-            ],
-        )? == 1)
+        Ok(diesel::insert_into(harness_item::table)
+            .values((
+                harness_item::binding.eq(binding.0),
+                harness_item::entry.eq(&item.entry),
+                harness_item::ordinal.eq(ordinal_of(&item.entry)?),
+                harness_item::item.eq(serde_json::to_string(item)?),
+            ))
+            .on_conflict_do_nothing()
+            .execute(self.connection())?
+            == 1)
     }
 
     /// The items `binding` kept, oldest first.
-    pub fn items(&self, binding: BindingId) -> Result<Vec<Item>> {
+    pub fn items(&mut self, binding: BindingId) -> Result<Vec<Item>> {
         items(self.connection(), binding)
     }
 
     /// Whether `binding` kept the entry `entry`.
     pub(crate) fn has_item(
-        &self,
+        &mut self,
         binding: BindingId,
         entry: &str,
     ) -> Result<bool> {
-        Ok(self
-            .connection()
-            .query_row(
-                "SELECT 1 FROM harness_item WHERE binding = ?1 AND \
-                 entry = ?2",
-                params![binding.0, entry],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some())
+        Ok(diesel::select(exists(
+            harness_item::table.find((binding.0, entry)),
+        ))
+        .get_result(self.connection())?)
     }
 
     /// Begins cancelling `binding`, in one commit: its owed inputs
@@ -732,21 +809,22 @@ impl Store {
         &mut self,
         binding: BindingId,
     ) -> Result<()> {
-        let tx = self.transaction()?;
-        tx.execute(
-            "UPDATE harness_input SET state = 'dropped' WHERE \
-             binding = ?1 AND state = 'kept'",
-            [binding.0],
-        )?;
-        tx.execute(
-            "UPDATE harness_binding SET cancelling = 1 WHERE id = ?1",
-            [binding.0],
-        )?;
+        let mut tx = self.transaction()?;
+        diesel::update(
+            harness_input::table
+                .filter(harness_input::binding.eq(binding.0))
+                .filter(harness_input::state.eq("kept")),
+        )
+        .set(harness_input::state.eq("dropped"))
+        .execute(&mut *tx)?;
+        diesel::update(harness_binding::table.find(binding.0))
+            .set(harness_binding::cancelling.eq(true))
+            .execute(&mut *tx)?;
         // A call of the stopped turn the gate allowed, asked for
         // again after the stop or after a restart, runs
         // nothing (H34); a marked result stands.
         crate::oversight::held::block_unrun(
-            &tx,
+            &mut tx,
             binding,
             super::answers::STOPPED_WORDS,
         )?;
@@ -756,14 +834,13 @@ impl Store {
 
     /// Whether a cancel of `binding` is still owed to its runtime.
     pub(crate) fn cancelling(
-        &self,
+        &mut self,
         binding: BindingId,
     ) -> Result<bool> {
-        Ok(self.connection().query_row(
-            "SELECT cancelling FROM harness_binding WHERE id = ?1",
-            [binding.0],
-            |row| row.get::<_, bool>(0),
-        )?)
+        Ok(harness_binding::table
+            .find(binding.0)
+            .select(harness_binding::cancelling)
+            .first(self.connection())?)
     }
 
     /// Keeps that the runtime confirmed the cancel of `binding`.
@@ -771,68 +848,67 @@ impl Store {
         &mut self,
         binding: BindingId,
     ) -> Result<()> {
-        self.connection().execute(
-            "UPDATE harness_binding SET cancelling = 0 WHERE id = ?1",
-            [binding.0],
-        )?;
+        diesel::update(harness_binding::table.find(binding.0))
+            .set(harness_binding::cancelling.eq(false))
+            .execute(self.connection())?;
         Ok(())
     }
 }
 
-/// The SQL test that an input's `status` has ended.
 /// Whether the input admitted as `submission` of `binding` may still
 /// run: its binding is not cancelling, and it was neither dropped nor
 /// ended.
 pub(crate) fn input_runs(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     submission: &str,
 ) -> Result<bool> {
-    Ok(db
-        .query_row(
-            &format!(
-                "SELECT 1 FROM harness_input i JOIN harness_binding \
-                 b ON b.id = i.binding WHERE i.binding = ?1 AND \
-                 i.submission = ?2 AND b.cancelling = 0 AND i.state \
-                 != 'dropped' AND NOT {}",
-                ended("i.status")
-            ),
-            params![binding.0, submission],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
+    Ok(diesel::select(exists(
+        harness_input::table
+            .inner_join(harness_binding::table)
+            .filter(harness_input::binding.eq(binding.0))
+            .filter(harness_input::submission.eq(submission))
+            .filter(harness_binding::cancelling.eq(false))
+            .filter(harness_input::state.ne("dropped"))
+            .filter(unended()),
+    ))
+    .get_result(db)?)
 }
 
 /// The conversations, errands aside, whose inputs of the task `task`
 /// were not dropped and have not ended.
 pub(crate) fn working_on(
-    db: &Connection,
+    db: &mut SqliteConnection,
     task: &str,
 ) -> Result<Vec<BindingId>> {
-    Ok(db
-        .prepare(&format!(
-            "SELECT DISTINCT i.binding FROM harness_input i JOIN \
-             harness_binding b ON b.id = i.binding WHERE b.errand = \
-             0 AND i.state != 'dropped' AND NOT {} AND \
-             json_extract(i.mark, '$.data.task') = ?1",
-            ended("i.status")
-        ))?
-        .query_map([task], |row| Ok(BindingId(row.get(0)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
+    Ok(harness_input::table
+        .inner_join(harness_binding::table)
+        .filter(harness_binding::errand.eq(false))
+        .filter(harness_input::state.ne("dropped"))
+        .filter(unended())
+        .filter(
+            sql::<Nullable<Text>>(
+                "json_extract(harness_input.mark, '$.data.task')",
+            )
+            .eq(task),
+        )
+        .select(harness_input::binding)
+        .distinct()
+        .load::<i64>(db)?
+        .into_iter()
+        .map(BindingId)
+        .collect())
 }
 
 /// The conversation `binding` was forked from, if any.
 pub(crate) fn fork_of(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<Option<BindingId>> {
-    Ok(db
-        .query_row(
-            "SELECT fork_of FROM harness_binding WHERE id = ?1",
-            [binding.0],
-            |row| row.get::<_, Option<i64>>(0),
-        )
+    Ok(harness_binding::table
+        .find(binding.0)
+        .select(harness_binding::fork_of)
+        .first::<Option<i64>>(db)
         .optional()?
         .flatten()
         .map(BindingId))
@@ -840,22 +916,22 @@ pub(crate) fn fork_of(
 
 /// The items `binding` kept, oldest first.
 pub(crate) fn items(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<Vec<Item>> {
-    let mut query = db.prepare(
-        "SELECT item FROM harness_item WHERE binding = ?1 ORDER BY \
-         ordinal",
-    )?;
-    query
-        .query_map([binding.0], |row| row.get::<_, String>(0))?
-        .map(|item| Ok(serde_json::from_str(&item?)?))
+    harness_item::table
+        .filter(harness_item::binding.eq(binding.0))
+        .order(harness_item::ordinal)
+        .select(harness_item::item)
+        .load::<String>(db)?
+        .into_iter()
+        .map(|item| Ok(serde_json::from_str(&item)?))
         .collect()
 }
 
-/// SQL that holds when the input status in `column` ended.
-pub(crate) fn ended(column: &str) -> String {
-    let statuses = [
+/// The statuses of an input that ended.
+pub(crate) fn ended() -> Vec<InputStatus> {
+    [
         InputStatus::Queued,
         InputStatus::Placed,
         InputStatus::Done,
@@ -863,15 +939,23 @@ pub(crate) fn ended(column: &str) -> String {
     ]
     .into_iter()
     .filter(|status| status.is_ended())
-    .map(|status| format!("'{}'", status.as_str()))
-    .collect::<Vec<_>>()
-    .join(", ");
-    format!("coalesce({column} IN ({statuses}), 0)")
+    .collect()
 }
 
-const BINDING: &str = "SELECT id, hamlet, number, errand, model, \
-                       runtime, conversation, fork_of, fork_at FROM \
-                       harness_binding";
+/// Holds when an input's status has not ended, or it has none yet.
+#[dsl::auto_type]
+pub(crate) fn unended() -> _ {
+    let statuses: Vec<InputStatus> = ended();
+    harness_input::status
+        .is_null()
+        .or(harness_input::status.ne_all(statuses))
+}
+
+#[declare_sql_function]
+extern "SQL" {
+    /// `value` unless it is NULL, else `otherwise`.
+    fn ifnull<T: SingleValue>(value: T, otherwise: T) -> T;
+}
 
 /// The order of the entry `entry`: a runtime's entry ids are numbers
 /// that grow.
@@ -881,32 +965,36 @@ fn ordinal_of(entry: &str) -> Result<i64> {
         .with_context(|| format!("the entry id {entry} is no number"))
 }
 
-fn binding_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<Result<Binding>> {
-    let number = row.get::<_, i64>(2)?;
-    let model = row.get::<_, String>(4)?;
-    let runtime = row.get::<_, String>(5)?;
-    let id = BindingId(row.get(0)?);
-    let hamlet = row.get::<_, String>(1)?;
-    let errand = row.get::<_, bool>(3)?;
-    let conversation = row.get::<_, Option<String>>(6)?;
-    let fork_of = row.get::<_, Option<i64>>(7)?.map(BindingId);
-    let fork_at = row.get::<_, Option<String>>(8)?;
-    Ok((|| {
+/// A binding's row in `harness_binding`.
+#[derive(Queryable, Selectable)]
+#[diesel(table_name = harness_binding, check_for_backend(Sqlite))]
+struct BindingRow {
+    id: i64,
+    hamlet: String,
+    number: i64,
+    errand: bool,
+    model: String,
+    runtime: String,
+    conversation: Option<String>,
+    fork_of: Option<i64>,
+    fork_at: Option<String>,
+}
+
+impl BindingRow {
+    fn binding(self) -> Result<Binding> {
         Ok(Binding {
-            id,
+            id: BindingId(self.id),
             agent: AgentRef {
-                hamlet,
-                number: u64::try_from(number)?,
+                hamlet: self.hamlet,
+                number: u64::try_from(self.number)?,
             },
-            errand,
-            model: serde_json::from_str(&model)
+            errand: self.errand,
+            model: serde_json::from_str(&self.model)
                 .context("reading a binding's model")?,
-            runtime: RuntimeInstance::new(runtime)?,
-            conversation,
-            fork_of,
-            fork_at,
+            runtime: RuntimeInstance::new(self.runtime)?,
+            conversation: self.conversation,
+            fork_of: self.fork_of.map(BindingId),
+            fork_at: self.fork_at,
         })
-    })())
+    }
 }

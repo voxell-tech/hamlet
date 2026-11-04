@@ -5,12 +5,14 @@
 mod tests;
 
 use anyhow::{Result, ensure};
-use rusqlite::{Connection, OptionalExtension, params};
+use diesel::connection::SimpleConnection;
+use diesel::prelude::*;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::schema::marker;
 use crate::store::Store;
 
 /// The persistent name of a harness runtime instance.
@@ -65,13 +67,13 @@ pub trait Operation: Serialize {
     /// The refusal of an actor without the authority to run this now.
     fn authorize(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
     ) -> Result<Option<Self::Refusal>>;
 
     /// Makes the change. What it wrote is undone when it refuses.
     fn apply(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
     ) -> Result<Outcome<Self::Done, Self::Refusal>>;
 }
 
@@ -149,12 +151,12 @@ impl Store {
         operation: &O,
     ) -> Result<Reply<O::Done, O::Refusal>> {
         let request = Request::new(O::KIND, operation)?;
-        let tx = self.immediate()?;
+        let mut tx = self.immediate()?;
         #[cfg(feature = "faults")]
         if crate::fault::is_marker_split() {
             // Broken on purpose: the test of this order must catch
             // the result it loses.
-            if let Some(kept) = kept(&tx, id)? {
+            if let Some(kept) = kept(&mut tx, id)? {
                 return Ok(match reply_of(kept, &request)? {
                     Marked::Outcome(outcome) => {
                         Reply::Outcome(outcome)
@@ -164,7 +166,7 @@ impl Store {
                     }
                 });
             }
-            let outcome = change(&tx, operation)?;
+            let outcome = change(&mut tx, operation)?;
             crate::fault::point("before_commit");
             tx.commit()?;
             crate::fault::point("after_commit");
@@ -175,7 +177,7 @@ impl Store {
         // the call's result, so a later run of the call must not
         // decide otherwise against a changed realm.
         let outcome =
-            once(&tx, id, &request, |db| change(db, operation))?;
+            once(&mut tx, id, &request, |db| change(db, operation))?;
         crate::fault::point("before_commit");
         tx.commit()?;
         crate::fault::point("after_commit");
@@ -187,10 +189,10 @@ impl Store {
         &mut self,
         id: &OperationId,
         request: &Request,
-        make: impl FnOnce(&Connection) -> Result<T>,
+        make: impl FnOnce(&mut SqliteConnection) -> Result<T>,
     ) -> Result<Option<T>> {
-        let tx = self.immediate()?;
-        let outcome = once(&tx, id, request, make)?;
+        let mut tx = self.immediate()?;
+        let outcome = once(&mut tx, id, request, make)?;
         tx.commit()?;
         Ok(outcome)
     }
@@ -200,10 +202,10 @@ impl Store {
 /// the transaction `db`, marked there for `request`. `None` when `id`
 /// is marked for another request, and then nothing runs.
 pub(crate) fn once<T: Serialize + DeserializeOwned>(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
     request: &Request,
-    make: impl FnOnce(&Connection) -> Result<T>,
+    make: impl FnOnce(&mut SqliteConnection) -> Result<T>,
 ) -> Result<Option<T>> {
     let marked = kept(db, id)?
         .map(|kept| reply_of(kept, request))
@@ -229,7 +231,7 @@ pub(crate) fn once<T: Serialize + DeserializeOwned>(
 /// marker: the authority check, then the change, undone when it
 /// refuses.
 pub(crate) fn change<O: Operation>(
-    db: &Connection,
+    db: &mut SqliteConnection,
     operation: &O,
 ) -> Result<Outcome<O::Done, O::Refusal>> {
     // Checked here, as it runs: a harness recovering a call can skip
@@ -237,12 +239,12 @@ pub(crate) fn change<O: Operation>(
     if let Some(refusal) = operation.authorize(db)? {
         return Ok(Outcome::Refused(refusal));
     }
-    db.execute_batch("SAVEPOINT operation")?;
+    db.batch_execute("SAVEPOINT operation")?;
     let outcome = operation.apply(db);
     if matches!(outcome, Ok(Outcome::Done(_))) {
-        db.execute_batch("RELEASE operation")?;
+        db.batch_execute("RELEASE operation")?;
     } else {
-        db.execute_batch("ROLLBACK TO operation; RELEASE operation")?;
+        db.batch_execute("ROLLBACK TO operation; RELEASE operation")?;
     }
     outcome
 }
@@ -250,7 +252,7 @@ pub(crate) fn change<O: Operation>(
 /// What the marker of `id` keeps for requests of `request`'s kind;
 /// `None` when it has no marker of that kind.
 pub(crate) fn marked<T: DeserializeOwned>(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
     request: &Request,
 ) -> Result<Option<Marked<T>>> {
@@ -263,69 +265,48 @@ pub(crate) fn marked<T: DeserializeOwned>(
 /// Marks `id` as begun for `request`, before an effect that must not
 /// run again.
 pub(crate) fn begin(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
     request: &Request,
 ) -> Result<()> {
-    db.execute(
-        "INSERT INTO marker (runtime, key, kind, digest, outcome) \
-         VALUES (?1, ?2, ?3, ?4, '')",
-        params![
-            id.runtime.as_str(),
-            id.key,
-            request.kind,
-            request.digest
-        ],
-    )?;
-    Ok(())
+    insert(db, id, request, "")
 }
 
 /// Keeps `outcome` as the marked outcome of `id`.
 pub(crate) fn settle(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
     outcome: &impl Serialize,
 ) -> Result<()> {
-    db.execute(
-        "UPDATE marker SET outcome = ?3 WHERE runtime = ?1 AND key \
-         = ?2",
-        params![
-            id.runtime.as_str(),
-            id.key,
-            serde_json::to_string(outcome)?
-        ],
-    )?;
+    diesel::update(
+        marker::table.find((id.runtime.as_str(), &id.key)),
+    )
+    .set(marker::outcome.eq(serde_json::to_string(outcome)?))
+    .execute(db)?;
     Ok(())
 }
 
 /// Whether the call `key` of `runtime` is marked, begun or done.
 pub(crate) fn is_marked(
-    db: &Connection,
+    db: &mut SqliteConnection,
     runtime: &str,
     key: &str,
 ) -> Result<bool> {
-    Ok(db
-        .query_row(
-            "SELECT 1 FROM marker WHERE runtime = ?1 AND key = ?2",
-            params![runtime, key],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
+    Ok(diesel::select(diesel::dsl::exists(
+        marker::table.find((runtime, key)),
+    ))
+    .get_result(db)?)
 }
 
 /// The kind, digest and outcome marked for `id`.
 fn kept(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
 ) -> Result<Option<(String, Vec<u8>, String)>> {
-    Ok(db
-        .query_row(
-            "SELECT kind, digest, outcome FROM marker WHERE runtime \
-             = ?1 AND key = ?2",
-            params![id.runtime.as_str(), id.key],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
+    Ok(marker::table
+        .find((id.runtime.as_str(), &id.key))
+        .select((marker::kind, marker::digest, marker::outcome))
+        .first(db)
         .optional()?)
 }
 
@@ -344,22 +325,30 @@ fn reply_of<T: DeserializeOwned>(
 }
 
 fn mark(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &OperationId,
     request: &Request,
     outcome: &impl Serialize,
 ) -> Result<()> {
-    db.execute(
-        "INSERT INTO marker (runtime, key, kind, digest, outcome) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            id.runtime.as_str(),
-            id.key,
-            request.kind,
-            request.digest,
-            serde_json::to_string(outcome)?
-        ],
-    )?;
+    insert(db, id, request, &serde_json::to_string(outcome)?)
+}
+
+/// Inserts the marker of `id`, whose empty `outcome` means begun.
+fn insert(
+    db: &mut SqliteConnection,
+    id: &OperationId,
+    request: &Request,
+    outcome: &str,
+) -> Result<()> {
+    diesel::insert_into(marker::table)
+        .values((
+            marker::runtime.eq(id.runtime.as_str()),
+            marker::key.eq(&id.key),
+            marker::kind.eq(request.kind),
+            marker::digest.eq(&request.digest),
+            marker::outcome.eq(outcome),
+        ))
+        .execute(db)?;
     Ok(())
 }
 

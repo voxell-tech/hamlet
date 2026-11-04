@@ -3,11 +3,13 @@
 //! and its answer carried back.
 
 use anyhow::{Context, Result, bail};
+use diesel::prelude::*;
+use diesel::sql_types::Bool;
+use diesel::sqlite::Sqlite;
 use hamlet_protocol::client::{
     self as protocol, ConversationView, ConversationViewKind,
 };
 use hamlet_protocol::runtime::{Item, ItemKind};
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -19,6 +21,10 @@ use crate::harness::{
 };
 use crate::record::{
     self, Actor, AgentRef, Change, DecisionKind, RecordOperation,
+};
+use crate::schema::{
+    harness_input, harness_item, society_binding, society_message,
+    society_peer, society_task,
 };
 use crate::service::Service;
 use crate::{Outcome, realm};
@@ -60,63 +66,105 @@ struct Sent {
     refused: bool,
 }
 
-const SENT: &str = "SELECT request, kind, runtime, key, sender, \
-                    receiver, from_hamlet, from_number, to_hamlet, \
-                    to_number, address, task, text, at, answer, \
-                    failure, carried, refused FROM society_message";
+/// A [`Sent`] as `society_message` keeps it.
+#[derive(Queryable, Selectable)]
+#[diesel(table_name = society_message, check_for_backend(Sqlite))]
+struct SentRow {
+    request: String,
+    kind: String,
+    runtime: String,
+    key: String,
+    sender: i64,
+    receiver: i64,
+    from_hamlet: String,
+    from_number: i64,
+    to_hamlet: String,
+    to_number: i64,
+    address: String,
+    task: String,
+    text: String,
+    at: i64,
+    answer: Option<String>,
+    failure: Option<String>,
+    carried: bool,
+    refused: bool,
+}
 
-fn sent_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Sent> {
-    let number = |at| {
-        row.get::<_, i64>(at)
-            .map(|n| u64::try_from(n).unwrap_or_default())
-    };
-    Ok(Sent {
-        request: row.get(0)?,
-        question: row.get::<_, String>(1)? == "question",
-        runtime: row.get(2)?,
-        key: row.get(3)?,
-        sender: BindingId(row.get(4)?),
-        receiver: BindingId(row.get(5)?),
-        from: AgentRef {
-            hamlet: row.get(6)?,
-            number: number(7)?,
-        },
-        to: AgentRef {
-            hamlet: row.get(8)?,
-            number: number(9)?,
-        },
-        address: row.get(10)?,
-        task: row.get(11)?,
-        text: row.get(12)?,
-        at: row.get(13)?,
-        answer: row.get(14)?,
-        failure: row.get(15)?,
-        carried: row.get(16)?,
-        refused: row.get(17)?,
-    })
+impl From<SentRow> for Sent {
+    fn from(row: SentRow) -> Self {
+        let number = |n| u64::try_from(n).unwrap_or_default();
+        Self {
+            request: row.request,
+            question: row.kind == "question",
+            runtime: row.runtime,
+            key: row.key,
+            sender: BindingId(row.sender),
+            receiver: BindingId(row.receiver),
+            from: AgentRef {
+                hamlet: row.from_hamlet,
+                number: number(row.from_number),
+            },
+            to: AgentRef {
+                hamlet: row.to_hamlet,
+                number: number(row.to_number),
+            },
+            address: row.address,
+            task: row.task,
+            text: row.text,
+            at: row.at,
+            answer: row.answer,
+            failure: row.failure,
+            carried: row.carried,
+            refused: row.refused,
+        }
+    }
 }
 
 /// What the call `runtime`/`key` sent, if it sent anything.
 fn sent_by(
-    db: &Connection,
+    db: &mut SqliteConnection,
     runtime: &str,
     key: &str,
 ) -> Result<Option<Sent>> {
-    Ok(db
-        .query_row(
-            &format!("{SENT} WHERE runtime = ?1 AND key = ?2"),
-            params![runtime, key],
-            sent_row,
-        )
-        .optional()?)
+    Ok(society_message::table
+        .filter(society_message::runtime.eq(runtime))
+        .filter(society_message::key.eq(key))
+        .select(SentRow::as_select())
+        .first(db)
+        .optional()?
+        .map(Sent::from))
 }
 
-fn every(db: &Connection, filter: &str) -> Result<Vec<Sent>> {
-    let mut query =
-        db.prepare(&format!("{SENT} WHERE {filter} ORDER BY at"))?;
-    Ok(query
-        .query_map([], sent_row)?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
+/// A condition on the messages [`every`] reads.
+type Filter = Box<
+    dyn BoxableExpression<
+            society_message::table,
+            Sqlite,
+            SqlType = Bool,
+        >,
+>;
+
+fn every(
+    db: &mut SqliteConnection,
+    filter: Filter,
+) -> Result<Vec<Sent>> {
+    Ok(society_message::table
+        .filter(filter)
+        .order(society_message::at)
+        .select(SentRow::as_select())
+        .load(db)?
+        .into_iter()
+        .map(Sent::from)
+        .collect())
+}
+
+/// The messages whose answer has not come.
+fn unanswered() -> Filter {
+    Box::new(
+        society_message::answer
+            .is_null()
+            .and(society_message::failure.is_null()),
+    )
 }
 
 /// Why a letter or question was not sent.
@@ -318,10 +366,10 @@ async fn question(
         let db = service.db();
         if !asked && let Some(address) = cycle(db, &sent)? {
             // It was counted on its road, and is not asked.
-            db.execute(
-                "DELETE FROM society_message WHERE request = ?1",
-                [&sent.request],
-            )?;
+            diesel::delete(
+                society_message::table.find(&sent.request),
+            )
+            .execute(db)?;
             return Ok(Asked::Refused(format!(
                 "`{address}` is waiting on your answer through this \
                  chain of questions. Answer it in your reply \
@@ -334,13 +382,11 @@ async fn question(
         return Ok(Asked::Waiting);
     }
     if !sent.carried {
-        let tx = service.home.store().transaction()?;
-        carry_back(&tx, &sent)?;
-        tx.execute(
-            "UPDATE society_message SET carried = 1 WHERE request = \
-             ?1",
-            [&sent.request],
-        )?;
+        let mut tx = service.home.store().transaction()?;
+        carry_back(&mut tx, &sent)?;
+        diesel::update(society_message::table.find(&sent.request))
+            .set(society_message::carried.eq(true))
+            .execute(&mut *tx)?;
         tx.commit()?;
     }
     Ok(match (sent.answer, sent.failure) {
@@ -355,21 +401,28 @@ async fn question(
 
 /// The address of the agent a question would wait on in a chain that
 /// comes back to its asker, if it would.
-fn cycle(db: &Connection, sent: &Sent) -> Result<Option<String>> {
+fn cycle(
+    db: &mut SqliteConnection,
+    sent: &Sent,
+) -> Result<Option<String>> {
     // An edge stands while its question waits and its asker's turn
     // runs.
-    let mut query = db.prepare(&format!(
-        "SELECT m.sender, m.receiver FROM society_message m JOIN \
-         harness_input i ON i.binding = m.sender AND i.submission = \
-         m.input WHERE m.kind = 'question' AND m.answer IS NULL AND \
-         m.failure IS NULL AND m.request != ?1 AND NOT {}",
-        crate::harness::ended("i.status")
-    ))?;
-    let edges = query
-        .query_map([&sent.request], |row| {
-            Ok((BindingId(row.get(0)?), BindingId(row.get(1)?)))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let edges = society_message::table
+        .inner_join(harness_input::table.on(
+            harness_input::binding.eq(society_message::sender).and(
+                harness_input::submission.eq(society_message::input),
+            ),
+        ))
+        .filter(society_message::kind.eq("question"))
+        .filter(society_message::answer.is_null())
+        .filter(society_message::failure.is_null())
+        .filter(society_message::request.ne(&sent.request))
+        .filter(crate::harness::unended())
+        .select((society_message::sender, society_message::receiver))
+        .load::<(i64, i64)>(db)?
+        .into_iter()
+        .map(|(from, to)| (BindingId(from), BindingId(to)))
+        .collect::<Vec<_>>();
     let mut pending = vec![sent.receiver];
     let mut seen = Vec::new();
     while let Some(at) = pending.pop() {
@@ -454,13 +507,13 @@ pub(super) async fn request_road(
             "The mayor built the road. You can now ask_agent `{to}`."
         ))));
     }
-    let tx = service.home.store().transaction()?;
+    let mut tx = service.home.store().transaction()?;
     if let Some(sent) =
-        sent_by(&tx, caller.id.runtime.as_str(), &caller.id.key)?
+        sent_by(&mut tx, caller.id.runtime.as_str(), &caller.id.key)?
         && !sent.refused
     {
         crate::operation::change(
-            &tx,
+            &mut tx,
             &RecordOperation {
                 hamlet: place.hamlet.clone(),
                 actor: Actor::Mayor(sent.to.clone()),
@@ -473,11 +526,9 @@ pub(super) async fn request_road(
                 },
             },
         )?;
-        tx.execute(
-            "UPDATE society_message SET refused = 1 WHERE request = \
-             ?1",
-            [&sent.request],
-        )?;
+        diesel::update(society_message::table.find(&sent.request))
+            .set(society_message::refused.eq(true))
+            .execute(&mut *tx)?;
     }
     tx.commit()?;
     Ok(Some(refused(&format!(
@@ -487,7 +538,7 @@ pub(super) async fn request_road(
 
 /// Whether a road joins `from` and `to`.
 pub(crate) fn connected(
-    db: &Connection,
+    db: &mut SqliteConnection,
     from: &AgentRef,
     to: &AgentRef,
 ) -> Result<bool> {
@@ -505,19 +556,17 @@ pub(crate) fn connected(
 /// a reply comes back even when the road has gone since. Gives why
 /// it may not go.
 fn carry(
-    db: &Connection,
+    db: &mut SqliteConnection,
     from: &AgentRef,
     to: &AgentRef,
     task: &str,
     reply: bool,
     at: i64,
 ) -> Result<std::result::Result<(), Unsent>> {
-    let messages = db
-        .query_row(
-            "SELECT messages FROM society_task WHERE task = ?1",
-            [task],
-            |row| row.get::<_, i64>(0),
-        )
+    let messages = society_task::table
+        .find(task)
+        .select(society_task::messages)
+        .first::<i64>(db)
         .optional()?
         .unwrap_or(0);
     let most = crate::limits::of(db, &from.hamlet)?.task.messages;
@@ -548,17 +597,21 @@ fn carry(
     } else if !realm::carry(db, from, to, at)? && !reply {
         return Ok(Err(Unsent::Unroaded));
     }
-    db.execute(
-        "INSERT INTO society_task (task, messages) VALUES (?1, 1) \
-         ON CONFLICT (task) DO UPDATE SET messages = messages + 1",
-        [task],
-    )?;
+    diesel::insert_into(society_task::table)
+        .values((
+            society_task::task.eq(task),
+            society_task::messages.eq(1),
+        ))
+        .on_conflict(society_task::task)
+        .do_update()
+        .set(society_task::messages.eq(society_task::messages + 1))
+        .execute(db)?;
     Ok(Ok(()))
 }
 
 /// Counts the way back of a message's answer, which no road or cap
 /// refuses.
-fn carry_back(db: &Connection, sent: &Sent) -> Result<()> {
+fn carry_back(db: &mut SqliteConnection, sent: &Sent) -> Result<()> {
     let _counted = carry(
         db,
         &sent.to,
@@ -619,39 +672,38 @@ async fn prepare(
         }
     );
     let at = crate::clock::now();
-    let tx = service.home.store().transaction()?;
-    if let Err(unsent) = carry(&tx, &from, to, &task, false, at)? {
+    let from_number = i64::try_from(from.number)?;
+    let to_number = i64::try_from(to.number)?;
+    let mut tx = service.home.store().transaction()?;
+    if let Err(unsent) = carry(&mut tx, &from, to, &task, false, at)?
+    {
         return Ok(Err(unsent));
     }
-    tx.execute(
-        "INSERT INTO society_message (request, kind, runtime, key, \
-         sender, receiver, from_hamlet, from_number, to_hamlet, \
-         to_number, address, task, text, at, input) VALUES (?1, ?2, \
-         ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-        params![
-            request,
-            if kind == Kind::Letters {
+    diesel::insert_into(society_message::table)
+        .values((
+            society_message::request.eq(&request),
+            society_message::kind.eq(if kind == Kind::Letters {
                 "letter"
             } else {
                 "question"
-            },
-            runtime,
-            key,
-            caller.binding.id.0,
-            receiver.0,
-            from.hamlet,
-            i64::try_from(from.number)?,
-            to.hamlet,
-            i64::try_from(to.number)?,
-            address,
-            task,
-            text,
-            at,
-            caller.input
-        ],
-    )?;
-    let sent =
-        sent_by(&tx, runtime, key)?.context("a message just sent")?;
+            }),
+            society_message::runtime.eq(runtime),
+            society_message::key.eq(key),
+            society_message::sender.eq(caller.binding.id.0),
+            society_message::receiver.eq(receiver.0),
+            society_message::from_hamlet.eq(&from.hamlet),
+            society_message::from_number.eq(from_number),
+            society_message::to_hamlet.eq(&to.hamlet),
+            society_message::to_number.eq(to_number),
+            society_message::address.eq(&address),
+            society_message::task.eq(&task),
+            society_message::text.eq(&text),
+            society_message::at.eq(at),
+            society_message::input.eq(caller.input),
+        ))
+        .execute(&mut *tx)?;
+    let sent = sent_by(&mut tx, runtime, key)?
+        .context("a message just sent")?;
     tx.commit()?;
     if kind == Kind::Letters {
         submit(service, harnesses, &sent).await?;
@@ -668,24 +720,8 @@ async fn peer(
     kind: Kind,
     from: &AgentRef,
 ) -> Result<BindingId> {
-    let db = service.db();
-    let known = db
-        .query_row(
-            "SELECT binding FROM society_peer WHERE hamlet = ?1 AND \
-             number = ?2 AND kind = ?3 AND from_hamlet = ?4 AND \
-             from_number = ?5",
-            params![
-                to.hamlet,
-                i64::try_from(to.number)?,
-                kind.name(),
-                from.hamlet,
-                i64::try_from(from.number)?
-            ],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?;
-    if let Some(binding) = known {
-        return Ok(BindingId(binding));
+    if let Some(binding) = peer_of(service.db(), to, kind, from)? {
+        return Ok(binding);
     }
     let binding = crate::chats::begin(
         service,
@@ -700,32 +736,35 @@ async fn peer(
     )
     .await?;
     let db = service.db();
-    db.execute(
-        "INSERT INTO society_peer (hamlet, number, kind, \
-         from_hamlet, from_number, binding) VALUES (?1, ?2, ?3, ?4, \
-         ?5, ?6)",
-        params![
-            to.hamlet,
-            i64::try_from(to.number)?,
-            kind.name(),
-            from.hamlet,
-            i64::try_from(from.number)?,
-            binding.0
-        ],
-    )?;
-    db.execute(
-        "INSERT INTO society_binding (binding, payer) VALUES (?1, \
-         ?2) ON CONFLICT (binding) DO UPDATE SET payer = \
-         excluded.payer",
-        params![binding.0, from.hamlet],
-    )?;
+    diesel::insert_into(society_peer::table)
+        .values((
+            society_peer::hamlet.eq(&to.hamlet),
+            society_peer::number.eq(i64::try_from(to.number)?),
+            society_peer::kind.eq(kind.name()),
+            society_peer::from_hamlet.eq(&from.hamlet),
+            society_peer::from_number.eq(i64::try_from(from.number)?),
+            society_peer::binding.eq(binding.0),
+        ))
+        .execute(db)?;
+    diesel::insert_into(society_binding::table)
+        .values((
+            society_binding::binding.eq(binding.0),
+            society_binding::payer.eq(&from.hamlet),
+        ))
+        .on_conflict(society_binding::binding)
+        .do_update()
+        .set(
+            society_binding::payer
+                .eq(diesel::upsert::excluded(society_binding::payer)),
+        )
+        .execute(db)?;
     Ok(binding)
 }
 
 /// The sender of a message as its receiver reads it: its name or
 /// office now, following where its conversation went.
 fn sender(
-    db: &Connection,
+    db: &mut SqliteConnection,
     sent: &Sent,
 ) -> Result<(AgentRef, String)> {
     let from = records::kept(db, sent.sender)?
@@ -808,7 +847,7 @@ async fn submit(
 /// hamlet; a message to or from a conversation whose agent left is
 /// not carried on.
 fn delivery_agent(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<Option<AgentRef>> {
     let Some(kept) = records::kept(db, binding)? else {
@@ -833,7 +872,7 @@ pub(crate) async fn sweep(
     harnesses: &mut Harnesses,
 ) -> Result<()> {
     let db = service.db();
-    for sent in every(db, "answer IS NULL AND failure IS NULL")? {
+    for sent in every(db, unanswered())? {
         let Some(standing) = service
             .home
             .store()
@@ -861,15 +900,13 @@ pub(crate) async fn sweep(
         };
         let mut words = json!({"answer": answer, "failure": failure});
         service.credentials.scrub(&mut words);
-        service.db().execute(
-            "UPDATE society_message SET answer = ?2, failure = ?3 \
-             WHERE request = ?1",
-            params![
-                sent.request,
-                words["answer"].as_str(),
-                words["failure"].as_str()
-            ],
-        )?;
+        diesel::update(society_message::table.find(&sent.request))
+            .set((
+                society_message::answer.eq(words["answer"].as_str()),
+                society_message::failure
+                    .eq(words["failure"].as_str()),
+            ))
+            .execute(service.db())?;
         if sent.question
             && let Some(asker) =
                 service.home.store().binding(sent.sender)?
@@ -878,11 +915,17 @@ pub(crate) async fn sweep(
         }
     }
     let db = service.db();
-    for sent in every(
-        db,
-        "kind = 'letter' AND replied = 0 AND (answer IS NOT NULL OR \
-         failure IS NOT NULL)",
-    )? {
+    let unreplied = Box::new(
+        society_message::kind
+            .eq("letter")
+            .and(society_message::replied.eq(false))
+            .and(
+                society_message::answer
+                    .is_not_null()
+                    .or(society_message::failure.is_not_null()),
+            ),
+    );
+    for sent in every(db, unreplied)? {
         reply(service, harnesses, sent).await?;
     }
     Ok(())
@@ -898,11 +941,9 @@ async fn reply(
     let db = service.db();
     let forget =
         |service: &mut Service, request: &str| -> Result<()> {
-            service.db().execute(
-                "UPDATE society_message SET replied = 1 WHERE \
-                 request = ?1",
-                [request],
-            )?;
+            diesel::update(society_message::table.find(request))
+                .set(society_message::replied.eq(true))
+                .execute(service.db())?;
             Ok(())
         };
     let Some(to) = delivery_agent(db, sent.receiver)? else {
@@ -914,13 +955,11 @@ async fn reply(
     };
     sent.from = from;
     if !sent.carried {
-        let tx = service.home.store().transaction()?;
-        carry_back(&tx, &sent)?;
-        tx.execute(
-            "UPDATE society_message SET carried = 1 WHERE request = \
-             ?1",
-            [&sent.request],
-        )?;
+        let mut tx = service.home.store().transaction()?;
+        carry_back(&mut tx, &sent)?;
+        diesel::update(society_message::table.find(&sent.request))
+            .set(society_message::carried.eq(true))
+            .execute(&mut *tx)?;
         tx.commit()?;
     }
     let content = match (&sent.answer, &sent.failure) {
@@ -961,19 +1000,15 @@ async fn reply(
 /// The answer the input `request` of `binding` ended with: the text
 /// of the last answer of its turn, once it is kept.
 pub(super) fn answer_of(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     request: &str,
 ) -> Result<Option<String>> {
-    let items = {
-        let mut query = db.prepare(
-            "SELECT item FROM harness_item WHERE binding = ?1 ORDER \
-             BY ordinal",
-        )?;
-        query
-            .query_map([binding.0], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-    };
+    let items = harness_item::table
+        .filter(harness_item::binding.eq(binding.0))
+        .order(harness_item::ordinal)
+        .select(harness_item::item)
+        .load::<String>(db)?;
     let items = items
         .iter()
         .map(|item| serde_json::from_str::<Item>(item))
@@ -1017,7 +1052,7 @@ pub(crate) async fn resume(
     harnesses: &mut Harnesses,
 ) -> Result<()> {
     let db = service.db();
-    for sent in every(db, "answer IS NULL AND failure IS NULL")? {
+    for sent in every(db, unanswered())? {
         let db = service.db();
         if delivery_agent(db, sent.receiver)?.is_some() {
             submit(service, harnesses, &sent).await?;
@@ -1029,26 +1064,19 @@ pub(crate) async fn resume(
 /// The peer conversations of `agent`: with whom, which kind, how many
 /// messages and when the last was (C22), latest first.
 pub(crate) fn views(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
 ) -> Result<Vec<ConversationView>> {
-    let mut query = db.prepare(
-        "SELECT kind, from_hamlet, from_number, binding FROM \
-         society_peer WHERE hamlet = ?1 AND number = ?2",
-    )?;
-    let peers = query
-        .query_map(
-            params![agent.hamlet, i64::try_from(agent.number)?],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, i64>(3)?,
-                ))
-            },
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let peers = society_peer::table
+        .filter(society_peer::hamlet.eq(&agent.hamlet))
+        .filter(society_peer::number.eq(i64::try_from(agent.number)?))
+        .select((
+            society_peer::kind,
+            society_peer::from_hamlet,
+            society_peer::from_number,
+            society_peer::binding,
+        ))
+        .load::<(String, String, i64, i64)>(db)?;
     let mut views = Vec::new();
     for (kind, hamlet, number, binding) in peers {
         let mut count = 0;
@@ -1093,25 +1121,21 @@ pub(crate) fn views(
 
 /// The peer conversation of `agent` with `from`, of `kind`, if any.
 pub(crate) fn peer_of(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     kind: Kind,
     from: &AgentRef,
 ) -> Result<Option<BindingId>> {
-    Ok(db
-        .query_row(
-            "SELECT binding FROM society_peer WHERE hamlet = ?1 AND \
-             number = ?2 AND kind = ?3 AND from_hamlet = ?4 AND \
-             from_number = ?5",
-            params![
-                agent.hamlet,
-                i64::try_from(agent.number)?,
-                kind.name(),
-                from.hamlet,
-                i64::try_from(from.number)?
-            ],
-            |row| row.get::<_, i64>(0),
-        )
+    Ok(society_peer::table
+        .find((
+            &agent.hamlet,
+            i64::try_from(agent.number)?,
+            kind.name(),
+            &from.hamlet,
+            i64::try_from(from.number)?,
+        ))
+        .select(society_peer::binding)
+        .first::<i64>(db)
         .optional()?
         .map(BindingId))
 }
@@ -1119,23 +1143,21 @@ pub(crate) fn peer_of(
 /// Who wrote or asked in the peer conversation of `binding`, if it is
 /// one.
 pub(crate) fn sender_of(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<Option<AgentRef>> {
-    Ok(db
-        .query_row(
-            "SELECT from_hamlet, from_number FROM society_peer \
-             WHERE binding = ?1",
-            [binding.0],
-            |row| {
-                Ok(AgentRef {
-                    hamlet: row.get(0)?,
-                    number: u64::try_from(row.get::<_, i64>(1)?)
-                        .unwrap_or_default(),
-                })
-            },
-        )
-        .optional()?)
+    Ok(society_peer::table
+        .filter(society_peer::binding.eq(binding.0))
+        .select((
+            society_peer::from_hamlet,
+            society_peer::from_number,
+        ))
+        .first::<(String, i64)>(db)
+        .optional()?
+        .map(|(hamlet, number)| AgentRef {
+            hamlet,
+            number: u64::try_from(number).unwrap_or_default(),
+        }))
 }
 
 /// An answer for a call that waits on a message.
@@ -1147,7 +1169,10 @@ pub(super) fn waiting() -> Answer {
 
 /// The author a letter, question or reply shows: its sender's name
 /// with its hamlet, following the sender where it moved.
-fn author(db: &Connection, original: &AgentRef) -> Result<String> {
+fn author(
+    db: &mut SqliteConnection,
+    original: &AgentRef,
+) -> Result<String> {
     let mut at = original.clone();
     let mut seen = Vec::new();
     while !seen.contains(&at) {
@@ -1215,7 +1240,7 @@ fn author(db: &Connection, original: &AgentRef) -> Result<String> {
 /// Gives each letter, question and reply among `items` the author it
 /// shows, as `author` in its mark.
 pub(crate) fn authored(
-    db: &Connection,
+    db: &mut SqliteConnection,
     items: &mut [Item],
 ) -> Result<()> {
     for item in items {

@@ -125,9 +125,9 @@ impl Service {
             },
             reason.as_deref().unwrap_or_default(),
         );
-        let tx = self.home.store().transaction()?;
+        let mut tx = self.home.store().transaction()?;
         if let Outcome::Refused(error) =
-            crate::operation::change(&tx, &operation)?
+            crate::operation::change(&mut tx, &operation)?
         {
             return Ok(Err(Refusal::Record(Box::new(error))));
         }
@@ -220,9 +220,9 @@ impl Service {
                 },
                 "",
             );
-            let tx = self.home.store().transaction()?;
+            let mut tx = self.home.store().transaction()?;
             if let Outcome::Refused(error) =
-                crate::operation::change(&tx, &operation)?
+                crate::operation::change(&mut tx, &operation)?
             {
                 return Ok(Err(Refusal::Record(Box::new(error))));
             }

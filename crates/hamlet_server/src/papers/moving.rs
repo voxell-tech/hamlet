@@ -65,7 +65,7 @@ impl Service {
         if !self.moving.tasks.is_empty() {
             return refuse("The houses are already moving.");
         }
-        let to = to.cloned();
+        let (from, to) = (from.cloned(), to.cloned());
         let live = crate::realm::live(self.db())?;
         let agents = crate::service::records(self.db())?
             .into_iter()
@@ -79,7 +79,7 @@ impl Service {
             .collect::<Vec<_>>();
         let root = self.home.layout().root();
         let isolation = self.overrides.isolation;
-        let source = Houses::open(root, from.cloned(), isolation)?;
+        let source = Houses::open(root, from, isolation)?;
         let target = Houses::open(root, to.clone(), isolation)?;
         let of = i64::try_from(agents.len())
             .context("the number of houses to move")?;

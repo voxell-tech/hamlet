@@ -1,8 +1,10 @@
 //! Mayor reviews beside chief work and task-wide objection rulings.
 
 use anyhow::{Context, Result};
+use diesel::dsl::sql;
+use diesel::prelude::*;
+use diesel::sql_types::{Bool, Text};
 use hamlet_protocol::client::{Choice, LimitsAskingMayorReview};
-use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -12,6 +14,7 @@ use crate::oversight::{
     self, ChatPlace, Raising, Ruling, WaitKind, held,
 };
 use crate::record::AgentRef;
+use crate::schema::society_document;
 use crate::service::Service;
 
 /// The society document kind of a review still waiting for the mayor
@@ -203,15 +206,10 @@ pub(crate) async fn sweep(
     service: &mut Service,
     harnesses: &mut Harnesses,
 ) -> Result<bool> {
-    let jobs = service
-        .db()
-        .prepare(
-            "SELECT key,value FROM society_document WHERE kind=?1",
-        )?
-        .query_map([DUE], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let jobs = society_document::table
+        .filter(society_document::kind.eq(DUE))
+        .select((society_document::key, society_document::value))
+        .load::<(String, String)>(service.db())?;
     let due = !jobs.is_empty();
     for (task, value) in jobs {
         let review = serde_json::from_str::<Review>(&value)?;
@@ -247,22 +245,19 @@ async fn sweep_review(
         review.done = true;
         let ended = crate::harness::working_on(service.db(), task)?
             .is_empty();
-        let tx = service.home.store().transaction()?;
+        let mut tx = service.home.store().transaction()?;
         if let Some(reason) = objection(&answer) {
-            object(&tx, task, &mut review, reason, ended)?;
+            object(&mut tx, task, &mut review, reason, ended)?;
         }
-        super::keep(&tx, DUE, task, &review)?;
+        super::keep(&mut tx, DUE, task, &review)?;
         tx.commit()?;
     }
     let db = service.db();
-    let ended = || {
-        Ok::<_, anyhow::Error>(
-            crate::harness::working_on(db, task)?.is_empty(),
-        )
-    };
     let settled = match &review.wait {
         None => true,
-        Some(wait) if ended()? => {
+        Some(wait)
+            if crate::harness::working_on(db, task)?.is_empty() =>
+        {
             held::only_dismiss(
                 db,
                 wait,
@@ -273,12 +268,10 @@ async fn sweep_review(
         Some(_) => false,
     };
     if settled {
-        let tx = service.home.store().transaction()?;
-        super::keep(&tx, DONE, task, &review)?;
-        tx.execute(
-            "DELETE FROM society_document WHERE kind=?1 AND key=?2",
-            [DUE, task],
-        )?;
+        let mut tx = service.home.store().transaction()?;
+        super::keep(&mut tx, DONE, task, &review)?;
+        diesel::delete(society_document::table.find((DUE, task)))
+            .execute(&mut *tx)?;
         tx.commit()?;
     }
     Ok(())
@@ -297,7 +290,7 @@ fn objection(answer: &str) -> Option<&str> {
 /// Raises the mayor's objection of `review` to the chief, unless the
 /// instruction of `task` was already ruled on.
 fn object(
-    tx: &Connection,
+    tx: &mut SqliteConnection,
     task: &str,
     review: &mut Review,
     reason: &str,
@@ -357,18 +350,14 @@ async fn withdraw(
     service: &mut Service,
     harnesses: &mut Harnesses,
 ) -> Result<bool> {
-    let withdrawals = service
-        .db()
-        .prepare(
-            "SELECT key,value FROM society_document WHERE \
-             kind='instruction-ruling' AND \
-             json_extract(value,'$.how')='withdraw' AND \
-             json_extract(value,'$.notified')=0",
-        )?
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let withdrawals = society_document::table
+        .filter(society_document::kind.eq("instruction-ruling"))
+        .filter(sql::<Bool>(
+            "json_extract(value, '$.how') = 'withdraw' AND \
+             json_extract(value, '$.notified') = 0",
+        ))
+        .select((society_document::key, society_document::value))
+        .load::<(String, String)>(service.db())?;
     let due = !withdrawals.is_empty();
     for (task, value) in withdrawals {
         let mut instruction =
@@ -418,25 +407,25 @@ async fn withdraw(
 }
 
 pub(crate) fn settle(
-    db: &Connection,
+    db: &mut SqliteConnection,
     wait: &str,
     ruling: Ruling,
     text: &str,
     chief: &str,
 ) -> Result<oversight::Woken> {
-    let found = db
-        .query_row(
-            "SELECT key,value FROM society_document d WHERE \
-             kind='instruction-ruling' AND EXISTS (SELECT 1 FROM \
-             json_each(d.value,'$.waits') WHERE value=?1)",
-            [wait],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                ))
-            },
+    let found = society_document::table
+        .filter(society_document::kind.eq("instruction-ruling"))
+        .filter(
+            sql::<Bool>(
+                "EXISTS (SELECT 1 FROM \
+                 json_each(society_document.value, '$.waits') WHERE \
+                 json_each.value = ",
+            )
+            .bind::<Text, _>(wait)
+            .sql(")"),
         )
+        .select((society_document::key, society_document::value))
+        .first::<(String, String)>(db)
         .optional()?;
     let mut woken = Vec::new();
     if let Some((task, value)) = found

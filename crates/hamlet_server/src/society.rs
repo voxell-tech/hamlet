@@ -16,11 +16,11 @@ pub(crate) mod work;
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
+use diesel::prelude::*;
 use hamlet_protocol::runtime::{
     ConfigureTools, Diagnostic, DiagnosticSeverity, ToolSpec,
     ToolSpecReplay,
 };
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -33,6 +33,9 @@ use crate::harness::{
 use crate::operation::Request;
 use crate::protocol::Refusable;
 use crate::record::{Actor, AgentRef};
+use crate::schema::{
+    society_binding, society_call, society_document,
+};
 use crate::service::Service;
 use crate::tools::Outcome;
 use crate::{OperationId, Store};
@@ -401,15 +404,13 @@ pub(crate) fn unavailable(tool: &str) -> SocietyOutcome {
 
 /// The kind of errand the conversation of `binding` is, if it is one.
 pub(crate) fn errand_of(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<Option<String>> {
-    Ok(db
-        .query_row(
-            "SELECT errand FROM society_binding WHERE binding = ?1",
-            [binding.0],
-            |row| row.get::<_, Option<String>>(0),
-        )
+    Ok(society_binding::table
+        .find(binding.0)
+        .select(society_binding::errand)
+        .first::<Option<String>>(db)
         .optional()?
         .flatten())
 }
@@ -559,21 +560,18 @@ async fn answer(
         }
         SocietyTool::CallVote => {
             let given = parsed(name, args)?;
-            service
-                .db()
-                .execute(
-                    "INSERT INTO society_call \
-                     (runtime,key,binding,tool,input,data) VALUES \
-                     (?1,?2,?3,'call_vote',?4,?5) ON CONFLICT DO \
-                     NOTHING",
-                    params![
-                        caller.id.runtime.as_str(),
-                        caller.id.key,
-                        caller.binding.id.0,
-                        caller.input,
-                        args.to_string()
-                    ],
-                )
+            diesel::insert_into(society_call::table)
+                .values((
+                    society_call::runtime
+                        .eq(caller.id.runtime.as_str()),
+                    society_call::key.eq(&caller.id.key),
+                    society_call::binding.eq(caller.binding.id.0),
+                    society_call::tool.eq("call_vote"),
+                    society_call::input.eq(caller.input),
+                    society_call::data.eq(args.to_string()),
+                ))
+                .on_conflict_do_nothing()
+                .execute(service.db())
                 .context("keeping the vote's call")?;
             votes::operation(service, harnesses, caller, &given)
                 .await?
@@ -723,7 +721,7 @@ pub(crate) fn once(
     store: &mut Store,
     id: &OperationId,
     request: &Request,
-    make: impl FnOnce(&Connection) -> Result<SocietyOutcome>,
+    make: impl FnOnce(&mut SqliteConnection) -> Result<SocietyOutcome>,
 ) -> Result<SocietyOutcome> {
     let made = store.once(id, request, make)?;
     Ok(made.unwrap_or_else(|| {
@@ -734,7 +732,7 @@ pub(crate) fn once(
 /// The author of a change made by `place`: the mayor while it holds
 /// the office, else a member.
 pub(crate) fn actor(
-    db: &Connection,
+    db: &mut SqliteConnection,
     place: &AgentRef,
 ) -> Result<Actor> {
     let mayor = crate::record::read(db, &place.hamlet)?
@@ -748,47 +746,53 @@ pub(crate) fn actor(
 
 /// The society document `kind` of `key`, or its first value.
 pub(crate) fn document<T: DeserializeOwned + Default>(
-    db: &Connection,
+    db: &mut SqliteConnection,
     kind: &str,
     key: &str,
 ) -> Result<T> {
-    db.query_row(
-        "SELECT value FROM society_document WHERE kind = ?1 AND key \
-         = ?2",
-        params![kind, key],
-        |row| row.get::<_, String>(0),
-    )
-    .optional()?
-    .map_or_else(
-        || Ok(T::default()),
-        |v| {
-            serde_json::from_str(&v).with_context(|| {
-                format!("the stored {kind} document of {key}")
-            })
-        },
-    )
+    society_document::table
+        .find((kind, key))
+        .select(society_document::value)
+        .first::<String>(db)
+        .optional()?
+        .map_or_else(
+            || Ok(T::default()),
+            |v| {
+                serde_json::from_str(&v).with_context(|| {
+                    format!("the stored {kind} document of {key}")
+                })
+            },
+        )
 }
 
 /// Keeps the society document `kind` of `key` whole.
 pub(crate) fn keep<T: Serialize>(
-    db: &Connection,
+    db: &mut SqliteConnection,
     kind: &str,
     key: &str,
     value: &T,
 ) -> Result<()> {
-    db.execute(
-        "INSERT INTO society_document (kind, key, value) VALUES \
-         (?1, ?2, ?3) ON CONFLICT (kind, key) DO UPDATE SET value = \
-         excluded.value",
-        params![kind, key, serde_json::to_string(value)?],
-    )?;
+    diesel::insert_into(society_document::table)
+        .values((
+            society_document::kind.eq(kind),
+            society_document::key.eq(key),
+            society_document::value.eq(serde_json::to_string(value)?),
+        ))
+        .on_conflict((society_document::kind, society_document::key))
+        .do_update()
+        .set(
+            society_document::value.eq(diesel::upsert::excluded(
+                society_document::value,
+            )),
+        )
+        .execute(db)?;
     Ok(())
 }
 
 /// The H12 task of the turn whose input `input` of `binding` made a
 /// call, as the input's mark keeps it.
 pub(crate) fn marked_task(
-    store: &Store,
+    store: &mut Store,
     binding: BindingId,
     input: Option<&str>,
 ) -> Result<Option<String>> {
@@ -802,7 +806,7 @@ pub(crate) fn marked_task(
 /// The H12 task of the turn whose input `input` of `binding` made a
 /// call: the marked one, else one of the input's own.
 pub(crate) fn task_of(
-    store: &Store,
+    store: &mut Store,
     binding: &Binding,
     input: Option<&str>,
 ) -> Result<Option<String>> {
@@ -817,15 +821,13 @@ pub(crate) fn task_of(
 }
 
 pub(crate) fn payer(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: &Binding,
 ) -> Result<String> {
-    Ok(db
-        .query_row(
-            "SELECT payer FROM society_binding WHERE binding = ?1",
-            [binding.id.0],
-            |row| row.get::<_, Option<String>>(0),
-        )
+    Ok(society_binding::table
+        .find(binding.id.0)
+        .select(society_binding::payer)
+        .first::<Option<String>>(db)
         .optional()?
         .flatten()
         .unwrap_or_else(|| binding.agent.hamlet.clone()))

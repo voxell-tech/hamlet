@@ -101,9 +101,9 @@ pub(crate) fn object(
         kept.place.agent.number,
         crate::record::NameFallback::Recorded,
     );
-    let tx = service.home.store().transaction()?;
+    let mut tx = service.home.store().transaction()?;
     let wait = held::raise(
-        &tx,
+        &mut tx,
         Raising {
             kind: WaitKind::Objection,
             by: name.clone(),
@@ -131,20 +131,21 @@ pub(crate) fn object(
     )?;
     instruction.binding = binding.id.0;
     instruction.waits.extend(wait);
-    super::keep(&tx, "instruction-ruling", task, &instruction)?;
-    super::keep(&tx, "objection", &owner, &json!({"key":key}))?;
+    super::keep(&mut tx, "instruction-ruling", task, &instruction)?;
+    super::keep(&mut tx, "objection", &owner, &json!({"key":key}))?;
     tx.commit()?;
     Ok(super::letters::waiting())
 }
 
 #[cfg(test)]
 mod tests {
+    use diesel::prelude::*;
     use hamlet_protocol::runtime::ModelRef;
     use hamlet_testing::Scratch;
-    use rusqlite::params;
 
     use super::*;
     use crate::record::AgentRef;
+    use crate::schema::harness_input;
 
     #[test]
     fn a_stopped_objection_stays_refused_after_cancel_acknowledgment()
@@ -193,24 +194,25 @@ mod tests {
             0,
         )
         .unwrap();
-        store
-            .connection()
-            .execute(
-                "INSERT INTO harness_input \
-                 (binding,request,ordinal,content,steer,state,\
-                 submission,mark) VALUES \
-                 (?1,'request',1,'Work',0,'admitted','input',?2)",
-                params![
-                    id.0,
-                    serde_json::to_string(&InputMark::Chief {
-                        chief: "chief".into(),
-                        text: "Work".into(),
-                        task: "task".into(),
-                        at: 0
-                    })
-                    .unwrap()
-                ],
-            )
+        let mark = serde_json::to_string(&InputMark::Chief {
+            chief: "chief".into(),
+            text: "Work".into(),
+            task: "task".into(),
+            at: 0,
+        })
+        .unwrap();
+        diesel::insert_into(harness_input::table)
+            .values((
+                harness_input::binding.eq(id.0),
+                harness_input::request.eq("request"),
+                harness_input::ordinal.eq(1),
+                harness_input::content.eq("Work"),
+                harness_input::steer.eq(false),
+                harness_input::state.eq("admitted"),
+                harness_input::submission.eq("input"),
+                harness_input::mark.eq(mark),
+            ))
+            .execute(store.connection())
             .unwrap();
         store.begin_cancel(id).unwrap();
         for acknowledged in [false, true] {

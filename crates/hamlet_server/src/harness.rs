@@ -28,7 +28,7 @@ pub use bindings::{
     Binding, BindingId, DEFAULT_HARNESS, Input, InputStatus, Standing,
 };
 pub(crate) use bindings::{
-    ended, fork_of, input_runs, items, working_on,
+    ended, fork_of, input_runs, items, unended, working_on,
 };
 use hamlet_protocol::runtime::{
     self, Capability, Diagnostic, HelloStore, Item, Mark, Partial,
@@ -475,7 +475,7 @@ impl Harnesses {
     /// credential owner.
     pub async fn credentials(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         credentials: &mut Credentials,
     ) -> Result<()> {
         let serving = self.serving(store)?;
@@ -814,7 +814,7 @@ impl Harnesses {
     #[cfg(feature = "harness")]
     pub async fn history(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         binding: BindingId,
         before: Option<String>,
         limit: u64,
@@ -893,7 +893,7 @@ impl Harnesses {
 
     fn bound(
         &self,
-        store: &Store,
+        store: &mut Store,
         binding: BindingId,
     ) -> Result<Binding> {
         store
@@ -906,7 +906,7 @@ impl Harnesses {
     /// retry scheduled, as a crash does.
     fn launch(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         index: usize,
     ) -> Result<Vec<Notice>> {
         let runtime = &mut self.runtimes[index];
@@ -1197,7 +1197,7 @@ impl Harnesses {
     /// sent back to it.
     async fn conversation(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         index: usize,
         conversation: &str,
         re: &str,

@@ -7,6 +7,10 @@
 
 mod support;
 
+use diesel::connection::SimpleConnection;
+use diesel::dsl::sql;
+use diesel::prelude::*;
+use diesel::sql_types::Text;
 use serde_json::{Value, json};
 use support::{Driver, Realm};
 
@@ -853,12 +857,12 @@ fn a_real_endpoint_gets_the_credential_the_server_hands_over_and_nothing_keeps_i
     assert_eq!((look.attempts, look.usage), (2, 2), "{look:?}");
     // The endpoint's bill, charged once, in micro-dollars.
     assert_eq!(look.micros, 1_500, "{look:?}");
-    let db =
-        rusqlite::Connection::open(realm.home.join("realm.sqlite"))
-            .unwrap();
-    let usage =
-        hamlet_server::usage(&db, hamlet_server::BindingId(binding))
-            .unwrap();
+    let mut db = support::open(&realm.home.join("realm.sqlite"));
+    let usage = hamlet_server::usage(
+        &mut db,
+        hamlet_server::BindingId(binding),
+    )
+    .unwrap();
     assert_eq!(
         (usage.input, usage.output, usage.micros),
         (100, 20, 1500)
@@ -943,20 +947,13 @@ fn cutoff_recovery_survives_crashes_before_abort_and_after_summary() {
                 .any(|message| message["role"] == "user"
                     && message["content"] == "Keep this\n  exactly.")
         );
-        let db = rusqlite::Connection::open(
-            realm.home.join("realm.sqlite"),
+        let mut db = support::open(&realm.home.join("realm.sqlite"));
+        let tasks = sql::<Text>(
+            "SELECT task FROM harness_attempt JOIN harness_usage \
+             USING(runtime,key) ORDER BY ordinal",
         )
+        .load::<String>(&mut db)
         .unwrap();
-        let tasks = db
-            .prepare(
-                "SELECT task FROM harness_attempt JOIN \
-                 harness_usage USING(runtime,key) ORDER BY ordinal",
-            )
-            .unwrap()
-            .query_map([], |row| row.get::<_, String>(0))
-            .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .unwrap();
         assert_ne!(tasks[1], tasks[2]);
         assert_eq!(tasks.len(), 5);
         assert!(tasks[2..].iter().all(|task| task == &tasks[2]));
@@ -975,10 +972,8 @@ fn a_runtime_line_whose_handling_fails_is_answered_and_the_runtime_goes_on()
     let mut driver = Driver::start(&realm, &faux, &[]);
     let (binding, _) = driver.bind(0);
     // The store refuses to keep a model call's attempt.
-    let db =
-        rusqlite::Connection::open(realm.home.join("realm.sqlite"))
-            .unwrap();
-    db.execute_batch(
+    let mut db = support::open(&realm.home.join("realm.sqlite"));
+    db.batch_execute(
         "CREATE TRIGGER no_attempt BEFORE INSERT ON harness_attempt \
          BEGIN SELECT RAISE(ABORT, 'no attempt kept'); END;",
     )
@@ -995,7 +990,7 @@ fn a_runtime_line_whose_handling_fails_is_answered_and_the_runtime_goes_on()
                 .as_str()
                 .is_some_and(|failure| failure.contains(words))
     });
-    db.execute_batch("DROP TRIGGER no_attempt;").unwrap();
+    db.batch_execute("DROP TRIGGER no_attempt;").unwrap();
     driver.submit(binding, "chief:2", "Hello again.");
     driver.answer(binding, "answered");
     let kinds = driver

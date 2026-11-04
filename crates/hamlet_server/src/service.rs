@@ -1,10 +1,11 @@
 //! The served home and the owners it composes.
 
 use anyhow::{Context, Result, ensure};
+use diesel::prelude::*;
+use diesel::upsert::excluded;
 use hamlet_protocol::client::{
     Address, Edit, Read, RequestId, ServerMessage, State,
 };
-use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
 use crate::credentials::Credentials;
@@ -14,6 +15,7 @@ use crate::limits::LimitsSchema;
 use crate::papers::{Capability, Houses};
 use crate::protocol::{Cause, Refusable, Refusal, reply};
 use crate::record::{self, FoundRecord};
+use crate::schema::{chief_document, record_hamlet};
 use crate::settings::{Overrides, Settings};
 use crate::{Home, OperationId, Outcome, Reply, RuntimeInstance};
 
@@ -153,7 +155,7 @@ impl Service {
 
     /// The home's open database. A write that needs a transaction
     /// takes `home.store()`.
-    pub(crate) fn db(&self) -> &Connection {
+    pub(crate) fn db(&mut self) -> &mut SqliteConnection {
         self.home.connection()
     }
 
@@ -309,45 +311,51 @@ impl Service {
 }
 
 pub(crate) fn records(
-    db: &Connection,
+    db: &mut SqliteConnection,
 ) -> Result<Vec<record::Hamlet>> {
-    let mut statement =
-        db.prepare("SELECT document FROM record_hamlet ORDER BY id")?;
-    statement
-        .query_map([], |r| r.get::<_, String>(0))?
-        .map(|r| Ok(serde_json::from_str(&r?)?))
+    record_hamlet::table
+        .select(record_hamlet::document)
+        .order(record_hamlet::id)
+        .load::<String>(db)?
+        .iter()
+        .map(|document| Ok(serde_json::from_str(document)?))
         .collect()
 }
 
 pub(crate) fn document(
-    db: &Connection,
+    db: &mut SqliteConnection,
     kind: &str,
     key: &str,
 ) -> Result<Option<Value>> {
-    db.query_row(
-        "SELECT value FROM chief_document WHERE kind = ?1 AND key = \
-         ?2",
-        params![kind, key],
-        |r| r.get::<_, String>(0),
-    )
-    .optional()?
-    .map(|v| {
-        serde_json::from_str(&v).context("reading a chief document")
-    })
-    .transpose()
+    chief_document::table
+        .find((kind, key))
+        .select(chief_document::value)
+        .first::<String>(db)
+        .optional()?
+        .map(|v| {
+            serde_json::from_str(&v)
+                .context("reading a chief document")
+        })
+        .transpose()
 }
 
 pub(crate) fn save(
-    db: &Connection,
+    db: &mut SqliteConnection,
     kind: &str,
     key: &str,
     value: &Value,
 ) -> Result<()> {
-    db.execute(
-        "INSERT INTO chief_document(kind, key, value) VALUES (?1, \
-         ?2, ?3) ON CONFLICT(kind, key) DO UPDATE SET value = \
-         excluded.value",
-        params![kind, key, serde_json::to_string(value)?],
-    )?;
+    diesel::insert_into(chief_document::table)
+        .values((
+            chief_document::kind.eq(kind),
+            chief_document::key.eq(key),
+            chief_document::value.eq(serde_json::to_string(value)?),
+        ))
+        .on_conflict((chief_document::kind, chief_document::key))
+        .do_update()
+        .set(
+            chief_document::value.eq(excluded(chief_document::value)),
+        )
+        .execute(db)?;
     Ok(())
 }

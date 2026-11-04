@@ -4,11 +4,14 @@
 pub(crate) mod held;
 
 use anyhow::{Context, Result, bail};
+use diesel::SqliteConnection;
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
+use diesel::sql_types::Text;
 use hamlet_protocol::client::{
     self as protocol, Address, ChatRef, Choice, Lasting, Questions,
     WaitDanger, WaitDetail,
 };
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -19,8 +22,17 @@ use crate::{OperationId, RuntimeInstance};
 
 /// What a held tool call would do that a chief must allow.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
 )]
+#[diesel(sql_type = Text)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Danger {
     Network,
@@ -147,8 +159,17 @@ impl WaitKind {
 /// How a wait or the call it held was ended: by a chief's answer, or
 /// by a stop or a rewind.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
 )]
+#[diesel(sql_type = Text)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Ruling {
     Allow,
@@ -275,7 +296,7 @@ pub(crate) type Woken = Vec<(RuntimeInstance, String)>;
 /// Raises a fault: a turn that failed, which a chief can only
 /// dismiss. The same fault again is asked again.
 pub(crate) fn raise_fault(
-    db: &Connection,
+    db: &mut SqliteConnection,
     by: String,
     agent: AgentRef,
     chat: Option<ChatPlace>,
@@ -302,7 +323,7 @@ pub(crate) fn raise_fault(
 /// not ended. Gives the wait and the calls to tell, or `None` when
 /// nothing waits as `id`.
 pub(crate) fn settle(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &str,
     ruling: Ruling,
     text: &str,
@@ -320,7 +341,7 @@ pub(crate) fn settle(
 /// Ends the waits a rewind of the chat of `chief` with `agent` takes
 /// back: those raised in its session `session` since `since`.
 pub(crate) fn rewind(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     chief: &str,
     session: i64,
@@ -338,7 +359,7 @@ pub(crate) fn rewind(
 /// Ends what waits for a stop of `agent` by `chief`: every wait but a
 /// fault that it raised or that was raised in a chat with it.
 pub(crate) fn stop(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     chief: &str,
     at: i64,
@@ -354,7 +375,7 @@ pub(crate) fn stop(
 }
 
 fn end_all(
-    db: &Connection,
+    db: &mut SqliteConnection,
     ruling: Ruling,
     chief: &str,
     at: i64,
@@ -373,20 +394,23 @@ fn end_all(
 }
 
 /// The open waits in the order they were raised.
-pub(crate) fn open(db: &Connection) -> Result<Vec<Wait>> {
+pub(crate) fn open(db: &mut SqliteConnection) -> Result<Vec<Wait>> {
     held::open(db)
 }
 
 /// The open wait `id`.
 pub(crate) fn find(
-    db: &Connection,
+    db: &mut SqliteConnection,
     id: &str,
 ) -> Result<Option<Wait>> {
     held::find(db, id)
 }
 
 /// How the wait `id` ended, `lapsed` when that was not kept.
-pub(crate) fn ended(db: &Connection, id: &str) -> Result<String> {
+pub(crate) fn ended(
+    db: &mut SqliteConnection,
+    id: &str,
+) -> Result<String> {
     Ok(held::ended(db, id)?.map_or("lapsed", Ruling::as_str).into())
 }
 
@@ -528,3 +552,6 @@ pub(crate) fn view(
         detail,
     })
 }
+
+crate::store::named_text!(Danger);
+crate::store::named_text!(Ruling);

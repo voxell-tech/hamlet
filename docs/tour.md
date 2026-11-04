@@ -124,7 +124,8 @@ fault points, signals, remote workspaces and the society) and
 | Module | Responsibility and interface |
 |---|---|
 | `home.rs`, `claim.rs` | `Home::open` claims a path, opens its `Store` and checks the `realm.id` pair. `connection()` reads its database without the store's transactions. `Layout` names storage, credentials and harness directories |
-| `store.rs` | The schema, composed from `spend.sql` and the `schema.sql` in `record/`, `harness/`, `chats/` and `society/`, and the `realm.sqlite` connection, with WAL, FULL sync and foreign keys; a store of another version is refused; `changes` counts the rows changed since it opened |
+| `store.rs` | The schema, composed from `spend.sql` and the `schema.sql` in `record/`, `harness/`, `chats/` and `society/`, and the `realm.sqlite` Diesel connection, with WAL, FULL sync and foreign keys; a store of another version is refused; `changes` counts the rows changed since it opened |
+| `schema.rs` | Diesel's tables, generated from the schema by `cargo test -p hamlet_server` ([ADR 0010](adr/0010-the-server-queries-its-store-through-diesel.md)) |
 | `operation.rs` | `OperationId` identifies runtime plus call key. Owns every marker: `Store::run` commits an operation's result marker with its record effects; `Store::once` and `once` mark any outcome with its request digest, alone or in the caller's transaction, and refuse a changed request under a used key; its tests, crashes at the commit included, are in `operation/tests.rs` |
 | `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `db()` is the home's open database, and a write that needs a transaction takes `home.store()`; `edit_document` and `read` answer the chief's documents |
 | `serve.rs` | `serve` from start to stop: claims the home, probes the sandbox, starts the harness and model providers, publishes `server.json`, and closes in order |

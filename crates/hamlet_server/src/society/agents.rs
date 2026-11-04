@@ -226,8 +226,8 @@ fn chief_change(
         task: None,
         change,
     };
-    let tx = service.home.store().transaction()?;
-    let outcome = crate::operation::change(&tx, &operation)?;
+    let mut tx = service.home.store().transaction()?;
+    let outcome = crate::operation::change(&mut tx, &operation)?;
     tx.commit()?;
     Ok(outcome)
 }

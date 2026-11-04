@@ -3,7 +3,7 @@
 //! raised and queued lines carried on.
 
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension, params};
+use diesel::prelude::*;
 use serde_json::Value;
 
 use super::records;
@@ -11,6 +11,7 @@ use crate::harness::{
     BindingId, Harnesses, Input, InputMark, InputStatus,
 };
 use crate::oversight::{self, ChatPlace};
+use crate::schema::{chat_answer, chat_reflection};
 use crate::service::Service;
 
 /// The automatic instruction to save a session's lessons in notes
@@ -56,13 +57,15 @@ pub(crate) async fn follow(
     if store.binding(binding)?.is_some_and(|b| b.errand) {
         return Ok(());
     }
-    let db = store.connection();
-    let Some(kept) = records::kept(db, binding)? else {
+    let Some(kept) = records::kept(store.connection(), binding)?
+    else {
         return Ok(());
     };
     let submission = standing.submission.clone();
     let failure = match &submission {
-        Some(input) => answer_failure(db, binding, input)?,
+        Some(input) => {
+            answer_failure(store.connection(), binding, input)?
+        }
         None => None,
     };
     let status = standing.status;
@@ -76,12 +79,17 @@ pub(crate) async fn follow(
     } else {
         "stopped"
     };
-    records::followed(db, binding, last, submission.as_deref())?;
+    records::followed(
+        store.connection(),
+        binding,
+        last,
+        submission.as_deref(),
+    )?;
     let mark = store.mark_of(binding, request)?;
     let agent = &kept.place.agent;
     if let Some(InputMark::Chief { task, .. }) = &mark {
         records::instruction_done(
-            db,
+            store.connection(),
             agent,
             task,
             crate::clock::now(),
@@ -90,20 +98,19 @@ pub(crate) async fn follow(
     let reflection =
         matches!(mark, Some(InputMark::Reflection { .. }));
     if reflection {
-        db.execute(
-            "DELETE FROM chat_reflection WHERE binding = ?1 AND \
-             request = ?2",
-            params![binding.0, request],
-        )?;
+        diesel::delete(
+            chat_reflection::table.find((binding.0, request)),
+        )
+        .execute(store.connection())?;
         if let Some(input) = &submission
             && store.placed(binding, request)?
         {
-            records::enter(db, binding, input)?;
+            records::enter(store.connection(), binding, input)?;
         }
     } else if status == Some(InputStatus::Done)
         && mark.as_ref().is_some_and(InputMark::is_chief_turn)
     {
-        records::count_turns(db, binding, Some(1))?;
+        records::count_turns(store.connection(), binding, Some(1))?;
     }
     if let Some(chief) = &kept.place.chief
         && last == "failed"
@@ -176,33 +183,33 @@ fn raise_fault(
 /// The words of a final answer that failed the server's check in the
 /// turn of `input`.
 fn answer_failure(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     input: &str,
 ) -> Result<Option<String>> {
-    Ok(db
-        .query_row(
-            "SELECT words FROM chat_answer WHERE binding = ?1 AND \
-             input = ?2",
-            params![binding.0, input],
-            |row| row.get(0),
-        )
+    Ok(chat_answer::table
+        .find((binding.0, input))
+        .select(chat_answer::words)
+        .first(db)
         .optional()?)
 }
 
 /// Keeps that the final answer of the turn of `input` failed with
 /// `words`.
 pub(crate) fn fail_answer(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
     input: &str,
     words: &str,
 ) -> Result<()> {
-    db.execute(
-        "INSERT INTO chat_answer (binding, input, words) VALUES \
-         (?1, ?2, ?3) ON CONFLICT DO NOTHING",
-        params![binding.0, input, words],
-    )?;
+    diesel::insert_into(chat_answer::table)
+        .values((
+            chat_answer::binding.eq(binding.0),
+            chat_answer::input.eq(input),
+            chat_answer::words.eq(words),
+        ))
+        .on_conflict_do_nothing()
+        .execute(db)?;
     Ok(())
 }
 
@@ -218,21 +225,16 @@ fn report_answer_failures(
     let Some(chief) = kept.place.chief.clone() else {
         return Ok(());
     };
-    let words = db
-        .prepare(
-            "SELECT input, words FROM chat_answer WHERE binding = \
-             ?1 AND reported = 0 ORDER BY input",
-        )?
-        .query_map([binding.0], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let words = chat_answer::table
+        .filter(chat_answer::binding.eq(binding.0))
+        .filter(chat_answer::reported.eq(false))
+        .order(chat_answer::input)
+        .select((chat_answer::input, chat_answer::words))
+        .load::<(String, String)>(db)?;
     for (input, about) in words {
-        service.db().execute(
-            "UPDATE chat_answer SET reported = 1 WHERE binding = ?1 \
-             AND input = ?2",
-            params![binding.0, input],
-        )?;
+        diesel::update(chat_answer::table.find((binding.0, &input)))
+            .set(chat_answer::reported.eq(true))
+            .execute(service.db())?;
         raise_fault(service, &kept.place, &chief, about)?;
     }
     Ok(())
@@ -240,17 +242,14 @@ fn report_answer_failures(
 
 /// Whether reflections of `binding` are reserved and not yet ended.
 pub(crate) fn reserved(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<bool> {
-    Ok(db
-        .query_row(
-            "SELECT 1 FROM chat_reflection WHERE binding = ?1",
-            [binding.0],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
+    Ok(diesel::select(diesel::dsl::exists(
+        chat_reflection::table
+            .filter(chat_reflection::binding.eq(binding.0)),
+    ))
+    .get_result(db)?)
 }
 
 /// Asks the agent of `binding` to reflect, when `mode` and its count
@@ -295,12 +294,16 @@ pub(crate) async fn request_reflection(
                 format!("reflect:{}:{ordinal}", kept.place.session);
             let task = super::new_task();
             let at = crate::clock::now();
-            db.execute(
-                "INSERT INTO chat_reflection (binding, request, \
-                 ordinal, count, task, at) VALUES (?1, ?2, ?3, ?4, \
-                 ?5, ?6)",
-                params![binding.0, request, ordinal, count, task, at],
-            )?;
+            diesel::insert_into(chat_reflection::table)
+                .values((
+                    chat_reflection::binding.eq(binding.0),
+                    chat_reflection::request.eq(&request),
+                    chat_reflection::ordinal.eq(ordinal),
+                    chat_reflection::count.eq(count),
+                    chat_reflection::task.eq(&task),
+                    chat_reflection::at.eq(at),
+                ))
+                .execute(db)?;
             if kept.retiring {
                 super::write_notice(
                     service,
@@ -361,16 +364,16 @@ pub(crate) async fn request_reflection(
 }
 
 fn reservations(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<Vec<(String, String, i64)>> {
-    let mut query = db.prepare(
-        "SELECT request, task, at FROM chat_reflection WHERE \
-         binding = ?1 ORDER BY ordinal",
-    )?;
-    Ok(query
-        .query_map([binding.0], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
+    Ok(chat_reflection::table
+        .filter(chat_reflection::binding.eq(binding.0))
+        .order(chat_reflection::ordinal)
+        .select((
+            chat_reflection::request,
+            chat_reflection::task,
+            chat_reflection::at,
+        ))
+        .load(db)?)
 }

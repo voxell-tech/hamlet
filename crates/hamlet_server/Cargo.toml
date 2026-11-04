@@ -34,13 +34,14 @@ hamlet_workspace_wire.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 chrono.workspace = true
+diesel.workspace = true
 futures.workspace = true
 interprocess.workspace = true
 jsonschema = { version = "0.33", default-features = false }
+libsqlite3-sys.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 ring.workspace = true
-rusqlite.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -54,8 +55,6 @@ uuid.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true
-# The trace hook counts the statements an idle tick runs.
-rusqlite = { workspace = true, features = ["trace"] }
 
 [[test]]
 name = "crashes"
