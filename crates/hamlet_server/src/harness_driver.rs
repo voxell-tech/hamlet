@@ -287,7 +287,10 @@ impl Driver {
 
 /// The prompt sections of the conversation of `binding`: who it is
 /// with.
-fn prompt(store: &Store, binding: &Binding) -> Result<Vec<Section>> {
+fn prompt(
+    store: &mut Store,
+    binding: &Binding,
+) -> Result<Vec<Section>> {
     let place = &binding.agent;
     let Some(record) = store.record(&place.hamlet)? else {
         return Ok(Vec::new());

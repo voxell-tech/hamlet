@@ -433,7 +433,7 @@ pub(crate) fn work(
     service: &mut Service,
     agent: &AgentRef,
 ) -> Result<Work> {
-    let db = service.db();
+    let db = service.home.connection();
     let bindings = records::conversations_of(db, agent)?;
     let current = records::current(db, agent, &service.chief)?
         .map(|session| session.binding);
@@ -681,7 +681,8 @@ fn usage(
     binding: BindingId,
 ) -> Result<UsageView> {
     let db = service.db();
-    crate::spend::usage_of(db, &records::lineage(db, binding)?)
+    let lineage = records::lineage(db, binding)?;
+    crate::spend::usage_of(db, &lineage)
 }
 
 /// The mark of the input whose turn `binding` runs now.

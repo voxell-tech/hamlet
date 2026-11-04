@@ -10,7 +10,7 @@ use crate::Store;
 impl Harnesses {
     pub(super) async fn allow(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         index: usize,
         allow: runtime::Allow,
     ) -> Result<Vec<Notice>> {
@@ -26,7 +26,7 @@ impl Harnesses {
 
     pub(super) async fn operation(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         index: usize,
         operation: runtime::Operation,
     ) -> Result<Vec<Notice>> {
@@ -48,7 +48,7 @@ impl Harnesses {
 
     pub(super) async fn prompt(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         index: usize,
         prompt: runtime::Prompt,
     ) -> Result<Vec<Notice>> {
@@ -61,7 +61,7 @@ impl Harnesses {
 
     pub(super) async fn yield_answer(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         index: usize,
         answer: runtime::Yield,
     ) -> Result<Vec<Notice>> {
@@ -80,7 +80,7 @@ impl Harnesses {
     /// answer.
     async fn call(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         index: usize,
         conversation: &str,
         id: String,

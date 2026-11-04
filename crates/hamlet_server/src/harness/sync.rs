@@ -141,7 +141,10 @@ impl Harnesses {
     }
 
     /// What model calls are chosen from now.
-    pub(super) fn choices(&self, store: &Store) -> Result<Choices> {
+    pub(super) fn choices(
+        &self,
+        store: &mut Store,
+    ) -> Result<Choices> {
         Choices::read(
             store,
             self.layout.root(),
@@ -150,7 +153,10 @@ impl Harnesses {
     }
 
     /// The endpoint `HAMLET_API_KEY` serves: the settings' model's.
-    pub(super) fn serving(&self, store: &Store) -> Result<String> {
+    pub(super) fn serving(
+        &self,
+        store: &mut Store,
+    ) -> Result<String> {
         let settings = self
             .config
             .overrides
@@ -178,7 +184,7 @@ impl Harnesses {
     /// one, or a copy of the one it forks.
     async fn make(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         index: usize,
         binding: &Binding,
     ) -> Result<()> {
@@ -443,7 +449,7 @@ impl Harnesses {
 
     pub(super) fn live(
         &self,
-        store: &Store,
+        store: &mut Store,
         index: usize,
         live: runtime::Live,
     ) -> Result<Vec<Notice>> {

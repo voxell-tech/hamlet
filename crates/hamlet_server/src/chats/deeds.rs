@@ -501,7 +501,7 @@ async fn end_waits(
     agent: &AgentRef,
 ) -> Result<()> {
     let woken = oversight::stop(
-        service.db(),
+        service.home.connection(),
         agent,
         &service.chief,
         crate::clock::now(),

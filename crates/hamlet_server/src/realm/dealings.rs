@@ -1,7 +1,7 @@
 //! Agreements between current mayors and recoverable house moves.
 
 use anyhow::{Context, Result};
-use rusqlite::{Connection, params};
+use diesel::prelude::*;
 use serde::Deserialize;
 
 use super::{
@@ -15,6 +15,10 @@ use crate::protocol::Refusal;
 use crate::record::{
     self, Actor, AgentRef, Audience, Change, RecordOperation,
     RecordResult,
+};
+use crate::schema::{
+    chat, chat_conversation, chat_instruction, chat_session,
+    harness_agent, harness_binding, society_binding, society_peer,
 };
 use crate::service::Service;
 use crate::society::letters::Message;
@@ -123,7 +127,7 @@ async fn deal(
     caller: &Caller<'_>,
     reason: &str,
     make: impl FnOnce(
-        &Connection,
+        &mut SqliteConnection,
         &mut Realm,
         &AgentRef,
         &str,
@@ -223,7 +227,7 @@ async fn deal(
 
 /// Records the mayor `from`'s ask that a hamlet be removed.
 fn removal(
-    db: &Connection,
+    db: &mut SqliteConnection,
     realm: &mut Realm,
     from: &AgentRef,
     reason: &str,
@@ -272,7 +276,7 @@ fn removal(
 
 /// Records the mayor `from`'s agreement to a road between hamlets.
 fn road(
-    db: &Connection,
+    db: &mut SqliteConnection,
     realm: &mut Realm,
     from: &AgentRef,
     reason: &str,
@@ -364,7 +368,7 @@ fn road(
 /// Records the mayor `from`'s agreement to an agent's move, and once
 /// both mayors agree, moves it in the record.
 fn moving(
-    db: &Connection,
+    db: &mut SqliteConnection,
     realm: &mut Realm,
     from: &AgentRef,
     reason: &str,
@@ -507,44 +511,55 @@ fn moving(
         _ => anyhow::bail!("unexpected move result"),
     };
     society::leaving::lapse(db, &agent.hamlet, agent.number)?;
-    for table in [
-        "harness_binding",
-        "harness_agent",
-        "chat",
-        "chat_session",
-        "chat_conversation",
-        "chat_instruction",
-        "society_peer",
-    ] {
-        db.execute(
-            &format!(
-                "UPDATE {table} SET hamlet=?3, number=?4 WHERE \
-                 hamlet=?1 AND number=?2"
-            ),
-            params![
-                agent.hamlet,
-                i64::try_from(agent.number)?,
-                moved.hamlet,
-                i64::try_from(moved.number)?
-            ],
-        )?;
+    let (from_number, to_number) =
+        (i64::try_from(agent.number)?, i64::try_from(moved.number)?);
+    macro_rules! rehome {
+        ($($table:ident),+) => {$(
+            diesel::update(
+                $table::table
+                    .filter($table::hamlet.eq(&agent.hamlet))
+                    .filter($table::number.eq(from_number)),
+            )
+            .set((
+                $table::hamlet.eq(&moved.hamlet),
+                $table::number.eq(to_number),
+            ))
+            .execute(db)?;
+        )+};
     }
-    db.execute(
-        "UPDATE society_peer SET from_hamlet=?3, from_number=?4 \
-         WHERE from_hamlet=?1 AND from_number=?2",
-        params![
-            agent.hamlet,
-            i64::try_from(agent.number)?,
-            moved.hamlet,
-            i64::try_from(moved.number)?
-        ],
-    )?;
-    db.execute(
-        "UPDATE society_binding SET payer=?1 WHERE binding IN \
-         (SELECT binding FROM society_peer WHERE from_hamlet=?1 AND \
-         from_number=?2)",
-        params![moved.hamlet, i64::try_from(moved.number)?],
-    )?;
+    rehome!(
+        harness_binding,
+        harness_agent,
+        chat,
+        chat_session,
+        chat_conversation,
+        chat_instruction,
+        society_peer
+    );
+    diesel::update(
+        society_peer::table
+            .filter(society_peer::from_hamlet.eq(&agent.hamlet))
+            .filter(society_peer::from_number.eq(from_number)),
+    )
+    .set((
+        society_peer::from_hamlet.eq(&moved.hamlet),
+        society_peer::from_number.eq(to_number),
+    ))
+    .execute(db)?;
+    diesel::update(
+        society_binding::table.filter(
+            society_binding::binding.eq_any(
+                society_peer::table
+                    .filter(
+                        society_peer::from_hamlet.eq(&moved.hamlet),
+                    )
+                    .filter(society_peer::from_number.eq(to_number))
+                    .select(society_peer::binding),
+            ),
+        ),
+    )
+    .set(society_binding::payer.eq(&moved.hamlet))
+    .execute(db)?;
     realm.roads.retain(|r| {
         r.a != End::Agent(agent.clone())
             && r.b != End::Agent(agent.clone())

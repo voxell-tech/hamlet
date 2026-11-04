@@ -1,7 +1,8 @@
 //! Durable one-off conversations and their waiting tool calls.
 
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension, params};
+use diesel::dsl::exists;
+use diesel::prelude::*;
 use serde_json::{Value, json};
 
 use super::Caller;
@@ -10,6 +11,7 @@ use crate::harness::{
     BindingId, Harnesses, Input, InputMark, InputStatus,
 };
 use crate::record::AgentRef;
+use crate::schema::{harness_input, society_binding};
 use crate::service::Service;
 
 pub(super) async fn start(
@@ -22,14 +24,11 @@ pub(super) async fn start(
     task: &str,
 ) -> Result<BindingId> {
     let owner = owner.to_string();
-    let known = service
-        .db()
-        .query_row(
-            "SELECT binding FROM society_binding WHERE errand=?1 \
-             AND owner=?2",
-            params![kind, owner],
-            |row| row.get::<_, i64>(0),
-        )
+    let known = society_binding::table
+        .filter(society_binding::errand.eq(kind))
+        .filter(society_binding::owner.eq(&owner))
+        .select(society_binding::binding)
+        .first::<i64>(service.db())
         .optional()?;
     let binding = if let Some(binding) = known {
         let binding = BindingId(binding);
@@ -74,12 +73,15 @@ pub(super) async fn start(
             None,
             0,
         )?;
-        db.execute(
-            "INSERT INTO society_binding \
-             (binding,payer,errand,owner,instructions) VALUES \
-             (?1,?2,?3,?4,?5)",
-            params![binding.0, agent.hamlet, kind, owner, prompt],
-        )?;
+        diesel::insert_into(society_binding::table)
+            .values((
+                society_binding::binding.eq(binding.0),
+                society_binding::payer.eq(&agent.hamlet),
+                society_binding::errand.eq(kind),
+                society_binding::owner.eq(&owner),
+                society_binding::instructions.eq(prompt),
+            ))
+            .execute(db)?;
         binding
     };
     super::configure(service, harnesses, binding).await?;
@@ -147,17 +149,22 @@ pub(crate) async fn sweep(
     service: &mut Service,
     harnesses: &mut Harnesses,
 ) -> Result<()> {
-    let owners = service
-        .db()
-        .prepare(&format!(
-            "SELECT owner FROM society_binding s WHERE errand IS \
-             NOT NULL AND EXISTS (SELECT 1 FROM harness_input i \
-             WHERE i.binding=s.binding AND i.request='errand' AND \
-             {})",
-            crate::harness::ended("i.status")
-        ))?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let owners = society_binding::table
+        .filter(society_binding::errand.is_not_null())
+        .filter(exists(
+            harness_input::table
+                .filter(
+                    harness_input::binding
+                        .eq(society_binding::binding),
+                )
+                .filter(harness_input::request.eq("errand"))
+                .filter(
+                    harness_input::status
+                        .eq_any(crate::harness::ended()),
+                ),
+        ))
+        .select(society_binding::owner.assume_not_null())
+        .load::<String>(service.db())?;
     for owner in owners {
         let owner = serde_json::from_str::<Value>(&owner)?;
         if let (Some(runtime), Some(key)) =
@@ -173,16 +180,13 @@ pub(crate) async fn sweep(
 
 /// The instructions the errand of `binding` was given.
 pub(crate) fn instructions(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<Option<String>> {
-    Ok(db
-        .query_row(
-            "SELECT instructions FROM society_binding WHERE binding \
-             = ?1",
-            [binding.0],
-            |row| row.get::<_, Option<String>>(0),
-        )
+    Ok(society_binding::table
+        .find(binding.0)
+        .select(society_binding::instructions)
+        .first::<Option<String>>(db)
         .optional()?
         .flatten())
 }

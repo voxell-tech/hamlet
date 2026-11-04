@@ -1,9 +1,10 @@
 //! Names, office addresses and the realm's living name index.
 
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension};
+use diesel::prelude::*;
 
 use super::{Agent, Archived, DecisionKind, End, Hamlet, Reason};
+use crate::schema::record_name;
 
 /// A model's spelling normalized to the record's name spelling.
 pub fn tidy_name(name: &str) -> String {
@@ -39,7 +40,7 @@ pub fn check_name(name: &str) -> Option<Reason> {
 }
 
 pub(super) fn available(
-    db: &Connection,
+    db: &mut SqliteConnection,
     name: &str,
     archive: Option<&Archived>,
 ) -> Result<Option<Reason>> {
@@ -48,14 +49,10 @@ pub(super) fn available(
     {
         return Ok(Some(reason));
     }
-    let taken = db
-        .query_row(
-            "SELECT 1 FROM record_name WHERE name = ?1",
-            [name],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some();
+    let taken = diesel::select(diesel::dsl::exists(
+        record_name::table.find(name),
+    ))
+    .get_result::<bool>(db)?;
     Ok(taken.then(|| Reason::NameTaken {
         name: name.into(),
         archive: archive.map(|a| a.id.clone()),

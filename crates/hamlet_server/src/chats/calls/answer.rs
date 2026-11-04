@@ -174,13 +174,13 @@ fn rule(
         }
         ruled.push(Ruled { call, place, net });
     }
-    let tx = service.home.store().transaction()?;
+    let mut tx = service.home.store().transaction()?;
     if ruling == Ruling::Always
         && danger == Some(Danger::Network)
         && let Some(agent) = &wait.agent
     {
         gate::give(
-            &tx,
+            &mut tx,
             agent,
             &wait.by,
             &Permission::Network,
@@ -191,14 +191,14 @@ fn rule(
     let mut struck = Vec::<BindingId>::new();
     for Ruled { call, place, net } in &ruled {
         if ruling.is_allowing() {
-            held::set_net(&tx, &call.id, *net)?;
+            held::set_net(&mut tx, &call.id, *net)?;
         }
         if ruling == Ruling::Always
             && let Some(danger @ (Danger::Edit | Danger::Command)) =
                 danger
         {
             gate::trust(
-                &tx,
+                &mut tx,
                 &TrustKey {
                     agent: &place.agent,
                     chief: place.chief.as_deref().unwrap_or_default(),
@@ -211,8 +211,11 @@ fn rule(
             && let Some(danger) = danger
             && !struck.contains(&call.binding)
         {
-            let mut asked =
-                Asked::of(&tx, call.binding, call.input.as_deref())?;
+            let mut asked = Asked::of(
+                &mut tx,
+                call.binding,
+                call.input.as_deref(),
+            )?;
             asked.refuse(
                 &wait.by,
                 danger,
@@ -223,12 +226,12 @@ fn rule(
                     text
                 },
             );
-            asked.keep(&tx, call.binding)?;
+            asked.keep(&mut tx, call.binding)?;
             struck.push(call.binding);
         }
     }
     let Some((settled, mut woken)) = oversight::settle(
-        &tx,
+        &mut tx,
         &wait.id,
         ruling,
         text,
@@ -240,7 +243,7 @@ fn rule(
     };
     if settled.kind == WaitKind::Objection {
         woken.extend(crate::society::reviews::settle(
-            &tx, &wait.id, ruling, text, &chief,
+            &mut tx, &wait.id, ruling, text, &chief,
         )?);
     }
     tx.commit()?;
@@ -251,6 +254,7 @@ fn rule(
 mod tests {
     use std::collections::BTreeMap;
 
+    use diesel::connection::SimpleConnection;
     use hamlet_protocol::runtime::ModelRef;
     use hamlet_testing::Scratch;
     use serde_json::json;
@@ -303,7 +307,7 @@ mod tests {
         assert!(matches!(gate, Gate::Decided(Decision::Wait(_))));
         let db = service.db();
         let wait = oversight::open(db).unwrap().remove(0);
-        db.execute_batch(
+        db.batch_execute(
             "CREATE TEMP TRIGGER crash BEFORE UPDATE OF open ON \
              wait BEGIN SELECT RAISE(ABORT, 'crash'); END;",
         )
@@ -317,7 +321,7 @@ mod tests {
             "a grant stands for a wait that is still open"
         );
         assert!(oversight::find(db, &wait.id).unwrap().is_some());
-        db.execute_batch("DROP TRIGGER crash;").unwrap();
+        db.batch_execute("DROP TRIGGER crash;").unwrap();
         assert!(
             rule(&mut service, &wait, Ruling::Always, "")
                 .unwrap()

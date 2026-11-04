@@ -3,8 +3,9 @@
 //! the chief refused in the turn.
 
 use anyhow::{Context, Result};
+use diesel::prelude::*;
+use diesel::upsert::excluded;
 use hamlet_protocol::client::Permission;
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -12,6 +13,7 @@ use crate::harness::BindingId;
 use crate::limits::Limits;
 use crate::oversight::Danger;
 use crate::record::AgentRef;
+use crate::schema::{gate_asked, gate_trust, grant_event};
 use crate::tools::Dialect;
 
 /// A tool call, classified by its reach.
@@ -327,24 +329,19 @@ impl Covers {
 impl Asked {
     /// What `binding` was asked in its turn of `input`.
     pub fn of(
-        db: &Connection,
+        db: &mut SqliteConnection,
         binding: BindingId,
         input: Option<&str>,
     ) -> Result<Self> {
-        let kept = db
-            .query_row(
-                "SELECT input, strikes, questions, refused FROM \
-                 gate_asked WHERE binding = ?1",
-                [binding.0],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<String>>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, String>(3)?,
-                    ))
-                },
-            )
+        let kept = gate_asked::table
+            .find(binding.0)
+            .select((
+                gate_asked::input,
+                gate_asked::strikes,
+                gate_asked::questions,
+                gate_asked::refused,
+            ))
+            .first::<(Option<String>, i64, i64, String)>(db)
             .optional()?;
         Ok(match kept {
             Some((kept, strikes, questions, refused))
@@ -366,23 +363,28 @@ impl Asked {
 
     pub fn keep(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
         binding: BindingId,
     ) -> Result<()> {
-        db.execute(
-            "INSERT INTO gate_asked (binding, input, strikes, \
-             questions, refused) VALUES (?1, ?2, ?3, ?4, ?5) ON \
-             CONFLICT (binding) DO UPDATE SET input = \
-             excluded.input, strikes = excluded.strikes, questions \
-             = excluded.questions, refused = excluded.refused",
-            params![
-                binding.0,
-                self.input,
-                self.strikes,
-                self.questions,
-                serde_json::to_string(&self.refused)?
-            ],
-        )?;
+        diesel::insert_into(gate_asked::table)
+            .values((
+                gate_asked::binding.eq(binding.0),
+                gate_asked::input.eq(&self.input),
+                gate_asked::strikes.eq(self.strikes),
+                gate_asked::questions.eq(self.questions),
+                gate_asked::refused
+                    .eq(serde_json::to_string(&self.refused)?),
+            ))
+            .on_conflict(gate_asked::binding)
+            .do_update()
+            .set((
+                gate_asked::input.eq(excluded(gate_asked::input)),
+                gate_asked::strikes.eq(excluded(gate_asked::strikes)),
+                gate_asked::questions
+                    .eq(excluded(gate_asked::questions)),
+                gate_asked::refused.eq(excluded(gate_asked::refused)),
+            ))
+            .execute(db)?;
         Ok(())
     }
 
@@ -446,65 +448,69 @@ pub(crate) struct TrustKey<'a> {
 /// Whether the chief trusts the edits and the commands of the
 /// session.
 pub(crate) fn trusted(
-    db: &Connection,
+    db: &mut SqliteConnection,
     key: &TrustKey,
 ) -> Result<(bool, bool)> {
-    Ok(db
-        .query_row(
-            "SELECT edit, command FROM gate_trust WHERE hamlet = ?1 \
-             AND number = ?2 AND chief = ?3 AND session = ?4",
-            params![
-                key.agent.hamlet,
-                i64::try_from(key.agent.number)?,
-                key.chief,
-                key.session
-            ],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+    Ok(gate_trust::table
+        .find((
+            &key.agent.hamlet,
+            i64::try_from(key.agent.number)?,
+            key.chief,
+            key.session,
+        ))
+        .select((gate_trust::edit, gate_trust::command))
+        .first(db)
         .optional()?
         .unwrap_or((false, false)))
 }
 
 /// Trusts the edits or the commands of the session from now on.
 pub(crate) fn trust(
-    db: &Connection,
+    db: &mut SqliteConnection,
     key: &TrustKey,
     danger: Danger,
 ) -> Result<()> {
     let (edit, command) =
         (danger == Danger::Edit, danger == Danger::Command);
-    db.execute(
-        "INSERT INTO gate_trust (hamlet, number, chief, session, \
-         edit, command) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT \
-         (hamlet, number, chief, session) DO UPDATE SET edit = edit \
-         OR excluded.edit, command = command OR excluded.command",
-        params![
-            key.agent.hamlet,
-            i64::try_from(key.agent.number)?,
-            key.chief,
-            key.session,
-            edit,
-            command
-        ],
-    )?;
+    diesel::insert_into(gate_trust::table)
+        .values((
+            gate_trust::hamlet.eq(&key.agent.hamlet),
+            gate_trust::number.eq(i64::try_from(key.agent.number)?),
+            gate_trust::chief.eq(key.chief),
+            gate_trust::session.eq(key.session),
+            gate_trust::edit.eq(edit),
+            gate_trust::command.eq(command),
+        ))
+        .on_conflict((
+            gate_trust::hamlet,
+            gate_trust::number,
+            gate_trust::chief,
+            gate_trust::session,
+        ))
+        .do_update()
+        .set((
+            gate_trust::edit
+                .eq(gate_trust::edit.or(excluded(gate_trust::edit))),
+            gate_trust::command
+                .eq(gate_trust::command
+                    .or(excluded(gate_trust::command))),
+        ))
+        .execute(db)?;
     Ok(())
 }
 
 /// Takes back the trust of a session that is resumed (H11).
 pub(crate) fn reset_trust(
-    db: &Connection,
+    db: &mut SqliteConnection,
     key: &TrustKey,
 ) -> Result<()> {
-    db.execute(
-        "DELETE FROM gate_trust WHERE hamlet = ?1 AND number = ?2 \
-         AND chief = ?3 AND session = ?4",
-        params![
-            key.agent.hamlet,
-            i64::try_from(key.agent.number)?,
-            key.chief,
-            key.session
-        ],
-    )?;
+    diesel::delete(gate_trust::table.find((
+        &key.agent.hamlet,
+        i64::try_from(key.agent.number)?,
+        key.chief,
+        key.session,
+    )))
+    .execute(db)?;
     Ok(())
 }
 
@@ -535,23 +541,20 @@ pub(crate) fn permission(name: &str) -> Option<Permission> {
 
 /// The grants still held, after the latest event for each agent and
 /// permission.
-pub(crate) fn grants(db: &Connection) -> Result<Vec<Grant>> {
-    let mut query = db.prepare(
-        "SELECT type, hamlet, number, name, permission, by FROM \
-         grant_event ORDER BY ordinal",
-    )?;
-    let events = query
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+pub(crate) fn grants(
+    db: &mut SqliteConnection,
+) -> Result<Vec<Grant>> {
+    let events = grant_event::table
+        .order(grant_event::ordinal)
+        .select((
+            grant_event::type_,
+            grant_event::hamlet,
+            grant_event::number,
+            grant_event::name,
+            grant_event::permission,
+            grant_event::by,
+        ))
+        .load::<(String, String, i64, String, String, String)>(db)?;
     let mut held = Vec::<Grant>::new();
     for (kind, hamlet, number, name, permission, by) in events {
         let permission =
@@ -597,7 +600,7 @@ pub(crate) fn has_permission(
 
 /// Gives `agent`, called `name`, `permission` from the chief `by`.
 pub(crate) fn give(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     name: &str,
     permission: &Permission,
@@ -609,7 +612,7 @@ pub(crate) fn give(
 
 /// Takes `permission` back from `agent`, when it holds it by a grant.
 pub(crate) fn revoke(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &AgentRef,
     permission: &Permission,
     by: &str,
@@ -625,7 +628,7 @@ pub(crate) fn revoke(
 }
 
 fn event(
-    db: &Connection,
+    db: &mut SqliteConnection,
     kind: &str,
     agent: &AgentRef,
     name: &str,
@@ -633,19 +636,17 @@ fn event(
     by: &str,
     at: i64,
 ) -> Result<()> {
-    db.execute(
-        "INSERT INTO grant_event (type, hamlet, number, name, \
-         permission, by, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            kind,
-            agent.hamlet,
-            i64::try_from(agent.number)?,
-            name,
-            word(permission),
-            by,
-            at
-        ],
-    )?;
+    diesel::insert_into(grant_event::table)
+        .values((
+            grant_event::type_.eq(kind),
+            grant_event::hamlet.eq(&agent.hamlet),
+            grant_event::number.eq(i64::try_from(agent.number)?),
+            grant_event::name.eq(name),
+            grant_event::permission.eq(word(permission)),
+            grant_event::by.eq(by),
+            grant_event::at.eq(at),
+        ))
+        .execute(db)?;
     Ok(())
 }
 

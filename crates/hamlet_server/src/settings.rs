@@ -1,10 +1,10 @@
 //! Saved settings and process-only model overrides.
 
 use anyhow::{Result, bail};
+use diesel::SqliteConnection;
 use hamlet_protocol::client::{
     EditSettingsSet, Endpoint, Link, LinkState,
 };
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -71,7 +71,7 @@ impl Settings {
 }
 
 /// The settings the chief saved, else the defaults.
-pub(crate) fn stored(db: &Connection) -> Result<Settings> {
+pub(crate) fn stored(db: &mut SqliteConnection) -> Result<Settings> {
     Ok(document(db, "settings", "home")?
         .map(serde_json::from_value)
         .transpose()?
@@ -80,7 +80,7 @@ pub(crate) fn stored(db: &Connection) -> Result<Settings> {
 
 /// Keeps `settings` as the chief's.
 pub(crate) fn keep(
-    db: &Connection,
+    db: &mut SqliteConnection,
     settings: &Settings,
 ) -> Result<()> {
     save(db, "settings", "home", &serde_json::to_value(settings)?)

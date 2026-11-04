@@ -6,8 +6,9 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
+use diesel::dsl::sql;
+use diesel::sql_types::{BigInt, Text};
 use hamlet_testing::Scratch;
-use rusqlite::{Connection, params};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::json;
@@ -46,37 +47,47 @@ impl Operation for Spend {
     type Done = Spent;
     type Refusal = Refused;
 
-    fn authorize(&self, db: &Connection) -> Result<Option<Refused>> {
-        let holds = db.query_row(
-            "SELECT count(*) FROM holder WHERE purse = ?1 AND actor \
-             = ?2",
-            params![self.purse, self.actor],
-            |row| row.get::<_, i64>(0),
-        )?;
+    fn authorize(
+        &self,
+        db: &mut SqliteConnection,
+    ) -> Result<Option<Refused>> {
+        let holds = diesel::select(
+            sql::<BigInt>(
+                "(SELECT count(*) FROM holder WHERE purse = ",
+            )
+            .bind::<Text, _>(self.purse)
+            .sql(" AND actor = ")
+            .bind::<Text, _>(self.actor)
+            .sql(")"),
+        )
+        .get_result::<i64>(db)?;
         Ok((holds == 0).then_some(Refused::NotHolder))
     }
 
     // Writes before it checks, so a refusal has something to undo.
     fn apply(
         &self,
-        db: &Connection,
+        db: &mut SqliteConnection,
     ) -> Result<Outcome<Spent, Refused>> {
-        db.execute(
-            "INSERT INTO spending VALUES (?1, ?2)",
-            params![self.purse, self.coins],
-        )?;
-        let changed = db.execute(
+        diesel::sql_query("INSERT INTO spending VALUES (?1, ?2)")
+            .bind::<Text, _>(self.purse)
+            .bind::<BigInt, _>(self.coins)
+            .execute(db)?;
+        let changed = diesel::sql_query(
             "UPDATE purse SET coins = coins - ?2 WHERE name = ?1",
-            params![self.purse, self.coins],
-        )?;
+        )
+        .bind::<Text, _>(self.purse)
+        .bind::<BigInt, _>(self.coins)
+        .execute(db)?;
         if changed == 0 {
             bail!("no purse {}", self.purse);
         }
-        let left = db.query_row(
-            "SELECT coins FROM purse WHERE name = ?1",
-            [self.purse],
-            |row| row.get::<_, i64>(0),
-        )?;
+        let left = diesel::select(
+            sql::<BigInt>("(SELECT coins FROM purse WHERE name = ")
+                .bind::<Text, _>(self.purse)
+                .sql(")"),
+        )
+        .get_result::<i64>(db)?;
         Ok(if left < 0 {
             Outcome::Refused(Refused::Short)
         } else {
@@ -90,13 +101,16 @@ impl Operation for Give {
     type Done = Spent;
     type Refusal = Refused;
 
-    fn authorize(&self, _: &Connection) -> Result<Option<Refused>> {
+    fn authorize(
+        &self,
+        _: &mut SqliteConnection,
+    ) -> Result<Option<Refused>> {
         Ok(None)
     }
 
     fn apply(
         &self,
-        _: &Connection,
+        _: &mut SqliteConnection,
     ) -> Result<Outcome<Spent, Refused>> {
         Ok(Outcome::Done(Spent { left: 0 }))
     }
@@ -145,7 +159,7 @@ fn seeded(tag: &str) -> (Scratch, Home) {
     let mut home = open(&dir);
     home.store()
         .connection()
-        .execute_batch(
+        .batch_execute(
             "CREATE TABLE purse (name TEXT PRIMARY KEY, coins \
              INTEGER);
              CREATE TABLE holder (purse TEXT, actor TEXT);
@@ -158,9 +172,8 @@ fn seeded(tag: &str) -> (Scratch, Home) {
 }
 
 fn count(home: &mut Home, sql: &str) -> i64 {
-    home.store()
-        .connection()
-        .query_row(sql, [], |row| row.get::<_, i64>(0))
+    diesel::select(diesel::dsl::sql::<BigInt>(&format!("({sql})")))
+        .get_result(home.store().connection())
         .unwrap()
 }
 
@@ -174,7 +187,13 @@ fn state(home: &mut Home) -> (i64, i64, i64) {
 }
 
 fn set(home: &mut Home, sql: &str) {
-    home.store().connection().execute_batch(sql).unwrap();
+    home.store().connection().batch_execute(sql).unwrap();
+}
+
+/// The store in `dir`, opened without the store's checks.
+fn raw(dir: &Path) -> SqliteConnection {
+    let path = dir.join("realm.sqlite");
+    SqliteConnection::establish(path.to_str().unwrap()).unwrap()
 }
 
 fn is_held(dir: &Path) -> bool {
@@ -350,13 +369,13 @@ fn a_home_refuses_a_missing_or_substituted_store_or_identity() {
 fn an_existing_empty_or_foreign_database_is_not_initialized() {
     for version in [0, 1, 2] {
         let dir = Scratch::new("server-foreign-store");
-        let db = Connection::open(dir.join("realm.sqlite")).unwrap();
-        db.execute_batch(
+        let mut db = raw(&dir);
+        db.batch_execute(&format!(
             "CREATE TABLE foreign_data (value TEXT); INSERT INTO \
-             foreign_data VALUES ('kept');",
-        )
+             foreign_data VALUES ('kept'); PRAGMA user_version = \
+             {version};"
+        ))
         .unwrap();
-        db.pragma_update(None, "user_version", version).unwrap();
         drop(db);
         let before = std::fs::read(dir.join("realm.sqlite")).unwrap();
         assert!(
@@ -378,19 +397,21 @@ fn a_store_of_another_version_is_refused() {
     for version in [0, 2, 99] {
         let dir = Scratch::new("server-version");
         open(&dir).close().unwrap();
-        let db = Connection::open(dir.join("realm.sqlite")).unwrap();
-        db.pragma_update(None, "user_version", version).unwrap();
+        let mut db = raw(&dir);
+        db.batch_execute(&format!(
+            "PRAGMA user_version = {version};"
+        ))
+        .unwrap();
         drop(db);
         assert!(
             Home::open(&dir).is_err(),
             "accepted version {version}"
         );
-        let db = Connection::open(dir.join("realm.sqlite")).unwrap();
-        let kept = db
-            .query_row("PRAGMA user_version", [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .unwrap();
+        let kept = diesel::select(sql::<BigInt>(
+            "(SELECT user_version FROM pragma_user_version())",
+        ))
+        .get_result::<i64>(&mut raw(&dir))
+        .unwrap();
         assert_eq!(kept, version);
     }
 }

@@ -1,5 +1,6 @@
 //! The record's contracts through marker-backed operations.
 
+use diesel::connection::SimpleConnection;
 use hamlet_testing::Scratch;
 
 use super::{
@@ -99,7 +100,7 @@ fn refused(
     }
 }
 
-fn record(store: &Store, hamlet: &str) -> Hamlet {
+fn record(store: &mut Store, hamlet: &str) -> Hamlet {
     store.record(hamlet).unwrap().unwrap()
 }
 
@@ -227,11 +228,11 @@ fn a_model_is_set_by_the_mayor_alone_within_the_chiefs_limits() {
     ));
     done(&mut store, "fast", &set("scout", Some("fast")));
     assert_eq!(
-        record(&store, "home").named("scout").unwrap().model,
+        record(&mut store, "home").named("scout").unwrap().model,
         Some("fast".into())
     );
     done(&mut store, "own", &set("scout", None));
-    let r = record(&store, "home");
+    let r = record(&mut store, "home");
     assert_eq!(r.named("scout").unwrap().model, None);
     assert_eq!(
         r.decisions.last().map(|d| (&d.by, &d.reason, &d.kind)),
@@ -275,7 +276,7 @@ fn admission_and_departure_trim_unicode_white_space() {
         &request("home", admit("\u{85}Scout\u{85}")),
     );
     assert_eq!(
-        record(&store, "home").named("scout").unwrap().number,
+        record(&mut store, "home").named("scout").unwrap().number,
         1
     );
     assert_eq!(
@@ -302,7 +303,7 @@ fn admission_and_departure_trim_unicode_white_space() {
         refused(&mut store, "empty-reason", &call).reason,
         Reason::Empty
     );
-    assert!(record(&store, "home").named("scout").is_some());
+    assert!(record(&mut store, "home").named("scout").is_some());
 }
 
 #[test]
@@ -365,7 +366,7 @@ fn admission_has_realm_names_stable_numbers_and_a_cap_beside_the_current_mayor()
         "the hamlet is full (2 agents); remove one first, or raise \
          mostAgents in the limits"
     );
-    assert_eq!(record(&store, "home").next, 4);
+    assert_eq!(record(&mut store, "home").next, 4);
     assert_eq!(
         store.agent_named("third").unwrap(),
         Some(place("home", 3))
@@ -435,7 +436,7 @@ fn names_validate_after_tidying_and_admission_keeps_partial_roads_and_allowed_mo
             "every agent already has a road to the mayor"
         ]
     );
-    let r = record(&store, "home");
+    let r = record(&mut store, "home");
     let agent = r.named("feline-biologist").unwrap();
     assert_eq!(
         (&*agent.purpose, agent.model.as_deref(), &*agent.character),
@@ -503,7 +504,7 @@ fn road_refusals_caps_and_office_changes_preserve_traffic_without_refunds()
     );
     carry(&mut store, "out", 0, 1);
     carry(&mut store, "back", 1, 0);
-    let r = record(&store, "home");
+    let r = record(&mut store, "home");
     let office = r.roads.iter().find(|r| r.a == End::Office).unwrap();
     assert_eq!(
         (office.messages, office.last_from, office.last_used),
@@ -530,7 +531,7 @@ fn road_refusals_caps_and_office_changes_preserve_traffic_without_refunds()
         "seat",
         &request("home", Change::Seat { number: 1 }),
     );
-    let r = record(&store, "home");
+    let r = record(&mut store, "home");
     assert_eq!(r.named("mayor").unwrap().name, "scout");
     assert_eq!(r.address_of(0), "founder");
     assert!(r.has_road(0, 1) && r.has_road(1, 3));
@@ -556,7 +557,7 @@ fn road_refusals_caps_and_office_changes_preserve_traffic_without_refunds()
             },
         ),
     );
-    assert!(!record(&store, "home").has_road(1, 2));
+    assert!(!record(&mut store, "home").has_road(1, 2));
     let charges = store.road_charges("home").unwrap();
     assert_eq!(charges.len(), 1);
     assert_eq!(charges[0].amount.micros, 10_000);
@@ -594,7 +595,7 @@ fn replay_after_reopening_returns_the_marked_result_even_after_authority_and_tim
     );
     assert_eq!(store.road_charges("home").unwrap().len(), 1);
     assert_eq!(
-        record(&store, "home")
+        record(&mut store, "home")
             .decisions
             .iter()
             .filter(|d| matches!(
@@ -662,7 +663,7 @@ fn restoring_keeps_identity_and_surviving_roads_not_namesakes_and_does_not_charg
         (1, 100, "Maps")
     );
     assert!(text.contains("more than the 0 your limits allow"));
-    let r = record(&store, "home");
+    let r = record(&mut store, "home");
     assert!(r.has_road(1, 2) && r.has_road(1, 4) && r.has_road(1, 0));
     assert!(!r.has_road(1, 5));
     assert_eq!(r.next, 6);
@@ -803,12 +804,12 @@ fn current_vote_limits_and_chief_tasks_hold_effects_but_chiefs_can_overrule()
          then"
     );
     assert!(
-        record(&store, "home")
+        record(&mut store, "home")
             .may_decide(3_600_099, Action::Admit)
             .is_some()
     );
     assert!(
-        record(&store, "home")
+        record(&mut store, "home")
             .may_decide(3_600_100, Action::Admit)
             .is_none()
     );
@@ -825,7 +826,7 @@ fn current_vote_limits_and_chief_tasks_hold_effects_but_chiefs_can_overrule()
         refused(&mut store, "protected", &call).reason,
         Reason::Protected { done: None, .. }
     ));
-    assert!(record(&store, "home").archive.is_empty());
+    assert!(record(&mut store, "home").archive.is_empty());
     assert_eq!(
         refused(
             &mut store,
@@ -856,7 +857,7 @@ fn current_vote_limits_and_chief_tasks_hold_effects_but_chiefs_can_overrule()
         refused(&mut store, "remove-restored", &call).reason,
         Reason::Protected { done: None, .. }
     ));
-    assert!(record(&store, "home").named("scout").is_some());
+    assert!(record(&mut store, "home").named("scout").is_some());
 }
 
 #[test]
@@ -929,8 +930,8 @@ fn moving_requires_both_current_mayors_and_uses_the_receiving_next_number()
         store.agent_named("scout").unwrap(),
         Some(place("mill", 3))
     );
-    let old = record(&store, "home");
-    let target = record(&store, "mill");
+    let old = record(&mut store, "home");
+    let target = record(&mut store, "mill");
     assert_eq!((old.next, target.next), (3, 4));
     assert!(!old.has_road(1, 2));
     assert!(target.has_road(2, 3));
@@ -987,7 +988,7 @@ fn a_failed_marker_rolls_back_admission_roads_charges_and_the_name_index()
     );
     store
         .connection()
-        .execute_batch(
+        .batch_execute(
             "CREATE TEMP TRIGGER fail_marker BEFORE INSERT ON \
              marker WHEN NEW.key = 'fail' BEGIN SELECT RAISE(ABORT, \
              'injected marker failure'); END;",
@@ -995,11 +996,11 @@ fn a_failed_marker_rolls_back_admission_roads_charges_and_the_name_index()
         .unwrap();
     assert!(store.run(&id("fail"), &call).is_err());
     assert_eq!(store.agent_named("scout").unwrap(), None);
-    assert_eq!(record(&store, "home").next, 2);
+    assert_eq!(record(&mut store, "home").next, 2);
     assert!(store.road_charges("home").unwrap().is_empty());
     store
         .connection()
-        .execute_batch("DROP TRIGGER fail_marker")
+        .batch_execute("DROP TRIGGER fail_marker")
         .unwrap();
     done(&mut store, "fail", &call);
     assert_eq!(
@@ -1135,7 +1136,7 @@ fn merge_restoration_preserves_learned_traffic_and_enforces_reverse_order()
         "split-scout",
         &request("home", restore(&archive, "scout")),
     );
-    let r = record(&store, "home");
+    let r = record(&mut store, "home");
     assert_eq!(r.named("smith").unwrap().purpose, "Maps");
     assert!(r.has_road(1, 4) && r.has_road(2, 4));
     assert_eq!(
@@ -1159,7 +1160,7 @@ fn merge_restoration_preserves_learned_traffic_and_enforces_reverse_order()
                 },
             ),
         );
-        let r = record(&store, "home");
+        let r = record(&mut store, "home");
         let entry = r
             .archive
             .iter()

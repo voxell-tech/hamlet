@@ -4,16 +4,31 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local, Timelike};
+use diesel::dsl::{max, sql};
+use diesel::prelude::*;
+use diesel::sql_types::is_nullable::NotNull;
+use diesel::sql_types::{Bool, Nullable, SingleValue, SqlType, Text};
 use hamlet_protocol::client::{
     self as protocol, Period, Report, ReportCaps, UsageView,
 };
 use hamlet_protocol::runtime::{Price, Usage};
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::harness::BindingId;
+use crate::schema::{
+    harness_attempt, harness_binding, harness_usage,
+    record_road_charge, society_binding, spend_reset,
+};
 use crate::service::Service;
+
+define_sql_function! {
+    /// `value` unless it is NULL, else `otherwise`.
+    fn coalesce<T: SqlType<IsNull = NotNull> + SingleValue>(
+        value: Nullable<T>,
+        otherwise: T,
+    ) -> T;
+}
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub(crate) struct Amount {
@@ -64,7 +79,7 @@ fn duration(ms: i64) -> String {
 
 /// Reads a hamlet's current period and a task's complete lifetime.
 pub(crate) fn books(
-    db: &Connection,
+    db: &mut SqliteConnection,
     hamlet: &str,
     period: &Period,
     task: Option<&str>,
@@ -76,14 +91,16 @@ pub(crate) fn books(
         Period::Month => date.format("%Y-%m-01").to_string(),
         Period::Day => today.clone(),
     };
-    let reset = db
-        .query_row(
-            "SELECT models,roads FROM spend_reset WHERE hamlet = ?1 \
-             AND date(at/1000, 'unixepoch', 'localtime') BETWEEN ?2 \
-             AND ?3 ORDER BY id DESC LIMIT 1",
-            params![hamlet, first, today],
-            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+    let reset = spend_reset::table
+        .filter(spend_reset::hamlet.eq(hamlet))
+        // The local day of `at`, which Diesel has no function for.
+        .filter(
+            sql::<Text>("date(at/1000, 'unixepoch', 'localtime')")
+                .between(&first, &today),
         )
+        .order(spend_reset::id.desc())
+        .select((spend_reset::models, spend_reset::roads))
+        .first::<(i64, i64)>(db)
         .optional()?
         .unwrap_or_default();
     let mut result = Books {
@@ -91,36 +108,81 @@ pub(crate) fn books(
         agents: BTreeMap::new(),
         task: Amount::default(),
     };
-    let mut query = db.prepare(
-        "SELECT b.number, a.task, u.at, \
-         u.input+u.output+u.cache_read+u.cache_write+u.estimated, \
-         u.micros, u.ms, u.ordinal, 0, coalesce(s.payer,b.hamlet) \
-         FROM harness_usage u JOIN harness_attempt a \
-         USING(runtime,key) JOIN harness_binding b ON \
-         b.id=a.binding LEFT JOIN society_binding s ON \
-         s.binding=b.id WHERE coalesce(s.payer,b.hamlet)=?1 OR \
-         a.task=?2 UNION ALL SELECT \
-         agent,task,at,tokens,micros,ms,id,1,hamlet FROM \
-         record_road_charge WHERE hamlet=?1 OR task=?2",
-    )?;
-    let rows = query.query_map(params![hamlet, task], |r| {
-        Ok((
-            r.get::<_, i64>(0)?,
-            r.get::<_, Option<String>>(1)?,
-            r.get::<_, i64>(2)?,
-            Amount {
-                tokens: r.get(3)?,
-                micros: r.get(4)?,
-                ms: r.get(5)?,
-            },
-            r.get::<_, i64>(6)?,
-            r.get::<_, bool>(7)?,
-            r.get::<_, String>(8)?,
-        ))
-    })?;
-    for row in rows {
-        let (agent, own_task, time, amount, ordinal, road, payer) =
-            row?;
+    let payer = coalesce(
+        society_binding::payer.nullable(),
+        harness_binding::hamlet,
+    );
+    let models = harness_usage::table
+        .inner_join(
+            harness_attempt::table.on(harness_attempt::runtime
+                .eq(harness_usage::runtime)
+                .and(harness_attempt::key.eq(harness_usage::key))),
+        )
+        .inner_join(
+            harness_binding::table
+                .on(harness_binding::id.eq(harness_attempt::binding)),
+        )
+        .left_join(
+            society_binding::table
+                .on(society_binding::binding.eq(harness_binding::id)),
+        )
+        .filter(payer.eq(hamlet).or(harness_attempt::task.eq(task)))
+        .select((
+            harness_binding::number,
+            harness_attempt::task,
+            harness_usage::at,
+            harness_usage::input
+                + harness_usage::output
+                + harness_usage::cache_read
+                + harness_usage::cache_write
+                + harness_usage::estimated,
+            harness_usage::micros,
+            harness_usage::ms,
+            harness_usage::ordinal,
+            false.into_sql::<Bool>(),
+            payer,
+        ));
+    let roads = record_road_charge::table
+        .filter(
+            record_road_charge::hamlet
+                .eq(hamlet)
+                .or(record_road_charge::task.eq(task)),
+        )
+        .select((
+            record_road_charge::agent,
+            record_road_charge::task,
+            record_road_charge::at,
+            record_road_charge::tokens,
+            record_road_charge::micros,
+            record_road_charge::ms,
+            record_road_charge::id,
+            true.into_sql::<Bool>(),
+            record_road_charge::hamlet,
+        ));
+    let rows = models.union_all(roads).load::<(
+        i64,
+        Option<String>,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        bool,
+        String,
+    )>(db)?;
+    for (
+        agent,
+        own_task,
+        time,
+        tokens,
+        micros,
+        ms,
+        ordinal,
+        road,
+        payer,
+    ) in rows
+    {
+        let amount = Amount { tokens, micros, ms };
         if task.is_some() && own_task.as_deref() == task {
             result.task.add(amount);
         }
@@ -144,7 +206,7 @@ pub(crate) fn books(
 }
 
 pub(crate) fn can_spend(
-    db: &Connection,
+    db: &mut SqliteConnection,
     hamlet: &str,
     task: Option<&str>,
     at: i64,
@@ -385,13 +447,26 @@ impl Service {
     /// Starts the budget period of `hamlet` again from now, keeping
     /// the ledger; gives the words of `/reset-budget`.
     pub fn reset_budget(&mut self, hamlet: &str) -> Result<String> {
-        self.db().execute(
-            "INSERT INTO spend_reset(hamlet,at,by,models,roads) \
-             VALUES (?1,?2,?3,(SELECT COALESCE(MAX(ordinal),0) FROM \
-             harness_usage),(SELECT COALESCE(MAX(id),0) FROM \
-             record_road_charge))",
-            params![hamlet, crate::clock::now(), self.chief],
-        )?;
+        let by = self.chief.clone();
+        diesel::insert_into(spend_reset::table)
+            .values((
+                spend_reset::hamlet.eq(hamlet),
+                spend_reset::at.eq(crate::clock::now()),
+                spend_reset::by.eq(by),
+                spend_reset::models.eq(coalesce(
+                    harness_usage::table
+                        .select(max(harness_usage::ordinal))
+                        .single_value(),
+                    0,
+                )),
+                spend_reset::roads.eq(coalesce(
+                    record_road_charge::table
+                        .select(max(record_road_charge::id))
+                        .single_value(),
+                    0,
+                )),
+            ))
+            .execute(self.db())?;
         Ok("The budget starts again from here. What was spent \
             before is kept in the ledger."
             .into())
@@ -402,7 +477,7 @@ impl Service {
 /// summaries.
 #[cfg(any(test, feature = "harness"))]
 pub fn usage(
-    db: &Connection,
+    db: &mut SqliteConnection,
     binding: BindingId,
 ) -> Result<UsageView> {
     usage_of(db, &[binding])
@@ -411,18 +486,32 @@ pub fn usage(
 /// The model usage of `bindings` together, as of a conversation and
 /// the branches it was forked or rewound from.
 pub fn usage_of(
-    db: &Connection,
+    db: &mut SqliteConnection,
     bindings: &[BindingId],
 ) -> Result<UsageView> {
-    let bindings = serde_json::to_string(
-        &bindings.iter().map(|b| b.0).collect::<Vec<_>>(),
-    )?;
-    let mut query = db.prepare(
-        "SELECT u.input+u.cache_read+u.cache_write,u.output,u.\
-         micros,u.ms,u.cache_read,u.detail FROM harness_usage u \
-         JOIN harness_attempt a USING(runtime,key) WHERE a.binding \
-         IN (SELECT value FROM json_each(?1)) ORDER BY u.ordinal",
-    )?;
+    let rows = harness_usage::table
+        .inner_join(
+            harness_attempt::table.on(harness_attempt::runtime
+                .eq(harness_usage::runtime)
+                .and(harness_attempt::key.eq(harness_usage::key))),
+        )
+        .filter(
+            harness_attempt::binding.eq_any(
+                bindings.iter().map(|b| b.0).collect::<Vec<_>>(),
+            ),
+        )
+        .order(harness_usage::ordinal)
+        .select((
+            harness_usage::input
+                + harness_usage::cache_read
+                + harness_usage::cache_write,
+            harness_usage::output,
+            harness_usage::micros,
+            harness_usage::ms,
+            harness_usage::cache_read,
+            harness_usage::detail,
+        ))
+        .load::<(i64, i64, i64, i64, i64, String)>(db)?;
     let mut calls = 0;
     let mut unreported = 0;
     let mut input = 0;
@@ -432,17 +521,7 @@ pub fn usage_of(
     let mut cached = 0;
     let mut reasoning = 0;
     let mut last_input = 0;
-    for row in query.query_map([bindings], |r| {
-        Ok((
-            r.get::<_, i64>(0)?,
-            r.get::<_, i64>(1)?,
-            r.get::<_, i64>(2)?,
-            r.get::<_, i64>(3)?,
-            r.get::<_, i64>(4)?,
-            r.get::<_, String>(5)?,
-        ))
-    })? {
-        let (i, o, c, t, cache, detail) = row?;
+    for (i, o, c, t, cache, detail) in rows {
         let detail = serde_json::from_str::<Value>(&detail)?;
         calls += 1;
         unreported += i64::from(i + o == 0);

@@ -5,10 +5,11 @@ pub(crate) mod dealings;
 mod deeds;
 use anyhow::Result;
 pub(crate) use deeds::deed;
-use rusqlite::Connection;
+use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::record::{self, AgentRef, Hamlet};
+use crate::schema::record_hamlet;
 use crate::society;
 
 /// The kind of the realm's society document.
@@ -130,12 +131,12 @@ impl Realm {
 
 /// The realm as the transaction `db` holds it. A hamlet with a record
 /// and no place yet is placed, unnamed, where it was founded.
-pub(crate) fn read(db: &Connection) -> Result<Realm> {
+pub(crate) fn read(db: &mut SqliteConnection) -> Result<Realm> {
     let mut realm = society::document::<Realm>(db, KIND, KIND)?;
-    let mut ids = db
-        .prepare("SELECT id FROM record_hamlet ORDER BY id")?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut ids = record_hamlet::table
+        .select(record_hamlet::id)
+        .order(record_hamlet::id)
+        .load::<String>(db)?;
     // Home comes first, as it was founded first.
     ids.sort_by_key(|id| id != hamlet_protocol::HOME);
     for id in ids {
@@ -154,12 +155,15 @@ pub(crate) fn read(db: &Connection) -> Result<Realm> {
 }
 
 /// Keeps the realm whole.
-pub(crate) fn write(db: &Connection, realm: &Realm) -> Result<()> {
+pub(crate) fn write(
+    db: &mut SqliteConnection,
+    realm: &Realm,
+) -> Result<()> {
     society::keep(db, KIND, KIND, realm)
 }
 
 /// The ids of the living hamlets.
-pub(crate) fn live(db: &Connection) -> Result<Vec<String>> {
+pub(crate) fn live(db: &mut SqliteConnection) -> Result<Vec<String>> {
     Ok(read(db)?.live().map(|h| h.id.clone()).collect())
 }
 
@@ -196,7 +200,7 @@ impl Unresolved {
 /// The living agent `address` names from `from`: `name` or `mayor` in
 /// `from` first, or `name@hamlet`.
 pub(crate) fn resolve(
-    db: &Connection,
+    db: &mut SqliteConnection,
     from: &str,
     address: &str,
 ) -> Result<std::result::Result<Resolved, Unresolved>> {
@@ -292,7 +296,9 @@ pub(crate) struct Joined {
 
 /// The roads between living agents of different hamlets, the mayors'
 /// own office roads among them.
-pub(crate) fn roads(db: &Connection) -> Result<Vec<Joined>> {
+pub(crate) fn roads(
+    db: &mut SqliteConnection,
+) -> Result<Vec<Joined>> {
     let realm = read(db)?;
     let live = realm.live().map(|h| h.id.clone()).collect::<Vec<_>>();
     let mut records = Vec::new();
@@ -352,7 +358,7 @@ pub(crate) fn roads(db: &Connection) -> Result<Vec<Joined>> {
 /// hamlets, the mayors' office road if they are both mayors; whether
 /// a road carried it.
 pub(crate) fn carry(
-    db: &Connection,
+    db: &mut SqliteConnection,
     from: &AgentRef,
     to: &AgentRef,
     at: i64,

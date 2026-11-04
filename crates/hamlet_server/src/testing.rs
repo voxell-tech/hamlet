@@ -1,7 +1,7 @@
 //! Helpers shared by the crate's tests.
 
 use anyhow::{Result, ensure};
-use rusqlite::Connection;
+use diesel::SqliteConnection;
 
 use crate::harness::{Config, Pi};
 use crate::{Outcome, Overrides, limits, record};
@@ -22,7 +22,7 @@ pub(crate) fn config(overrides: Overrides) -> Config {
 
 /// Sets the limits of `hamlet` as its first chief would.
 pub(crate) fn set_limits(
-    db: &Connection,
+    db: &mut SqliteConnection,
     hamlet: &str,
     limits: limits::Limits,
 ) -> Result<()> {

@@ -1,9 +1,11 @@
 //! Durable librarian consultations and shared skills.
 
 use anyhow::{Context, Result};
+use diesel::dsl::{exists, sql};
+use diesel::prelude::*;
+use diesel::sql_types::{Bool, Text};
 use hamlet_os::fs::{Missing, Mode, TreePath};
 use hamlet_protocol::client::LibrarySkill;
-use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -12,6 +14,9 @@ use crate::harness::Harnesses;
 use crate::papers::{NOTES, tree};
 use crate::prompt::shelf;
 use crate::protocol::Refusal;
+use crate::schema::{
+    harness_binding, harness_input, society_binding, society_document,
+};
 use crate::service::Service;
 
 const CAP: u64 = 4 * 1024 * 1024;
@@ -230,14 +235,20 @@ async fn offered(
              does something else"
         ));
     }
-    let claimed = service.db().query_row(
-        "SELECT EXISTS (SELECT 1 FROM society_document WHERE \
-         kind='library-consult' AND key != ?1 AND \
-         json_extract(value,'$.skill')=?2 AND \
-         json_extract(value,'$.result') IS NULL)",
-        params![key, name],
-        |row| row.get::<_, bool>(0),
-    )?;
+    let claimed = diesel::select(exists(
+        society_document::table
+            .filter(society_document::kind.eq("library-consult"))
+            .filter(society_document::key.ne(key))
+            .filter(
+                sql::<Bool>("json_extract(value, '$.skill') = ")
+                    .bind::<Text, _>(name)
+                    .sql(
+                        " AND json_extract(value, '$.result') IS \
+                         NULL",
+                    ),
+            ),
+    ))
+    .get_result::<bool>(service.db())?;
     if claimed {
         return refuse(
             "Another offer of that skill is being judged.",
@@ -401,16 +412,10 @@ async fn clean(
 }
 
 pub(super) fn retire(service: &mut Service) -> Result<()> {
-    let jobs = service
-        .db()
-        .prepare(
-            "SELECT key,value FROM society_document WHERE \
-             kind='library-consult'",
-        )?
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let jobs = society_document::table
+        .filter(society_document::kind.eq("library-consult"))
+        .select((society_document::key, society_document::value))
+        .load::<(String, String)>(service.db())?;
     for (key, value) in jobs {
         let mut job = serde_json::from_str::<Consult>(&value)?;
         if job.result.is_none() {
@@ -428,18 +433,20 @@ pub(super) fn retire(service: &mut Service) -> Result<()> {
                  finished."
                     .into(),
             );
-            let bindings = service
-                .db()
-                .prepare(
-                    "SELECT binding FROM society_binding WHERE \
-                     errand='librarian' AND \
-                     json_extract(owner,'$.runtime')=?1 AND \
-                     json_extract(owner,'$.key')=?2",
-                )?
-                .query_map(params![runtime, call], |row| {
-                    Ok(crate::harness::BindingId(row.get(0)?))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let bindings = society_binding::table
+                .filter(society_binding::errand.eq("librarian"))
+                .filter(
+                    sql::<Bool>(
+                        "json_extract(owner, '$.runtime') = ",
+                    )
+                    .bind::<Text, _>(&runtime)
+                    .sql(" AND json_extract(owner, '$.key') = ")
+                    .bind::<Text, _>(&call),
+                )
+                .select(society_binding::binding)
+                .load::<i64>(service.db())?
+                .into_iter()
+                .map(crate::harness::BindingId);
             for binding in bindings {
                 service.home.store().begin_cancel(binding)?;
             }
@@ -453,20 +460,22 @@ pub(super) fn retire(service: &mut Service) -> Result<()> {
 }
 
 pub(crate) fn consulting(
-    db: &Connection,
+    db: &mut SqliteConnection,
     agent: &crate::record::AgentRef,
 ) -> Result<bool> {
-    Ok(db.query_row(
-        &format!(
-            "SELECT EXISTS (SELECT 1 FROM society_binding s JOIN \
-             harness_binding b ON b.id=s.binding JOIN harness_input \
-             i ON i.binding=b.id WHERE s.errand='librarian' AND \
-             b.hamlet=?1 AND b.number=?2 AND NOT {})",
-            crate::harness::ended("i.status")
-        ),
-        params![agent.hamlet, i64::try_from(agent.number)?],
-        |row| row.get(0),
-    )?)
+    let number = i64::try_from(agent.number)?;
+    Ok(diesel::select(exists(
+        society_binding::table
+            .inner_join(
+                harness_binding::table
+                    .inner_join(harness_input::table),
+            )
+            .filter(society_binding::errand.eq("librarian"))
+            .filter(harness_binding::hamlet.eq(&agent.hamlet))
+            .filter(harness_binding::number.eq(number))
+            .filter(crate::harness::unended()),
+    ))
+    .get_result(db)?)
 }
 
 pub(crate) fn views(

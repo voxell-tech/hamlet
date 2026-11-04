@@ -329,7 +329,7 @@ impl Serving {
             return Ok(());
         }
         let service = &mut self.service;
-        let before = service.home.store().changes();
+        let before = service.home.store().changes()?;
         service.house_work.retire(service.home.connection())?;
         let mut busy =
             votes::sweep(service, &mut self.harnesses).await?;
@@ -344,7 +344,7 @@ impl Serving {
             }
         }
         flush_models(&mut self.service, &mut self.harnesses).await?;
-        busy |= self.service.home.store().changes() != before;
+        busy |= self.service.home.store().changes()? != before;
         since.busy = busy;
         // A rebuild that fails is tried again on the next tick.
         since.stale = true;

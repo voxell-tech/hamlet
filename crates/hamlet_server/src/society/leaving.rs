@@ -1,8 +1,8 @@
 //! Departure, restoration and the chief's account of the record.
 
 use anyhow::{Context, Result};
+use diesel::prelude::*;
 use hamlet_protocol::client::Permission;
-use rusqlite::{Connection, params};
 use serde::Deserialize;
 
 use super::{Caller, Deed, SocietyOutcome};
@@ -13,28 +13,35 @@ use crate::record::{
     self, Actor, AgentRef, Audience, Change, DecisionKind, Departure,
     NameFallback, RecordOperation, RecordResult,
 };
+use crate::schema::{chat_instruction, gate_trust};
 use crate::service::Service;
 use crate::{Outcome, society};
 
 /// Keeps the chiefs' owed tasks of `hamlet` as its record's guards.
-pub(super) fn guards(db: &Connection, hamlet: &str) -> Result<()> {
+pub(super) fn guards(
+    db: &mut SqliteConnection,
+    hamlet: &str,
+) -> Result<()> {
     let Some(r) = record::read(db, hamlet)? else {
         return Ok(());
     };
-    let protected = db
-        .prepare(
-            "SELECT number, chief, text, done FROM chat_instruction \
-             WHERE hamlet = ?1",
-        )?
-        .query_map([hamlet], |row| {
-            Ok(record::Protection {
-                agent: row.get::<_, i64>(0)? as u64,
-                chief: row.get(1)?,
-                text: row.get(2)?,
-                done: row.get(3)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let protected = chat_instruction::table
+        .filter(chat_instruction::hamlet.eq(hamlet))
+        .select((
+            chat_instruction::number,
+            chat_instruction::chief,
+            chat_instruction::text,
+            chat_instruction::done,
+        ))
+        .load::<(i64, String, String, Option<i64>)>(db)?
+        .into_iter()
+        .map(|(number, chief, text, done)| record::Protection {
+            agent: number as u64,
+            chief,
+            text,
+            done,
+        })
+        .collect();
     record::guard(db, hamlet, r.open_votes, protected)
 }
 
@@ -128,7 +135,7 @@ pub(super) async fn remove(
 }
 
 pub(crate) fn lapse(
-    db: &Connection,
+    db: &mut SqliteConnection,
     hamlet: &str,
     number: u64,
 ) -> Result<()> {
@@ -145,10 +152,12 @@ pub(crate) fn lapse(
             crate::clock::now(),
         )?;
     }
-    db.execute(
-        "DELETE FROM gate_trust WHERE hamlet = ?1 AND number = ?2",
-        params![hamlet, i64::try_from(number)?],
-    )?;
+    diesel::delete(
+        gate_trust::table
+            .filter(gate_trust::hamlet.eq(hamlet))
+            .filter(gate_trust::number.eq(i64::try_from(number)?)),
+    )
+    .execute(db)?;
     Ok(())
 }
 
@@ -277,8 +286,8 @@ pub(super) async fn deed(
             name,
         };
     }
-    let tx = service.home.store().transaction()?;
-    let result = crate::operation::change(&tx, &op)?;
+    let mut tx = service.home.store().transaction()?;
+    let result = crate::operation::change(&mut tx, &op)?;
     tx.commit()?;
     let result = match result {
         Outcome::Done(RecordResult::Departed { archive }) => {

@@ -2,8 +2,8 @@ use std::cell::Cell;
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
+use diesel::connection::{Connection, InstrumentationEvent};
 use hamlet_testing::Scratch;
-use rusqlite::trace::{TraceEvent, TraceEventCodes};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 
@@ -22,8 +22,8 @@ thread_local! {
     static STATEMENTS: Cell<u64> = const { Cell::new(0) };
 }
 
-fn count(event: TraceEvent<'_>) {
-    if let TraceEvent::Stmt(..) = event {
+fn count(event: InstrumentationEvent<'_>) {
+    if let InstrumentationEvent::StartQuery { .. } = event {
         STATEMENTS.set(STATEMENTS.get() + 1);
     }
 }
@@ -131,10 +131,7 @@ fn serving(tag: &str, agents: usize) -> (Scratch, Serving) {
 
 /// Counts the statements of the store of `serving` from now on.
 fn trace(serving: &mut Serving) {
-    serving
-        .service
-        .db()
-        .trace_v2(TraceEventCodes::SQLITE_TRACE_STMT, Some(count));
+    serving.service.db().set_instrumentation(count);
     STATEMENTS.set(0);
 }
 

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use diesel::SqliteConnection;
 use hamlet_protocol::client::{
     Check, ClientMessage, EditCatalogueSet, Link, LinkState, Listed,
     ListedPriced, Login, LoginMethod, LoginProgress, LoginStep,
@@ -615,14 +616,13 @@ impl Service {
         count: Option<i64>,
         words: Option<&str>,
     ) -> Result<()> {
-        let db = self.db();
-        let mut settings = crate::settings::stored(db)?;
+        let mut settings = crate::settings::stored(self.db())?;
         settings.link = Link {
             state,
             models: count,
             words: words.map(|w| self.credentials.scrub_text(w)),
         };
-        crate::settings::keep(db, &settings)
+        crate::settings::keep(self.db(), &settings)
     }
 
     pub(crate) fn provider_views(
@@ -768,8 +768,7 @@ impl Service {
                 "a cost is a number of zero or more".into(),
             )));
         }
-        let db = self.db();
-        let mut cards = catalogue(db)?;
+        let mut cards = catalogue(self.db())?;
         let Some(card) = cards.get_mut(name) else {
             return Ok(Err(Refusal::NoModel(name.into())));
         };
@@ -789,7 +788,7 @@ impl Service {
         }
         let mut cards = serde_json::to_value(&cards)?;
         self.credentials.scrub(&mut cards);
-        keep_catalogue(db, &cards)?;
+        keep_catalogue(self.db(), &cards)?;
         Ok(Ok("Saved.".into()))
     }
 }
@@ -824,7 +823,7 @@ fn login_step(
 /// The model catalogue: each model's card, by its name.
 type Catalogue = BTreeMap<String, Listed>;
 
-fn catalogue(db: &rusqlite::Connection) -> Result<Catalogue> {
+fn catalogue(db: &mut SqliteConnection) -> Result<Catalogue> {
     match document(db, "catalogue", "home")? {
         Some(cards) => serde_json::from_value(cards)
             .context("reading the model catalogue"),
@@ -833,7 +832,7 @@ fn catalogue(db: &rusqlite::Connection) -> Result<Catalogue> {
 }
 
 fn keep_catalogue(
-    db: &rusqlite::Connection,
+    db: &mut SqliteConnection,
     cards: &Value,
 ) -> Result<()> {
     save(db, "catalogue", "home", cards)
@@ -849,7 +848,7 @@ pub(crate) struct Choices {
 
 impl Choices {
     pub fn read(
-        store: &Store,
+        store: &mut Store,
         root: &Path,
         overrides: &Overrides,
     ) -> Result<Self> {
@@ -873,7 +872,7 @@ impl Choices {
     /// of its hamlet and the settings choose it now.
     pub fn select(
         &self,
-        store: &Store,
+        store: &mut Store,
         of: &AgentRef,
     ) -> Result<Selection> {
         let record =

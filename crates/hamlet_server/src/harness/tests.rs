@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use diesel::prelude::*;
 use hamlet_protocol::client::Period;
 use hamlet_protocol::runtime::{ModelRef, Price, Usage, VERSION};
 use hamlet_testing::Scratch;
@@ -13,6 +14,7 @@ use super::{Answer, Binding, InputStatus, answers, parse, tools};
 use crate::record::{
     Actor, Admit, AgentRef, Change, FoundRecord, RecordOperation,
 };
+use crate::schema::{harness_input, harness_usage, spend_reset};
 use crate::{OperationId, RuntimeInstance, Store};
 
 const LAID: &str = "Built a road between `ana` and `bo`.";
@@ -75,7 +77,7 @@ fn road() -> BTreeMap<String, Value> {
     arguments(json!({"a": "ana", "b": "bo", "reason": "trade"}))
 }
 
-fn roads(store: &Store) -> usize {
+fn roads(store: &mut Store) -> usize {
     store.record("home").unwrap().unwrap().roads.len()
 }
 
@@ -152,7 +154,7 @@ fn a_runtime_claiming_the_mayor_for_a_member_s_conversation_is_refused()
         run(&mut store, &binding, "plain", &road()),
         result("Only the mayor may do that.", true)
     );
-    assert_eq!(roads(&store), 0);
+    assert_eq!(roads(&mut store), 0);
     // The mayor's own conversation lays it.
     let founder = AgentRef {
         hamlet: "home".into(),
@@ -187,7 +189,7 @@ fn an_identity_runs_one_call_and_its_marked_result_stands() {
         run(&mut store, &binding, "k", &road()),
         result(LAID, false)
     );
-    assert_eq!(roads(&store), 1);
+    assert_eq!(roads(&mut store), 1);
     // The same identity with other arguments runs nothing.
     let other = arguments(
         json!({"a": "ana", "b": "founder", "reason": "trade"}),
@@ -196,7 +198,7 @@ fn an_identity_runs_one_call_and_its_marked_result_stands() {
         run(&mut store, &binding, "k", &other),
         result(tools::CONFLICT, true)
     );
-    assert_eq!(roads(&store), 1);
+    assert_eq!(roads(&mut store), 1);
 }
 
 #[test]
@@ -236,16 +238,12 @@ fn usage_is_charged_once_and_only_to_an_allowed_attempt() {
         answers::charge(&mut store, &runtime, "a", &usage(cost), 2)
             .unwrap();
     }
-    let charged = store
-        .connection()
-        .query_row(
-            "SELECT count(*), sum(micros) FROM harness_usage",
-            [],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-        )
+    let charged = harness_usage::table
+        .select(harness_usage::micros)
+        .load::<i64>(store.connection())
         .unwrap();
     // The first report stands; the cost is kept in micro-dollars.
-    assert_eq!(charged, (1, 250));
+    assert_eq!(charged, [250]);
 }
 
 #[test]
@@ -325,13 +323,15 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
     );
     // A reset and a later charge in the same millisecond are ordered
     // by the ledger.
-    store
-        .connection()
-        .execute(
-            "INSERT INTO spend_reset(hamlet,at,by,models,roads) \
-             VALUES ('home',?1,'chief',1,0)",
-            [at],
-        )
+    diesel::insert_into(spend_reset::table)
+        .values((
+            spend_reset::hamlet.eq("home"),
+            spend_reset::at.eq(at),
+            spend_reset::by.eq("chief"),
+            spend_reset::models.eq(1),
+            spend_reset::roads.eq(0),
+        ))
+        .execute(store.connection())
         .unwrap();
     assert_eq!(
         spend::books(
@@ -429,7 +429,8 @@ fn caps_count_once_keep_task_spend_after_reset_and_roll_over_local_days()
             .contains("this month")
     );
     store.close().unwrap();
-    let store = Store::open(&scratch.join("realm.sqlite")).unwrap();
+    let mut store =
+        Store::open(&scratch.join("realm.sqlite")).unwrap();
     assert_eq!(
         spend::usage(store.connection(), binding.id).unwrap().calls,
         2
@@ -513,7 +514,7 @@ fn billed_zero_beats_prices_and_unreported_success_counts_estimates()
 #[test]
 fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
     let scratch = Scratch::new("model-choice");
-    let (store, binding) = bound(&scratch, 0);
+    let (mut store, binding) = bound(&scratch, 0);
     std::fs::write(scratch.join("models.json"), r#"{"endpoint":[{"provider":"endpoint","id":"pinned","cost":{"input":8,"output":9}}]}"#).unwrap();
     let settings = crate::settings::Settings {
         model: "endpoint::home".into(),
@@ -547,7 +548,7 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
         }}),
     )
     .unwrap();
-    let chosen = |store: &Store| {
+    let chosen = |store: &mut Store| {
         crate::models::Choices::read(
             store,
             &scratch,
@@ -557,12 +558,13 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
         .select(store, &binding.agent)
         .unwrap()
     };
-    let pinned = chosen(&store);
+    let pinned = chosen(&mut store);
     assert_eq!(pinned.model.id, "pinned");
     assert_eq!(pinned.price, price(0.0, 2.0));
     store.close().unwrap();
-    let store = Store::open(&scratch.join("realm.sqlite")).unwrap();
-    assert_eq!(chosen(&store).model.id, "pinned");
+    let mut store =
+        Store::open(&scratch.join("realm.sqlite")).unwrap();
+    assert_eq!(chosen(&mut store).model.id, "pinned");
     limits.pinned.clear();
     crate::testing::set_limits(
         store.connection(),
@@ -570,14 +572,14 @@ fn every_attempt_uses_the_current_pin_then_hamlet_then_home_model() {
         limits.clone(),
     )
     .unwrap();
-    let hamlet = chosen(&store);
+    let hamlet = chosen(&mut store);
     assert_eq!(hamlet.model.id, "hamlet");
     // Unlisted and unpriced, at the rate of a remote endpoint.
     assert_eq!(hamlet.price, price(1.0, 1.0));
     limits.model = None;
     crate::testing::set_limits(store.connection(), "home", limits)
         .unwrap();
-    assert_eq!(chosen(&store).model.id, "home");
+    assert_eq!(chosen(&mut store).model.id, "home");
 }
 
 #[test]
@@ -585,8 +587,8 @@ fn every_attempt_thinks_as_hard_as_the_agent_then_the_settings_say() {
     use hamlet_protocol::Effort;
 
     let scratch = Scratch::new("effort-choice");
-    let (store, binding) = bound(&scratch, 0);
-    let chosen = |store: &Store| {
+    let (mut store, binding) = bound(&scratch, 0);
+    let chosen = |store: &mut Store| {
         crate::models::Choices::read(
             store,
             &scratch,
@@ -597,13 +599,13 @@ fn every_attempt_thinks_as_hard_as_the_agent_then_the_settings_say() {
         .unwrap()
         .effort
     };
-    assert_eq!(chosen(&store), None);
+    assert_eq!(chosen(&mut store), None);
     let settings = crate::settings::Settings {
         effort: Some(Effort::Low),
         ..Default::default()
     };
     crate::settings::keep(store.connection(), &settings).unwrap();
-    assert_eq!(chosen(&store), Some(Effort::Low));
+    assert_eq!(chosen(&mut store), Some(Effort::Low));
     let mut limits =
         crate::limits::of(store.connection(), "home").unwrap();
     limits.efforts = BTreeMap::from([(
@@ -612,7 +614,7 @@ fn every_attempt_thinks_as_hard_as_the_agent_then_the_settings_say() {
     )]);
     crate::testing::set_limits(store.connection(), "home", limits)
         .unwrap();
-    assert_eq!(chosen(&store), Some(Effort::High));
+    assert_eq!(chosen(&mut store), Some(Effort::High));
 }
 
 #[test]
@@ -689,14 +691,14 @@ fn a_start_whose_folder_cannot_be_made_is_down_with_a_retry_scheduled()
  {
     let scratch = Scratch::new("launch-folder");
     let home = crate::Home::open(&scratch.join("layout")).unwrap();
-    let (store, binding) = bound(&scratch, 1);
+    let (mut store, binding) = bound(&scratch, 1);
     // A file where the harnesses folder goes, so no runtime's folder
     // can be made under it.
     let folder = home.layout().harness(&binding.runtime);
     std::fs::write(folder.parent().unwrap(), b"").unwrap();
     let mut harnesses = idle(&home);
     let index = harnesses.add(binding.runtime.clone());
-    let notices = harnesses.launch(&store, index).unwrap();
+    let notices = harnesses.launch(&mut store, index).unwrap();
     let [
         super::Notice::Exited {
             status,
@@ -810,14 +812,10 @@ fn an_unanswered_input_is_dropped_and_never_resent() {
         )
         .unwrap();
     assert!(store.owed(binding.id, true).unwrap().is_empty());
-    let state = store
-        .connection()
-        .query_row(
-            "SELECT state FROM harness_input WHERE request = \
-             'chief:1'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
+    let state = harness_input::table
+        .filter(harness_input::request.eq("chief:1"))
+        .select(harness_input::state)
+        .first::<String>(store.connection())
         .unwrap();
     assert_eq!(state, "dropped");
     store

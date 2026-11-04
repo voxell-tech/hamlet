@@ -1,7 +1,7 @@
 //! Chief-controlled founding, placement and closure of hamlets.
 
 use anyhow::{Context, Result};
-use rusqlite::OptionalExtension;
+use diesel::prelude::*;
 
 use super::{At, Removed, read, write};
 use crate::Outcome;
@@ -9,6 +9,7 @@ use crate::harness::Harnesses;
 use crate::papers::Capability;
 use crate::protocol::Refusal;
 use crate::record::{self, AgentRef, FoundRecord};
+use crate::schema::record_name;
 use crate::service::Service;
 use crate::society::{self, Deed};
 
@@ -88,8 +89,8 @@ pub(crate) async fn deed(
             chief: service.chief.clone(),
             at: crate::clock::now(),
         };
-        let tx = service.home.store().transaction()?;
-        let result = crate::operation::change(&tx, &operation)?;
+        let mut tx = service.home.store().transaction()?;
+        let result = crate::operation::change(&mut tx, &operation)?;
         match result {
             Outcome::Refused(refusal) => {
                 return Ok(Some(Err(Refusal::Record(Box::new(
@@ -97,8 +98,8 @@ pub(crate) async fn deed(
                 )))));
             }
             Outcome::Done(_) => {
-                let realm = read(&tx)?;
-                write(&tx, &realm)?;
+                let realm = read(&mut tx)?;
+                write(&mut tx, &realm)?;
                 tx.commit()?;
             }
         }
@@ -209,15 +210,10 @@ pub(crate) async fn deed(
                     .into());
             }
             for agent in &r.agents {
-                if service
-                    .db()
-                    .query_row(
-                        "SELECT 1 FROM record_name WHERE name = ?1",
-                        [&agent.name],
-                        |_| Ok(()),
-                    )
-                    .optional()?
-                    .is_some()
+                if diesel::select(diesel::dsl::exists(
+                    record_name::table.find(&agent.name),
+                ))
+                .get_result::<bool>(service.db())?
                 {
                     return bad(format!(
                         "the name `{}` already belongs to a living \
@@ -239,12 +235,12 @@ pub(crate) async fn deed(
         }
         _ => unreachable!("realm deed checked above"),
     };
-    let tx = service.home.store().transaction()?;
-    write(&tx, &realm)?;
+    let mut tx = service.home.store().transaction()?;
+    write(&mut tx, &realm)?;
     if realm.is_living(id) {
-        record::claim_names(&tx, id)?;
+        record::claim_names(&mut tx, id)?;
     } else {
-        record::release_names(&tx, id)?;
+        record::release_names(&mut tx, id)?;
     }
     tx.commit()?;
     if realm.hamlets[index].erased {

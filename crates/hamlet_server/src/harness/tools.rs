@@ -146,7 +146,7 @@ pub(crate) const CONFLICT: &str = "This call's identity was already \
 
 /// The author of a change made in the conversation of `binding`: the
 /// mayor when its agent holds the office now, else a member.
-fn actor(store: &Store, binding: &Binding) -> Result<Actor> {
+fn actor(store: &mut Store, binding: &Binding) -> Result<Actor> {
     let place = binding.agent.clone();
     let mayor = store
         .record(&place.hamlet)?

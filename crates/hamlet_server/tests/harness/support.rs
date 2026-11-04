@@ -7,13 +7,16 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
+use diesel::connection::SimpleConnection;
+use diesel::dsl::sql;
+use diesel::prelude::*;
+use diesel::sql_types::{BigInt, Text};
 use hamlet_server::{
     Actor, Admit, Change, End, FoundRecord, Hamlet, Limits,
     OperationId, RecordOperation, Reply, RoadBudget, RuntimeInstance,
     Store,
 };
 use hamlet_testing::{Scratch, strip_overrides};
-use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
 /// How long a step may take before the test fails.
@@ -121,14 +124,13 @@ impl Realm {
             "link": {"state": "untested", "models": null, "words": null},
             "saved": true,
         });
-        Connection::open(self.home.join("realm.sqlite"))
-            .unwrap()
-            .execute(
-                "INSERT INTO chief_document(kind, key, value) \
-                 VALUES ('settings', 'home', ?1)",
-                [settings.to_string()],
-            )
-            .unwrap();
+        diesel::sql_query(
+            "INSERT INTO chief_document(kind, key, value) VALUES \
+             ('settings', 'home', ?)",
+        )
+        .bind::<Text, _>(settings.to_string())
+        .execute(&mut open(&self.home.join("realm.sqlite")))
+        .unwrap();
     }
 
     /// The folder where the processes' faults leave their marks.
@@ -165,19 +167,12 @@ impl Realm {
 
     /// The realm as its database holds it now.
     pub fn look(&self) -> Look {
-        let db = Connection::open_with_flags(
-            self.home.join("realm.sqlite"),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        let mut db = read_only(&self.home.join("realm.sqlite"));
+        let document = sql::<Text>(
+            "SELECT document FROM record_hamlet WHERE id = 'home'",
         )
+        .get_result::<String>(&mut db)
         .unwrap();
-        let document = db
-            .query_row(
-                "SELECT document FROM record_hamlet WHERE id = \
-                 'home'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap();
         let hamlet =
             serde_json::from_str::<Hamlet>(&document).unwrap();
         let name = |end: End| match end {
@@ -199,125 +194,106 @@ impl Realm {
             })
             .collect::<Vec<_>>();
         roads.sort();
-        let all = |sql: &str| {
-            let mut query = db.prepare(sql).unwrap();
-            query
-                .query_map([], |row| {
-                    let columns = row.as_ref().column_count();
-                    (0..columns)
-                        .map(|i| {
-                            Ok(match row.get_ref(i)? {
-                                rusqlite::types::ValueRef::Integer(n) => {
-                                    json!(n)
-                                }
-                                rusqlite::types::ValueRef::Text(text) => {
-                                    json!(String::from_utf8_lossy(text))
-                                }
-                                rusqlite::types::ValueRef::Null => Value::Null,
-                                _ => json!("?"),
-                            })
-                        })
-                        .collect::<rusqlite::Result<Vec<_>>>()
+        // Each query gives each row as one JSON array, so its
+        // columns keep their SQL types: integer, text or null.
+        let mut all = |query: &str| {
+            sql::<Text>(query)
+                .load::<String>(&mut db)
+                .unwrap()
+                .into_iter()
+                .map(|row| {
+                    serde_json::from_str::<Vec<Value>>(&row).unwrap()
                 })
-                .unwrap()
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .unwrap()
+                .collect::<Vec<_>>()
         };
         Look {
             roads,
-            charges: all(
-                "SELECT micros FROM record_road_charge ORDER BY id"
-            )
+            charges: all("SELECT json_array(micros) FROM \
+                          record_road_charge ORDER BY id")
             .into_iter()
             .map(|row| row[0].as_u64().unwrap())
             .collect(),
-            markers: all("SELECT key, outcome FROM marker WHERE \
-                          runtime != 'seed' ORDER BY key"),
-            waits: all("SELECT g.key, CASE WHEN w.open THEN \
-                        'pending' ELSE w.how END FROM gate_call g \
-                        JOIN wait w ON w.id = g.wait ORDER BY g.key"),
-            inputs: all("SELECT request, state FROM harness_input \
-                         ORDER BY ordinal"),
-            attempts: all("SELECT key FROM harness_attempt").len(),
-            usage: all("SELECT key, micros FROM harness_usage").len(),
-            micros: all("SELECT micros FROM harness_usage")
-                .into_iter()
-                .map(|row| row[0].as_u64().unwrap())
-                .sum(),
+            markers: all("SELECT json_array(key, outcome) FROM \
+                          marker WHERE runtime != 'seed' ORDER BY \
+                          key"),
+            waits: all("SELECT json_array(g.key, CASE WHEN w.open \
+                        THEN 'pending' ELSE w.how END) FROM \
+                        gate_call g JOIN wait w ON w.id = g.wait \
+                        ORDER BY g.key"),
+            inputs: all("SELECT json_array(request, state) FROM \
+                         harness_input ORDER BY ordinal"),
+            attempts: all(
+                "SELECT json_array(key) FROM harness_attempt"
+            )
+            .len(),
+            usage: all(
+                "SELECT json_array(key, micros) FROM harness_usage"
+            )
+            .len(),
+            micros: all(
+                "SELECT json_array(micros) FROM harness_usage"
+            )
+            .into_iter()
+            .map(|row| row[0].as_u64().unwrap())
+            .sum(),
         }
     }
 
     /// Reserves building roads to the chief, so the mayor's road
     /// calls wait for a chief's answer.
     pub fn reserve_roads(&self) {
-        let db =
-            Connection::open(self.home.join("realm.sqlite")).unwrap();
-        db.execute(
+        diesel::sql_query(
             "UPDATE record_hamlet SET document = json_set(document, \
              '$.limits.chief.mayor.buildRoads', json('false')) \
              WHERE id = 'home'",
-            [],
         )
+        .execute(&mut open(&self.home.join("realm.sqlite")))
         .unwrap();
     }
 
     /// The store of the runtime `runtime`, read-only, if it was made.
-    fn pi(&self, runtime: &str) -> Option<Connection> {
+    fn pi(&self, runtime: &str) -> Option<SqliteConnection> {
         let path = self
             .home
             .join("harnesses")
             .join(runtime)
             .join("pi.sqlite");
-        path.exists().then(|| {
-            Connection::open_with_flags(
-                path,
-                OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap()
-        })
+        path.exists().then(|| read_only(&path))
     }
 
     /// How many inputs pi admitted in the runtime `runtime`.
     pub fn submissions(&self, runtime: &str) -> u32 {
-        self.pi(runtime).map_or(0, |db| {
-            db.query_row(
-                "SELECT count(*) FROM submissions",
-                [],
-                |row| row.get::<_, u32>(0),
-            )
-            .unwrap()
+        self.pi(runtime).map_or(0, |mut db| {
+            let count =
+                sql::<BigInt>("SELECT count(*) FROM submissions")
+                    .get_result::<i64>(&mut db)
+                    .unwrap();
+            u32::try_from(count).unwrap()
         })
     }
 
     /// The states of the inputs pi admitted in the runtime `runtime`.
     pub fn submission_states(&self, runtime: &str) -> Vec<String> {
-        let Some(db) = self.pi(runtime) else {
+        let Some(mut db) = self.pi(runtime) else {
             return Vec::new();
         };
-        let mut query = db
-            .prepare("SELECT status FROM submissions ORDER BY id")
-            .unwrap();
-        query
-            .query_map([], |row| row.get::<_, String>(0))
+        sql::<Text>("SELECT status FROM submissions ORDER BY id")
+            .load::<String>(&mut db)
             .unwrap()
-            .map(Result::unwrap)
-            .collect()
     }
 
     /// The tool results the runtime `runtime` kept, read from its
     /// store.
     pub fn kept_tool_results(&self, runtime: &str) -> Vec<Value> {
-        let Some(db) = self.pi(runtime) else {
+        let Some(mut db) = self.pi(runtime) else {
             return Vec::new();
         };
-        let mut query =
-            db.prepare("SELECT record FROM entries").unwrap();
-        query
-            .query_map([], |row| row.get::<_, String>(0))
+        sql::<Text>("SELECT record FROM entries")
+            .load::<String>(&mut db)
             .unwrap()
+            .into_iter()
             .map(|record| {
-                serde_json::from_str::<Value>(&record.unwrap())
-                    .unwrap()
+                serde_json::from_str::<Value>(&record).unwrap()
             })
             .flat_map(|entry| {
                 entry["model"].as_array().cloned().unwrap_or_default()
@@ -589,6 +565,23 @@ impl Drop for Driver {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Opens the SQLite database at `path`.
+pub fn open(path: &Path) -> SqliteConnection {
+    waiting(path.to_str().unwrap())
+}
+
+/// Opens the SQLite database at `path` read-only.
+fn read_only(path: &Path) -> SqliteConnection {
+    waiting(&format!("file:{}?mode=ro", path.to_str().unwrap()))
+}
+
+/// Opens the database at `url`, waiting out the server's writes.
+fn waiting(url: &str) -> SqliteConnection {
+    let mut db = SqliteConnection::establish(url).unwrap();
+    db.batch_execute("PRAGMA busy_timeout = 5000;").unwrap();
+    db
 }
 
 /// Kills the process `pid` at once.
