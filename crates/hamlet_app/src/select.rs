@@ -612,15 +612,6 @@ fn press(
     {
         return;
     }
-    // Taken as the press is read, not from the frame's clock, which
-    // can lag the input when frames are slow.
-    let count = pressed(
-        &mut last.0,
-        frame.0,
-        Instant::now(),
-        press.pointer.position,
-        press.entity,
-    );
     let chain = std::iter::once(press.entity)
         .chain(texts.parents.iter_ancestors(press.entity))
         .collect::<Vec<_>>();
@@ -647,6 +638,17 @@ fn press(
         }
         return;
     };
+    // Only a press that can select is counted, so one on empty space
+    // does not make the next press a second. Taken as the press is
+    // read, not from the frame's clock, which can lag the input when
+    // frames are slow.
+    let count = pressed(
+        &mut last.0,
+        frame.0,
+        Instant::now(),
+        press.pointer.position,
+        press.entity,
+    );
     let grain = match count {
         0 | 1 => Grain::Letter,
         2 => Grain::Word,
@@ -679,8 +681,17 @@ fn release(release: On<PointerRelease>, mut last: ResMut<LastClick>) {
     {
         return;
     }
-    if let Some(click) = &mut last.0 {
-        click.at = Instant::now();
+    released(&mut last.0, Instant::now(), release.entity);
+}
+
+/// Times the run from the release of a press that was counted, which
+/// is on an entity it was seen on. A release of any other press, such
+/// as one on empty space, does not extend the run.
+fn released(last: &mut Option<Click>, at: Instant, entity: Entity) {
+    if let Some(click) = last
+        && click.seen.contains(&entity)
+    {
+        click.at = at;
     }
 }
 
@@ -1026,6 +1037,23 @@ mod tests {
         assert_eq!(pressed(&mut late, 9, ms(900), at, text), 1);
         let away = Vec2::new(40.0, 10.0);
         assert_eq!(pressed(&mut last, 9, ms(400), away, text), 1);
+    }
+
+    #[test]
+    fn only_the_release_of_a_counted_press_extends_the_run() {
+        let mut world = World::new();
+        let [text, empty] = [(); 2].map(|_| world.spawn_empty().id());
+        let start = Instant::now();
+        let ms = |n| start + Duration::from_millis(n);
+        let at = Vec2::new(10.0, 10.0);
+        let mut last = None;
+        pressed(&mut last, 1, ms(0), at, text);
+        // A release on empty space leaves the run as it was.
+        released(&mut last, ms(400), empty);
+        assert_eq!(pressed(&mut last, 2, ms(600), at, text), 1);
+        // The release of the press itself times the next from it.
+        released(&mut last, ms(900), text);
+        assert_eq!(pressed(&mut last, 3, ms(1300), at, text), 2);
     }
 
     #[test]
