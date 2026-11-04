@@ -12,7 +12,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::{InputFocus, InputFocusSystems};
 use bevy::text::EditableText;
@@ -20,7 +20,7 @@ use hamlet_client::Connection;
 use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::Settings;
+use hamlet_client::realm::{Seen, Settings};
 use hamlet_protocol::client as protocol;
 
 pub use self::pages::view;
@@ -325,8 +325,10 @@ fn answered(response: On<Response>, mut commands: Commands) {
 /// Setup visibility and the server's connection words.
 fn follow(
     settings: Res<Settings>,
+    seen: Option<Res<Seen>>,
     connection: Res<Connection>,
     mut welcome: ResMut<Welcome>,
+    mut decided: Local<bool>,
 ) {
     use bevy::ecs::change_detection::DetectChanges;
     let words = (connection.state != Contact::Connected)
@@ -334,13 +336,18 @@ fn follow(
     if welcome.connection != words {
         welcome.connection = words;
     }
+    // Only the first state opens setup; after it, only the chief
+    // does.
+    if seen.is_some() && !*decided {
+        *decided = true;
+        welcome.open |= settings.0.unset;
+    }
     if settings.is_changed() {
-        if settings.0.unset {
-            welcome.open = true;
-        } else if !welcome.manual
-            || !welcome.trying
-                && settings.0.link.state
-                    == protocol::LinkState::Connected
+        if !settings.0.unset
+            && (!welcome.manual
+                || !welcome.trying
+                    && settings.0.link.state
+                        == protocol::LinkState::Connected)
         {
             welcome.open = false;
         }
@@ -414,6 +421,23 @@ mod server_tests {
         {
             assert!(shown.contains(command), "{shown}");
         }
+    }
+    #[test]
+    fn a_later_state_does_not_reopen_the_welcome_page() {
+        let mut app = welcome_app();
+        connect(&mut app, true);
+        mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "I'LL SET THIS UP LATER");
+        let mut state = hamlet_testing::realm::state();
+        state.settings.unset = true;
+        // Differs from the held settings, so they read as changed.
+        state.settings.link.words = Some("Changed".into());
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
+        app.update();
+        assert!(!all_words(&mut app).contains("WELCOME TO HAMLET"));
     }
     fn providers(app: &mut App) {
         incoming(

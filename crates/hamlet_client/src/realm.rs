@@ -2,6 +2,7 @@
 
 use std::marker::PhantomData;
 
+use bevy_ecs::component::Mutable;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
@@ -185,11 +186,11 @@ impl Account {
 }
 
 /// The chief's name supplied by the server.
-#[derive(Resource, Clone, Debug, Default)]
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Chief(pub String);
 
 /// What confines the commands the server's agents run.
-#[derive(Resource, Clone, Debug)]
+#[derive(Resource, Clone, Debug, PartialEq)]
 pub struct Confinement(pub protocol::Confinement);
 
 impl Default for Confinement {
@@ -201,7 +202,7 @@ impl Default for Confinement {
 }
 
 /// The received model, network and reflection settings.
-#[derive(Resource, Clone, Debug)]
+#[derive(Resource, Clone, Debug, PartialEq)]
 pub struct Settings(pub protocol::SettingsView);
 
 impl Default for Settings {
@@ -228,15 +229,15 @@ impl Default for Settings {
 }
 
 /// The providers and login methods offered by the server.
-#[derive(Resource, Clone, Debug, Default)]
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Providers(pub Vec<protocol::ProviderView>);
 
 /// The lasting permissions supplied by the server.
-#[derive(Resource, Clone, Debug, Default)]
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Grants(pub Vec<protocol::Grant>);
 
 /// The names of the chief's deeds supported by the server.
-#[derive(Resource, Clone, Debug, Default)]
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Deeds(pub Vec<String>);
 
 impl Deeds {
@@ -272,7 +273,7 @@ pub struct Starters(pub Vec<protocol::Skill>);
 pub struct HouseSkills(pub Vec<String>);
 
 /// The library shelf, independent of agents' own skills.
-#[derive(Resource, Clone, Debug, Default)]
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Skills(pub Vec<protocol::Skill>);
 
 /// The removed hamlets available to restore or erase.
@@ -422,29 +423,50 @@ impl Left {
     }
 }
 
+/// Inserts `value` unless the held resource already equals it.
+fn replace<R: Resource<Mutability = Mutable> + PartialEq>(
+    world: &mut World,
+    value: R,
+) {
+    match world.get_resource_mut::<R>() {
+        Some(mut held) => {
+            held.set_if_neq(value);
+        }
+        None => world.insert_resource(value),
+    }
+}
+
 pub(crate) fn state(world: &mut World, state: protocol::State) {
     let news = world.contains_resource::<Seen>();
-    world.insert_resource(Houses(state.houses));
-    world.insert_resource(Skills(
-        state
-            .library
-            .into_iter()
-            .map(|skill| protocol::Skill {
-                name: skill.name,
-                description: skill.description,
-            })
-            .collect(),
-    ));
-    world.insert_resource(Closed(state.closed));
-    world.insert_resource(Chief(state.chief));
-    world.insert_resource(Confinement(state.confinement));
-    world.insert_resource(Settings(state.settings));
-    world.insert_resource(Providers(state.providers));
-    world.insert_resource(Grants(state.grants));
-    world.insert_resource(Deeds(
-        state.deeds.into_iter().map(|deed| deed.name).collect(),
-    ));
-    world.insert_resource(Starters(state.starters));
+    // An insert marks a resource changed even with the same value,
+    // and a full state resends everything.
+    replace(world, Houses(state.houses));
+    replace(
+        world,
+        Skills(
+            state
+                .library
+                .into_iter()
+                .map(|skill| protocol::Skill {
+                    name: skill.name,
+                    description: skill.description,
+                })
+                .collect(),
+        ),
+    );
+    replace(world, Closed(state.closed));
+    replace(world, Chief(state.chief));
+    replace(world, Confinement(state.confinement));
+    replace(world, Settings(state.settings));
+    replace(world, Providers(state.providers));
+    replace(world, Grants(state.grants));
+    replace(
+        world,
+        Deeds(
+            state.deeds.into_iter().map(|deed| deed.name).collect(),
+        ),
+    );
+    replace(world, Starters(state.starters));
     world.insert_resource(Seen {
         epoch: state.epoch,
         revision: state.revision,
