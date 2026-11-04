@@ -89,6 +89,10 @@ pub struct EditSettingsSet {
     pub allow_net: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "Option<crate::Effort>")]
+    pub effort: Option<Option<crate::Effort>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Vec<Endpoint>")]
     pub endpoints: Option<Vec<Endpoint>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
