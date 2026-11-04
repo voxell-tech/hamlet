@@ -143,6 +143,18 @@ fn seen_land(p: vec2<f32>, pixel: f32) -> Land {
     );
 }
 
+// The land under a point of a patch of size `level` at `p`. Only a normal
+// prepass reads the slope there: the ground's own pixels read theirs from
+// the pages.
+fn point_land(level: i32, p: vec2<f32>) -> Land {
+@if(NORMAL_PREPASS_OR_DEFERRED_PREPASS) {
+    return land_at(level, p);
+}
+@else {
+    return Land(page_at(level, p), vec3<f32>(0.0, 1.0, 0.0));
+}
+}
+
 // The point `local` of the patch moved by `world_from_local`, from 0 to 1
 // over its side, as the ground draws it. As a point slides onto the grid
 // of the patch twice its size, it takes that size's page too, so where the
@@ -154,9 +166,9 @@ fn ground_point(local: vec2<f32>, world_from_local: mat4x4<f32>) -> GroundPoint 
     let level = clamp(i32(round(log2(side / pages_at.shape.x))), 0, LEVELS - 1);
     let laid = sliding(local, corner, side, pages_at.shape.y, view.world_position);
     let p = laid.xy;
-    var land = land_at(level, p);
+    var land = point_land(level, p);
     if laid.z > 0.0 && level + 1 < LEVELS {
-        let larger = land_at(level + 1, p);
+        let larger = point_land(level + 1, p);
         land = Land(
             mix(land.page, larger.page, laid.z),
             mix(normalize(land.normal), normalize(larger.normal), laid.z),
