@@ -7,6 +7,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
+use diesel::connection::SimpleConnection;
 use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel::sql_types::{BigInt, Text};
@@ -568,16 +569,19 @@ impl Drop for Driver {
 
 /// Opens the SQLite database at `path`.
 pub fn open(path: &Path) -> SqliteConnection {
-    SqliteConnection::establish(path.to_str().unwrap()).unwrap()
+    waiting(path.to_str().unwrap())
 }
 
 /// Opens the SQLite database at `path` read-only.
 fn read_only(path: &Path) -> SqliteConnection {
-    SqliteConnection::establish(&format!(
-        "file:{}?mode=ro",
-        path.to_str().unwrap()
-    ))
-    .unwrap()
+    waiting(&format!("file:{}?mode=ro", path.to_str().unwrap()))
+}
+
+/// Opens the database at `url`, waiting out the server's writes.
+fn waiting(url: &str) -> SqliteConnection {
+    let mut db = SqliteConnection::establish(url).unwrap();
+    db.batch_execute("PRAGMA busy_timeout = 5000;").unwrap();
+    db
 }
 
 /// Kills the process `pid` at once.

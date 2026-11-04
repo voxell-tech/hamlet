@@ -192,8 +192,9 @@ fn the_schema_module_is_current() {
     let mut store = Store::open(&dir.join("realm.sqlite")).unwrap();
     let expected = module(store.connection());
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(SCHEMA_RS);
-    if std::fs::read_to_string(&path).ok().as_deref()
-        == Some(&expected)
+    // A Windows checkout may end its lines with CRLF.
+    if std::fs::read_to_string(&path)
+        .is_ok_and(|kept| kept.replace("\r\n", "\n") == expected)
     {
         return;
     }
