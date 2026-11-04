@@ -40,7 +40,7 @@ pub struct Stock {
     pub brass: Handle<StandardMaterial>,
     /// Every window pane.
     pub windows: Handle<StandardMaterial>,
-    /// Each kind of tree, as `flora::mesh` makes it.
+    /// Each form of tree, as `flora::mesh` makes it.
     pub trees: Vec<Handle<Mesh>>,
     /// The flame of every mascot.
     pub wick: Handle<Mesh>,
@@ -68,8 +68,8 @@ impl Stock {
                 perceptual_roughness: 0.42,
                 ..default()
             }),
-            trees: (0..flora::KINDS)
-                .map(|kind| meshes.add(flora::mesh(pal, kind)))
+            trees: (0..flora::FORMS)
+                .map(|form| meshes.add(flora::mesh(pal, form)))
                 .collect(),
             wick: meshes.add(mascot::wick().build()),
         }

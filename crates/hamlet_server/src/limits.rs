@@ -41,6 +41,10 @@ pub struct Limits {
     /// Models by agent name; [`hamlet_protocol::MAYOR`] names the
     /// office.
     pub pinned: BTreeMap<String, String>,
+    /// Thinking efforts by agent name, over the settings' effort.
+    // Older records lack it.
+    #[serde(default)]
+    pub efforts: BTreeMap<String, hamlet_protocol::Effort>,
     pub mayor: LimitsMayor,
     pub leaving: LimitsLeaving,
     pub asking: LimitsAsking,
@@ -60,6 +64,7 @@ impl From<Limits> for hamlet_protocol::client::Limits {
             models: limits.models,
             model: limits.model,
             pinned: limits.pinned,
+            efforts: limits.efforts,
             mayor: limits.mayor,
             leaving: limits.leaving,
             asking: limits.asking,
@@ -133,6 +138,20 @@ impl Limits {
         names.iter().any(|n| n == name)
     }
 
+    /// How hard `agent`'s model thinks: its own effort, else `home`
+    /// (H29a).
+    pub fn effort_of(
+        &self,
+        agent: &Agent,
+        mayor: bool,
+        home: Option<hamlet_protocol::Effort>,
+    ) -> Option<hamlet_protocol::Effort> {
+        self.efforts
+            .get(limits_name(agent, mayor))
+            .copied()
+            .or(home)
+    }
+
     /// The model `agent` runs: pinned for it, else its own choice
     /// when allowed, else the hamlet's, else `home`.
     pub fn model_of(
@@ -141,13 +160,8 @@ impl Limits {
         mayor: bool,
         home: &str,
     ) -> String {
-        let name = if mayor {
-            hamlet_protocol::MAYOR
-        } else {
-            &agent.name
-        };
         self.pinned
-            .get(name)
+            .get(limits_name(agent, mayor))
             .map(String::as_str)
             .or_else(|| {
                 agent.model.as_deref().filter(|model| {
@@ -157,6 +171,15 @@ impl Limits {
             .or(self.model.as_deref())
             .unwrap_or(home)
             .into()
+    }
+}
+
+/// The name `agent` has in the limits, the office's for the mayor.
+fn limits_name(agent: &Agent, mayor: bool) -> &str {
+    if mayor {
+        hamlet_protocol::MAYOR
+    } else {
+        &agent.name
     }
 }
 
@@ -212,7 +235,8 @@ impl LimitsSchema {
                             .contains(&set.key.as_str()));
                 if reset {
                     if fields.remove(&set.key).is_none()
-                        && set.section != "pinned"
+                        && !["pinned", "efforts"]
+                            .contains(&set.section.as_str())
                     {
                         return Err(Refusal::UnknownField {
                             field: set.key.clone(),
@@ -261,6 +285,12 @@ impl LimitsSchema {
                 if path == "pinned" || path.starts_with("pinned.") {
                     path = "pinned".into();
                     "expected model names by agent name"
+                } else if path == "efforts"
+                    || path.starts_with("efforts.")
+                {
+                    path = "efforts".into();
+                    "expected off, minimal, low, medium or high by \
+                     agent name"
                 } else if schema_path.contains("/items") {
                     path = path
                         .rsplit_once('.')

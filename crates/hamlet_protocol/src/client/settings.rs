@@ -12,6 +12,8 @@ use crate::client::RequestId;
 pub struct SettingsView {
     #[serde(rename = "allowNet")]
     pub allow_net: bool,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub effort: Option<crate::Effort>,
     pub endpoints: Vec<SettingsViewEndpoints>,
     pub link: Link,
     pub model: String,

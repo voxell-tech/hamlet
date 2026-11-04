@@ -5,19 +5,24 @@ use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 use bevy::render::settings::WgpuFeatures;
+use hamlet_vfx::grass::GrassSettings;
 use hamlet_vfx::ground::{self, GroundMaterial, GroundSettings};
 use hamlet_vfx::inlay::{InlayExt, InlayMaterial, InlayUniform};
+use hamlet_vfx::leaves::{LeafMaterial, LeafView, Leaves};
+use hamlet_vfx::pads::{self, PadMaterial, PadSettings};
 use hamlet_vfx::patch;
 use hamlet_vfx::water::{
     self, WaterMaterial, WaterSettings, WaterUniform,
 };
 
+use super::flora::plants::{PAD_KINDS, pad_mesh};
 use super::land::Land;
 use super::loading::Bed;
 use super::{Tally, traffic, yard};
 use crate::keeper::KeeperState;
 use crate::lantern::lantern_glass;
 use crate::palette::Palette;
+use crate::sky::{Quality, SkySettings};
 use crate::{Sky, Stock};
 
 /// Handles shared by everything of a kind, so the renderer can batch
@@ -49,6 +54,13 @@ pub(super) struct Kit {
     /// flat.
     pub(super) flat_patch: Handle<Mesh>,
     pub(super) trees: Vec<Handle<Mesh>>,
+    /// The leaves of a tree drawn alone, and of many in one mesh.
+    pub(super) leaves: Handle<LeafMaterial>,
+    pub(super) still_leaves: Handle<LeafMaterial>,
+    /// The lily pads, riding the water's waves, and a mesh for each
+    /// of [`PAD_KINDS`].
+    pub(super) pad: Handle<PadMaterial>,
+    pub(super) pads: Vec<Handle<Mesh>>,
     pub(super) groove: Handle<InlayMaterial>,
 }
 
@@ -72,6 +84,8 @@ pub(super) fn setup(
     stock: Res<Stock>,
     bumps: Res<GroundSettings>,
     flow: Res<WaterSettings>,
+    leaves: Res<Leaves>,
+    mut pad_materials: ResMut<Assets<PadMaterial>>,
     device: Option<Res<RenderDevice>>,
 ) {
     let ground = grounds.add(ground::material(
@@ -148,23 +162,63 @@ pub(super) fn setup(
         patch,
         flat_patch,
         trees: stock.trees.clone(),
+        leaves: leaves.sway.clone(),
+        still_leaves: leaves.still.clone(),
+        pad: pad_materials
+            .add(pads::material(&mut images, leaves.strokes.clone())),
+        pads: (0..PAD_KINDS)
+            .map(|kind| meshes.add(pad_mesh(&pal, kind)))
+            .collect(),
         groove,
     });
 }
 
+/// Gives the lily pads the water's waves, so they ride them, and
+/// tells them how far into the night it is, so they glow.
+pub(super) fn float_pads(
+    kit: Res<Kit>,
+    waters: Res<Assets<WaterMaterial>>,
+    set: Res<PadSettings>,
+    grass: Res<GrassSettings>,
+    view: Res<LeafView>,
+    mut pads: ResMut<Assets<PadMaterial>>,
+) {
+    let Some(water) = waters.get(&kit.water) else {
+        return;
+    };
+    let Some(pad) = pads.get(&kit.pad) else {
+        return;
+    };
+    let mut next = pad.extension.clone();
+    let rode = next.follow(&water.extension);
+    let glow = set.glow(&grass, view.night);
+    if (rode || next.glow != glow)
+        && let Some(mut pad) = pads.get_mut(&kit.pad)
+    {
+        next.glow = glow;
+        pad.extension = next;
+    }
+}
+
 /// Paints the ground as the land has it, and the water as its
-/// settings and the sky have it, keeping the wind and the time.
+/// settings, the sky and the quality have it, keeping the wind and
+/// the time.
 pub(super) fn repaint(
     land: Res<Land>,
     flow: Res<WaterSettings>,
     sky: Res<Sky>,
+    quality: Res<Quality>,
     kit: Res<Kit>,
     mut grounds: ResMut<Assets<GroundMaterial>>,
     mut waters: ResMut<Assets<WaterMaterial>>,
 ) {
+    // `get_mut` alone marks a material changed, so only one that
+    // differs is taken.
     let soil = land.soil();
-    if let Some(mut ground) = grounds.get_mut(&kit.ground)
-        && ground.extension.soil != soil
+    if grounds
+        .get(&kit.ground)
+        .is_some_and(|ground| ground.extension.soil != soil)
+        && let Some(mut ground) = grounds.get_mut(&kit.ground)
     {
         ground.extension.soil = soil;
     }
@@ -173,17 +227,30 @@ pub(super) fn repaint(
     else {
         return;
     };
-    let look = WaterUniform {
+    let fresh = WaterUniform::new(&flow);
+    let uniform = WaterUniform {
         time: now.time,
         wind: now.wind,
         sky: LinearRgba::from(sky.look.haze)
             .to_vec3()
             .extend(flow.mirror),
-        ..WaterUniform::new(&flow)
+        foam: fresh.foam.with_z(quality.mirror()),
+        ..fresh
     };
-    if let Some(mut water) = waters.get_mut(&kit.water)
-        && water.extension.water != look
+    if now != uniform
+        && let Some(mut water) = waters.get_mut(&kit.water)
     {
-        water.extension.water = look;
+        water.extension.water = uniform;
     }
+}
+
+/// Tells the leaves how far into the night it is.
+pub(super) fn tell_leaves(
+    sky: Res<Sky>,
+    set: Res<SkySettings>,
+    mut leaves: ResMut<LeafView>,
+) {
+    leaves.set_if_neq(LeafView {
+        night: 1.0 - set.daylight(sky.hour),
+    });
 }

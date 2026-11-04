@@ -11,7 +11,7 @@ use bevy::shader::ShaderRef;
 use bevy::window::RequestRedraw;
 
 use crate::wind::{WindSettings, WindUniform, downwind};
-use crate::{Now, VfxSystems};
+use crate::{Now, NowOffset, VfxSystems};
 
 pub type FlagMaterial = ExtendedMaterial<StandardMaterial, FlagExt>;
 
@@ -86,7 +86,7 @@ impl Waving {
         &mut self,
         materials: &mut Assets<FlagMaterial>,
         set: &FlagSettings,
-        now: f32,
+        offset: NowOffset,
         long: f32,
     ) -> Handle<FlagMaterial> {
         if let Some((_, waving)) =
@@ -104,7 +104,7 @@ impl Waving {
             },
             // The wind is told in `wave`.
             extension: FlagExt {
-                flag: uniform(set, now, long),
+                flag: uniform(set, offset, long),
                 wind: WindUniform::default(),
             },
         });
@@ -165,9 +165,13 @@ pub fn cloth(
     .with_inserted_indices(Indices::U32(indices))
 }
 
-fn uniform(set: &FlagSettings, now: f32, long: f32) -> FlagUniform {
+fn uniform(
+    set: &FlagSettings,
+    offset: NowOffset,
+    long: f32,
+) -> FlagUniform {
     FlagUniform {
-        wave: Vec4::new(now, set.speed, set.swing, set.waves),
+        wave: Vec4::new(offset.0, set.speed, set.swing, set.waves),
         shape: Vec4::new(long, 0.0, 0.0, 0.0),
     }
 }
@@ -178,14 +182,14 @@ pub fn flag(
     waving: &mut Waving,
     materials: &mut Assets<FlagMaterial>,
     set: &FlagSettings,
-    now: f32,
+    offset: NowOffset,
     mesh: Handle<Mesh>,
     long: f32,
 ) -> impl Bundle + use<> {
     (
         Cloth,
         Mesh3d(mesh),
-        MeshMaterial3d(waving.of(materials, set, now, long)),
+        MeshMaterial3d(waving.of(materials, set, offset, long)),
         Visibility::Inherited,
     )
 }
@@ -194,27 +198,33 @@ pub fn flag(
 /// the wind whichever way what it hangs from faces.
 fn wave(
     now: Res<Now>,
+    offset: Res<NowOffset>,
     set: Res<FlagSettings>,
     wind: Res<WindSettings>,
     waving: Res<Waving>,
     mut flags: Query<(&mut Transform, Option<&ChildOf>), With<Cloth>>,
     masts: Query<&GlobalTransform>,
     mut materials: ResMut<Assets<FlagMaterial>>,
-    mut told: Local<Option<f32>>,
+    mut told: Local<Option<(f32, NowOffset)>>,
 ) {
-    if told.replace(now.0) == Some(now.0)
+    // A frozen clock holds `Now` while the offset moves.
+    if told.replace((now.0, *offset)) == Some((now.0, *offset))
         && !set.is_changed()
         && !wind.is_changed()
         && !waving.is_changed()
     {
         return;
     }
-    let blowing = wind.uniform(now.0);
+    // `get_mut` alone marks a material changed, so only one that
+    // differs is taken.
+    let blowing = wind.uniform();
     for (long, waving) in &waving.0 {
-        let next = uniform(&set, now.0, *long);
-        if let Some(mut waving) = materials.get_mut(waving)
-            && (waving.extension.flag != next
-                || waving.extension.wind != blowing)
+        let next = uniform(&set, *offset, *long);
+        let changed = materials.get(waving).is_some_and(|waving| {
+            waving.extension.flag != next
+                || waving.extension.wind != blowing
+        });
+        if changed && let Some(mut waving) = materials.get_mut(waving)
         {
             waving.extension.flag = next;
             waving.extension.wind = blowing.clone();

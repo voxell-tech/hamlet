@@ -7,6 +7,7 @@ import bevy_pbr::render::{
     mesh_functions,
     view_transformations::position_world_to_clip,
 };
+import hamlet_vfx::clock::scene_time;
 import hamlet_vfx::wind::{Wind, strength};
 
 @if(PREPASS_PIPELINE)
@@ -15,7 +16,7 @@ import bevy_pbr::prepass::io::{Vertex, VertexOutput, decompress_vertex};
 import bevy_pbr::render::forward_io::{Vertex, VertexOutput, decompress_vertex};
 
 struct Flag {
-    // x: time in seconds. y: how fast the waves run. z: how far the fly
+    // x: `NowOffset`. y: how fast the waves run. z: how far the fly
     // end swings, as a share of the cloth's length. w: waves along it.
     wave: vec4<f32>,
     // x: the cloth's length. The rest is unused.
@@ -25,13 +26,14 @@ struct Flag {
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> flag: Flag;
 @group(constants::MATERIAL_BIND_GROUP) @binding(101) var<uniform> wind: Wind;
 
-// Where a point of the cloth is blown to, and the slope of the cloth
-// there across the wind. It swings wider the harder the wind blows.
-fn blown(at: vec3<f32>, u: f32, own: f32, strong: f32) -> vec4<f32> {
+// Where a point of the cloth is blown to at `t` seconds, and the slope of
+// the cloth there across the wind. It swings wider the harder the wind
+// blows.
+fn blown(at: vec3<f32>, u: f32, own: f32, strong: f32, t: f32) -> vec4<f32> {
     let long = max(flag.shape.x, 0.001);
     let swing = flag.wave.z * long * strong;
     let turn = 6.2832 * flag.wave.w;
-    let a = turn * u - flag.wave.y * flag.wave.x + own;
+    let a = turn * u - flag.wave.y * t + own;
     let b = a * 1.7 + 1.3;
     // The hoist is held; the cloth is freer the further along it is.
     let z = swing * u * (sin(a) + 0.35 * sin(b));
@@ -59,11 +61,13 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     let u = vertex.uv.x;
 @else
     let u = 0.0;
+    let t = scene_time(flag.wave.x);
     let moved = blown(
         vertex.position,
         u,
         own,
-        strength(wind, world_from_local[3].xz),
+        strength(wind, world_from_local[3].xz, t),
+        t,
     );
 
     out.world_position = mesh_functions::mesh_position_local_to_world(

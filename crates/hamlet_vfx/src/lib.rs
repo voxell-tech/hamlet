@@ -2,22 +2,29 @@
 //! When and where one is set off is the world's business.
 
 pub mod flag;
+pub mod grass;
 pub mod ground;
 pub mod inlay;
+pub mod leaves;
 pub mod magic;
 pub mod mark;
+pub mod pads;
 pub mod patch;
 pub mod sparks;
 pub mod water;
 pub mod wind;
 
 use bevy::prelude::*;
+use bevy::shader::load_shader_library;
 use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
 
 use self::flag::FlagSettings;
+use self::grass::GrassSettings;
 use self::ground::GroundSettings;
 use self::inlay::InlayPlugin;
+use self::leaves::LeafSettings;
 use self::magic::MagicSettings;
+use self::pads::PadSettings;
 use self::sparks::SparkSettings;
 use self::water::WaterSettings;
 use self::wind::WindSettings;
@@ -39,8 +46,13 @@ impl Plugin for VfxPlugin {
             flag::plugin,
             ground::plugin,
             water::plugin,
+            leaves::plugin,
+            grass::plugin,
+            pads::plugin,
         ))
-        .init_resource::<Now>();
+        .init_resource::<Now>()
+        .init_resource::<NowOffset>();
+        load_shader_library!(app, "clock.wesl");
     }
 }
 
@@ -53,6 +65,27 @@ pub struct VfxSystems;
 /// scene's clock sets it.
 #[derive(Resource, Default, Clone, Copy)]
 pub struct Now(pub f32);
+
+/// How far [`Now`] is ahead of the view's time in the shaders, which
+/// `scene_time` in `clock.wesl` adds it to. Whoever sets [`Now`] sets
+/// it, through [`NowOffset::follow`], so that it moves only when the
+/// two clocks part: a material holding it need not change each frame.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
+pub struct NowOffset(pub f32);
+
+impl NowOffset {
+    /// The least the two clocks part by, in seconds, before it moves.
+    const SLACK: f32 = 1e-3;
+
+    /// Follows [`Now`] being `now` while the shaders' time is
+    /// `shaders`.
+    pub fn follow(&mut self, now: f32, shaders: f32) {
+        let next = now - shaders;
+        if (next - self.0).abs() > Self::SLACK {
+            self.0 = next;
+        }
+    }
+}
 
 /// The share of the particles asked for that are made. At 0 there
 /// are none.
@@ -84,6 +117,9 @@ pub(crate) struct VfxTuning {
     pub flag: FlagSettings,
     pub ground: GroundSettings,
     pub water: WaterSettings,
+    pub leaves: LeafSettings,
+    pub grass: GrassSettings,
+    pub pads: PadSettings,
 }
 
 impl Tuning for VfxTuning {
@@ -96,6 +132,9 @@ impl Tuning for VfxTuning {
         follow(world, &was.flag, &self.flag);
         follow(world, &was.ground, &self.ground);
         follow(world, &was.water, &self.water);
+        follow(world, &was.leaves, &self.leaves);
+        follow(world, &was.grass, &self.grass);
+        follow(world, &was.pads, &self.pads);
     }
 }
 
@@ -106,4 +145,7 @@ designed!(VfxTuning {
     FlagSettings => flag,
     GroundSettings => ground,
     WaterSettings => water,
+    LeafSettings => leaves,
+    GrassSettings => grass,
+    PadSettings => pads,
 });

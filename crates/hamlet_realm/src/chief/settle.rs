@@ -2,16 +2,18 @@
 //! ground held against the towns, and both taken away again.
 
 use bevy::light::NotShadowCaster;
+use bevy::mesh::MeshTag;
 use bevy::prelude::*;
+use hamlet_vfx::leaves::Leaves;
 
 use super::dress::lit;
 use super::mascot::Rig;
 use super::{
     Chief, ChiefSettings, Look, Mascot, Place, Settled, Stands, place,
 };
-use crate::generator::glow;
 use crate::generator::land::Land;
 use crate::generator::society::{Claim, Ground, Society};
+use crate::generator::{flora, glow};
 use crate::lantern::lantern_glass;
 use crate::library::{self, Library};
 use crate::palette::Palette;
@@ -84,6 +86,7 @@ pub(super) fn settle(
     set: Res<ChiefSettings>,
     pal: Res<Palette>,
     stock: Res<Stock>,
+    leaves: Res<Leaves>,
     mut society: ResMut<Society>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -202,8 +205,11 @@ pub(super) fn settle(
             .id();
         for tree in &built.trees {
             commands.spawn((
-                Mesh3d(stock.trees[tree.kind].clone()),
-                MeshMaterial3d(stock.matte.clone()),
+                Mesh3d(
+                    stock.trees[flora::form(tree.kind, 0)].clone(),
+                ),
+                MeshMaterial3d(leaves.sway.clone()),
+                MeshTag::new(flora::tag(tree.at)),
                 Transform::from_translation(tree.at)
                     .with_scale(Vec3::splat(tree.scale)),
                 ChildOf(place),

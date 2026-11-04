@@ -17,7 +17,7 @@ watch them work in a small 3D world where each agent has a house and a
 robot. Free and open-source forever.
 
 <p align="center">
-  <img src="brand/hamlet-window.png" alt="The Hamlet window: petitions for the chief on the left, a realm of four hamlets joined by roads across a river in the middle, and the list of hamlets with their agents and budgets on the right" width="860">
+  <img src="brand/hamlet-window.png" alt="The Hamlet window" width="860">
 </p>
 
 ## Features
@@ -99,16 +99,6 @@ This installs pi's packages, puts `hamlet`, `hamlet_server` and
 
 See [releases](docs/releases.md).
 
-### Other `cargo xtask` commands
-
-| Command | What it does |
-| --- | --- |
-| `cargo xtask build` | Builds without installing |
-| `cargo xtask all` | Builds every binary, including `hamlet_workspace` |
-| `cargo xtask uninstall` | Removes all three binaries |
-| `cargo xtask dev` | Tries the checkout without installing (see below) |
-| `cargo xtask help` | Lists every task |
-
 ## Try it without installing
 
 Use a scratch home so your real `~/.hamlet` is untouched:
@@ -122,6 +112,7 @@ port, and opens the window. No global npm command is needed.
 
 - The home is kept between runs. The window's files go in `<home>/window`.
 - Closing the window leaves `hamlet dev` serving. Ctrl-C stops it.
+- `--hot` builds a window that reloads saved shaders and tuning files.
 - To run other commands without installing, use
   `cargo run -p hamlet_cli -- <command>`.
 
@@ -196,18 +187,9 @@ opens its sibling window.
 run `git submodule update --init vendor/fynix` once. `cargo xtask`
 fetches it itself.
 
-```sh
-npm ci --prefix harnesses/pi
-cargo +nightly fmt
-cargo build --all-targets
-cargo clippy --all-targets
-cargo test
-(cd harnesses/pi && npm run check && npm test)
-```
-
-`cargo xtask check` runs all of it, plus the acceptance and harness
-suites, cargo deny and the docs, as steps CI runs by name: `format`,
-`clippy`, `deny`, `test`, `acceptance`, `harness`, `doc` and `node`.
+`cargo xtask check` runs the same checks as CI, on your own system. CI
+runs them on Linux, macOS and Windows, so it can still catch what fails
+only on another system. `cargo xtask help` lists every task.
 
 - `rust-toolchain.toml` follows the latest stable, no older than
   `rust-version` in `Cargo.toml`. If cargo says your compiler is too old,

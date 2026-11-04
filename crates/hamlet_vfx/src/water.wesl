@@ -22,10 +22,11 @@ import bevy_pbr::{
     },
     prepass::utils::prepass_depth,
 };
-import hamlet_vfx::ground_shape::Pages;
+import hamlet_vfx::clock::scene_time;
 import hamlet_vfx::patch::slid;
+import hamlet_vfx::shore::{PageCell, coast_at, page_cell, pages_at};
 import hamlet_vfx::waves::{
-    SHORE_REACH, SHAPES, SLOPE_MOST, TAU, Bend, Coast, bends, coast, crests, groups, noise_rise, wave,
+    SHAPES, SLOPE_MOST, TAU, Coast, bends, crests, groups, kept_waves, noise_rise, wave,
 };
 
 // The fields are explained on `WaterUniform` in `water.rs`.
@@ -51,12 +52,7 @@ struct Water {
 @group(constants::MATERIAL_BIND_GROUP) @binding(106) var sea_foam_sampler: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(113) var noise_slope: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(114) var noise_slope_sampler: sampler;
-@group(constants::MATERIAL_BIND_GROUP) @binding(115) var pages: texture_2d_array<u32>;
-@group(constants::MATERIAL_BIND_GROUP) @binding(116) var<uniform> pages_at: Pages;
 
-// How far from the eye, in units of the waves, the water lies flat.
-// `FLAT` in `water.rs`.
-const FLAT: f32 = 55.0;
 // How far from the eye, in units of the waves, each point's own slope
 // begins to fade, and where it is gone.
 const SLOPE_FADE: vec2<f32> = vec2<f32>(200.0, 450.0);
@@ -72,7 +68,7 @@ const FAR_TILT: f32 = 0.05;
 
 // How far the waves move the point `pos` metres across.
 fn moved(pos: vec2<f32>) -> vec3<f32> {
-    return wave(noise, noise_sampler, shore_at(pos), pos, water.time.x, water.time.y, water.wind.xy);
+    return wave(noise, noise_sampler, shore_at(pos), pos, scene_time(water.time.x), water.time.y, water.wind.xy);
 }
 
 @vertex
@@ -94,7 +90,7 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     // from the eye itself, so that seen from high over it the whole sea
     // lies flat.
     let scale = water.time.y;
-    let kept = 1.0 - smoothstep(25.0 * scale, FLAT * scale, distance(flat, view.world_position));
+    let kept = kept_waves(distance(flat, view.world_position), scale);
     // Where it lies flat the waves are not worked out at all. Each
     // fragment finds its own slope, so none is found here.
     var displacement = vec3<f32>(0.0);
@@ -137,25 +133,18 @@ fn held(fresh: f32, age: f32, decay: f32, eaten: f32) -> f32 {
 // looked at now and as each wave's last two crests passed, with all five
 // waves as they were then. Where the noise lets none be born, none is
 // looked for, nor in a past that has faded too far to leave more than is
-// found already, or than `least`, the least that shows; the waves turned
-// to the shore count only where they have turned enough to show. `near` is
-// how the shore bears on the waves there, `kept` what each keeps, and
-// `allowed` how much the noise lets be born, above zero.
+// found already, or than `least`, the least that shows. `near` is how the
+// shore bears on the waves there, `kept` what each keeps, and `allowed` how
+// much the noise lets be born, above zero.
 fn worked_foam(pos: vec2<f32>, allowed: f32, least: f32, near: Coast, kept: array<vec2<f32>, 5>) -> f32 {
     let world_uv = pos / 15.0;
-    let t = water.time.x;
+    let t = scene_time(water.time.x);
     let scale = water.time.y;
     let p = pos / scale;
     let downwind = water.wind.xy;
     let streak = water.fading.zw;
-    let landward = -near.landward;
-    let shoreward = near.turned > 0.05;
     let eaten = textureSampleLevel(noise, noise_sampler, world_uv * 24.0, 0.0).r * water.fading.y;
-    // The crests of the waves that hold sway here.
-    var times = crests(p, t, vec2<f32>(0.0), 0.0, false, downwind, kept);
-    if near.turned > 0.5 {
-        times = crests(p, t, landward, near.along / scale, true, downwind, kept);
-    }
+    let times = crests(p, t, near, scale, downwind, kept);
     var most = 0.0;
     for (var k = 0u; k < 11u; k++) {
         var age = 0.0;
@@ -167,11 +156,7 @@ fn worked_foam(pos: vec2<f32>, allowed: f32, least: f32, near: Coast, kept: arra
             continue;
         }
         let then = t - age;
-        var d = bends(p, then, vec2<f32>(0.0), 0.0, false, downwind, 0.0, kept, 0.0).pull;
-        if shoreward {
-            let turned = bends(p, then, landward, near.along / scale, true, downwind, near.close, kept, 0.0).pull;
-            d = mix(d, turned, near.turned);
-        }
+        var d = bends(p, then, near, scale, downwind, kept, 0.0).pull;
         // The drifting noise pushes it by `streak` too, so the foam it
         // leaves lies in streaks, crisp along the crests.
         let g = noise_rise(noise_slope, noise_slope_sampler, p, then, downwind);
@@ -351,53 +336,6 @@ fn aa_step(edge: f32, v: f32) -> f32 {
     return clamp((v - edge) / width + 0.5, 0.0, 1.0);
 }
 
-// The four points of the land's pages about a point on the map, each the
-// height and the distance out from the shore, and where between them the
-// point lies.
-struct PageCell {
-    a: vec2<f32>,
-    b: vec2<f32>,
-    c: vec2<f32>,
-    d: vec2<f32>,
-    f: vec2<f32>,
-}
-
-// The height and the distance out from the shore at the texel `c` of the
-// page of size `level`, as `relief.wesl` packs them.
-fn page_texel(level: i32, c: vec2<i32>) -> vec2<f32> {
-    let t = textureLoad(pages, c, level, 0).xy;
-    return vec2<f32>(bitcast<f32>(t.x), (f32(t.y >> 16u) / 65535.0 * 2.0 - 1.0) * SHORE_REACH);
-}
-
-// The points about `p` on the finest of the land's pages from `least` up
-// that reaches it, as `page_at` in `ground_shape.wesl` finds them. False
-// until the pages are made.
-fn page_cell(p: vec2<f32>, least: i32, cell: ptr<function, PageCell>) -> bool {
-    let size = vec2<i32>(textureDimensions(pages)) - 2;
-    if any(size < vec2<i32>(1)) {
-        return false;
-    }
-    var level = least;
-    var g = vec2<f32>(0.0);
-    loop {
-        let at = pages_at.at[level];
-        g = (p - at.xy) / at.z;
-        if level >= 7 || (all(g >= vec2<f32>(0.0)) && all(g < vec2<f32>(size))) {
-            break;
-        }
-        level += 1;
-    }
-    let c = clamp(vec2<i32>(floor(g)), vec2<i32>(0), size);
-    *cell = PageCell(
-        page_texel(level, c),
-        page_texel(level, c + vec2<i32>(1, 0)),
-        page_texel(level, c + vec2<i32>(0, 1)),
-        page_texel(level, c + vec2<i32>(1, 1)),
-        fract(g),
-    );
-    return true;
-}
-
 // The height of the ground under the point `p` on the map, from the land's
 // pages, smoothly between their points: from the page whose points lie
 // about as far apart as a pixel, `pixel` metres, there, or the next larger
@@ -414,19 +352,8 @@ fn ground_under(p: vec2<f32>, pixel: f32) -> f32 {
     return mix(mix(cell.a.x, cell.b.x, cell.f.x), mix(cell.c.x, cell.d.x, cell.f.x), cell.f.y);
 }
 
-// How the shore bears on the waves at the point `p` on the map, from the
-// distance out from it the land's pages hold, smoothly between their points
-// and from the finest that reaches it, the way to it falling across them.
-// Open sea until the pages are made.
 fn shore_at(p: vec2<f32>) -> Coast {
-    var cell: PageCell;
-    if !page_cell(p, 0, &cell) {
-        return coast(SHORE_REACH, vec2<f32>(0.0), water.time.z, water.calm.xy);
-    }
-    let f = cell.f;
-    let d = mix(mix(cell.a.y, cell.b.y, f.x), mix(cell.c.y, cell.d.y, f.x), f.y);
-    let rise = vec2<f32>(mix(cell.b.y - cell.a.y, cell.d.y - cell.c.y, f.y), mix(cell.c.y - cell.a.y, cell.d.y - cell.b.y, f.x));
-    return coast(d, -rise, water.time.z, water.calm.xy);
+    return coast_at(p, water.time.z, water.calm.xy);
 }
 
 // The depth drawn at the screen's point `uv`, from 0 far off to 1 near.
@@ -442,7 +369,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 @else
     let carried = vec4<f32>(in.world_position.xz, 0.0, 0.0);
     let world_xz = carried.xy;
-    let t = water.time.x;
+    let t = scene_time(water.time.x);
     let scale = water.time.y;
     let p = world_xz / scale;
     let downwind = water.wind.xy;
@@ -488,11 +415,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // found at all.
     var N = vec3<f32>(0.0, 1.0, 0.0);
     if detail > 0.0 {
-        var bend = bends(p, t, vec2<f32>(0.0), 0.0, false, downwind, 0.0, kept, footprint);
-        if at_shore.turned > 0.0 {
-            let turned = bends(p, t, -at_shore.landward, at_shore.along / scale, true, downwind, at_shore.close, kept, footprint);
-            bend = Bend(mix(bend.rise, turned.rise, at_shore.turned), mix(bend.pull, turned.pull, at_shore.turned));
-        }
+        let bend = bends(p, t, at_shore, scale, downwind, kept, footprint);
         let fine = 1.0 - smoothstep(0.4, 1.8, footprint);
         let lift = 0.05 * fine * noise_rise(noise_slope, noise_slope_sampler, p, t, downwind);
         let by = at_shore.gain * detail;
@@ -616,10 +539,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     most = max(most, quadSwapX(most));
     most = max(most, quadSwapY(most));
 }
-    if most > 0.01 {
+    // The quality's share of the steps; with none, only the sky shows.
+    let at_most = f32(MIRROR_STEPS) * water.foam.z;
+    if most > 0.01 && at_most >= 1.0 {
         // A faint reflection is found in fewer, coarser steps: what it
         // misses is hidden in how little of it shows.
-        let steps = u32(mix(8.0, f32(MIRROR_STEPS), smoothstep(0.02, 0.3, most)));
+        let steps = u32(mix(min(8.0, at_most), at_most, smoothstep(0.02, 0.3, most)));
         let hit = mirror_hit(in.world_position.xyz, R, in.position.xy, steps);
         mirrored = mix(mirrored, hit.rgb, hit.a);
     }

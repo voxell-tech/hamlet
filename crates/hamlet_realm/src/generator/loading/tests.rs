@@ -14,7 +14,7 @@ use crate::generator::land::Land;
 use crate::generator::{
     Ahead, DetailSettings, GeneratorView, Tally, testing,
 };
-use crate::sky::CameraSettings;
+use crate::sky::{CameraSettings, Quality};
 
 /// The ground and its woods alone, seen by a camera with the world's
 /// fog.
@@ -29,6 +29,7 @@ fn app() -> App {
         .init_resource::<Tally>()
         .init_resource::<DetailSettings>()
         .init_resource::<CameraSettings>()
+        .init_resource::<Quality>()
         .init_resource::<Ahead>()
         .init_resource::<WaterSettings>()
         .insert_resource(testing::land(7))

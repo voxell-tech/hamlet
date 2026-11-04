@@ -213,6 +213,7 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
             id: id(),
             set: EditSettingsSet {
                 model: Some("faux/test".into()),
+                effort: None,
                 reflect_every: Some(10),
                 allow_net: Some(false),
                 endpoints: Some(vec![Endpoint {
@@ -229,6 +230,7 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
             id: id(),
             set: EditSettingsSet {
                 model: None,
+                effort: None,
                 reflect_every: None,
                 allow_net: None,
                 endpoints: None,
@@ -410,7 +412,7 @@ fn limits_wire() -> Value {
         "task": {"messages": 12, "tokens": null, "cost": 1.0, "minutes": 20},
         "road": {"tokens": 0, "cost": 0.01, "minutes": 0, "growsOverDays": 7},
         "mostAgents": 12, "mostRoads": 24, "models": ["faux/test"], "model": null,
-        "pinned": {"founder": "faux/test"},
+        "pinned": {"founder": "faux/test"}, "efforts": {"founder": "high"},
         "mayor": {"createAgents": true, "buildRoads": false, "removeAgents": true, "mergeAgents": false, "toldDays": 7},
         "leaving": {"protectedMinutes": 0, "mergedNotes": 6000},
         "asking": {"mayorReview": "remote", "refusals": 3, "questions": 3},
@@ -470,7 +472,7 @@ fn grants_wire() -> Value {
 
 fn settings_wire() -> Value {
     json!({
-        "model": "faux/test", "reflectEvery": 10, "allowNet": false,
+        "model": "faux/test", "reflectEvery": 10, "allowNet": false, "effort": "low",
         "endpoints": [{"name": "local", "baseUrl": "http://localhost:8080", "key": false}],
         "unset": false, "link": {"state": "connected", "models": 1, "words": "Connected"},
         "workspace": {"url": null, "running": null}
