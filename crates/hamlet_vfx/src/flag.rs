@@ -205,9 +205,10 @@ fn wave(
     mut flags: Query<(&mut Transform, Option<&ChildOf>), With<Cloth>>,
     masts: Query<&GlobalTransform>,
     mut materials: ResMut<Assets<FlagMaterial>>,
-    mut told: Local<Option<f32>>,
+    mut told: Local<Option<(f32, NowOffset)>>,
 ) {
-    if told.replace(now.0) == Some(now.0)
+    // A frozen clock holds `Now` while the offset moves.
+    if told.replace((now.0, *offset)) == Some((now.0, *offset))
         && !set.is_changed()
         && !wind.is_changed()
         && !waving.is_changed()

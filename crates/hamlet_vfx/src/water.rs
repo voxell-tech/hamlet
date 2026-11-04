@@ -517,14 +517,18 @@ pub(crate) fn flow(
     waves: Query<&ViewVisibility, With<Waves>>,
     mut materials: ResMut<Assets<WaterMaterial>>,
     mut redraw: MessageWriter<RequestRedraw>,
-    mut told: Local<Option<f32>>,
+    mut told: Local<Option<(f32, NowOffset)>>,
     mut heading: Local<Option<f32>>,
 ) {
-    let then = told.replace(now.0);
-    if then == Some(now.0) && !set.is_changed() && !wind.is_changed()
+    // A frozen clock holds `Now` while the offset moves.
+    let was = told.replace((now.0, *offset));
+    if was == Some((now.0, *offset))
+        && !set.is_changed()
+        && !wind.is_changed()
     {
         return;
     }
+    let then = was.map(|(then, _)| then);
     let time = Vec4::new(offset.0, set.scale, set.bend, 0.0);
     // The waves run the way the wind settles on, not as it veers: the
     // whole sea turning with it would sweep its far waves round. When

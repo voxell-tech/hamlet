@@ -12,6 +12,7 @@ mod tests;
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use hamlet_vfx::leaves::LeafMaterial;
 
 pub(super) use self::builds::finish_loading;
 pub(super) use self::lanes::{Lanes, clear_lanes};
@@ -97,18 +98,21 @@ pub(super) struct Bed;
 #[derive(Component)]
 pub(super) struct Sea;
 
-/// Keeps [`NotShadowCaster`] on the trees when the [`Quality`] draws
-/// no tree shadows, and off them when it does.
+/// Keeps [`NotShadowCaster`] on everything with leaves when the
+/// [`Quality`] draws no tree shadows, and off it when it does.
 pub(super) fn shade_trees(
     mut commands: Commands,
     quality: Res<Quality>,
     casting: Query<
         Entity,
-        (Or<(With<Wood>, With<Standing>)>, Without<NotShadowCaster>),
+        (
+            With<MeshMaterial3d<LeafMaterial>>,
+            Without<NotShadowCaster>,
+        ),
     >,
     shadowless: Query<
         Entity,
-        (Or<(With<Wood>, With<Standing>)>, With<NotShadowCaster>),
+        (With<MeshMaterial3d<LeafMaterial>>, With<NotShadowCaster>),
     >,
 ) {
     if quality.has_tree_shadows() {

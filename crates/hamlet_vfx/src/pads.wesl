@@ -45,6 +45,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         discard;
     }
     var pbr_input = pbr_input_from_standard_material(in, is_front);
+    // A normal prepass, when there is one, holds what lies under the pad,
+    // which is drawn in none.
+    pbr_input.N = normalize(pbr_input.world_normal);
     pbr_input.material.base_color = vec4<f32>(pbr_input.material.base_color.rgb * paint.r, 1.0);
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
