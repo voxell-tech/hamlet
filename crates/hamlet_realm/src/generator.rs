@@ -7,6 +7,7 @@ mod common;
 mod debug;
 mod fireflies;
 pub(crate) mod flora;
+mod grass;
 pub mod ground;
 pub(crate) mod homing;
 pub mod house;
@@ -35,15 +36,21 @@ use bevy::prelude::*;
 use hamlet_vfx::magic::MagicSettings;
 pub(crate) use hamlet_vfx::magic::glow;
 use hamlet_vfx::water::WaterSettings;
-use hamlet_vfx::{Density, Now, Tints, VfxPlugin, VfxSystems};
+use hamlet_vfx::{
+    Density, Now, NowOffset, Tints, VfxPlugin, VfxSystems,
+};
 
 pub use self::ground::DetailSettings;
 use self::house::HouseSettings;
-use self::kit::{Kit, repaint, setup, state_index};
+use self::kit::{
+    Kit, float_pads, repaint, setup, state_index, tell_leaves,
+};
 use self::land::{Land, LandSettings};
 use self::layout::TownSettings;
 use self::lights::{light_lanterns, light_roads, light_spills};
-use self::loading::{Lanes, clear_lanes, finish_loading, stream};
+use self::loading::{
+    Lanes, clear_lanes, finish_loading, shade_trees, stream,
+};
 pub use self::loading::{Loading, Terrain};
 pub use self::magic::Thought;
 use self::road::RoadSettings;
@@ -100,6 +107,7 @@ pub fn plugin(app: &mut App) {
         lights::plugin,
         sounds::plugin,
         relief::plugin,
+        grass::plugin,
     ))
     // An effect a house is given plays the frame it is given.
     .configure_sets(
@@ -150,9 +158,12 @@ pub fn plugin(app: &mut App) {
             repaint.run_if(
                 resource_changed::<Land>
                     .or_else(resource_changed::<WaterSettings>)
-                    .or_else(resource_changed::<Sky>),
+                    .or_else(resource_changed::<Sky>)
+                    .or_else(resource_changed::<Quality>),
             ),
             settle.run_if(resource_changed::<Society>),
+            tell_leaves,
+            float_pads.after(relief::PagesLaid),
             shift_houses,
             magic::charm,
             run_traffic,
@@ -167,7 +178,11 @@ pub fn plugin(app: &mut App) {
                 robot_detail,
                 aim,
             ),
-            (clear_lanes.run_if(resource_changed::<Drawn>), stream)
+            (
+                clear_lanes.run_if(resource_changed::<Drawn>),
+                stream,
+                shade_trees,
+            )
                 .chain(),
             pass,
             work_robots,
@@ -205,8 +220,14 @@ fn settle(society: Res<Society>, mut land: ResMut<Land>) {
 }
 
 /// Tells the effects the scene's time.
-fn tell_effects(clock: Res<Clock>, mut now: ResMut<Now>) {
+fn tell_effects(
+    clock: Res<Clock>,
+    time: Res<Time>,
+    mut now: ResMut<Now>,
+    mut offset: ResMut<NowOffset>,
+) {
     now.0 = clock.t;
+    offset.follow(clock.t, time.elapsed_secs_wrapped());
 }
 
 /// The colours of the palette the effects glow in.
@@ -354,7 +375,7 @@ mod tests {
             for tile in &woods {
                 let stand = ground::Stand::of(&detail, *tile);
                 let grove = ground::grove(&land, *tile, stand);
-                canopy += grove.canopy.as_ref().map_or(0, mesh_bytes);
+                canopy += grove.mesh.as_ref().map_or(0, mesh_bytes);
                 trees += grove.trees.len();
             }
             println!(
@@ -364,10 +385,10 @@ mod tests {
                 began.elapsed()
             );
         }
-        let trees = (0..flora::KINDS)
+        let trees = (0..flora::FORMS)
             .map(|k| mesh_bytes(&flora::mesh(&land.pal, k)))
             .sum::<usize>();
-        println!("trees, {} meshes: {trees} bytes", flora::KINDS);
+        println!("trees, {} meshes: {trees} bytes", flora::FORMS);
         let style = TownStyle::of(&land, 0);
         let common = common::mesh(&land, 0, &style);
         println!("a common: {} bytes", common.bytes());

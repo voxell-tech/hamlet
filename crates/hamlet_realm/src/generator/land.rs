@@ -57,10 +57,6 @@ pub struct LandSettings {
     /// How far the edges of hills and of the coast are pushed in and
     /// out, so that they wander.
     pub ragged: f32,
-    /// Rocks standing in the sea off the coast: the side of the
-    /// cells each may stand in, the share of cells with one, and the
-    /// most height one stands over the water.
-    pub stacks: (f32, f32, f32),
     /// Reach of the home plains from the middle. Hills stand only
     /// beyond.
     pub plains: f32,

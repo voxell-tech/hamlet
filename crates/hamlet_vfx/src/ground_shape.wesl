@@ -73,12 +73,86 @@ struct Land {
 }
 
 fn land_at(level: i32, p: vec2<f32>) -> Land {
-    let texel = pages_at.at[level].z;
-    let left = page_at(level, p - vec2<f32>(texel, 0.0)).x;
-    let right = page_at(level, p + vec2<f32>(texel, 0.0)).x;
-    let ahead = page_at(level, p - vec2<f32>(0.0, texel)).x;
-    let behind = page_at(level, p + vec2<f32>(0.0, texel)).x;
-    return Land(page_at(level, p), vec3<f32>(left - right, 2.0 * texel, ahead - behind));
+    let at = pages_at.at[level];
+    let g = (p - at.xy) / at.z;
+    let i = floor(g);
+    let f = g - i;
+    let c = vec2<i32>(i);
+    // The points a texel to each side lie between the same texels shifted
+    // by one, so the twelve about the point's own four serve all five.
+    let a = texel_near(level, c, 0, 0);
+    let b = texel_near(level, c, 1, 0);
+    let d = texel_near(level, c, 0, 1);
+    let e = texel_near(level, c, 1, 1);
+    let left = between(height_near(level, c, -1, 0), a.x, height_near(level, c, -1, 1), d.x, f);
+    let right = between(b.x, height_near(level, c, 2, 0), e.x, height_near(level, c, 2, 1), f);
+    let ahead = between(height_near(level, c, 0, -1), height_near(level, c, 1, -1), a.x, b.x, f);
+    let behind = between(d.x, e.x, height_near(level, c, 0, 2), height_near(level, c, 1, 2), f);
+    let page = mix(mix(a, b, f.x), mix(d, e, f.x), f.y);
+    return Land(page, vec3<f32>(left - right, 2.0 * at.z, ahead - behind));
+}
+
+// The texel `x` across and `y` along from `c` on the page of size `level`,
+// kept on the page.
+fn texel_near(level: i32, c: vec2<i32>, x: i32, y: i32) -> vec3<f32> {
+    let last = vec2<i32>(textureDimensions(pages)) - 1;
+    return texel(level, clamp(c + vec2<i32>(x, y), vec2<i32>(0), last));
+}
+
+// The height of that texel alone.
+fn height_near(level: i32, c: vec2<i32>, x: i32, y: i32) -> f32 {
+    let last = vec2<i32>(textureDimensions(pages)) - 1;
+    let at = clamp(c + vec2<i32>(x, y), vec2<i32>(0), last);
+    return bitcast<f32>(textureLoad(pages, at, level, 0).x);
+}
+
+// The value `f` of the way between four, as `page_at` blends its texels.
+fn between(a: f32, b: f32, d: f32, e: f32, f: vec2<f32>) -> f32 {
+    return mix(mix(a, b, f.x), mix(d, e, f.x), f.y);
+}
+
+// The land at `p` as the page of size `level` has it, or as the first page
+// up that holds it, should `p` lie off that page.
+fn held_land(level: i32, p: vec2<f32>) -> Land {
+    let side = vec2<f32>(textureDimensions(pages));
+    for (var l = level; l < LEVELS - 1; l++) {
+        let g = (p - pages_at.at[l].xy) / pages_at.at[l].z;
+        if all(g > vec2<f32>(2.0)) && all(g < side - 3.0) {
+            return land_at(l, p);
+        }
+    }
+    return land_at(LEVELS - 1, p);
+}
+
+// The land at `p` for a pixel `pixel` metres across, whatever patch it is
+// drawn on: from the page whose texels are as wide as the pixel, blended
+// into the next size up as the pixel nears its texels, so that no seam
+// shows where one gives way to the other.
+fn seen_land(p: vec2<f32>, pixel: f32) -> Land {
+    let level = clamp(log2(pixel / pages_at.at[0].z), 0.0, f32(LEVELS - 2));
+    let low = i32(level);
+    let fine = held_land(low, p);
+    let t = fract(level);
+    if t == 0.0 {
+        return fine;
+    }
+    let coarse = held_land(low + 1, p);
+    return Land(
+        mix(fine.page, coarse.page, t),
+        mix(normalize(fine.normal), normalize(coarse.normal), t),
+    );
+}
+
+// The land under a point of a patch of size `level` at `p`. Only a normal
+// prepass reads the slope there: the ground's own pixels read theirs from
+// the pages.
+fn point_land(level: i32, p: vec2<f32>) -> Land {
+@if(NORMAL_PREPASS_OR_DEFERRED_PREPASS) {
+    return land_at(level, p);
+}
+@else {
+    return Land(page_at(level, p), vec3<f32>(0.0, 1.0, 0.0));
+}
 }
 
 // The point `local` of the patch moved by `world_from_local`, from 0 to 1
@@ -92,9 +166,9 @@ fn ground_point(local: vec2<f32>, world_from_local: mat4x4<f32>) -> GroundPoint 
     let level = clamp(i32(round(log2(side / pages_at.shape.x))), 0, LEVELS - 1);
     let laid = sliding(local, corner, side, pages_at.shape.y, view.world_position);
     let p = laid.xy;
-    var land = land_at(level, p);
+    var land = point_land(level, p);
     if laid.z > 0.0 && level + 1 < LEVELS {
-        let larger = land_at(level + 1, p);
+        let larger = point_land(level + 1, p);
         land = Land(
             mix(land.page, larger.page, laid.z),
             mix(normalize(land.normal), normalize(larger.normal), laid.z),

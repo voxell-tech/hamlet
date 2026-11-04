@@ -31,6 +31,7 @@ fn app(set: GeneratorSettings) -> App {
         .init_resource::<Assets<StandardMaterial>>()
         .add_message::<RequestRedraw>()
         .init_resource::<Clock>()
+        .init_resource::<hamlet_vfx::NowOffset>()
         .init_resource::<Drawn>()
         .init_resource::<Loading>()
         .init_resource::<Tally>()

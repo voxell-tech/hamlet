@@ -7,6 +7,7 @@ use std::f32::consts::{FRAC_PI_2, PI};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 
+use super::flora;
 use super::land::Land;
 use super::noise::key;
 use super::society::AgentId;
@@ -185,7 +186,11 @@ pub(crate) fn garden_tree(
                 0.0,
                 -look.half.y - 0.55,
             ),
-            (h / 16 % 5) as usize,
+            // Any broadleaf, each as likely as another.
+            flora::form(
+                (h / 16) as usize % flora::BROADLEAVES,
+                (h / 1024) as usize,
+            ),
             0.55 + 0.3 * ((h / 256 % 100) as f32 / 100.0),
         )
     })
@@ -503,74 +508,6 @@ fn bush(
     }
 }
 
-/// Grass and a few flowers close round the walls, where no road
-/// runs.
-fn verge(
-    meshing: &mut Meshing,
-    rng: &mut Rng,
-    pal: &Palette,
-    look: &Look,
-    yard: &Yard,
-) {
-    let tip = pal.grass_tip;
-    let bloom = pal.flowers[(rng.f() * 5.0) as usize % 5];
-    for i in 0..22 {
-        // A point just outside the walls, anywhere but the path to
-        // the door.
-        let a = rng.f() * std::f32::consts::TAU;
-        let out = rng.range(0.2, 0.75);
-        let edge = Vec2::new(a.cos(), a.sin());
-        let k = (look.half.x / edge.x.abs().max(1e-3))
-            .min(look.half.y / edge.y.abs().max(1e-3));
-        let p = edge * (k + out);
-        if p.y > look.half.y && p.x.abs() < look.half.x * 0.75 {
-            continue;
-        }
-        // The yard is paved.
-        if p.x * yard.side > look.half.x {
-            continue;
-        }
-        let at = Vec3::new(p.x, -0.02, p.y);
-        if i % 4 == 0 {
-            let col = bloom * rng.value(0.1);
-            let h = rng.range(0.14, 0.24);
-            meshing.tube(
-                at,
-                at + Vec3::Y * h,
-                0.012,
-                0.01,
-                3,
-                pal.foliage_shade,
-                false,
-            );
-            meshing.blob(
-                at + Vec3::Y * h,
-                Vec3::new(0.06, 0.045, 0.06),
-                3,
-                0.0,
-                0.0,
-                move |_| col,
-            );
-            continue;
-        }
-        for _ in 0..3 {
-            let foot =
-                at + Vec3::new(rng.sym(0.09), 0.0, rng.sym(0.09));
-            let h = rng.range(0.13, 0.26);
-            let base = pal.grass.lerp(pal.grass_shade, rng.f() * 0.5);
-            let top = base.lerp(tip, rng.range(0.4, 0.9));
-            meshing.lathe(
-                foot,
-                &[(0.055, 0.0), (0.0, h)],
-                4,
-                |r, _| {
-                    if r == 0 { base } else { top }
-                },
-            );
-        }
-    }
-}
-
 /// The garden, on `side` of the house.
 fn garden(
     meshing: &mut Meshing,
@@ -618,23 +555,6 @@ fn garden(
             );
         }
         2 => {
-            // A bed of flowers along the front wall.
-            for i in 0..7 {
-                let col = pal.flowers[i % 4] * rng.value(0.1);
-                let p = Vec3::new(
-                    -x * 0.25 - side * (0.3 + i as f32 * 0.17),
-                    0.14,
-                    look.half.y + 0.28 + rng.sym(0.06),
-                );
-                meshing.blob(
-                    p,
-                    Vec3::new(0.08, 0.11, 0.08),
-                    3,
-                    0.0,
-                    0.0,
-                    move |d| if d.y < -0.2 { col * 0.5 } else { col },
-                );
-            }
             bush(meshing, rng, pal, Vec3::new(x, 0.0, z - 0.6), 0.34);
         }
         3 => {
@@ -1043,7 +963,6 @@ pub fn house(
     if wings == 0 {
         garden(&mut b, &mut rng, pal, &look, -yard.side);
     }
-    verge(&mut b, &mut rng, pal, &look, yard);
     yard::pave(&mut b, &mut rng, yard, pal);
 
     // The bracket the lantern hangs from.

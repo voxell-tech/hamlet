@@ -63,3 +63,15 @@ fn fbm(p: vec2<f32>, octaves: u32, seed: u32) -> f32 {
     }
     return sum / total;
 }
+
+// How swollen a glow is at `p` on the map, from 0.25 to 1, in patches
+// `breadth` metres across that have drifted `drifted` metres: on gradient
+// noise of its own seeds, two layers drifting different ways so the patches
+// change shape.
+fn swell(p: vec2<f32>, breadth: f32, drifted: f32) -> f32 {
+    let q = p / breadth;
+    let t = drifted / breadth;
+    let n = perlin(q + vec2<f32>(0.6, 0.8) * t, 41u)
+        + 0.5 * perlin(q * 2.1 - vec2<f32>(0.9, -0.4) * t * 1.7, 42u);
+    return mix(0.25, 1.0, smoothstep(-0.45, 0.6, n / 1.5));
+}

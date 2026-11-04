@@ -1,8 +1,8 @@
 //! Frame times of the realm from several views, each with parts of it
-//! turned off in turn, to find what a frame spends its time on. Drawn
-//! offscreen, with no window. With `--out`, it saves a still of each
-//! view instead, as it is and as its meshes' edges. With `--view`, it
-//! measures that one view alone.
+//! turned off in turn or drawn at a lower quality, to find what a
+//! frame spends its time on. Drawn offscreen, with no window. With
+//! `--out`, it saves a still of each view instead, as it is and as
+//! its meshes' edges. With `--view`, it measures that one view alone.
 //!
 //! `cargo run --release --example sea_bench -- [--size 2720x1720]
 //! [--out <dir>] [--view <name>]`
@@ -26,9 +26,10 @@ use bevy::time::TimeUpdateStrategy;
 use hamlet_realm::generator::land::Land;
 use hamlet_realm::generator::society::{Society, TownId};
 use hamlet_realm::generator::{GeneratorView, Loading};
-use hamlet_realm::sky::SkySettings;
+use hamlet_realm::sky::{Quality, SkySettings};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_realm::{Hour, RealmPlugin, WorldCamera};
+use hamlet_vfx::grass::Grass;
 use hamlet_vfx::water::Waves;
 
 use self::offscreen::Target;
@@ -46,7 +47,8 @@ const MEASURED: u32 = 180;
 /// A view: its name, the distance, the turn in radians and the tilt
 /// in degrees, and whether it looks at the sea off the coast rather
 /// than at the first town.
-const VIEWS: [(&str, f32, f32, f32, bool); 9] = [
+const VIEWS: [(&str, f32, f32, f32, bool); 10] = [
+    ("ground", 12.0, 0.0, 12.0, false),
     ("close", 30.0, 0.0, 40.0, false),
     ("default", 72.0, 0.0, 40.0, false),
     ("mid", 200.0, 0.0, 40.0, false),
@@ -58,45 +60,65 @@ const VIEWS: [(&str, f32, f32, f32, bool); 9] = [
     ("sea, high", 300.0, 0.0, 45.0, true),
 ];
 
-/// What is turned off: the water, the shadows, multisampling.
+/// What is turned off: the water, the shadows, multisampling, the
+/// grass; and the quality it is drawn at.
 #[derive(Clone, Copy)]
 struct Off {
     name: &'static str,
     water: bool,
     shadows: bool,
     msaa: bool,
+    grass: bool,
+    quality: Quality,
 }
 
-const SCENES: [Off; 5] = [
+/// Everything on, at the highest quality.
+const ALL: Off = Off {
+    name: "all",
+    water: false,
+    shadows: false,
+    msaa: false,
+    grass: false,
+    quality: Quality::High,
+};
+
+const SCENES: [Off; 8] = [
+    ALL,
     Off {
-        name: "all",
-        water: false,
-        shadows: false,
-        msaa: false,
+        name: "no grass",
+        grass: true,
+        ..ALL
+    },
+    Off {
+        name: "medium",
+        quality: Quality::Medium,
+        ..ALL
+    },
+    Off {
+        name: "low",
+        quality: Quality::Low,
+        ..ALL
     },
     Off {
         name: "no water",
         water: true,
-        shadows: false,
-        msaa: false,
+        ..ALL
     },
     Off {
         name: "no shadows",
-        water: false,
         shadows: true,
-        msaa: false,
+        ..ALL
     },
     Off {
         name: "no msaa",
-        water: false,
-        shadows: false,
         msaa: true,
+        ..ALL
     },
     Off {
         name: "no water, no shadows",
         water: true,
         shadows: true,
-        msaa: false,
+        ..ALL
     },
 ];
 
@@ -291,6 +313,8 @@ fn run(
     mut society: ResMut<Society>,
     mut view: ResMut<GeneratorView>,
     mut water: Query<&mut Visibility, With<Waves>>,
+    grass: Option<ResMut<Grass>>,
+    mut quality: ResMut<Quality>,
     mut suns: Query<&mut DirectionalLight>,
     mut msaa: Query<&mut Msaa, With<WorldCamera>>,
     mut exit: MessageWriter<AppExit>,
@@ -356,6 +380,10 @@ fn run(
             *seen = next;
         }
     }
+    if let Some(mut grass) = grass {
+        grass.shown = !scene.grass;
+    }
+    quality.set_if_neq(scene.quality);
     for mut sun in &mut suns {
         if sun.shadow_maps_enabled == scene.shadows {
             sun.shadow_maps_enabled = !scene.shadows;
