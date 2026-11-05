@@ -5,6 +5,7 @@ use hamlet_store::{Db, Store};
 use hamlet_testing::Scratch;
 
 use crate::change::{Change, Done, Touched, run};
+use crate::layout::Layout;
 use crate::society::hamlets::{self, Founding};
 use crate::society::hires::{Hired, Hiring};
 use crate::society::refusal::Refusal;
@@ -12,7 +13,7 @@ use crate::society::{chiefs, hand};
 
 /// A new realm with its first chief and its Hand.
 pub(crate) struct Realm {
-    _dir: Scratch,
+    dir: Scratch,
     pub store: Store,
     pub chief: ChiefId,
     pub hand: AgentId,
@@ -30,7 +31,7 @@ impl Realm {
         let mut cx = Change::new(db, 1, Actor::Realm);
         let hand = hand::make(&mut cx, "The Hand.").unwrap();
         Self {
-            _dir: dir,
+            dir,
             store,
             chief,
             hand,
@@ -40,6 +41,21 @@ impl Realm {
 
     pub fn db(&mut self) -> &mut Db {
         self.store.connection()
+    }
+
+    /// The realm's folder, which its database is in.
+    pub fn layout(&self) -> Layout {
+        Layout::new(&self.dir)
+    }
+
+    /// Runs the jobs kept so far.
+    pub fn work(&mut self) {
+        let layout = self.layout();
+        let at = self.at;
+        crate::knowledge::run::due(self.db(), &layout, at).unwrap();
+        let left =
+            hamlet_store::job::due(self.db(), i64::MAX).unwrap();
+        assert!(left.is_empty(), "jobs failed: {left:?}");
     }
 
     /// Makes `make` by `actor` a moment after the last change, as one

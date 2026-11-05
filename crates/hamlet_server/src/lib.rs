@@ -8,6 +8,8 @@
 mod change;
 mod clock;
 mod jobs;
+mod knowledge;
+mod layout;
 mod society;
 #[cfg(test)]
 mod testing;

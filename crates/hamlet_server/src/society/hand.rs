@@ -9,6 +9,7 @@ use hamlet_store::schema::hand;
 use super::agents::{self, AgentKind};
 use super::city;
 use crate::change::Change;
+use crate::jobs::{self, Job};
 
 /// Makes the Hand, once, with the realm, starting from `character`.
 pub(crate) fn make(
@@ -20,6 +21,7 @@ pub(crate) fn make(
     diesel::insert_into(hand::table)
         .values((hand::agent.eq(agent), hand::scholar.eq(scholar)))
         .execute(cx.db)?;
+    jobs::add(cx, &Job::Lodge { hire: agent })?;
     Ok(agent)
 }
 
