@@ -102,7 +102,7 @@ impl Deed {
             Deed::Unshelve(skill) => {
                 chat::command(world, format!("/unshelve {skill}"));
             }
-            Deed::NewSession => chat::send(world, "/new".into()),
+            Deed::NewSession => crate::convo::new_session(world),
             Deed::DefaultCharter => {
                 crate::settings::default_charter(world);
             }

@@ -956,7 +956,28 @@ impl Core {
         id: &RequestId,
     ) -> Result<ServerMessage> {
         let db = self.realm.store().connection();
-        let models = catalogue(db)?.into_values().collect();
+        // Only what the chief can reach: a provider signed in to or
+        // given a key, an endpoint of the settings, and the default
+        // model whatever serves it.
+        let settings = &self.env.settings;
+        let serving = settings.provider().unwrap_or_default();
+        let reached = |provider: &str| {
+            self.providers.faux
+                || settings
+                    .endpoints
+                    .iter()
+                    .any(|e| e.name == provider)
+                || self.credentials.model(provider, serving).is_some()
+        };
+        let models = catalogue(db)?
+            .into_values()
+            .filter(|model| {
+                model.name == settings.model
+                    || model.name.split_once("::").is_some_and(
+                        |(provider, _)| reached(provider),
+                    )
+            })
+            .collect();
         Ok(ServerMessage::Read(ReadResult::Models {
             to: id.clone(),
             models,

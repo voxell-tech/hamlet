@@ -125,6 +125,20 @@ pub(crate) fn seat(world: &mut World, agent: Entity) -> Seating {
     Seating::Seated
 }
 
+/// Starts a new session with the agent the chat is with, from
+/// whichever of its sessions is being read, and turns to it.
+pub(crate) fn new_session(world: &mut World) {
+    let agent = world.resource::<Convo>().agent;
+    let Some((to, with)) = address(world, agent) else {
+        return;
+    };
+    seat_as(world, agent, to, with);
+    world.trigger(hamlet_client::messages::ChiefMessage {
+        to,
+        text: "/new".into(),
+    });
+}
+
 fn seat_as(
     world: &mut World,
     agent: Entity,

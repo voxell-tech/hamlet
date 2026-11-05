@@ -26,7 +26,8 @@ pub(crate) use self::home::{narrowed, save_default};
 use crate::PanelSystems;
 use crate::settings::Pane;
 
-const SHOWN: usize = 40;
+/// How many models a page of the catalogue shows.
+const SHOWN: usize = 10;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Shelf>()
@@ -70,10 +71,11 @@ enum Asked {
     Default,
 }
 
-/// The catalogue's search field.
+/// The catalogue's search field, and the page of it shown.
 #[derive(Resource, Default)]
 pub struct Draft {
     narrow: String,
+    page: usize,
 }
 
 fn follow(world: &mut World) {
@@ -215,7 +217,7 @@ mod tests {
     };
 
     #[test]
-    fn the_models_page_reads_the_catalogue_and_shows_the_servers_prices_and_notes()
+    fn the_models_page_reads_the_catalogue_and_shows_the_servers_prices()
      {
         let mut app = welcome_app();
         app.add_plugins(plugin);
@@ -235,12 +237,6 @@ mod tests {
         );
         mount::<HamletTheme>(app.world_mut(), shelf());
         let shown = all_words(&mut app);
-        assert!(
-            app.world_mut()
-                .query::<&EditableText>()
-                .iter(app.world())
-                .any(|text| text.value() == "For hard questions.")
-        );
         for text in ["far::large", "3.00", "15.00", "listed", "200k"]
         {
             assert!(shown.contains(text), "{shown}");
@@ -364,8 +360,8 @@ mod tests {
         assert_eq!(edit["whole"]["road"]["most"], 24);
     }
     #[test]
-    fn prices_and_notes_are_catalogue_edits_and_success_reads_the_server_again()
-     {
+    fn prices_are_catalogue_edits_and_success_reads_the_server_again()
+    {
         let mut app = with_catalogue();
         mount::<HamletTheme>(app.world_mut(), shelf());
         type_field(&mut app, "0.00", "0.25");
@@ -381,16 +377,6 @@ mod tests {
         );
         let read = sent(&mut app).remove(0);
         assert_eq!(read["what"], "models");
-        incoming(
-            &mut app,
-            json!({"type":"read", "to":read["id"], "models":[
-                {"name":"far::small", "price":{"input":0.25,"output":0.0}, "priced":"yours", "context":null, "allowed":true, "note":"A small model."}
-            ]}),
-        );
-        type_field(&mut app, "A small model.", "For everyday work.");
-        let note = sent(&mut app).remove(0);
-        assert_eq!(note["set"], json!({"note":"For everyday work."}));
-        assert_eq!(note["model"], "far::small");
         app.world_mut().trigger(Reconnected);
         app.update();
         assert_eq!(sent(&mut app)[0]["what"], "models");

@@ -30,9 +30,6 @@ use super::{Showing, conversations, memory, show};
 use crate::convo::talk_to;
 use crate::overview::heading;
 
-/// How wide the sheet is.
-const WIDTH: f32 = 300.0;
-
 /// What the Agent section lists, found from the world.
 #[derive(Clone, Debug, PartialEq)]
 struct Facts {
@@ -314,7 +311,8 @@ fn pages() -> impl View {
     .tagged(hamlet_ui::widgets::platform::Wraps)
 }
 
-/// The sheet beside the thread of `agent`.
+/// The sheet that takes the place of the thread of `agent` while it
+/// is open.
 pub(super) fn sheet(agent: Entity) -> impl View {
     with_cx(move |cx| {
         let line = cx.theme().palette.gold_6;
@@ -336,8 +334,7 @@ pub(super) fn sheet(agent: Entity) -> impl View {
         ))
         .gap(gap)
         .width(percent(100.0)),)),))
-        .width(px(WIDTH))
-        .max_width(percent(55.0))
+        .width(percent(100.0))
         .min_width(px(0.0))
         .fills_height()
     })

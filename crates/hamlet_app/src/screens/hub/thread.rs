@@ -1,13 +1,13 @@
 //! The Hub's thread: the chat with one agent under a header that
 //! says where it is, over a composer with its chips. The agent's
-//! details open beside it, and its sessions and prompt are pages of
-//! their own.
+//! details take its place while open, and its sessions and prompt are
+//! pages of their own.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Display, UiRect, percent, px};
+use bevy::ui::{AlignItems, Display, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
@@ -647,29 +647,21 @@ pub(super) fn living() -> impl View {
         resource::<Convo, _>(|m| (m.session, m.agent)),
         |(_, agent)| {
             let agent = *agent;
-            let side = keyed(
+            // The details take the chat's place while they are open.
+            let body = keyed(
                 resource::<Sheet, _>(|sheet| sheet.open),
                 move |open| {
                     if *open {
                         details::sheet(agent).boxed()
                     } else {
-                        frame().boxed()
+                        talk(agent)
                     }
                 },
             )
-            .within(bare());
+            .within(filling());
             with_cx(move |cx| {
-                let (section, gap) =
-                    (cx.theme().space.section, cx.theme().space.gap);
-                column((
-                    header(agent),
-                    row((talk(agent), side))
-                        .gap(section)
-                        .fills_height()
-                        .width(percent(100.0)),
-                ))
-                .fills_height()
-                .gap(gap)
+                let gap = cx.theme().space.gap;
+                column((header(agent), body)).fills_height().gap(gap)
             })
             .boxed()
         },
@@ -1163,6 +1155,8 @@ mod tests {
         use hamlet_client::chats::Chat;
         use serde_json::json;
         let mut app = ada_app();
+        // The chat is under the details, so they are shut.
+        app.insert_resource(Sheet { open: false });
         let mut state = hamlet_testing::realm::state();
         state.agents.push(hamlet_testing::realm::agent(
             3, "home", 1, "scout",

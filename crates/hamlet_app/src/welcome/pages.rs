@@ -135,9 +135,9 @@ fn offered(id: &str) -> AnyView {
 fn models() -> AnyView {
     let list = keyed(
         resource::<Welcome, _>(|welcome| {
-            narrowed(welcome.models.iter(), &welcome.narrow)
+            narrowed(welcome.models.iter(), &welcome.narrow, 0)
         }),
-        |(ids, more)| {
+        |(ids, _, pages)| {
             let mut rows =
                 ids.iter().map(|id| offered(id)).collect::<Vec<_>>();
             if ids.is_empty() {
@@ -145,11 +145,11 @@ fn models() -> AnyView {
                     "No model has those words in its name.",
                 ));
             }
-            if *more > 0 {
-                rows.push(said(format!(
-                    "{more} more. Type part of a name to narrow \
-                     them."
-                )));
+            if *pages > 1 {
+                rows.push(said(
+                    "There are more. Type part of a name to narrow \
+                     them.",
+                ));
             }
             group(rows).boxed()
         },
