@@ -129,6 +129,19 @@ async fn file(path: &Path) {
     .expect("fixture barrier");
 }
 
+/// Waits until `server` refuses connections: it drops its listener
+/// as it takes a signal, before it closes the rest.
+async fn stopped_listening(server: &Server) {
+    let address = server.url.trim_start_matches("ws://");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while std::net::TcpStream::connect(address).is_ok() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the server stops listening");
+}
+
 fn stored(home: &Path) -> Value {
     serde_json::from_slice(
         &std::fs::read(home.join("credentials.json")).unwrap(),
@@ -233,9 +246,50 @@ async fn oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown()
     })
     .await
     .unwrap();
+    let _pending =
+        login(&mut foreign, "shutdown", "openrouter").await;
     assert_eq!(server.stop().await, Some(0));
+    assert_eq!(
+        std::fs::read_to_string(fixture.join("login-ended"))
+            .unwrap()
+            .lines()
+            .count(),
+        4
+    );
     assert!(stored(home.path())["models"]["chatgpt"].is_null());
     assert!(stored(home.path())["models"]["openrouter"].is_null());
+    no_store_secrets(home.path());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_waits_for_a_model_calls_started_rotation_to_persist()
+ {
+    let mut home = Home::new();
+    let fixture = Scratch::new("oauth-shutdown-provider");
+    let mut server = start(&mut home, &fixture).await;
+    let (mut owner, _) = server.connect().await;
+    let pending = login(&mut owner, "sign-in", "chatgpt").await;
+    assert_eq!(
+        reply(&mut owner, &pending, "expire").await["step"]["done"],
+        "chatgpt"
+    );
+    std::fs::write(fixture.join("hold-refresh"), "hold").unwrap();
+    send(&mut owner, json!({"type":"say","to":1,"text":"Hello"}))
+        .await;
+    file(&fixture.join("refresh-started")).await;
+    server.terminate();
+    stopped_listening(&server).await;
+    assert!(
+        server.is_running(),
+        "shutdown abandoned a started rotation"
+    );
+    std::fs::write(fixture.join("release-refresh"), "release")
+        .unwrap();
+    assert_eq!(server.ended().await, Some(0));
+    assert_eq!(
+        stored(home.path())["models"]["chatgpt"]["refresh"],
+        "test-oauth-refresh-after"
+    );
     no_store_secrets(home.path());
 }
 

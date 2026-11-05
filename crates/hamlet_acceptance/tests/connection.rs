@@ -249,3 +249,21 @@ async fn keeps_its_token_and_refuses_a_second_server_on_one_home() {
     let again = home.serve(&Faux::new(), QUIET).await;
     assert_eq!(again.token, token);
 }
+
+#[tokio::test]
+async fn refuses_a_second_hello_and_stays_open() {
+    let mut s = Session::start(Faux::new()).await;
+    let hello = ClientMessage::Hello(Hello {
+        token: s.server.token.clone(),
+        v: VERSION,
+    });
+    s.chief.send(hello).await;
+    let again = fault("This connection said hello already.", None);
+    s.chief
+        .until("a second hello refused", |c| {
+            c.messages().contains(&again)
+        })
+        .await;
+    let hand = s.hand();
+    s.chief.command(hand, "/queue").await;
+}

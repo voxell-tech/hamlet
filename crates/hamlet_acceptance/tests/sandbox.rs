@@ -60,10 +60,6 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
         )
         .await;
         let ada = s.found("docs", "ada", "keep the docs").await;
-        while !lodge.exists() {
-            tokio::time::sleep(std::time::Duration::from_millis(20))
-                .await;
-        }
         let root = if open { &work } else { &lodge };
         std::os::unix::fs::symlink(&secret, root.join("escape"))
             .unwrap();

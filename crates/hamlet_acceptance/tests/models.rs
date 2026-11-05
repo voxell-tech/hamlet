@@ -262,6 +262,20 @@ async fn signs_in_with_a_key_without_sending_it_to_any_client() {
             })
         }
     };
+    // The realm's model is served by `local`, so it cannot be taken
+    // away.
+    let before = (s.chief.realm().settings, credentials());
+    let reply = s.chief.request(edit(Vec::new())).await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (
+            ReplyKind::Error,
+            "The model `local::qwen3.6:35b-a3b` is served by the \
+             endpoint `local`, which the settings would no longer \
+             have."
+        )
+    );
+    assert_eq!((s.chief.realm().settings, credentials()), before);
     // Taking another endpoint away forgets its key.
     let reply =
         s.chief.request(edit(endpoints(&["local", "spare"]))).await;
@@ -284,6 +298,7 @@ async fn signs_in_with_a_key_without_sending_it_to_any_client() {
         })
         .await;
     let stored = credentials();
+    assert!(stored["models"].get("spare").is_none(), "{stored}");
     assert_eq!(stored["models"]["local"]["key"], key);
     assert_eq!(stored["models"]["openai"]["key"], "sk-openai-own");
 }
@@ -424,4 +439,19 @@ async fn gives_plain_words_for_http_refusals_and_charges_nothing() {
         .await;
     let spent = s.join().await.agent("hand").unwrap().spent;
     assert_eq!((spent.micros, spent.tokens), (0, 0));
+}
+
+#[tokio::test]
+async fn the_faux_model_answers_every_agents_check() {
+    let mut s = Session::start(Faux::new()).await;
+    let reply = s
+        .chief
+        .request(|id| {
+            ClientMessage::Check(Check::Model { id, model: None })
+        })
+        .await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (ReplyKind::Notice, "Every agent runs the faux model here.")
+    );
 }

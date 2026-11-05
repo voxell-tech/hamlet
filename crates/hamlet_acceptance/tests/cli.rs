@@ -38,24 +38,10 @@ impl Editor {
     }
 }
 
-/// Runs `hamlet edit`. A new scholar's repository can fail to open
-/// while the server is still working on it, so that fault is retried.
 async fn edit(s: &Session, doc: &[&str], editor: &Editor) -> Ended {
     let args = [&["edit"], doc].concat();
-    loop {
-        let ended = Cli::run(
-            s.home.path(),
-            &args,
-            "",
-            &[("EDITOR", &editor.command)],
-        )
-        .await;
-        if !ended.err.contains("opening the repository") {
-            return ended;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50))
-            .await;
-    }
+    Cli::run(s.home.path(), &args, "", &[("EDITOR", &editor.command)])
+        .await
 }
 
 #[tokio::test]
@@ -255,12 +241,6 @@ async fn edits_a_scholars_character_and_memory_in_editor() {
     let mut s = Session::start(Faux::new()).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let scholar = s.chief.scholar("ada").unwrap().id;
-    let repository =
-        s.home.file(&format!("scholars/{}.git", scholar.0));
-    while !repository.exists() {
-        tokio::time::sleep(std::time::Duration::from_millis(20))
-            .await;
-    }
     let write =
         editor(&s, "write", "echo 'Brave and plain.' > \"$1\"");
     let saved = edit(&s, &["character", "ada"], &write).await;

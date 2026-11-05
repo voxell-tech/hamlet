@@ -16,6 +16,7 @@ workspace = true
 acceptance = []
 
 [dependencies]
+base64.workspace = true
 futures.workspace = true
 hamlet_protocol.workspace = true
 hamlet_testing.workspace = true
@@ -73,4 +74,8 @@ required-features = ["acceptance"]
 
 [[test]]
 name = "cli"
+required-features = ["acceptance"]
+
+[[test]]
+name = "gifts"
 required-features = ["acceptance"]

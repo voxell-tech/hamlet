@@ -6,26 +6,12 @@ use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
 use serde_json::json;
 
-/// A reply to the edit `make` builds. An edit of a scholar's
-/// repository can fail with a fault while the server is still working
-/// on it, so a fault is answered with the same edit again.
+/// A reply to the edit `make` builds.
 async fn edit(
     client: &mut Client,
     make: impl Fn(RequestId) -> Edit,
 ) -> Reply {
-    for _ in 0..100 {
-        match client.ask(|id| ClientMessage::Edit(make(id))).await {
-            ServerMessage::Reply(reply) => return reply,
-            ServerMessage::Fault(_) => {
-                tokio::time::sleep(std::time::Duration::from_millis(
-                    50,
-                ))
-                .await;
-            }
-            other => panic!("an edit got {other:?}"),
-        }
-    }
-    panic!("the edit never settled");
+    client.request(|id| ClientMessage::Edit(make(id))).await
 }
 
 fn memory(description: &str, body: &str) -> String {
@@ -49,13 +35,6 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     let mut s = Session::start(Faux::new()).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let scholar = s.chief.scholar("ada").unwrap().id;
-    let repository =
-        s.home.file(&format!("scholars/{}.git", scholar.0));
-    while !repository.exists() {
-        tokio::time::sleep(std::time::Duration::from_millis(20))
-            .await;
-    }
-
     let reply = edit(&mut s.chief, |id| Edit::Charter {
         id,
         text: Some("Be brief.".into()),
@@ -228,6 +207,23 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
         "a refused edit changes nothing"
     );
 
+    let before = s.chief.messages().len();
+    let reply = s
+        .chief
+        .limit(Some("docs"), "budget", "cost", json!(-1))
+        .await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+    assert_eq!(reply.text, "a budget cannot be less than zero");
+    let reply =
+        s.chief.limit(Some("docs"), "road", "most", json!(-1)).await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+    assert!(
+        !s.chief.messages()[before..]
+            .iter()
+            .any(|m| matches!(m, ServerMessage::Change(_))),
+        "a refused limit changes nothing"
+    );
+
     // The realm has limits of its own.
     let reply = s.chief.limit(None, "budget", "cost", json!(9)).await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
@@ -263,6 +259,42 @@ async fn edits_settings_and_refuses_bad_ones() {
     s.chief
         .until("net allowed", |c| c.realm().settings.allow_net)
         .await;
+    let reply = edit(&mut s.chief, |id| Edit::Settings {
+        id,
+        set: EditSettingsSet {
+            reflect_every: Some(-1),
+            ..settings()
+        },
+    })
+    .await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+    assert_eq!(reply.text, "Reflect after zero or more turns.");
+    for (address, words) in [
+        (
+            "http://u:p@host/v1",
+            "An address may not hold a name or a key; sign in to \
+             the endpoint with its key instead.",
+        ),
+        (
+            "ftp://host",
+            "`ftp://host` is not an http or https address.",
+        ),
+        ("nowhere", "`nowhere` is not an address."),
+    ] {
+        let reply = edit(&mut s.chief, |id| Edit::Settings {
+            id,
+            set: EditSettingsSet {
+                endpoints: Some(vec![Endpoint {
+                    name: "private".into(),
+                    base_url: address.into(),
+                }]),
+                ..settings()
+            },
+        })
+        .await;
+        assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+        assert_eq!(reply.text, words);
+    }
     // A new connection gets the whole state as it is now.
     let late = s.join().await;
     assert!(late.realm().settings.allow_net);
