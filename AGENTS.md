@@ -130,8 +130,8 @@ cargo test -p hamlet_acceptance --features acceptance
 ```
 
 The server's tests that start pi serving a realm, crashes included, are
-its `crashes` and `harness` targets, compiled only with the `harness`
-feature, so plain `cargo test` needs no Node. They need
+its `crashes` target and its tests of the core, compiled only with the
+`harness` feature, so plain `cargo test` needs no Node. They need
 `npm ci --prefix harnesses/pi`, never contact a model server or the
 internet, and must be clean before a commit too. They build the server
 with fault points, so run them after the acceptance suite, which needs

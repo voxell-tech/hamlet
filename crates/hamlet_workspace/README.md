@@ -236,7 +236,8 @@ npm ci --prefix harnesses/pi
 cargo test -p hamlet_server --features harness --test crashes remote::
 ```
 
-They cover an agent's tools writing its remote lodge and the server
-pulling it home, a gift pushed to the remote lodge, the library
-snapshot sent once, and a host path refused without running on the
-server. No automated test runs the server against the real worker.
+They cover the lodges moved at a chief's word, an agent's tool writing
+its remote lodge and the server bringing that home beside what it
+kept, the library snapshot sent once, and a host path refused without
+running on the server. No automated test runs the server against the
+real worker.

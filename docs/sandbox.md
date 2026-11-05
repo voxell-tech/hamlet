@@ -117,10 +117,14 @@ its hamlet's `/project` and the library at `/library`. The requests and their
 replies are typed once in `hamlet_workspace_wire`, and `hamlet_workspace`
 supplies the Linux worker. The server's lodge holds what git keeps; the remote
 `/lodge` is where the tools write during a turn, so the two are kept in step
-(`workspace/lodges.rs`): a push makes the remote copy match the server's after
-the server changed it, and a pull brings the remote copy home after a tool may
-have written it. Moving every lodge to the workspace happens at a chief's
-word. Remote execution never falls back to the host's files or commands.
+(`workspace/lodges.rs`) against the files they last held alike: a push sends
+what the server changed since, after the server changed it, and a pull brings
+home what the remote copy changed since, after a tool may have written it.
+Neither undoes the other's changes. A lodge not in step since the server
+started is pushed whole before its first remote call, so the server's copy
+stands. Moving every lodge to the workspace happens at a chief's word. A
+dream works on the server's checkout of its scholar, never remotely. Remote
+execution never falls back to the host's files or commands.
 
 The worker's configuration and deployment notes are in
 [`crates/hamlet_workspace/README.md`](../crates/hamlet_workspace/README.md),

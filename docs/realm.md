@@ -49,16 +49,24 @@ Every change is one transaction, taken with the write lock from its start;
 the connection runs with WAL, full sync and foreign keys. A tool call is
 identified by its runtime and key, a client request by its chief and id; its
 marker is committed with the change and its charge, so a call asked for again
-gets the first result. The files and repositories a change needs are made
-afterwards by jobs, kept in the same transaction and run again after a crash
-until they are done
+gets the first result. A society call is safe to ask again for that reason:
+its answer is kept in its change's transaction, or what it began (a letter, a
+worker, an errand) is found again by its call. A write of a scholar's
+repository, a shell command or an edit is marked begun before it runs and,
+cut off by a crash, is answered as interrupted, never run twice. The files
+and repositories a change needs are made afterwards by jobs, kept in the
+same transaction and run again after a crash until they are done
 ([ADR 0012](adr/0012-the-realm-is-a-database-of-tables-changed-in-transactions-with-a-jobs-outbox.md)).
-An interrupted shell command is not replayed as if it were a transactional
-change.
 
-At start, after the claim and the checks, every job not done runs again, the
+At start, after the claim and the checks, every job not done runs again, a
+turn that ended before the stop and was not followed yet is followed, the
 waits that were open wait again, and the runtimes are started and their
 conversations carry on.
+
+A client request or a runtime's line whose handling fails, a panic included,
+leaves its transaction rolled back and is answered with the failure: a
+`fault` to the client, an `error` to the runtime, which ends that turn with
+the server's words. The server goes on.
 
 ## Scholars and lodges
 

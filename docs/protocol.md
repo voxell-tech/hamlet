@@ -16,31 +16,33 @@ semver's caret. It stays at 0.1.0 until Hamlet's first release.
 ## Transport and handshake
 
 The server listens on `127.0.0.1` only, over plain `ws://`. Local clients
-read the URL from `server.json` in the home and `connection.token` from
-`credentials.json` there. The home is `HAMLET_HOME`, else `~/.hamlet`.
+read the URL from `server.json` in the realm's folder and
+`connection.token` from `credentials.json` there. The folder is
+`HAMLET_HOME`, else `~/.hamlet`.
 
 For a server on another machine, forward its loopback port through SSH.
 Set `HAMLET_SERVER` to the tunnel's local `ws://127.0.0.1:<port>` URL and
-`HAMLET_TOKEN` to that remote home's token. `HAMLET_SERVER` requires
+`HAMLET_TOKEN` to that server's connection token. `HAMLET_SERVER` requires
 `HAMLET_TOKEN`; it bypasses local discovery. The server itself still binds
 to loopback. Keep the token private; plain WebSocket supplies no encryption.
 
 Send `Hello` first, within 10 seconds:
 
 ```json
-{"type":"hello","v":"0.1.0","token":"<home token>"}
+{"type":"hello","v":"0.1.0","token":"<connection token>"}
 ```
 
 A successful hello receives a full `state` before live changes. The
-server answers only a hello whose `v` is its own, so a client that
-receives that `state` knows the server speaks its version. The window
-says so in its connection words.
+server answers only a hello whose `v` is compatible with its own, so a
+client that receives that `state` knows the server speaks its version.
+The window says so in its connection words.
 
 | Failure | Answer and connection |
 |---|---|
-| No hello in time, or another message first | `fault`: `A connection begins with hello and the home's token.`; close **1008** |
-| Wrong token | `fault`: `That is not this server's token.`; close **1008** |
-| Malformed hello, including the wrong `v` | Validation `fault`; close **1008** |
+| No hello in time | `fault`: `No hello came in time.`; close **1008** |
+| Another message first, or a malformed one | `fault`: `The first message is a hello.`; close **1008** |
+| Wrong token | `fault`: `That token is not this server's.`; close **4001** |
+| A `v` not compatible with the server's | `fault` naming both versions; close **4002** |
 | A second hello | `fault`: `This connection said hello already.`; stays open |
 | Unexpected connection failure | `fault`; close **1011** |
 
@@ -313,8 +315,8 @@ Every state and change carries the society and realm in full:
   peer conversations. `Agent.left` describes a departure, and only an agent
   that left has one.
 - `Hamlet.roads` carry road ends by `AgentId`, their kind and traffic.
-  `Hamlet.mayor` is the hire at the root of its tree. `Hamlet.at` is the town's position, or `null`
-  for a town never set down, which stands on the first free site.
+  `Hamlet.mayor` is the hire at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
+  for a hamlet never set down, which stands on the first free site.
 - `State.library` and `closed` carry the shared shelf and removed hamlets.
 - `State.limits` are the realm's own limits; `Limits` are a hamlet's.
 - `State.realm` names the realm's folder on the server's machine so local

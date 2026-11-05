@@ -1,6 +1,6 @@
 //! Markers: the outcome of a request kept under its identity, so the
 //! same request asked again gets the same answer and a different one
-//! under a used identity is refused (ADR 0005, S19).
+//! under a used identity is refused (ADR 0012, S19).
 
 use anyhow::{Result, ensure};
 use diesel::prelude::*;

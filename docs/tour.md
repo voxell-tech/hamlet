@@ -146,7 +146,10 @@ internal; the crate exports only `serve`. Its unit tests sit beside their
 modules, on an in-memory or scratch database and scratch repositories
 (`testing.rs` holds what several share). The `faults` feature compiles the
 points where a test can kill the server (`fault.rs`), and `harness` the tests
-that start the pi harness; both are for tests only.
+that start the pi harness; both are for tests only. The `crashes` target,
+`tests/crashes/`, starts the server built with them, kills it at each point
+and serves the realm again; `remote.rs` there serves a realm in a loopback
+double of the remote workspace worker.
 
 | Module | Responsibility and interface |
 |---|---|
