@@ -203,3 +203,64 @@ async fn the_hand_reflects_every_few_answered_turns() {
         .count();
     assert_eq!(reflections, 1);
 }
+
+#[tokio::test]
+async fn rewind_takes_the_chat_back_to_before_a_line() {
+    let mut s = Session::start(Faux::new().agent(
+        1,
+        [words("First."), words("Second."), words("Third.")],
+    ))
+    .await;
+    let hand = s.hand();
+    let now = chat(hand);
+    s.chief.open(&now).await;
+    s.chief.tell(hand, "One").await;
+    s.chief.shows(&now, "First.").await;
+    s.chief.tell(hand, "Two").await;
+    s.chief.shows(&now, "Second.").await;
+    s.chief.idle("hand").await;
+    let items = s.chief.items(&now);
+    let line = |text: &str| {
+        items
+            .iter()
+            .find(|i| i.kind == ItemKind::User && i.text == text)
+            .unwrap()
+            .clone()
+    };
+    let two = line("Two");
+    assert_eq!(two.rewindable, Some(true));
+
+    // Only a chief's own line can be taken back.
+    let answer = items
+        .iter()
+        .find(|i| i.kind == ItemKind::Assistant)
+        .unwrap();
+    let reply = s.chief.rewind(&now, &answer.id).await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+    let reply = s.chief.rewind(&now, "nowhere").await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+
+    let reply = s.chief.rewind(&now, &two.id).await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (ReplyKind::Rewound, "Two")
+    );
+    s.chief
+        .until("the chat without its second line", |c| {
+            let texts = c.texts(&now);
+            texts.contains(&"First.".into())
+                && !texts.contains(&"Two".into())
+                && !texts.contains(&"Second.".into())
+        })
+        .await;
+
+    // The line sent again carries on from there.
+    s.chief.tell(hand, "Two, again").await;
+    s.chief.shows(&now, "Third.").await;
+    let texts = s.chief.texts(&now);
+    assert_eq!(
+        texts,
+        ["One", "First.", "Two, again", "Third."],
+        "{texts:?}"
+    );
+}
