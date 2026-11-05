@@ -3,6 +3,7 @@
 
 pub(crate) mod folder;
 pub(crate) mod run;
+pub(crate) mod runner;
 
 use std::path::PathBuf;
 

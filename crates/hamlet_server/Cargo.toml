@@ -18,6 +18,9 @@ workspace = true
 [features]
 # Points where a test stops the server, to kill it there.
 faults = []
+# Compiles the tests that start the pi harness, which need Node and
+# `npm ci --prefix harnesses/pi`.
+harness = ["faults"]
 
 [dependencies]
 hamlet_git.workspace = true

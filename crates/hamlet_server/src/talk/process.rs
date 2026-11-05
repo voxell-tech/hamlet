@@ -10,8 +10,6 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::RuntimeInstance;
-
 /// How the pi harness's runtimes are started.
 #[derive(Clone, Debug)]
 pub struct Pi {
@@ -87,7 +85,7 @@ pub(crate) struct Received {
 /// How a runtime process is started.
 pub(crate) struct Launch<'a> {
     pub pi: &'a Pi,
-    pub id: &'a RuntimeInstance,
+    pub id: &'a str,
     pub store: &'a Path,
     /// The store may be made now.
     pub fresh: bool,
@@ -120,7 +118,7 @@ impl Process {
             .arg("--disable-warning=ExperimentalWarning")
             .arg(&pi.entry)
             .arg("--runtime")
-            .arg(launch.id.as_str())
+            .arg(launch.id)
             .arg("--store")
             .arg(launch.store)
             .args(["--transport", "stdio"]);
@@ -144,7 +142,7 @@ impl Process {
             .with_context(|| {
                 format!(
                     "starting the runtime {} with {}",
-                    launch.id.as_str(),
+                    launch.id,
                     pi.node.display()
                 )
             })?;
