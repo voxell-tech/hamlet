@@ -8,52 +8,64 @@ sections; the pi harness asks for them before each request.
 
 | Part | Where it comes from | Who changes it |
 |---|---|---|
-| The charter | The home's stored charter, else `crates/hamlet_server/assets/charter.md` | A chief |
-| The machine | The sandbox, network, model, house and any tools that failed to load | The settings |
-| The project | The hamlet's work folder, with its `AGENTS.md` or `CLAUDE.md` | A chief |
-| The character | The agent's stored character, at most 4000 characters | A chief; the mayor once at creation |
-| The notes | `NOTES.md` in its house, at most 8000 characters | The agent |
-| The skills | Its house's skills, descriptions and usage | The agent |
-| The library | Skills shared by the home, beginning with the starters | The librarian |
-| The hamlet | Its role, agents, roads and recent decisions | The record |
-| The realm | Other hamlets, their mayors and pending agreements, or the agent's roads out | The realm's record |
-| The budget | The hamlet's spend and the task's caps | The ledger and limits |
+| The charter | The realm's stored charter, else `crates/hamlet_server/assets/charter.md` | A chief |
+| The machine | The sandbox, network, model, lodge and any tools that failed to load | The settings |
+| The project | The hamlet's work folder, with its `AGENTS.md` or `CLAUDE.md`, and whether each edit and command waits for a chief (manual mode) | A chief |
+| The character | `CHARACTER.md` at the tip of the hire's branch (the Hand's, at its scholar's), at most 4000 characters | A chief |
+| The memory | The files at the root of the lodge's `memory/`, at most 8000 characters in all, then each folder's `description:` from its `MEMORY.md` | The agent |
+| The skills | The lodge's skills, then the library's, with descriptions and how to run them | The agent; the librarian |
+| The place | Who the agent is, whom it answers to, the hires under it, the roads it can write along, the tools its lead turned off, and how its hamlet was run lately | The record |
+| The realm | For the Hand and mayors, the other hamlets, their mayors and hires; a realm with none says so and that a chief or the Hand can found one | The realm's record |
+| The budget | What its hamlet or the realm has spent, its task's caps and its allowance | The ledger and limits |
 
-`crates/hamlet_server/src/prompt.rs` composes the sections; `prompt/brief.rs`
-renders the hamlet and `prompt/shelf.rs` the skill shelves. `prompt::budget`
-reads the spend ledger; `chats/calls.rs` retains its words for the input.
-The budget's words stay fixed for a turn; the other parts are built again
-before each request. A realm with one hamlet has no realm section.
+`crates/hamlet_server/src/talk/prompt.rs` composes the sections;
+`talk/prompt/place.rs` renders the place and the realm. The budget's words stay
+fixed for a turn; the other parts are built again before each request.
 
-An errand is a one-off durable conversation. Ballots and the mayor's answer
-use the agent's own prompt. Library advice, skill judging, merged notes and
-the mayor's instruction review use only their supplied instructions.
-A ballot has only `cast_ballot`; other errands have no tools.
+A worker's prompt is the charter, the machine, the project and its place. It
+has no character, memory or skills of its own. An errand is a one-off
+conversation of its own: the librarian's answer, the librarian's judging of a
+skill and a lead's review of an instruction use only their supplied
+instructions, and have no tools. A dream uses its own instructions and has the
+built-in tools alone.
 
 ## The charter and character
 
-Neither is a file an agent can write. Both live in the home's storage and
-are edited through the protocol. An unedited charter uses the shipped
-default, so it follows later defaults. BACK TO THE DEFAULT clears the
-chief's replacement after asking first.
+The charter is a file of the server's, edited through the protocol. An
+unedited charter uses the shipped default, so it follows later defaults. BACK
+TO THE DEFAULT clears the chief's replacement after asking first.
 
-The mayor may give a character in `create_agent`. It has no tool that
-changes one afterwards, its own included. Houses are closed to other
-agents, including the mayor; it asks an agent for what it needs.
+A character is a file, `CHARACTER.md`, in the scholar's repository. A hire's
+lodge is checked out without it, so no tool can write it, and a file by that
+name written there is never committed. A chief edits it on the scholar's
+`main`; a lead gives one only when it makes a scholar with `create_scholar`. A
+hire's prompt reads it at the tip of its own branch, which began at `main` or
+at its pin.
 
-Settings has the Charter page. The inspector's CHARACTER tab shows the
-selected agent's character. EDIT opens a local temporary Markdown copy,
-and each save sends an `edit` request to the server. Character filenames
-name the hamlet and agent, so kept copies can be identified.
+Settings has the Charter page. The inspector's CHARACTER tab shows the selected
+agent's scholar's character. EDIT opens a local temporary Markdown copy, and
+each save sends an `edit` request to the server. Character filenames name the
+scholar, so kept copies can be identified. `hamlet edit character <scholar>`
+does the same from a terminal.
 
-Closing the window polls the editor once more. While saves are
-unconfirmed it keeps the window open and shows the recovery paths, with
-KEEP OPEN and CLOSE WITH COPIES. A confirmed save allows the close to
-finish. A refused or uncertain save is not silently repeated; inspect the
-server document before applying a kept copy again. Closing stops no agent.
+Closing the window polls the editor once more. While saves are unconfirmed it
+keeps the window open and shows the recovery paths, with KEEP OPEN and CLOSE
+WITH COPIES. A confirmed save allows the close to finish. A refused or
+uncertain save is not silently repeated; inspect the server document before
+applying a kept copy again. Closing stops no agent.
+
+## Memory
+
+An agent keeps its memory in its lodge, as files. Files at the root of
+`memory/` go into every prompt; a folder shows only the `description:` line at
+the top of its `MEMORY.md` until the agent reads it. Every memory file opens
+with such a front matter. A chief can read and edit a hire's memory or its
+scholar's: `hamlet edit memory <scholar|name@hamlet> [path]`, or the
+inspector. What a hire keeps stays on its branch until a dream brings it home
+to the scholar's `main` (see [`society.md`](society.md)).
 
 ## The whole prompt
 
-Prompt in an agent's right-click menu sends `read prompt`. The server uses
-the same prompt sections as a model request, and the inspector displays
-the returned text. The window reads no house or home files to build it.
+Prompt in an agent's right-click menu sends `read prompt`. The server uses the
+same prompt sections as a model request, and the inspector displays the
+returned text. The window reads no lodge or realm files to build it.

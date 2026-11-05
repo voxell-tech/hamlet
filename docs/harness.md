@@ -13,7 +13,7 @@ A harness is a kind of program that runs conversations. pi, in
 `harnesses/pi/`, is the only one. A runtime is one running process of a
 harness, with a stable ID and its own store under `harnesses/<instance>/`,
 which only it opens. Neither the server nor a runtime opens the other's
-store (ADR 0005).
+store (ADR 0012).
 
 - An agent has a harness for its new conversations, kept by the server.
 - New conversations of a harness go to its one runtime. An agent is not a
@@ -23,8 +23,11 @@ store (ADR 0005).
   conversation never moves to another runtime (S17).
 - A runtime's versions never change. A runtime that reports other
   versions than it began with is refused.
-- A one-off conversation, such as a ballot, the mayor's review or a
-  library call, is a conversation like any other, bound to a runtime.
+- A conversation has a kind, which the server tells the runtime when it
+  creates it: `chat`, `letters`, `questions`, `worker`, `errand` or `dream`.
+  A one-off conversation, such as the librarian's answer or a lead's review,
+  is an errand: a conversation like any other, bound to a runtime. The agent
+  it is for is named by its id.
 
 ## The runtime protocol
 
@@ -79,17 +82,19 @@ again after a restart or a lost reply (S23).
 
 | ID | Made by | Unique within |
 |---|---|---|
-| Runtime ID | The server, kept in its store and the runtime's | The home |
+| Runtime ID | The server, kept in its store and the runtime's | The realm |
 | Conversation ID | The runtime | Its runtime |
 | Request ID of an input | The server, kept before it is submitted | Its conversation |
-| Operation identity | The runtime ID with a key local to the runtime | The home |
-| Attempt identity | The runtime ID with a key local to the runtime | The home |
+| Operation identity | The runtime ID with a key local to the runtime | The realm |
+| Attempt identity | The runtime ID with a key local to the runtime | The realm |
 
-A request ID begins with its kind, such as `chief:`, `retry:`, `reflect:`,
-`notice:` or `reply:`. Those of letters, questions, replies and ballots
-come from the server's record of them. pi's task IDs are numbers local to
-its store, so an operation identity is the runtime ID and the task ID
-together. A provider's tool-call ID is never treated as unique.
+A request ID begins with its kind, such as `chief:`, `retry:`, `reflection:`,
+`notice:`, `reply:`, `errand:`, `worker:` or `dream:`. Those of letters and
+questions come from the server's record of them. pi's task IDs are numbers
+local to its store, so an operation identity is the runtime ID and the task
+ID together. A provider's tool-call ID is never treated as unique. A model
+attempt names the input it answers with `submission`, the runtime's own ID
+for it.
 
 ## Capabilities
 

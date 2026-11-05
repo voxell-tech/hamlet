@@ -13,14 +13,17 @@ neither opens the server's database nor runs an agent.
 ```text
 Window / terminal -- client protocol --> hamlet_server -- runtime protocol --> pi
                                                |                               |
-                                         realm.sqlite                    harness store
-                                        houses, sandbox                  conversations
+                                  realm.sqlite, scholars/*.git           harness store
+                                  lodges, sandbox                        conversations
 ```
 
-A typed line reaches `chats::converse` through `requests.rs`, whose one
-match names the owner that answers each client message. Commands
-change server-owned records or documents; ordinary words become a durable
-harness input. Pi asks the server for its prompt, tool permissions and
+A typed line reaches the server through `clients/requests.rs`, whose one
+match names the owner that answers each client message. A line that begins
+with `/` is a command (`commands.rs`); other words become a kept input of the
+agent's chat (`talk/chats.rs`). Every change to the realm is made by the loop
+in `core.rs` in one transaction, which also keeps the jobs the change needs;
+after the commit the loop starts them and sends the clients the entities the
+transaction touched. Pi asks the server for its prompt, tool permissions and
 model budget. The server checks calls again when executing them, including
 replayed calls. Kept harness updates feed watched transcripts and the
 server's state. `hamlet_client` turns `state`, `change`, `transcript` and
@@ -34,7 +37,7 @@ workspace: it holds no package, so `cargo build`, `cargo test` and
 `hamlet_app` and the visual examples.
 
 `xtask/` is a workspace of its own, run as `cargo xtask`. Its `check`
-is eight steps, `format`, `clippy`, `deny`, `test`, `acceptance`,
+is nine steps, `format`, `clippy`, `cross`, `deny`, `test`, `acceptance`,
 `harness`, `doc` and `node`, each a task of its own;
 `.github/workflows/rust.yml` runs them by name, and spells out only the
 Windows window's clippy. `deny.toml` at the root configures cargo deny,
@@ -46,21 +49,24 @@ view layer; the workspace excludes it, and it is not edited here.
 | Crate or package | Owns |
 |---|---|
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
-| `hamlet_server` | `hamlet_server`: realm, permissions, tools, records, credentials and harness supervision |
+| `hamlet_server` | `hamlet_server`: the realm's society, its conversations, the gate, budgets, tools, clients, credentials and harness supervision |
+| `hamlet_store` | The realm's database: `schema.sql` with Diesel's tables generated from it, opening and checking it, transactions, markers and jobs, and the typed ids |
+| `hamlet_git` | Scholars' and the library's repositories through gix, with no git program: refs, commits from files, reads, diffs, merges, reverts, versions, history, purging, and the writes that check a lodge out |
+| `hamlet_sandbox` | What confines a command: the bubblewrap and Seatbelt policies, launching, a command's leftovers, and the secrets taken out of what it gives back |
 | `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name, and the tools' walk, path text and error words; `process`, a command's process tree, started inside its limits and killed whole |
 | `hamlet_app` | `hamlet_app`, the window: its panels, menus, chat and pointer, and the seven examples that draw the world and the panels |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
-| `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
-| `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch homes, through the typed `Client`, the `hamlet` command and `hamlet_testing`'s server |
+| `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `Version`, the semver version each protocol carries; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
+| `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch realm folders, through the typed `Client`, the `hamlet` command and `hamlet_testing`'s server |
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and gifts read in parts off the frame |
 | `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
 | `hamlet_realm` | Land, hamlets, houses, roads, robots, chief, sound and camera |
 | `hamlet_ui` | The widget kit: theme, styles, controls and their effects, with no client state |
 | `hamlet_vfx` | Visual effects |
-| `hamlet_testing` | Fixtures shared by tests: scratch folders, protocol values, faux scripts, the loopback OpenAI endpoint, and a server process on a scratch home with a raw connection to it (`send`, `until`, `answers`) |
-| `hamlet_workspace` | The Linux remote-workspace worker the server's workspace-v1 client connects to |
-| `hamlet_workspace_wire` | Workspace protocol v1 for both sides: one type per operation with its reply, error codes, limits, the walk order and the shared fixture |
+| `hamlet_testing` | Fixtures shared by tests: scratch folders, protocol values, faux scripts, the loopback OpenAI endpoint, and a server process on a scratch realm folder with a raw connection to it (`send`, `until`, `answers`) |
+| `hamlet_workspace` | The Linux remote-workspace worker |
+| `hamlet_workspace_wire` | The workspace protocol for both sides: one type per operation with its reply, error codes, limits, the walk order and the shared fixture |
 
 The workspace's `bevy` entry turns on no feature: `hamlet_app` turns on
 the product's set, and every other crate names only the ones its own
@@ -77,7 +83,7 @@ part read; `hamlet_app/src/window.rs` inserts one that wakes winit's
 reactive loop, so a frame is drawn at once rather than at the loop's
 next timeout. `connection::Contact` is the window's standing
 with its server: connecting, connected, lost or refused. `index.rs` finds
-a hamlet, an agent, a wait or a chat by its protocol id, kept by the
+a hamlet, an agent, a scholar, a wait or a chat by its protocol id, kept by the
 components' hooks, and `gifts.rs` walks and reads a gift's files on
 Tokio's blocking threads.
 
@@ -108,110 +114,120 @@ and draws a picture through `PictureView`, which the app's `links` and
 `panel_sets` orders them, and the apps in `testing.rs` add it, so a UI
 test settles in one update.
 
+## The store and the repositories
+
+`hamlet_store` is the only crate that knows the database's layout. Its
+`schema.sql` is the one schema, with a comment on every table; `schema.rs`
+is generated from it by `cargo test -p hamlet_store`
+([ADR 0010](adr/0010-the-server-queries-its-store-through-diesel.md)). `Store`
+opens or creates `realm.sqlite`, with WAL, full sync and foreign keys, and
+refuses a database that is not a realm's or whose version is not compatible
+with its own ([ADR 0013](adr/0013-every-protocol-and-the-realm-database-are-semver-at-0-1-0.md)).
+`Store::immediate` begins a transaction. `marker` keeps the outcome of a
+request under its identity and refuses a changed request under a used one;
+`job` keeps an effect to run after the commit
+([ADR 0012](adr/0012-the-realm-is-a-database-of-tables-changed-in-transactions-with-a-jobs-outbox.md)).
+`ids` holds the typed ids and the `Actor` that makes a change.
+
+`hamlet_git` is the only crate that touches a scholar's repository
+([ADR 0011](adr/0011-scholars-are-git-repositories-hires-are-branches-lodges-are-checkouts.md)).
+`Repository` creates and opens a bare repository, reads refs and files, commits
+changes or a whole listing of files, merges, reverts, tags, diffs, reads
+history and starts a branch or a repository from another's commit. `purge.rs`
+rewrites a repository without a path. It reads and writes no folder of a lodge
+itself: the server lists a lodge's files with their blob ids and `plan` says
+which writes make the lodge hold a commit.
+
 ## The server
 
 Paths below are under `crates/hamlet_server/src/`. Modules use a file
 and same-named directory rather than `mod.rs`. Most domain APIs are
-internal; the crate exports only `serve`, the types its process tests
-seed a home with, and, with the `harness` feature, the test driver's
-body and what its tests read a conversation's charges with (`BindingId`,
-`usage`). Its unit tests sit beside their modules; `tests/server.rs`
-runs the executable where it refuses to start, which needs no Node, and
-the `harness` feature adds `tests/crashes` (a served home: crashes,
-fault points, signals, remote workspaces and the society) and
-`tests/harness` (the pi harness).
+internal; the crate exports only `serve`. Its unit tests sit beside their
+modules, on an in-memory or scratch database and scratch repositories
+(`testing.rs` holds what several share). The `faults` feature compiles the
+points where a test can kill the server (`fault.rs`), and `harness` the tests
+that start the pi harness; both are for tests only.
 
 | Module | Responsibility and interface |
 |---|---|
-| `home.rs`, `claim.rs` | `Home::open` claims a path, opens its `Store` and checks the `realm.id` pair. `connection()` reads its database without the store's transactions. `Layout` names storage, credentials and harness directories |
-| `store.rs` | The schema, composed from `spend.sql` and the `schema.sql` in `record/`, `harness/`, `chats/` and `society/`, and the `realm.sqlite` Diesel connection, with WAL, FULL sync and foreign keys; a store of another version is refused; `changes` counts the rows changed since it opened |
-| `schema.rs` | Diesel's tables, generated from the schema by `cargo test -p hamlet_server` ([ADR 0010](adr/0010-the-server-queries-its-store-through-diesel.md)) |
-| `operation.rs` | `OperationId` identifies runtime plus call key. Owns every marker: `Store::run` commits an operation's result marker with its record effects; `Store::once` and `once` mark any outcome with its request digest, alone or in the caller's transaction, and refuse a changed request under a used key; its tests, crashes at the commit included, are in `operation/tests.rs` |
-| `service.rs` | `Service` owns the claimed home, credentials, houses, models, chats and uploads; `db()` is the home's open database, and a write that needs a transaction takes `home.store()`; `edit_document` and `read` answer the chief's documents |
-| `serve.rs` | `serve` from start to stop: claims the home, probes the sandbox, starts the harness and model providers, publishes `server.json`, and closes in order |
-| `connection.rs` | The WebSocket connections: accepting, each one's read and write task, its queue of waiting messages, and the close codes |
-| `requests.rs` | The hello, then one match over `ClientMessage` naming the owner that answers each request; a handler that errs or panics ends only its request, with a `fault` |
-| `runtime.rs` | `Serving`, the serve loop's state: its events, settle, refresh, and recovering from a failed event. A 50 ms tick only checks memory and the skills on disk unless the state may have changed, as `Since` defines: an event, a tick that found work, a clock turn (a road overgrowing, a budget's share gone moving), a house move's progress or an overdue provider answer. Every two seconds the tools folder is read again |
-| `diagnostic.rs` | `tell`, the server's one diagnostic: a line on stderr under `hamlet_server:`, written as a JSON string with the credentials' secrets removed (`Secrets::Fixed` for a fixed text) |
-| `protocol.rs` | `Protocol::parse` validates client input against the client protocol's schema and correlates a fault to the message's `id` when it is a `RequestId`; `Refusal`, an expected outcome with its words; reply and fault rendering; its tests are in `protocol/tests.rs` |
-| `record.rs`, `record/` | Agent identity, membership, names, roads, office, models, limits and typed refusals. `RecordOperation` is a transactional change, and every change to a hamlet's record is one of its `Change`s; its tests are in `record/tests.rs` |
-| `documents.rs`, `settings.rs`, `limits.rs` | Chief edits and reads. `Service` reads each document once into a typed `Work`, `Settings` (stored settings plus process overrides) or `Limits`. A hamlet's limits live only in its record, with the schema's defaults filled in; `Limits::model_of` picks each agent's model |
-| `chats.rs`, `chats/` | Chief and peer watches, durable inputs, follow-up work, reflection, stop, retry, resume and rewind. `Chats::next` yields each tool call or preparation as it ends, a panicked one as a failed outcome |
-| `chats/calls.rs`, `chats/calls/` | The one tool gate: `decide.rs` admits a call by its request digest and keeps the gate's decision, `ask.rs` raises a question, `answer.rs` validates a chief's answer and makes all its writes in one transaction, `tasks.rs` runs the calls. Marked outcomes survive replay; changed requests are refused |
-| `gate.rs`, `oversight.rs`, `oversight/held.rs` | Approval rules on typed limits, typed dangers, wait kinds and rulings. `held.rs` alone stores a held call and its wait, with typed transitions; `oversight::stop` and `rewind` are the policies that end waits |
-| `harness.rs` | Start/watch runtime processes, bind conversations and send each runtime protocol message to its own method. Tool calls go to the chats' gate |
-| `harness/session.rs`, `harness/sync.rs` | `RuntimeSession`, the runtime protocol's ids and requests in flight; what each conversation is owed (creates, cancels, tools, inputs) and what its runtime reports back |
-| `harness/answers.rs`, `harness/credentials.rs` | Admit and charge model attempts with the typed model selection; credential leases for provider work |
-| `harness/calls.rs` | The calls a runtime asks of the host (allow, operation, prompt, yield), each turned into a `Notice::Call` that `Harnesses::answer` answers |
-| `harness/tools.rs` | The tools a runtime offers its conversations, run in this server as operations |
-| `harness/process.rs`, `harness/bindings.rs` | The pi launch profile and processes; runtimes, bindings and inputs with their `InputStatus` in `realm.sqlite` |
-| `harness/mark.rs` | `InputMark`, the typed kind and data of each input (chief line, retry, reflection, notice, letter, errand), converted to a protocol `Mark` at the edge |
-| `chats/driver.rs`, `harness_driver.rs`, `bin/hamlet_harness_driver.rs` | With the `harness` feature: the test driver's reach into the chats' gate, waits and stop; the driver's body; and the binary, only `main`, for the real-process suite in `tests/harness` |
-| `tools.rs`, `tools/`, `hand.rs` | `ToolSession` runs every tool call on the workspace `Houses::tools` chose: built-in tools over `environment::Reach` (this machine under the sandbox, or a remote workspace), and hand-added manifests, which only run here |
-| `tools/shell.rs` | The shell tools: `Dialect` names each shell language once, `Shells` are the ones a workspace offers, and `shell::run` is the one run of a shell call over `Reach`, here or remote |
-| `sandbox.rs`, `sandbox/` | Bubblewrap/Seatbelt policies, subprocess limits and termination |
-| `papers.rs` | `Houses` picks the local or remote `Workspace` once at startup. Callers get its houses (`house`, `reader`, `tools`), its `Capability` refusals and whether it `can_confirm` each change; no caller branches on the workspace |
-| `papers/files.rs`, `papers/tree.rs`, `papers/remote.rs` | `Files`, one async house tree for both workspaces: local work runs off the runtime through descriptor-relative no-follow calls, remote work as typed requests |
-| `papers/copy.rs`, `papers/moving.rs` | `Snapshot`: the one verified tree write with claimed-path rollback, used by gifts and house moves; copies to the next-start workspace |
-| `workspace.rs` | `Transport` to the worker with typed `Failure` codes; `WorkspaceSession` of one agent's requests under a `Policy`, sending the library by digest, cancelling on drop and naming uncertain outcomes |
-| `gifts.rs`, `gifts/` | Connection-owned upload staging and manifest limits; skill and file gifts resolved, snapshotted, delivered and recorded apart from the service loop |
-| `prompt.rs`, `prompt/` | `sections` composes charter, machine, project, character, notes, shelf, hamlet and realm |
-| `starters.rs` | Shipped starter content from `crates/hamlet_server/assets/starters/` |
-| `models.rs`, `credentials.rs`, `scrub.rs` | Catalogue and provider requests, the model each attempt runs (`Choices`), atomic credential files, sign-ins and secret removal before publication or harness persistence, and before a diagnostic is logged |
-| `spend.rs` | Budget reservations and usage charges deduplicated by model attempt, plus agent/task/hamlet accounting |
-| `society.rs`, `society/` | `SocietyTool` names each society tool, its role and schema, and `SocietyOutcome` is what one returns, which `once` keeps at its marker; letters/questions, instructions/objections, votes, library and recoverable merge/departure work. The sweeps run on the ticks that rebuild the state, and read only due votes and reviews; finished ones are kept under `votes-done` and `review-done` |
-| `realm.rs`, `realm/` | Living/closed places, cross-hamlet addresses, founding, agreements and pending house moves |
-| `testing.rs` | For unit tests: `config`, a harness configuration that starts nothing, and `set_limits`, which writes a hamlet's limits |
-| `state.rs` | Composes protocol state from the owning records and live activity, with the instant one of its views next changes with the clock alone; `skills_moved` tells whether skills on disk differ from the state's |
+| `serve.rs`, `realm.rs`, `claim.rs`, `layout.rs` | `serve` from start to stop: probes the sandbox, opens the realm, starts the core and the harness, publishes `server.json`, and closes in order. `Realm::open` claims a folder, opens its `Store`, checks the `realm.id` pair, and makes a new realm with its first chief and its Hand. `Layout` names every path of the realm's folder |
+| `core.rs` | `Core`, the loop that owns the realm's writes: it takes in client requests, runtime messages, finished tool calls and the jobs runner's wake-ups, makes each change in one transaction (`change` and `attempt`, the second rolling back a refusal), then wakes the jobs runner and the runtimes and publishes what was touched |
+| `change.rs`, `jobs.rs` | `Change`, a change in progress: its transaction, its time, its actor and what it touched. `Job` names each effect a change keeps for after its commit |
+| `society.rs`, `society/` | The society's domain functions, each taking a `Change`: `chiefs`, `hand`, `city` (scholars), `hamlets`, `hires`, `tree`, `workers`, `roads`, `merges`, `dreams`, `library`, `record` (decisions), `limits`, `addresses`, `names` and `authority`, the one place that says who may do what. A refusal is a `Refusal`, in words for a chief or an agent |
+| `knowledge.rs`, `knowledge/` | What agents know, on disk: `run.rs` and `runner.rs` run the jobs on a thread of their own with a connection of their own (plant, lodge, commit, take-in, erase); `folder.rs` is a folder held open and reached without following links; `merging.rs`, `dreaming.rs` and `library.rs` are the repositories' side of merging hires, dreams and the library |
+| `talk.rs`, `talk/` | Conversations. `runtimes.rs`, `process.rs` and `sync.rs` start the pi runtime, take it on or refuse it at its hello, start it again after a failure, and send each ready runtime what its conversations are owed; `conversations.rs`, `inputs.rs` and `items.rs` keep conversations, the inputs they are given and the entries their runtime kept; `turns.rs` answers what a runtime asks during a turn; `follow.rs` runs once after an input ends; `chats.rs`, `reflections.rs`, `letters.rs`, `errands.rs`, `briefs.rs`, `asking.rs`, `verdicts.rs` and `tasks.rs` are chats, reflection, letters and questions, one-off errands, a worker's brief, `ask_chief`, the check of a final answer, and tasks; `models.rs` picks each agent's model; `activity.rs` folds what an agent is doing; `leases.rs` holds credential leases |
+| `talk/prompt.rs`, `talk/prompt/place.rs` | `sections` builds the prompt from the charter, machine, project, character, memory, skills, place, realm and budget |
+| `calls.rs`, `calls/` | What a runtime asks while a turn runs: whether a tool call may run, and the call carried out once under its key. `held.rs` keeps the gate's decision; `answer.rs` applies a chief's answer; `objections.rs` and `reviews.rs` are objections and a lead's review; `place.rs` says where an agent's tools work and which it is offered; `society.rs` and `society/` carry out the society's tools |
+| `oversight.rs`, `oversight/gate.rs` | Waits, their rulings and lapses, and the gate: reach, reserved acts, manual mode, trust and grants |
+| `commands.rs`, `commands/` | The chief's `/` commands: the table of them (advertised to clients as deeds) and what each does; `oversight.rs`, `shelves.rs` and `versions.rs` hold those on waits and grants, skills and a scholar's history |
+| `spend.rs` | Budgets, task caps and allowances: attempts admitted against them, usage charged once, budget resets and reports |
+| `dreaming.rs` | When agents dream: the hours, who is due, and `/dream` |
+| `gifts.rs` | Files sent in parts to an inbox, and skills committed to a scholar's `main` |
+| `work.rs`, `work/` | What agents' tools do: the built-in tools in `tools.rs` and `tools/` (`files`, `shell`, `search`, `find`, `diff`, `environment` which is each agent's reach under the sandbox), tools added by hand in `added.rs`, the catalogue of society tools by name in `catalogue.rs`, and an edit's shown change in `cut.rs` |
+| `clients.rs`, `clients/` | Connections (`connection.rs`), strict parsing of client messages (`check.rs`), the requests and who answers each (`requests.rs`), the state and its changes (`state.rs`), transcripts (`fold.rs`) and the chief's documents (`documents.rs`) |
+| `providers.rs`, `credentials.rs`, `settings.rs` | The model catalogue and provider requests, sign-ins, the atomic credentials file and secret removal, and the realm's settings with the process's overrides |
+| `diagnostic.rs`, `clock.rs`, `text.rs`, `fault.rs` | The server's one diagnostic, on stderr; the clock; enums the database keeps as text; the fault points |
 
-`realm.sqlite` holds server-owned records, chief and society documents,
-bindings, inputs, waits, charges and operation markers. It does not hold
+`realm.sqlite` holds server-owned records, chief documents, runtimes,
+conversations, inputs, waits, charges, markers and jobs. It does not hold
 pi's authoritative transcript. Each runtime opens only its own store under
 `harnesses/<instance>/`; the server consumes committed updates through the
-runtime protocol. House files stay files. See [`home.md`](home.md).
+runtime protocol. A scholar's knowledge, the Hand's included, is in
+`scholars/<id>.git`, and a lodge is a folder of the realm. See
+[`realm.md`](realm.md).
 
 ## The pi harness
 
 `harnesses/pi/src/main.ts` is the Node entry. The server starts it with
 `--runtime`, `--store` and `--transport stdio`. The runtime protocol is
 versioned JSON lines on stdin/stdout; diagnostics go to stderr. How
-runtimes, bindings and the runtime protocol work is in
+runtimes, conversations and the runtime protocol work is in
 [`harness.md`](harness.md).
 
 | File under `harnesses/pi/src/` | Owns |
 |---|---|
-| `protocol.ts` | The runtime protocol's types and checks, from the generated `protocol-schema.ts` |
+| `protocol.ts`, `protocol-schema.ts` | The runtime protocol's types and checks, from the schema generated from the Rust types |
 | `channel.ts` | Correlated protocol requests and replies |
 | `runtime.ts` | Handshake, conversations, input admission, configure, cancellation, history and updates |
 | `extension.ts` | The hamlet extension: tools, prompt section and allow/yield hooks, each asked until the server decides; waits end on the key the server gives |
+| `recovery.ts` | Carrying on a cut-off answer: summarising and the one permitted retry |
 | `items.ts` | Kept entries and answers as the protocol shows them |
 | `models.ts` | Provider calls admitted and charged by the server, made with the pi model built from its selection; asks it to scrub snapshots and final responses |
-| `faux.ts` | Offline scripts, with separate agent and errand queues |
+| `providers.ts`, `provider-set.ts`, `credentials.ts`, `sign-in.ts` | Provider work the server requests, the supported sign-ins, credentials held in memory, and a sign-in owned by one request |
+| `faux.ts` | Offline scripts, with queues by agent id and by conversation kind |
 | `faults.ts` | Exact process-crash pauses used by tests |
 
-Credentials belong to `Service`; the harness receives only what an
+Credentials belong to the server; the harness receives only what an
 authorized provider attempt needs, in memory. Its scrub requests go back
 to the server. Role changes use configure/configured before the next
-request. Ballots have only `cast_ballot`; other one-off errands have no
-ordinary tools.
+request. A librarian's call and a review have no tools, and a dream has the
+built-in ones.
 
 ## Where to change behavior
 
 | Change | Owner |
 |---|---|
-| Typed commands, command replies | `hamlet_server/src/chats/say.rs`, `society.rs`, `realm/deeds.rs`; advertised deeds in `state.rs` |
-| Conversation stop/retry/resume/rewind | `hamlet_server/src/chats/deeds.rs` and `chats/follow.rs` |
-| Transcript rows, paging and peer watches | `hamlet_server/src/chats/fold.rs`, `chats/watch.rs`; `hamlet_client/src/chats.rs` |
-| Questions and their answer cards | `hamlet_server/src/chats/asking.rs`, `chats/calls/ask.rs`, `chats/calls/answer.rs`, `hamlet_app/src/asking.rs` |
-| Approvals, grants and waits | `hamlet_server/src/gate.rs`, `chats/calls/decide.rs`, `oversight.rs`, `oversight/held.rs` |
+| Typed commands, command replies | `hamlet_server/src/commands.rs` and `commands/`; advertised deeds sent in `clients/requests.rs` |
+| Conversation stop/retry/resume/rewind | `hamlet_server/src/talk/chats.rs` and `talk/follow.rs`; the requests in `clients/requests.rs` |
+| Transcript rows, paging and peer watches | `hamlet_server/src/clients/fold.rs`, `talk/items.rs`; `hamlet_client/src/chats.rs` |
+| Questions and their answer cards | `hamlet_server/src/talk/asking.rs`, `calls/answer.rs`, `hamlet_app/src/asking.rs` |
+| Approvals, grants and waits | `hamlet_server/src/oversight/gate.rs`, `oversight.rs`, `calls/held.rs`, `calls/answer.rs` |
 | Selecting, quoting and replying to chat text | `hamlet_app/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
-| Agent creation, model choice, departure and merge | `hamlet_server/src/society/agents.rs`, `leaving.rs`, `merging.rs`, whose `merging/lane.rs` runs every merge and split, one at a time; a chief's merge that fails lets the lane and the chief's connection go; rules in `record/` |
-| Letters, questions, votes and library | `hamlet_server/src/society/letters.rs`, `votes.rs`, `library.rs` |
-| Instructions and objections | `hamlet_server/src/society/objections.rs`, `reviews.rs` |
-| Founding and cross-hamlet agreements | `hamlet_server/src/realm/deeds.rs`, `dealings.rs` |
-| A prompt or chief document | `hamlet_server/src/prompt/`, `documents.rs`; default charter in `hamlet_server/assets/charter.md` |
-| A model connection, login or price | `hamlet_server/src/models.rs`, `credentials.rs`; provider implementation in pi |
-| Folder, mode or tool reach | `hamlet_server/src/documents.rs`, `tools.rs`, `sandbox/`; [`sandbox.md`](sandbox.md) |
+| Who may do what | `hamlet_server/src/society/authority.rs` |
+| Founding, hiring, ending, restoring, seating a mayor, the tree | `hamlet_server/src/society/hamlets.rs`, `hires.rs`, `tree.rs`; the tools in `calls/society.rs`, the commands in `commands.rs` |
+| Scholars and their versions | `hamlet_server/src/society/city.rs`, `commands/versions.rs`, `knowledge/`; the repositories in `hamlet_git` |
+| Merging and splitting hires | `hamlet_server/src/society/merges.rs`, `knowledge/merging.rs` |
+| Workers | `hamlet_server/src/society/workers.rs`, `talk/briefs.rs` |
+| Letters, questions and roads | `hamlet_server/src/talk/letters.rs`, `calls/society/letters.rs`, `society/roads.rs` |
+| Instructions and objections | `hamlet_server/src/calls/objections.rs`, `calls/reviews.rs` |
+| The library and the librarian | `hamlet_server/src/knowledge/library.rs`, `calls/society/library.rs`, `society/library.rs`, `commands/shelves.rs` |
+| Dreams | `hamlet_server/src/dreaming.rs`, `knowledge/dreaming.rs`, `society/dreams.rs` |
+| Budgets, caps and allowances | `hamlet_server/src/spend.rs`, `society/limits.rs`, `talk/tasks.rs` |
+| A prompt or chief document | `hamlet_server/src/talk/prompt.rs`, `clients/documents.rs`; default charter and the Hand's character in `hamlet_server/assets/` |
+| The database's tables | `hamlet_store/src/schema.sql`, then `cargo test -p hamlet_store` |
+| A job | `hamlet_server/src/jobs.rs`, `knowledge/run.rs` |
+| A model connection, login or price | `hamlet_server/src/providers.rs`, `credentials.rs`; provider implementation in pi |
+| Folder, mode or tool reach | `hamlet_server/src/calls/place.rs`, `work/tools/environment.rs`, `hamlet_sandbox`; [`sandbox.md`](sandbox.md) |
 | CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |
 | Client protocol | `hamlet_protocol/src/client/`, then `cargo test -p hamlet_protocol` for `client_schema.fingerprint`; [`protocol.md`](protocol.md) |
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
@@ -228,7 +244,7 @@ ordinary tools.
 | Desks and their switcher in the top bar | `hamlet_app/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
 
 `hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
-plots and roads. `AgentNumber` is an agent's number in its hamlet, not a
+plots and roads. `AgentNumber` is a hire's number in its hamlet, not a
 name; `HamletId` is a hamlet's protocol id.
 `chief.rs` names the wizard in the world and the chief's panel in the UI;
 `Chief` in `hamlet_client` is the server's chief identity. The window keeps

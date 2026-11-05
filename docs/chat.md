@@ -10,10 +10,9 @@ wire messages, watch rules and page boundaries; this page covers the window.
 ## The conversation and its watch
 
 A chat entity has `Chat(ChatRef)`, `Transcript`, `Status`, `Usage` and a
-`TalksTo(agent)` relationship. Its reference names a hamlet and an agent,
-with `mayor` for whoever holds the office. Adding the chat sends `open`;
-removing it sends `close`. Reconnecting opens every watched chat again.
-An open office chat follows the new mayor when the office changes.
+`TalksTo(agent)` relationship. Its reference names the agent by its id
+(the Hand, a hire or a worker). Adding the chat sends `open`; removing it
+sends `close`. Reconnecting opens every watched chat again.
 
 The server answers with a `transcript` page. Live `turn` operations add or
 replace an item, append text, close a tool, change status or usage, or reset
@@ -71,16 +70,16 @@ A web address or a file named in the chat can be clicked.
 path must exist there. A relative path is looked for under the selected
 hamlet's received work folder, and becomes a link only if its canonical
 path stays under that folder. `..` and symlinks are followed before that
-check. The optional received `houses` folder is excluded after resolving
-links, for absolute and relative paths alike. No file under an agent's
-house becomes a link or a local picture. The work folder is a path on the
-server's machine; with `hamlet dev` it is local too. Nothing downloads a
-server file. House-relative paths such as an agent's `NOTES.md` or
-`skills/` stay plain text unless they name a file in the local work folder.
+check. The received realm folder is excluded after resolving links, for
+absolute and relative paths alike. No file under an agent's lodge becomes a
+link or a local picture. The work folder is a path on the server's machine;
+with `hamlet dev` it is local too. Nothing downloads a server file.
+Lodge-relative paths such as an agent's `memory/` or `skills/` stay plain
+text unless they name a file in the local work folder.
 
 **When the disk is asked.** Once for each distinct path when a paragraph
 is built, never while reading. The answer is kept until a turn ends or the
-selected chat, work folder or received houses folder changes.
+selected chat, work folder or received realm folder changes.
 
 **A click.** A web address goes to the system's browser. A file is checked
 once more and then shown by the system's own program, given the path as
@@ -92,7 +91,7 @@ unopened.
 
 An `edit` or `write` call can show its change in place of the tool row:
 the path, the count of lines added and removed, and the lines themselves
-in red and green. `crates/hamlet_server/src/change.rs` computes the preview and keeps
+in red and green. `crates/hamlet_server/src/work/cut.rs` computes the preview and keeps
 at most 200 lines, each cut at 240 characters. It arrives in the tool's
 `change` field, both live and when the transcript is read back.
 
@@ -183,7 +182,7 @@ reply gives the words back; a reset followed by a transcript replaces the
 shown items. The server refuses a rewind while work is running or queued
 and closes waits raised by the part taken back.
 
-**What is not undone.** Files changed, commands run, notes, skills, gifts
+**What is not undone.** Files changed, commands run, memory, skills, gifts
 and everything spent. The question says so before anything happens.
 
 **In the window.** Each rewindable chief message carries a small mark,
@@ -240,7 +239,7 @@ A call has 1 to 10 questions, and a question at most 6 options with
 titles of its own. `description` is optional on a question and on an
 option. `text_input` lets the chief answer in words of their own and is
 true unless the agent says otherwise; a question with no options always
-takes words. `crates/hamlet_server/src/chats/asking.rs` reads and
+takes words. `crates/hamlet_server/src/talk/asking.rs` reads and
 checks a call, and a call it refuses tells the agent why.
 
 **Where it is answered.** One card, `hamlet_app/src/asking.rs`, is shown
