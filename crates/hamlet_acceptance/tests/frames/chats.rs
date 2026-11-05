@@ -236,6 +236,7 @@ async fn new_and_resume() {
     c.idle().await;
     c.say(HAND, "/new").await;
     c.idle().await;
+    c.open(HAND).await;
     let history = c
         .ask(json!({"type":"read","what":"history","agent":HAND}))
         .await;
@@ -247,6 +248,7 @@ async fn new_and_resume() {
             .any(|h| h["number"] == 1 && h["current"] == false)
     );
     c.say(HAND, "/resume 1").await;
+    c.open(HAND).await;
     c.finish("new-and-resume").await;
 }
 
