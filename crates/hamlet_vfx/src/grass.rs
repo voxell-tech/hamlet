@@ -105,10 +105,13 @@ pub struct GrassSettings {
     /// in their colour, against the flowers themselves.
     pub halo: f32,
     /// How far from the eye each detail reaches, the finest first,
-    /// where the eye stands low. The grass shortens to nothing over
-    /// the last half of the last, so the furthest blades, too small
-    /// to draw steadily, lie low.
+    /// where the eye stands low.
     pub rings: [f32; 3],
+    /// The share of the last ring's reach, at its end, over which
+    /// the grass shortens to nothing, so the furthest blades, too
+    /// small to draw steadily, lie low. The narrower, the less of
+    /// the field is seen rising and sinking as the eye moves.
+    pub shorten: f32,
 }
 
 /// What the grass is drawn from, as the world last told it.
@@ -225,7 +228,12 @@ impl GrassUniform {
             ),
             reach: Vec4::ZERO,
             rings: Vec4::ZERO,
-            grow: Vec4::new(set.spacing, set.bare, set.flowers, 0.0),
+            grow: Vec4::new(
+                set.spacing,
+                set.bare,
+                set.flowers,
+                set.shorten.clamp(0.01, 1.0),
+            ),
             size: Vec4::new(
                 set.across.0,
                 set.across.1,
@@ -254,7 +262,7 @@ impl GrassUniform {
                 self.grow.z,
                 self.reach.w,
                 self.grow.x,
-                0.0,
+                self.grow.w,
             ),
             glow: self.glow.truncate().extend(offset.0),
         }

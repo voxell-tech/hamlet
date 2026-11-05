@@ -118,7 +118,8 @@ pub struct GroundExt {
 #[derive(ShaderType, Reflect, Debug, Clone, Default, PartialEq)]
 pub struct BloomsUniform {
     /// The share of tufts in flower where flowers grow, how far from
-    /// the eye the grass reaches, and how far apart its tufts are.
+    /// the eye the grass reaches, how far apart its tufts are, and
+    /// the share of its reach it shortens over.
     pub grow: Vec4,
     /// How brightly they glow, as far into the night as it is; the
     /// breadth of the patches their glow swells in; how fast those

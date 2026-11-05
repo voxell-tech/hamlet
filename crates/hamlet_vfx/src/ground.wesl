@@ -49,7 +49,8 @@ struct Ground {
 // `BloomsUniform` in `ground.rs`.
 struct Blooms {
     // x: the share of tufts in flower where flowers grow. y: how far from
-    // the eye the grass reaches. z: how far apart its tufts are.
+    // the eye the grass reaches. z: how far apart its tufts are. w: the
+    // share of its reach, at its end, it shortens over.
     grow: vec4<f32>,
     // x: how brightly they glow, as far into the night as it is. y: the
     // breadth of the patches their glow swells in. z: how fast those drift.
@@ -243,7 +244,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // fading out as the tufts shrink away.
     let away = distance(view.world_position, in.world_position.xyz);
     let likely = grass_likely(height, up, woods);
-    let under = smooth_step(blooms.grow.y, blooms.grow.y * 0.5, away) * likely;
+    let under = smooth_step(blooms.grow.y, blooms.grow.y * (1.0 - blooms.grow.w), away) * likely;
     painted_colour *= mix(1.0, UNDER_GRASS, under);
 
     // A pixel's narrower way across the ground: seen at a glancing angle a
