@@ -112,6 +112,7 @@ diesel::table! {
         tools -> Nullable<Text>,
         tools_told -> Nullable<Text>,
         cancelling -> Bool,
+        stopped -> Bool,
         last -> Nullable<Text>,
         unreflected -> BigInt,
         retiring -> Bool,

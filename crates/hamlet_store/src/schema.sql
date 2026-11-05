@@ -371,6 +371,8 @@ CREATE TABLE conversation (
     tools TEXT CHECK (tools IS NULL OR json_valid(tools)),
     tools_told TEXT,
     cancelling INTEGER NOT NULL DEFAULT 0 CHECK (cancelling IN (0, 1)),
+    -- A chief stopped its running turn, whose end is then no failure.
+    stopped INTEGER NOT NULL DEFAULT 0 CHECK (stopped IN (0, 1)),
     last TEXT CHECK (last IS NULL OR last IN ('done', 'failed', 'stopped')),
     unreflected INTEGER NOT NULL DEFAULT 0 CHECK (unreflected >= 0),
     retiring INTEGER NOT NULL DEFAULT 0 CHECK (retiring IN (0, 1)),

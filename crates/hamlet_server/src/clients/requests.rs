@@ -202,6 +202,9 @@ impl Core {
                 let text = say.text.trim();
                 if text.starts_with('/') {
                     let answer = self.command(agent, text).await?;
+                    // A command may write what no change publishes,
+                    // such as a revoked grant.
+                    self.publish().await?;
                     return self
                         .answer(client, reply(&say.id, answer));
                 }

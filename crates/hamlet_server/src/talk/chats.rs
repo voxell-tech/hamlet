@@ -23,13 +23,21 @@ pub(crate) struct Said {
 }
 
 /// The conversation of the current session of `chief`'s chat with
-/// `agent`, begun when the chat is new.
+/// `agent`, begun when the chat is new. A worker's one conversation
+/// is every chief's chat with it.
 pub(crate) fn current(
     cx: &mut Change<'_>,
     env: &Env,
     agent: AgentId,
     chief: ChiefId,
 ) -> Result<ConversationId> {
+    if agents::get(cx.db, agent)?.kind == agents::AgentKind::Worker
+        && let Some(worked) = conversations::of_agent(cx.db, agent)?
+            .into_iter()
+            .find(|kept| kept.kind == Kind::Worker)
+    {
+        return Ok(worked.id);
+    }
     let session = chat::table
         .find((agent, chief))
         .select(chat::current)
@@ -401,6 +409,7 @@ pub(crate) fn stop(
         inputs::drop_kept(cx.db, kept.id)?;
         if kept.handle.is_some() {
             conversations::set_cancelling(cx.db, kept.id, true)?;
+            conversations::set_stopped(cx.db, kept.id, true)?;
         }
         stopped += 1;
     }

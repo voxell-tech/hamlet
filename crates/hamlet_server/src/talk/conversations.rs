@@ -8,7 +8,7 @@ use hamlet_protocol::runtime::{
 };
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId};
-use hamlet_store::schema::conversation;
+use hamlet_store::schema::{conversation, item};
 
 use crate::change::Change;
 use crate::text::text_enum;
@@ -69,6 +69,9 @@ pub(crate) struct Conversation {
     pub tools: Option<String>,
     pub tools_told: Option<String>,
     pub cancelling: bool,
+    /// A chief stopped its running turn, whose end is then no
+    /// failure.
+    pub stopped: bool,
     pub last: Option<Last>,
     pub unreflected: i64,
     pub retiring: bool,
@@ -183,6 +186,26 @@ pub(crate) fn fork(
         ))
         .returning(conversation::id)
         .get_result(cx.db)?;
+    // The fork's transcript is its parent's up to `at` from the
+    // start, before its runtime keeps anything of it.
+    let held = item::table
+        .filter(item::conversation.eq(of.id))
+        .order(item::ordinal)
+        .select((item::entry, item::ordinal, item::body))
+        .load::<(String, i64, String)>(cx.db)?;
+    if let Some(end) = held.iter().position(|(entry, ..)| entry == at)
+    {
+        for (entry, ordinal, body) in &held[..=end] {
+            diesel::insert_into(item::table)
+                .values((
+                    item::conversation.eq(id),
+                    item::entry.eq(entry),
+                    item::ordinal.eq(ordinal),
+                    item::body.eq(body),
+                ))
+                .execute(cx.db)?;
+        }
+    }
     Ok(id)
 }
 
@@ -292,6 +315,17 @@ pub(crate) fn set_cancelling(
 ) -> Result<()> {
     diesel::update(conversation::table.find(id))
         .set(conversation::cancelling.eq(cancelling))
+        .execute(db)?;
+    Ok(())
+}
+
+pub(crate) fn set_stopped(
+    db: &mut Db,
+    id: ConversationId,
+    stopped: bool,
+) -> Result<()> {
+    diesel::update(conversation::table.find(id))
+        .set(conversation::stopped.eq(stopped))
         .execute(db)?;
     Ok(())
 }

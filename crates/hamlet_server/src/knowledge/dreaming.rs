@@ -50,6 +50,11 @@ pub(crate) fn prepare(
     let path = checkout(layout, id);
     remove_folder(&path)?;
     check_out(&repo, main, &Folder::make(&path)?)?;
+    // Git keeps no empty folder. With these, a relative `memory/` or
+    // `skills/` is the checkout's, never the lodge's beside it.
+    for part in ["memory", "skills"] {
+        Folder::make(&path.join(part))?;
+    }
     Ok(true)
 }
 

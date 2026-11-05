@@ -48,12 +48,19 @@ pub(crate) fn follow(
     if input.is_write() {
         return Ok(followed);
     }
+    // A turn a chief stopped ends however its runtime says, often
+    // aborted; it failed only when nobody stopped it.
+    let stopped = conversations::get(cx.db, conversation)?.stopped;
     let last = match (input.status, input.reason.as_deref()) {
         (Some(Status::Done), _) => Last::Done,
         (_, Some("stopped" | "cancelled")) => Last::Stopped,
+        _ if stopped => Last::Stopped,
         _ => Last::Failed,
     };
     conversations::set_last(cx.db, conversation, last)?;
+    if stopped && !inputs::is_busy(cx.db, conversation)? {
+        conversations::set_stopped(cx.db, conversation, false)?;
+    }
     if input.mark()?.is_chief_turn()
         && let Some(task) = input.task
     {

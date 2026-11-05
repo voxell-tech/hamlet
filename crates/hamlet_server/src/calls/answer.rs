@@ -89,6 +89,7 @@ fn withdraw(
     crate::talk::inputs::drop_kept(cx.db, conversation)?;
     if crate::talk::inputs::is_busy(cx.db, conversation)? {
         conversations::set_cancelling(cx.db, conversation, true)?;
+        conversations::set_stopped(cx.db, conversation, true)?;
     }
     crate::talk::tasks::done(cx.db, task, cx.at)?;
     crate::talk::chats::notice(
