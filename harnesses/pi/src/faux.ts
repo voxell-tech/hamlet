@@ -60,20 +60,24 @@ const Step = Type.Union([
 const Steps = Type.Array(Step);
 
 /**
- * Answers given in a model's place, one per request in order. A conversation of the agent `<hamlet>:<number>` takes
- * its answers from `agents`, a one-off conversation from `errands`, and either takes from `responses` only when its own
- * list is absent. The format is the acceptance suite's.
+ * Answers given in a model's place, one per request in order. A conversation of the agent with id `<id>` takes its
+ * answers from `agents`, else one of a kind such as `errand` or `worker` from `kinds`, and either takes from `responses`
+ * only when it has no list of its own. The format is the acceptance suite's.
  */
 export const Script = Type.Object(
     {
         models: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
         responses: Type.Optional(Steps),
         agents: Type.Optional(
-            Type.Record(Type.String({ pattern: "^[^:]+:[0-9]+$" }), Steps, {
+            Type.Record(Type.String({ pattern: "^[0-9]+$" }), Steps, {
                 additionalProperties: false,
             }),
         ),
-        errands: Type.Optional(Steps),
+        kinds: Type.Optional(
+            Type.Record(Type.String({ minLength: 1 }), Steps, {
+                additionalProperties: false,
+            }),
+        ),
         /** Dollars per million tokens the faux model charges; the catalogue's price when absent. */
         price: Type.Optional(
             Type.Object(
@@ -125,15 +129,29 @@ export async function readScript(path: string): Promise<Script> {
                       ]),
                   ),
               }),
-        ...(value.errands === undefined
+        ...(value.kinds === undefined
             ? {}
-            : { errands: held(value.errands) }),
+            : {
+                  kinds: Object.fromEntries(
+                      Object.entries(value.kinds).map(([kind, steps]) => [
+                          kind,
+                          held(steps),
+                      ]),
+                  ),
+              }),
     };
 }
 
+/** The list a conversation of `agent` and `kind` takes its answers from, or `""` for `responses`. */
+export function queueOf(script: Script, agent: number, kind: string): string {
+    if (script.agents?.[String(agent)] !== undefined) return `agent:${agent}`;
+    if (script.kinds?.[kind] !== undefined) return `kind:${kind}`;
+    return "";
+}
+
 /**
- * The faux provider answering with `script`. `caller` names the list a request takes from, `errands` or an agent's
- * `<hamlet>:<number>`, by the request's options. `guard` wraps the provider's streams.
+ * The faux provider answering with `script`. `caller` names the list a request takes from, as `queueOf` names it, by
+ * the request's options. `guard` wraps the provider's streams.
  */
 export function scriptedProvider(
     script: Script,
@@ -156,14 +174,17 @@ export function scriptedProvider(
     const shared = (script.responses ?? []).map(answer);
     const queues = new Map<string, FauxResponseFactory[]>([
         ...Object.entries(script.agents ?? {}).map(
-            ([key, steps]): [string, FauxResponseFactory[]] => [
-                key,
+            ([id, steps]): [string, FauxResponseFactory[]] => [
+                `agent:${id}`,
                 steps.map(answer),
             ],
         ),
-        ...(script.errands === undefined
-            ? []
-            : [["errands", script.errands.map(answer)] as const]),
+        ...Object.entries(script.kinds ?? {}).map(
+            ([kind, steps]): [string, FauxResponseFactory[]] => [
+                `kind:${kind}`,
+                steps.map(answer),
+            ],
+        ),
     ]);
     const exhausted: FauxResponseFactory = () =>
         fauxAssistantMessage("", {

@@ -37,7 +37,7 @@ import {
 import { serverCredentials } from "./credentials.ts";
 import { hamletExtension, Waits } from "./extension.ts";
 import { fault } from "./faults.ts";
-import { FAUX, readScript, scriptedProvider } from "./faux.ts";
+import { FAUX, queueOf, readScript, scriptedProvider } from "./faux.ts";
 import { blocksOf, itemOf } from "./items.ts";
 import {
     ANSWER_SHARE,
@@ -48,6 +48,7 @@ import {
 } from "./models.ts";
 import {
     type Capability,
+    type ConversationKind,
     type Mark,
     type ModelRef,
     type Partial,
@@ -104,14 +105,14 @@ const RuntimeDoc = defineDoc<{ id: string }>({
 /** A conversation the server created, by the key it created it under. */
 type Bound = {
     conversation: ConversationId;
-    agent: string;
-    errand: boolean;
+    agent: number;
+    kind: ConversationKind;
     model: ModelRef;
 };
 
 const BindingsDoc = defineDoc<{ byKey: Record<string, Bound> }>({
     kind: "hamlet.bindings",
-    version: 1,
+    version: 2,
     scope: "session",
     initial: () => ({ byKey: {} }),
 });
@@ -279,7 +280,7 @@ class Runtime {
                     conversation: String(known.conversation),
                     key,
                     model,
-                    ...(input === undefined ? {} : { task: input }),
+                    ...(input === undefined ? {} : { submission: input }),
                 });
                 switch (answer.type) {
                     case "allowance":
@@ -368,7 +369,7 @@ class Runtime {
                                 ? undefined
                                 : this.#bySession.get(options.sessionId);
                         if (known === undefined) return "";
-                        return known.errand ? "errands" : known.agent;
+                        return queueOf(script, known.agent, known.kind);
                     },
                     (streams) => allowedStreams(streams, this.#gate),
                 ),
@@ -884,7 +885,7 @@ class Runtime {
             const made: Bound = {
                 conversation: record.id,
                 agent: request.agent,
-                errand: request.errand,
+                kind: request.kind,
                 model: request.model,
             };
             bindings.byKey[key] = made;
@@ -934,7 +935,7 @@ class Runtime {
             const made: Bound = {
                 conversation: record.id,
                 agent: parent.agent,
-                errand: parent.errand,
+                kind: parent.kind,
                 model: parent.model,
             };
             bindings.byKey[key] = made;

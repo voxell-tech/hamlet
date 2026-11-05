@@ -23,6 +23,7 @@ type Message<T extends string> = Extract<
 
 export type Block = Def<"Block">;
 export type Capability = Def<"Capability">;
+export type ConversationKind = Def<"ConversationKind">;
 export type Credential = Def<"Credential">;
 export type Item = Def<"Item">;
 export type Mark = Def<"Mark">;

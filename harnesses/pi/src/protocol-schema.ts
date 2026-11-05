@@ -127,6 +127,41 @@ export const schema = {
             ],
             "description": "Exactly the `only` tools, or every tool but the `remove` ones."
         },
+        "ConversationKind": {
+            "description": "What a conversation is for.",
+            "oneOf": [
+                {
+                    "const": "chat",
+                    "description": "A chief's chat with the agent.",
+                    "type": "string"
+                },
+                {
+                    "const": "letters",
+                    "description": "Another agent's letters to it.",
+                    "type": "string"
+                },
+                {
+                    "const": "questions",
+                    "description": "Another agent's questions to it.",
+                    "type": "string"
+                },
+                {
+                    "const": "worker",
+                    "description": "A worker's one task.",
+                    "type": "string"
+                },
+                {
+                    "const": "errand",
+                    "description": "A one-off call with its own instructions.",
+                    "type": "string"
+                },
+                {
+                    "const": "dream",
+                    "description": "The agent tidying what it learned.",
+                    "type": "string"
+                }
+            ]
+        },
         "Credential": {
             "description": "A secret the server hands over for one model call, held in memory\nalone.",
             "oneOf": [
@@ -520,7 +555,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -557,7 +592,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -597,7 +632,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -647,7 +682,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -695,7 +730,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -740,7 +775,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -773,7 +808,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -804,7 +839,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -844,7 +879,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -883,7 +918,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -931,7 +966,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -981,7 +1016,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1017,7 +1052,8 @@ export const schema = {
                         "model": {
                             "$ref": "#/$defs/ModelRef"
                         },
-                        "task": {
+                        "submission": {
+                            "description": "The runtime's id of the input the conversation is answering.",
                             "type": "string"
                         },
                         "type": {
@@ -1025,7 +1061,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1061,7 +1097,7 @@ export const schema = {
                             "$ref": "#/$defs/Usage"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1089,7 +1125,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1125,7 +1161,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1159,7 +1195,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1202,7 +1238,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1246,7 +1282,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1294,7 +1330,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1331,7 +1367,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1441,7 +1477,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1479,7 +1515,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1523,7 +1559,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1560,7 +1596,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1603,7 +1639,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1634,7 +1670,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1657,12 +1693,10 @@ export const schema = {
                     "description": "Creates a conversation once per `key`; asking again answers with\nthe same conversation.",
                     "properties": {
                         "agent": {
-                            "description": "The agent it is for, as `<hamlet>:<number>`.",
-                            "pattern": "^[^:]+:[0-9]+$",
-                            "type": "string"
-                        },
-                        "errand": {
-                            "type": "boolean"
+                            "description": "The id of the agent it is for.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
                         },
                         "id": {
                             "minLength": 1,
@@ -1672,6 +1706,9 @@ export const schema = {
                             "minLength": 1,
                             "type": "string"
                         },
+                        "kind": {
+                            "$ref": "#/$defs/ConversationKind"
+                        },
                         "model": {
                             "$ref": "#/$defs/ModelRef"
                         },
@@ -1680,7 +1717,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1689,7 +1726,7 @@ export const schema = {
                     "required": [
                         "type",
                         "agent",
-                        "errand",
+                        "kind",
                         "id",
                         "key",
                         "model",
@@ -1728,7 +1765,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1778,7 +1815,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1814,7 +1851,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1854,7 +1891,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1887,7 +1924,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1927,7 +1964,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1955,7 +1992,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -1981,7 +2018,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2011,7 +2048,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2042,7 +2079,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2077,7 +2114,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2113,7 +2150,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2164,7 +2201,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2203,7 +2240,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2238,7 +2275,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2273,7 +2310,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2304,7 +2341,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2343,7 +2380,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2381,7 +2418,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
@@ -2420,7 +2457,7 @@ export const schema = {
                             "type": "string"
                         },
                         "v": {
-                            "const": 2,
+                            "const": 3,
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"

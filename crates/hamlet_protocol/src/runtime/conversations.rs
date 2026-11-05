@@ -14,10 +14,9 @@ use crate::runtime::{Item, Mark, ModelRef, Partial, VERSION};
 )]
 #[serde(deny_unknown_fields)]
 pub struct Create {
-    /// The agent it is for, as `<hamlet>:<number>`.
-    #[schemars(regex(pattern = r"^[^:]+:[0-9]+$"))]
-    pub agent: String,
-    pub errand: bool,
+    /// The id of the agent it is for.
+    pub agent: u64,
+    pub kind: ConversationKind,
     #[schemars(length(min = 1))]
     pub id: String,
     #[schemars(length(min = 1))]
@@ -25,6 +24,33 @@ pub struct Create {
     pub model: ModelRef,
     #[schemars(extend("const" = VERSION))]
     pub v: u64,
+}
+
+/// What a conversation is for.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum ConversationKind {
+    /// A chief's chat with the agent.
+    Chat,
+    /// Another agent's letters to it.
+    Letters,
+    /// Another agent's questions to it.
+    Questions,
+    /// A worker's one task.
+    Worker,
+    /// A one-off call with its own instructions.
+    Errand,
+    /// The agent tidying what it learned.
+    Dream,
 }
 
 /// The conversation created or forked, by the id the runtime made for

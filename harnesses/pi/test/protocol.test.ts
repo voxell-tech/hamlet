@@ -63,8 +63,8 @@ async function converse(
                 send({
                     type: "create",
                     key: "b1",
-                    agent: "home:0",
-                    errand: false,
+                    agent: 0,
+                    kind: "chat",
                     model: { provider: "faux", id: "faux-1" },
                 });
                 break;
@@ -128,7 +128,7 @@ const answered = (text: string) => (item: unknown) =>
 
 test("a runtime speaks only the protocol's messages from hello to an answer, and exits when the server goes", async () => {
     const { heard, exited } = await converse(
-        { agents: { "home:0": ["hi"] } },
+        { agents: { "0": ["hi"] } },
         [],
         () => "",
         answered("hi"),
@@ -150,7 +150,7 @@ test("a tool that retains the tail keeps the end of a long result, and one witho
     });
     const calls = ["tail", "head"].map((name) => ({ name, arguments: {} }));
     const { heard } = await converse(
-        { agents: { "home:0": [{ calls }, "done"] } },
+        { agents: { "0": [{ calls }, "done"] } },
         [{ ...tool("tail"), retain: "tail" }, tool("head")],
         () => lines.join("\n"),
         answered("done"),

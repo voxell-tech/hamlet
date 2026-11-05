@@ -122,10 +122,11 @@ pub struct Attempt {
     #[schemars(length(min = 1))]
     pub key: String,
     pub model: ModelRef,
+    /// The runtime's id of the input the conversation is answering.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
-    pub task: Option<String>,
+    pub submission: Option<String>,
     #[schemars(extend("const" = VERSION))]
     pub v: u64,
 }
