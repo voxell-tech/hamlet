@@ -172,6 +172,7 @@ fn recorded_library_consults_then_replaces_the_shelf_on_shelving_and_unshelving(
         },
     );
     assert!(shelved);
+    assert!(app.world().resource::<SeenEvents>().library > 0);
     let shelf = &app.world().resource::<Skills>().0;
     assert!(!shelf.iter().any(|s| s.name == "map-iron"));
 }

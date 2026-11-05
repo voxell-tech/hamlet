@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_protocol::runtime::{Attempt, Selection, Usage};
 use hamlet_store::Db;
+use hamlet_store::ids::ConversationId;
 use hamlet_store::schema::{attempt, usage};
 
 use super::conversations::{self, Conversation};
@@ -114,14 +115,15 @@ pub(crate) fn allow(
     Ok(Admission::Allowed(selection))
 }
 
-/// Charges what the call `key` of `runtime` used, once.
+/// Charges what the call `key` of `runtime` used, once. Gives the
+/// conversation that made the call, when it was allowed.
 pub(crate) fn charge(
     db: &mut Db,
     runtime: &str,
     key: &str,
     used: &Usage,
     at: i64,
-) -> Result<()> {
+) -> Result<Option<ConversationId>> {
     let ordinal = usage::table
         .select(diesel::dsl::max(usage::ordinal))
         .first::<Option<i64>>(db)?
@@ -144,5 +146,9 @@ pub(crate) fn charge(
         ))
         .on_conflict_do_nothing()
         .execute(db)?;
-    Ok(())
+    Ok(attempt::table
+        .find((runtime, key))
+        .select(attempt::conversation)
+        .first(db)
+        .optional()?)
 }

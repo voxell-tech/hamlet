@@ -216,7 +216,12 @@ fn agent_view(
                 .map_or(0, |a| u64::try_from(a.step).unwrap_or(0)),
         },
         busy: found.is_living() && inputs::is_agent_busy(db, id)?,
-        consulting: false,
+        consulting: found.is_living()
+            && crate::talk::errands::is_waited_on(
+                db,
+                id,
+                crate::calls::LIBRARIAN,
+            )?,
         conversations: peers(db, id)?,
         faulted: shown.is_some_and(|a| a.faulted),
         hamlet,

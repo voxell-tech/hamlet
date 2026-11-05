@@ -89,6 +89,23 @@ pub(crate) enum Ended {
     Failed(String),
 }
 
+/// Whether an errand of `kind` run for `agent` has not answered yet.
+pub(crate) fn is_waited_on(
+    db: &mut Db,
+    agent: AgentId,
+    kind: &str,
+) -> Result<bool> {
+    for kept in conversations::of_agent(db, agent)? {
+        if kept.kind == Kind::Errand
+            && kept.errand.as_deref() == Some(kind)
+            && inputs::is_busy(db, kept.id)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// How the errand of `kind` made under `owner` ended, or `None` while
 /// it runs.
 pub(crate) fn ended(

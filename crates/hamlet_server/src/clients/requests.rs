@@ -2,6 +2,7 @@
 //! a chief's lines and commands, watching conversations, and a chat's
 //! deeds.
 
+use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
 
 use anyhow::Result;
@@ -700,12 +701,20 @@ impl Core {
 
     /// The state as it is now.
     pub(crate) fn compose(&mut self) -> Result<protocol::State> {
-        let activity = self
-            .live
-            .values()
-            .filter(|live| live.activity.working)
-            .map(|live| (live.agent, live.activity.clone()))
-            .collect();
+        // What each agent does: a working conversation's activity,
+        // else one whose last turn failed.
+        let mut activity = BTreeMap::<AgentId, Activity>::new();
+        for live in self.live.values() {
+            let shown = &live.activity;
+            if !shown.working && !shown.faulted {
+                continue;
+            }
+            let held = activity.get(&live.agent);
+            if held.is_none_or(|held| shown.working && !held.working)
+            {
+                activity.insert(live.agent, shown.clone());
+            }
+        }
         let chief = self.realm.chief();
         let layout = self.realm.layout().clone();
         let confinement = self.confinement();

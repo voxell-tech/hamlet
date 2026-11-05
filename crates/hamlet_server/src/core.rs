@@ -443,6 +443,46 @@ impl Core {
         Ok(())
     }
 
+    /// Sends the watchers of `conversation` its usage totals, after a
+    /// model call of it was charged.
+    fn stream_usage(
+        &mut self,
+        conversation: ConversationId,
+    ) -> Result<()> {
+        let watching = self.clients.watching(conversation);
+        if watching.is_empty() {
+            return Ok(());
+        }
+        let usage = crate::spend::usage_view(
+            self.realm.store().connection(),
+            conversation,
+        )?;
+        for watch in watching {
+            let number = watch
+                .chat
+                .from
+                .is_none()
+                .then_some(watch.chat.past)
+                .flatten();
+            let turn =
+                protocol::ServerMessage::Turn(protocol::Turn {
+                    chat: watch.chat.clone(),
+                    number,
+                    operations: vec![
+                        protocol::TranscriptOperation::Usage {
+                            usage: usage.clone(),
+                        },
+                    ],
+                });
+            self.clients.send(
+                watch.client,
+                &self.credentials,
+                turn,
+            )?;
+        }
+        Ok(())
+    }
+
     /// Answers the replies owed for input `request` of
     /// `conversation`, which ended.
     fn settle_owed(
@@ -916,13 +956,17 @@ impl Core {
             }
             RuntimeMessage::Usage(report) => {
                 self.leases.finish(index, &report.key);
-                turns::charge(
+                let charged = turns::charge(
                     self.realm.store().connection(),
                     &runtime,
                     &report.key,
                     &report.usage,
                     at,
                 )?;
+                if let Some(conversation) = charged {
+                    self.stream_usage(conversation)?;
+                    self.publish().await?;
+                }
                 let re = report.id;
                 self.runtimes
                     .send(index, |v, id| {

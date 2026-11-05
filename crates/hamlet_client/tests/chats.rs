@@ -169,7 +169,11 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     let protocol::ServerMessage::Transcript(page) = &read_back else {
         panic!("the recording ends with a read-back transcript");
     };
-    let summary = page.usage.summary.clone();
+    // The live `usage` operations carry the totals the read-back has.
+    assert_eq!(
+        world.get::<Usage>(chat).unwrap().summary(),
+        page.usage.summary
+    );
     assert_eq!(world.resource::<Observed>().output, expected_ops);
     assert_eq!(world.resource::<Observed>().finished, vec![chat]);
     let live = said.items().to_vec();
@@ -177,12 +181,6 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     assert_eq!(
         app.world().get::<Transcript>(chat).unwrap().items(),
         live
-    );
-    // The server sends no live `usage` operation, so the totals come
-    // with the read-back.
-    assert_eq!(
-        app.world().get::<Usage>(chat).unwrap().summary(),
-        summary
     );
     assert_eq!(
         app.world().resource::<Observed>().finished,

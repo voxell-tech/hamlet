@@ -143,6 +143,15 @@ async fn fault() {
         .await;
     c.until(|c| wait(c, "kind", "fault").is_some()).await;
     let held = wait(&c, "kind", "fault").unwrap();
+    // The Hand shows its failed turn, as well as the wait for it.
+    c.until(|c| {
+        serde_json::to_value(c.state()).unwrap()["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["id"] == HAND && a["faulted"] == true)
+    })
+    .await;
     c.idle().await;
     assert_eq!(c.ask(json!({"type":"answer","wait":held["id"],"choice":"dismiss"})).await["kind"], "notice");
     c.finish("fault").await;

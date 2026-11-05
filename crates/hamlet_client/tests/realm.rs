@@ -269,8 +269,10 @@ fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
         "../../hamlet_protocol/frames/fault.jsonl"
     )) {
         receive(world, message);
-        let faulted = named(world, "hand")
-            .is_some_and(|agent| world.get::<Busy>(agent).is_none());
+        let faulted = named(world, "hand").is_some_and(|agent| {
+            world.get::<Faulted>(agent).is_some()
+                && world.get::<Busy>(agent).is_none()
+        });
         if faulted
             && world.query::<&Waiting>().iter(world).next().is_some()
         {
@@ -278,6 +280,7 @@ fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
         }
     }
     let founder = named(world, "hand").unwrap();
+    assert!(world.get::<Faulted>(founder).is_some());
     assert!(world.get::<Busy>(founder).is_none());
     let (wait, raised) = world
         .query::<(&Waiting, &RaisedBy)>()
