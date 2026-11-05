@@ -334,8 +334,9 @@ pub struct Closed(pub Vec<protocol::ClosedHamlet>);
 #[derive(Component, Clone, Debug, Default, PartialEq)]
 pub struct PeerChats(pub Vec<protocol::ConversationView>);
 
+/// How and when an agent left, as the server sent it.
 #[derive(Component, Clone, Debug, PartialEq)]
-struct Departure(protocol::Left);
+pub struct Departure(pub protocol::Left);
 
 #[derive(Component)]
 struct Consulting;

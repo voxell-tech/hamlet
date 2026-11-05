@@ -83,21 +83,21 @@ impl Queue {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct Need {
-    entity: Entity,
-    detail: WaitDetail,
-    by: String,
+pub(crate) struct Need {
+    pub(crate) entity: Entity,
+    pub(crate) detail: WaitDetail,
+    pub(crate) by: String,
     about: String,
-    line: String,
+    pub(crate) line: String,
     waited: String,
     asked: u64,
-    answers: Vec<Choice>,
+    pub(crate) answers: Vec<Choice>,
     change: Option<Change>,
     chat: Option<hamlet_protocol::client::ChatRef>,
 }
 
 impl Need {
-    fn of(entity: Entity, waiting: &Waiting) -> Self {
+    pub(crate) fn of(entity: Entity, waiting: &Waiting) -> Self {
         let seconds =
             waiting.waited(crate::status::now_ms()).as_secs();
         let waited = match seconds {
@@ -196,7 +196,8 @@ pub(crate) fn tag_opened(_: On<TagOpened>, mut commands: Commands) {
     commands.queue(|world: &mut World| show_tab(world, PETITIONS));
 }
 
-fn button(need: &Need, at: usize) -> AnyView {
+/// The button for the answer at `at` of `need`, or nothing.
+pub(crate) fn button(need: &Need, at: usize) -> AnyView {
     let Some(choice) = need.answers.get(at).cloned() else {
         return frame().boxed();
     };

@@ -29,6 +29,7 @@ mod sounds;
 mod status;
 #[cfg(test)]
 mod testing;
+pub mod toasts;
 mod tuning;
 pub mod welcome;
 mod window;
@@ -123,6 +124,7 @@ impl Plugin for UiPlugin {
                 select::plugin,
                 history::plugin,
                 welcome::plugin,
+                toasts::plugin,
             ),
             (
                 world_view::plugin,
