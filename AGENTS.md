@@ -129,7 +129,7 @@ cargo clippy -p hamlet_acceptance --all-targets --features acceptance
 cargo test -p hamlet_acceptance --features acceptance
 ```
 
-The server's tests that start pi serving a home, crashes included, are
+The server's tests that start pi serving a realm, crashes included, are
 its `crashes` and `harness` targets, compiled only with the `harness`
 feature, so plain `cargo test` needs no Node. They need
 `npm ci --prefix harnesses/pi`, never contact a model server or the
@@ -173,7 +173,7 @@ The client tests replay the faux sessions in `crates/hamlet_protocol/frames/`.
 See `docs/protocol.md` for their recording workflow.
 
 On Linux, tools run under bubblewrap rather than Seatbelt. After changing
-`crates/hamlet_server/src/sandbox/`, run the real sandbox acceptance tests
+`crates/hamlet_sandbox/`, run the real sandbox acceptance tests
 on Linux with working bubblewrap, git, curl and Python 3. Linux checks do
 not prove macOS Seatbelt behavior. Windows has no server sandbox, so a
 Windows server runs only with `--insecure`, and Linux and macOS refuse
