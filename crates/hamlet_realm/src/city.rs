@@ -155,11 +155,12 @@ fn raise(
             ChildOf(tower),
         ))
         .id();
-    // Its name is shown over it, and its ring is as wide as it is.
+    // Its name is shown over it, and its ring lies just outside its
+    // footing.
     commands.entity(boxed).insert((
         Named,
         Footprint {
-            radius: wide + 1.0,
+            radius: tower::FOOTING + 1.0,
             height: tall,
             lift: tall * 0.5,
         },
@@ -198,9 +199,11 @@ const LAMP_LUMENS: f32 = 6_000_000.0;
 /// Seconds the light takes to come up or go down.
 const EASE: f32 = 1.2;
 
-/// How bright the tower's glass is at rest and at its fullest, and
-/// the brightness of a lit window by day and the gain after dark.
-const TOWER: (f32, f32) = (0.5, 14.0);
+/// How bright the tower's glass is at rest by day, and the gains
+/// after dark and while the Hand works.
+const TOWER: (f32, f32, f32) = (3.0, 12.0, 14.0);
+
+/// The brightness of a lit window by day and the gain after dark.
 const WINDOWS: (f32, f32) = (1.2, 16.0);
 
 /// Burns the tower's light while the Hand works, and the windows of
@@ -233,10 +236,10 @@ fn shine(
         }
     }
     let glow = pal.glass_lit.to_linear();
-    let (rest, full) = TOWER;
+    let (rest, dark, full) = TOWER;
     let (day, night) = WINDOWS;
     for (handle, gain) in [
-        (&glass.lamp, rest + full * burn),
+        (&glass.lamp, rest + dark * sky.look.candle + full * burn),
         (&glass.windows, day + night * sky.look.candle),
     ] {
         let to = glow * gain;

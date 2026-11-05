@@ -14,7 +14,58 @@ use crate::pick::{Centre, Following, Orbit, glide_to};
 use crate::{RealmSystems, Stock};
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Update, raise.in_set(RealmSystems::Act));
+    app.add_systems(
+        Update,
+        (
+            raise.in_set(RealmSystems::Act),
+            bob.after(RealmSystems::Act),
+        ),
+    );
+}
+
+/// How high over the still water the route is drawn, clear of the
+/// tallest waves, which the water raises on the graphics card alone.
+const ROUTE_LIFT: f32 = 1.4;
+
+/// How a moored boat rides the swell: its rest over the still water,
+/// as the swell near a shore is low, and for each of its swells the
+/// height in metres and the pace in radians a second.
+const BOAT_REST: f32 = 0.12;
+const SWELLS: [(f32, f32); 3] =
+    [(0.22, 1.03), (0.09, 1.71), (0.04, 2.6)];
+
+/// How far a boat rolls and pitches with the swell, in radians.
+const ROLL: f32 = 0.05;
+const PITCH: f32 = 0.025;
+
+/// Rocks each moored boat on a swell of its own, worked out here and
+/// not on the graphics card, so that whoever rides it rides with it
+/// and its picking keeps to where it is drawn.
+fn bob(time: Res<Time>, mut boats: Query<(&Boat, &mut Transform)>) {
+    let t = time.elapsed_secs();
+    for (boat, mut at) in &mut boats {
+        // Each island's boat a beat apart from the other's.
+        let beat = boat.0 as usize as f32 * 2.3;
+        let swell = |offset: f32| -> f32 {
+            SWELLS
+                .iter()
+                .enumerate()
+                .map(|(k, (height, pace))| {
+                    height
+                        * (pace * t + beat + offset * k as f32).sin()
+                })
+                .sum()
+        };
+        // The swell at its tallest, against which it leans its most.
+        let most: f32 = SWELLS.iter().map(|(height, _)| height).sum();
+        at.translation.y = BOAT_REST + swell(0.0);
+        at.rotation = Quat::from_euler(
+            EulerRot::YXZ,
+            0.0,
+            PITCH * swell(1.1) / most,
+            ROLL * swell(2.2) / most,
+        );
+    }
 }
 
 /// The pier of an island. Its +Z points out to sea toward the other
@@ -131,7 +182,7 @@ fn raise(
                 MeshMaterial3d(stock.matte.clone()),
                 Transform::from_xyz(
                     shapes::ALONGSIDE,
-                    0.0,
+                    BOAT_REST,
                     shapes::MOORED
                 ),
             )],
@@ -152,7 +203,7 @@ fn raise(
             alpha_mode: AlphaMode::Blend,
             ..default()
         })),
-        Transform::from_xyz(city.x, water + 0.1, city.y)
+        Transform::from_xyz(city.x, water + ROUTE_LIFT, city.y)
             .with_rotation(Quat::from_rotation_y(way.x.atan2(way.y))),
         NotShadowCaster,
     ));

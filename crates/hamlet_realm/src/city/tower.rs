@@ -21,6 +21,9 @@ pub(super) const LANTERN: f32 = 31.8;
 /// the box the tower is picked by.
 pub(super) const FOOT: f32 = 3.6;
 
+/// The radius of the lowest step of its footing, the widest it is.
+pub(super) const FOOTING: f32 = 6.4;
+
 /// The shaft's radius at a height.
 fn shaft(y: f32) -> f32 {
     let (foot, top, tall) = (FOOT, 2.7, 21.5);
@@ -52,7 +55,13 @@ pub(super) fn build(pal: &Palette) -> (Mesh, Mesh) {
     // A footing of two steps, and the shaft rising from it.
     meshing.lathe(
         Vec3::ZERO,
-        &[(6.4, 0.0), (6.4, 0.4), (5.2, 0.4), (5.2, 0.9), (4.4, 0.9)],
+        &[
+            (FOOTING, 0.0),
+            (FOOTING, 0.4),
+            (5.2, 0.4),
+            (5.2, 0.9),
+            (4.4, 0.9),
+        ],
         20,
         |r, s| shade.lerp(stone, ((r + s) % 3) as f32 * 0.2),
     );
@@ -107,18 +116,20 @@ pub(super) fn build(pal: &Palette) -> (Mesh, Mesh) {
             let a =
                 k as f32 * 1.1 + side as f32 * std::f32::consts::PI;
             let turn = Quat::from_rotation_y(a);
-            let out = shaft(y) - 0.04;
-            let at = turn * Vec3::new(0.0, y, out);
+            // The frame stands well out of the faceted wall, and the
+            // glass out of the frame, so that no face of one lies on
+            // a face of another.
+            let out = shaft(y);
             meshing.rbox(
-                at,
-                Vec3::new(0.34, 1.0, 0.1),
+                turn * Vec3::new(0.0, y, out + 0.02),
+                Vec3::new(0.34, 1.0, 0.14),
                 0.03,
                 turn,
                 pal.timber_dark,
                 0.0,
             );
             glass.rbox(
-                turn * Vec3::new(0.0, y, out + 0.07),
+                turn * Vec3::new(0.0, y, out + 0.19),
                 Vec3::new(0.24, 0.86, 0.03),
                 0.1,
                 turn,
@@ -189,15 +200,15 @@ pub(super) fn build(pal: &Palette) -> (Mesh, Mesh) {
         let a = (k as f32 + 0.5) / 8.0 * TAU;
         let turn = Quat::from_rotation_y(a);
         meshing.rbox(
-            turn * Vec3::new(0.0, 24.3, 3.0 - 0.02),
-            Vec3::new(0.5, 0.8, 0.08),
+            turn * Vec3::new(0.0, 24.3, 3.0 + 0.02),
+            Vec3::new(0.5, 0.8, 0.12),
             0.04,
             turn,
             pal.timber_dark,
             0.0,
         );
         glass.rbox(
-            turn * Vec3::new(0.0, 24.3, 3.0 + 0.03),
+            turn * Vec3::new(0.0, 24.3, 3.0 + 0.17),
             Vec3::new(0.4, 0.68, 0.03),
             0.12,
             turn,
