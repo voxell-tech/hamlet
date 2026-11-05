@@ -2,6 +2,8 @@
 //! listed, a hire pinned, a commit undone, a scholar forked, and a
 //! path purged from all of it.
 
+use std::sync::PoisonError;
+
 use anyhow::Result;
 use hamlet_git::{Author, CommitId, MAIN, Repository};
 use hamlet_store::ids::{Actor, HamletId, ScholarId};
@@ -87,6 +89,9 @@ impl Core {
                 Err(refusal) => return Ok(Err(refusal)),
             };
         let by = self.author();
+        let writing = self.writing.clone();
+        let _held =
+            writing.lock().unwrap_or_else(PoisonError::into_inner);
         repo.tag(
             version,
             commit,
@@ -224,6 +229,9 @@ impl Core {
         };
         let by = Actor::Chief(self.realm.chief());
         let author = by.to_string();
+        let writing = self.writing.clone();
+        let held =
+            writing.lock().unwrap_or_else(PoisonError::into_inner);
         let merged = repo.revert(
             MAIN,
             commit,
@@ -237,6 +245,7 @@ impl Core {
                 at: crate::clock::now(),
             },
         )?;
+        drop(held);
         self.main_moved(by, id).await?;
         Ok(Ok(if merged.clashes.is_empty() {
             format!("Reverted {} on {scholar}'s main.", short(commit))
@@ -308,6 +317,9 @@ impl Core {
             Err(refusal) => return Ok(Err(refusal)),
         };
         let layout = self.realm.layout().clone();
+        let writing = self.writing.clone();
+        let held =
+            writing.lock().unwrap_or_else(PoisonError::into_inner);
         let db = self.realm.store().connection();
         for hire in hires::living_of(db, id)? {
             let lodge = layout.lodge(&hire.hamlet, hire.number);
@@ -322,6 +334,7 @@ impl Core {
         }
         let rewritten =
             hamlet_git::purge(&layout.repository(id), path)?;
+        drop(held);
         let by = Actor::Chief(self.realm.chief());
         self.main_moved(by, id).await?;
         Ok(Ok(format!(

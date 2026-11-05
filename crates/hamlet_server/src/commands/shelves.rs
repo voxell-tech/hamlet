@@ -1,6 +1,8 @@
 //! A chief's commands on skills: giving one to a scholar, and taking
 //! one off the library's shelves.
 
+use std::sync::PoisonError;
+
 use anyhow::Result;
 use hamlet_store::ids::{Actor, HamletId};
 
@@ -43,9 +45,13 @@ impl Core {
         } else {
             format!("Took {skill} off the shelves: {reason}")
         };
-        let Some(commit) =
-            library::unshelve(&layout, skill, &message, &by, at)?
-        else {
+        let writing = self.writing.clone();
+        let held =
+            writing.lock().unwrap_or_else(PoisonError::into_inner);
+        let unshelved =
+            library::unshelve(&layout, skill, &message, &by, at)?;
+        drop(held);
+        let Some(commit) = unshelved else {
             return Ok(Err(Refusal::NoSkill {
                 name: (*skill).into(),
             }));

@@ -25,7 +25,7 @@ use crate::clock;
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
 use crate::gifts::Gifts;
-use crate::knowledge::runner::Runner;
+use crate::knowledge::runner::{Runner, Writing, run_due};
 use crate::providers::{FAUX, Providers};
 use crate::realm::Realm;
 use crate::society::agents;
@@ -72,6 +72,9 @@ pub(crate) struct Core {
     /// The file gifts being sent.
     pub gifts: Gifts,
     runner: Runner,
+    /// Held while anything writes the realm's repositories and
+    /// lodges.
+    pub writing: Writing,
 }
 
 /// A conversation's transcript and activity, as kept and as running.
@@ -111,7 +114,12 @@ impl Core {
         let (worked_to, worked) = mpsc::unbounded_channel();
         let (events_to, events) = mpsc::channel(128);
         let (ran_to, ran) = mpsc::unbounded_channel();
-        let runner = Runner::start(realm.layout(), worked_to)?;
+        let writing = Writing::default();
+        let runner = Runner::start(
+            realm.layout(),
+            worked_to,
+            writing.clone(),
+        )?;
         let layout = realm.layout().clone();
         crate::knowledge::library::open(&layout, clock::now())?;
         let shells = Shells::local();
@@ -151,6 +159,7 @@ impl Core {
             leases: Authority::default(),
             gifts: Gifts::default(),
             runner,
+            writing,
         };
         core.retool()?;
         core.start_providers()?;
@@ -273,6 +282,16 @@ impl Core {
 
     async fn after(&mut self, touched: Touched) -> Result<()> {
         if touched.jobs {
+            // The change's effects come before anything that reads
+            // them; one that fails is run again by the runner.
+            let layout = self.realm.layout().clone();
+            let db = self.realm.store().connection();
+            if let Err(error) = run_due(db, &layout, &self.writing) {
+                tell(
+                    Secrets::Fixed,
+                    format!("running jobs: {error:#}"),
+                );
+            }
             self.runner.wake();
         }
         if !touched.agents.is_empty() || !touched.hamlets.is_empty() {
@@ -897,6 +916,27 @@ impl Core {
             }
             RuntimeMessage::Page(_) | RuntimeMessage::Statuses(_) => {
             }
+        }
+        Ok(())
+    }
+
+    /// Readies the realm to stop: every sign-in ends, and a
+    /// credential rotation begun may finish within `grace`, so no
+    /// refreshed token is lost.
+    pub async fn close(
+        &mut self,
+        inbox: &mut Inbox,
+        grace: std::time::Duration,
+    ) -> Result<()> {
+        inbox.listener = None;
+        self.providers.close_all();
+        self.send_providers().await?;
+        let deadline = std::time::Instant::now() + grace;
+        while self.leases.is_holding()
+            && std::time::Instant::now() < deadline
+        {
+            self.step(inbox, std::time::Duration::from_millis(100))
+                .await?;
         }
         Ok(())
     }

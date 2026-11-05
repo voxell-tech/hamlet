@@ -62,6 +62,21 @@ impl Core {
         })
     }
 
+    /// Whether a chief withdrew the instruction of `call`'s turn, so
+    /// none of its calls runs any more.
+    pub(super) fn withdrawn(
+        &mut self,
+        call: &Call<'_>,
+    ) -> Result<bool> {
+        let Some(task) = self.instruction(call)? else {
+            return Ok(false);
+        };
+        let db = self.realm.store().connection();
+        Ok(kept(db, task)?
+            .and_then(|found| found.ruling)
+            .is_some_and(|ruling| ruling == "withdraw"))
+    }
+
     /// Whether a chief considers an objection to the instruction of
     /// `call`'s turn, holding the call on it until the chief rules.
     pub(super) fn objecting(

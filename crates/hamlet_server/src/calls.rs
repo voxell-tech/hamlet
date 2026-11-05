@@ -445,6 +445,15 @@ impl Core {
             tool: &asked.tool,
             arguments: &asked.arguments,
         };
+        if call.tool != "object" && self.withdrawn(&call)? {
+            self.tell_call(
+                &reply,
+                &asked.key,
+                Answer::Refusal(held::WITHDRAWN.into()),
+            )
+            .await;
+            return Ok(());
+        }
         if self.objecting(&call)? {
             self.tell_call(
                 &reply,
@@ -546,6 +555,8 @@ impl Core {
                     return Ok(());
                 }
             }
+        } else if self.withdrawn(&call)? {
+            Some(said(held::WITHDRAWN, true))
         } else if self.objecting(&call)? {
             self.tell_call(
                 &reply,

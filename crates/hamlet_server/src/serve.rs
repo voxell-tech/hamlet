@@ -21,6 +21,8 @@ use crate::talk::process::Pi;
 
 /// How long a closing realm waits for its runtimes to stop.
 const STOPPING: Duration = Duration::from_secs(30);
+/// How long a closing realm waits for a credential rotation begun.
+const ROTATING: Duration = Duration::from_secs(15);
 
 const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
                      <n>] [--faux <file>] [--insecure]";
@@ -182,6 +184,11 @@ pub async fn serve(options: Options) -> Result<()> {
         _ = tokio::time::timeout(GRACE, drained) => {}
     }
     core.clients.tasks.abort_all();
+    let closed = core.close(&mut inbox, ROTATING);
+    tokio::select! {
+        () = signals.next() => std::process::exit(130),
+        closed = closed => closed?,
+    }
     let stopped = core.stop(STOPPING);
     tokio::select! {
         () = signals.next() => std::process::exit(130),

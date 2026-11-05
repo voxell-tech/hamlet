@@ -209,8 +209,14 @@ impl Core {
                     settings.model = model;
                 }
                 if let Some(every) = set.reflect_every {
-                    settings.reflect_every =
-                        u64::try_from(every).unwrap_or(0);
+                    let Ok(every) = u64::try_from(every) else {
+                        return Ok(Err(Refusal::Usage {
+                            words: "Reflect after zero or more \
+                                    turns."
+                                .into(),
+                        }));
+                    };
+                    settings.reflect_every = every;
                 }
                 if let Some(net) = set.allow_net {
                     settings.allow_net = net;
@@ -218,14 +224,45 @@ impl Core {
                 if let Some(effort) = set.effort {
                     settings.effort = effort.map(effort_of);
                 }
+                let mut removed = Vec::new();
                 if let Some(endpoints) = set.endpoints {
-                    settings.endpoints = endpoints
+                    let endpoints = endpoints
                         .into_iter()
                         .map(|e| crate::settings::Endpoint {
-                            name: e.name,
-                            base_url: e.base_url,
+                            name: e.name.trim().to_owned(),
+                            base_url: e.base_url.trim().to_owned(),
                         })
+                        .collect::<Vec<_>>();
+                    if let Some(words) = endpoint_fault(&endpoints) {
+                        return Ok(Err(Refusal::Usage { words }));
+                    }
+                    removed = settings
+                        .endpoints
+                        .iter()
+                        .filter(|old| {
+                            !endpoints
+                                .iter()
+                                .any(|e| e.name == old.name)
+                        })
+                        .map(|old| old.name.clone())
                         .collect();
+                    settings.endpoints = endpoints;
+                }
+                if let Some(provider) = settings.provider()
+                    && !settings
+                        .endpoints
+                        .iter()
+                        .any(|e| e.name == provider)
+                    && !self.env.overrides.faux
+                {
+                    return Ok(Err(Refusal::Usage {
+                        words: format!(
+                            "The model `{}` is served by the \
+                             endpoint `{provider}`, which the \
+                             settings would no longer have.",
+                            settings.model
+                        ),
+                    }));
                 }
                 settings.saved = true;
                 let db = self.realm.store().connection();
@@ -235,6 +272,9 @@ impl Core {
                     at,
                     Some(chief),
                 )?;
+                for name in removed {
+                    self.credentials.save_model(&name, None)?;
+                }
                 self.env.settings =
                     self.env.overrides.apply(settings);
                 self.publish().await?;
@@ -279,6 +319,9 @@ impl Core {
                     }));
                 };
                 let own = limits_of(&edited);
+                if let Some(words) = own.fault() {
+                    return Ok(Err(Refusal::Usage { words }));
+                }
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, _| {
                         hamlets::set_limits(cx, &id, &own)
@@ -304,6 +347,9 @@ impl Core {
                     roads_between: edited.roads_between,
                     budget: budget_of(&edited.budget),
                 };
+                if let Some(words) = own.budget.fault() {
+                    return Ok(Err(Refusal::Usage { words }));
+                }
                 diesel::replace_into(document::table)
                     .values((
                         document::kind.eq("limits"),
@@ -330,6 +376,10 @@ impl Core {
     ) -> Result<()> {
         let path = self.realm.layout().repository(scholar);
         let author = by.to_string();
+        let writing = self.writing.clone();
+        let held = writing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let repo = Repository::open(&path)?;
         repo.commit(
             MAIN,
@@ -340,6 +390,7 @@ impl Core {
                 at: crate::clock::now(),
             },
         )?;
+        drop(held);
         self.main_moved(by, scholar).await
     }
 
@@ -645,6 +696,46 @@ fn edit_id(edit: &Edit) -> &RequestId {
         | Edit::Settings { id, .. }
         | Edit::Catalogue { id, .. } => id,
     }
+}
+
+/// What is wrong with `endpoints`, in words; none when they hold. A
+/// key goes in a sign-in, never in an address.
+fn endpoint_fault(
+    endpoints: &[crate::settings::Endpoint],
+) -> Option<String> {
+    for (at, endpoint) in endpoints.iter().enumerate() {
+        if endpoint.name.is_empty() || endpoint.name.contains("::") {
+            return Some(
+                "An endpoint has a name without `::`.".into(),
+            );
+        }
+        if endpoints[..at].iter().any(|e| e.name == endpoint.name) {
+            return Some(format!(
+                "Two endpoints are named `{}`.",
+                endpoint.name
+            ));
+        }
+        let Ok(url) = url::Url::parse(&endpoint.base_url) else {
+            return Some(format!(
+                "`{}` is not an address.",
+                endpoint.base_url
+            ));
+        };
+        if !matches!(url.scheme(), "http" | "https") {
+            return Some(format!(
+                "`{}` is not an http or https address.",
+                endpoint.base_url
+            ));
+        }
+        if !url.username().is_empty() || url.password().is_some() {
+            return Some(
+                "An address may not hold a name or a key; sign in \
+                 to the endpoint with its key instead."
+                    .into(),
+            );
+        }
+    }
+    None
 }
 
 fn effort_of(effort: hamlet_protocol::Effort) -> hires::Effort {

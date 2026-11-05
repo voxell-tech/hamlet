@@ -54,6 +54,11 @@ impl Authority {
         }
     }
 
+    /// Whether a runtime holds a lease, rotating a credential.
+    pub fn is_holding(&self) -> bool {
+        !self.held.is_empty()
+    }
+
     pub fn gone(&mut self, runtime: usize) {
         self.scopes.retain(|(at, _), _| *at != runtime);
         self.held.retain(|_, lease| lease.runtime != runtime);

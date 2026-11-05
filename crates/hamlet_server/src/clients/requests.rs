@@ -172,7 +172,10 @@ impl Core {
             return Ok(());
         }
         match message {
-            ClientMessage::Hello(_) => Ok(()),
+            ClientMessage::Hello(_) => self.answer(
+                client,
+                fault(None, "This connection said hello already."),
+            ),
             ClientMessage::Say(say) => {
                 let agent = AgentId(i64::try_from(say.to.0)?);
                 if let Err(refusal) = self.reaches(agent)? {

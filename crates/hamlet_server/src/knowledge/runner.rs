@@ -2,6 +2,7 @@
 //! connection of its own.
 
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -21,12 +22,39 @@ pub(crate) struct Runner {
     thread: Option<JoinHandle<()>>,
 }
 
+/// Held while jobs run, so that the loop and the runner never write
+/// the realm's repositories and lodges at once.
+pub(crate) type Writing = Arc<Mutex<()>>;
+
+/// Runs every job due now, holding `writing`. Returns how many ran.
+pub(crate) fn run_due(
+    db: &mut hamlet_store::Db,
+    layout: &Layout,
+    writing: &Writing,
+) -> Result<usize> {
+    let _held =
+        writing.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut ran = 0;
+    // A job may keep jobs of its own, which run in the next pass.
+    for _ in 0..4 {
+        let now = clock::now();
+        let count = super::run::due(db, layout, now)?;
+        ran += count;
+        if count == 0 {
+            break;
+        }
+    }
+    Ok(ran)
+}
+
 impl Runner {
-    /// Starts the runner for the realm at `layout`. It sends `worked`
+    /// Starts the runner for the realm at `layout`, which runs again
+    /// the jobs that failed when their time comes. It sends `worked`
     /// after each pass that ran a job.
     pub fn start(
         layout: &Layout,
         worked: UnboundedSender<()>,
+        writing: Writing,
     ) -> Result<Self> {
         let mut store = Store::open(&layout.database())?;
         let layout = layout.clone();
@@ -35,11 +63,10 @@ impl Runner {
             .name("hamlet-jobs".into())
             .spawn(move || {
                 loop {
-                    let now = clock::now();
-                    match super::run::due(
+                    match run_due(
                         store.connection(),
                         &layout,
-                        now,
+                        &writing,
                     ) {
                         Ok(0) => {}
                         Ok(_) => {

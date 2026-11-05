@@ -112,6 +112,16 @@ impl Providers {
         self.pending.retain(|_, s| s.client() != Some(client));
     }
 
+    /// Ends every sign-in and request, as the server closes.
+    pub fn close_all(&mut self) {
+        for scope in self.pending.keys() {
+            self.controls.push(control(scope, None, None));
+        }
+        self.pending.clear();
+        self.logins.clear();
+        self.outgoing.clear();
+    }
+
     /// The address `provider` lists `model` at.
     pub fn base_url(
         &self,
@@ -389,6 +399,24 @@ impl Core {
         use hamlet_protocol::client::ClientMessage;
         let mut answers = Vec::new();
         match message {
+            ClientMessage::Check(check) if self.providers.faux => {
+                let id = match check {
+                    Check::Model { id, .. }
+                    | Check::Connection { id } => id,
+                };
+                let words = "Every agent runs the faux model here.";
+                self.model_link(
+                    LinkState::Connected,
+                    None,
+                    Some(words),
+                )?;
+                self.answer(
+                    client,
+                    reply(id, Ok::<_, Refusal>(words.into())),
+                )?;
+                self.publish().await?;
+                return Ok(true);
+            }
             ClientMessage::Check(check) => {
                 let (id, name, action) = match check {
                     Check::Model { id, model } => (

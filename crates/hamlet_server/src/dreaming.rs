@@ -207,8 +207,16 @@ impl Core {
                 dreams::begin(cx, kind, scholar, hire, ending)
             })
             .await?;
+        let writing = self.writing.clone();
+        let held = writing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let db = self.realm.store().connection();
-        if !dreaming::prepare(db, &layout, id, crate::clock::now())? {
+        let ready =
+            dreaming::prepare(db, &layout, id, crate::clock::now())?;
+        drop(held);
+        let db = self.realm.store().connection();
+        if !ready {
             dreams::end(
                 db,
                 id,

@@ -49,6 +49,48 @@ impl Default for Limits {
     }
 }
 
+impl Limits {
+    /// What is wrong with these limits, in words; none when they
+    /// hold.
+    pub fn fault(&self) -> Option<String> {
+        let negative = [
+            ("a task's cost", self.task.cost.unwrap_or(0)),
+            ("a task's minutes", self.task.minutes.unwrap_or(0)),
+            ("a task's messages", self.task.messages),
+            ("a road's price", self.road.price),
+            ("the most roads", self.road.most),
+            ("the days a road stays", self.road.grows_over_days),
+            ("the days of decisions told", self.told_days),
+            ("the questions a turn asks", self.asking.questions),
+            ("the refusals a turn takes", self.asking.refusals),
+            ("the protected minutes", self.protected_minutes),
+        ]
+        .into_iter()
+        .find(|(_, value)| *value < 0);
+        if let Some((what, _)) = negative {
+            return Some(format!("{what} cannot be less than zero"));
+        }
+        if self.depth < 1 {
+            return Some(
+                "a tree is at least one deep under its mayor".into(),
+            );
+        }
+        self.budget.fault()
+    }
+}
+
+impl Budget {
+    /// What is wrong with this budget, in words; none when it holds.
+    pub fn fault(&self) -> Option<String> {
+        if self.cost.is_some_and(|cost| cost < 0)
+            || self.minutes.is_some_and(|minutes| minutes < 0)
+        {
+            return Some("a budget cannot be less than zero".into());
+        }
+        None
+    }
+}
+
 /// A budget for a period, on cost and model time (H8).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]

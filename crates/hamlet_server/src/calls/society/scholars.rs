@@ -2,6 +2,8 @@
 //! at a version, a file of `main` written, a version named, a commit
 //! undone. A change waits for a chief before it gets here.
 
+use std::sync::PoisonError;
+
 use anyhow::Result;
 use hamlet_git::{
     Author, Change as GitChange, CommitId, MAIN, Repository,
@@ -183,6 +185,9 @@ impl Core {
             }));
         };
         let by = Actor::Agent(call.conversation.agent).to_string();
+        let writing = self.writing.clone();
+        let _held =
+            writing.lock().unwrap_or_else(PoisonError::into_inner);
         repo.tag(
             &tag,
             at,
@@ -216,6 +221,9 @@ impl Core {
         let by = Actor::Agent(call.conversation.agent);
         let author = by.to_string();
         let reason = text(call, "reason");
+        let writing = self.writing.clone();
+        let held =
+            writing.lock().unwrap_or_else(PoisonError::into_inner);
         let merged = repo.revert(
             MAIN,
             commit,
@@ -225,6 +233,7 @@ impl Core {
                 at: crate::clock::now(),
             },
         )?;
+        drop(held);
         self.main_moved(by, scholar).await?;
         Ok(Ok(if merged.clashes.is_empty() {
             format!("Reverted the commit on {name}'s main.")
