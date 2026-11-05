@@ -1053,7 +1053,7 @@ fn awaited(message: &RuntimeMessage) -> Option<String> {
 }
 
 /// What a test reads to wait on a condition of the realm.
-#[cfg(test)]
+#[cfg(all(test, feature = "harness"))]
 pub(crate) async fn until(
     core: &mut Core,
     inbox: &mut Inbox,

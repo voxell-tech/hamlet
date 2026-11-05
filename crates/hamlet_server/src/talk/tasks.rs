@@ -6,8 +6,9 @@ use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, HamletId, TaskId};
-use hamlet_store::schema::task;
+use hamlet_store::schema::{conversation, input, task};
 
+use super::inputs::{State, Status};
 use crate::change::Change;
 use crate::society::agents::{self, AgentKind};
 use crate::society::{hires, workers};
@@ -126,4 +127,42 @@ pub(crate) fn instructions(
         .limit(most)
         .select(Task::as_select())
         .load(db)?)
+}
+
+/// Whether a lead may not end or merge `hire` at `at` (H7): an input
+/// of a chief's task is still to end in one of its conversations, or
+/// a chief's instruction it worked on is unanswered or was answered
+/// less than `minutes` ago.
+pub(crate) fn protects(
+    db: &mut Db,
+    hire: AgentId,
+    at: i64,
+    minutes: i64,
+) -> Result<bool> {
+    let working = input::table
+        .inner_join(conversation::table)
+        .inner_join(task::table)
+        .filter(conversation::agent.eq(hire))
+        .filter(task::chief.is_not_null())
+        .filter(input::state.ne(State::Dropped))
+        .filter(
+            input::status.is_null().or(input::status
+                .ne(Status::Done)
+                .and(input::status.ne(Status::Unanswered))),
+        )
+        .count()
+        .get_result::<i64>(db)?;
+    if working > 0 || minutes <= 0 {
+        return Ok(working > 0);
+    }
+    let since = at - crate::clock::minutes(minutes);
+    let recent = input::table
+        .inner_join(conversation::table)
+        .inner_join(task::table)
+        .filter(conversation::agent.eq(hire))
+        .filter(task::origin.eq(Origin::Chief))
+        .filter(task::done_at.is_null().or(task::done_at.gt(since)))
+        .count()
+        .get_result::<i64>(db)?;
+    Ok(recent > 0)
 }

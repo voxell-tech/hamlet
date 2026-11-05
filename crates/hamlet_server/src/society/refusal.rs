@@ -90,6 +90,11 @@ pub(crate) enum Refusal {
     TooDeep { most: i64 },
     #[error("a mayor cannot be ended; seat another mayor first")]
     EndingMayor,
+    #[error(
+        "`{name}` is on a chief's task; a lead may end or merge it \
+         once it has answered and its protected minutes have passed"
+    )]
+    OnChiefsTask { name: String },
     #[error("`{name}` is already the mayor")]
     AlreadyMayor { name: String },
     #[error("`{name}` is in another hamlet")]

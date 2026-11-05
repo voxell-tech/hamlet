@@ -276,6 +276,7 @@ pub(crate) fn end(
         if is_mayor(cx.db, id)? {
             refuse!(Refusal::EndingMayor);
         }
+        done!(unprotected(cx, id));
         let children = tree::children(cx.db, Some(id))?;
         diesel::update(
             hire::table.filter(hire::agent.eq_any(&children)),
@@ -296,6 +297,25 @@ pub(crate) fn end(
     jobs::add(cx, &Job::Commit { hire: id })?;
     cx.touched.hamlets.insert(hire.hamlet);
     cx.touched.scholars.insert(hire.scholar);
+    Ok(Ok(()))
+}
+
+/// Refuses an agent that would end or merge `hire` while it is on a
+/// chief's task (H7); a chief may.
+pub(crate) fn unprotected(
+    cx: &mut Change<'_>,
+    hire: AgentId,
+) -> Done<()> {
+    if !matches!(cx.actor, Actor::Agent(_)) {
+        return Ok(Ok(()));
+    }
+    let hamlet = get(cx.db, hire)?.hamlet;
+    let minutes = limits::of(cx.db, &hamlet)?.protected_minutes;
+    if crate::talk::tasks::protects(cx.db, hire, cx.at, minutes)? {
+        refuse!(Refusal::OnChiefsTask {
+            name: super::addresses::name_of(cx.db, hire)?,
+        });
+    }
     Ok(Ok(()))
 }
 

@@ -15,7 +15,7 @@ use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::roads::{self, RoadKind};
 use super::{hires, limits, tree};
-use crate::change::{Change, Done, refuse};
+use crate::change::{Change, Done, done, refuse};
 use crate::jobs::{self, Job};
 
 /// A merge as it is kept.
@@ -85,6 +85,9 @@ pub(crate) fn merge(
     }
     if hires::is_mayor(cx.db, absorbed)? {
         refuse!(Refusal::EndingMayor);
+    }
+    for id in [kept, absorbed] {
+        done!(hires::unprotected(cx, id));
     }
     // The kept hire takes the absorbed one's place in the tree when
     // it was under it, and its hires under it either way.

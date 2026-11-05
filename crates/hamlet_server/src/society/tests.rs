@@ -7,7 +7,9 @@ use super::hires::{self, Hired, Hiring, Spec};
 use super::refusal::Refusal;
 use super::roads::{self, Agreed, Way};
 use super::workers::{self, Start, Starter};
-use super::{city, tree};
+use super::{city, merges, tree};
+use crate::settings::{Overrides, Settings};
+use crate::talk::{Env, chats};
 use crate::testing::Realm;
 
 fn docs() -> HamletId {
@@ -361,4 +363,51 @@ fn a_worker_starts_no_worker_and_works_where_its_starter_does() {
         addresses::parse("worker#3")
             .is_ok_and(|a| a == Address::Worker(AgentId(3)))
     );
+}
+
+#[test]
+fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
+    let mut realm = Realm::new();
+    let mayor = realm.found("docs", "ada").agent;
+    let bo =
+        hire(&mut realm, &docs(), mayor, new("bo")).unwrap().agent;
+    let cy =
+        hire(&mut realm, &docs(), mayor, new("cy")).unwrap().agent;
+    let env = Env {
+        settings: Settings::default(),
+        overrides: Overrides {
+            faux: true,
+            ..Overrides::default()
+        },
+    };
+    let chief = realm.chief;
+    realm
+        .chief(|cx| {
+            chats::say(
+                cx,
+                &env,
+                bo,
+                chief,
+                "r1",
+                "Count the files.",
+            )?;
+            Ok(Ok(()))
+        })
+        .unwrap();
+    // Unanswered, the chief's line keeps it from its lead.
+    let protected = Err(Refusal::OnChiefsTask {
+        name: "bo@docs".into(),
+    });
+    let ended = realm.by(Actor::Agent(mayor), |cx| {
+        hires::end(cx, bo, EndHow::Ended, "done")
+    });
+    assert_eq!(ended, protected);
+    let merged = realm.by(Actor::Agent(mayor), |cx| {
+        merges::merge(cx, cy, bo, "they overlap").map(|m| m.map(drop))
+    });
+    assert_eq!(merged, protected);
+    // A chief may.
+    realm
+        .chief(|cx| hires::end(cx, bo, EndHow::Ended, "done"))
+        .unwrap();
 }
