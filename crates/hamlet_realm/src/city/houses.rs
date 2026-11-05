@@ -22,12 +22,14 @@ const GROUNDS: f32 = 4.6;
 /// far it reaches.
 const LANTERN: (f32, f32) = (30_000.0, 6.0);
 
-/// A scholar's house, and what it was built as: where it stands,
-/// how many of its windows are lit and whether it is shuttered.
+/// A scholar's house, and what it was built as: where it stands, the
+/// way its door faces, how many of its windows are lit and whether
+/// it is shuttered.
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 pub(super) struct Home {
     scholar: Entity,
     at: Vec2,
+    turn: f32,
     lit: usize,
     shut: bool,
 }
@@ -64,6 +66,7 @@ fn wanted(
             Some(Home {
                 scholar: entity,
                 at: city + Vec2::new(at.x as f32, at.z as f32),
+                turn: at.turn as f32,
                 lit: if shut {
                     0
                 } else {
@@ -134,8 +137,7 @@ pub(super) fn tend(
         // The first panes are the lit ones, the rest are dark, or
         // shuttered.
         let lit = built.panes.take_quads(want.lit);
-        let toward = (-want.at).normalize_or(Vec2::Y);
-        let yaw = Quat::from_rotation_y(toward.x.atan2(toward.y));
+        let yaw = Quat::from_rotation_y(want.turn);
         let lamp = built.lamp;
         let house = commands
             .spawn((

@@ -10,6 +10,9 @@ use crate::generator::testing::rehearse;
 use crate::pick::PickSettings;
 use crate::sky::Quality;
 
+/// The way every house's door faces.
+const TURN: f64 = 1.0;
+
 fn scholar(
     id: u64,
     house: Option<(f64, f64)>,
@@ -25,7 +28,7 @@ fn scholar(
         chief: String::new(),
         hires: hires.into_iter().map(protocol::AgentId).collect(),
         house: house.map(|(x, z)| protocol::HouseAt {
-            turn: 0.0,
+            turn: TURN,
             x,
             z,
         }),
@@ -85,6 +88,16 @@ fn the_city_has_a_tower_and_a_house_for_each_scholar_with_a_spot() {
         .collect::<Vec<_>>();
     homes.sort();
     assert_eq!(homes, [(0, true), (1, false)]);
+    // Each is turned as its scholar's house says.
+    let turns = world
+        .query_filtered::<&Transform, With<Home>>()
+        .iter(world)
+        .map(|at| at.rotation.to_euler(EulerRot::YXZ).0)
+        .collect::<Vec<_>>();
+    assert_eq!(turns.len(), 2);
+    for turn in turns {
+        assert!((turn - TURN as f32).abs() < 1e-4, "{turn}");
+    }
     // The island is grown about the tower and both houses.
     let land = world.resource::<Land>();
     for spot in [Vec2::ZERO, Vec2::new(60.0, 20.0)] {
