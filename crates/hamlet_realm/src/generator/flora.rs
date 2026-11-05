@@ -61,8 +61,8 @@ pub(crate) fn tag(at: Vec3) -> u32 {
 
 /// The mesh of `form` of [`FORMS`], about three and a half units
 /// tall, standing on the origin. Its leaves are cards painted with
-/// strokes over a darker core, so that no sky shows through the
-/// crown; what is not a card lies at UV zero, on solid paint.
+/// strokes in layers with gaps between, and no solid core. What is
+/// not a card lies at UV zero, on solid paint.
 pub fn mesh(pal: &Palette, form: usize) -> Mesh {
     let (kind, variant) = (form / VARIANTS, form % VARIANTS);
     let mut rng = Rng::seeded(&format!("tree {kind} {variant}"));
@@ -123,7 +123,7 @@ fn spread(n: usize, turn: f32) -> impl Iterator<Item = Vec3> {
 }
 
 /// A broadleaf: a trunk that forks into the crown, and the crown as
-/// clumps of dabs over darker cores, lighter and warmer to the top.
+/// clumps of large daubs in layers, lighter and warmer to the top.
 fn broadleaf(
     meshing: &mut Meshing,
     rng: &mut Rng,
@@ -179,60 +179,84 @@ fn broadleaf(
 
     let crown = meshing.vertices();
     let (low, high) = (middle.y - tall, middle.y + tall);
+    let accent = accent(pal, kind, light);
     for (k, &(at, r)) in clumps.iter().enumerate() {
-        let core = shade.lerp(light, 0.15) * 0.8;
-        meshing.blob(
-            at,
-            Vec3::new(r, r * 0.9, r) * 0.82,
-            5,
-            0.15,
-            rng.f() * 40.0,
-            move |_| core,
-        );
-        let n = ((70.0 * r * r) as usize).max(14);
-        for d in spread(n, rng.f() * TAU) {
-            let p = at + d * r * rng.range(0.92, 1.08);
-            // Hidden inside another clump.
-            let buried =
-                clumps.iter().enumerate().any(|(j, &(c, rc))| {
-                    j != k && p.distance(c) < rc * 0.86
-                });
-            if buried || (d.y < -0.55 && rng.f() < 0.5) {
-                continue;
+        // Daubs at three depths, so the clump has body without a
+        // solid core; the deeper ones fewer, larger and a little
+        // darker, and gaps left between them where the sky shows.
+        for (depth, (reach, share, grow, dim)) in [
+            (1.0, 1.0, 1.0, 1.0),
+            (0.7, 0.55, 1.15, 0.86),
+            (0.4, 0.3, 1.3, 0.74),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let n = ((110.0 * r * r * share) as usize).max(12);
+            for d in spread(n, rng.f() * TAU) {
+                let p = at + d * r * reach * rng.range(0.9, 1.1);
+                // Hidden inside another clump.
+                let buried =
+                    clumps.iter().enumerate().any(|(j, &(c, rc))| {
+                        j != k && p.distance(c) < rc * 0.8
+                    });
+                if buried || (d.y < -0.6 && rng.f() < 0.5) {
+                    continue;
+                }
+                let face = (d + Vec3::Y * 0.25).normalize();
+                let (u, w) = face.any_orthonormal_pair();
+                let turn = rng.f() * TAU;
+                let along = u * turn.cos() + w * turn.sin();
+                // So that the card faces out, as `card` takes its
+                // face.
+                let side = along.cross(face);
+                let size = rng.range(0.37, 0.51) * wide * grow;
+                let stroke = if rng.f() < 0.65 {
+                    Stroke::Dab
+                } else {
+                    Stroke::Blot
+                };
+                // Each daub its own colour of the kind's: lighter up
+                // the crown, some sunlit on top, some of the accent.
+                let up = smoothstep(low + 0.1, high - 0.2, p.y);
+                let roll = rng.f();
+                let colour = if depth == 0 && d.y > 0.3 && roll < 0.3
+                {
+                    sunny
+                } else if roll > 0.82 {
+                    accent
+                } else {
+                    shade.lerp(light, 0.3 + 0.7 * up)
+                };
+                card(
+                    meshing,
+                    p - along * size * 0.5,
+                    along * size,
+                    side * size * 1.1,
+                    stroke,
+                    colour * dim * rng.value(0.08),
+                );
             }
-            let face = (d + Vec3::Y * 0.25).normalize();
-            let (u, w) = face.any_orthonormal_pair();
-            let turn = rng.f() * TAU;
-            let along = u * turn.cos() + w * turn.sin();
-            // So that the card faces out, as `card` takes its face.
-            let side = along.cross(face);
-            let size = rng.range(0.5, 0.68) * wide;
-            let stroke = if rng.f() < 0.6 {
-                Stroke::Dab
-            } else {
-                Stroke::Blot
-            };
-            let up = smoothstep(low + 0.1, high - 0.2, p.y);
-            let mut colour = shade.lerp(light, up);
-            if d.y > 0.35 && rng.f() < 0.35 {
-                colour = sunny;
-            }
-            card(
-                meshing,
-                p - along * size * 0.5,
-                along * size,
-                side * size * 1.1,
-                stroke,
-                colour * rng.value(0.07),
-            );
         }
     }
     meshing.round(crown, middle, 0.75);
 }
 
-/// A conifer: a thin trunk, skirts of dark needles in tiers, and
-/// long strokes hanging from each skirt past its edge, olive at the
-/// top and dark below.
+/// A colour a kind's crown is dabbed with here and there, apart
+/// from its light and shade: yellower in green leaves, redder in
+/// autumn, paler in blossom.
+fn accent(pal: &Palette, kind: usize, light: Vec3) -> Vec3 {
+    if kind == BLOSSOM {
+        pal.blossom.lerp(Vec3::ONE, 0.45)
+    } else if kind == AUTUMN {
+        pal.autumn.lerp(pal.blossom, 0.5)
+    } else {
+        light.lerp(pal.grass_tip, 0.6)
+    }
+}
+
+/// A conifer: a thin trunk, and tiers of long strokes hanging about
+/// it out past each tier's edge, olive at the top and dark below.
 fn conifer(
     meshing: &mut Meshing,
     rng: &mut Rng,
@@ -265,19 +289,17 @@ fn conifer(
             1.15 * wide * (1.0 - k * 0.78) * rng.range(0.92, 1.08);
         let h = span / tiers as f32 * 1.8;
         let colour = dark.lerp(top_colour, k);
-        let core = dark * 0.75;
-        meshing.lathe(
-            Vec3::Y * base,
-            &[(r * 0.85, 0.0), (r * 0.45, h * 0.55), (0.0, h)],
-            8,
-            move |_, _| core,
-        );
-        // Two rows of strokes: the long ones from halfway up out past
-        // the edge, and shorter ones above them.
-        for (row, (from, to, length)) in
-            [(0.55, 1.15, 1.0), (0.2, 0.7, 0.75)]
-                .into_iter()
-                .enumerate()
+        // Three rows of strokes and no solid core: the long ones from
+        // halfway up out past the edge, shorter ones above them, and
+        // darker ones close about the trunk, so the tier has body and
+        // gaps where the sky shows.
+        for (row, (from, to, length, rise, dim)) in [
+            (0.55, 1.15, 1.0, 0.45, 1.0),
+            (0.2, 0.7, 0.75, 0.85, 1.0),
+            (0.05, 0.5, 0.6, 0.65, 0.8),
+        ]
+        .into_iter()
+        .enumerate()
         {
             let count = ((TAU * r * to / 0.3) as usize).max(6);
             let turn = rng.f() * TAU;
@@ -286,7 +308,6 @@ fn conifer(
                     + i as f32 / count as f32 * TAU
                     + rng.sym(0.15);
                 let out = Vec3::new(a.cos(), 0.0, a.sin());
-                let rise = if row == 0 { 0.45 } else { 0.85 };
                 let top =
                     Vec3::Y * (base + h * rise) + out * r * from;
                 let end = Vec3::Y * (base - h * 0.12 * length)
@@ -295,8 +316,8 @@ fn conifer(
                 let across = Vec3::new(-a.sin(), 0.0, a.cos())
                     * rng.range(0.28, 0.4)
                     * wide;
-                let mut c =
-                    colour.lerp(top_colour, 0.25 * row as f32);
+                let lift = if row == 1 { 0.25 } else { 0.0 };
+                let mut c = colour.lerp(top_colour, lift);
                 if snowy && row == 1 {
                     c = c.lerp(pal.conifer_snow, 0.7);
                 }
@@ -306,7 +327,7 @@ fn conifer(
                     down,
                     across,
                     Stroke::Hang,
-                    c * rng.value(0.08),
+                    c * dim * rng.value(0.08),
                 );
             }
         }

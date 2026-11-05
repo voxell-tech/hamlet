@@ -1,7 +1,7 @@
 //! The Sight page: how much the world draws, whether the window waits
 //! for the screen, the camera put back, the hour its sky shows,
-//! how far the distance fog lies and the volumetric fog the sun
-//! throws shafts through.
+//! how far the distance fog lies, how hard the wind blows and the
+//! volumetric fog the sun throws shafts through.
 
 use bevy::app::App;
 use bevy::ecs::component::Mutable;
@@ -24,8 +24,10 @@ use hamlet_ui::styles::{action, close, description, note, parts};
 use hamlet_ui::widgets::dial::{Face, dial};
 use hamlet_ui::widgets::disclosure::disclosure;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::range::range;
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{View, built, with_cx};
+use hamlet_vfx::wind::WindChoice;
 
 use super::{field, told};
 use crate::roll::moved;
@@ -191,6 +193,49 @@ fn amount<R: Resource<Mutability = Mutable>>(
     })
 }
 
+/// How hard the wind blows at its calmest and at its strongest, both
+/// on one track, and how turbulent it is.
+fn wind() -> impl View {
+    with_cx(|cx| {
+        column((
+            row((
+                glyph(Glyph::Meter, AMOUNT_ICON)
+                    .tone(Tone::Dim)
+                    .tooltip(|| note("Strength")),
+                range(
+                    resource::<WindChoice, _>(|wind| wind.least),
+                    resource::<WindChoice, _>(|wind| wind.most),
+                    WindChoice::STRENGTH,
+                    |world, least, most| {
+                        let mut wind =
+                            world.resource_mut::<WindChoice>();
+                        if (wind.least, wind.most) != (least, most) {
+                            wind.least = least;
+                            wind.most = most;
+                        }
+                    },
+                ),
+                label(resource::<WindChoice, _>(|wind| {
+                    format!("{:.2}-{:.2}", wind.least, wind.most)
+                }))
+                .wide(px(72.0)),
+            ))
+            .gap(cx.theme().space.gap)
+            .width(percent(100.0))
+            .align(AlignItems::Center),
+            amount::<WindChoice>(
+                Glyph::Scatter,
+                "Turbulence",
+                |wind| wind.turbulence,
+                |wind, to| wind.turbulence = to,
+                (0.0, 1.0),
+            ),
+        ))
+        .gap(cx.theme().space.gap / 2.0)
+        .width(percent(100.0))
+    })
+}
+
 /// The volumetric fog's switch, its numbers and the way back to the
 /// designed fog.
 fn volumetric_fog() -> impl View {
@@ -298,6 +343,17 @@ pub(super) fn page() -> impl View {
                     (200.0, 2000.0),
                 ),
                 description("Further draws more land."),
+            ),
+        ),
+        field(
+            "Wind",
+            told(
+                wind(),
+                description(
+                    "How hard it blows, at its calmest and its \
+                     strongest, and how unevenly from plant to \
+                     plant.",
+                ),
             ),
         ),
         disclosure(

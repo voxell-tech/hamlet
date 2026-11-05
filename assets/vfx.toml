@@ -47,9 +47,11 @@ musing_in = 0.4
 [wind]
 gap = [0.5, 1.6]
 heading = 70.0
-veer = 18.0
-band = [30.0, 6.0]
+veer = 60.0
+breadth = [40.0, 2.0]
+speed = 6.0
 calm = 0.45
+swell = 40.0
 length = 17.0
 width = 0.42
 height = [1.8, 5.5]
@@ -58,6 +60,11 @@ dash = 0.5
 curl = 0.08
 light = 0.9
 night = 0.35
+
+[wind_choice]
+least = 0.8
+most = 1.65
+turbulence = 0.74
 
 [flag]
 speed = 5.0
@@ -123,7 +130,7 @@ rim_light = 0.35
 tall = 0.42
 spread = 1.45
 wide = 0.022
-blades = [80, 40, 14]
+blades = [70, 40, 14]
 kept = [1.0, 0.4, 0.16]
 spacing = 0.6
 coarse_spacing = 0.7
@@ -139,7 +146,8 @@ flowers = 0.35
 glow = 3.0
 pulse = [7.0, 0.6]
 halo = 0.18
-rings = [24.0, 60.0, 98.0]
+rings = [45.0, 66.0, 97.0]
+shorten = 5.0
 
 [pads]
 glow = 2.0
