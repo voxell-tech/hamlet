@@ -10,10 +10,10 @@ use hamlet_protocol::client::{
     TranscriptOperation,
 };
 use hamlet_protocol::runtime::{self, Block};
+use hamlet_sandbox::scrub::Scrubber;
 use serde_json::Value;
 
-use crate::harness::InputMark;
-use crate::scrub::Scrubber;
+use crate::talk::marks::Mark;
 
 /// Characters of a tool's arguments a transcript shows.
 const SUMMARY: usize = 200;
@@ -134,7 +134,8 @@ impl Fold {
                 change: change.map(Some),
             });
             if entry.tool.as_deref() == Some("ask_chief")
-                && let Some(text) = super::asking::said(&entry.text)
+                && let Some(text) =
+                    crate::talk::asking::said(&entry.text)
             {
                 self.add(
                     Item {
@@ -278,7 +279,7 @@ pub(crate) fn items_of(
         text,
         tool: None,
     };
-    let mark = InputMark::of_item(entry.mark.as_ref())?;
+    let mark = Mark::of_item(entry.mark.as_ref())?;
     let at = match &mark {
         Some(mark) => {
             u64::try_from(mark.at()).with_context(|| {
@@ -288,7 +289,7 @@ pub(crate) fn items_of(
         None => entry.at,
     };
     match mark {
-        Some(InputMark::Chief { chief, text, .. }) => {
+        Some(Mark::Chief { chief, text, .. }) => {
             return Ok(vec![(
                 0,
                 Item {
@@ -298,30 +299,30 @@ pub(crate) fn items_of(
                 },
             )]);
         }
-        Some(InputMark::Notice { text, .. }) => {
+        Some(Mark::Notice { text, .. }) => {
             return Ok(vec![(0, item(ItemKind::Notice, text, at))]);
         }
-        Some(InputMark::Reflection { .. }) => {
+        Some(Mark::Reflection { .. }) => {
             return Ok(vec![(
                 0,
                 item(ItemKind::Notice, "reflection".into(), at),
             )]);
         }
-        Some(InputMark::Retry { .. }) => {
+        Some(Mark::Retry { .. }) => {
             return Ok(vec![(
                 0,
                 item(ItemKind::Notice, entry.text.clone(), at),
             )]);
         }
         Some(
-            InputMark::Letter(letter)
-            | InputMark::Question(letter)
-            | InputMark::Reply(letter),
+            Mark::Letter(letter)
+            | Mark::Question(letter)
+            | Mark::Reply(letter),
         ) if entry.kind == runtime::ItemKind::User => {
             return Ok(vec![(
                 0,
                 Item {
-                    author: letter.author,
+                    author: Some(letter.author),
                     ..item(ItemKind::User, entry.text.clone(), at)
                 },
             )]);
@@ -385,7 +386,9 @@ fn blocks_of(
                 let change = if name == "write" {
                     None
                 } else {
-                    crate::change::change_of(name, &arguments, None)
+                    crate::work::cut::change_of(
+                        name, &arguments, None,
+                    )
                 };
                 items.push((
                     index,

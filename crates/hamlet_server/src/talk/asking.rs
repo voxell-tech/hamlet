@@ -6,13 +6,13 @@ use serde::Deserialize;
 use serde_json::Value;
 
 /// The most questions one call may ask.
-pub(super) const MOST_QUESTIONS: usize = 10;
+pub(crate) const MOST_QUESTIONS: usize = 10;
 
 /// The most options one question may offer.
-pub(super) const MOST_OPTIONS: usize = 6;
+pub(crate) const MOST_OPTIONS: usize = 6;
 
 /// The head of every answer the chief gives to `ask_chief`.
-pub(super) const ANSWERS: &str = "The chief answers:";
+pub(crate) const ANSWERS: &str = "The chief answers:";
 
 /// The arguments of `ask_chief`, as the tool's schema has them.
 #[derive(Deserialize)]
@@ -53,7 +53,7 @@ enum AskChiefOption {
 /// The fault in an `ask_chief` call's arguments, for the agent to
 /// put right.
 #[derive(Debug, thiserror::Error)]
-pub(super) enum Unasked {
+pub(crate) enum Unasked {
     #[error("the arguments are not JSON")]
     NotJson,
     #[error("the arguments are not valid: {0}")]
@@ -77,7 +77,7 @@ pub(super) enum Unasked {
 
 /// The fault in picks that do not answer the questions they are for.
 #[derive(Debug, thiserror::Error)]
-pub(super) enum Unanswered {
+pub(crate) enum Unanswered {
     #[error("every question needs an answer")]
     Unequal,
     #[error("question {0} has no such option")]
@@ -89,7 +89,7 @@ pub(super) enum Unanswered {
 }
 
 /// The questions in the arguments of an `ask_chief` call.
-pub(super) fn read(args: &str) -> Result<Questions, Unasked> {
+pub(crate) fn read(args: &str) -> Result<Questions, Unasked> {
     let args = serde_json::from_str::<Value>(args)
         .map_err(|_| Unasked::NotJson)?;
     let args = serde_json::from_value::<AskChief>(args)
@@ -157,7 +157,7 @@ fn question(
 
 /// The questions as words, for a chief who reads them as text. One
 /// plain question is its own words.
-pub(super) fn about(asked: &Questions) -> String {
+pub(crate) fn about(asked: &Questions) -> String {
     if let [only] = asked.questions.as_slice()
         && asked.message.is_empty()
         && only.description.is_empty()
@@ -198,7 +198,7 @@ pub(super) fn about(asked: &Questions) -> String {
 /// The answer the agent is given for `picks`, one for each question
 /// of `asked` in order: the chief's reply, each question quoted over
 /// its answer.
-pub(super) fn answer(
+pub(crate) fn answer(
     asked: &Questions,
     picks: &[Pick],
 ) -> Result<String, Unanswered> {
@@ -240,7 +240,7 @@ pub(super) fn answer(
 
 /// The chief's own words in a result of `ask_chief`. `None` when the
 /// chief did not answer.
-pub(super) fn said(result: &str) -> Option<&str> {
+pub(crate) fn said(result: &str) -> Option<&str> {
     result
         .strip_prefix(ANSWERS)
         .map(str::trim)

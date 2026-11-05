@@ -118,7 +118,7 @@ impl Overrides {
     }
 
     /// `settings` as this process runs them.
-    pub fn over(&self, mut settings: Settings) -> Settings {
+    pub fn apply(&self, mut settings: Settings) -> Settings {
         if let Some(model) = &self.model {
             settings.model.clone_from(model);
         }

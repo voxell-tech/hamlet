@@ -18,8 +18,8 @@ use tokio_tungstenite::tungstenite::protocol::{
 };
 use tokio_tungstenite::tungstenite::{Error, Message};
 
-use crate::protocol::fault;
-use crate::service::Service;
+use super::check::fault;
+use crate::credentials::Credentials;
 
 const LARGEST: usize = 1_048_576;
 pub(crate) const GRACE: Duration = Duration::from_secs(1);
@@ -67,11 +67,11 @@ pub(crate) fn accept(
 
 pub(crate) fn send(
     client: &mut Client,
-    service: &Service,
+    credentials: &Credentials,
     message: ServerMessage,
 ) -> Result<()> {
     let mut value = serde_json::to_value(message)?;
-    service.credentials.scrub(&mut value);
+    credentials.scrub(&mut value);
     if let Err(mpsc::error::TrySendError::Full(_)) =
         client.send.try_send(Out::Message(value.to_string()))
     {

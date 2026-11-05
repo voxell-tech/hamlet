@@ -5,19 +5,28 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
+use hamlet_protocol::client as protocol;
 use hamlet_protocol::runtime::{
     self, AdmittedStatus, RuntimeMessage, ServerMessage,
     SettledStatus, ToolSpec,
 };
-use hamlet_store::ids::Actor;
-use tokio::sync::mpsc::{self, UnboundedReceiver};
+use hamlet_sandbox::Sandbox;
+use hamlet_store::ids::{Actor, AgentId, ConversationId};
+use tokio::net::TcpListener;
+use tokio::sync::{mpsc, watch};
 
-use crate::change::{Change, Touched};
+use crate::change::{Change, Done, Touched};
+use crate::clients::Clients;
+use crate::clients::check::reply;
+use crate::clients::connection::Event;
+use crate::clients::fold::Fold;
 use crate::clock;
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
 use crate::knowledge::runner::Runner;
 use crate::realm::Realm;
+use crate::society::refusal::Refusal;
+use crate::talk::activity::Activity;
 use crate::talk::follow::follow;
 use crate::talk::inputs::{self, Status};
 use crate::talk::process::{Pi, Received};
@@ -29,14 +38,35 @@ pub(crate) struct Core {
     pub env: Env,
     pub runtimes: Runtimes,
     pub credentials: Credentials,
+    pub clients: Clients,
+    /// What each conversation in memory shows: its transcript and
+    /// what its agent is doing.
+    pub live: BTreeMap<ConversationId, Live>,
+    pub sandbox: Sandbox,
     runner: Runner,
     catalogue: Vec<ToolSpec>,
 }
 
+/// A conversation's transcript and activity, as kept and as running.
+pub(crate) struct Live {
+    pub agent: AgentId,
+    pub fold: Fold,
+    pub activity: Activity,
+}
+
 /// What the loop is woken by.
 pub(crate) struct Inbox {
-    lines: UnboundedReceiver<Received>,
-    worked: UnboundedReceiver<()>,
+    lines: mpsc::UnboundedReceiver<Received>,
+    worked: mpsc::UnboundedReceiver<()>,
+    events: mpsc::Receiver<Event>,
+    listener: Option<TcpListener>,
+}
+
+impl Inbox {
+    /// Takes clients' connections from `listener` too.
+    pub fn listen(&mut self, listener: TcpListener) {
+        self.listener = Some(listener);
+    }
 }
 
 impl Core {
@@ -45,26 +75,38 @@ impl Core {
         mut realm: Realm,
         env: Env,
         pi: Pi,
+        sandbox: Sandbox,
+        closing: watch::Receiver<bool>,
     ) -> Result<(Self, Inbox)> {
         let credentials = Credentials::open(realm.layout().root())?;
         let (lines_to, lines) = mpsc::unbounded_channel();
         let (worked_to, worked) = mpsc::unbounded_channel();
+        let (events_to, events) = mpsc::channel(128);
         let runner = Runner::start(realm.layout(), worked_to)?;
         let layout = realm.layout().clone();
         let db = realm.store().connection();
         runtimes::of_harness(db, crate::society::agents::HARNESS)?;
         let mut runtimes = Runtimes::new(pi, lines_to);
         runtimes.start(db, &layout)?;
+        let clients = Clients::new(events_to, closing, clock::now())?;
         Ok((
             Self {
                 realm,
                 env,
                 runtimes,
                 credentials,
+                clients,
+                live: BTreeMap::new(),
+                sandbox,
                 runner,
                 catalogue: Vec::new(),
             },
-            Inbox { lines, worked },
+            Inbox {
+                lines,
+                worked,
+                events,
+                listener: None,
+            },
         ))
     }
 
@@ -79,12 +121,29 @@ impl Core {
             .runtimes
             .next_start()
             .map(tokio::time::Instant::from_std);
+        let listener = inbox.listener.as_ref();
         tokio::select! {
             Some(received) = inbox.lines.recv() => {
                 self.received(received).await?;
                 Ok(true)
             }
-            Some(()) = inbox.worked.recv() => Ok(true),
+            Some(()) = inbox.worked.recv() => {
+                self.publish().await?;
+                Ok(true)
+            }
+            Some(event) = inbox.events.recv() => {
+                self.connection(event).await?;
+                Ok(true)
+            }
+            Ok((stream, _)) = async {
+                match listener {
+                    Some(listener) => listener.accept().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                self.clients.accept(stream);
+                Ok(true)
+            }
             () = async {
                 match restart {
                     Some(at) => tokio::time::sleep_until(at).await,
@@ -117,11 +176,106 @@ impl Core {
         Ok(made)
     }
 
+    /// Makes a change by `actor` that may be refused, leaving nothing
+    /// of it when it is.
+    pub async fn attempt<T>(
+        &mut self,
+        actor: Actor,
+        make: impl FnOnce(&mut Change<'_>, &Env) -> Done<T>,
+    ) -> Result<Result<T, Refusal>> {
+        let at = clock::now();
+        let env = self.env.clone();
+        let mut tx = self.realm.store().immediate()?;
+        let (made, touched) =
+            crate::change::run(&mut tx, at, actor, |cx| {
+                make(cx, &env)
+            })?;
+        tx.commit()?;
+        self.after(touched).await?;
+        Ok(made)
+    }
+
     async fn after(&mut self, touched: Touched) -> Result<()> {
         if touched.jobs {
             self.runner.wake();
         }
-        self.flush(false).await
+        self.flush(false).await?;
+        self.publish().await
+    }
+
+    /// How the agents' commands are confined, as a client is told.
+    pub(crate) fn confinement(&self) -> protocol::Confinement {
+        if self.sandbox.is_insecure() {
+            protocol::Confinement::Insecure
+        } else {
+            protocol::Confinement::Sandbox {
+                name: self.sandbox.name().into(),
+            }
+        }
+    }
+
+    /// Sends the watchers of `conversation` what changed in its
+    /// transcript.
+    fn stream(&mut self, conversation: ConversationId) -> Result<()> {
+        let watching = self.clients.watching(conversation);
+        let Some(live) = self.live.get_mut(&conversation) else {
+            return Ok(());
+        };
+        let operations = live.fold.take();
+        if operations.is_empty() {
+            return Ok(());
+        }
+        for watch in watching {
+            let number = watch
+                .chat
+                .from
+                .is_none()
+                .then_some(watch.chat.past)
+                .flatten();
+            let turn =
+                protocol::ServerMessage::Turn(protocol::Turn {
+                    chat: watch.chat.clone(),
+                    number,
+                    operations: operations.clone(),
+                });
+            self.clients.send(
+                watch.client,
+                &self.credentials,
+                turn,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Answers the replies owed for input `request` of
+    /// `conversation`, which ended.
+    fn settle_owed(
+        &mut self,
+        conversation: ConversationId,
+        request: &str,
+    ) -> Result<()> {
+        let owed = self
+            .clients
+            .owed
+            .iter()
+            .filter(|o| {
+                o.conversation == conversation && o.request == request
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        self.clients.owed.retain(|o| {
+            !(o.conversation == conversation && o.request == request)
+        });
+        for owed in owed {
+            let message =
+                reply(&owed.id, Ok::<_, Refusal>(String::new()));
+            self.clients.send(
+                owed.client,
+                &self.credentials,
+                message,
+            )?;
+        }
+        Ok(())
     }
 
     /// Sends every ready runtime what it is owed.
@@ -264,6 +418,7 @@ impl Core {
                             follow(cx, conversation, &request)
                         })
                         .await?;
+                        self.settle_owed(conversation, &request)?;
                     }
                 }
                 self.flush(false).await?;
@@ -293,6 +448,7 @@ impl Core {
                         follow(cx, conversation.id, &request)
                     })
                     .await?;
+                    self.settle_owed(conversation.id, &request)?;
                 }
             }
             RuntimeMessage::Kept(kept) => {
@@ -302,7 +458,49 @@ impl Core {
                     &runtime,
                     &kept.conversation,
                 )?;
-                items::keep(db, conversation.id, &kept.item)?;
+                let new =
+                    items::keep(db, conversation.id, &kept.item)?;
+                if new {
+                    let loaded =
+                        self.live.contains_key(&conversation.id);
+                    let live = self.live(conversation.id)?;
+                    // A fold read now already holds the entry.
+                    if loaded {
+                        live.fold.entry(&kept.item)?;
+                        live.activity.kept(&kept.item);
+                    }
+                }
+                if new
+                    && !self
+                        .clients
+                        .watching(conversation.id)
+                        .is_empty()
+                {
+                    self.stream(conversation.id)?;
+                }
+            }
+            RuntimeMessage::Live(running) => {
+                let db = self.realm.store().connection();
+                let conversation = turns::conversation(
+                    db,
+                    &runtime,
+                    &running.conversation,
+                )?;
+                let secrets = self.credentials.secrets();
+                let live = self.live(conversation.id)?;
+                live.fold.live(
+                    running.running,
+                    running.pending,
+                    running.partial.as_ref(),
+                    &secrets,
+                );
+                live.activity.live(
+                    running.running,
+                    running.pending,
+                    running.partial.as_ref(),
+                );
+                self.stream(conversation.id)?;
+                self.publish().await?;
             }
             RuntimeMessage::Cancelled(cancelled) => {
                 if let Some((_, Pending::Cancel(conversation))) =
@@ -457,8 +655,7 @@ impl Core {
                     format!("{runtime}: {}", error.message),
                 );
             }
-            RuntimeMessage::Live(_)
-            | RuntimeMessage::Page(_)
+            RuntimeMessage::Page(_)
             | RuntimeMessage::Statuses(_)
             | RuntimeMessage::CredentialRequest(_)
             | RuntimeMessage::ProviderResult(_)
@@ -530,10 +727,16 @@ mod tests {
                 ..Overrides::default()
             },
         };
+        let sandbox =
+            Sandbox::open(hamlet_sandbox::Isolation::Sandboxed)
+                .unwrap();
+        let (_closing, closed) = watch::channel(false);
         let (mut core, mut inbox) = Core::start(
             realm,
             env,
             Pi::from_env(Some(faux)).unwrap(),
+            sandbox,
+            closed,
         )
         .unwrap();
         let hand = hand::id(core.realm.store().connection()).unwrap();

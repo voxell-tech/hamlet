@@ -1,0 +1,1228 @@
+//! The chief's commands: typed lines that begin with `/` (H24, H26),
+//! said to an agent, whose hamlet is the one they mean.
+
+use anyhow::Result;
+use hamlet_git::Repository;
+use hamlet_protocol::client as protocol;
+use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
+
+use crate::change::{Done, refuse};
+use crate::core::Core;
+use crate::society::addresses::{self, Reach};
+use crate::society::agents::{self, AgentKind, EndHow};
+use crate::society::hamlets::{self, Founding, Mode};
+use crate::society::hires::{self, Hiring, Spec};
+use crate::society::record::{self, DecisionKind};
+use crate::society::refusal::Refusal;
+use crate::society::{authority, city, roads};
+use crate::spend;
+
+/// A command a chief can type: its name, how it is written, and what
+/// it does.
+struct Command {
+    name: &'static str,
+    usage: &'static str,
+    does: &'static str,
+}
+
+const TABLE: &[Command] = &[
+    Command {
+        name: "hand",
+        usage: "/hand",
+        does: "Talk to the Hand",
+    },
+    Command {
+        name: "hamlet",
+        usage: "/hamlet <hamlet>",
+        does: "Talk to a hamlet's mayor",
+    },
+    Command {
+        name: "agent",
+        usage: "/agent <address>",
+        does: "Talk to an agent",
+    },
+    Command {
+        name: "new",
+        usage: "/new",
+        does: "Start a new conversation",
+    },
+    Command {
+        name: "resume",
+        usage: "/resume [n]",
+        does: "Go back to an earlier conversation",
+    },
+    Command {
+        name: "retry",
+        usage: "/retry",
+        does: "Carry on a failed or stopped turn",
+    },
+    Command {
+        name: "stop",
+        usage: "/stop [address|all]",
+        does: "Stop an agent's work",
+    },
+    Command {
+        name: "hamlets",
+        usage: "/hamlets",
+        does: "List the hamlets",
+    },
+    Command {
+        name: "found",
+        usage: "/found <hamlet> <scholar> <purpose>",
+        does: "Found a hamlet under a scholar as its mayor",
+    },
+    Command {
+        name: "name-hamlet",
+        usage: "/name-hamlet <hamlet> [name]",
+        does: "Give a hamlet a name to be shown by",
+    },
+    Command {
+        name: "move-hamlet",
+        usage: "/move-hamlet <hamlet> <x> <z>",
+        does: "Set a hamlet's town down elsewhere",
+    },
+    Command {
+        name: "remove-hamlet",
+        usage: "/remove-hamlet <hamlet> <reason>",
+        does: "Remove a hamlet and end its hires",
+    },
+    Command {
+        name: "restore-hamlet",
+        usage: "/restore-hamlet <hamlet> [reason]",
+        does: "Bring a removed hamlet back",
+    },
+    Command {
+        name: "erase-hamlet",
+        usage: "/erase-hamlet <hamlet>",
+        does: "Erase a removed hamlet for good",
+    },
+    Command {
+        name: "tier",
+        usage: "/tier <50|100|200|500>",
+        does: "Set how many hires this hamlet holds",
+    },
+    Command {
+        name: "mayor",
+        usage: "/mayor <address> <reason>",
+        does: "Give this hamlet's office to a hire",
+    },
+    Command {
+        name: "hire",
+        usage: "/hire <scholar>[@<version>] [under <address>] \
+                <purpose>",
+        does: "Hire a scholar into this hamlet",
+    },
+    Command {
+        name: "end",
+        usage: "/end <address> <reason>",
+        does: "End a hire",
+    },
+    Command {
+        name: "restore",
+        usage: "/restore <address> [reason]",
+        does: "Bring an ended hire back",
+    },
+    Command {
+        name: "erase",
+        usage: "/erase <address>",
+        does: "Erase an ended hire for good",
+    },
+    Command {
+        name: "model",
+        usage: "/model <address> <model|none> [reason]",
+        does: "Choose a hire's model",
+    },
+    Command {
+        name: "tools",
+        usage: "/tools <address> -<tool> +<tool>",
+        does: "Turn a hire's tools off or back on",
+    },
+    Command {
+        name: "allowance",
+        usage: "/allowance <address> <dollars|none>",
+        does: "Give a hire an allowance for the period",
+    },
+    Command {
+        name: "road",
+        usage: "/road <address> <address> <reason>",
+        does: "Lay a road between two hires",
+    },
+    Command {
+        name: "unroad",
+        usage: "/unroad <address> <address> <reason>",
+        does: "Take up a road",
+    },
+    Command {
+        name: "folder",
+        usage: "/folder <folder|none>",
+        does: "Choose the folder this hamlet works on",
+    },
+    Command {
+        name: "mode",
+        usage: "/mode <manual|auto>",
+        does: "Choose how this hamlet's work is overseen",
+    },
+    Command {
+        name: "budget",
+        usage: "/budget",
+        does: "Show this hamlet's spend",
+    },
+    Command {
+        name: "reset-budget",
+        usage: "/reset-budget",
+        does: "Start this hamlet's budget period again",
+    },
+    Command {
+        name: "record",
+        usage: "/record",
+        does: "Show this hamlet's decisions",
+    },
+    Command {
+        name: "scholars",
+        usage: "/scholars",
+        does: "List the city's scholars",
+    },
+    Command {
+        name: "scholar",
+        usage: "/scholar new <name> [character]",
+        does: "Make a scholar in the city",
+    },
+    Command {
+        name: "remove-scholar",
+        usage: "/remove-scholar <name> <reason>",
+        does: "Archive a scholar and end its hires",
+    },
+    Command {
+        name: "restore-scholar",
+        usage: "/restore-scholar <name> [reason]",
+        does: "Bring an archived scholar back with its hires",
+    },
+    Command {
+        name: "erase-scholar",
+        usage: "/erase-scholar <name>",
+        does: "Erase an archived scholar for good",
+    },
+    Command {
+        name: "move-house",
+        usage: "/move-house <scholar> <x> <z>",
+        does: "Set a scholar's house down elsewhere in the city",
+    },
+];
+
+/// The commands a client may offer.
+pub(crate) fn deeds() -> Vec<protocol::Deed> {
+    TABLE
+        .iter()
+        .map(|command| protocol::Deed {
+            description: command.does.into(),
+            name: command.name.into(),
+            usage: command.usage.into(),
+        })
+        .collect()
+}
+
+fn usage(name: &str) -> Refusal {
+    let usage = TABLE
+        .iter()
+        .find(|c| c.name == name)
+        .map_or("", |c| c.usage);
+    Refusal::Usage {
+        words: format!("Use {usage}"),
+    }
+}
+
+impl Core {
+    /// Runs the command `line`, said to `agent`, whose hamlet it
+    /// means.
+    pub(crate) async fn command(
+        &mut self,
+        agent: AgentId,
+        line: &str,
+    ) -> Result<Result<String, Refusal>> {
+        let line = line.trim().trim_start_matches('/');
+        let (name, rest) = line
+            .split_once(char::is_whitespace)
+            .map_or((line, ""), |(name, rest)| (name, rest.trim()));
+        let words = rest.split_whitespace().collect::<Vec<_>>();
+        let chief = self.realm.chief();
+        let by = Actor::Chief(chief);
+        let here = {
+            let db = self.realm.store().connection();
+            hires::find(db, agent)?.map(|hire| hire.hamlet)
+        };
+        let tail = |from: usize| {
+            words.get(from..).unwrap_or_default().join(" ")
+        };
+        match name {
+            "hand" | "hamlet" | "agent" => Ok(Ok("Choose who you \
+                                                  talk to in your \
+                                                  client."
+                .into())),
+            "new" => {
+                let number = self
+                    .change(by, |cx, env| {
+                        crate::talk::chats::new_session(
+                            cx, env, agent, chief,
+                        )
+                    })
+                    .await?;
+                Ok(Ok(format!("Session {number} began.")))
+            }
+            "resume" => {
+                let Some(number) =
+                    words.first().and_then(|w| w.parse::<i64>().ok())
+                else {
+                    let db = self.realm.store().connection();
+                    let sessions = crate::talk::chats::sessions(
+                        db, agent, chief,
+                    )?;
+                    let list = sessions
+                        .iter()
+                        .map(|(number, _, _)| {
+                            format!("- session {number}")
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    return Ok(Ok(if list.is_empty() {
+                        "No sessions yet.".into()
+                    } else {
+                        list
+                    }));
+                };
+                let done = self
+                    .attempt(by, |cx, _| {
+                        crate::talk::chats::resume(
+                            cx, agent, chief, number,
+                        )
+                    })
+                    .await?;
+                Ok(done
+                    .map(|()| format!("Back in session {number}.")))
+            }
+            "retry" => {
+                let done = self
+                    .attempt(by, |cx, env| {
+                        crate::talk::chats::retry(
+                            cx, env, agent, chief,
+                        )
+                    })
+                    .await?;
+                Ok(done.map(|_| "Carrying on.".into()))
+            }
+            "stop" => {
+                let target = match words.first() {
+                    None => agent,
+                    Some(&"all") => {
+                        let mut stopped = 0;
+                        for each in self.every_reached()? {
+                            stopped += self
+                                .change(by, |cx, _| {
+                                    crate::talk::chats::stop(cx, each)
+                                })
+                                .await?;
+                        }
+                        return Ok(Ok(format!(
+                            "Stopped {stopped} running turns."
+                        )));
+                    }
+                    Some(text) => match self.resolve(
+                        text,
+                        here.as_ref(),
+                        Reach::Living,
+                    )? {
+                        Ok(found) => found,
+                        Err(refusal) => return Ok(Err(refusal)),
+                    },
+                };
+                let stopped = self
+                    .change(by, |cx, _| {
+                        crate::talk::chats::stop(cx, target)
+                    })
+                    .await?;
+                Ok(Ok(format!("Stopped {stopped} running turns.")))
+            }
+            "hamlets" => {
+                let db = self.realm.store().connection();
+                let list = hamlets::all(db)?
+                    .into_iter()
+                    .filter(hamlets::Hamlet::is_living)
+                    .map(|h| {
+                        format!(
+                            "- {} (`{}`)",
+                            h.title
+                                .clone()
+                                .unwrap_or_else(|| h.id.to_string()),
+                            h.id
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                Ok(Ok(if list.is_empty() {
+                    "No hamlet yet. /found makes one.".into()
+                } else {
+                    list
+                }))
+            }
+            "found" => {
+                if words.len() < 3 {
+                    return Ok(Err(usage(name)));
+                }
+                let id = HamletId(words[0].to_owned());
+                let mayor = match self.hiring(words[1], chief)? {
+                    Ok(hiring) => hiring,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                let purpose = tail(2);
+                let done = self
+                    .attempt(by, |cx, _| {
+                        hamlets::found(
+                            cx,
+                            Founding {
+                                id: id.clone(),
+                                chief,
+                                mayor,
+                                purpose,
+                            },
+                        )
+                    })
+                    .await?;
+                Ok(done.map(|_| {
+                    format!(
+                        "The hamlet `{id}` is founded under its \
+                         mayor `{}@{id}`. /hamlet {id} talks to it.",
+                        words[1]
+                            .split('@')
+                            .next()
+                            .unwrap_or_default()
+                    )
+                }))
+            }
+            "name-hamlet" => {
+                let Some(id) = words.first() else {
+                    return Ok(Err(usage(name)));
+                };
+                let id = HamletId((*id).to_owned());
+                if let Err(refusal) = self.chief_of(&id)? {
+                    return Ok(Err(refusal));
+                }
+                let title = tail(1);
+                let done = self
+                    .attempt(by, |cx, _| {
+                        hamlets::rename(
+                            cx,
+                            &id,
+                            Some(title.as_str())
+                                .filter(|t| !t.is_empty()),
+                        )
+                    })
+                    .await?;
+                Ok(done.map(|()| {
+                    format!(
+                        "The hamlet `{id}` is shown as {}.",
+                        if title.is_empty() {
+                            id.to_string()
+                        } else {
+                            title.clone()
+                        }
+                    )
+                }))
+            }
+            "move-hamlet" => {
+                let (Some(id), Some(x), Some(z)) = (
+                    words.first(),
+                    words.get(1).and_then(|w| w.parse::<f64>().ok()),
+                    words.get(2).and_then(|w| w.parse::<f64>().ok()),
+                ) else {
+                    return Ok(Err(usage(name)));
+                };
+                let id = HamletId((*id).to_owned());
+                if let Err(refusal) = self.chief_of(&id)? {
+                    return Ok(Err(refusal));
+                }
+                let done = self
+                    .attempt(by, |cx, _| {
+                        hamlets::place(cx, &id, x, z)
+                    })
+                    .await?;
+                Ok(done.map(|()| {
+                    format!(
+                        "The town of `{id}` is set down at {x}, {z}."
+                    )
+                }))
+            }
+            "remove-hamlet" | "restore-hamlet" | "erase-hamlet" => {
+                let Some(id) = words.first() else {
+                    return Ok(Err(usage(name)));
+                };
+                let id = HamletId((*id).to_owned());
+                if let Err(refusal) = self.chief_of(&id)? {
+                    return Ok(Err(refusal));
+                }
+                let reason = tail(1);
+                let done = self
+                    .attempt(by, |cx, _| match name {
+                        "remove-hamlet" => {
+                            hamlets::remove(cx, &id, &reason)
+                        }
+                        "restore-hamlet" => {
+                            hamlets::restore(cx, &id, &reason)
+                        }
+                        _ => hamlets::erase(cx, &id),
+                    })
+                    .await?;
+                Ok(done.map(|()| match name {
+                    "remove-hamlet" => format!(
+                        "The hamlet `{id}` was removed and its \
+                         hires ended."
+                    ),
+                    "restore-hamlet" => {
+                        format!("The hamlet `{id}` is restored.")
+                    }
+                    _ => format!(
+                        "The hamlet `{id}` was erased for good."
+                    ),
+                }))
+            }
+            "tier" => {
+                let Some(id) = here.clone() else {
+                    return Ok(Err(self.no_hamlet()));
+                };
+                let Some(tier) =
+                    words.first().and_then(|w| w.parse::<i64>().ok())
+                else {
+                    return Ok(Err(usage(name)));
+                };
+                if let Err(refusal) = self.chief_of(&id)? {
+                    return Ok(Err(refusal));
+                }
+                let done = self
+                    .attempt(by, |cx, _| {
+                        hamlets::set_tier(cx, &id, tier)
+                    })
+                    .await?;
+                Ok(done.map(|()| {
+                    format!(
+                        "The hamlet `{id}` holds at most {tier} \
+                         hires."
+                    )
+                }))
+            }
+            "mayor" => {
+                let Some(id) = here.clone() else {
+                    return Ok(Err(self.no_hamlet()));
+                };
+                let Some(text) = words.first() else {
+                    return Ok(Err(usage(name)));
+                };
+                if let Err(refusal) = self.chief_of(&id)? {
+                    return Ok(Err(refusal));
+                }
+                let hire = match self.resolve(
+                    text,
+                    Some(&id),
+                    Reach::Living,
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                let reason = tail(1);
+                let done = self
+                    .attempt(by, |cx, _| {
+                        hires::seat(cx, &id, hire, &reason)
+                    })
+                    .await?;
+                Ok(done.map(|()| {
+                    format!("`{text}` holds the office of `{id}`.")
+                }))
+            }
+            "hire" => {
+                self.hire_command(agent, here.as_ref(), &words).await
+            }
+            "end" | "restore" | "erase" => {
+                let Some(text) = words.first() else {
+                    return Ok(Err(usage(name)));
+                };
+                let reach = if name == "end" {
+                    Reach::Living
+                } else {
+                    Reach::Kept
+                };
+                let hire =
+                    match self.resolve(text, here.as_ref(), reach)? {
+                        Ok(found) => found,
+                        Err(refusal) => return Ok(Err(refusal)),
+                    };
+                if let Err(refusal) = self.leads(hire)? {
+                    return Ok(Err(refusal));
+                }
+                let reason = tail(1);
+                let done = self
+                    .attempt(by, |cx, _| match name {
+                        "end" => hires::end(
+                            cx,
+                            hire,
+                            EndHow::Ended,
+                            &reason,
+                        ),
+                        "restore" => {
+                            hires::come_back(cx, hire, &reason)
+                        }
+                        _ => hires::erase(cx, hire),
+                    })
+                    .await?;
+                Ok(done.map(|()| match name {
+                    "end" => format!("`{text}` was ended."),
+                    "restore" => format!("`{text}` is back."),
+                    _ => format!("`{text}` was erased for good."),
+                }))
+            }
+            "model" => {
+                let (Some(text), Some(model)) =
+                    (words.first(), words.get(1))
+                else {
+                    return Ok(Err(usage(name)));
+                };
+                let hire = match self.resolve(
+                    text,
+                    here.as_ref(),
+                    Reach::Living,
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                if let Err(refusal) = self.leads(hire)? {
+                    return Ok(Err(refusal));
+                }
+                let model = (*model != "none").then_some(*model);
+                let reason = tail(2);
+                let done = self
+                    .attempt(by, |cx, _| {
+                        hires::set_model(cx, hire, model, &reason)
+                    })
+                    .await?;
+                Ok(done.map(|()| {
+                    format!(
+                        "`{text}` runs {}.",
+                        model.unwrap_or("its hamlet's model")
+                    )
+                }))
+            }
+            "tools" => {
+                let Some(text) = words.first() else {
+                    return Ok(Err(usage(name)));
+                };
+                let hire = match self.resolve(
+                    text,
+                    here.as_ref(),
+                    Reach::Living,
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                if let Err(refusal) = self.leads(hire)? {
+                    return Ok(Err(refusal));
+                }
+                let off = words[1..]
+                    .iter()
+                    .filter_map(|w| w.strip_prefix('-'))
+                    .map(String::from)
+                    .collect::<Vec<_>>();
+                let on = words[1..]
+                    .iter()
+                    .filter_map(|w| w.strip_prefix('+'))
+                    .map(String::from)
+                    .collect::<Vec<_>>();
+                if off.is_empty() && on.is_empty() {
+                    let db = self.realm.store().connection();
+                    let kept = hires::tools_off(db, hire)?;
+                    return Ok(Ok(if kept.is_empty() {
+                        format!("`{text}` has every tool.")
+                    } else {
+                        format!(
+                            "`{text}` has these off: {}",
+                            kept.join(", ")
+                        )
+                    }));
+                }
+                let done = self
+                    .attempt(by, |cx, _| {
+                        hires::set_tools(cx, hire, &off, &on, "")
+                    })
+                    .await?;
+                Ok(done.map(|()| {
+                    format!("`{text}`'s tools are changed.")
+                }))
+            }
+            "allowance" => {
+                let (Some(text), Some(amount)) =
+                    (words.first(), words.get(1))
+                else {
+                    return Ok(Err(usage(name)));
+                };
+                let hire = match self.resolve(
+                    text,
+                    here.as_ref(),
+                    Reach::Living,
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                if let Err(refusal) = self.leads(hire)? {
+                    return Ok(Err(refusal));
+                }
+                let allowance = match *amount {
+                    "none" => None,
+                    amount => match amount
+                        .trim_start_matches('$')
+                        .parse::<f64>()
+                    {
+                        Ok(dollars) if dollars >= 0.0 => {
+                            Some(spend::micros(dollars))
+                        }
+                        _ => return Ok(Err(usage(name))),
+                    },
+                };
+                let done = self
+                    .attempt(by, |cx, _| {
+                        hires::set_allowance(cx, hire, allowance, "")
+                    })
+                    .await?;
+                Ok(done.map(|()| match allowance {
+                    Some(micros) => format!(
+                        "`{text}` may spend {} a period.",
+                        spend::money(micros)
+                    ),
+                    None => format!(
+                        "`{text}` has no allowance of its own."
+                    ),
+                }))
+            }
+            "road" | "unroad" => {
+                let (Some(a), Some(b)) =
+                    (words.first(), words.get(1))
+                else {
+                    return Ok(Err(usage(name)));
+                };
+                let a = match self.resolve(
+                    a,
+                    here.as_ref(),
+                    Reach::Living,
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                let b = match self.resolve(
+                    b,
+                    here.as_ref(),
+                    Reach::Living,
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                for end in [a, b] {
+                    if let Err(refusal) = self.leads(end)? {
+                        return Ok(Err(refusal));
+                    }
+                }
+                let reason = tail(2);
+                if name == "road" {
+                    let done = self
+                        .attempt(by, |cx, _| {
+                            roads::lay(cx, a, b, &reason, None)
+                        })
+                        .await?;
+                    Ok(done.map(|_| "The road is laid.".into()))
+                } else {
+                    let done = self
+                        .attempt(by, |cx, _| {
+                            roads::take_up(cx, a, b, &reason)
+                        })
+                        .await?;
+                    Ok(done.map(|()| "The road is taken up.".into()))
+                }
+            }
+            "folder" | "mode" => {
+                let Some(id) = here.clone() else {
+                    return Ok(Err(self.no_hamlet()));
+                };
+                if let Err(refusal) = self.chief_of(&id)? {
+                    return Ok(Err(refusal));
+                }
+                if name == "folder" {
+                    let folder = match words.first() {
+                        None => return Ok(Err(usage(name))),
+                        Some(&"none") => None,
+                        Some(_) => Some(rest.to_owned()),
+                    };
+                    if let Some(folder) = &folder
+                        && !std::path::Path::new(folder).is_dir()
+                    {
+                        return Ok(Err(Refusal::NoFile {
+                            path: folder.clone(),
+                        }));
+                    }
+                    let done = self
+                        .attempt(by, |cx, _| {
+                            hamlets::set_folder(
+                                cx,
+                                &id,
+                                folder.as_deref(),
+                            )
+                        })
+                        .await?;
+                    Ok(done.map(|()| match &folder {
+                        Some(folder) => {
+                            format!("`{id}` works on {folder}.")
+                        }
+                        None => format!("`{id}` works on no folder."),
+                    }))
+                } else {
+                    let mode = match words.first() {
+                        Some(&"manual") => Mode::Manual,
+                        Some(&"auto") => Mode::Auto,
+                        _ => return Ok(Err(usage(name))),
+                    };
+                    let done = self
+                        .attempt(by, |cx, _| {
+                            hamlets::set_mode(cx, &id, mode)
+                        })
+                        .await?;
+                    Ok(done.map(|()| {
+                        format!("`{id}` is in {mode} mode.")
+                    }))
+                }
+            }
+            "budget" => {
+                let db = self.realm.store().connection();
+                let report = spend::report(
+                    db,
+                    here.as_ref(),
+                    crate::clock::now(),
+                )?;
+                Ok(Ok(report.summary))
+            }
+            "reset-budget" => {
+                if let Some(id) = &here
+                    && let Err(refusal) = self.chief_of(id)?
+                {
+                    return Ok(Err(refusal));
+                }
+                let at = crate::clock::now();
+                let db = self.realm.store().connection();
+                spend::reset(db, here.as_ref(), chief, at)?;
+                self.publish().await?;
+                Ok(Ok("The budget's period starts again from now."
+                    .into()))
+            }
+            "record" => {
+                let Some(id) = here.clone() else {
+                    return Ok(Err(self.no_hamlet()));
+                };
+                let db = self.realm.store().connection();
+                let mut lines = Vec::new();
+                for kept in record::of_hamlet(db, &id, 0)? {
+                    let who = crate::clients::state::actor_name(
+                        db,
+                        Some(kept.actor),
+                    )?;
+                    let subject = match kept.subject {
+                        Some(subject) => {
+                            addresses::name_of(db, subject)?
+                        }
+                        None => String::new(),
+                    };
+                    let reason = if kept.reason.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", kept.reason)
+                    };
+                    lines.push(format!(
+                        "- {who} {} {subject}{reason}",
+                        decided(kept.kind)
+                    ));
+                }
+                Ok(Ok(if lines.is_empty() {
+                    "Nothing is decided yet.".into()
+                } else {
+                    lines.join("\n")
+                }))
+            }
+            "scholars" => {
+                let db = self.realm.store().connection();
+                let list = city::all(db)?
+                    .into_iter()
+                    .map(|s| {
+                        format!(
+                            "- {}{}",
+                            s.name,
+                            if s.is_living() {
+                                ""
+                            } else {
+                                " (archived)"
+                            }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                Ok(Ok(if list.is_empty() {
+                    "The city has no scholar yet.".into()
+                } else {
+                    list
+                }))
+            }
+            "scholar" => {
+                let (Some(&"new"), Some(scholar)) =
+                    (words.first(), words.get(1))
+                else {
+                    return Ok(Err(usage(name)));
+                };
+                let character = tail(2);
+                let done = self
+                    .attempt(by, |cx, _| {
+                        city::make(
+                            cx, scholar, chief, &character, None,
+                        )
+                    })
+                    .await?;
+                Ok(done.map(|_| {
+                    format!(
+                        "The scholar `{scholar}` lives in the city."
+                    )
+                }))
+            }
+            "remove-scholar" | "restore-scholar"
+            | "erase-scholar" | "move-house" => {
+                let Some(text) = words.first() else {
+                    return Ok(Err(usage(name)));
+                };
+                let scholar = match self.scholar_named(
+                    text,
+                    name != "remove-scholar" && name != "move-house",
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                {
+                    let db = self.realm.store().connection();
+                    if !authority::may_keep(db, by, scholar)? {
+                        return Ok(Err(Refusal::NotOwner {
+                            owner: (*text).to_owned(),
+                        }));
+                    }
+                }
+                let reason = tail(1);
+                if name == "move-house" {
+                    let (Some(x), Some(z)) = (
+                        words
+                            .get(1)
+                            .and_then(|w| w.parse::<f64>().ok()),
+                        words
+                            .get(2)
+                            .and_then(|w| w.parse::<f64>().ok()),
+                    ) else {
+                        return Ok(Err(usage(name)));
+                    };
+                    let done = self
+                        .attempt(by, |cx, _| {
+                            city::place(cx, scholar, x, z)
+                        })
+                        .await?;
+                    return Ok(done.map(|()| {
+                        format!(
+                            "`{text}`'s house stands at {x}, {z}."
+                        )
+                    }));
+                }
+                let done = self
+                    .attempt(by, |cx, _| match name {
+                        "remove-scholar" => {
+                            city::archive(cx, scholar, &reason)
+                        }
+                        "restore-scholar" => {
+                            city::restore(cx, scholar, &reason)
+                        }
+                        _ => city::erase(cx, scholar),
+                    })
+                    .await?;
+                Ok(done.map(|()| match name {
+                    "remove-scholar" => format!(
+                        "`{text}` left the city, with its hires."
+                    ),
+                    "restore-scholar" => {
+                        format!("`{text}` is back in the city.")
+                    }
+                    _ => format!("`{text}` was erased for good."),
+                }))
+            }
+            _ => Ok(Err(Refusal::Usage {
+                words: format!(
+                    "There is no command /{name}. Type /help... or \
+                     see the command list."
+                ),
+            })),
+        }
+    }
+
+    async fn hire_command(
+        &mut self,
+        agent: AgentId,
+        here: Option<&HamletId>,
+        words: &[&str],
+    ) -> Result<Result<String, Refusal>> {
+        let chief = self.realm.chief();
+        let Some(scholar) = words.first() else {
+            return Ok(Err(usage("hire")));
+        };
+        let mut rest = &words[1..];
+        let mut hamlet = here.cloned();
+        let mut parent = None;
+        while let [key, value, more @ ..] = rest {
+            match *key {
+                "under" => {
+                    match self.resolve(
+                        value,
+                        hamlet.as_ref(),
+                        Reach::Living,
+                    )? {
+                        Ok(found) => parent = Some(found),
+                        Err(refusal) => return Ok(Err(refusal)),
+                    }
+                }
+                "in" => hamlet = Some(HamletId((*value).to_owned())),
+                _ => break,
+            }
+            rest = more;
+        }
+        let Some(hamlet) = hamlet else {
+            return Ok(Err(self.no_hamlet()));
+        };
+        if let Err(refusal) = self.chief_of(&hamlet)? {
+            return Ok(Err(refusal));
+        }
+        let purpose = rest.join(" ");
+        let parent = match parent {
+            Some(parent) => parent,
+            None => {
+                let db = self.realm.store().connection();
+                match hamlets::living(db, &hamlet)? {
+                    Ok(place) => place.mayor,
+                    Err(refusal) => return Ok(Err(refusal)),
+                }
+            }
+        };
+        let hiring = match self.hiring(scholar, chief)? {
+            Ok(hiring) => hiring,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let _ = agent;
+        let done = self
+            .attempt(Actor::Chief(chief), |cx, _| {
+                hires::hire(
+                    cx,
+                    Spec {
+                        hamlet: hamlet.clone(),
+                        parent: Some(parent),
+                        hiring,
+                        purpose,
+                        reason: String::new(),
+                        owner: chief,
+                    },
+                )
+            })
+            .await?;
+        let db = self.realm.store().connection();
+        Ok(match done {
+            Ok(hired) => Ok(format!(
+                "`{}` is hired.",
+                addresses::name_of(db, hired.agent)?
+            )),
+            Err(refusal) => Err(refusal),
+        })
+    }
+
+    /// The scholar `text` names: a living one of the chief's, at its
+    /// `main` or pinned to `@version`, or a new one by that name.
+    fn hiring(
+        &mut self,
+        text: &str,
+        chief: hamlet_store::ids::ChiefId,
+    ) -> Result<Result<Hiring, Refusal>> {
+        let (name, version) = match text.split_once('@') {
+            Some((name, version)) => (name, Some(version.to_owned())),
+            None => (text, None),
+        };
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        match city::named(db, name)? {
+            Some(scholar) => {
+                if scholar.chief != Some(chief) {
+                    return Ok(Err(Refusal::ScholarNotOwn {
+                        name: name.into(),
+                    }));
+                }
+                if let Some(version) = &version {
+                    let found = Repository::open(
+                        &layout.repository(scholar.id),
+                    )
+                    .ok()
+                    .and_then(|repo| {
+                        repo.resolve(version).ok().flatten()
+                    });
+                    if found.is_none() || version == hamlet_git::MAIN
+                    {
+                        return Ok(Err(Refusal::NoVersion {
+                            name: name.into(),
+                            version: version.clone(),
+                        }));
+                    }
+                }
+                Ok(Ok(Hiring::Existing {
+                    scholar: scholar.id,
+                    pin: version,
+                }))
+            }
+            None => {
+                if version.is_some() {
+                    return Ok(Err(Refusal::NoScholar {
+                        name: name.into(),
+                    }));
+                }
+                Ok(Ok(Hiring::New {
+                    name: crate::society::names::tidy_name(name),
+                    character: String::new(),
+                }))
+            }
+        }
+    }
+
+    /// The agent `text` addresses, said in `here`.
+    fn resolve(
+        &mut self,
+        text: &str,
+        here: Option<&HamletId>,
+        reach: Reach,
+    ) -> Result<Result<AgentId, Refusal>> {
+        let address = match addresses::parse(text) {
+            Ok(address) => address,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let db = self.realm.store().connection();
+        addresses::resolve(db, &address, here, reach)
+    }
+
+    /// The scholar named `text`, among the living, or the archived
+    /// when `archived`.
+    fn scholar_named(
+        &mut self,
+        text: &str,
+        archived: bool,
+    ) -> Result<Result<ScholarId, Refusal>> {
+        let db = self.realm.store().connection();
+        if let Some(found) = city::named(db, text)? {
+            return Ok(Ok(found.id));
+        }
+        if archived
+            && let Some(found) = city::all(db)?
+                .into_iter()
+                .rev()
+                .find(|s| s.name == text && !s.is_living())
+        {
+            return Ok(Ok(found.id));
+        }
+        Ok(Err(Refusal::NoScholar { name: text.into() }))
+    }
+
+    /// Refuses unless this server's chief is a chief of `hamlet`.
+    fn chief_of(
+        &mut self,
+        hamlet: &HamletId,
+    ) -> Result<Result<(), Refusal>> {
+        let chief = self.realm.chief();
+        let db = self.realm.store().connection();
+        if hamlets::find(db, hamlet)?.is_none() {
+            return Ok(Err(Refusal::NoHamlet {
+                id: hamlet.to_string(),
+            }));
+        }
+        if !authority::is_chief_of(db, chief, hamlet)? {
+            return Ok(Err(Refusal::NotChief {
+                hamlet: hamlet.to_string(),
+            }));
+        }
+        Ok(Ok(()))
+    }
+
+    /// Refuses unless this server's chief leads the hire `hire`.
+    fn leads(
+        &mut self,
+        hire: AgentId,
+    ) -> Result<Result<(), Refusal>> {
+        let chief = self.realm.chief();
+        let db = self.realm.store().connection();
+        if agents::get(db, hire)?.kind != AgentKind::Hire {
+            return Ok(Err(Refusal::RoadEnds));
+        }
+        if !authority::may_lead(db, Actor::Chief(chief), hire)? {
+            let name = addresses::name_of(db, hire)?;
+            return Ok(Err(Refusal::NotYours { name }));
+        }
+        Ok(Ok(()))
+    }
+
+    fn no_hamlet(&self) -> Refusal {
+        Refusal::Usage {
+            words: "Say this to a hamlet's mayor or one of its \
+                    hires."
+                .into(),
+        }
+    }
+
+    fn every_reached(&mut self) -> Result<Vec<AgentId>> {
+        use diesel::prelude::*;
+        use hamlet_store::schema::agent;
+        let living = agent::table
+            .filter(agent::ended_at.is_null())
+            .select(agent::id)
+            .load::<AgentId>(self.realm.store().connection())?;
+        let mut out = Vec::new();
+        for each in living {
+            if self.reaches(each)?.is_ok() {
+                out.push(each);
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// The words of a decision in the record.
+fn decided(kind: DecisionKind) -> &'static str {
+    match kind {
+        DecisionKind::Founded => "founded the hamlet under",
+        DecisionKind::Hired => "hired",
+        DecisionKind::Ended => "ended",
+        DecisionKind::Merged => "merged",
+        DecisionKind::Split => "split",
+        DecisionKind::Restored => "restored",
+        DecisionKind::Erased => "erased",
+        DecisionKind::Seated => "gave the office to",
+        DecisionKind::Model => "chose the model of",
+        DecisionKind::Tools => "changed the tools of",
+        DecisionKind::Allowance => "set the allowance of",
+        DecisionKind::Road => "laid a road from",
+        DecisionKind::Unroad => "took up a road from",
+        DecisionKind::RoadAgreed => "agreed a road from",
+        DecisionKind::RoadRefused => "refused a road for",
+        DecisionKind::Pinned => "pinned",
+        _ => "changed",
+    }
+}
+
+/// Keeps `done` for a change whose own result is already a `Done`.
+#[expect(dead_code, reason = "kept for the deeds still to come")]
+fn flatten<T>(done: Done<T>) -> Done<T> {
+    match done {
+        Ok(Ok(value)) => Ok(Ok(value)),
+        Ok(Err(refusal)) => refuse!(refusal),
+        Err(error) => Err(error),
+    }
+}

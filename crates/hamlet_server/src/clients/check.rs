@@ -12,86 +12,12 @@ use jsonschema::error::{TypeKind, ValidationErrorKind};
 use schemars::generate::SchemaSettings;
 use serde_json::Value;
 
-use crate::record::{self, Audience};
-
-/// What a request gives, or why it was refused before any effect.
-pub(crate) type Refusable<T> = std::result::Result<T, Refusal>;
-
-/// A request refused before any effect.
-#[derive(Debug, thiserror::Error)]
-pub enum Refusal {
-    #[error("{0}")]
-    Invalid(String),
-    #[error("This server does not yet support {0}.")]
-    Unsupported(&'static str),
-    /// No agent of the hamlet has the name.
-    #[error("no agent named `{0}`")]
-    NoAgent(String),
-    #[error("no hamlet named `{0}`")]
-    NoHamlet(String),
-    #[error("no model named `{0}`")]
-    NoModel(String),
-    #[error("There is no past session `{0}` here.")]
-    NoSession(i64),
-    #[error("There is no sign-in here with that id.")]
-    NoSignIn,
-    /// A turn of the conversation runs; it holds what waits for it
-    /// to stop.
-    #[error("A turn is running here. Stop it, then {0}.")]
-    TurnRunning(&'static str),
-    /// The last message of a conversation was answered.
-    #[error(
-        "the last message was answered, so there is nothing to \
-         carry on"
-    )]
-    Answered,
-    #[error("Cannot {operation}: {cause}")]
-    Cannot { operation: String, cause: Cause },
-    /// A record refusal, in the chief's words. Boxed, as it is many
-    /// times the size of the other variants, and every [`Refusable`]
-    /// would carry its size.
-    #[error("{}", .0.text(Audience::Chief))]
-    Record(Box<record::Refusal>),
-    /// The line saying how a deed is written.
-    #[error("{0}")]
-    Usage(String),
-    #[error(
-        "The agent's NOTES.md could not be written safely. Inspect \
-         its house before trying again."
-    )]
-    NotesUnwritable,
-    #[error("unknown section `{0}`")]
-    UnknownSection(String),
-    #[error("unknown field `{field}` under {under}")]
-    UnknownField { field: String, under: String },
-    /// A number the client protocol cannot carry; it holds what the
-    /// number is, as a sentence begins.
-    #[error("{0} is outside the protocol's supported number range.")]
-    OutOfRange(&'static str),
-}
-
-/// A cause for which an operation is refused.
-#[derive(Debug, thiserror::Error)]
-pub enum Cause {
-    #[error("no hamlet named `{0}`. Choose a living hamlet.")]
-    NoHamlet(String),
-    #[error(
-        "Only a chief of that hamlet may reach its agents. Ask one \
-         of its chiefs."
-    )]
-    NotChief,
-    #[error(
-        "this operation is not supported by remote workspaces. No \
-         local copy was opened; keep the remote files in place and \
-         ask the chief before changing workspaces."
-    )]
-    Remote,
-}
+use crate::society::refusal::Refusal;
 
 /// The answer to request `id`.
 pub(crate) fn reply(
     id: &RequestId,
-    result: Refusable<String>,
+    result: Result<String, Refusal>,
 ) -> ServerMessage {
     let (kind, text) = match result {
         Ok(text) => (ReplyKind::Notice, text),

@@ -1,12 +1,12 @@
-//! The `hamlet_server` executable.
+//! `hamlet_server`: serves a claimed realm over the client protocol.
 
-use std::io::Write;
-use std::process::ExitCode;
+use anyhow::Result;
+use hamlet_server::serve::{Options, serve};
 
-fn main() -> ExitCode {
-    let _ = writeln!(
-        std::io::stderr(),
-        "hamlet_server: the rebuilt server does not serve yet"
-    );
-    ExitCode::FAILURE
+fn main() -> Result<()> {
+    let options = Options::parse(std::env::args_os().skip(1))?;
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(serve(options))
 }

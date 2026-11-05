@@ -132,4 +132,27 @@ pub(crate) enum Refusal {
     TierTooSmall { id: String, count: i64, tier: i64 },
     #[error("a road joins hires only")]
     RoadEnds,
+    #[error("there is no past session {number} here")]
+    NoSession { number: i64 },
+    #[error("a turn is running here; stop it, then {then}")]
+    TurnRunning { then: String },
+    #[error(
+        "the last message was answered, so there is nothing to \
+         carry on"
+    )]
+    Answered,
+    #[error("this server does not do that yet: {what}")]
+    Unsupported { what: String },
+    #[error("{words}")]
+    Usage { words: String },
+    #[error("only a chief of `{name}`'s hamlet may reach it")]
+    NotYours { name: String },
+    #[error("nothing waits here with that id")]
+    NoWait,
+    #[error("no model is named `{model}`")]
+    NoModel { model: String },
+    #[error("no skill is named `{name}`")]
+    NoSkill { name: String },
+    #[error("there is no file `{path}` here")]
+    NoFile { path: String },
 }

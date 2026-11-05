@@ -1,6 +1,7 @@
 //! The realm's database: its schema, opening it, transactions, the
 //! markers of requests done once, and the jobs kept with changes.
 
+pub mod functions;
 pub mod ids;
 pub mod job;
 pub mod marker;

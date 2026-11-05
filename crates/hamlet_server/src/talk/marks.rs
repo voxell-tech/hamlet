@@ -76,4 +76,27 @@ impl Mark {
     pub fn is_chief_turn(&self) -> bool {
         matches!(self, Self::Chief { .. } | Self::Retry { .. })
     }
+
+    /// When it was made.
+    pub fn at(&self) -> i64 {
+        match self {
+            Self::Chief { at, .. }
+            | Self::Retry { at }
+            | Self::Reflection { at }
+            | Self::Notice { at, .. }
+            | Self::Errand { at }
+            | Self::Worker { at, .. }
+            | Self::Dream { at } => *at,
+            Self::Letter(from)
+            | Self::Question(from)
+            | Self::Reply(from) => from.at,
+        }
+    }
+
+    /// The mark of an item that may have none.
+    pub fn of_item(
+        mark: Option<&runtime::Mark>,
+    ) -> Result<Option<Self>> {
+        mark.map_or(Ok(None), Self::of)
+    }
 }
