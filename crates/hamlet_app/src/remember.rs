@@ -21,7 +21,7 @@ use hamlet_client::realm::{AgentNumber, HamletId, Left};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_realm::sky::{
-    DistanceFogSettings, GrassRange, Quality, VolumetricFogSettings,
+    DistanceFogSettings, Quality, VolumetricFogSettings,
 };
 use hamlet_realm::sound::SoundSettings;
 use hamlet_realm::{North, chief};
@@ -104,9 +104,6 @@ pub struct View {
     volumetric_fog: VolumetricFogSettings,
     #[serde(default, deserialize_with = "kept_or_designed")]
     distance_fog: DistanceFogSettings,
-    /// How far the grass grows, in metres; none follows the quality.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    grass_range: Option<f32>,
     /// Degrees the sun's path is turned.
     #[serde(default)]
     north: f32,
@@ -298,10 +295,6 @@ pub fn restore(world: &mut World) {
     *world.resource_mut::<Quality>() = view.quality;
     world.insert_resource(view.volumetric_fog);
     world.insert_resource(view.distance_fog);
-    let (least, most) = GrassRange::BOUNDS;
-    world.insert_resource(GrassRange(
-        view.grass_range.map(|m| m.clamp(least, most)),
-    ));
     // North starts where it was left, without a glide.
     let north = view.north.rem_euclid(360.0);
     world.insert_resource(NorthTarget(north));
@@ -350,10 +343,9 @@ pub fn keep(
         Res<Kept>,
         Res<NorthTarget>,
     ),
-    (fog, far, grass): (
+    (fog, far): (
         Res<VolumetricFogSettings>,
         Res<DistanceFogSettings>,
-        Res<GrassRange>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -367,7 +359,6 @@ pub fn keep(
         || awake.is_changed()
         || fog.is_changed()
         || far.is_changed()
-        || grass.is_changed()
         || north.is_changed()
     {
         *due = Some(now + SETTLE);
@@ -389,7 +380,6 @@ pub fn keep(
         quality: *quality,
         volumetric_fog: fog.clone(),
         distance_fog: far.clone(),
-        grass_range: grass.0,
         north: north.0,
         dock: Vec::new(),
         desks: Some(desks.clone()),
@@ -448,7 +438,6 @@ mod tests {
                 ..VolumetricFogSettings::default()
             },
             distance_fog: DistanceFogSettings { distance: 1200.0 },
-            grass_range: Some(150.0),
             north: 45.0,
             dock: Vec::new(),
             desks,
@@ -477,7 +466,6 @@ mod tests {
                 .init_resource::<Quality>()
                 .init_resource::<VolumetricFogSettings>()
                 .init_resource::<DistanceFogSettings>()
-                .init_resource::<GrassRange>()
                 .init_resource::<North>()
                 .init_resource::<NorthTarget>()
                 .init_resource::<KeepAwake>()

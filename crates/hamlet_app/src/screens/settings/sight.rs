@@ -1,7 +1,7 @@
 //! The Sight page: how much the world draws, whether the window waits
 //! for the screen, the camera put back, the hour its sky shows,
-//! how far the distance fog lies and the grass grows, and the
-//! volumetric fog the sun throws shafts through.
+//! how far the distance fog lies and the volumetric fog the sun
+//! throws shafts through.
 
 use bevy::app::App;
 use bevy::ecs::component::Mutable;
@@ -17,8 +17,7 @@ use bevy_fynix::{
 };
 use hamlet_realm::pick::Orbit;
 use hamlet_realm::sky::{
-    DistanceFogSettings, GrassRange, Quality, SkySettings,
-    VolumetricFogSettings,
+    DistanceFogSettings, Quality, SkySettings, VolumetricFogSettings,
 };
 use hamlet_realm::{North, Sky};
 use hamlet_ui::styles::{action, close, description, note, parts};
@@ -59,8 +58,6 @@ fn quality() -> impl View {
                 |world, at| {
                     *world.resource_mut::<Quality>() =
                         Quality::ALL[at];
-                    // A quality brings its own grass range back.
-                    world.resource_mut::<GrassRange>().0 = None;
                 },
             )
             .width(percent(100.0))
@@ -194,39 +191,6 @@ fn amount<R: Resource<Mutability = Mutable>>(
     })
 }
 
-/// How far the grass grows, in metres, as [`GrassRange`] has it: the
-/// quality's reach until it is moved.
-fn grass_range() -> impl View {
-    let (least, most) = GrassRange::BOUNDS;
-    with_cx(move |cx| {
-        row((
-            glyph(Glyph::Signpost, AMOUNT_ICON)
-                .tone(Tone::Dim)
-                .tooltip(|| note("Grass")),
-            slider(
-                derived(GrassRange::metres_in).when(every_frame()),
-            )
-            .range(least, most)
-            .on_change(|world, to| {
-                world.resource_mut::<GrassRange>().0 = Some(to);
-            })
-            .width(px(0.0))
-            .min_width(px(0.0))
-            .grow(1.0),
-            label(
-                derived(|world: &World| {
-                    format!("{:.0}", GrassRange::metres_in(world))
-                })
-                .when(every_frame()),
-            )
-            .wide(px(48.0)),
-        ))
-        .gap(cx.theme().space.gap)
-        .width(percent(100.0))
-        .align(AlignItems::Center)
-    })
-}
-
 /// The volumetric fog's switch, its numbers and the way back to the
 /// designed fog.
 fn volumetric_fog() -> impl View {
@@ -334,15 +298,6 @@ pub(super) fn page() -> impl View {
                     (200.0, 2000.0),
                 ),
                 description("Further draws more land."),
-            ),
-        ),
-        field(
-            "Grass range",
-            told(
-                grass_range(),
-                description(
-                    "How far the grass grows. Further costs more.",
-                ),
             ),
         ),
         disclosure(

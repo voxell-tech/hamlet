@@ -27,7 +27,6 @@ use bevy::render::render_resource::{
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use chrono::Timelike;
 use hamlet_assets::tint;
-use hamlet_vfx::grass::GrassSettings;
 use hamlet_vfx::inlay::{self, EMBER, InlayPlugin};
 
 use super::palette::Palette;
@@ -43,7 +42,6 @@ pub fn plugin(app: &mut App) {
         .init_resource::<SkySettings>()
         .init_resource::<VolumetricFogSettings>()
         .init_resource::<DistanceFogSettings>()
-        .init_resource::<GrassRange>()
         .init_resource::<Hour>()
         .init_resource::<North>()
         .init_state::<DayPart>()
@@ -307,32 +305,6 @@ pub struct DistanceFogSettings {
     /// it is further. The ground is drawn as far, so further costs
     /// more.
     pub distance: f32,
-}
-
-/// How far from the eye the grass grows, in metres, as the chief
-/// set it; none follows the [`Quality`]. Further costs more.
-#[derive(Resource, Clone, Copy, PartialEq, Debug, Default)]
-pub struct GrassRange(pub Option<f32>);
-
-impl GrassRange {
-    /// The least and the most it is set to, in metres. The most stays
-    /// within the mask that keeps the grass off the roads.
-    pub const BOUNDS: (f32, f32) = (40.0, 200.0);
-
-    /// How far the grass grows: as set, or `designed`, the furthest
-    /// of the settings' rings, as far as `quality` lets it reach.
-    pub fn metres(self, designed: f32, quality: Quality) -> f32 {
-        self.0.unwrap_or(designed * quality.grass().reach)
-    }
-
-    /// How far the grass grows in `world`, with its settings and
-    /// quality.
-    pub fn metres_in(world: &World) -> f32 {
-        let designed = world
-            .get_resource::<GrassSettings>()
-            .map_or(0.0, |set| set.rings[2]);
-        world.resource::<Self>().metres(designed, *world.resource())
-    }
 }
 
 /// The camera: its lens, where it starts and how far a hand may move
