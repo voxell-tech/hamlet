@@ -6,10 +6,15 @@
 )]
 
 mod change;
+mod claim;
 mod clock;
+mod credentials;
+mod diagnostic;
+mod fault;
 mod jobs;
 mod knowledge;
 mod layout;
+mod realm;
 mod society;
 #[cfg(test)]
 mod testing;

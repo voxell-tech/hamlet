@@ -7,12 +7,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
+use hamlet_sandbox::scrub;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-
-use crate::scrub;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
