@@ -11,7 +11,6 @@ mod tests;
 mod view;
 
 use bevy::prelude::*;
-use hamlet_client::realm::{HOME, HamletId, LivesIn};
 
 use crate::chief::Settling;
 use crate::generator::land::Land;
@@ -33,7 +32,6 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(housing::close)
         .add_observer(roads::unlay)
         .add_observer(roads::walk)
-        .add_observer(state::vote)
         .add_systems(
             Update,
             (
@@ -96,9 +94,3 @@ struct Returning;
 /// The road of the society a road entity is drawn as.
 #[derive(Component, Clone, Copy)]
 struct Laid(Pair);
-
-/// True when `lives` is the first hamlet, the one the window's own
-/// session is with.
-fn is_first(hamlets: &Query<&HamletId>, lives: &LivesIn) -> bool {
-    hamlets.get(lives.0).is_ok_and(|s| s.0 == HOME)
-}

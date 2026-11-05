@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use bevy::prelude::*;
-use hamlet_client::realm::{self as agents, Deeds, HOME, HamletId};
+use hamlet_client::realm::{self as agents, Deeds, HamletId};
 use hamlet_client::{ViewFolder, gifts};
 
 use crate::chief::{Kept, Player, Stands};
@@ -18,11 +18,11 @@ pub(super) fn plugin(app: &mut App) {
     app.add_systems(Update, grant);
 }
 
-/// A chief's command for the hamlet `hamlet`, as the chief would
-/// type it.
+/// A chief's command for the hamlet `hamlet`, or for the Hand when
+/// there is none, as the chief would type it.
 #[derive(Event, Clone, Debug, PartialEq)]
 pub struct Decree {
-    pub hamlet: String,
+    pub hamlet: Option<String>,
     pub text: String,
 }
 
@@ -39,10 +39,10 @@ fn name(world: &World, agent: Entity) -> Option<String> {
         .map(|name| name.as_str().to_string())
 }
 
-/// A chief's command sent to the mayor of `agent`'s hamlet.
+/// A chief's command sent to the mayor of `agent`'s hamlet, or to the
+/// Hand when it has none.
 pub fn decree(world: &mut World, agent: Entity, text: String) {
-    let hamlet =
-        agents::hamlet_of(world, agent).unwrap_or(HOME).to_string();
+    let hamlet = agents::hamlet_of(world, agent).map(str::to_owned);
     world.trigger(Decree { hamlet, text });
     world.flush();
 }
@@ -107,7 +107,7 @@ fn set_down(world: &mut World, set: SetDown) {
             let (x, z) = (set.to.x, set.to.y);
             world.trigger(Decree {
                 text: format!("/move-hamlet {name} {x:.1} {z:.1}"),
-                hamlet: name,
+                hamlet: Some(name),
             });
             world.flush();
         }

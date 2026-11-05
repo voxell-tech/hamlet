@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use hamlet_client::realm::{HamletId, Left, LivesIn, Mayor};
+use hamlet_client::realm::{Identity, Left, Mayor};
 
-use super::{Housed, Returning, Sited, housing, is_first};
+use super::{Housed, Returning, Sited, housing};
 use crate::generator::house::Remains;
 use crate::generator::land::Land;
 use crate::generator::society::AgentId;
@@ -45,14 +45,13 @@ pub(super) fn plugin(app: &mut App) {
 /// Every agent's standing with its hamlet.
 #[derive(SystemParam)]
 struct Standing<'w, 's> {
-    hamlets: Query<'w, 's, &'static HamletId>,
     agents: Query<
         'w,
         's,
         (
             Entity,
             &'static Housed,
-            &'static LivesIn,
+            &'static Identity,
             Has<Mayor>,
             Has<Left>,
             Has<Returning>,
@@ -65,7 +64,8 @@ struct Standing<'w, 's> {
 #[derive(Clone, Copy)]
 struct Stood {
     entity: Entity,
-    /// True when it is the mayor the window's own chat is with.
+    /// True when it is the first mayor, whose hall the window's own
+    /// chat starts from.
     mayor: bool,
     left: bool,
     returning: bool,
@@ -80,18 +80,33 @@ struct Known {
 
 impl Standing<'_, '_> {
     fn known(&self) -> Known {
+        let first = self
+            .agents
+            .iter()
+            .filter(|(.., mayor, left, _)| *mayor && !left)
+            .map(|(_, _, identity, ..)| identity.0)
+            .min();
         let agents = self
             .agents
             .iter()
-            .map(|(entity, housed, lives, mayor, left, returning)| {
-                let stood = Stood {
+            .map(
+                |(
                     entity,
-                    mayor: mayor && is_first(&self.hamlets, lives),
+                    housed,
+                    identity,
+                    mayor,
                     left,
                     returning,
-                };
-                (housed.0, stood)
-            })
+                )| {
+                    let stood = Stood {
+                        entity,
+                        mayor: mayor && first == Some(identity.0),
+                        left,
+                        returning,
+                    };
+                    (housed.0, stood)
+                },
+            )
             .collect();
         Known {
             agents,

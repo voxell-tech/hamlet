@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    Activity, AgentNumber, Busy, Carried, Doing, HOME, HamletId,
+    Activity, AgentNumber, Busy, Carried, Doing, HamletId, Identity,
     Left, Lived, LivesIn, Mayor, MergedInto, Road, RoadUse, Spot,
-    Traffic, Voted,
+    Traffic,
 };
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
@@ -23,6 +23,19 @@ use crate::pick::{Centre, Glide, Leash, Orbit, Stance};
 use crate::sky::CameraSettings;
 use crate::testing::{receive_change, receive_state};
 use crate::{Clock, Stage};
+
+/// The first hamlet's id in the client's fixture.
+const HOME: &str = "home";
+
+/// A hire of a test hamlet: its number and the id the server names
+/// it by.
+fn hire(number: u64, hamlet: Entity) -> impl Bundle {
+    (
+        Identity(protocol::AgentId(1000 + number)),
+        AgentNumber(number),
+        LivesIn(hamlet),
+    )
+}
 
 /// The world's side of the hamlets, with no hamlet in it: the real
 /// plugin on the client's entities. The resources it reads are
@@ -65,11 +78,8 @@ fn app() -> (App, Entity) {
 fn a_hamlet_that_is_removed_takes_its_town_with_it() {
     let (mut app, _) = app();
     let mill = settle(&mut app, "mill");
-    let miller = app.world_mut().spawn((
-        AgentNumber(1),
-        LivesIn(mill),
-        Lived::default(),
-    ));
+    let miller =
+        app.world_mut().spawn((hire(1, mill), Lived::default()));
     let miller = miller.id();
     app.update();
     assert_eq!(app.world().resource::<Society>().towns.len(), 2);
@@ -99,16 +109,21 @@ fn settle(app: &mut App, name: &str) -> Entity {
         .world()
         .contains_resource::<hamlet_client::realm::Seen>()
     {
+        // The mayors take the ids after the Hand's and the first
+        // mayor's.
+        let world = app.world_mut();
+        let mayor =
+            world.query::<&HamletId>().iter(world).count() as u64 + 2;
         receive_change(
             app,
             protocol::Update::Hamlet {
-                hamlet: realm::hamlet(name),
+                hamlet: realm::hamlet(name, mayor),
             },
         );
         receive_change(
             app,
             protocol::Update::Agent {
-                agent: realm::agent(name, 0, "founder"),
+                agent: realm::agent(mayor, name, 0, "founder"),
             },
         );
     } else {
@@ -149,8 +164,7 @@ fn tell(
 ) {
     for number in living.iter().chain(gone.iter().map(|(n, _)| n)) {
         if entity(app, *number).is_none() {
-            app.world_mut()
-                .spawn((AgentNumber(*number), LivesIn(hamlet)));
+            app.world_mut().spawn(hire(*number, hamlet));
         }
     }
     for number in living {
@@ -256,11 +270,7 @@ fn a_newcomer_takes_the_plot_of_one_who_left_and_keeps_it() {
         (2, lived(20, Some(30))),
         (3, lived(40, None)),
     ] {
-        later.world_mut().spawn((
-            AgentNumber(number),
-            LivesIn(hamlet),
-            times,
-        ));
+        later.world_mut().spawn((hire(number, hamlet), times));
     }
     tell(&mut later, hamlet, &[1, 3], &[(2, None)]);
     assert_eq!(agent(&mut later, 3).plot, stood);
@@ -298,6 +308,7 @@ fn roads_and_work_follow_the_entities() {
     let (a, b) =
         (entity(&mut app, 1).unwrap(), entity(&mut app, 2).unwrap());
     let traffic = |messages, level| Traffic {
+        kind: protocol::RoadKind::Laid,
         level,
         messages,
         last_from: Some(a),
@@ -344,8 +355,7 @@ fn roads_and_work_follow_the_entities() {
 }
 
 #[test]
-fn several_hamlets_are_towns_with_roads_between_and_ballots_are_seen()
-{
+fn several_hamlets_are_towns_with_roads_between() {
     let (mut app, hamlet) = app();
     let mill = settle(&mut app, "mill");
     tell(&mut app, hamlet, &[1, 2], &[]);
@@ -385,6 +395,7 @@ fn several_hamlets_are_towns_with_roads_between_and_ballots_are_seen()
         (miller, mayor)
     };
     let traffic = Traffic {
+        kind: protocol::RoadKind::Mayors,
         level: RoadUse::Dirt,
         messages: 0,
         last_from: None,
@@ -393,11 +404,6 @@ fn several_hamlets_are_towns_with_roads_between_and_ballots_are_seen()
     app.update();
     let pair = Pair::new(here.id, there.id);
     assert!(app.world().resource::<Society>().road(pair).is_some());
-
-    // A ballot is seen where it was cast.
-    app.world_mut().trigger(Voted { agent: one });
-    let voter = housed(&app, one).id;
-    assert!(app.world().resource::<Voting>().0.contains_key(&voter));
 
     // An agent that is gone for good leaves a ruin.
     let two = entity(&mut app, 2).unwrap();

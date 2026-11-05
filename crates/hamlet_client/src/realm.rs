@@ -1,7 +1,5 @@
 //! The hamlets and agents as the server last sent them.
 
-use std::marker::PhantomData;
-
 use bevy_ecs::component::Mutable;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::name::Name;
@@ -375,8 +373,12 @@ pub fn name_of(world: &World, entity: Entity) -> String {
 pub struct Roster<'w, 's> {
     index: Res<'w, Index>,
     hand: Option<Res<'w, HandId>>,
-    // The `'s` a system's own parameter struct names a Roster with.
-    marker: PhantomData<&'s ()>,
+    mayors: Query<
+        'w,
+        's,
+        (Entity, &'static Identity),
+        (With<Mayor>, Without<Left>),
+    >,
 }
 
 impl Roster<'_, '_> {
@@ -394,6 +396,14 @@ impl Roster<'_, '_> {
     pub fn mayor_of(&self, name: &str) -> Option<Entity> {
         self.index.mayor_of(name)
     }
+
+    /// The living mayor that came first, whose hall is the oldest.
+    pub fn first_mayor(&self) -> Option<Entity> {
+        self.mayors
+            .iter()
+            .min_by_key(|(_, identity)| identity.0)
+            .map(|(entity, _)| entity)
+    }
 }
 
 /// A living agent by its shown name.
@@ -410,6 +420,19 @@ pub fn hand(world: &World) -> Option<Entity> {
 /// The current mayor of the named hamlet.
 pub fn mayor_of(world: &World, name: &str) -> Option<Entity> {
     world.get_resource::<Index>()?.mayor_of(name)
+}
+
+/// The living mayor that came first, whose hall is the oldest.
+pub fn first_mayor(world: &World) -> Option<Entity> {
+    let mut mayors = world
+        .try_query_filtered::<(Entity, &Identity), (
+            With<Mayor>,
+            Without<Left>,
+        )>()?;
+    mayors
+        .iter(world)
+        .min_by_key(|(_, identity)| identity.0)
+        .map(|(entity, _)| entity)
 }
 
 /// The protocol id of an agent's hamlet.

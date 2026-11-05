@@ -4,15 +4,14 @@ use std::collections::HashSet;
 
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    Activity, Busy, Doing, Faulted, Left, Paper, Voted,
+    Activity, Busy, Doing, Faulted, Left, Paper,
 };
 use hamlet_client::waits::{Needs, RaisedBy, Waiting};
 use hamlet_protocol::client as protocol;
 
 use super::Housed;
-use crate::Clock;
+use crate::generator::Objecting;
 use crate::generator::society::Society;
-use crate::generator::{Objecting, Voting};
 use crate::keeper::KeeperState;
 use crate::keeper::work::{self, Task, Work};
 
@@ -36,18 +35,6 @@ fn work(activity: &Activity) -> Work {
         step: u32::try_from(activity.step).unwrap_or(u32::MAX),
         failures: u32::try_from(activity.failures)
             .unwrap_or(u32::MAX),
-    }
-}
-
-/// The caster of a ballot is seen casting it.
-pub(super) fn vote(
-    voted: On<Voted>,
-    agents: Query<&Housed>,
-    clock: Res<Clock>,
-    mut voting: ResMut<Voting>,
-) {
-    if let Ok(agent) = agents.get(voted.agent) {
-        voting.0.insert(agent.0, clock.t);
     }
 }
 
