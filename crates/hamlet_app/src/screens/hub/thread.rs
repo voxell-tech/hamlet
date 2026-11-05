@@ -392,15 +392,70 @@ fn model_choices(world: &World, agent: Entity) -> Vec<String> {
     names
 }
 
+/// The models the Hand may speak with, the one it does among them.
+fn default_choices(world: &World, agent: Entity) -> Vec<String> {
+    let mut names = world
+        .get_resource::<Shelf>()
+        .into_iter()
+        .flat_map(|shelf| &shelf.models)
+        .filter(|model| model.allowed)
+        .map(|model| model.name.clone())
+        .collect::<Vec<_>>();
+    if let Some(now) = world
+        .get::<hamlet_client::realm::Account>(agent)
+        .map(|account| account.model.clone())
+        .filter(|now| !now.is_empty() && !names.contains(now))
+    {
+        names.insert(0, now);
+    }
+    names
+}
+
+/// The Hand's chip: it speaks with the realm's default model, which
+/// a pick here changes.
+fn hand_model_chip(agent: Entity) -> AnyView {
+    keyed(
+        derived(move |world: &World| {
+            (default_choices(world, agent), model_words(world, agent))
+        })
+        .when(every_frame()),
+        move |(names, now)| {
+            let names = names.clone();
+            let at = names
+                .iter()
+                .position(|name| now.starts_with(name.as_str()))
+                .unwrap_or(0);
+            dropdown(
+                names.clone(),
+                at,
+                Glyph::Chevron.image(ICON),
+                move |world, chosen| {
+                    if chosen == at {
+                        return;
+                    }
+                    if let Some(picked) = names.get(chosen) {
+                        crate::models::save_default(world, picked);
+                    }
+                },
+            )
+            .boxed()
+        },
+    )
+    .within(bare())
+    .boxed()
+}
+
 /// The chip that shows the model and effort, and for a hire its
-/// hamlet's mayor can change it from.
+/// hamlet's mayor can change it from, and for the Hand the realm's
+/// default.
 fn model_chip(agent: Entity) -> impl View {
-    let hire = rolled(move |world| {
-        world.get::<Kind>(agent).map(|kind| kind.0)
-            == Some(protocol::AgentKind::Hire)
-    });
-    keyed(hire, move |hire| {
-        if !*hire {
+    let kind =
+        rolled(move |world| world.get::<Kind>(agent).map(|k| k.0));
+    keyed(kind, move |kind| {
+        if *kind == Some(protocol::AgentKind::Hand) {
+            return hand_model_chip(agent);
+        }
+        if *kind != Some(protocol::AgentKind::Hire) {
             return label(rolled(move |world| {
                 model_words(world, agent)
             }))

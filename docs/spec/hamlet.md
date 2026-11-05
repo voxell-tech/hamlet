@@ -42,7 +42,7 @@ chief is talking to.
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
 | `/undo` | Bring back the hire ended last |
-| `/hamlets`, `/found <hamlet> <scholar> <purpose>` | List hamlets, or found one with a scholar as its mayor (H6) |
+| `/hamlets`, `/found <hamlet> [scholar] [purpose]` | List hamlets, or found one with a scholar as its mayor, `mayor` by default (H6) |
 | `/name-hamlet <hamlet> [name]`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet a display name, or set its town down elsewhere (H32) |
 | `/remove-hamlet <hamlet> <reason>`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |

@@ -27,6 +27,9 @@ struct Command {
     does: &'static str,
 }
 
+/// The scholar a hamlet founded without naming one is run by.
+const MAYOR: &str = "mayor";
+
 const TABLE: &[Command] = &[
     Command {
         name: "hand",
@@ -187,8 +190,9 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "found",
-        usage: "/found <hamlet> <scholar> <purpose>",
-        does: "Found a hamlet under a scholar as its mayor",
+        usage: "/found <hamlet> [scholar] [purpose]",
+        does: "Found a hamlet under a scholar as its mayor, mayor \
+               if none is named",
     },
     Command {
         name: "name-hamlet",
@@ -522,15 +526,21 @@ impl Core {
                 }))
             }
             "found" => {
-                if words.len() < 3 {
+                let Some(id) = words.first() else {
                     return Ok(Err(usage(name)));
-                }
-                let id = HamletId(words[0].to_owned());
-                let mayor = match self.hiring(words[1], chief)? {
+                };
+                let id = HamletId((*id).to_owned());
+                // A mayor not named is the scholar called mayor, and
+                // one given no purpose is there to run the hamlet.
+                let scholar = words.get(1).copied().unwrap_or(MAYOR);
+                let mayor = match self.hiring(scholar, chief)? {
                     Ok(hiring) => hiring,
                     Err(refusal) => return Ok(Err(refusal)),
                 };
-                let purpose = tail(2);
+                let purpose = match tail(2) {
+                    given if !given.trim().is_empty() => given,
+                    _ => format!("Mayor of {id}."),
+                };
                 let done = self
                     .attempt(by, |cx, _| {
                         hamlets::found(
@@ -548,10 +558,7 @@ impl Core {
                     format!(
                         "The hamlet `{id}` is founded under its \
                          mayor `{}@{id}`. /hamlet {id} talks to it.",
-                        words[1]
-                            .split('@')
-                            .next()
-                            .unwrap_or_default()
+                        scholar.split('@').next().unwrap_or_default()
                     )
                 }))
             }

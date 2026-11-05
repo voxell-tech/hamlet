@@ -179,6 +179,14 @@ pub(crate) fn follow_selection(world: &mut World) {
             seat_if_new(world, agent);
             Showing::Thread
         }
+        // The Hand's tower is the Hand's.
+        Some(Thing::Hand) => {
+            let Some(hand) = hamlet_client::realm::hand(world) else {
+                return;
+            };
+            seat_if_new(world, hand);
+            Showing::Thread
+        }
         Some(Thing::Common(hamlet))
             if world.get_entity(hamlet).is_ok() =>
         {

@@ -259,7 +259,8 @@ pub(crate) fn narrowed<N: AsRef<str>>(
     (names, more)
 }
 
-fn save_default(world: &mut World, model: &str) {
+/// Makes `model` the realm's default, which the Hand speaks with.
+pub(crate) fn save_default(world: &mut World, model: &str) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Edit(protocol::Edit::Settings {
             id,

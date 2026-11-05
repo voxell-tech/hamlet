@@ -168,16 +168,16 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     show_tab(world, HUB);
 }
 
-/// Points the chat back at the Hand and the camera at its tower,
-/// with nothing selected in the world. The Hub turns to its thread
-/// and comes to the front.
+/// Points the chat back at the Hand, and selects its tower and
+/// brings the camera to it. The Hub turns to its thread and comes to
+/// the front.
 pub(crate) fn talk_to_hand(world: &mut World) {
     let Some(hand) = agents::hand(world) else {
         return;
     };
     seat(world, hand);
     if world.contains_resource::<Selected>() {
-        select(world, None);
+        select(world, Some(Thing::Hand));
     }
     hub::show(world, Showing::Thread);
     show_tab(world, HUB);

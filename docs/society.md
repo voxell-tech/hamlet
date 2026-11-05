@@ -46,8 +46,10 @@ chief's behalf, each waiting for the chief.
 
 ## Hamlets, hires and the tree
 
-`/found <hamlet> <scholar> <purpose>` founds a hamlet. Its mayor is a hire of
-an existing scholar, of one at a version (`name@v3`), or of a new name. The
+`/found <hamlet> [scholar] [purpose]` founds a hamlet. Its mayor is a hire of
+an existing scholar, of one at a version (`name@v3`), or of a new name, and
+of the scholar `mayor` when none is named; with no purpose it is there to run
+the hamlet. The
 hamlet's id is lowercase letters, digits and hyphens, never reused, even
 after erasure. `/hire <scholar>[@<version>] [under <address>] <purpose>`
 hires a scholar into the hamlet you are in, up to the hamlet's tier of 50,

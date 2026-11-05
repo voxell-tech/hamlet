@@ -270,11 +270,11 @@ impl Core {
                         .collect();
                     settings.endpoints = endpoints;
                 }
+                // Only an endpoint this edit takes away can leave the
+                // model unserved; a provider one signs in to, such as
+                // a subscription, is never among the endpoints.
                 if let Some(provider) = settings.provider()
-                    && !settings
-                        .endpoints
-                        .iter()
-                        .any(|e| e.name == provider)
+                    && removed.iter().any(|name| name == provider)
                     && !self.env.overrides.faux
                 {
                     return Ok(Err(Refusal::Usage {
