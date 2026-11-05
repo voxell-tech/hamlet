@@ -10,11 +10,12 @@ use hamlet_protocol::runtime::{
     self, AdmittedStatus, RuntimeMessage, ServerMessage,
     SettledStatus, ToolSpec,
 };
-use hamlet_sandbox::Sandbox;
+use hamlet_sandbox::{AllLeftovers, Sandbox};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, watch};
 
+use crate::calls::{self, Calls, Ran};
 use crate::change::{Change, Done, Touched};
 use crate::clients::Clients;
 use crate::clients::check::reply;
@@ -25,13 +26,17 @@ use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
 use crate::knowledge::runner::Runner;
 use crate::realm::Realm;
+use crate::society::agents;
 use crate::society::refusal::Refusal;
 use crate::talk::activity::Activity;
-use crate::talk::follow::follow;
+use crate::talk::follow::{Followed, follow};
 use crate::talk::inputs::{self, Status};
 use crate::talk::process::{Pi, Received};
 use crate::talk::runtimes::{self, Pending, Runtimes};
 use crate::talk::{Env, conversations, items, prompt, sync, turns};
+use crate::work::added::{self, Manifest};
+use crate::work::catalogue::SOCIETY;
+use crate::work::tools::{self, Shells};
 
 pub(crate) struct Core {
     pub realm: Realm,
@@ -43,8 +48,16 @@ pub(crate) struct Core {
     /// what its agent is doing.
     pub live: BTreeMap<ConversationId, Live>,
     pub sandbox: Sandbox,
+    /// This machine's shells, which the agents' commands run in.
+    pub shells: Shells,
+    /// What the agents' commands leave running, by agent.
+    pub leftovers: AllLeftovers,
+    /// The tools added by hand (C17).
+    pub added: Vec<Manifest>,
+    /// Every tool a model may be offered.
+    pub catalogue: Vec<ToolSpec>,
+    pub calls: Calls,
     runner: Runner,
-    catalogue: Vec<ToolSpec>,
 }
 
 /// A conversation's transcript and activity, as kept and as running.
@@ -59,6 +72,7 @@ pub(crate) struct Inbox {
     lines: mpsc::UnboundedReceiver<Received>,
     worked: mpsc::UnboundedReceiver<()>,
     events: mpsc::Receiver<Event>,
+    ran: mpsc::UnboundedReceiver<Ran>,
     listener: Option<TcpListener>,
 }
 
@@ -82,29 +96,50 @@ impl Core {
         let (lines_to, lines) = mpsc::unbounded_channel();
         let (worked_to, worked) = mpsc::unbounded_channel();
         let (events_to, events) = mpsc::channel(128);
+        let (ran_to, ran) = mpsc::unbounded_channel();
         let runner = Runner::start(realm.layout(), worked_to)?;
         let layout = realm.layout().clone();
+        let shells = Shells::local();
+        let (added, faults) = added::load(&layout.tools());
+        for fault in faults {
+            tell(
+                Secrets::Fixed,
+                format!("a tool added by hand did not load: {fault}"),
+            );
+        }
+        let mut catalogue = tools::specs(&shells);
+        catalogue.extend(calls::specs());
+        catalogue.extend(
+            added.iter().map(|manifest| manifest.spec.clone()),
+        );
         let db = realm.store().connection();
-        runtimes::of_harness(db, crate::society::agents::HARNESS)?;
+        runtimes::of_harness(db, agents::HARNESS)?;
         let mut runtimes = Runtimes::new(pi, lines_to);
         runtimes.start(db, &layout)?;
         let clients = Clients::new(events_to, closing, clock::now())?;
+        let mut core = Self {
+            realm,
+            env,
+            runtimes,
+            credentials,
+            clients,
+            live: BTreeMap::new(),
+            sandbox,
+            shells,
+            leftovers: AllLeftovers::default(),
+            added,
+            catalogue,
+            calls: Calls::new(ran_to),
+            runner,
+        };
+        core.retool()?;
         Ok((
-            Self {
-                realm,
-                env,
-                runtimes,
-                credentials,
-                clients,
-                live: BTreeMap::new(),
-                sandbox,
-                runner,
-                catalogue: Vec::new(),
-            },
+            core,
             Inbox {
                 lines,
                 worked,
                 events,
+                ran,
                 listener: None,
             },
         ))
@@ -133,6 +168,10 @@ impl Core {
             }
             Some(event) = inbox.events.recv() => {
                 self.connection(event).await?;
+                Ok(true)
+            }
+            Some(ran) = inbox.ran.recv() => {
+                self.ran(ran).await?;
                 Ok(true)
             }
             Ok((stream, _)) = async {
@@ -199,8 +238,48 @@ impl Core {
         if touched.jobs {
             self.runner.wake();
         }
+        if !touched.agents.is_empty() || !touched.hamlets.is_empty() {
+            self.retool()?;
+        }
+        self.stop_cancelled()?;
         self.flush(false).await?;
         self.publish().await
+    }
+
+    /// Narrows the tools of every living agent's conversations to its
+    /// role now; a runtime is told before the next input.
+    fn retool(&mut self) -> Result<()> {
+        let names = self.catalogue_names();
+        let db = self.realm.store().connection();
+        for agent in agents::living(db)? {
+            for kept in conversations::of_agent(db, agent)? {
+                let tools = calls::place::tools(
+                    db, agent, kept.kind, &names, &SOCIETY,
+                )?;
+                if kept.tools()?.as_ref() != Some(&tools) {
+                    conversations::set_tools(db, kept.id, &tools)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Stops the tool runs of every conversation being stopped.
+    fn stop_cancelled(&mut self) -> Result<()> {
+        let db = self.realm.store().connection();
+        for conversation in self.calls.conversations() {
+            if conversations::get(db, conversation)?.cancelling {
+                self.calls.stop(conversation);
+            }
+        }
+        Ok(())
+    }
+
+    /// Wakes the calls a follow says waited, once its change is kept.
+    async fn woken(&mut self, followed: Followed) {
+        for (runtime, key) in followed.wake {
+            self.wake_call(&runtime, &key).await;
+        }
     }
 
     /// How the agents' commands are confined, as a client is told.
@@ -279,7 +358,7 @@ impl Core {
     }
 
     /// Sends every ready runtime what it is owed.
-    async fn flush(&mut self, again: bool) -> Result<()> {
+    pub(crate) async fn flush(&mut self, again: bool) -> Result<()> {
         for index in 0..self.runtimes.list.len() {
             sync::flush(
                 self.realm.store().connection(),
@@ -414,10 +493,12 @@ impl Core {
                         detail.as_deref(),
                     )?;
                     if ended {
-                        self.change(Actor::Realm, |cx, _| {
-                            follow(cx, conversation, &request)
-                        })
-                        .await?;
+                        let followed = self
+                            .change(Actor::Realm, |cx, _| {
+                                follow(cx, conversation, &request)
+                            })
+                            .await?;
+                        self.woken(followed).await;
                         self.settle_owed(conversation, &request)?;
                     }
                 }
@@ -444,10 +525,12 @@ impl Core {
                     detail.as_deref(),
                 )? {
                     let request = settled.request;
-                    self.change(Actor::Realm, |cx, _| {
-                        follow(cx, conversation.id, &request)
-                    })
-                    .await?;
+                    let followed = self
+                        .change(Actor::Realm, |cx, _| {
+                            follow(cx, conversation.id, &request)
+                        })
+                        .await?;
+                    self.woken(followed).await;
                     self.settle_owed(conversation.id, &request)?;
                 }
             }
@@ -591,33 +674,10 @@ impl Core {
                     .await;
             }
             RuntimeMessage::Allow(asked) => {
-                let re = asked.id;
-                self.runtimes
-                    .send(index, |v, id| {
-                        ServerMessage::Refusal(runtime::Refusal {
-                            id,
-                            re,
-                            v,
-                            words: "No such tool.".into(),
-                        })
-                    })
-                    .await;
+                self.allow_call(index, asked).await?;
             }
             RuntimeMessage::Operation(asked) => {
-                let re = asked.id;
-                self.runtimes
-                    .send(index, |v, id| {
-                        ServerMessage::Result(runtime::Result {
-                            details: None,
-                            diagnostics: None,
-                            error: true,
-                            id,
-                            re,
-                            text: "No such tool.".into(),
-                            v,
-                        })
-                    })
-                    .await;
+                self.operation(index, asked).await?;
             }
             RuntimeMessage::Yield(answer) => {
                 let re = answer.id;
@@ -669,7 +729,9 @@ impl Core {
         mut self,
         grace: std::time::Duration,
     ) -> Result<()> {
+        self.calls.stop_all();
         self.runtimes.stop(grace).await;
+        self.leftovers.end(|_| true);
         drop(self.runner);
         Ok(())
     }
@@ -710,12 +772,43 @@ mod tests {
     use crate::society::hand;
     use crate::talk::chats;
 
-    #[tokio::test]
-    async fn the_hand_answers_a_chief_through_pi() {
-        let dir = Scratch::new("server-core");
+    /// A realm on `dir` served with the faux `script`, and a chief's
+    /// line `text` to the Hand, answered.
+    async fn told(
+        dir: &Scratch,
+        script: &str,
+        text: &str,
+    ) -> (Core, Inbox, chats::Said) {
+        let (mut core, mut inbox, said) =
+            say(dir, script, text).await;
+        ended(&mut core, &mut inbox, &said).await;
+        (core, inbox, said)
+    }
+
+    async fn ended(
+        core: &mut Core,
+        inbox: &mut Inbox,
+        said: &chats::Said,
+    ) {
+        until(core, inbox, "the Hand's answer", |core| {
+            let db = core.realm.store().connection();
+            let input =
+                inputs::find(db, said.conversation, &said.request)?;
+            Ok(input.is_some_and(|i| i.is_ended() && i.followed))
+        })
+        .await
+        .unwrap();
+    }
+
+    /// A realm on `dir` served with the faux `script`, and a chief's
+    /// line `text` to the Hand, kept.
+    async fn say(
+        dir: &Scratch,
+        script: &str,
+        text: &str,
+    ) -> (Core, Inbox, chats::Said) {
         let faux = dir.join("faux.json");
-        std::fs::write(&faux, r#"{"responses": ["Hello, chief."]}"#)
-            .unwrap();
+        std::fs::write(&faux, script).unwrap();
         let realm =
             Realm::open(&dir.join("realm"), "nixon", clock::now())
                 .unwrap();
@@ -731,7 +824,7 @@ mod tests {
             Sandbox::open(hamlet_sandbox::Isolation::Sandboxed)
                 .unwrap();
         let (_closing, closed) = watch::channel(false);
-        let (mut core, mut inbox) = Core::start(
+        let (mut core, inbox) = Core::start(
             realm,
             env,
             Pi::from_env(Some(faux)).unwrap(),
@@ -742,18 +835,96 @@ mod tests {
         let hand = hand::id(core.realm.store().connection()).unwrap();
         let said = core
             .change(Actor::Chief(chief_id), |cx, env| {
-                chats::say(cx, env, hand, chief_id, "r1", "Hi")
+                chats::say(cx, env, hand, chief_id, "r1", text)
             })
             .await
             .unwrap();
-        until(&mut core, &mut inbox, "the Hand's answer", |core| {
+        (core, inbox, said)
+    }
+
+    #[tokio::test]
+    async fn a_networked_command_waits_for_the_chief_and_runs_once_allowed()
+     {
+        let dir = Scratch::new("server-core-gate");
+        let script = r#"{"responses": [
+            {"calls": [{"name": "bash", "arguments": {"command": "echo curl reached"}}]},
+            "Done."
+        ]}"#;
+        let (mut core, mut inbox, said) =
+            say(&dir, script, "Fetch it").await;
+        until(&mut core, &mut inbox, "the approval", |core| {
             let db = core.realm.store().connection();
-            let input =
-                inputs::find(db, said.conversation, &said.request)?;
-            Ok(input.is_some_and(|i| i.is_ended() && i.followed))
+            Ok(!crate::oversight::open(db)?.is_empty())
         })
         .await
         .unwrap();
+        let db = core.realm.store().connection();
+        let wait = crate::oversight::open(db).unwrap().remove(0);
+        assert_eq!(
+            wait.danger,
+            Some(crate::oversight::Danger::Network)
+        );
+        let answered = core
+            .answer_wait(
+                &wait.id.to_string(),
+                &protocol::Choice::Allow,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(answered.is_ok(), "{answered:?}");
+        ended(&mut core, &mut inbox, &said).await;
+        let db = core.realm.store().connection();
+        let page =
+            items::page(db, said.conversation, None, 20).unwrap();
+        assert!(
+            page.iter().any(|(_, item)| {
+                item.tool.as_deref() == Some("bash")
+                    && item.text.contains("curl reached")
+            }),
+            "{page:#?}"
+        );
+        assert!(crate::oversight::open(db).unwrap().is_empty());
+        core.stop(std::time::Duration::from_secs(5)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_hand_writes_its_lodge_and_reads_it_back_with_a_command()
+     {
+        let dir = Scratch::new("server-core-tools");
+        let script = r#"{"responses": [
+            {"calls": [{"name": "write", "arguments": {"path": "notes/seen.md", "content": "seen it"}}]},
+            {"calls": [{"name": "bash", "arguments": {"command": "cat notes/seen.md"}}]},
+            "Done."
+        ]}"#;
+        let (mut core, _inbox, said) =
+            told(&dir, script, "Note it").await;
+        let lodge = core.realm.layout().hand();
+        assert_eq!(
+            std::fs::read_to_string(lodge.join("notes/seen.md"))
+                .unwrap(),
+            "seen it"
+        );
+        let db = core.realm.store().connection();
+        let page =
+            items::page(db, said.conversation, None, 20).unwrap();
+        assert!(
+            page.iter().any(|(_, item)| {
+                item.tool.as_deref() == Some("bash")
+                    && item.text.contains("seen it")
+            }),
+            "{page:#?}"
+        );
+        core.stop(std::time::Duration::from_secs(5)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_hand_answers_a_chief_through_pi() {
+        let dir = Scratch::new("server-core");
+        let (mut core, _inbox, said) =
+            told(&dir, r#"{"responses": ["Hello, chief."]}"#, "Hi")
+                .await;
         let db = core.realm.store().connection();
         let page =
             items::page(db, said.conversation, None, 20).unwrap();

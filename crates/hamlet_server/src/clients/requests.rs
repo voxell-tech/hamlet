@@ -324,8 +324,15 @@ impl Core {
                 self.read(client, read).await
             }
             ClientMessage::Answer(answer) => {
-                let id = answer.id.clone();
-                self.answer(client, reply(&id, Err(Refusal::NoWait)))
+                let words = self
+                    .answer_wait(
+                        &answer.wait,
+                        &answer.choice,
+                        answer.text.as_deref(),
+                        answer.picks.as_deref(),
+                    )
+                    .await?;
+                self.answer(client, reply(&answer.id, words))
             }
             message => {
                 let what = match &message {
@@ -632,6 +639,7 @@ impl Core {
         let chief_name = crate::society::chiefs::find(db, chief)?
             .map(|c| c.name)
             .unwrap_or_default();
+        let waits = crate::oversight::views(db)?;
         let sources = super::state::Sources {
             layout: &layout,
             env: &self.env,
@@ -641,7 +649,7 @@ impl Core {
             providers: Vec::new(),
             deeds: crate::commands::deeds(),
             settings_view,
-            waits: Vec::new(),
+            waits,
             library: Vec::new(),
             starters: Vec::new(),
         };

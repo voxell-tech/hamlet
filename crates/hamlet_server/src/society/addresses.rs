@@ -6,13 +6,13 @@ use std::fmt;
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, HamletId};
+use hamlet_store::ids::{Actor, AgentId, HamletId};
 use hamlet_store::schema::{agent, hire, scholar};
 
 use super::agents::{self, AgentKind};
 use super::names::check_hamlet_id;
 use super::refusal::Refusal;
-use super::{hamlets, hand, tree};
+use super::{chiefs, hamlets, hand, tree};
 use crate::change::{Done, done, refuse};
 
 /// A name for an agent.
@@ -193,6 +193,20 @@ pub(crate) fn resolve(
             }
         }
     }
+}
+
+/// Who `actor` is, as chiefs and agents are told.
+pub(crate) fn actor_name(
+    db: &mut Db,
+    actor: Option<Actor>,
+) -> Result<String> {
+    Ok(match actor {
+        Some(Actor::Chief(chief)) => chiefs::find(db, chief)?
+            .map(|c| c.name)
+            .unwrap_or_default(),
+        Some(Actor::Agent(agent)) => name_of(db, agent)?,
+        Some(Actor::Realm) | None => "the realm".into(),
+    })
 }
 
 /// How `id` is named to chiefs and agents: `hand`, `name@hamlet`,

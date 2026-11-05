@@ -160,6 +160,61 @@ pub(crate) fn of_hamlet(
         .load(db)?)
 }
 
+/// The decisions of `hamlet` since `since` as lines of words.
+pub(crate) fn lines(
+    db: &mut Db,
+    hamlet: &HamletId,
+    since: i64,
+) -> Result<String> {
+    let mut lines = Vec::new();
+    for kept in of_hamlet(db, hamlet, since)? {
+        let who = super::addresses::actor_name(db, Some(kept.actor))?;
+        let subject = match kept.subject {
+            Some(subject) => super::addresses::name_of(db, subject)?,
+            None => String::new(),
+        };
+        let reason = if kept.reason.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", kept.reason)
+        };
+        lines.push(format!(
+            "- {who} {} {subject}{reason}",
+            kept.kind.done()
+        ));
+    }
+    Ok(if lines.is_empty() {
+        "Nothing is decided yet.".into()
+    } else {
+        lines.join("\n")
+    })
+}
+
+impl DecisionKind {
+    /// What a decision of this kind did, after who made it.
+    pub fn done(self) -> &'static str {
+        match self {
+            Self::Founded => "founded the hamlet under",
+            Self::Hired => "hired",
+            Self::Ended => "ended",
+            Self::Merged => "merged",
+            Self::Split => "split",
+            Self::Restored => "restored",
+            Self::Erased => "erased",
+            Self::Seated => "gave the office to",
+            Self::Model => "chose the model of",
+            Self::Tools => "changed the tools of",
+            Self::Allowance => "set the allowance of",
+            Self::Road => "laid a road from",
+            Self::Unroad => "took up a road from",
+            Self::RoadAgreed => "agreed a road from",
+            Self::RoadRefused => "refused a road for",
+            Self::Pinned => "pinned",
+            _ => "changed",
+        }
+    }
+}
+
 /// Every decision about `agent`, oldest first.
 pub(crate) fn about(
     db: &mut Db,

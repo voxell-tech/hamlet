@@ -6,15 +6,13 @@ use hamlet_git::Repository;
 use hamlet_protocol::client as protocol;
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 
-use crate::change::{Done, refuse};
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::hamlets::{self, Founding, Mode};
 use crate::society::hires::{self, Hiring, Spec};
-use crate::society::record::{self, DecisionKind};
 use crate::society::refusal::Refusal;
-use crate::society::{authority, city, roads};
+use crate::society::{authority, city, record, roads};
 use crate::spend;
 
 /// A command a chief can type: its name, how it is written, and what
@@ -819,33 +817,7 @@ impl Core {
                     return Ok(Err(self.no_hamlet()));
                 };
                 let db = self.realm.store().connection();
-                let mut lines = Vec::new();
-                for kept in record::of_hamlet(db, &id, 0)? {
-                    let who = crate::clients::state::actor_name(
-                        db,
-                        Some(kept.actor),
-                    )?;
-                    let subject = match kept.subject {
-                        Some(subject) => {
-                            addresses::name_of(db, subject)?
-                        }
-                        None => String::new(),
-                    };
-                    let reason = if kept.reason.is_empty() {
-                        String::new()
-                    } else {
-                        format!(": {}", kept.reason)
-                    };
-                    lines.push(format!(
-                        "- {who} {} {subject}{reason}",
-                        decided(kept.kind)
-                    ));
-                }
-                Ok(Ok(if lines.is_empty() {
-                    "Nothing is decided yet.".into()
-                } else {
-                    lines.join("\n")
-                }))
+                Ok(Ok(record::lines(db, &id, 0)?))
             }
             "scholars" => {
                 let db = self.realm.store().connection();
@@ -1191,38 +1163,5 @@ impl Core {
             }
         }
         Ok(out)
-    }
-}
-
-/// The words of a decision in the record.
-fn decided(kind: DecisionKind) -> &'static str {
-    match kind {
-        DecisionKind::Founded => "founded the hamlet under",
-        DecisionKind::Hired => "hired",
-        DecisionKind::Ended => "ended",
-        DecisionKind::Merged => "merged",
-        DecisionKind::Split => "split",
-        DecisionKind::Restored => "restored",
-        DecisionKind::Erased => "erased",
-        DecisionKind::Seated => "gave the office to",
-        DecisionKind::Model => "chose the model of",
-        DecisionKind::Tools => "changed the tools of",
-        DecisionKind::Allowance => "set the allowance of",
-        DecisionKind::Road => "laid a road from",
-        DecisionKind::Unroad => "took up a road from",
-        DecisionKind::RoadAgreed => "agreed a road from",
-        DecisionKind::RoadRefused => "refused a road for",
-        DecisionKind::Pinned => "pinned",
-        _ => "changed",
-    }
-}
-
-/// Keeps `done` for a change whose own result is already a `Done`.
-#[expect(dead_code, reason = "kept for the deeds still to come")]
-fn flatten<T>(done: Done<T>) -> Done<T> {
-    match done {
-        Ok(Ok(value)) => Ok(Ok(value)),
-        Ok(Err(refusal)) => refuse!(refusal),
-        Err(error) => Err(error),
     }
 }

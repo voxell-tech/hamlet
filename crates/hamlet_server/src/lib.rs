@@ -5,6 +5,7 @@
     reason = "the rebuild wires its parts up in steps"
 )]
 
+mod calls;
 mod change;
 mod claim;
 mod clients;
@@ -17,6 +18,7 @@ mod fault;
 mod jobs;
 mod knowledge;
 mod layout;
+mod oversight;
 mod realm;
 pub mod serve;
 mod settings;

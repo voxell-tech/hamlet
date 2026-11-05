@@ -178,6 +178,12 @@ impl Runtimes {
         Ok(())
     }
 
+    /// How many times runtime `index` was started, which tells its
+    /// processes apart.
+    pub fn generation(&self, index: usize) -> Option<u64> {
+        self.list.get(index).map(|runtime| runtime.generation)
+    }
+
     /// Whether `received` came from the process running now.
     pub fn is_current(&self, received: &Received) -> bool {
         self.list

@@ -101,6 +101,7 @@ impl Core {
                     return Ok(Err(refusal));
                 }
                 self.commit_main(
+                    Actor::Chief(chief),
                     scholar,
                     &[GitChange::Write {
                         path: CHARACTER.into(),
@@ -132,6 +133,7 @@ impl Core {
                             }
                         };
                         self.commit_main(
+                            Actor::Chief(chief),
                             scholar,
                             &[change],
                             "Edited the memory",
@@ -317,17 +319,17 @@ impl Core {
         }
     }
 
-    /// Commits `changes` to the `main` of `scholar` as the chief's,
-    /// and has its idle hires take them in.
-    async fn commit_main(
+    /// Commits `changes` to the `main` of `scholar` as `by`'s, and
+    /// has its idle hires take them in.
+    pub(crate) async fn commit_main(
         &mut self,
+        by: Actor,
         scholar: ScholarId,
         changes: &[GitChange],
         message: &str,
     ) -> Result<()> {
-        let chief = self.realm.chief();
         let path = self.realm.layout().repository(scholar);
-        let author = Actor::Chief(chief).to_string();
+        let author = by.to_string();
         let repo = Repository::open(&path)?;
         repo.commit(
             MAIN,
@@ -338,7 +340,17 @@ impl Core {
                 at: crate::clock::now(),
             },
         )?;
-        self.change(Actor::Chief(chief), |cx, _| {
+        self.main_moved(by, scholar).await
+    }
+
+    /// Has the idle hires of `scholar` take in its `main`, which `by`
+    /// moved.
+    pub(crate) async fn main_moved(
+        &mut self,
+        by: Actor,
+        scholar: ScholarId,
+    ) -> Result<()> {
+        self.change(by, |cx, _| {
             for hire in hires::living_of(cx.db, scholar)? {
                 if !crate::talk::inputs::is_agent_busy(
                     cx.db, hire.agent,

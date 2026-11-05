@@ -316,7 +316,11 @@ pub(crate) fn stop(
         }
         stopped += 1;
     }
-    crate::talk::waits_lapse(cx, agent, "stopped")?;
+    crate::oversight::lapse(
+        cx,
+        agent,
+        crate::oversight::Ruling::Stopped,
+    )?;
     cx.touched.agents.insert(agent);
     Ok(stopped)
 }

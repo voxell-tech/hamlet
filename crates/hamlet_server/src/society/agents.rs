@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId};
-use hamlet_store::schema::{agent, permission_grant, wait};
+use hamlet_store::schema::{agent, permission_grant};
 
 use crate::change::Change;
 use crate::text::text_enum;
@@ -108,6 +108,15 @@ pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Agent> {
     find(db, id)?.with_context(|| format!("no agent {id}"))
 }
 
+/// Every living agent, oldest first.
+pub(crate) fn living(db: &mut Db) -> Result<Vec<AgentId>> {
+    Ok(agent::table
+        .filter(agent::ended_at.is_null())
+        .order(agent::id)
+        .select(agent::id)
+        .load(db)?)
+}
+
 /// Ends the agent `id`: what waited on it lapses and what it was
 /// granted is taken back (H28).
 pub(crate) fn end(
@@ -134,17 +143,7 @@ pub(crate) fn end(
         permission_grant::revoked_by.eq(Actor::Realm),
     ))
     .execute(cx.db)?;
-    diesel::update(
-        wait::table
-            .filter(wait::agent.eq(id))
-            .filter(wait::open.eq(true)),
-    )
-    .set((
-        wait::open.eq(false),
-        wait::how.eq("left"),
-        wait::settled.eq(cx.at),
-    ))
-    .execute(cx.db)?;
+    crate::oversight::lapse(cx, id, crate::oversight::Ruling::Ended)?;
     cx.touched.agents.insert(id);
     Ok(())
 }

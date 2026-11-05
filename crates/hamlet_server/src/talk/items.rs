@@ -2,8 +2,10 @@
 //! them for clients.
 
 use anyhow::Result;
+use diesel::dsl::sql;
 use diesel::prelude::*;
-use hamlet_protocol::runtime::Item;
+use diesel::sql_types::{Bool, Text};
+use hamlet_protocol::runtime::{Block, Item, ItemKind};
 use hamlet_store::Db;
 use hamlet_store::ids::ConversationId;
 use hamlet_store::schema::item;
@@ -57,6 +59,57 @@ pub(crate) fn page(
         .collect::<Result<Vec<_>>>()?;
     rows.reverse();
     Ok(rows)
+}
+
+/// The last words the assistant answered the input `request` of
+/// `conversation` with, before the next input.
+pub(crate) fn answer_of(
+    db: &mut Db,
+    conversation: ConversationId,
+    request: &str,
+) -> Result<Option<String>> {
+    let start = item::table
+        .filter(item::conversation.eq(conversation))
+        .filter(
+            sql::<Bool>("json_extract(body, '$.request') = ")
+                .bind::<Text, _>(request),
+        )
+        .select(item::ordinal)
+        .first::<i64>(db)
+        .optional()?;
+    let Some(start) = start else {
+        return Ok(None);
+    };
+    let bodies = item::table
+        .filter(item::conversation.eq(conversation))
+        .filter(item::ordinal.gt(start))
+        .order(item::ordinal)
+        .select(item::body)
+        .load::<String>(db)?;
+    let mut answer = None;
+    for body in bodies {
+        let entry = serde_json::from_str::<Item>(&body)?;
+        match entry.kind {
+            ItemKind::User if entry.request.is_some() => break,
+            ItemKind::Assistant => {
+                let text = entry
+                    .blocks
+                    .iter()
+                    .flatten()
+                    .filter_map(|block| match block {
+                        Block::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !text.trim().is_empty() {
+                    answer = Some(text.trim().to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(answer)
 }
 
 /// The last entry of `conversation`.

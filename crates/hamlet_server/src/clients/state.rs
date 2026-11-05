@@ -8,7 +8,7 @@ use diesel::prelude::*;
 use hamlet_git::{MAIN, Repository};
 use hamlet_protocol::client as protocol;
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, HamletId};
+use hamlet_store::ids::{AgentId, HamletId};
 use hamlet_store::schema::{agent, message, permission_grant};
 
 use crate::layout::Layout;
@@ -64,7 +64,7 @@ pub(crate) fn compose(
         } else {
             closed.push(protocol::ClosedHamlet {
                 at: place.removed_at.unwrap_or_default(),
-                by: actor_name(db, place.removed_by)?,
+                by: addresses::actor_name(db, place.removed_by)?,
                 id: place.id.to_string(),
                 name: place
                     .title
@@ -113,20 +113,6 @@ pub(crate) fn wire_agent(id: AgentId) -> protocol::AgentId {
 
 fn wire_time(at: i64) -> u64 {
     u64::try_from(at).unwrap_or_default()
-}
-
-/// Who `actor` is, as a client shows it.
-pub(crate) fn actor_name(
-    db: &mut Db,
-    actor: Option<Actor>,
-) -> Result<String> {
-    Ok(match actor {
-        Some(Actor::Chief(chief)) => chiefs::find(db, chief)?
-            .map(|c| c.name)
-            .unwrap_or_default(),
-        Some(Actor::Agent(agent)) => addresses::name_of(db, agent)?,
-        Some(Actor::Realm) | None => "the realm".into(),
-    })
 }
 
 fn agent_view(
@@ -195,7 +181,7 @@ fn agent_view(
     let left = match (found.ended_at, found.ended_how) {
         (Some(ended), Some(how)) => Some(protocol::Left {
             at: wire_time(ended),
-            by: actor_name(db, found.ended_by)?,
+            by: addresses::actor_name(db, found.ended_by)?,
             how: match how {
                 EndHow::Ended => protocol::LeftHow::Ended,
                 EndHow::Merged => protocol::LeftHow::Merged,
@@ -511,7 +497,7 @@ fn scholar_view(
         left: match scholar.left_at {
             Some(left) => Some(protocol::ScholarLeft {
                 at: wire_time(left),
-                by: actor_name(db, scholar.left_by)?,
+                by: addresses::actor_name(db, scholar.left_by)?,
                 reason: scholar
                     .left_reason
                     .clone()
