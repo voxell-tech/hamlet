@@ -95,3 +95,7 @@ required-features = ["acceptance"]
 [[test]]
 name = "review"
 required-features = ["acceptance"]
+
+[[test]]
+name = "dreams"
+required-features = ["acceptance"]
