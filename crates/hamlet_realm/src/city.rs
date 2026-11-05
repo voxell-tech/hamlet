@@ -1,8 +1,10 @@
 //! The city island's own buildings: the Hand's tower at its middle,
-//! and the houses of the scholars about it. The Hearth and the
-//! library stand beside them on ground of their own.
+//! and the houses of the scholars about it, with the scholars that
+//! wait on its pier for a house. The Hearth and the library stand
+//! beside them on ground of their own.
 
 mod houses;
+mod newcomers;
 #[cfg(test)]
 mod tests;
 mod tower;
@@ -22,7 +24,7 @@ use crate::{Clock, RealmSystems, Sky, Stock};
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Startup, glass).add_systems(
         Update,
-        (raise, houses::tend, shape, shine)
+        (raise, houses::tend, newcomers::wait, shape, shine)
             .chain()
             .after(Raising)
             .in_set(RealmSystems::Act),

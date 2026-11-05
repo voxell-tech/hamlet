@@ -38,18 +38,50 @@ struct Landfall {
     out: Vec2,
 }
 
+/// Where the piers stand, as they were last built.
+#[derive(Resource, Clone, PartialEq, Debug)]
+pub(crate) struct Harbor([Landfall; 2]);
+
+impl Harbor {
+    /// The place on the pier of `isle` that lies `along` metres to
+    /// sea of its coast and `across` to the right of its middle,
+    /// looking out to sea.
+    pub(crate) fn spot(
+        &self,
+        isle: IslandId,
+        along: f32,
+        across: f32,
+    ) -> Vec2 {
+        let at = self.0[isle as usize];
+        at.coast
+            + at.out * along
+            + Vec2::new(at.out.y, -at.out.x) * across
+    }
+
+    /// The turn about the vertical of something on the pier of `isle`
+    /// that faces out to sea.
+    pub(crate) fn seaward(&self, isle: IslandId) -> f32 {
+        let out = self.0[isle as usize].out;
+        out.x.atan2(out.y)
+    }
+
+    /// The height of the deck of a pier over the water.
+    pub(crate) const DECK: f32 = shapes::DECK + 0.06;
+
+    /// Where the `slot`th of those who wait on the pier of `isle`
+    /// stands on it, in a file from near its head back toward land.
+    pub(crate) fn queue(&self, isle: IslandId, slot: usize) -> Vec2 {
+        let along = (shapes::SEAWARD - 4.0 - slot as f32 * 1.3)
+            .max(-shapes::INLAND + 0.5);
+        self.spot(isle, along, -0.4)
+    }
+}
+
 fn landfall(land: &Land, isle: IslandId) -> Landfall {
     Landfall {
         coast: land.coast_toward_other(isle),
         out: land.toward_other(isle),
     }
-}
-
-/// The place on the pier of `isle` that lies `out` metres to sea of
-/// its coast.
-fn pier_at(land: &Land, isle: IslandId, out: f32) -> Vec2 {
-    let at = landfall(land, isle);
-    at.coast + at.out * out
 }
 
 /// Builds the piers, boats and route again whenever the land puts
@@ -62,34 +94,36 @@ fn raise(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     standing: Query<Entity, Or<(With<Pier>, With<Route>)>>,
-    mut built: Local<Option<[Landfall; 2]>>,
+    harbor: Option<Res<Harbor>>,
 ) {
-    if built.is_some() && !land.is_changed() {
+    if harbor.is_some() && !land.is_changed() {
         return;
     }
-    let wanted = IslandId::BOTH.map(|isle| landfall(&land, isle));
-    if *built == Some(wanted) {
+    let wanted =
+        Harbor(IslandId::BOTH.map(|isle| landfall(&land, isle)));
+    if harbor.is_some_and(|harbor| *harbor == wanted) {
         return;
     }
-    *built = Some(wanted);
     for entity in &standing {
         commands.entity(entity).despawn();
     }
     let water = land.set.land.water_y;
     let pier = meshes.add(shapes::pier(&pal).build());
-    for (isle, at) in IslandId::BOTH.into_iter().zip(wanted) {
+    for isle in IslandId::BOTH {
         let paint = pal.paints[match isle {
             IslandId::City => 2,
             IslandId::Hamlet => 1,
         }];
         let boat = meshes.add(shapes::boat(&pal, paint).build());
-        let along = Quat::from_rotation_y(at.out.x.atan2(at.out.y));
+        let coast = wanted.spot(isle, 0.0, 0.0);
         commands.spawn((
             Pier(isle),
             Mesh3d(pier.clone()),
             MeshMaterial3d(stock.matte.clone()),
-            Transform::from_xyz(at.coast.x, water, at.coast.y)
-                .with_rotation(along),
+            Transform::from_xyz(coast.x, water, coast.y)
+                .with_rotation(Quat::from_rotation_y(
+                    wanted.seaward(isle),
+                )),
             Visibility::Inherited,
             children![(
                 Boat(isle),
@@ -107,7 +141,7 @@ fn raise(
     // the other's.
     let past = shapes::SEAWARD + shapes::OFFING;
     let [city, hamlet] =
-        IslandId::BOTH.map(|isle| pier_at(&land, isle, past));
+        IslandId::BOTH.map(|isle| wanted.spot(isle, past, 0.0));
     let way = hamlet - city;
     commands.spawn((
         Route,
@@ -122,6 +156,7 @@ fn raise(
             .with_rotation(Quat::from_rotation_y(way.x.atan2(way.y))),
         NotShadowCaster,
     ));
+    commands.insert_resource(wanted);
 }
 
 /// Glides the camera to the pier of the island it is not over, and
@@ -130,9 +165,11 @@ fn raise(
 pub fn glide_to_other_pier(world: &mut World) {
     let centre = world.resource::<Centre>().0;
     let focus = centre + world.resource::<Orbit>().pan;
-    let land = world.resource::<Land>();
-    let there = land.island_at(focus).other();
-    let at = pier_at(land, there, shapes::SEAWARD * 0.5);
+    let there = world.resource::<Land>().island_at(focus).other();
+    let Some(harbor) = world.get_resource::<Harbor>() else {
+        return;
+    };
+    let at = harbor.spot(there, shapes::SEAWARD * 0.5, 0.0);
     world.resource_mut::<Following>().0 = None;
     glide_to(world, at);
 }

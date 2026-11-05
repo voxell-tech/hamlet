@@ -55,6 +55,9 @@ enum Step {
     /// hires that live and whether it has left, as the server
     /// would send them.
     Scholars(Vec<(Vec2, usize, bool)>),
+    /// Gives the city this many scholars waiting on its pier, some of
+    /// them turned away.
+    Newcomers(usize),
     /// Sets the Hand to work, or to rest.
     Hand(bool),
     /// Saves a still under this name once everything is built.
@@ -150,6 +153,7 @@ fn stills() -> Vec<Step> {
             (Vec2::new(-65.0, -60.0), 0, true),
             (Vec2::new(25.0, -85.0), 3, false),
         ]),
+        Newcomers(3),
         Hand(true),
         look(City(Vec2::ZERO), 420.0),
         Shot("02-the-city-island"),
@@ -558,6 +562,30 @@ fn run(
                             reason: String::new(),
                         }),
                         name: format!("Scholar {k}"),
+                        since: 0,
+                        skills: Vec::new(),
+                        versions: Vec::new(),
+                    }),
+                ));
+            }
+        }
+        Step::Newcomers(count) => {
+            for k in 0..count {
+                let id = 200 + k as u64;
+                commands.spawn((
+                    Name::new(format!("Newcomer {k}")),
+                    Scholar(protocol::Scholar {
+                        arrival: if k % 2 == 0 {
+                            protocol::Arrival::Waiting
+                        } else {
+                            protocol::Arrival::Turned
+                        },
+                        chief: String::new(),
+                        hires: Vec::new(),
+                        house: None,
+                        id: protocol::ScholarId(id),
+                        left: None,
+                        name: format!("Newcomer {k}"),
                         since: 0,
                         skills: Vec::new(),
                         versions: Vec::new(),

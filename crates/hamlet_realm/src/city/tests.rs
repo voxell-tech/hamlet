@@ -4,9 +4,11 @@ use hamlet_client::realm::{Identity, Scholar};
 use hamlet_protocol::client as protocol;
 
 use super::houses::Home;
+use super::newcomers::Newcomer;
 use super::*;
 use crate::generator::society::Society;
 use crate::generator::testing::rehearse;
+use crate::harbor::Harbor;
 use crate::pick::PickSettings;
 use crate::sky::Quality;
 
@@ -51,6 +53,7 @@ fn city() -> App {
     app.add_plugins((
         TransformPlugin,
         ClientPlugin { server: None },
+        crate::harbor::plugin,
         plugin,
     ))
     .init_resource::<Society>()
@@ -103,4 +106,47 @@ fn the_city_has_a_tower_and_a_house_for_each_scholar_with_a_spot() {
     for spot in [Vec2::ZERO, Vec2::new(60.0, 20.0)] {
         assert!(land.city_spots().contains(&spot), "{spot}");
     }
+}
+
+#[test]
+fn a_waiting_scholar_stands_on_the_pier_until_it_has_a_house() {
+    let mut app = city();
+    let waiting = app
+        .world_mut()
+        .spawn((Name::new("a"), scholar(1, None, vec![], false)))
+        .id();
+    app.update();
+    app.update();
+
+    let on_pier = |app: &mut App| {
+        let pier = app.world().resource::<Harbor>().spot(
+            IslandId::City,
+            8.0,
+            0.0,
+        );
+        let world = app.world_mut();
+        world
+            .query_filtered::<&Transform, With<Newcomer>>()
+            .iter(world)
+            .filter(|at| at.translation.xz().distance(pier) < 10.0)
+            .count()
+    };
+    assert_eq!(on_pier(&mut app), 1);
+    let homes = |app: &mut App| {
+        let world = app.world_mut();
+        world.query::<&Home>().iter(world).count()
+    };
+    assert_eq!(homes(&mut app), 0);
+
+    // Let in, it leaves the pier for its house.
+    app.world_mut().entity_mut(waiting).insert(scholar(
+        1,
+        Some((60.0, 20.0)),
+        vec![],
+        false,
+    ));
+    app.update();
+    app.update();
+    assert_eq!(on_pier(&mut app), 0);
+    assert_eq!(homes(&mut app), 1);
 }
