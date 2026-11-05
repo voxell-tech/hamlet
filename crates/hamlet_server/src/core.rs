@@ -59,6 +59,8 @@ pub(crate) struct Core {
     pub leftovers: AllLeftovers,
     /// The tools added by hand (C17).
     pub added: Vec<Manifest>,
+    /// Why the tools added by hand that did not load did not.
+    pub faults: Vec<String>,
     /// Every tool a model may be offered.
     pub catalogue: Vec<ToolSpec>,
     pub calls: Calls,
@@ -110,7 +112,7 @@ impl Core {
         let layout = realm.layout().clone();
         let shells = Shells::local();
         let (added, faults) = added::load(&layout.tools());
-        for fault in faults {
+        for fault in &faults {
             tell(
                 Secrets::Fixed,
                 format!("a tool added by hand did not load: {fault}"),
@@ -138,6 +140,7 @@ impl Core {
             shells,
             leftovers: AllLeftovers::default(),
             added,
+            faults,
             catalogue,
             calls: Calls::new(ran_to),
             providers,
@@ -299,6 +302,30 @@ impl Core {
             }
         }
         Ok(())
+    }
+
+    /// The prompt of `conversation`'s next call in the turn of
+    /// `submission`, with no secret in it.
+    pub(crate) fn prompt(
+        &mut self,
+        conversation: &conversations::Conversation,
+        submission: Option<&str>,
+    ) -> Result<Vec<runtime::Section>> {
+        let layout = self.realm.layout().clone();
+        let confinement = self.confinement();
+        let cx = prompt::Context {
+            layout: &layout,
+            settings: &self.env.settings,
+            confinement: &confinement,
+            faults: &self.faults,
+        };
+        let db = self.realm.store().connection();
+        let mut sections =
+            prompt::sections(db, &cx, conversation, submission)?;
+        for section in &mut sections {
+            section.text = self.credentials.scrub_text(&section.text);
+        }
+        Ok(sections)
     }
 
     /// Wakes the calls a follow says waited, once its change is kept.
@@ -670,15 +697,14 @@ impl Core {
                 self.flush(false).await?;
             }
             RuntimeMessage::Prompt(asked) => {
-                let layout = self.realm.layout().clone();
                 let db = self.realm.store().connection();
                 let conversation = turns::conversation(
                     db,
                     &runtime,
                     &asked.conversation,
                 )?;
-                let sections =
-                    prompt::sections(db, &layout, &conversation)?;
+                let sections = self
+                    .prompt(&conversation, asked.input.as_deref())?;
                 let re = asked.id;
                 self.runtimes
                     .send(index, |v, id| {

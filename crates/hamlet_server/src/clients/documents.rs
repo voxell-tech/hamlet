@@ -394,7 +394,6 @@ impl Core {
         read: Read,
     ) -> Result<()> {
         let chief = self.realm.chief();
-        let layout = self.realm.layout().clone();
         let message = match read {
             Read::Charter { id } => {
                 let db = self.realm.store().connection();
@@ -427,7 +426,7 @@ impl Core {
                     db,
                     conversation,
                 )?;
-                let sections = prompt::sections(db, &layout, &kept)?;
+                let sections = self.prompt(&kept, None)?;
                 let text = sections
                     .into_iter()
                     .map(|s| s.text)

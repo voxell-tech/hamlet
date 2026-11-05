@@ -83,9 +83,9 @@ impl Core {
                 match mine.or(open.first()) {
                     Some(wait) => wait.id.to_string(),
                     None => {
-                        return Ok(
-                            Ok("Nothing waits for you.".into()),
-                        );
+                        return Ok(Ok(
+                            "Nothing waits for you.".into()
+                        ));
                     }
                 }
             }
