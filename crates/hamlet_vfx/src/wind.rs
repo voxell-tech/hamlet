@@ -165,8 +165,7 @@ impl WindUniform {
     fn strength(&self, at: Vec2, now: f32) -> f32 {
         let rolled = Vec2::new(self.scale.z, self.scale.w)
             * (now * self.scale.y);
-        let band =
-            0.5 + 0.5 * perlin(at * self.scale.x - rolled, SEED);
+        let band = 0.5 + 0.5 * fbm(at * self.scale.x - rolled);
         let gust = smoothstep(0.3, 0.75, band);
         let raw = (self.flow.w + (1.0 - self.flow.w) * gust)
             * self.swelling(now);
@@ -218,6 +217,11 @@ fn perlin(p: Vec2, seed: u32) -> f32 {
     let c = gradient(x, z + 1, seed).dot(f - Vec2::Y);
     let d = gradient(x + 1, z + 1, seed).dot(f - Vec2::ONE);
     a.lerp(b, fade.x).lerp(c.lerp(d, fade.x), fade.y) * 1.41
+}
+
+/// `fbm` in `noise.wesl` of two octaves, with the wind's seed.
+fn fbm(p: Vec2) -> f32 {
+    (perlin(p, SEED) + 0.5 * perlin(p * 2.03, SEED + 1)) / 1.5
 }
 
 fn smoothstep(low: f32, high: f32, x: f32) -> f32 {

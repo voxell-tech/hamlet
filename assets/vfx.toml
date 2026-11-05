@@ -47,7 +47,7 @@ musing_in = 0.4
 [wind]
 gap = [0.5, 1.6]
 heading = 70.0
-veer = 18.0
+veer = 60.0
 breadth = [40.0, 2.0]
 speed = 6.0
 calm = 0.45
