@@ -61,8 +61,9 @@ pub(crate) fn tag(at: Vec3) -> u32 {
 
 /// The mesh of `form` of [`FORMS`], about three and a half units
 /// tall, standing on the origin. Its leaves are cards painted with
-/// strokes over a darker core, so that no sky shows through the
-/// crown; what is not a card lies at UV zero, on solid paint.
+/// strokes: a broadleaf's in layers with gaps between, a conifer's
+/// over a darker core. What is not a card lies at UV zero, on solid
+/// paint.
 pub fn mesh(pal: &Palette, form: usize) -> Mesh {
     let (kind, variant) = (form / VARIANTS, form % VARIANTS);
     let mut rng = Rng::seeded(&format!("tree {kind} {variant}"));
@@ -123,7 +124,7 @@ fn spread(n: usize, turn: f32) -> impl Iterator<Item = Vec3> {
 }
 
 /// A broadleaf: a trunk that forks into the crown, and the crown as
-/// clumps of dabs over darker cores, lighter and warmer to the top.
+/// clumps of large daubs in layers, lighter and warmer to the top.
 fn broadleaf(
     meshing: &mut Meshing,
     rng: &mut Rng,
@@ -179,55 +180,80 @@ fn broadleaf(
 
     let crown = meshing.vertices();
     let (low, high) = (middle.y - tall, middle.y + tall);
+    let accent = accent(pal, kind, light);
     for (k, &(at, r)) in clumps.iter().enumerate() {
-        let core = shade.lerp(light, 0.15) * 0.8;
-        meshing.blob(
-            at,
-            Vec3::new(r, r * 0.9, r) * 0.82,
-            5,
-            0.15,
-            rng.f() * 40.0,
-            move |_| core,
-        );
-        let n = ((70.0 * r * r) as usize).max(14);
-        for d in spread(n, rng.f() * TAU) {
-            let p = at + d * r * rng.range(0.92, 1.08);
-            // Hidden inside another clump.
-            let buried =
-                clumps.iter().enumerate().any(|(j, &(c, rc))| {
-                    j != k && p.distance(c) < rc * 0.86
-                });
-            if buried || (d.y < -0.55 && rng.f() < 0.5) {
-                continue;
+        // Daubs at three depths, so the clump has body without a
+        // solid core; the deeper ones fewer, larger and a little
+        // darker, and gaps left between them where the sky shows.
+        for (depth, (reach, share, grow, dim)) in [
+            (1.0, 1.0, 1.0, 1.0),
+            (0.7, 0.55, 1.15, 0.86),
+            (0.4, 0.3, 1.3, 0.74),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let n = ((44.0 * r * r * share) as usize).max(5);
+            for d in spread(n, rng.f() * TAU) {
+                let p = at + d * r * reach * rng.range(0.9, 1.1);
+                // Hidden inside another clump.
+                let buried =
+                    clumps.iter().enumerate().any(|(j, &(c, rc))| {
+                        j != k && p.distance(c) < rc * 0.8
+                    });
+                if buried || (d.y < -0.6 && rng.f() < 0.5) {
+                    continue;
+                }
+                let face = (d + Vec3::Y * 0.25).normalize();
+                let (u, w) = face.any_orthonormal_pair();
+                let turn = rng.f() * TAU;
+                let along = u * turn.cos() + w * turn.sin();
+                // So that the card faces out, as `card` takes its
+                // face.
+                let side = along.cross(face);
+                let size = rng.range(0.62, 0.85) * wide * grow;
+                let stroke = if rng.f() < 0.65 {
+                    Stroke::Dab
+                } else {
+                    Stroke::Blot
+                };
+                // Each daub its own colour of the kind's: lighter up
+                // the crown, some sunlit on top, some of the accent.
+                let up = smoothstep(low + 0.1, high - 0.2, p.y);
+                let roll = rng.f();
+                let colour = if depth == 0 && d.y > 0.3 && roll < 0.3
+                {
+                    sunny
+                } else if roll > 0.82 {
+                    accent
+                } else {
+                    shade.lerp(light, 0.3 + 0.7 * up)
+                };
+                card(
+                    meshing,
+                    p - along * size * 0.5,
+                    along * size,
+                    side * size * 1.1,
+                    stroke,
+                    colour * dim * rng.value(0.08),
+                );
             }
-            let face = (d + Vec3::Y * 0.25).normalize();
-            let (u, w) = face.any_orthonormal_pair();
-            let turn = rng.f() * TAU;
-            let along = u * turn.cos() + w * turn.sin();
-            // So that the card faces out, as `card` takes its face.
-            let side = along.cross(face);
-            let size = rng.range(0.5, 0.68) * wide;
-            let stroke = if rng.f() < 0.6 {
-                Stroke::Dab
-            } else {
-                Stroke::Blot
-            };
-            let up = smoothstep(low + 0.1, high - 0.2, p.y);
-            let mut colour = shade.lerp(light, up);
-            if d.y > 0.35 && rng.f() < 0.35 {
-                colour = sunny;
-            }
-            card(
-                meshing,
-                p - along * size * 0.5,
-                along * size,
-                side * size * 1.1,
-                stroke,
-                colour * rng.value(0.07),
-            );
         }
     }
     meshing.round(crown, middle, 0.75);
+}
+
+/// A colour a kind's crown is dabbed with here and there, apart
+/// from its light and shade: yellower in green leaves, redder in
+/// autumn, paler in blossom.
+fn accent(pal: &Palette, kind: usize, light: Vec3) -> Vec3 {
+    if kind == BLOSSOM {
+        pal.blossom.lerp(Vec3::ONE, 0.45)
+    } else if kind == AUTUMN {
+        pal.autumn.lerp(pal.blossom, 0.5)
+    } else {
+        light.lerp(pal.grass_tip, 0.6)
+    }
 }
 
 /// A conifer: a thin trunk, skirts of dark needles in tiers, and
