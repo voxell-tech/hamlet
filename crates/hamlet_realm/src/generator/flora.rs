@@ -193,7 +193,7 @@ fn broadleaf(
         .into_iter()
         .enumerate()
         {
-            let n = ((44.0 * r * r * share) as usize).max(5);
+            let n = ((110.0 * r * r * share) as usize).max(12);
             for d in spread(n, rng.f() * TAU) {
                 let p = at + d * r * reach * rng.range(0.9, 1.1);
                 // Hidden inside another clump.
@@ -211,7 +211,7 @@ fn broadleaf(
                 // So that the card faces out, as `card` takes its
                 // face.
                 let side = along.cross(face);
-                let size = rng.range(0.62, 0.85) * wide * grow;
+                let size = rng.range(0.37, 0.51) * wide * grow;
                 let stroke = if rng.f() < 0.65 {
                     Stroke::Dab
                 } else {
