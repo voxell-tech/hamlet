@@ -65,10 +65,10 @@ fn chat() -> ChatRef {
 fn hello_carries_the_version_and_token() {
     client(
         ClientMessage::Hello(Hello {
-            v: V,
+            v: VERSION,
             token: "test-token".into(),
         }),
-        json!({"type": "hello", "v": V, "token": "test-token"}),
+        json!({"type": "hello", "v": VERSION.to_string(), "token": "test-token"}),
     );
 }
 
@@ -647,7 +647,7 @@ fn unknown_and_missing_nullable_fields_are_refused_at_every_level() {
         );
     }
     for wire in [
-        json!({"type": "hello", "v": V, "token": "t", "later": 1}),
+        json!({"type": "hello", "v": VERSION.to_string(), "token": "t", "later": 1}),
         json!({"type": "edit", "id": ID, "doc": "limits", "hamlet": "home", "whole": {}, "later": 1}),
     ] {
         assert!(

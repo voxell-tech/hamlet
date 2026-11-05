@@ -24,7 +24,8 @@ use tokio::task::JoinSet;
 
 use crate::wire::{
     Code, LIBRARY_FILES, Library, MAX_BODY, MAX_FILE, Message,
-    Progress, Reply, Request, State, is_valid_id, is_valid_name,
+    Progress, Reply, Request, State, VERSION, is_valid_id,
+    is_valid_name,
 };
 use crate::{http, proxy};
 
@@ -151,13 +152,16 @@ impl Worker {
                 );
             }
             Message::Execute { request } => {
-                if request.version != 1
+                if !VERSION.is_compatible(&request.version)
                     || !is_valid_name(&request.workspace)
                 {
                     let _ = call.reply.send(Reply::error(
                         Code::NotSupported,
-                        "This workspace service supports protocol 1 \
-                         only.",
+                        &format!(
+                            "This workspace service speaks protocol \
+                             {VERSION}, not {}.",
+                            request.version
+                        ),
                         false,
                     ));
                     return Ok(());

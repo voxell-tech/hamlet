@@ -8,8 +8,9 @@ The contract is the Rust types in
 module per area: `state`, `chat`, `waits`, `gifts`, `documents`, `limits`
 and `settings`.
 The names below, such as `Hello` and `ClientMessage`, are their type names.
-The handshake's `v` is the protocol's version, `V`; it moves whenever the
-schema does: a message's shape or a type's name.
+The handshake's `v` is the protocol's version, `VERSION`, in semver. A
+server takes a client whose version is compatible with its own by
+semver's caret. It stays at 0.1.0 until Hamlet's first release.
 `?` means optional; `null` is an explicit value. Objects reject extra fields.
 
 ## Transport and handshake
@@ -27,7 +28,7 @@ to loopback. Keep the token private; plain WebSocket supplies no encryption.
 Send `Hello` first, within 10 seconds:
 
 ```json
-{"type":"hello","v":2,"token":"<home token>"}
+{"type":"hello","v":"0.1.0","token":"<home token>"}
 ```
 
 A successful hello receives a full `state` before live changes. The
@@ -355,13 +356,12 @@ refusal.
    cannot check, such as a list's length, goes in a `#[schemars(...)]`
    attribute: the server checks every client message against the JSON
    Schema derived from these types.
-2. Move `V` in `crates/hamlet_protocol/src/client.rs` when a message's
-   shape or a type's name changes.
-   `cargo test -p hamlet_protocol` keeps a sha256 of the client schema
-   with `V` in `crates/hamlet_protocol/client_schema.fingerprint`. It
-   fails while the shapes differ from the recorded ones and `V` has not
-   moved. Once `V` moves, it rewrites the file and fails once: commit
-   the file. Doc comments are not part of the fingerprint.
+2. `cargo test -p hamlet_protocol` keeps a sha256 of the client schema
+   with `VERSION` in `crates/hamlet_protocol/client_schema.fingerprint`.
+   When the shapes change it rewrites the file and fails once: commit
+   the file. Doc comments are not part of the fingerprint. `VERSION`
+   stays at 0.1.0 until Hamlet's first release; after it, a change that
+   breaks a peer moves it by semver.
 3. Re-record `crates/hamlet_protocol/frames/` when the wire sessions
    change. The offline Rust recorder's command is in the
    [acceptance README](../crates/hamlet_acceptance/README.md#recording-protocol-frames).

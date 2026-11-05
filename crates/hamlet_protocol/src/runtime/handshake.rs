@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::{ToolSpec, VERSION};
+use crate::Version;
+use crate::runtime::ToolSpec;
 
 /// The runtime's first message: the versions it speaks, what it is
 /// and what its store records.
@@ -25,10 +26,9 @@ pub struct Hello {
     #[serde(deserialize_with = "Option::deserialize")]
     pub runtime: Option<String>,
     pub store: HelloStore,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     #[schemars(inner(range(min = 1)))]
-    pub versions: Vec<u64>,
+    pub versions: Vec<Version>,
 }
 
 #[derive(
@@ -77,8 +77,7 @@ pub struct Welcome {
     #[schemars(length(min = 1))]
     pub re: String,
     pub tools: Vec<ToolSpec>,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     #[schemars(extend("additionalProperties" = {"type": "integer", "format": "uint64", "minimum": 1}))]
     pub windows: BTreeMap<String, u64>,
 }
@@ -94,7 +93,6 @@ pub struct Refused {
     pub id: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     pub words: String,
 }

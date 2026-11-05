@@ -5,7 +5,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::runtime::{Item, Mark, ModelRef, Partial, VERSION};
+use crate::Version;
+use crate::runtime::{Item, Mark, ModelRef, Partial};
 
 /// Creates a conversation once per `key`; asking again answers with
 /// the same conversation.
@@ -22,8 +23,7 @@ pub struct Create {
     #[schemars(length(min = 1))]
     pub key: String,
     pub model: ModelRef,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// What a conversation is for.
@@ -66,8 +66,7 @@ pub struct Created {
     pub id: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// An input for a conversation, admitted once by its request id.
@@ -89,8 +88,7 @@ pub struct Submit {
     #[schemars(length(min = 1))]
     pub request: String,
     pub steer: bool,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "u64", range(min = 1))]
@@ -117,8 +115,7 @@ pub struct Write {
     pub mark: Mark,
     #[schemars(length(min = 1))]
     pub request: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// Sets the tools a conversation offers from its next request, kept
@@ -133,8 +130,7 @@ pub struct Configure {
     #[schemars(length(min = 1))]
     pub id: String,
     pub tools: ConfigureTools,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// Exactly the `only` tools, or every tool but the `remove` ones.
@@ -163,8 +159,7 @@ pub struct Configured {
     pub id: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// Copies a conversation up to the entry `at`, once per `key`;
@@ -182,8 +177,7 @@ pub struct Fork {
     pub id: String,
     #[schemars(length(min = 1))]
     pub key: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The input is kept in the runtime's store; a repeated request
@@ -209,8 +203,7 @@ pub struct Admitted {
     pub reason: Option<String>,
     pub status: AdmittedStatus,
     pub submission: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 #[derive(
@@ -237,8 +230,7 @@ pub struct Cancel {
     pub conversation: String,
     #[schemars(length(min = 1))]
     pub id: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The conversation's turn is stopped and its queue dropped.
@@ -251,8 +243,7 @@ pub struct Cancelled {
     pub id: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// Asks for a page of a conversation's kept entries, newest last,
@@ -272,8 +263,7 @@ pub struct History {
     pub id: String,
     #[schemars(range(min = 1, max = 200))]
     pub limit: u64,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// A page of kept entries, and whether earlier ones remain.
@@ -288,8 +278,7 @@ pub struct Page {
     pub items: Vec<Item>,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// Stops the runtime in order: its running work is signalled and
@@ -301,8 +290,7 @@ pub struct Page {
 pub struct Close {
     #[schemars(length(min = 1))]
     pub id: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// Asks what each of the runtime's conversations is doing.
@@ -313,8 +301,7 @@ pub struct Close {
 pub struct Status {
     #[schemars(length(min = 1))]
     pub id: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// Whether each of the runtime's conversations is running.
@@ -328,8 +315,7 @@ pub struct Statuses {
     pub id: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// Whether one conversation is running.
@@ -360,8 +346,7 @@ pub struct Live {
     pub partial: Option<Partial>,
     pub pending: u64,
     pub running: bool,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// An input or write that ended, by its request id.
@@ -385,8 +370,7 @@ pub struct Settled {
     #[schemars(length(min = 1))]
     pub request: String,
     pub status: SettledStatus,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 #[derive(
@@ -410,8 +394,7 @@ pub struct Kept {
     #[schemars(length(min = 1))]
     pub id: String,
     pub item: Item,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The call may not be made, in words of what ran out. With `notice`,
@@ -430,8 +413,7 @@ pub struct Stopped {
     pub notice: Option<Mark>,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     pub words: String,
 }
 
@@ -463,8 +445,7 @@ pub struct Yield {
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub summary_failure: Option<String>,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The answer stands, or fails with `words`, after which the run
@@ -486,8 +467,7 @@ pub struct Verdict {
     pub notice: Option<Mark>,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]

@@ -159,11 +159,15 @@ by the Rust types in `hamlet_protocol::client`, one module per area. Their
 a list's length; a rule a type can hold, such as `RequestId`'s UUID form,
 is in the type. The server checks every client message against the
 schema derived from them. Update `docs/protocol.md` when the protocol
-changes. Move `V` in `hamlet_protocol::client` when a message's shape
-or a type's name changes: `cargo test -p hamlet_protocol` fails until
-it moves, then
-rewrites `crates/hamlet_protocol/client_schema.fingerprint` and fails
-once, so commit the rewritten file.
+changes. When a message's shape or a type's name changes,
+`cargo test -p hamlet_protocol` rewrites
+`crates/hamlet_protocol/client_schema.fingerprint` and fails once, so
+commit the rewritten file.
+
+Versions are semver. Every version, the crates', the client, runtime
+and workspace protocols' and the realm database's, stays at 0.1.0
+until Hamlet's first release; none moves before it. Peers check that
+their versions are compatible by semver's caret.
 
 The client tests replay the faux sessions in `crates/hamlet_protocol/frames/`.
 See `docs/protocol.md` for their recording workflow.

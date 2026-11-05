@@ -6,7 +6,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use futures::{SinkExt, StreamExt};
-use hamlet_protocol::client::{RequestId, V};
+use hamlet_protocol::client::{RequestId, VERSION};
 use rustix::process::{Pid, Signal, kill_process};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -298,7 +298,7 @@ impl Server {
                 .unwrap();
         socket
             .send(Message::Text(
-                json!({"type": "hello", "v": V, "token": self.token})
+                json!({"type": "hello", "v": VERSION.to_string(), "token": self.token})
                     .to_string()
                     .into(),
             ))

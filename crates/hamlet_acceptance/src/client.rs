@@ -63,7 +63,7 @@ impl Client {
         let mut wire = Wire::open(&server.url).await;
         wire.send_json(&ClientMessage::Hello(Hello {
             token: server.token.clone(),
-            v: V,
+            v: VERSION,
         }))
         .await;
         let first = wire.message().await;

@@ -19,12 +19,14 @@ use diesel::connection::{
 use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel::sql_types::BigInt;
+use hamlet_protocol::Version;
 
 /// The connection every query of the realm goes through.
 pub type Db = SqliteConnection;
 
-/// The schema's version. A database of any other version is refused.
-const VERSION: i64 = 1;
+/// The schema's version, in semver. A database of a version it is not
+/// compatible with is refused.
+const VERSION: Version = Version::new(0, 1, 0);
 
 /// The `application_id` that marks a realm's database.
 const APPLICATION: i64 = 1_212_239_181;
@@ -100,12 +102,12 @@ impl Store {
             .values((
                 schema::realm::id.eq(1),
                 schema::realm::identity.eq(realm),
+                schema::realm::version.eq(VERSION.to_string()),
                 schema::realm::made.eq(at),
             ))
             .execute(&mut *tx)?;
         tx.batch_execute(&format!(
-            "PRAGMA application_id = {APPLICATION};
-             PRAGMA user_version = {VERSION};"
+            "PRAGMA application_id = {APPLICATION};"
         ))?;
         tx.commit().with_context(|| {
             format!("creating {}", path.display())
@@ -225,11 +227,14 @@ fn check(db: &mut Db) -> Result<()> {
         pragma("application_id")? == APPLICATION,
         "the database is not a realm's"
     );
-    let version = pragma("user_version")?;
+    let kept = schema::realm::table
+        .select(schema::realm::version)
+        .get_result::<String>(db)?;
+    let version = kept.parse::<Version>()?;
     ensure!(
-        version == VERSION,
+        VERSION.is_compatible(&version),
         "the realm's database is version {version}; this server \
-         reads only version {VERSION}"
+         reads only versions compatible with {VERSION}"
     );
     Ok(())
 }

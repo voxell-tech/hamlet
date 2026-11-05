@@ -5,6 +5,7 @@
 mod bytes;
 mod walk;
 
+use hamlet_protocol::Version;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,7 +14,8 @@ use sha2::{Digest, Sha256};
 pub use self::bytes::Bytes;
 pub use self::walk::{Listed, WALK_BYTES, walk};
 
-pub const VERSION: u8 = 1;
+/// The workspace protocol version, in semver.
+pub const VERSION: Version = Version::new(0, 1, 0);
 /// Largest file one operation carries, in bytes.
 pub const MAX_FILE: usize = 4 * 1024 * 1024;
 pub const MAX_BODY: usize = 12 * 1024 * 1024;
@@ -48,7 +50,7 @@ impl Message {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
-    pub version: u8,
+    pub version: Version,
     pub id: String,
     pub workspace: String,
     pub agent: u32,
@@ -434,13 +436,12 @@ mod tests {
 
     /// Messages as Hamlet's server sends them, which its own tests
     /// build again from its requests.
-    const FIXTURE: &str =
-        include_str!("../fixtures/protocol-v1.json");
+    const FIXTURE: &str = include_str!("../fixtures/protocol.json");
 
     #[test]
     fn shared_fixture_round_trips() {
         let fixture = serde_json::from_str::<Value>(FIXTURE).unwrap();
-        assert_eq!(fixture["protocol"], 1);
+        assert_eq!(fixture["protocol"], super::VERSION.to_string());
         let cases = fixture["cases"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {

@@ -142,7 +142,7 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
     assert_eq!(
         received[0],
         protocol::ClientMessage::Hello(protocol::Hello {
-            v: protocol::V,
+            v: protocol::VERSION,
             token: "window-token".into(),
         })
     );
@@ -162,7 +162,7 @@ async fn hello_precedes_the_outbox_and_received_state_fills_the_world()
         connection.words,
         format!(
             "Connected to {url}, which speaks protocol version {}.",
-            protocol::V
+            protocol::VERSION
         )
     );
     assert_eq!(
@@ -266,7 +266,7 @@ async fn a_reconnection_keeps_the_realm_and_sends_offline_requests_after_hello()
     assert_eq!(
         received[0],
         protocol::ClientMessage::Hello(protocol::Hello {
-            v: protocol::V,
+            v: protocol::VERSION,
             token: "window-token".into(),
         })
     );

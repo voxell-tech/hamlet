@@ -3,7 +3,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::{Credential, VERSION};
+use crate::Version;
+use crate::runtime::Credential;
 
 /// A model by its provider and id, and the address it is served at
 /// when that is not the provider's own.
@@ -127,8 +128,7 @@ pub struct Attempt {
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub submission: Option<String>,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The call may be made with the model the server chose, and the
@@ -147,8 +147,7 @@ pub struct Allowance {
     #[schemars(length(min = 1))]
     pub re: String,
     pub selection: Selection,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The usage of an allowed attempt, before its answer is kept.
@@ -162,8 +161,7 @@ pub struct UsageReport {
     #[schemars(length(min = 1))]
     pub key: String,
     pub usage: Usage,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The usage is charged, once however often it was reported.
@@ -176,6 +174,5 @@ pub struct Charged {
     pub id: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }

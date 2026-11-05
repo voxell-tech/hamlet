@@ -112,7 +112,7 @@ type Bound = {
 
 const BindingsDoc = defineDoc<{ byKey: Record<string, Bound> }>({
     kind: "hamlet.bindings",
-    version: 2,
+    version: 1,
     scope: "session",
     initial: () => ({ byKey: {} }),
 });

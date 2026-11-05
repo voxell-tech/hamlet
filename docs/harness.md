@@ -36,7 +36,9 @@ directly. `cargo test -p hamlet_protocol` writes their JSON
 Schema to
 `harnesses/pi/src/protocol-schema.ts`, and fails when it was stale so the
 new file is committed; pi takes its types and its checks from that file,
-so both sides are checked against one schema. Version 1 is the only one.
+so both sides are checked against one schema. Its version is semver, 0.1.0
+until Hamlet's first release, and a runtime is taken on when it speaks a
+version compatible with the server's by semver's caret.
 
 Every message carries the protocol version and the sender's ID for it. A
 reply names the ID it answers. Errors are messages, not closed

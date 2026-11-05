@@ -1,5 +1,5 @@
 {
-  "protocol": 1,
+  "protocol": "0.1.0",
   "description": "Workspace protocol v1 messages as Hamlet posts them to the worker's POST /v1, each with the reply expected when the cases run in order against one fresh workspace. Request ids are never reused by a real client: the replay case shows the worker refusing a repeated id. Each write's data is the base64 of content_utf8 or of the bytes in content_hex.",
   "cases": [
     {
@@ -12,7 +12,7 @@
       "message": {
         "kind": "execute",
         "request": {
-          "version": 1,
+          "version": "0.1.0",
           "id": "dc326bf3-b8e6-4e0a-8eba-219c3f307f91",
           "workspace": "fixture", "agent": 1,
           "project": false, "network": false, "read_only": false,
@@ -26,7 +26,7 @@
       "message": {
         "kind": "execute",
         "request": {
-          "version": 1,
+          "version": "0.1.0",
           "id": "bf6b73db-1d72-4c7a-972d-774e827a259c",
           "workspace": "fixture", "agent": 1,
           "project": false, "network": false, "read_only": false,
@@ -41,7 +41,7 @@
       "message": {
         "kind": "execute",
         "request": {
-          "version": 1,
+          "version": "0.1.0",
           "id": "250b2dc7-b129-421c-8fee-d8d68588c401",
           "workspace": "fixture",
           "agent": 1,
@@ -64,7 +64,7 @@
       "message": {
         "kind": "execute",
         "request": {
-          "version": 1,
+          "version": "0.1.0",
           "id": "ef16b93f-be78-426c-aceb-8bf8cd8772a1",
           "workspace": "fixture",
           "agent": 1,
@@ -87,7 +87,7 @@
       "message": {
         "kind": "execute",
         "request": {
-          "version": 1,
+          "version": "0.1.0",
           "id": "250b2dc7-b129-421c-8fee-d8d68588c401",
           "workspace": "fixture",
           "agent": 1,
@@ -115,7 +115,7 @@
       "message": {
         "kind": "execute",
         "request": {
-          "version": 1,
+          "version": "0.1.0",
           "id": "f29ac998-0370-404c-9a22-8c286da50777",
           "workspace": "fixture",
           "agent": 1,
@@ -140,7 +140,7 @@
       "message": {
         "kind": "execute",
         "request": {
-          "version": 2,
+          "version": "0.2.0",
           "id": "c0294bed-db15-42fd-afdb-74be51abda75",
           "workspace": "fixture",
           "agent": 1,
@@ -158,7 +158,7 @@
       "reply": {
         "kind": "error",
         "code": "not_supported",
-        "message": "This workspace service supports protocol 1 only.",
+        "message": "This workspace service speaks protocol 0.1.0, not 0.2.0.",
         "uncertain": false
       }
     }

@@ -6,6 +6,9 @@
 
 pub mod client;
 pub mod runtime;
+mod version;
+
+pub use version::{BadVersion, Version};
 
 /// The first hamlet's id.
 pub const HOME: &str = "home";

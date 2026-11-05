@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use diesel::prelude::*;
+use hamlet_protocol::Version;
 use hamlet_protocol::runtime::{
     Capability, Hello, HelloStore, ServerMessage, VERSION,
 };
@@ -202,11 +203,20 @@ impl Runtimes {
                 runtime::version,
             ))
             .first::<(bool, Option<String>, Option<String>)>(db)?;
-        let refusal = if !hello.versions.contains(&VERSION) {
+        let refusal = if !hello
+            .versions
+            .iter()
+            .any(|version| VERSION.is_compatible(version))
+        {
+            let spoken = hello
+                .versions
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
             Some(format!(
-                "The runtime {id} speaks protocol versions {:?}, \
-                 not {VERSION}.",
-                hello.versions
+                "The runtime {id} speaks protocol versions \
+                 {spoken}, none compatible with {VERSION}."
             ))
         } else if hello.runtime.as_deref() != Some(&id) {
             Some(format!(
@@ -304,7 +314,7 @@ impl Runtimes {
     pub async fn send(
         &mut self,
         index: usize,
-        make: impl FnOnce(u64, String) -> ServerMessage,
+        make: impl FnOnce(Version, String) -> ServerMessage,
     ) -> String {
         self.next += 1;
         let id = format!("s{}", self.next);
@@ -322,7 +332,7 @@ impl Runtimes {
         &mut self,
         index: usize,
         pending: Pending,
-        make: impl FnOnce(u64, String) -> ServerMessage,
+        make: impl FnOnce(Version, String) -> ServerMessage,
     ) -> String {
         let id = self.send(index, make).await;
         self.pending.insert(id.clone(), (index, pending));

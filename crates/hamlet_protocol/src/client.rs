@@ -4,6 +4,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::Version;
+
 pub mod discovery;
 pub mod transcript;
 
@@ -93,8 +95,8 @@ impl ServerMessage {
     }
 }
 
-/// The value of every `v` field.
-pub const V: u64 = 3;
+/// The client protocol version this server speaks.
+pub const VERSION: Version = Version::new(0, 1, 0);
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -166,8 +168,7 @@ pub enum ServerMessage {
 #[serde(deny_unknown_fields)]
 pub struct Hello {
     pub token: String,
-    #[schemars(extend("const" = V))]
-    pub v: u64,
+    pub v: Version,
 }
 
 #[derive(

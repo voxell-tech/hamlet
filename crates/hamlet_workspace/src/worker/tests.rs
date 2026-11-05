@@ -9,7 +9,7 @@ const ID: &str = "5b0f3f7e-8a52-4c2b-9d1e-7f6a3c2b1a09";
 
 /// The shared protocol fixture, whose replies the worker gives.
 const FIXTURE: &str = include_str!(
-    "../../../hamlet_workspace_wire/fixtures/protocol-v1.json"
+    "../../../hamlet_workspace_wire/fixtures/protocol.json"
 );
 
 /// A worker on `root` serving the home `home` with [`TOKEN`].
@@ -45,7 +45,7 @@ fn call(worker: &mut Worker, token: &str, message: &Value) -> Value {
 
 fn execute(id: &str) -> Value {
     json!({"kind": "execute", "request": {
-        "version": 1, "id": id, "workspace": "fixture", "agent": 1,
+        "version": "0.1.0", "id": id, "workspace": "fixture", "agent": 1,
         "project": false, "network": false, "read_only": false,
         "operation": {"kind": "exec", "argv": ["/bin/true"],
                       "cwd": "/house", "timeout_ms": 10000},

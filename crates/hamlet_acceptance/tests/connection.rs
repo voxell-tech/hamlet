@@ -19,8 +19,7 @@ fn fault(text: &str, to: Option<&RequestId>) -> ServerMessage {
 async fn refuses_a_wrong_token_and_closes() {
     let s = Session::start(Script::new()).await;
     let mut wire = Wire::open(&s.server.url).await;
-    let hello =
-        json!({"type": "hello", "v": V, "token": "not-the-token"});
+    let hello = json!({"type": "hello", "v": VERSION.to_string(), "token": "not-the-token"});
     wire.send_text(&hello.to_string()).await;
     let (got, ending) = wire.rest().await;
     assert_eq!(
@@ -56,8 +55,7 @@ async fn refuses_a_message_before_hello_and_closes() {
 async fn refuses_another_protocol_version() {
     let s = Session::start(Script::new()).await;
     let mut wire = Wire::open(&s.server.url).await;
-    let hello =
-        json!({"type": "hello", "v": V + 1, "token": s.server.token});
+    let hello = json!({"type": "hello", "v": "0.2.0", "token": s.server.token});
     wire.send_text(&hello.to_string()).await;
     let (got, ending) = wire.rest().await;
     assert_eq!(
@@ -65,7 +63,7 @@ async fn refuses_another_protocol_version() {
         [fault(
             &format!(
                 "This `hello` message does not fit the protocol: \
-                 `v` must be `{V}`."
+                 `v` 0.2.0 is not compatible with {VERSION}."
             ),
             None
         )]
@@ -163,7 +161,7 @@ async fn answers_malformed_messages_with_faults_and_stays_open() {
     assert_eq!(reply.text, "Nothing waits for you.");
     let hello = ClientMessage::Hello(Hello {
         token: s.server.token.clone(),
-        v: V,
+        v: VERSION,
     });
     chief.send(hello).await;
     let again = fault("This connection said hello already.", None);

@@ -14,7 +14,7 @@ and the chief see is in [`docs/sandbox.md`](../../docs/sandbox.md), and
 the protocol is the `hamlet_workspace_wire` crate
 ([`../hamlet_workspace_wire/src/lib.rs`](../hamlet_workspace_wire/src/lib.rs)),
 which Hamlet's server uses too, with example messages and replies in
-[`fixtures/protocol-v1.json`](../hamlet_workspace_wire/fixtures/protocol-v1.json).
+[`fixtures/protocol.json`](../hamlet_workspace_wire/fixtures/protocol.json).
 
 ## Build the image
 

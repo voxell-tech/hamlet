@@ -11,6 +11,7 @@ description = "The realm's database: its schema, opening it, transactions, marke
 workspace = true
 
 [dependencies]
+hamlet_protocol.workspace = true
 anyhow.workspace = true
 diesel.workspace = true
 libsqlite3-sys.workspace = true

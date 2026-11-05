@@ -5,10 +5,12 @@
 
 -- The realm
 
--- The realm's identity, shared with its realm.id file.
+-- The realm's identity, shared with its realm.id file, and the
+-- version of the schema it was made with, in semver.
 CREATE TABLE realm (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     identity TEXT NOT NULL,
+    version TEXT NOT NULL,
     made INTEGER NOT NULL
 ) STRICT;
 

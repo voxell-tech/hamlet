@@ -372,6 +372,7 @@ diesel::table! {
     realm (id) {
         id -> BigInt,
         identity -> Text,
+        version -> Text,
         made -> BigInt,
     }
 }
