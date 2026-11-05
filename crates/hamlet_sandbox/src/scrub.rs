@@ -119,7 +119,7 @@ fn scrub(scrubber: &mut Scrubber, value: &mut Value) {
 }
 
 /// `text` with each of `secrets` replaced.
-pub(crate) fn scrub_text(secrets: &[String], text: &str) -> String {
+pub fn scrub_text(secrets: &[String], text: &str) -> String {
     let mut scrubber = Scrubber::new(secrets);
     scrubber.push(text) + &scrubber.flush()
 }

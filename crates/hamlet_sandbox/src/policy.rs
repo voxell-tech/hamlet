@@ -40,7 +40,7 @@ pub struct Policy {
 impl Policy {
     /// Refuses limits unless each is at least 1 and the wall time
     /// fits the timer.
-    pub(crate) fn check_limits(&self) -> Result<(), LimitError> {
+    pub fn check_limits(&self) -> Result<(), LimitError> {
         let limits = &self.limits;
         for (name, value) in [
             ("cpuSecs", limits.cpu_secs),
@@ -61,7 +61,7 @@ impl Policy {
 
 /// A limit a command cannot run under.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LimitError {
+pub enum LimitError {
     #[error(
         "The limit {name} is not a whole number of at least 1: \
          {value}"
@@ -76,7 +76,7 @@ pub(crate) enum LimitError {
 
 /// The failure of a sandbox's setup for a policy.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SetupError {
+pub enum SetupError {
     #[error(transparent)]
     Limit(#[from] LimitError),
     #[error("The sandbox root must be a real directory: {0}")]
@@ -126,7 +126,7 @@ pub fn policy_hash(policy: &Policy, sandbox: &str) -> String {
 }
 
 /// The host variables a normal process needs.
-pub(crate) fn host_env() -> BTreeMap<String, String> {
+pub fn host_env() -> BTreeMap<String, String> {
     let mut env = BTreeMap::from([("LANG".into(), "C.UTF-8".into())]);
     // Git Bash would rewrite an argument that looks like a POSIX path
     // for a Windows program.

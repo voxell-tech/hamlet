@@ -1,30 +1,30 @@
-//! Commands and file operations confined to a policy (S12, C18).
+//! Commands and file operations confined to a policy (S12, C18), and
+//! the secrets taken out of what they give back (C32).
 
 mod bwrap;
 mod env;
 mod policy;
-mod reach;
+pub mod scrub;
 mod seatbelt;
 
 use std::collections::BTreeMap;
 
 use anyhow::bail;
-use hamlet_protocol::client::Confinement;
 
-pub(crate) use self::env::{
-    AgentLeftovers, AllLeftovers, Env, ExecError, FileError,
-    FileInfo, FileKind, Launch, Ran,
+pub use self::env::{
+    AllLeftovers, Env, ExecError, FileError, FileInfo, FileKind,
+    Launch, Leftovers, Ran, errno_name, status_word,
 };
-pub(crate) use self::policy::{LimitError, SetupError};
-pub use self::policy::{Policy, is_within};
-pub use self::reach::{closed_policy, open_policy};
+pub use self::policy::{
+    LimitError, Policy, SetupError, host_env, is_within, policy_hash,
+};
 
 /// A command confined to a policy: the program to run and its whole
 /// environment.
 #[derive(Debug)]
-pub(crate) struct Confined {
-    pub(crate) argv: Vec<String>,
-    pub(crate) env: BTreeMap<String, String>,
+pub struct Confined {
+    pub argv: Vec<String>,
+    pub env: BTreeMap<String, String>,
 }
 
 /// What the chief asked for when the server started.
@@ -40,10 +40,10 @@ pub enum Isolation {
 impl Isolation {
     /// The isolation tests run their commands in: insecure mode on
     /// Windows.
-    #[cfg(all(test, windows))]
-    pub(crate) const TESTING: Self = Self::Insecure;
-    #[cfg(all(test, not(windows)))]
-    pub(crate) const TESTING: Self = Self::Sandboxed;
+    #[cfg(windows)]
+    pub const TESTING: Self = Self::Insecure;
+    #[cfg(not(windows))]
+    pub const TESTING: Self = Self::Sandboxed;
 }
 
 /// A way to confine a command on one platform.
@@ -76,8 +76,8 @@ impl Sandbox {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn testing() -> Self {
+    /// The sandbox tests run their commands in.
+    pub fn testing() -> Self {
         Self::open(Isolation::TESTING).expect("a sandbox for tests")
     }
 
@@ -91,14 +91,12 @@ impl Sandbox {
         }
     }
 
-    /// How it confines commands, as a client is told (C18).
-    pub fn confinement(&self) -> Confinement {
+    /// Whether commands run with no sandbox (C18).
+    pub fn is_insecure(&self) -> bool {
         match self.0 {
-            Kind::Bwrap | Kind::Seatbelt => Confinement::Sandbox {
-                name: self.name().into(),
-            },
+            Kind::Bwrap | Kind::Seatbelt => false,
             #[cfg(windows)]
-            Kind::Insecure => Confinement::Insecure,
+            Kind::Insecure => true,
         }
     }
 
@@ -125,11 +123,11 @@ impl Sandbox {
             Err(error) => bail!(
                 "failed to run {}: {}. {hint}",
                 argv[0],
-                env::errno_name(&error)
+                errno_name(&error)
             ),
         };
         if !ran.status.success() {
-            let status = env::status_word(&ran.status);
+            let status = status_word(&ran.status);
             bail!(
                 "{} probe failed ({status}): {}. {hint}",
                 self.name(),
@@ -141,7 +139,7 @@ impl Sandbox {
 
     /// `argv`, run from `cwd`, confined to `policy`, with `tmp` as
     /// its temp folder.
-    pub(crate) fn command(
+    pub fn command(
         &self,
         policy: &Policy,
         argv: &[String],
@@ -167,7 +165,7 @@ impl Sandbox {
 }
 
 /// The environment tools start from on this platform.
-pub(crate) fn base_env() -> BTreeMap<String, String> {
+pub fn base_env() -> BTreeMap<String, String> {
     if cfg!(target_os = "linux") {
         BTreeMap::from([
             ("PATH".into(), "/usr/local/bin:/usr/bin:/bin".into()),
@@ -175,7 +173,7 @@ pub(crate) fn base_env() -> BTreeMap<String, String> {
             ("LANG".into(), "C.UTF-8".into()),
         ])
     } else {
-        policy::host_env()
+        host_env()
     }
 }
 

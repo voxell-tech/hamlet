@@ -19,10 +19,10 @@ CREATE TABLE chief (
 ) STRICT;
 
 -- The chief's documents: text for the charter and the librarian, JSON
--- for the settings and the catalogue.
+-- for the settings, the catalogue and the realm's limits.
 CREATE TABLE document (
-    kind TEXT PRIMARY KEY
-        CHECK (kind IN ('charter', 'settings', 'catalogue', 'librarian')),
+    kind TEXT PRIMARY KEY CHECK (kind IN
+        ('charter', 'settings', 'catalogue', 'librarian', 'limits')),
     value TEXT NOT NULL,
     at INTEGER NOT NULL,
     chief INTEGER REFERENCES chief(id)
@@ -31,11 +31,11 @@ CREATE TABLE document (
 -- The city
 
 -- A scholar, or the Hand's own knowledge. Its repository is
--- scholars/<id>.git. An archived scholar holds no name.
+-- scholars/<id>.git. Only living scholars' names are unique.
 CREATE TABLE scholar (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('scholar', 'hand')),
-    name TEXT,
+    name TEXT NOT NULL,
     chief INTEGER REFERENCES chief(id),
     since INTEGER NOT NULL,
     made_by TEXT NOT NULL,
@@ -48,11 +48,10 @@ CREATE TABLE scholar (
     left_by TEXT,
     left_reason TEXT,
     erased INTEGER NOT NULL DEFAULT 0 CHECK (erased IN (0, 1)),
-    CHECK ((name IS NULL) = (left_at IS NOT NULL)),
     CHECK ((kind = 'hand') = (chief IS NULL)),
     CHECK (erased = 0 OR left_at IS NOT NULL)
 ) STRICT;
-CREATE UNIQUE INDEX scholar_name ON scholar(name) WHERE name IS NOT NULL;
+CREATE UNIQUE INDEX scholar_name ON scholar(name) WHERE left_at IS NULL;
 CREATE INDEX scholar_chief ON scholar(chief);
 
 -- Hamlets

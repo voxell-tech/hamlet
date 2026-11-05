@@ -440,7 +440,7 @@ diesel::table! {
     scholar (id) {
         id -> BigInt,
         kind -> Text,
-        name -> Nullable<Text>,
+        name -> Text,
         chief -> Nullable<BigInt>,
         since -> BigInt,
         made_by -> Text,

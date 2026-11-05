@@ -1,12 +1,12 @@
-//! `hamlet_server`: serves a claimed home over the client protocol.
+//! The `hamlet_server` executable.
 
-use anyhow::Result;
-use hamlet_server::serve::{Options, serve};
+use std::io::Write;
+use std::process::ExitCode;
 
-fn main() -> Result<()> {
-    let options = Options::parse(std::env::args_os().skip(1))?;
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?
-        .block_on(serve(options))
+fn main() -> ExitCode {
+    let _ = writeln!(
+        std::io::stderr(),
+        "hamlet_server: the rebuilt server does not serve yet"
+    );
+    ExitCode::FAILURE
 }

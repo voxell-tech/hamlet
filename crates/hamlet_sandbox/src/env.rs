@@ -24,33 +24,30 @@ use super::policy::{
     Policy, SetupError, canon_text, directory_root, fixed_roots,
     is_readable, is_writable, policy_hash, private_tmp, temp_root,
 };
-use crate::record::AgentRef;
 use crate::scrub::Scrubber;
 
 /// How long output may still come once a command ended.
 const EXIT_GRACE: Duration = Duration::from_millis(100);
 
-/// The leftovers of every agent's commands.
+/// The leftovers of every agent's commands, by the agent's id.
 #[derive(Clone, Default)]
-pub(crate) struct AllLeftovers(
-    Arc<Mutex<Vec<(AgentRef, process::Leftovers)>>>,
-);
+pub struct AllLeftovers(Arc<Mutex<Vec<(i64, process::Leftovers)>>>);
 
 impl AllLeftovers {
-    /// Where `agent`'s commands leave theirs.
-    pub(crate) fn of(&self, agent: &AgentRef) -> AgentLeftovers {
-        AgentLeftovers {
+    /// Where the commands of the agent `owner` leave theirs.
+    pub fn of(&self, owner: i64) -> Leftovers {
+        Leftovers {
             all: self.clone(),
-            agent: agent.clone(),
+            owner,
         }
     }
 
     /// Ends the leftovers of every agent `which` picks.
-    pub(crate) fn end(&self, which: impl Fn(&AgentRef) -> bool) {
+    pub fn end(&self, which: impl Fn(i64) -> bool) {
         let ended = {
             let mut all =
                 self.0.lock().unwrap_or_else(PoisonError::into_inner);
-            all.extract_if(.., |(agent, _)| which(agent))
+            all.extract_if(.., |(owner, _)| which(*owner))
                 .collect::<Vec<_>>()
         };
         for (_, leftovers) in ended {
@@ -61,18 +58,18 @@ impl AllLeftovers {
 
 /// The leftovers of one agent's commands.
 #[derive(Clone)]
-pub(crate) struct AgentLeftovers {
+pub struct Leftovers {
     all: AllLeftovers,
-    agent: AgentRef,
+    owner: i64,
 }
 
-impl AgentLeftovers {
-    pub(crate) fn keep(&self, leftovers: process::Leftovers) {
+impl Leftovers {
+    pub fn keep(&self, leftovers: process::Leftovers) {
         let mut all =
             self.all.0.lock().unwrap_or_else(PoisonError::into_inner);
         // Dropping a record whose group ended frees its id.
         all.retain(|(_, kept)| kept.is_running());
-        all.push((self.agent.clone(), leftovers));
+        all.push((self.owner, leftovers));
     }
 }
 
@@ -91,7 +88,7 @@ const MOVED: &str = "The path changed while it was being reached. \
 const NEW_FILE: Mode = Mode::new(0o666);
 
 /// A tool's environment under `policy`, working in `cwd`.
-pub(crate) struct Env {
+pub struct Env {
     cwd: String,
     policy: Policy,
     sandbox: Sandbox,
@@ -114,9 +111,9 @@ struct Root {
 /// for it.
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
-pub(crate) struct FileError {
-    pub(crate) code: Code,
-    pub(crate) message: String,
+pub struct FileError {
+    pub code: Code,
+    pub message: String,
 }
 
 impl FileError {
@@ -129,7 +126,7 @@ impl FileError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FileKind {
+pub enum FileKind {
     File,
     Directory,
     Symlink,
@@ -137,23 +134,23 @@ pub(crate) enum FileKind {
 
 /// A file as `lstat` sees it.
 #[derive(Debug)]
-pub(crate) struct FileInfo {
-    pub(crate) name: String,
-    pub(crate) kind: FileKind,
-    pub(crate) size: u64,
+pub struct FileInfo {
+    pub name: String,
+    pub kind: FileKind,
+    pub size: u64,
 }
 
 /// A command that ended by itself.
 #[derive(Debug)]
-pub(crate) struct Ran {
-    pub(crate) exit_code: i32,
+pub struct Ran {
+    pub exit_code: i32,
     /// The file the complete output was spilled to.
-    pub(crate) spill: Option<String>,
+    pub spill: Option<String>,
 }
 
 /// A command that did not end by itself.
 #[derive(Debug)]
-pub(crate) enum ExecError {
+pub enum ExecError {
     /// It could not start.
     Spawn(String),
     Timeout {
@@ -164,7 +161,7 @@ pub(crate) enum ExecError {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum Launch<'a> {
+pub enum Launch<'a> {
     /// A shell's argv, which reads nothing.
     Shell(&'a [String]),
     Program {
@@ -190,7 +187,7 @@ enum Reach {
 impl Env {
     /// Pins the policy's roots and prepares the private temp folder
     /// and the folder spilled output goes to.
-    pub(crate) fn new(
+    pub fn new(
         cwd: &str,
         policy: Policy,
         sandbox: Sandbox,
@@ -200,7 +197,7 @@ impl Env {
 
     /// An environment with a separate scratch folder removed when the
     /// call ends.
-    pub(crate) fn private(
+    pub fn private(
         cwd: &str,
         policy: Policy,
         sandbox: Sandbox,
@@ -250,24 +247,24 @@ impl Env {
         })
     }
 
-    pub(crate) fn cwd(&self) -> &str {
+    pub fn cwd(&self) -> &str {
         &self.cwd
     }
 
     /// The private temp folder commands get.
-    pub(crate) fn tmp(&self) -> &str {
+    pub fn tmp(&self) -> &str {
         &self.tmp
     }
 
     /// The [`policy_hash`] of the policy and the sandbox commands run
     /// under.
-    pub(crate) fn policy_hash(&self) -> &str {
+    pub fn policy_hash(&self) -> &str {
         &self.hash
     }
 
     /// The limits this platform cannot hold for a command, named in
     /// its record, or false when all of them hold.
-    pub(crate) fn degraded(&self) -> serde_json::Value {
+    pub fn degraded(&self) -> serde_json::Value {
         match process::unenforced(&self.policy.limits) {
             [] => serde_json::Value::Bool(false),
             names => serde_json::json!(names),
@@ -275,7 +272,7 @@ impl Env {
     }
 
     /// The absolute path `path` names from the working directory.
-    pub(crate) fn absolute(&self, path: &str) -> String {
+    pub fn absolute(&self, path: &str) -> String {
         path::resolve(&self.cwd, path)
     }
 
@@ -351,7 +348,7 @@ impl Env {
         }
     }
 
-    pub(crate) fn file_info(
+    pub fn file_info(
         &self,
         path: &str,
     ) -> Result<FileInfo, FileError> {
@@ -362,10 +359,7 @@ impl Env {
         info_of(path::basename(&at.resolved), &stat)
     }
 
-    pub(crate) fn exists(
-        &self,
-        path: &str,
-    ) -> Result<bool, FileError> {
+    pub fn exists(&self, path: &str) -> Result<bool, FileError> {
         match self.file_info(path) {
             Ok(_) => Ok(true),
             Err(error) if error.code == Code::NotFound => Ok(false),
@@ -375,7 +369,7 @@ impl Env {
 
     /// The entries of a folder, but those neither file, folder nor
     /// link.
-    pub(crate) fn list_dir(
+    pub fn list_dir(
         &self,
         path: &str,
     ) -> Result<Vec<FileInfo>, FileError> {
@@ -408,7 +402,7 @@ impl Env {
         Ok(infos)
     }
 
-    pub(crate) fn canonical_path(
+    pub fn canonical_path(
         &self,
         path: &str,
     ) -> Result<String, FileError> {
@@ -419,7 +413,7 @@ impl Env {
     }
 
     /// The bytes of a regular file.
-    pub(crate) fn read_file(
+    pub fn read_file(
         &self,
         path: &str,
     ) -> Result<Vec<u8>, FileError> {
@@ -431,7 +425,7 @@ impl Env {
     }
 
     /// A regular file opened for reading, and its absolute path.
-    pub(crate) fn open_file(
+    pub fn open_file(
         &self,
         path: &str,
     ) -> Result<(fs::File, String), FileError> {
@@ -452,10 +446,7 @@ impl Env {
     /// The text of a file, refused unless it is UTF-8, so that an
     /// edit cannot write replacement characters back over it. A
     /// byte-order mark is kept.
-    pub(crate) fn read_text(
-        &self,
-        path: &str,
-    ) -> Result<String, FileError> {
+    pub fn read_text(&self, path: &str) -> Result<String, FileError> {
         let bytes = self.read_file(path)?;
         String::from_utf8(bytes).map_err(|_| {
             FileError::new(
@@ -466,7 +457,7 @@ impl Env {
     }
 
     /// Writes `content` over the file, making its folders.
-    pub(crate) fn write_file(
+    pub fn write_file(
         &self,
         path: &str,
         content: &str,
@@ -507,9 +498,7 @@ impl Env {
     }
 
     /// A new empty file for spilled output.
-    pub(crate) fn create_temp_file(
-        &self,
-    ) -> Result<String, FileError> {
+    pub fn create_temp_file(&self) -> Result<String, FileError> {
         let path = path::join(&[
             self.output.as_str(),
             &format!("pi-output-{}.log", uuid::Uuid::new_v4()),
@@ -527,12 +516,12 @@ impl Env {
     /// policy's own limit. Its output, with `secrets` taken out, goes
     /// to `output` as it comes and, past the spill limits, all of it
     /// to a file. What it leaves running goes to `leftovers`.
-    pub(crate) async fn exec(
+    pub async fn exec(
         &self,
         launch: Launch<'_>,
         timeout: Duration,
         secrets: &[String],
-        leftovers: &AgentLeftovers,
+        leftovers: &Leftovers,
         output: &mut (impl FnMut(&str) + Send),
     ) -> Result<Ran, ExecError> {
         let mut scrubber = Scrubber::new(secrets);
@@ -567,7 +556,7 @@ impl Env {
         &self,
         launch: Launch<'_>,
         timeout: Duration,
-        leftovers: &AgentLeftovers,
+        leftovers: &Leftovers,
         output: &mut (impl FnMut(&str) + Send),
     ) -> Result<Ended, ExecError> {
         if let Some(refusal) = self.root_refusal() {
@@ -905,7 +894,7 @@ fn exit_code(status: &ExitStatus) -> i32 {
 }
 
 /// How a probe ended: its exit code, or the signal that ended it.
-pub(super) fn status_word(status: &ExitStatus) -> String {
+pub fn status_word(status: &ExitStatus) -> String {
     if let Some(code) = status.code() {
         return code.to_string();
     }
@@ -927,7 +916,7 @@ pub(super) fn status_word(status: &ExitStatus) -> String {
     "ended without an exit code or signal".into()
 }
 
-pub(super) fn errno_name(error: &io::Error) -> &'static str {
+pub fn errno_name(error: &io::Error) -> &'static str {
     system_error(error).map_or("UNKNOWN", |error| error.name)
 }
 
@@ -972,6 +961,7 @@ fn described(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
 
@@ -979,7 +969,25 @@ mod tests {
     use hamlet_testing::links::symlink;
 
     use super::*;
-    use crate::sandbox::reach::open_policy;
+    use crate::policy::host_env;
+
+    /// The machine to read but `home`, and `folder` and `house` to
+    /// write.
+    fn open_policy(
+        folder: &Path,
+        house: &Path,
+        home: &Path,
+        shared: &[PathBuf],
+    ) -> Policy {
+        Policy {
+            ro: shared.to_vec(),
+            rw: vec![folder.to_owned(), house.to_owned()],
+            open: true,
+            hidden: vec![home.to_owned()],
+            env: host_env(),
+            ..Policy::default()
+        }
+    }
 
     /// Keeps `link` pointing at `inside` and `outside` by turns,
     /// each turn an atomic replacement, until `stop` is set.
