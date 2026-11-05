@@ -2,9 +2,9 @@
 //! words of their refusals.
 
 use hamlet_os::fs::path;
+use hamlet_sandbox::{FileInfo, FileKind};
 
 use super::environment::Reach;
-use crate::sandbox::{FileInfo, FileKind};
 
 /// Folders a walk does not go into.
 pub(super) const SKIPPED: [&str; 9] = [

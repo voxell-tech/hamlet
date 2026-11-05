@@ -15,14 +15,14 @@ use hamlet_os::fs::path;
 use hamlet_protocol::runtime::{
     DiagnosticSeverity, ToolSpec, ToolSpecReplay, ToolSpecRetain,
 };
+use hamlet_sandbox::scrub::scrub_text;
+use hamlet_sandbox::{ExecError, FileKind};
 use hamlet_workspace_wire::Code;
 use serde_json::{Map, Value, json};
 
 use super::environment::Reach;
 use super::truncate::{MAX_BYTES, MAX_LINES, Tail};
 use super::{Arguments, Outcome, Place, diagnostic, number_words};
-use crate::sandbox::{ExecError, FileKind};
-use crate::scrub::scrub_text;
 
 /// Seconds a command may run, which a model can ask to shorten and
 /// never to lengthen.
@@ -587,20 +587,20 @@ mod tests {
         shells
     }
 
-    /// Runs `command` with `shell` in a scratch house.
+    /// Runs `command` with `shell` in a scratch lodge.
     #[cfg(windows)]
     async fn call(shell: &Shell, command: &str) -> Outcome {
-        use crate::record::AgentRef;
-        use crate::sandbox::{AllLeftovers, Sandbox};
-        use crate::tools::ToolSession;
+        use hamlet_sandbox::{AllLeftovers, Sandbox};
+
+        use crate::work::tools::ToolSession;
 
         let scratch = hamlet_testing::Scratch::new("shell-call");
-        let house = scratch.join("houses/home/0");
-        fs::create_dir_all(&house).unwrap();
+        let lodge = scratch.join("lodges/home/0");
+        fs::create_dir_all(&lodge).unwrap();
         let place = Place {
-            house,
+            lodge,
             folder: None,
-            home: scratch.to_path_buf(),
+            realm: scratch.to_path_buf(),
             shared: Vec::new(),
         };
         let Value::Object(arguments) =
@@ -613,10 +613,7 @@ mod tests {
             false,
             Sandbox::testing(),
             Shells(vec![shell.clone()]),
-            AllLeftovers::default().of(&AgentRef {
-                hamlet: "home".into(),
-                number: 0,
-            }),
+            AllLeftovers::default().of(1),
         )
         .run(&[], shell.dialect.tool(), &arguments)
         .await

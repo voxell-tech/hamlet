@@ -1,5 +1,6 @@
 //! Hamlet's `search` (C16), which only reads and so never waits.
 
+use hamlet_sandbox::FileKind;
 use hamlet_workspace_wire::{Found, Walked};
 use regex::Regex;
 use serde_json::{Map, Value};
@@ -9,8 +10,7 @@ use super::walk::{
     FOUND, Failure, is_wanted, reached, report, shown, under,
 };
 use super::{Arguments, Outcome, is_pi_space};
-use crate::change::{Cut, clip, lines_of};
-use crate::sandbox::FileKind;
+use crate::work::cut::{Cut, clip, lines_of};
 
 pub(super) const DESCRIPTION: &str =
     "Search the contents of files under a folder for a regular \

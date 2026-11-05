@@ -234,7 +234,8 @@ impl Runtimes {
         };
         match &refusal {
             Some(words) => {
-                self.list[index].phase = Phase::Refused(words.clone());
+                self.list[index].phase =
+                    Phase::Refused(words.clone());
             }
             None => {
                 if !begun {

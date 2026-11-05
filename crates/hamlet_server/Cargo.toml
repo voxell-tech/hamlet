@@ -30,8 +30,11 @@ hamlet_sandbox.workspace = true
 hamlet_store.workspace = true
 hamlet_workspace_wire.workspace = true
 anyhow.workspace = true
+base64.workspace = true
 chrono.workspace = true
 interprocess.workspace = true
+jsonschema = { version = "0.33", default-features = false }
+regex.workspace = true
 ring.workspace = true
 sha2.workspace = true
 diesel.workspace = true
@@ -39,6 +42,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+unicode-normalization = "0.1"
 uuid.workspace = true
 
 [dev-dependencies]

@@ -21,15 +21,15 @@ use hamlet_os::fs::path::{self, text};
 use hamlet_protocol::runtime::{
     Diagnostic, DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
+use hamlet_sandbox::scrub::scrub_value;
+use hamlet_sandbox::{
+    Env, FileError, Leftovers, Policy, Sandbox, SetupError, base_env,
+    host_env,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-pub(crate) use self::shell::{Dialect, Shells, runs_once};
-use crate::sandbox::{
-    AgentLeftovers, Env, FileError, Sandbox, SetupError,
-    closed_policy, open_policy,
-};
-use crate::scrub::scrub_value;
+pub(crate) use self::shell::{Dialect, Shells};
 
 const FILE_TOOLS: [&str; 5] =
     ["read", "write", "edit", "search", "find"];
@@ -38,17 +38,18 @@ const FILE_TOOLS: [&str; 5] =
 pub(crate) const UNREADABLE: &str =
     "[a file that could not be read as text]";
 
-/// The places an agent's tools work in: its house, and the folder its
-/// hamlet works on (C20).
+/// The places an agent's tools work in: its lodge, or a worker's
+/// scratch folder, and the folder its hamlet works on (C20).
 #[derive(Clone, Debug)]
 pub struct Place {
-    /// The agent's house.
-    pub house: PathBuf,
+    /// The agent's lodge, or a worker's scratch folder.
+    pub lodge: PathBuf,
     /// The folder its hamlet works on.
     pub folder: Option<PathBuf>,
-    /// Hamlet's home, which the tools never read.
-    pub home: PathBuf,
-    /// The tools added by hand and the library, which they read.
+    /// The realm's folder, which the tools never read.
+    pub realm: PathBuf,
+    /// What they read and never write: the library, the tools added
+    /// by hand, and a worker's starter's lodge.
     pub shared: Vec<PathBuf>,
 }
 
@@ -281,23 +282,14 @@ fn object(value: Value) -> BTreeMap<String, Value> {
     }
 }
 
-/// Where an agent's tools run, chosen once by
-/// [`crate::papers::Houses::tools`]: this machine under the sandbox,
-/// or a remote workspace, which never falls back to the host.
-pub(crate) enum ToolSession {
-    Local {
-        place: Place,
-        /// Whether commands reach the network.
-        net: bool,
-        sandbox: Sandbox,
-        shells: Shells,
-        leftovers: AgentLeftovers,
-    },
-    Remote {
-        place: Place,
-        session: crate::workspace::WorkspaceSession,
-        shells: Shells,
-    },
+/// An agent's tools on this machine, under the sandbox.
+pub(crate) struct ToolSession {
+    place: Place,
+    /// Whether commands reach the network.
+    net: bool,
+    sandbox: Sandbox,
+    shells: Shells,
+    leftovers: Leftovers,
 }
 
 impl ToolSession {
@@ -306,26 +298,14 @@ impl ToolSession {
         net: bool,
         sandbox: Sandbox,
         shells: Shells,
-        leftovers: AgentLeftovers,
+        leftovers: Leftovers,
     ) -> Self {
-        Self::Local {
+        Self {
             place,
             net,
             sandbox,
             shells,
             leftovers,
-        }
-    }
-
-    pub fn remote(
-        place: Place,
-        session: crate::workspace::WorkspaceSession,
-        shells: Shells,
-    ) -> Self {
-        Self::Remote {
-            place,
-            session,
-            shells,
         }
     }
 
@@ -337,52 +317,35 @@ impl ToolSession {
         &self,
         path: &str,
     ) -> Result<Option<String>, FileError> {
-        match self {
-            Self::Local {
-                place,
-                sandbox,
-                leftovers,
-                ..
-            } => {
-                let Ok(mut env) = environment::Local::open(
-                    *sandbox,
-                    place,
-                    false,
-                    leftovers.clone(),
-                )
-                .await
-                else {
-                    return Ok(Some(UNREADABLE.into()));
-                };
-                files::preview(&mut env, path).await
-            }
-            Self::Remote { session, .. } => {
-                let mut env =
-                    environment::Remote::new(session.clone());
-                files::preview(&mut env, path).await
-            }
-        }
+        let Ok(mut env) = environment::Local::open(
+            self.sandbox,
+            &self.place,
+            false,
+            self.leftovers.clone(),
+        )
+        .await
+        else {
+            return Ok(Some(UNREADABLE.into()));
+        };
+        files::preview(&mut env, path).await
     }
 
-    /// Whether an edit of `path` stays in the agent's own house,
-    /// where the sandbox keeps it. A remote house is never taken
-    /// as one.
-    pub fn is_house_edit(&self, path: &str) -> bool {
-        let Self::Local { place, .. } = self else {
-            return false;
-        };
-        let house = text(&place.house);
+    /// Whether an edit of `path` stays in the agent's own lodge,
+    /// where the sandbox keeps it.
+    pub fn is_lodge_edit(&self, path: &str) -> bool {
+        let place = &self.place;
+        let lodge = text(&place.lodge);
         let folder = place.folder.as_deref().map(text);
         let there =
             |path: &String| std::path::Path::new(path).exists();
-        let own = firsts(path, &house, folder.as_deref())
-            .is_some_and(|[folder, house]| {
-                !there(&folder) && there(&house)
+        let own = firsts(path, &lodge, folder.as_deref())
+            .is_some_and(|[folder, lodge]| {
+                !there(&folder) && there(&lodge)
             });
-        let full = footing(path, &house, folder.as_deref(), own);
-        crate::sandbox::is_within(
+        let full = footing(path, &lodge, folder.as_deref(), own);
+        hamlet_sandbox::is_within(
             std::path::Path::new(&full),
-            &place.house,
+            &place.lodge,
         )
     }
 
@@ -394,83 +357,43 @@ impl ToolSession {
         tool: &str,
         arguments: &Map<String, Value>,
     ) -> Outcome {
-        let mut outcome = match self {
-            Self::Local {
-                place,
+        let mut outcome = if is_built_in(&self.shells, tool) {
+            let net = self.net && self.shells.named(tool).is_some();
+            match environment::Local::open(
+                self.sandbox,
+                &self.place,
                 net,
-                sandbox,
-                shells,
-                leftovers,
-            } if is_built_in(shells, tool) => {
-                let net = *net && shells.named(tool).is_some();
-                match environment::Local::open(
-                    *sandbox,
-                    place,
-                    net,
-                    leftovers.clone(),
-                )
-                .await
-                {
-                    Ok(mut env) => {
-                        reach_run(
-                            &mut env, shells, place, secrets, tool,
-                            arguments,
-                        )
-                        .await
-                    }
-                    Err(unopened) => Outcome::thrown(
-                        "tool_error",
-                        unopened.to_string(),
-                    ),
+                self.leftovers.clone(),
+            )
+            .await
+            {
+                Ok(mut env) => {
+                    reach_run(
+                        &mut env,
+                        &self.shells,
+                        &self.place,
+                        secrets,
+                        tool,
+                        arguments,
+                    )
+                    .await
                 }
+                Err(unopened) => Outcome::thrown(
+                    "tool_error",
+                    unopened.to_string(),
+                ),
             }
-            Self::Local {
-                place,
-                net,
-                sandbox,
-                leftovers,
-                ..
-            } => {
-                crate::hand::run(
-                    sandbox,
-                    &place.home,
-                    *net,
-                    leftovers,
-                    secrets,
-                    tool,
-                    arguments,
-                )
-                .await
-            }
-            Self::Remote {
-                place,
-                session,
-                shells,
-            } => {
-                // The library is read once for all the call's
-                // requests.
-                let library = place.home.join("library");
-                match session.clone().with_library(library).await {
-                    Err(failure) => {
-                        Outcome::thrown("tool_error", failure.message)
-                    }
-                    Ok(session) if is_built_in(shells, tool) => {
-                        let mut env =
-                            environment::Remote::new(session);
-                        reach_run(
-                            &mut env, shells, place, secrets, tool,
-                            arguments,
-                        )
-                        .await
-                    }
-                    // Hand tools run on the host, which a remote
-                    // workspace never falls back to.
-                    Ok(_) => Outcome::failed(format!(
-                        "The tool {tool} was added by hand and does \
-                         not run in a remote workspace."
-                    )),
-                }
-            }
+        } else {
+            crate::work::added::run(
+                &self.sandbox,
+                &self.place.realm,
+                self.net,
+                &self.leftovers,
+                secrets,
+                tool,
+                arguments,
+            )
+            .await
         };
         scrub(secrets, &mut outcome);
         outcome
@@ -529,55 +452,68 @@ fn scrub(secrets: &[String], outcome: &mut Outcome) {
 }
 
 /// The environment of an agent's tools, under the sandbox (S12, C18).
-/// It works in the folder, or in the house when there is none; writes
-/// the house and the folder; reads the shared folders; and never
-/// reads the rest of the home.
+/// It works in the folder, or in the lodge when there is none; writes
+/// the lodge and the folder; reads the shared folders; and never
+/// reads the rest of the realm.
 pub(crate) fn environment(
     sandbox: &Sandbox,
     place: &Place,
     net: bool,
 ) -> Result<Env, SetupError> {
     let mut policy = match &place.folder {
-        None => closed_policy(&place.house, &place.shared),
-        Some(folder) => open_policy(
-            folder,
-            &place.house,
-            &place.home,
-            &place.shared,
-        ),
+        None => {
+            let mut env = base_env();
+            env.insert("HOME".into(), text(&place.lodge));
+            Policy {
+                ro: place.shared.clone(),
+                rw: vec![place.lodge.clone()],
+                env,
+                ..Policy::default()
+            }
+        }
+        // The machine to read but the realm, and the chief's own
+        // environment, so the project's tools are found.
+        Some(folder) => Policy {
+            ro: place.shared.clone(),
+            rw: vec![folder.clone(), place.lodge.clone()],
+            open: true,
+            hidden: vec![place.realm.clone()],
+            env: host_env(),
+            ..Policy::default()
+        },
     };
     policy.net = net;
-    let cwd = place.folder.as_ref().unwrap_or(&place.house);
+    let cwd = place.folder.as_ref().unwrap_or(&place.lodge);
     Env::new(&text(cwd), policy, *sandbox)
 }
 
 /// The full path a tool's `path` names (C20). A full path stays as it
-/// is. A relative one is the folder's, unless `own`: only the house
+/// is. A relative one is the folder's, unless `own`: only the lodge
 /// has its first part, as with `NOTES.md`, `skills/` and `inbox/`.
-/// With no folder it is the house's.
+/// With no folder it is the lodge's.
 fn footing(
     path: &str,
-    house: &str,
+    lodge: &str,
     folder: Option<&str>,
     own: bool,
 ) -> String {
     match folder {
         _ if path::is_absolute(path) => path::normalize(path),
         Some(folder) if !own => path::join(&[folder, path]),
-        _ => path::join(&[house, path]),
+        _ => path::join(&[lodge, path]),
     }
 }
 
-/// The folder's and the house's path of the first part of a relative
+/// The folder's and the lodge's path of the first part of a relative
 /// `path`, which decide where it is footed, while there is a folder.
 fn firsts(
     path: &str,
-    house: &str,
+    lodge: &str,
     folder: Option<&str>,
 ) -> Option<[String; 2]> {
     let folder = folder.filter(|_| !path::is_absolute(path))?;
     let first = path.split(['\\', '/']).next().unwrap_or("");
-    Some([path::join(&[folder, first]), path::join(&[house, first])])
+    Some([path::join(&[folder, first]), path::join(&[lodge, first])])
 }
 
 /// The arguments of a call, refused as pi refuses ones that break the

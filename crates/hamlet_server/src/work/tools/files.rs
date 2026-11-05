@@ -1,7 +1,8 @@
-//! pi's `read`, `write` and `edit`, whose paths fall in the house or
+//! pi's `read`, `write` and `edit`, whose paths fall in the lodge or
 //! the folder as C20 says.
 
 use hamlet_protocol::runtime::DiagnosticSeverity;
+use hamlet_sandbox::{FileError, FileKind};
 use hamlet_workspace_wire::Code;
 use serde_json::{Map, Value, json};
 use unicode_normalization::UnicodeNormalization;
@@ -13,7 +14,6 @@ use super::truncate::{
 use super::{
     Arguments, Dialect, Outcome, diagnostic, diff, number_words,
 };
-use crate::sandbox::{FileError, FileKind};
 
 /// The failure of a file call, in pi's words.
 #[derive(Debug, thiserror::Error)]

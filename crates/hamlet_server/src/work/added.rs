@@ -9,13 +9,12 @@ use hamlet_os::fs::path::{resolve, text};
 use hamlet_protocol::runtime::{
     DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
+use hamlet_sandbox::{
+    Env, ExecError, Launch, Leftovers, LimitError, Policy, Sandbox,
+};
 use serde_json::{Map, Value, json};
 
-use crate::sandbox::{
-    AgentLeftovers, Env, ExecError, Launch, LimitError, Policy,
-    Sandbox,
-};
-use crate::tools::{Outcome, diagnostic};
+use crate::work::tools::{Outcome, diagnostic};
 
 /// A loaded manifest and the program its tool runs.
 pub(crate) struct Manifest {
@@ -83,13 +82,8 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
     let mut entries =
         entries.filter_map(Result::ok).collect::<Vec<_>>();
     entries.sort_by_key(std::fs::DirEntry::file_name);
-    let reserved = crate::tools::reserved_names()
-        .chain(
-            crate::harness::tools::specs()
-                .into_iter()
-                .map(|tool| tool.name),
-        )
-        .chain(crate::society::SocietyTool::names().map(String::from))
+    let reserved = crate::work::tools::reserved_names()
+        .chain(crate::work::catalogue::SOCIETY.map(String::from))
         .collect::<BTreeSet<_>>();
     let mut names = BTreeSet::new();
     for entry in entries {
@@ -175,7 +169,7 @@ fn parse(
             .map(|path| PathBuf::from(resolve(&text(dir), path)))
             .collect::<Vec<_>>()
     };
-    let mut env = crate::sandbox::base_env();
+    let mut env = hamlet_sandbox::base_env();
     env.extend(sandbox["env"].as_object().into_iter().flatten().map(
         |(key, value)| {
             (
@@ -233,7 +227,7 @@ pub(crate) async fn run(
     sandbox: &Sandbox,
     root: &Path,
     net: bool,
-    leftovers: &AgentLeftovers,
+    leftovers: &Leftovers,
     secrets: &[String],
     name: &str,
     args: &Map<String, Value>,

@@ -1,5 +1,6 @@
 //! Hamlet's `find` (C16), which only reads and so never waits.
 
+use hamlet_sandbox::FileKind;
 use serde_json::{Map, Value};
 
 use super::environment::Reach;
@@ -7,7 +8,6 @@ use super::walk::{
     FOUND, Failure, is_wanted, reached, report, shown, under,
 };
 use super::{Arguments, Outcome};
-use crate::sandbox::FileKind;
 
 pub(super) const DESCRIPTION: &str =
     "List a folder, or find files by name under it. Without `name` \
