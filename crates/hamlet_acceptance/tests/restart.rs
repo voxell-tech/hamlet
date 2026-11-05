@@ -42,7 +42,7 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
     let mut chief = Client::join(&server).await;
     let after = chief.realm();
     assert_eq!(names(&after), names(&before));
-    assert_eq!(after.waits, [wait.clone()]);
+    assert_eq!(after.waits, std::slice::from_ref(&wait));
     chief.open(&now).await;
     assert!(chief.texts(&now).contains(&"Fetch it.".to_string()));
     assert!(!home.file("hamlets/docs/0/out").exists());
