@@ -311,7 +311,7 @@ pub fn restore(world: &mut World) {
     });
     let desks = match view.desks {
         Some(desks) => desks.cleaned(),
-        None => Desks::first(view.dock),
+        None => Desks::first(view.dock).cleaned(),
     };
     world.insert_resource(desks);
 }
@@ -407,27 +407,18 @@ pub fn keep(
 
 #[cfg(test)]
 mod tests {
-    use bevy_fynix::dock::{
-        DockAreaStyle, DockLeaf, DockRegistry, DockTree, Edge,
-    };
+    use bevy_fynix::dock::{DockRegistry, DockTree};
     use hamlet_ui::theme::HamletTheme;
 
     use super::*;
 
     fn dock() -> DockTree {
         let mut tree = DockTree::new();
-        let centre = tree.set_root_leaf(
-            DockLeaf::new("centre", DockAreaStyle::TabBar)
-                .with_windows(vec!["world".into()]),
-        );
-        let (queue, _) =
-            tree.split(centre, Edge::Left, "needs".into()).unwrap();
-        let parent = tree.parent_of(queue).unwrap();
-        tree.set_fraction(parent, 0.2);
-        let (side, agent) =
-            tree.split(centre, Edge::Right, "agent".into()).unwrap();
+        crate::dock::designed(&mut tree);
+        let side = tree.find_leaf_with_window("hub").unwrap();
+        let hub = tree.active(side).unwrap();
         tree.add_tab(side, "skills");
-        tree.set_active(side, agent);
+        tree.set_active(side, hub);
         tree
     }
 
@@ -489,7 +480,7 @@ mod tests {
                 .init_resource::<desk::Shown>()
                 .add_systems(Update, desk::capture)
                 .add_plugins(plugin);
-            for name in ["world", "needs", "agent", "skills"] {
+            for name in ["world", "needs", "hub", "skills"] {
                 app.world_mut()
                     .resource_mut::<DockRegistry<HamletTheme>>()
                     .register(
@@ -548,23 +539,14 @@ mod tests {
             .run_system_cached(desk::show)
             .unwrap();
         let tree = relaunched.world().resource::<DockTree>();
-        let needs = tree.find_leaf_with_window("needs").unwrap();
-        assert_eq!(
-            tree.get(tree.parent_of(needs).unwrap())
-                .unwrap()
-                .as_split()
-                .unwrap()
-                .fraction,
-            0.2
-        );
-        let side = tree.find_leaf_with_window("agent").unwrap();
+        let side = tree.find_leaf_with_window("hub").unwrap();
         assert_eq!(
             tree.leaf(side)
                 .unwrap()
                 .tabs()
                 .map(|(name, _)| name)
                 .collect::<Vec<_>>(),
-            ["agent", "skills"]
+            ["hub", "needs", "skills"]
         );
     }
 

@@ -33,8 +33,8 @@ use crate::overview;
 
 pub fn plugin(app: &mut App) {
     app.add_panel(
-        "agent",
-        DockWindowKind::new("INSPECTOR", || {
+        crate::dock::HUB,
+        DockWindowKind::new("HUB", || {
             highlight_panel(
                 screen(),
                 Highlight {

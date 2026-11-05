@@ -36,7 +36,9 @@ use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::convo::talk_at;
-use crate::dock::{PanelAppExt, highlight_panel, show_tab};
+use crate::dock::{
+    PETITIONS, PanelAppExt, highlight_panel, show_tab,
+};
 use crate::{PanelSystems, asking, chat};
 
 const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
@@ -47,7 +49,7 @@ const TICK: f32 = 10.0;
 
 pub fn plugin(app: &mut App) {
     app.add_panel(
-        "needs",
+        PETITIONS,
         DockWindowKind::new("PETITIONS", || {
             highlight_panel(
                 screen(),
@@ -191,7 +193,7 @@ pub(crate) fn tag_answered(
 /// A click on a tag's paper opens this screen, which has the full
 /// text.
 pub(crate) fn tag_opened(_: On<TagOpened>, mut commands: Commands) {
-    commands.queue(|world: &mut World| show_tab(world, "needs"));
+    commands.queue(|world: &mut World| show_tab(world, PETITIONS));
 }
 
 fn button(need: &Need, at: usize) -> AnyView {

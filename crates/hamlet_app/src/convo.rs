@@ -17,7 +17,7 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, select};
 
 use crate::PanelSystems;
-use crate::dock::show_tab;
+use crate::dock::{HUB, show_tab};
 
 /// Opens the chat with the Hand as soon as the realm names it.
 pub(crate) fn plugin(app: &mut App) {
@@ -163,7 +163,7 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
         };
         select(world, Some(thing));
     }
-    show_tab(world, "agent");
+    show_tab(world, HUB);
 }
 
 /// Points the chat back at the Hand, which is drawn nowhere, so
@@ -176,7 +176,7 @@ pub(crate) fn talk_to_hand(world: &mut World) {
     if world.contains_resource::<Selected>() {
         select(world, None);
     }
-    show_tab(world, "agent");
+    show_tab(world, HUB);
 }
 
 /// Points the chat at the agent `to`.

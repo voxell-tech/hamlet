@@ -37,7 +37,7 @@ use hamlet_ui::{AnyView, View, built, with_cx};
 use protocol::Past;
 
 use crate::convo::Convo;
-use crate::dock::show_tab;
+use crate::dock::{HUB, show_tab};
 use crate::{PanelSystems, chat, inspector};
 
 /// Characters of a title a row shows.
@@ -272,7 +272,7 @@ fn resume(world: &mut World) {
     });
     *world.resource_mut::<inspector::Section>() =
         inspector::Section::Conversation;
-    show_tab(world, "agent");
+    show_tab(world, HUB);
 }
 
 /// The server's history requested while the page is open.
