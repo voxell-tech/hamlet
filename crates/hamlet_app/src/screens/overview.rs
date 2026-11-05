@@ -25,6 +25,7 @@ use hamlet_client::realm::{
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
+use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_realm::pick::{Thing, focus_on, select};
 use hamlet_ui::styles::{
     Fills, ICON, action, bare, beside, close, description, framed,
@@ -193,12 +194,33 @@ pub fn overview() -> impl View {
     })
 }
 
-/// The Hand, the one agent of the whole realm, to talk to.
+/// The Hand, the one agent of the whole realm, to talk to, and the
+/// harbor to cross between the city and the hamlets.
 fn hand() -> AnyView {
-    beside((
-        action(Glyph::Mayor, "THE HAND", crate::convo::talk_to_hand),
-        note("Speaks for the realm: hires, founding and its limits."),
-    ))
+    with_cx(|cx| {
+        column((
+            beside((
+                action(
+                    Glyph::Mayor,
+                    "THE HAND",
+                    crate::convo::talk_to_hand,
+                ),
+                note(
+                    "Speaks for the realm: hires, founding and its \
+                     limits.",
+                ),
+            )),
+            beside((
+                action(
+                    Glyph::Signpost,
+                    "HARBOR",
+                    glide_to_other_pier,
+                ),
+                note("Crosses to the other island's pier."),
+            )),
+        ))
+        .gap(cx.theme().space.gap)
+    })
     .boxed()
 }
 

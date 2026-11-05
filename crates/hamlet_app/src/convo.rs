@@ -14,7 +14,7 @@ use hamlet_client::realm::{
     self as agents, Chief, Identity, Kind, Left,
 };
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_realm::pick::{Selected, Thing, focus_on, select};
 
 use crate::PanelSystems;
 use crate::dock::{HUB, show_tab};
@@ -168,8 +168,8 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     show_tab(world, HUB);
 }
 
-/// Points the chat back at the Hand, which is drawn nowhere, so
-/// nothing is selected in the world. The Hub turns to its thread
+/// Points the chat back at the Hand and the camera at its tower,
+/// with nothing selected in the world. The Hub turns to its thread
 /// and comes to the front.
 pub(crate) fn talk_to_hand(world: &mut World) {
     let Some(hand) = agents::hand(world) else {
@@ -181,14 +181,8 @@ pub(crate) fn talk_to_hand(world: &mut World) {
     }
     hub::show(world, Showing::Thread);
     show_tab(world, HUB);
-    focus_hand_tower(world);
+    focus_on(world, Thing::Hand, false);
 }
-
-/// Where the world is asked to look at the Hand's tower when the
-/// chief goes to talk to the Hand. The Hand has no tower in the
-/// world yet, so this does nothing; once the world draws one, its
-/// camera focus is called from here.
-pub(crate) fn focus_hand_tower(_world: &mut World) {}
 
 /// Points the chat at the agent `to`.
 pub(crate) fn talk_at(world: &mut World, to: protocol::AgentId) {
