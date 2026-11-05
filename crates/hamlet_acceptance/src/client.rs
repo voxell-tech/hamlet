@@ -3,10 +3,8 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use base64::prelude::*;
 use futures::{SinkExt, StreamExt};
 use hamlet_protocol::client::*;
-use hamlet_protocol::{HOME, MAYOR};
 use hamlet_testing::Server;
 use serde_json::Value;
 use tokio::net::TcpStream;
@@ -21,26 +19,10 @@ use crate::{fold, realm};
 /// The longest a scenario waits for one thing to happen.
 pub const PATIENCE: Duration = Duration::from_secs(20);
 
-/// The bytes of one `give-part`.
-const PART: usize = 512 * 1024;
-
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-/// The mayor of the first hamlet.
-pub fn mayor() -> Address {
-    to(HOME, MAYOR)
-}
-
-/// The agent `agent` of `hamlet`.
-pub fn to(hamlet: &str, agent: &str) -> Address {
-    Address {
-        hamlet: hamlet.into(),
-        agent: agent.into(),
-    }
-}
-
 /// The chief's current conversation with `with`.
-pub fn chat(with: Address) -> ChatRef {
+pub fn chat(with: AgentId) -> ChatRef {
     ChatRef {
         with,
         from: None,
@@ -88,17 +70,47 @@ impl Client {
         realm::fold(&self.log)
     }
 
-    /// The agent named `name` in `hamlet`, living or departed, as the
-    /// realm stands; the living one when both exist.
-    pub fn agent(&self, hamlet: &str, name: &str) -> Option<Agent> {
-        let realm = self.realm();
-        let mut found = realm
+    /// The Hand's id.
+    pub fn hand(&self) -> AgentId {
+        self.realm().hand
+    }
+
+    /// The agent named `name` as the realm stands (`hand`,
+    /// `ada@docs`, `ada#2@docs`, `worker#7`); the living one when
+    /// the name was used twice.
+    pub fn agent(&self, name: &str) -> Option<Agent> {
+        let mut found = self
+            .realm()
             .agents
             .into_iter()
-            .filter(|a| a.agent.hamlet == hamlet && a.name == name)
+            .filter(|a| a.name == name)
             .collect::<Vec<_>>();
         found.sort_by_key(|a| a.left.is_none());
         found.pop()
+    }
+
+    /// The id of the agent named `name`.
+    pub fn id(&self, name: &str) -> AgentId {
+        self.agent(name)
+            .unwrap_or_else(|| panic!("no agent named {name}"))
+            .id
+    }
+
+    /// The scholar named `name`, living or archived.
+    pub fn scholar(&self, name: &str) -> Option<Scholar> {
+        let mut found = self
+            .realm()
+            .scholars
+            .into_iter()
+            .filter(|s| s.name == name)
+            .collect::<Vec<_>>();
+        found.sort_by_key(|s| s.left.is_none());
+        found.pop()
+    }
+
+    /// The hamlet whose id is `id`.
+    pub fn hamlet(&self, id: &str) -> Option<Hamlet> {
+        self.realm().hamlets.into_iter().find(|h| h.id == id)
     }
 
     /// The items of a watched chat, folded from its pages and turns.
@@ -179,7 +191,7 @@ impl Client {
     }
 
     /// Sends a chief's line or typed command and waits for its reply.
-    pub async fn say(&mut self, to: Address, text: &str) -> Reply {
+    pub async fn say(&mut self, to: AgentId, text: &str) -> Reply {
         let id = self.tell(to, text).await;
         self.reply(&id).await
     }
@@ -187,7 +199,7 @@ impl Client {
     /// Sends a chief's line without waiting, giving its request ID.
     pub async fn tell(
         &mut self,
-        to: Address,
+        to: AgentId,
         text: &str,
     ) -> RequestId {
         let id = RequestId::new();
@@ -217,66 +229,6 @@ impl Client {
             ServerMessage::Reply(reply) => reply,
             other => panic!("a request got {other:?}, not a reply"),
         }
-    }
-
-    /// Gives `files` to `to`: the manifest, then each file's bytes in
-    /// parts of 512 KiB. Gives the first refusal, else the last
-    /// reply.
-    pub async fn give(
-        &mut self,
-        to: Address,
-        files: &[(&str, &[u8])],
-    ) -> Reply {
-        let manifest = files
-            .iter()
-            .map(|(path, bytes)| GiveFile {
-                path: path.to_string(),
-                size: bytes.len() as u64,
-            })
-            .collect();
-        let mut reply = self
-            .request(|id| {
-                ClientMessage::Give(Give::Files {
-                    files: manifest,
-                    id,
-                    to,
-                })
-            })
-            .await;
-        let Some(upload) = reply.upload.clone() else {
-            return reply;
-        };
-        for (path, bytes) in files {
-            for (n, part) in bytes.chunks(PART).enumerate() {
-                reply =
-                    self.part(&upload, path, n * PART, part).await;
-                if reply.kind == ReplyKind::Error {
-                    return reply;
-                }
-            }
-        }
-        reply
-    }
-
-    /// Sends the bytes of `path` at `offset` for the gift `upload`.
-    pub async fn part(
-        &mut self,
-        upload: &str,
-        path: &str,
-        offset: usize,
-        bytes: &[u8],
-    ) -> Reply {
-        let data = BASE64_STANDARD.encode(bytes);
-        self.request(|id| {
-            ClientMessage::GivePart(GivePart {
-                data,
-                id,
-                offset: offset as u64,
-                path: path.into(),
-                upload: upload.into(),
-            })
-        })
-        .await
     }
 
     /// Watches `chat` and gives its newest page.
@@ -323,7 +275,7 @@ impl Client {
     }
 
     /// Reads an agent's composed prompt.
-    pub async fn prompt(&mut self, agent: Address) -> String {
+    pub async fn prompt(&mut self, agent: AgentId) -> String {
         match self.read(|id| Read::Prompt { agent, id }).await {
             ServerMessage::Read(ReadResult::Prompt {
                 prompt,
@@ -333,14 +285,10 @@ impl Client {
         }
     }
 
-    /// Reads an agent's notes, character and skills.
-    pub async fn papers(&mut self, agent: Address) -> Papers {
+    /// Reads the character, memory and skills of `of`.
+    pub async fn papers(&mut self, of: Keeper) -> Papers {
         match self
-            .read(|id| Read::Papers {
-                agent,
-                full: None,
-                id,
-            })
+            .read(|id| Read::Papers { of, full: None, id })
             .await
         {
             ServerMessage::Read(ReadResult::Papers {
@@ -352,7 +300,7 @@ impl Client {
     }
 
     /// Reads an agent's numbered chief conversations.
-    pub async fn history(&mut self, agent: Address) -> Vec<Past> {
+    pub async fn history(&mut self, agent: AgentId) -> Vec<Past> {
         match self.read(|id| Read::History { agent, id }).await {
             ServerMessage::Read(ReadResult::History {
                 history,
@@ -383,10 +331,10 @@ impl Client {
         .await
     }
 
-    /// Changes one limit of `hamlet`.
+    /// Changes one limit of `hamlet`, or the realm's.
     pub async fn limit(
         &mut self,
-        hamlet: &str,
+        hamlet: Option<&str>,
         section: &str,
         key: &str,
         value: Value,
@@ -396,7 +344,7 @@ impl Client {
             key: key.into(),
             value,
         };
-        let hamlet = hamlet.to_string();
+        let hamlet = hamlet.map(String::from);
         self.request(|id| {
             ClientMessage::Edit(Edit::Limits(EditLimits::Set {
                 hamlet,
@@ -466,12 +414,45 @@ impl Client {
         }
     }
 
-    /// Waits until the agent `name` of `hamlet` is not busy.
-    pub async fn idle(&mut self, hamlet: &str, name: &str) {
-        self.until(&format!("{name}@{hamlet} to rest"), |c| {
-            c.agent(hamlet, name).is_some_and(|a| !a.busy)
+    /// Waits until the agent `name` is not busy.
+    pub async fn idle(&mut self, name: &str) {
+        self.until(&format!("{name} to rest"), |c| {
+            c.agent(name).is_some_and(|a| !a.busy)
         })
         .await;
+    }
+
+    /// Sends a typed command and gives the notice that answers it,
+    /// failing on a refusal.
+    pub async fn command(
+        &mut self,
+        to: AgentId,
+        text: &str,
+    ) -> String {
+        let reply = self.say(to, text).await;
+        assert_eq!(
+            reply.kind,
+            ReplyKind::Notice,
+            "{text} was refused: {}",
+            reply.text
+        );
+        reply.text
+    }
+
+    /// Sends a typed command and gives the refusal that answers it.
+    pub async fn refused(
+        &mut self,
+        to: AgentId,
+        text: &str,
+    ) -> String {
+        let reply = self.say(to, text).await;
+        assert_eq!(
+            reply.kind,
+            ReplyKind::Error,
+            "{text} was not refused: {}",
+            reply.text
+        );
+        reply.text
     }
 
     /// Waits until a watched chat holds an item with `text`.
