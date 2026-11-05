@@ -782,6 +782,7 @@ impl Core {
         let settings = &self.env.settings;
         protocol::SettingsView {
             allow_net: settings.allow_net,
+            character: settings.character.clone(),
             effort: settings.effort.map(hires::Effort::wire),
             endpoints: settings
                 .endpoints
@@ -794,6 +795,7 @@ impl Core {
                 .collect(),
             link: settings.link.clone(),
             model: settings.model.clone(),
+            newcomers: settings.newcomers,
             reflect_every: i64::try_from(settings.reflect_every)
                 .unwrap_or(0),
             unset: !settings.saved,

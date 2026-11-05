@@ -63,7 +63,7 @@ closes clients with **1001**. These rules are in
 | `Keeper` | `{scholar: ScholarId}` or `{agent: AgentId}`: whose knowledge a document is of, a scholar's `main` or an agent's lodge. |
 | `ChatRef` | `{with: AgentId, past?: integer, from?: AgentId, kind?: "letters" \| "questions"}`. |
 | `RequestId` | A UUID in its 36-character hyphenated form, in either case, such as `0f8fad5b-d9cb-469f-a165-70867728950e`. The braced, URN and 32-digit forms are refused. |
-| `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`. Use the choices advertised by the wait. |
+| `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`, `welcome`. Use the choices advertised by the wait. |
 | `Endpoint` | `{name: string, baseUrl: string}`. |
 | `Price` | `{input: number, output: number}`: dollars per million tokens. |
 | `Amount` | `{tokens: integer, micros: integer, ms: integer}`: tokens, millionths of a dollar, milliseconds. |
@@ -165,7 +165,7 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 | `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a scholar's `main` or a hire's lodge, by its path under `memory/`; empty text removes it. |
 | `limits` | `hamlet?: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
 | `limits` | `hamlet?: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
-| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| null, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; the `efforts` limit sets it for one agent. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
+| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; the `efforts` limit sets it for one agent. `newcomers` says who lets a scholar an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank scholar starts from, at most 4000 characters. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
 | `catalogue` | `model: string`, `set: {allowed?: boolean, price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. |
 
 ### Read documents
@@ -302,8 +302,10 @@ A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
 `subject`, `change`, `answers`, `since`, `asked`, `chat`) and a `detail`
 discriminated by `kind`: `approval` with its `danger`, the agent's wish as
 `says` and how long `always` lasts (`session`, `grant`, or `null` when it is
-not offered); `fault`; `question` with its `questions`; or
-`objection`. `subject` is the line of `about` a one-line view quotes. A
+not offered); `fault`; `question` with its `questions`; `objection`; or
+`newcomer` with the `scholar` waiting at the harbor, whose answers are
+`welcome` and `dismiss`, which leaves it waiting. `subject` is the line of
+`about` a one-line view quotes. A
 refused `edit` changes nothing and replies with an error. `check` replies in words and changes the connection status in
 settings; a model check waits at most 90 s.
 
@@ -317,6 +319,11 @@ Every state and change carries the society and realm in full:
 - `Hamlet.roads` carry road ends by `AgentId`, their kind and traffic.
   `Hamlet.mayor` is the hire at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
   for a hamlet never set down, which stands on the first free site.
+- `Scholar.arrival` is `housed`, `waiting` at the harbor, or `turned`
+  away. `Scholar.house` is a housed scholar's spot from the city's
+  middle, `{x, z, turn}`, its door facing `turn` radians about the
+  vertical, and `null` for one at the harbor. The server chooses the spot
+  of a scholar let in; `/move-house` sets it elsewhere.
 - `State.library` and `closed` carry the shared shelf and removed hamlets.
 - `State.limits` are the realm's own limits; `Limits` are a hamlet's.
 - `State.realm` names the realm's folder on the server's machine so local

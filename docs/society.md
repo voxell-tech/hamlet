@@ -18,11 +18,23 @@ reserved act does.
 
 The city holds the scholars. A scholar is a git repository
 (`scholars/<id>.git`) with a character, memory and skills, and a house in the
-city whose place `/move-house` changes. A chief makes one with
-`/scholar new`, a lead with `create_scholar`; one a lead or the Hand makes
-belongs to the chief whose task the turn works on. `/scholars` lists them, and
+city. A chief makes one with `/scholar new`, a lead with `create_scholar`, or
+with `hire` given a new name, which makes a blank scholar from the realm's
+default character (Settings); one a lead or the Hand makes belongs to the
+chief whose task the turn works on. `/scholars` lists them, and
 `/remove-scholar`, `/restore-scholar` and `/erase-scholar` archive one with
 its hires, bring it back, or erase it for good.
+
+The server sets each new house down itself, at the first free spot on a
+spiral out from the city's middle, its door toward the middle
+(`society/city.rs`); `/move-house <scholar> <x> <z> [degrees]` sets it down
+elsewhere, on a spot clear of the middle and of every house. One a chief or
+the Hand makes moves in at once. One a lead makes is a newcomer, which the
+`newcomers` setting lets in (H45): at once (`open`); after a chief welcomes
+it from a petition (`chief`, the default); or as the Hand judges it in an
+errand (`hand`, `calls/society/welcome.rs`). A newcomer waits at the
+harbor, its hires working all the while. `/welcome` lets a scholar at the
+harbor in and `/turn-away` sends one back, undoing the Hand's verdicts.
 
 A chief reads and edits a scholar's character and memory through the
 inspector or `hamlet edit character <scholar>` and `hamlet edit memory`, and

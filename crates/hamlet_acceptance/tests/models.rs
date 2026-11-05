@@ -253,7 +253,9 @@ async fn signs_in_with_a_key_without_sending_it_to_any_client() {
                 id,
                 set: EditSettingsSet {
                     model: None,
+                    character: None,
                     effort: None,
+                    newcomers: None,
                     reflect_every: None,
                     allow_net: None,
                     endpoints: Some(endpoints),

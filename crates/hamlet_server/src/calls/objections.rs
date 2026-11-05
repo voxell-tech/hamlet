@@ -185,6 +185,7 @@ impl Core {
                     kind: WaitKind::Objection,
                     danger: None,
                     agent,
+                    scholar: None,
                     conversation: Some(conversation),
                     task: Some(task),
                     about,

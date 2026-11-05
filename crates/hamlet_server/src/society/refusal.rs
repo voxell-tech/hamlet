@@ -55,6 +55,20 @@ pub(crate) enum Refusal {
     ScholarLiving { name: String },
     #[error("the scholar `{name}` was erased")]
     ScholarErased { name: String },
+    #[error("the scholar `{name}` lives in the city already")]
+    Housed { name: String },
+    #[error("the scholar `{name}` was turned away already")]
+    TurnedAway { name: String },
+    #[error(
+        "the scholar `{name}` waits at the harbor; welcome it into \
+         the city first"
+    )]
+    AtHarbor { name: String },
+    #[error(
+        "the house of `{name}` would stand on another house or the \
+         city's middle"
+    )]
+    Crowded { name: String },
     #[error("`{name}` still has hires that may come back: {hires}")]
     ScholarHasHires { name: String, hires: String },
     #[error("`{name}` has no version `{version}`")]

@@ -434,3 +434,42 @@ async fn two_mayors_agree_a_road_between_their_hamlets() {
     s.chief.shows(&chat(bo), "Agreed too.").await;
     s.chief.until("the road opens", agreed).await;
 }
+
+#[tokio::test]
+async fn a_mayors_blank_hire_waits_at_the_harbor_until_welcomed() {
+    // The mayor, agent 2, hires a new blank scholar.
+    let mut s = Session::start(Faux::new().agent(
+        2,
+        [
+            call(
+                "hire",
+                json!({"name": "sam", "purpose": "read the docs"}),
+            ),
+            words("Hired sam."),
+        ],
+    ))
+    .await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
+    s.chief.open(&chat(ada)).await;
+    s.chief.tell(ada, "Hire a reader.").await;
+    s.chief.shows(&chat(ada), "Hired sam.").await;
+    assert!(s.chief.agent("sam@docs").is_some());
+    let sam = s.chief.scholar("sam").unwrap();
+    assert_eq!((sam.arrival, sam.house), (Arrival::Waiting, None));
+    let wait = s
+        .chief
+        .wait_for("the newcomer's petition", |w| {
+            w.detail == WaitDetail::Newcomer { scholar: sam.id }
+        })
+        .await;
+    assert_eq!(wait.answers, [Choice::Welcome, Choice::Dismiss]);
+    s.chief.choose(&wait.id, Choice::Welcome, None).await;
+    s.chief
+        .until("sam moves into the city", |c| {
+            c.scholar("sam").is_some_and(|sam| {
+                sam.arrival == Arrival::Housed && sam.house.is_some()
+            })
+        })
+        .await;
+    assert!(s.chief.waits().is_empty(), "{:?}", s.chief.waits());
+}
