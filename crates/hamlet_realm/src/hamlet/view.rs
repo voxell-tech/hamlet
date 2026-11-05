@@ -10,26 +10,36 @@ use crate::pick::{Centre, Glide, Leash, Orbit, Stance};
 use crate::sky::CameraSettings;
 
 /// Number of hamlets with a town, the middle of them, and the
-/// distance the camera stands back at to see them all.
+/// distance the camera stands back at to see them all. Before the
+/// first hamlet, the places the realm has, such as the chief's own
+/// and the library, are framed instead.
 fn framing(
     camera: &CameraSettings,
     land: &Land,
     society: &Society,
     hamlets: &Query<&Sited>,
 ) -> Option<(usize, Vec2, f32)> {
-    let sites = || {
-        hamlets
-            .iter()
-            .filter_map(|sited| society.town(sited.0))
-            .map(|town| land.sites[town.site].at)
-    };
-    let count = sites().count();
+    let mut sites = hamlets
+        .iter()
+        .filter_map(|sited| society.town(sited.0))
+        .map(|town| land.sites[town.site].at)
+        .collect::<Vec<_>>();
+    if sites.is_empty() {
+        sites = society
+            .places()
+            .filter_map(|place| society.stands(land, place))
+            .map(|(at, _)| at)
+            .collect();
+    }
+    let count = sites.len();
     if count == 0 {
         return None;
     }
-    let middle = sites().sum::<Vec2>() / count as f32;
-    let spread =
-        sites().map(|at| at.distance(middle)).fold(0.0, f32::max);
+    let middle = sites.iter().sum::<Vec2>() / count as f32;
+    let spread = sites
+        .iter()
+        .map(|at| at.distance(middle))
+        .fold(0.0, f32::max);
     let base = (camera.distance + spread * camera.spread_distance)
         .min(camera.reach);
     Some((count, middle, base))
