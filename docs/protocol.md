@@ -56,9 +56,10 @@ closes clients with **1001**. These rules are in
 
 | Schema | Shape and meaning |
 |---|---|
-| `Address` | `{hamlet: string, agent: string}`. An agent's name, with `agent: "mayor"` for the office's current holder. |
-| `AgentRef` | `{hamlet: string, number: integer}`. Stable identity, independent of name or office. |
-| `ChatRef` | `{with: Address, past?: integer, from?: AgentRef, kind?: "letters" \| "questions"}`. |
+| `AgentId` | An integer naming one agent of the realm (the Hand, a hire or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `mayor@hamlet`, `name#number@hamlet`, `worker#id`) in chief commands; messages carry ids. |
+| `ScholarId` | An integer naming one scholar of the city. |
+| `Keeper` | `{scholar: ScholarId}` or `{agent: AgentId}`: whose knowledge a document is of, a scholar's `main` or an agent's lodge. |
+| `ChatRef` | `{with: AgentId, past?: integer, from?: AgentId, kind?: "letters" \| "questions"}`. |
 | `RequestId` | A UUID in its 36-character hyphenated form, in either case, such as `0f8fad5b-d9cb-469f-a165-70867728950e`. The braced, URN and 32-digit forms are refused. |
 | `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`. Use the choices advertised by the wait. |
 | `Endpoint` | `{name: string, baseUrl: string}`. |
@@ -74,7 +75,7 @@ holder changes. `from` selects a peer conversation with that stable agent;
 
 Every client message except `hello` and `close` carries `id: RequestId`.
 The answer's `to` matches it. Do not confuse that with `Say.to`, which is an
-`Address`. An opening `transcript` has `to`; live updates need no request ID.
+`AgentId`. An opening `transcript` has `to`; live updates need no request ID.
 A `reply` settles the request, not necessarily all work in a conversation.
 
 The durable conversation inputs have separate request IDs. A chief's line
@@ -104,17 +105,17 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
 | `hello` (`Hello`) | `v: 2`, `token: string`; no `id` | Authenticate; full `state`. |
-| `say` (`Say`) | `to: Address`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
-| `give` (`Give`) | `to: Address`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
-| `give` (`Give`) | `to: Address`, `skill: {starter: string}` | Give an installed starter skill; `reply`. |
-| `give` (`Give`) | `to: Address`, `skill: {from: Address, name: string}` | Copy another agent's named skill; `reply`. |
+| `say` (`Say`) | `to: AgentId`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
+| `give` (`Give`) | `to: AgentId`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
+| `give` (`Give`) | `to: ScholarId`, `skill: {starter: string}` | Give an installed starter skill to a scholar; `reply`. |
+| `give` (`Give`) | `to: ScholarId`, `skill: {from: Keeper, name: string}` | Copy a named skill of a scholar or a hire's lodge; `reply`. |
 | `give-part` (`GivePart`) | `upload: string`, `path: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset in a declared file. `reply` acknowledges the chunk or completed gift. |
 | `answer` (`Answer`) | `wait: string`, `choice: Choice`, `text?: string`, `picks?: Pick[]` | Answer a wait; `reply`. |
-| `stop` (`Stop`) | `agent?: Address` | Stop that agent's work, or all work if omitted; `reply`. |
+| `stop` (`Stop`) | `agent?: AgentId` | Stop that agent's work, or all work if omitted; `reply`. |
 | `rewind` (`Rewind`) | `chat: ChatRef`, `item: string` | Take back a chief input and what followed. `reply` with kind `rewound` returns its words; watchers get a reset and replacement transcript. Refused while work is running or queued. |
-| `new` (`New`) | `to: Address` | Start a new numbered chief conversation; the previous queue can finish. `reply`. |
-| `resume` (`Resume`) | `to: Address`, `number: integer` | Make that saved chief conversation current; `reply`. |
-| `retry` (`Retry`) | `to: Address` | Ask the agent to carry on; `reply`. |
+| `new` (`New`) | `to: AgentId` | Start a new numbered chief conversation; the previous queue can finish. `reply`. |
+| `resume` (`Resume`) | `to: AgentId`, `number: integer` | Make that saved chief conversation current; `reply`. |
+| `retry` (`Retry`) | `to: AgentId` | Ask the agent to carry on; `reply`. |
 | `edit` (`Edit`) | `doc` and fields below | Edit a chief-owned document or model setting; `reply`. |
 | `open` (`Open`) | `chat: ChatRef`, `before?: string` | Watch and fetch a page; `transcript` with `to`, or `fault`. |
 | `close` (`Close`) | `chat: ChatRef`; no `id` | End that connection's watch; no answer. |
@@ -122,7 +123,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `check` (`Check`) | `what: "model"`, `model?: string` | Check that model, or the selected model; `reply`. |
 | `check` (`Check`) | `what: "connection"` | Check the configured model connection; `reply`. Connection state also changes through `change`. |
 | `read` (`Read`) | `what` and fields below | Fetch one document or list; `read` with `to`, or failure `reply`. |
-| `move-houses` (`MoveHouses`) | none | Copy every agent's house from the workspace the server works in to the one chosen in Settings, replacing the houses there; `reply` once done. Progress also changes through `change`. |
+| `move-lodges` (`MoveLodges`) | none | Copy every hire's lodge from the workspace the server works in to the one chosen in Settings, replacing the lodges there; `reply` once done. Progress also changes through `change`. |
 
 `/new` and `/resume <number>` also exist as typed commands sent through
 `say`. They perform the same conversation changes as the `new` and `resume`
@@ -157,10 +158,10 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 | `doc` | Fields | Meaning |
 |---|---|---|
 | `charter` | `text: string \| null` | Replace the charter; `null` restores the built-in charter. |
-| `character` | `agent: Address`, `text: string` | Replace the agent's character. |
-| `notes` | `agent: Address`, `text: string` | Replace the agent's notes. |
-| `limits` | `hamlet: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
-| `limits` | `hamlet: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
+| `character` | `scholar: ScholarId`, `text: string` | Replace the scholar's character, as a commit on its `main`. |
+| `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a scholar's `main` or a hire's lodge, by its path under `memory/`; empty text removes it. |
+| `limits` | `hamlet?: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
+| `limits` | `hamlet?: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
 | `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| null, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; the `efforts` limit sets it for one agent. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
 | `catalogue` | `model: string`, `set: {allowed?: boolean, price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. |
 
@@ -170,10 +171,10 @@ Each row is a `Read` form with `type: "read"` and `id`.
 
 | `what` | Fields | `ReadResult` payload |
 |---|---|---|
-| `prompt` | `agent: Address` | `prompt: string`: the composed prompt. |
-| `history` | `agent: Address` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
+| `prompt` | `agent: AgentId` | `prompt: string`: the composed prompt. |
+| `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
 | `models` | `refresh?: boolean` | `models: Listed[]`: name, price, price source, context size, allowed flag and note. `refresh` refreshes discovery. |
-| `papers` | `agent: Address`, `full?: boolean` | `papers: Papers`: notes, character and skill names/descriptions. By default, notes and character are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
+| `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's lodge `learned` against its scholar, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
 
 ### Login steps
@@ -194,7 +195,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 
 | Type (schema) | Fields | Meaning | Who receives it |
 |---|---|---|---|
-| `state` (`State`) | `epoch`, `revision`, `chief: string`, `confinement: Confinement`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
+| `state` (`State`) | `epoch`, `revision`, `chief: string`, `confinement: Confinement`, `hand: AgentId`, `hamlets: Hamlet[]`, `agents: Agent[]`, `scholars: Scholar[]`, `limits: RealmLimits`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `realm: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
 | `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
 | `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: TranscriptOperation[]` | Live transcript operations, in order. | Only clients watching that chat. |
@@ -204,7 +205,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 | `fault` (`Fault`) | `text: string`, `to?: RequestId` | Protocol, watch or connection failure. | Only the affected connection. |
 
 `Update` replaces the named view or removes it. Its `type` is `hamlet`
-(`hamlet`), `agent` (`agent`), `agent-gone` (`ref`), `wait` (`wait`),
+(`hamlet`), `agent` (`agent`), `agent-gone` (`id`), `scholar` (`scholar`), `scholar-gone` (`id`), `wait` (`wait`),
 `wait-closed` (`id`, `how`), `grants` (`grants`), `settings` (`settings`) or
 `providers` (`providers`). Library and closed-hamlet list changes, and hamlet
 removal, send a whole `state` instead.
@@ -215,16 +216,16 @@ the machine. It is discriminated by `kind`: `sandbox` with the sandbox's
 full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
-`Agent` is a summary: identity, name, purpose, model, mayor flag, busy and
+`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, the formatted name (`hand`, `name@hamlet`, `name#number@hamlet`, `worker#id`), purpose, model, mayor flag, busy and
 fault flags, activity, short saying, spend, skills, consultation and peer
 conversation summaries, and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`
 is `{url, running, move?}`: the remote workspace chosen and the
 one the server works in until it restarts, each `null` for the local one. It
-never holds the token. `move` is the latest move of the houses to the chosen
+never holds the token. `move` is the latest move of the lodges to the chosen
 workspace since the server started: `state` (`moving`, `moved` or `failed`),
-houses `done` of `of`, and its outcome as `text`.
+lodges `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
 `chief`, `author`, `rewindable` and `tool`. Its kind is `user`, `assistant`,
@@ -276,7 +277,7 @@ watch leaves its live subscription running, even if the page request fails.
 Peer conversations (`from` and `kind`) are read-only. `say`, `stop`,
 `rewind`, `new`, `resume` and `retry` cannot edit a peer conversation.
 `rewind` explicitly refuses a peer or past `ChatRef` through
-`chats/deeds.rs`. The other five messages take an agent `Address`, not a
+`chats/deeds.rs`. The other five messages take an `AgentId`, not a
 peer `ChatRef`, and act on the chief conversation or agent. Adding peer chat
 fields to them is malformed. Opening a peer watch does not retarget writes.
 
@@ -310,16 +311,15 @@ Every state and change carries the society and realm in full:
 - `Agent.consulting` and `conversations` describe library work and incoming
   peer conversations. `Agent.left` describes a departure, and only an agent
   that left has one.
-- `Hamlet.roads` and `votes` carry resolved road ends and traffic, and
-  ready-made vote reports. `Hamlet.at` is the town's position, or `null`
+- `Hamlet.roads` carry road ends by `AgentId`, their kind and traffic.
+  `Hamlet.mayor` is the hire at the root of its tree. `Hamlet.at` is the town's position, or `null`
   for a town never set down, which stands on the first free site.
 - `State.library` and `closed` carry the shared shelf and removed hamlets.
-- `Limits.votes` is per hamlet. `Limits.hamlets` is governed by `home`.
-- `State.houses` names the houses folder on the server's machine so local
+- `State.limits` are the realm's own limits; `Limits` are a hamlet's.
+- `State.realm` names the realm's folder on the server's machine so local
   links and pictures can exclude it, including through symlinks.
 
-Archived agents remain in state with `left` until erased. Office road ends
-are resolved to the current mayor. Peer turns contribute to activity and
+Archived agents remain in state with `left` until erased. Peer turns contribute to activity and
 spend even when no chief watches their conversation.
 
 `hamlet_client` reconciles state and changes into entities, keeping the

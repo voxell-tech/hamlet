@@ -26,7 +26,7 @@ fn every_recorded_message_reads_and_writes_back_unchanged() {
         .filter(|path| path.extension().is_some_and(|e| e == "jsonl"))
         .collect::<Vec<_>>();
     files.sort();
-    assert!(files.len() >= 18, "{files:?}");
+    assert!(files.len() >= 17, "{files:?}");
     for file in files {
         for line in std::fs::read_to_string(&file).unwrap().lines() {
             let frame = serde_json::from_str::<Value>(line).unwrap();

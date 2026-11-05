@@ -45,18 +45,15 @@ fn catalogue_edits_preserve_missing_null_and_assigned_prices() {
     }
 }
 
-fn address() -> Address {
-    Address {
-        hamlet: "home".into(),
-        agent: "mayor".into(),
-    }
+fn agent() -> AgentId {
+    AgentId(2)
 }
 
 fn chat() -> ChatRef {
     ChatRef {
         kind: None,
         from: None,
-        with: address(),
+        with: agent(),
         past: Some(2),
     }
 }
@@ -77,10 +74,10 @@ fn chief_requests_carry_addresses_ids_and_choices() {
     client(
         ClientMessage::Say(Say {
             id: id(),
-            to: address(),
+            to: agent(),
             text: "Hello".into(),
         }),
-        json!({"type": "say", "id": ID, "to": {"hamlet": "home", "agent": "mayor"}, "text": "Hello"}),
+        json!({"type": "say", "id": ID, "to": 2, "text": "Hello"}),
     );
     client(
         ClientMessage::Answer(Answer {
@@ -112,9 +109,9 @@ fn chief_requests_carry_addresses_ids_and_choices() {
     client(
         ClientMessage::Stop(Stop {
             id: id(),
-            agent: Some(address()),
+            agent: Some(agent()),
         }),
-        json!({"type": "stop", "id": ID, "agent": {"hamlet": "home", "agent": "mayor"}}),
+        json!({"type": "stop", "id": ID, "agent": 2}),
     );
     client(
         ClientMessage::Rewind(Rewind {
@@ -122,29 +119,55 @@ fn chief_requests_carry_addresses_ids_and_choices() {
             chat: chat(),
             item: "entry:0".into(),
         }),
-        json!({"type": "rewind", "id": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "past": 2}, "item": "entry:0"}),
+        json!({"type": "rewind", "id": ID, "chat": {"with": 2, "past": 2}, "item": "entry:0"}),
     );
     client(
         ClientMessage::New(New {
             id: id(),
-            to: address(),
+            to: agent(),
         }),
-        json!({"type": "new", "id": ID, "to": {"hamlet": "home", "agent": "mayor"}}),
+        json!({"type": "new", "id": ID, "to": 2}),
     );
     client(
         ClientMessage::Resume(Resume {
             id: id(),
-            to: address(),
+            to: agent(),
             number: 2,
         }),
-        json!({"type": "resume", "id": ID, "to": {"hamlet": "home", "agent": "mayor"}, "number": 2}),
+        json!({"type": "resume", "id": ID, "to": 2, "number": 2}),
     );
     client(
         ClientMessage::Retry(Retry {
             id: id(),
-            to: address(),
+            to: agent(),
         }),
-        json!({"type": "retry", "id": ID, "to": {"hamlet": "home", "agent": "mayor"}}),
+        json!({"type": "retry", "id": ID, "to": 2}),
+    );
+}
+
+#[test]
+fn gifts_name_the_agent_for_files_and_the_scholar_for_skills() {
+    client(
+        ClientMessage::Give(Give::Files {
+            id: id(),
+            to: agent(),
+            files: vec![GiveFile {
+                path: "a.md".into(),
+                size: 1,
+            }],
+        }),
+        json!({"type": "give", "id": ID, "to": 2, "files": [{"path": "a.md", "size": 1}]}),
+    );
+    client(
+        ClientMessage::Give(Give::Skill {
+            id: id(),
+            to: ScholarId(1),
+            skill: GiveSkillSource::From {
+                from: Keeper::Agent(agent()),
+                name: "maps".into(),
+            },
+        }),
+        json!({"type": "give", "id": ID, "to": 1, "skill": {"from": {"agent": 2}, "name": "maps"}}),
     );
 }
 
@@ -168,24 +191,30 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
     client(
         ClientMessage::Edit(Edit::Character {
             id: id(),
-            agent: address(),
+            scholar: ScholarId(1),
             text: "Careful".into(),
         }),
-        json!({"type": "edit", "id": ID, "doc": "character", "agent": {"hamlet": "home", "agent": "mayor"}, "text": "Careful"}),
+        json!({"type": "edit", "id": ID, "doc": "character", "scholar": 1, "text": "Careful"}),
     );
-    client(
-        ClientMessage::Edit(Edit::Notes {
-            id: id(),
-            agent: address(),
-            text: "Remember".into(),
-        }),
-        json!({"type": "edit", "id": ID, "doc": "notes", "agent": {"hamlet": "home", "agent": "mayor"}, "text": "Remember"}),
-    );
+    for (of, wire) in [
+        (Keeper::Scholar(ScholarId(1)), json!({"scholar": 1})),
+        (Keeper::Agent(agent()), json!({"agent": 2})),
+    ] {
+        client(
+            ClientMessage::Edit(Edit::Memory {
+                id: id(),
+                of,
+                path: "notes.md".into(),
+                text: "Remember".into(),
+            }),
+            json!({"type": "edit", "id": ID, "doc": "memory", "of": wire, "path": "notes.md", "text": "Remember"}),
+        );
+    }
     for value in [json!(2.0), Value::Null] {
         client(
             ClientMessage::Edit(Edit::Limits(EditLimits::Set {
                 id: id(),
-                hamlet: "home".into(),
+                hamlet: Some("home".into()),
                 reason: None,
                 set: LimitsEdit {
                     section: "budget".into(),
@@ -199,14 +228,23 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
     client(
         ClientMessage::Edit(Edit::Limits(EditLimits::Whole {
             id: id(),
-            hamlet: "home".into(),
+            hamlet: Some("home".into()),
             reason: Some("Room to grow".into()),
             whole: std::collections::BTreeMap::from([(
-                "mostAgents".into(),
+                "depth".into(),
                 json!(4),
             )]),
         })),
-        json!({"type": "edit", "id": ID, "doc": "limits", "hamlet": "home", "reason": "Room to grow", "whole": {"mostAgents": 4}}),
+        json!({"type": "edit", "id": ID, "doc": "limits", "hamlet": "home", "reason": "Room to grow", "whole": {"depth": 4}}),
+    );
+    client(
+        ClientMessage::Edit(Edit::Limits(EditLimits::Whole {
+            id: id(),
+            hamlet: None,
+            reason: None,
+            whole: std::collections::BTreeMap::new(),
+        })),
+        json!({"type": "edit", "id": ID, "doc": "limits", "whole": {}}),
     );
     client(
         ClientMessage::Edit(Edit::Settings {
@@ -261,7 +299,7 @@ fn watches_open_pages_and_close_without_a_request_id() {
             chat: chat(),
             before: Some("entry:0".into()),
         }),
-        json!({"type": "open", "id": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "past": 2}, "before": "entry:0"}),
+        json!({"type": "open", "id": ID, "chat": {"with": 2, "past": 2}, "before": "entry:0"}),
     );
     client(
         ClientMessage::Open(Open {
@@ -269,16 +307,16 @@ fn watches_open_pages_and_close_without_a_request_id() {
             chat: ChatRef {
                 kind: None,
                 from: None,
-                with: address(),
+                with: agent(),
                 past: None,
             },
             before: None,
         }),
-        json!({"type": "open", "id": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}}}),
+        json!({"type": "open", "id": ID, "chat": {"with": 2}}),
     );
     client(
         ClientMessage::Close(Close { chat: chat() }),
-        json!({"type": "close", "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "past": 2}}),
+        json!({"type": "close", "chat": {"with": 2, "past": 2}}),
     );
 }
 
@@ -346,16 +384,16 @@ fn checks_and_reads_select_what_the_chief_requested() {
     client(
         ClientMessage::Read(Read::Prompt {
             id: id(),
-            agent: address(),
+            agent: agent(),
         }),
-        json!({"type": "read", "id": ID, "what": "prompt", "agent": {"hamlet": "home", "agent": "mayor"}}),
+        json!({"type": "read", "id": ID, "what": "prompt", "agent": 2}),
     );
     client(
         ClientMessage::Read(Read::History {
             id: id(),
-            agent: address(),
+            agent: agent(),
         }),
-        json!({"type": "read", "id": ID, "what": "history", "agent": {"hamlet": "home", "agent": "mayor"}}),
+        json!({"type": "read", "id": ID, "what": "history", "agent": 2}),
     );
     client(
         ClientMessage::Read(Read::Models {
@@ -374,18 +412,18 @@ fn checks_and_reads_select_what_the_chief_requested() {
     client(
         ClientMessage::Read(Read::Papers {
             id: id(),
-            agent: address(),
+            of: Keeper::Agent(agent()),
             full: Some(true),
         }),
-        json!({"type": "read", "id": ID, "what": "papers", "agent": {"hamlet": "home", "agent": "mayor"}, "full": true}),
+        json!({"type": "read", "id": ID, "what": "papers", "of": {"agent": 2}, "full": true}),
     );
     client(
         ClientMessage::Read(Read::Papers {
             id: id(),
-            agent: address(),
+            of: Keeper::Scholar(ScholarId(1)),
             full: None,
         }),
-        json!({"type": "read", "id": ID, "what": "papers", "agent": {"hamlet": "home", "agent": "mayor"}}),
+        json!({"type": "read", "id": ID, "what": "papers", "of": {"scholar": 1}}),
     );
     client(
         ClientMessage::Read(Read::Charter { id: id() }),
@@ -403,20 +441,12 @@ fn server(wire: Value) -> ServerMessage {
 
 fn limits_wire() -> Value {
     json!({
-        "votes": {
-            "passYes": 2, "passOf": 3, "leastVoters": 3, "sealed": true, "groundedOnly": false,
-            "ballotMinutes": 5, "openMinutes": 60, "retryMinutes": 60
-        },
-        "hamlets": {"most": 6, "roadsBetween": true, "removalMayors": 3},
-        "budget": {"period": "day", "tokens": null, "cost": 5.0, "minutes": null},
-        "task": {"messages": 12, "tokens": null, "cost": 1.0, "minutes": 20},
-        "road": {"tokens": 0, "cost": 0.01, "minutes": 0, "growsOverDays": 7},
-        "mostAgents": 12, "mostRoads": 24, "models": ["faux/test"], "model": null,
-        "pinned": {"founder": "faux/test"}, "efforts": {"founder": "high"},
-        "mayor": {"createAgents": true, "buildRoads": false, "removeAgents": true, "mergeAgents": false, "toldDays": 7},
-        "leaving": {"protectedMinutes": 0, "mergedNotes": 6000},
-        "asking": {"mayorReview": "remote", "refusals": 3, "questions": 3},
-        "permissions": {"network": ["founder"], "unconfined": []}
+        "budget": {"period": "day", "cost": 5.0, "minutes": null},
+        "task": {"messages": 12, "cost": 1.0, "minutes": 20},
+        "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
+        "reserved": {"hire": false, "roads": true, "end": false, "merge": true},
+        "models": ["faux/test"], "model": null, "depth": 3, "toldDays": 7, "protectedMinutes": 0,
+        "asking": {"review": "remote", "questions": 3, "refusals": 3}
     })
 }
 
@@ -430,18 +460,38 @@ fn hamlet_wire() -> Value {
             "caps": {"micros": 5000000, "ms": null}, "summary": "$1.25 today", "lines": ["100 tokens"],
             "left": 0.75, "remains": "$3.75 left"
         },
-        "roads": [], "votes": [], "at": null
+        "roads": [], "at": null, "mayor": 2, "tier": 50, "chiefs": ["chief"]
+    })
+}
+
+fn hand_wire() -> Value {
+    json!({
+        "id": 1, "kind": "hand", "name": "hand", "hamlet": null, "number": null, "scholar": null,
+        "parent": null, "purpose": "", "since": 0, "mayor": false, "model": "faux/test",
+        "busy": false, "faulted": false,
+        "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
+        "saying": {"text": "", "thought": false},
+        "spent": {"tokens": 0, "micros": 0, "ms": 0, "cost": "$0.00"},
+        "consulting": false, "conversations": [], "skills": []
     })
 }
 
 fn agent_wire() -> Value {
     json!({
-        "ref": {"hamlet": "home", "number": 0}, "name": "founder", "purpose": "Help the chief",
+        "id": 2, "kind": "hire", "name": "founder@home", "hamlet": "home", "number": 0, "scholar": 1,
+        "parent": 1, "purpose": "Help the chief",
         "since": 1700000000000_i64, "mayor": true, "model": "faux/test", "busy": true, "faulted": false,
         "activity": {"doing": "read-file", "doingWords": "Reading a file", "step": 2, "failures": 0},
         "saying": {"text": "Looking", "thought": true},
         "spent": {"tokens": 100, "micros": 1250000, "ms": 200, "cost": "$1.25"},
         "consulting": false, "conversations": [], "skills": ["release"]
+    })
+}
+
+fn scholar_wire() -> Value {
+    json!({
+        "id": 1, "name": "founder", "chief": "chief", "since": 0, "house": null,
+        "skills": ["release"], "versions": [{"at": 5, "name": "v1", "note": "First"}], "hires": [2]
     })
 }
 
@@ -455,17 +505,17 @@ fn change_wire() -> Value {
 
 fn wait_wire() -> Value {
     json!({
-        "id": "wait-1", "by": "founder", "agent": {"hamlet": "home", "number": 0},
+        "id": "wait-1", "by": "founder", "agent": 2,
         "about": "NOTES.md", "subject": "NOTES.md", "change": change_wire(),
         "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
-        "since": 1700000000000_u64, "asked": 1, "chat": {"with": {"hamlet": "home", "agent": "mayor"}},
+        "since": 1700000000000_u64, "asked": 1, "chat": {"with": 2},
         "detail": {"kind": "approval", "danger": "edit", "says": "wants to edit", "always": "session"}
     })
 }
 
 fn grants_wire() -> Value {
     json!([
-        {"agent": {"hamlet": "home", "number": 0}, "name": "founder", "permission": "network", "by": "chief", "source": "grant"},
+        {"agent": 2, "name": "founder", "permission": "network", "by": "chief", "source": "grant"},
         {"agent": null, "name": "all", "permission": "unconfined", "by": null, "source": "limits"}
     ])
 }
@@ -486,9 +536,9 @@ fn providers_wire() -> Value {
 fn state_wire() -> Value {
     json!({
         "type": "state", "epoch": 1, "revision": 2, "chief": "chief", "confinement": {"kind": "sandbox", "name": "Seatbelt"},
-        "hamlets": [hamlet_wire()], "agents": [agent_wire()], "waits": [wait_wire()],
+        "hamlets": [hamlet_wire()], "agents": [hand_wire(), agent_wire()], "waits": [wait_wire()],
         "grants": grants_wire(), "settings": settings_wire(), "providers": providers_wire(),
-        "houses": "/home/chief/.hamlet/houses", "library": [], "closed": [],
+        "realm": "/home/chief/.hamlet", "hand": 1, "scholars": [scholar_wire()], "limits": {"roadsBetween": true, "budget": {"period": "day", "cost": 5.0, "minutes": null}}, "library": [], "closed": [],
         "deeds": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}],
         "starters": [{"name": "web-search", "description": "Searches the web"}]
     })
@@ -506,12 +556,13 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
     let ServerMessage::State(state) = server(state_wire()) else {
         panic!("Expected state")
     };
-    assert_eq!(state.agents[0].agent.number, 0);
-    assert_eq!(state.agents[0].activity.doing, Doing::ReadFile);
-    assert_eq!(
-        state.hamlets[0].limits.pinned["founder"],
-        "faux/test"
-    );
+    assert_eq!(state.hand, AgentId(1));
+    assert_eq!(state.agents[0].kind, AgentKind::Hand);
+    assert_eq!(state.agents[1].number, Some(0));
+    assert_eq!(state.agents[1].activity.doing, Doing::ReadFile);
+    assert_eq!(state.hamlets[0].mayor, AgentId(2));
+    assert_eq!(state.scholars[0].hires, [AgentId(2)]);
+    assert_eq!(state.hamlets[0].limits.models, ["faux/test"]);
     assert_eq!(
         state.hamlets[0].budget.remains.as_deref(),
         Some("$3.75 left")
@@ -523,7 +574,9 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
     let updates = [
         json!({"type": "hamlet", "hamlet": hamlet_wire()}),
         json!({"type": "agent", "agent": agent_wire()}),
-        json!({"type": "agent-gone", "ref": {"hamlet": "home", "number": 0}}),
+        json!({"type": "agent-gone", "id": 2}),
+        json!({"type": "scholar", "scholar": scholar_wire()}),
+        json!({"type": "scholar-gone", "id": 1}),
         json!({"type": "wait", "wait": wait_wire()}),
         json!({"type": "wait-closed", "id": "wait-1", "how": "allowed"}),
         json!({"type": "grants", "grants": grants_wire()}),
@@ -557,12 +610,10 @@ fn turns_keep_every_operation_and_optional_nullable_tool_changes() {
     }
     for operation in operations {
         server(
-            json!({"type": "turn", "chat": {"with": {"hamlet": "home", "agent": "mayor"}}, "number": 2, "ops": [operation]}),
+            json!({"type": "turn", "chat": {"with": 2}, "number": 2, "ops": [operation]}),
         );
     }
-    server(
-        json!({"type": "turn", "chat": {"with": {"hamlet": "home", "agent": "mayor"}}, "ops": []}),
-    );
+    server(json!({"type": "turn", "chat": {"with": 2}, "ops": []}));
 }
 
 #[test]
@@ -579,12 +630,12 @@ fn transcripts_keep_every_item_kind_and_page_status() {
         }}));
     }
     server(json!({
-        "type": "transcript", "to": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "past": 2},
+        "type": "transcript", "to": ID, "chat": {"with": 2, "past": 2},
         "number": 2, "items": items, "earlier": "entry:0", "last": {"what": "Reading", "at": 10},
         "working": true, "pending": 1, "usage": usage_wire()
     }));
     server(json!({
-        "type": "transcript", "chat": {"with": {"hamlet": "home", "agent": "mayor"}},
+        "type": "transcript", "chat": {"with": 2},
         "items": [], "earlier": null, "last": null, "working": false, "pending": 0, "usage": usage_wire()
     }));
 }
@@ -620,7 +671,7 @@ fn unknown_and_missing_nullable_fields_are_refused_at_every_level() {
     let mut state = state_wire();
     state["later"] = json!(true);
     let mut agent = state_wire();
-    agent["agents"][0]["later"] = json!(true);
+    agent["agents"][1]["later"] = json!(true);
     let mut detail = state_wire();
     detail["waits"][0]["detail"]["later"] = json!(true);
     let mut at = state_wire();
@@ -659,24 +710,25 @@ fn unknown_and_missing_nullable_fields_are_refused_at_every_level() {
 }
 
 #[test]
-fn society_and_realm_fields_round_trip_without_losing_departures_or_ballots()
+fn society_and_realm_fields_round_trip_without_losing_departures_or_scholars()
  {
     let mut wire = state_wire();
-    let a = json!({"hamlet": "home", "number": 0});
-    let b = json!({"hamlet": "mill", "number": 1});
-    wire["agents"][0]["left"] = json!({"how": "merged", "into": a, "at": 12, "by": "the mayor", "reason": "Shared work", "words": "scout merged into founder"});
-    wire["agents"][0]["consulting"] = json!(true);
-    wire["agents"][0]["conversations"] = json!([{"with": b, "kind": "letters", "count": 2, "last": null}]);
-    wire["hamlets"][0]["roads"] = json!([{"a": a, "b": b, "messages": 10, "level": "rail", "lastFrom": null}]);
-    wire["hamlets"][0]["votes"] = json!([{"id": 1, "motion": "Seat scout", "by": "the chief", "open": true, "overturnable": true, "report": "Voting", "voters": [{"agent": a, "cast": null}, {"agent": b, "cast": "none"}]}]);
+    let (a, b) = (json!(2), json!(3));
+    wire["agents"][1]["left"] = json!({"how": "merged", "into": a, "at": 12, "by": "the mayor", "reason": "Shared work", "words": "scout merged into founder"});
+    wire["agents"][1]["consulting"] = json!(true);
+    wire["agents"][1]["conversations"] = json!([{"with": b, "kind": "letters", "count": 2, "last": null}]);
+    wire["hamlets"][0]["roads"] = json!([{"a": a, "b": b, "kind": "agreed", "messages": 10, "level": "rail", "lastFrom": null}]);
+    wire["scholars"][0]["left"] =
+        json!({"at": 14, "by": "the chief", "reason": "Retired"});
+    wire["scholars"][0]["house"] = json!({"x": 1.0, "z": 2.0});
     wire["hamlets"][0]["at"] = json!({"x": 2.5, "z": -3.5});
     wire["library"] = json!([{"name": "maps", "description": "Draw maps", "by": "scout"}]);
     wire["closed"] = json!([{"id": "mill", "name": "The Mill", "at": 13, "by": "the chief", "reason": "Finished"}]);
     server(wire.clone());
     wire["hamlets"][0]["at"] = Value::Null;
-    wire["agents"][0]["left"]["into"] = Value::Null;
+    wire["agents"][1]["left"]["into"] = Value::Null;
     server(wire);
-    let wire = json!({"type": "open", "id": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "from": b}});
+    let wire = json!({"type": "open", "id": ID, "chat": {"with": 2, "from": 3}});
     client(serde_json::from_value(wire.clone()).unwrap(), wire);
 }
 
@@ -686,17 +738,14 @@ fn a_peer_watch_selects_questions() {
         ClientMessage::Open(Open {
             id: id(),
             chat: ChatRef {
-                from: Some(AgentRef {
-                    hamlet: "home".into(),
-                    number: 2,
-                }),
+                from: Some(AgentId(3)),
                 kind: Some(ChatRefKind::Questions),
                 past: None,
-                with: address(),
+                with: agent(),
             },
             before: None,
         }),
-        json!({"type": "open", "id": ID, "chat": {"with": {"hamlet": "home", "agent": "mayor"}, "from": {"hamlet": "home", "number": 2}, "kind": "questions"}}),
+        json!({"type": "open", "id": ID, "chat": {"with": 2, "from": 3, "kind": "questions"}}),
     );
 }
 
