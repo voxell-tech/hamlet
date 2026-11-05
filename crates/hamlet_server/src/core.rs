@@ -24,6 +24,7 @@ use crate::clients::fold::Fold;
 use crate::clock;
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
+use crate::gifts::Gifts;
 use crate::knowledge::runner::Runner;
 use crate::providers::{FAUX, Providers};
 use crate::realm::Realm;
@@ -68,6 +69,8 @@ pub(crate) struct Core {
     pub providers: Providers,
     /// Which runtime may read or rotate which provider's credential.
     pub leases: Authority,
+    /// The file gifts being sent.
+    pub gifts: Gifts,
     runner: Runner,
 }
 
@@ -110,6 +113,7 @@ impl Core {
         let (ran_to, ran) = mpsc::unbounded_channel();
         let runner = Runner::start(realm.layout(), worked_to)?;
         let layout = realm.layout().clone();
+        crate::knowledge::library::open(&layout, clock::now())?;
         let shells = Shells::local();
         let (added, faults) = added::load(&layout.tools());
         for fault in &faults {
@@ -145,6 +149,7 @@ impl Core {
             calls: Calls::new(ran_to),
             providers,
             leases: Authority::default(),
+            gifts: Gifts::default(),
             runner,
         };
         core.retool()?;

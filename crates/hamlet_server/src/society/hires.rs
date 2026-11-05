@@ -561,6 +561,34 @@ pub(crate) fn set_allowance(
     Ok(Ok(()))
 }
 
+/// Pins the living hire `id` to `version`, or to `main` when none;
+/// its branch takes the new target in when it is next idle.
+pub(crate) fn set_pin(
+    cx: &mut Change<'_>,
+    id: AgentId,
+    version: Option<&str>,
+    reason: &str,
+) -> Done<()> {
+    let hire = get(cx.db, id)?;
+    if !agents::get(cx.db, id)?.is_living() {
+        refuse!(left(cx.db, id)?);
+    }
+    diesel::update(hire::table.find(id))
+        .set(hire::pin.eq(version))
+        .execute(cx.db)?;
+    record::keep(
+        cx,
+        Decision::new(DecisionKind::Pinned, reason)
+            .hamlet(&hire.hamlet)
+            .subject(id)
+            .scholar(hire.scholar)
+            .detail(json!({ "version": version })),
+    )?;
+    jobs::add(cx, &Job::TakeIn { hire: id })?;
+    cx.touched.agents.insert(id);
+    Ok(Ok(()))
+}
+
 /// Keeps the commit of `main`, or the pin, that the branch of `id`
 /// took in last.
 pub(crate) fn took_in(

@@ -207,8 +207,13 @@ pub(crate) fn tools(
     if matches!(kind, Kind::Chat) && kept.kind != AgentKind::Worker {
         only.push("object".into());
     }
-    if matches!(kind, Kind::Errand | Kind::Dream) {
-        only.retain(|name| !society.contains(&name.as_str()));
+    match kind {
+        // An errand answers in words alone.
+        Kind::Errand => only.clear(),
+        Kind::Dream => {
+            only.retain(|name| !society.contains(&name.as_str()));
+        }
+        _ => {}
     }
     only.retain(|name| names.contains(name));
     only.sort();

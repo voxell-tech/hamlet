@@ -303,9 +303,7 @@ fn memory(lodge: &Path) -> String {
     let Ok(folder) = Folder::open(lodge) else {
         return String::new();
     };
-    let Ok(listing) =
-        folder.list(&|path: &str| !path.starts_with("memory/"))
-    else {
+    let Ok(listing) = folder.list_under("memory") else {
         return String::new();
     };
     let mut files = Vec::new();
@@ -376,6 +374,8 @@ struct Skill {
     folder: String,
     name: String,
     description: String,
+    /// The command that runs it, from the root its `skills/` is in.
+    usage: Option<String>,
 }
 
 /// The skills on the shelf at `path`: one folder each whose
@@ -389,9 +389,12 @@ fn shelf(path: &Path, under: &str) -> Vec<Skill> {
     } else {
         format!("{under}/")
     };
-    let Ok(listing) =
-        folder.list(&|path: &str| !path.starts_with(&prefix))
-    else {
+    let listing = if under.is_empty() {
+        folder.list(&|_| false)
+    } else {
+        folder.list_under(under)
+    };
+    let Ok(listing) = listing else {
         return Vec::new();
     };
     let mut skills = Vec::new();
@@ -417,6 +420,7 @@ fn shelf(path: &Path, under: &str) -> Vec<Skill> {
             folder: name.to_owned(),
             name: field("name:").unwrap_or_else(|| name.to_owned()),
             description: field("description:").unwrap_or_default(),
+            usage: field("usage:").filter(|usage| !usage.is_empty()),
         });
     }
     skills
@@ -428,9 +432,18 @@ fn skills(lodge: &Path, library: &Path) -> String {
     if own.is_empty() {
         text.push_str("(none yet)");
     } else {
+        let quoted =
+            lodge.display().to_string().replace('\'', "'\\''");
         for skill in &own {
+            let run = skill
+                .usage
+                .as_ref()
+                .map(|usage| {
+                    format!(" Run: `cd '{quoted}' && {usage}`")
+                })
+                .unwrap_or_default();
             text.push_str(&format!(
-                "- {}: {} (skills/{}/SKILL.md)\n",
+                "- {}: {}{run} (skills/{}/SKILL.md)\n",
                 skill.name, skill.description, skill.folder
             ));
         }
@@ -444,13 +457,19 @@ fn skills(lodge: &Path, library: &Path) -> String {
              skill of your own, use `submit_skill`.\n",
             library.display()
         ));
+        let root = library.display();
         for skill in shared {
+            let there = format!("{root}/{}/", skill.folder);
+            let run = skill
+                .usage
+                .map(|usage| {
+                    let own = format!("skills/{}/", skill.folder);
+                    format!(" Run: `{}`", usage.replace(&own, &there))
+                })
+                .unwrap_or_default();
             text.push_str(&format!(
-                "- {}: {} ({}/{}/SKILL.md)\n",
-                skill.name,
-                skill.description,
-                library.display(),
-                skill.folder
+                "- {}: {}{run} ({there}SKILL.md)\n",
+                skill.name, skill.description
             ));
         }
     }

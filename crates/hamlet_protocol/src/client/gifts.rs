@@ -42,6 +42,10 @@ pub enum GiveSkillSource {
     Starter {
         starter: String,
     },
+    /// A skill on the library's shelves.
+    Library {
+        library: String,
+    },
     /// A skill of a scholar's `main` or of a hire's lodge.
     From {
         from: Keeper,

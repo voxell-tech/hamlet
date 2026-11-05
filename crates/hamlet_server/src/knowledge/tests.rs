@@ -108,3 +108,89 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
         Repository::open(&layout.repository(other.scholar)).unwrap();
     assert_eq!(theirs.tip(&branch(other.agent)).unwrap(), None);
 }
+
+#[test]
+fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
+    let mut realm = Realm::new();
+    let layout = realm.layout();
+    let docs = HamletId("docs".into());
+    let mayor = realm.found("docs", "ada");
+    let owner = realm.chief;
+    let scout = realm
+        .chief(|cx| {
+            hires::hire(
+                cx,
+                hires::Spec {
+                    hamlet: docs.clone(),
+                    parent: Some(mayor.agent),
+                    hiring: hires::Hiring::New {
+                        name: "scout".into(),
+                        character: String::new(),
+                    },
+                    purpose: "look".into(),
+                    reason: "x".into(),
+                    owner,
+                },
+            )
+        })
+        .unwrap();
+    realm.work();
+    let kept = layout.lodge(&docs, 0);
+    let absorbed = layout.lodge(&docs, 1);
+    let write = |at: &std::path::Path, path: &str, text: &str| {
+        let path = at.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    write(&kept, "memory/notes.md", "ada's");
+    write(&absorbed, "memory/notes.md", "scout's");
+    write(&absorbed, "skills/scan/SKILL.md", "Scan.");
+    write(&absorbed, "inbox/map.txt", "a map");
+
+    realm
+        .chief(|cx| {
+            crate::society::merges::merge(
+                cx,
+                mayor.agent,
+                scout.agent,
+                "one is enough",
+            )
+        })
+        .unwrap();
+    realm.work();
+    let read =
+        |path: &str| std::fs::read_to_string(kept.join(path)).ok();
+    assert_eq!(read("memory/notes.md").as_deref(), Some("ada's"));
+    assert_eq!(
+        read("memory/notes.md.from-scout-1").as_deref(),
+        Some("scout's"),
+        "a clash is kept aside"
+    );
+    assert_eq!(
+        read("skills/scan/SKILL.md").as_deref(),
+        Some("Scan.")
+    );
+    assert_eq!(
+        read("inbox/from-scout-1/map.txt").as_deref(),
+        Some("a map")
+    );
+
+    let merge =
+        crate::society::merges::of_absorbed(realm.db(), scout.agent)
+            .unwrap()
+            .expect("the merge stands");
+    realm
+        .chief(|cx| {
+            crate::society::merges::split(
+                cx,
+                merge.id,
+                "two after all",
+            )
+        })
+        .unwrap();
+    realm.work();
+    assert_eq!(read("memory/notes.md").as_deref(), Some("ada's"));
+    assert_eq!(read("memory/notes.md.from-scout-1"), None);
+    assert_eq!(read("skills/scan/SKILL.md"), None);
+    assert!(absorbed.join("skills/scan/SKILL.md").exists());
+}

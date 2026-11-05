@@ -7,7 +7,7 @@ use hamlet_protocol::client::{
     self as protocol, ChatRef, ChatRefKind, ClientMessage, RequestId,
     ServerMessage, Transcript,
 };
-use hamlet_store::ids::{Actor, AgentId, ConversationId};
+use hamlet_store::ids::{Actor, AgentId, ConversationId, ScholarId};
 
 use super::check::{fault, reply};
 use super::connection::{self, Event};
@@ -50,6 +50,8 @@ impl Core {
             Event::Gone(client) => {
                 self.clients.gone(client);
                 self.providers.disconnect(client);
+                let staging = self.realm.layout().staging();
+                self.gifts.disconnect(client, &staging);
                 self.send_providers().await
             }
         }
@@ -338,10 +340,32 @@ impl Core {
                     .await?;
                 self.answer(client, reply(&answer.id, words))
             }
+            ClientMessage::Give(protocol::Give::Files {
+                files,
+                id,
+                to,
+            }) => {
+                let to = AgentId(i64::try_from(to.0)?);
+                let answer =
+                    self.give_files(client, &id, to, files)?;
+                self.answer(client, answer)
+            }
+            ClientMessage::Give(protocol::Give::Skill {
+                id,
+                skill,
+                to,
+            }) => {
+                let to = ScholarId(i64::try_from(to.0)?);
+                let words = self.give_skill(to, skill).await?;
+                self.publish().await?;
+                self.answer(client, reply(&id, words))
+            }
+            ClientMessage::GivePart(part) => {
+                let answer = self.give_part(client, part).await?;
+                self.answer(client, answer)
+            }
             message => {
                 let what = match &message {
-                    ClientMessage::Give(_)
-                    | ClientMessage::GivePart(_) => "gifts",
                     ClientMessage::Rewind(_) => {
                         "taking a conversation back"
                     }
@@ -641,6 +665,37 @@ impl Core {
             .map(|c| c.name)
             .unwrap_or_default();
         let waits = crate::oversight::views(db)?;
+        let mut library = Vec::new();
+        for (name, description) in
+            crate::knowledge::library::skills(&layout)?
+        {
+            let by =
+                match crate::society::library::shelved_by(db, &name)?
+                {
+                    Some((Some(agent), _)) => {
+                        crate::society::addresses::name_of(db, agent)?
+                    }
+                    Some((None, Some(chief))) => {
+                        crate::society::addresses::actor_name(
+                            db,
+                            Some(Actor::Chief(chief)),
+                        )?
+                    }
+                    _ => "the starters".into(),
+                };
+            library.push(protocol::LibrarySkill {
+                by,
+                description,
+                name,
+            });
+        }
+        let starters = crate::knowledge::library::starters()
+            .into_iter()
+            .map(|(name, description)| protocol::Skill {
+                description,
+                name,
+            })
+            .collect();
         let sources = super::state::Sources {
             layout: &layout,
             env: &self.env,
@@ -651,8 +706,8 @@ impl Core {
             deeds: crate::commands::deeds(),
             settings_view,
             waits,
-            library: Vec::new(),
-            starters: Vec::new(),
+            library,
+            starters,
         };
         super::state::compose(
             db,

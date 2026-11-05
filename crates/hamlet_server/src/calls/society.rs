@@ -2,6 +2,7 @@
 //! checked against the caller's standing as a chief's command is.
 
 mod letters;
+pub(crate) mod library;
 mod scholars;
 
 use anyhow::Result;
@@ -365,6 +366,8 @@ impl Core {
             "ask" => return self.ask(call).await,
             "request_road" => return self.request_road(call).await,
             "start_worker" => return self.start_worker(call).await,
+            "submit_skill" => return self.submit_skill(call).await,
+            "ask_librarian" => return self.ask_librarian(call).await,
             "read_scholar" => self.read_scholar(call)?,
             "edit_scholar" => self.edit_scholar(call).await?,
             "tag" => self.tag_scholar(call)?,
@@ -509,6 +512,34 @@ impl Core {
                         )
                     })
                 }
+            }
+            "merge_hires" => {
+                let absorbed = match self.led(
+                    call,
+                    "absorbed",
+                    here.as_ref(),
+                )? {
+                    Ok(hire) => hire,
+                    Err(refusal) => {
+                        return Ok(Step::of(Err(refusal)));
+                    }
+                };
+                let kept =
+                    match self.led(call, "into", here.as_ref())? {
+                        Ok(hire) => hire,
+                        Err(refusal) => {
+                            return Ok(Step::of(Err(refusal)));
+                        }
+                    };
+                let (one, other) =
+                    (self.name(absorbed)?, self.name(kept)?);
+                self.attempt(Actor::Agent(agent), |cx, _| {
+                    crate::society::merges::merge(
+                        cx, kept, absorbed, &reason,
+                    )
+                })
+                .await?
+                .map(|_| format!("Merged {one} into {other}."))
             }
             "agree_road" => {
                 self.agree_road(call, here.as_ref()).await?

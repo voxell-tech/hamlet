@@ -15,6 +15,7 @@ mod core;
 mod credentials;
 mod diagnostic;
 mod fault;
+mod gifts;
 mod jobs;
 mod knowledge;
 mod layout;

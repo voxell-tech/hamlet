@@ -155,4 +155,6 @@ pub(crate) enum Refusal {
     NoSkill { name: String },
     #[error("there is no file `{path}` here")]
     NoFile { path: String },
+    #[error("that merge was split already")]
+    AlreadySplit,
 }

@@ -108,6 +108,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `say` (`Say`) | `to: AgentId`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
 | `give` (`Give`) | `to: AgentId`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
 | `give` (`Give`) | `to: ScholarId`, `skill: {starter: string}` | Give an installed starter skill to a scholar; `reply`. |
+| `give` (`Give`) | `to: ScholarId`, `skill: {library: string}` | Give a skill on the library's shelves to a scholar; `reply`. |
 | `give` (`Give`) | `to: ScholarId`, `skill: {from: Keeper, name: string}` | Copy a named skill of a scholar or a hire's lodge; `reply`. |
 | `give-part` (`GivePart`) | `upload: string`, `path: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset in a declared file. `reply` acknowledges the chunk or completed gift. |
 | `answer` (`Answer`) | `wait: string`, `choice: Choice`, `text?: string`, `picks?: Pick[]` | Answer a wait; `reply`. |

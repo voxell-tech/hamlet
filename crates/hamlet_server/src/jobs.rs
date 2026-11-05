@@ -1,7 +1,9 @@
 //! The effects a change keeps for after its commit.
 
 use anyhow::Result;
-use hamlet_store::ids::{AgentId, HamletId, JobId, ScholarId};
+use hamlet_store::ids::{
+    AgentId, HamletId, JobId, MergeId, OfferId, ScholarId,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::change::Change;
@@ -32,6 +34,14 @@ pub(crate) enum Job {
     EraseScholar { scholar: ScholarId },
     /// Deletes the folder of an erased hamlet's lodges.
     EraseHamlet { hamlet: HamletId },
+    /// Brings what a merged hire learned into the kept hire's branch
+    /// and lodge, with its inbox.
+    Merge { merge: MergeId },
+    /// Undoes a merge's commit on the kept hire's branch.
+    Split { merge: MergeId },
+    /// Puts a skill the librarian took on the shelves, and takes it
+    /// out of the lodge it was offered from.
+    Shelve { offer: OfferId },
 }
 
 /// The commit of another scholar a fork starts from.
@@ -51,6 +61,9 @@ impl Job {
             Self::EraseHire { .. } => "erase-hire",
             Self::EraseScholar { .. } => "erase-scholar",
             Self::EraseHamlet { .. } => "erase-hamlet",
+            Self::Merge { .. } => "merge",
+            Self::Split { .. } => "split",
+            Self::Shelve { .. } => "shelve",
         }
     }
 
@@ -69,6 +82,12 @@ impl Job {
             }
             Self::EraseHamlet { hamlet } => {
                 format!("{}:{hamlet}", self.kind())
+            }
+            Self::Merge { merge } | Self::Split { merge } => {
+                format!("{}:{merge}", self.kind())
+            }
+            Self::Shelve { offer } => {
+                format!("{}:{offer}", self.kind())
             }
         }
     }

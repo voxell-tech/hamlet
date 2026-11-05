@@ -251,6 +251,7 @@ pub(crate) fn answered(
             request: &format!("reply:{}", found.id),
             words: &words,
             waits: true,
+            author: None,
         },
     )
 }
@@ -266,6 +267,8 @@ pub(crate) struct Carry<'a> {
     pub words: &'a str,
     /// Whether the call waits for the words.
     pub waits: bool,
+    /// Who a reply is shown as from, when not `from`'s name.
+    pub author: Option<&'a str>,
 }
 
 /// Gives the words of `carry` to its call: the call to wake while it
@@ -283,6 +286,7 @@ pub(crate) fn carry(
         request,
         words,
         waits,
+        author,
     } = carry;
     let call = tool_call::table
         .find((runtime, key))
@@ -309,7 +313,10 @@ pub(crate) fn carry(
     if waiting {
         return Ok(Some((runtime.to_owned(), key.to_owned())));
     }
-    let author = addresses::name_of(cx.db, from)?;
+    let author = match author {
+        Some(author) => author.to_owned(),
+        None => addresses::name_of(cx.db, from)?,
+    };
     inputs::keep(
         cx,
         Keep {

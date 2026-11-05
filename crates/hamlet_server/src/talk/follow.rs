@@ -6,17 +6,20 @@
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_protocol::client::Choice;
-use hamlet_store::ids::ConversationId;
+use hamlet_store::ids::{ConversationId, OfferId};
 use hamlet_store::schema::answer_fault;
 use serde_json::Value;
 
 use super::conversations::{self, Conversation, Kind, Last};
+use super::errands::{self, Ended};
 use super::inputs::{self, Input, InputKind, Status};
 use super::{Env, items, letters, reflections, tasks};
+use crate::calls::LIBRARIAN;
 use crate::change::Change;
 use crate::jobs::{self, Job};
 use crate::oversight::{self, Raise, WaitKind};
 use crate::society::agents::{self, AgentKind, EndHow};
+use crate::society::library::{self as shelf, Verdict};
 use crate::society::workers;
 
 /// What a follow leaves to do once its change is kept.
@@ -76,6 +79,10 @@ pub(crate) fn follow(
     let kept = conversations::get(cx.db, conversation)?;
     let agent = kept.agent;
     cx.touched.agents.insert(agent);
+    if kept.kind == Kind::Errand && input.kind == InputKind::Errand {
+        followed.wake.extend(errand_ended(cx, &kept, &input)?);
+        return Ok(followed);
+    }
     if kept.kind == Kind::Worker && input.kind == InputKind::Worker {
         let answer = items::answer_of(cx.db, conversation, request)?;
         let how = match (&answer, last) {
@@ -105,6 +112,7 @@ pub(crate) fn follow(
                     request: &format!("worker:{agent}"),
                     words: &words,
                     waits: worker.waits,
+                    author: None,
                 },
             )?);
         }
@@ -137,6 +145,130 @@ pub(crate) fn follow(
         jobs::add(cx, &Job::TakeIn { hire: agent })?;
     }
     Ok(followed)
+}
+
+/// What follows an errand's end: the librarian's answer carried to
+/// the call that asked, or its verdict kept on the skill offered.
+fn errand_ended(
+    cx: &mut Change<'_>,
+    kept: &Conversation,
+    input: &Input,
+) -> Result<Option<(String, String)>> {
+    let (Some(kind), Some(owner)) = (&kept.errand, &kept.owner)
+    else {
+        return Ok(None);
+    };
+    if kind != LIBRARIAN {
+        return Ok(None);
+    }
+    let Some(ended) = errands::ended(cx.db, kind, owner)? else {
+        return Ok(None);
+    };
+    let Some(task) = input.task else {
+        return Ok(None);
+    };
+    if let Some(call) = owner.strip_prefix("ask:") {
+        let Some((runtime, key)) = call.split_once('/') else {
+            return Ok(None);
+        };
+        let words = match ended {
+            Ended::Answered(answer) => {
+                format!("The librarian says: {answer}")
+            }
+            Ended::Failed(failure) => {
+                format!("The librarian could not answer: {failure}")
+            }
+        };
+        return letters::carry(
+            cx,
+            letters::Carry {
+                runtime,
+                key,
+                from: kept.agent,
+                task,
+                request: &format!("librarian:{owner}"),
+                words: &words,
+                waits: true,
+                author: Some("the librarian"),
+            },
+        );
+    }
+    let Some(id) = owner
+        .strip_prefix("offer:")
+        .and_then(|id| id.parse::<i64>().ok())
+    else {
+        return Ok(None);
+    };
+    let offer = shelf::get(cx.db, OfferId(id))?;
+    let name = &offer.skill;
+    let (verdict, words) = match ended {
+        Ended::Answered(answer) => {
+            let accepted = answer
+                .split_whitespace()
+                .next()
+                .is_some_and(|first| {
+                    first
+                        .trim_matches(|c: char| !c.is_alphabetic())
+                        .eq_ignore_ascii_case("ACCEPT")
+                });
+            if accepted {
+                (
+                    Verdict::Accepted,
+                    format!(
+                        "The librarian took `{name}`: {answer} It \
+                         goes on the shelves for every agent; use \
+                         the library's copy."
+                    ),
+                )
+            } else {
+                (
+                    Verdict::Refused,
+                    format!(
+                        "The librarian did not take `{name}`: \
+                         {answer} It stays in your lodge."
+                    ),
+                )
+            }
+        }
+        Ended::Failed(failure) => (
+            Verdict::Failed,
+            format!(
+                "The librarian could not judge `{name}`: {failure}"
+            ),
+        ),
+    };
+    if !shelf::judge(cx, offer.id, verdict, &words)? {
+        return Ok(None);
+    }
+    if verdict == Verdict::Accepted {
+        jobs::add(cx, &Job::Shelve { offer: offer.id })?;
+    } else {
+        shelf::event(
+            cx.db,
+            cx.at,
+            shelf::Event {
+                kind: shelf::EventKind::Refused,
+                skill: name,
+                agent: Some(offer.agent),
+                chief: None,
+                reason: Some(&words),
+                commit: None,
+            },
+        )?;
+    }
+    letters::carry(
+        cx,
+        letters::Carry {
+            runtime: &offer.runtime,
+            key: &offer.key,
+            from: offer.agent,
+            task,
+            request: &format!("librarian:{owner}"),
+            words: &words,
+            waits: true,
+            author: Some("the librarian"),
+        },
+    )
 }
 
 /// Raises a fault for a chief's chat whose turn failed, unless its

@@ -1,4 +1,4 @@
 # The client protocol's version and a sha256 of its schema with that
 # version, written by `cargo test -p hamlet_protocol`. Do not edit.
 v 0.1.0
-sha256 5183a47ffa05d32dbf96afb5972300fe4f04c06bf852da44ae489fb341d295ea
+sha256 baee9f4c0ed30f106ebf8e065314a86555c85978e45d3d428498ece83c762d8b

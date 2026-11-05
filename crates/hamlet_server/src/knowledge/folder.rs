@@ -47,6 +47,24 @@ impl Folder {
         Ok(out)
     }
 
+    /// Every regular file under the folder `under`, by its path from
+    /// this folder, as [`Folder::list`] gives them; none when there
+    /// is no such folder or it is a link.
+    pub fn list_under(&self, under: &str) -> Result<Vec<Entry>> {
+        let tree = TreePath::parse(under)?;
+        let Ok((dir, name)) = self.0.parent(&tree, Missing::Fail)
+        else {
+            return Ok(Vec::new());
+        };
+        let Ok(folder) = dir.child(name) else {
+            return Ok(Vec::new());
+        };
+        let mut out = Vec::new();
+        walk(&folder, under, &|_| false, &mut out)?;
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(out)
+    }
+
     pub fn read(&self, path: &str) -> Result<Vec<u8>> {
         let path = TreePath::parse(path)?;
         let (dir, name) = self.0.parent(&path, Missing::Fail)?;

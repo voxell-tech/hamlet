@@ -23,6 +23,7 @@ use tokio::task::AbortHandle;
 
 use self::held::State;
 use self::objections::OBJECTING;
+pub(crate) use self::society::library::LIBRARIAN;
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
 use crate::oversight::gate::{

@@ -6,6 +6,7 @@ pub(crate) mod asking;
 pub(crate) mod briefs;
 pub(crate) mod chats;
 pub(crate) mod conversations;
+pub(crate) mod errands;
 pub(crate) mod follow;
 pub(crate) mod inputs;
 pub(crate) mod items;

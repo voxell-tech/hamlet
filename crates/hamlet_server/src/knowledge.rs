@@ -2,6 +2,8 @@
 //! Hand work in, and the jobs that keep them.
 
 pub(crate) mod folder;
+pub(crate) mod library;
+mod merging;
 pub(crate) mod run;
 pub(crate) mod runner;
 

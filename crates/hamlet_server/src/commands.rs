@@ -2,6 +2,8 @@
 //! said to an agent, whose hamlet is the one they mean.
 
 mod oversight;
+mod shelves;
+mod versions;
 
 use anyhow::Result;
 use hamlet_git::Repository;
@@ -127,6 +129,47 @@ const TABLE: &[Command] = &[
         does: "Bring back the hire ended last",
     },
     Command {
+        name: "tag",
+        usage: "/tag <scholar>[@<commit>] <version> [note]",
+        does: "Name a version of a scholar",
+    },
+    Command {
+        name: "versions",
+        usage: "/versions <scholar>",
+        does: "List a scholar's versions and latest commits",
+    },
+    Command {
+        name: "pin",
+        usage: "/pin <address> <version|main> [reason]",
+        does: "Hold a hire at a version, or let it follow main",
+    },
+    Command {
+        name: "revert",
+        usage: "/revert <scholar> <commit|version> [reason]",
+        does: "Undo a commit of a scholar's main",
+    },
+    Command {
+        name: "fork",
+        usage: "/fork <scholar>[@<version>] <new-name>",
+        does: "Make a new scholar from a version of another",
+    },
+    Command {
+        name: "purge",
+        usage: "/purge <scholar> <path>",
+        does: "Take a file out of a scholar's whole history",
+    },
+    Command {
+        name: "give",
+        usage: "/give <scholar|address> <skill> [from \
+                <scholar|address>]",
+        does: "Give a scholar a starter, library or other skill",
+    },
+    Command {
+        name: "unshelve",
+        usage: "/unshelve <skill> [reason]",
+        does: "Take a skill off the library's shelves",
+    },
+    Command {
         name: "hamlets",
         usage: "/hamlets",
         does: "List the hamlets",
@@ -191,6 +234,11 @@ const TABLE: &[Command] = &[
         name: "erase",
         usage: "/erase <address>",
         does: "Erase an ended hire for good",
+    },
+    Command {
+        name: "merge",
+        usage: "/merge <address> into <address> [reason]",
+        does: "Make one hire of two; /restore splits them again",
     },
     Command {
         name: "model",
@@ -326,6 +374,17 @@ impl Core {
             .oversight_command(agent, here.as_ref(), name, rest)
             .await?
         {
+            return Ok(answer);
+        }
+        if let Some(answer) =
+            self.versions_command(here.as_ref(), name, &words).await?
+        {
+            return Ok(answer);
+        }
+        if let Some(answer) =
+            self.shelves_command(here.as_ref(), name, &words).await?
+        {
+            self.publish().await?;
             return Ok(answer);
         }
         let tail = |from: usize| {
@@ -634,15 +693,28 @@ impl Core {
                     return Ok(Err(refusal));
                 }
                 let reason = tail(1);
+                let db = self.realm.store().connection();
+                // A merged hire comes back by splitting its merge.
+                let merge = match name {
+                    "restore" => {
+                        crate::society::merges::of_absorbed(db, hire)?
+                    }
+                    _ => None,
+                };
                 let done = self
-                    .attempt(by, |cx, _| match name {
-                        "end" => hires::end(
+                    .attempt(by, |cx, _| match (name, &merge) {
+                        ("end", _) => hires::end(
                             cx,
                             hire,
                             EndHow::Ended,
                             &reason,
                         ),
-                        "restore" => {
+                        ("restore", Some(merge)) => {
+                            crate::society::merges::split(
+                                cx, merge.id, &reason,
+                            )
+                        }
+                        ("restore", None) => {
                             hires::come_back(cx, hire, &reason)
                         }
                         _ => hires::erase(cx, hire),
@@ -650,8 +722,59 @@ impl Core {
                     .await?;
                 Ok(done.map(|()| match name {
                     "end" => format!("`{text}` was ended."),
+                    "restore" if merge.is_some() => format!(
+                        "`{text}` is back; what it brought to the \
+                         hire it was merged into is taken out again."
+                    ),
                     "restore" => format!("`{text}` is back."),
                     _ => format!("`{text}` was erased for good."),
+                }))
+            }
+            "merge" => {
+                let (Some(absorbed), Some(&"into"), Some(kept)) =
+                    (words.first(), words.get(1), words.get(2))
+                else {
+                    return Ok(Err(usage(name)));
+                };
+                let absorbed = match self.resolve(
+                    absorbed,
+                    here.as_ref(),
+                    Reach::Living,
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                let kept = match self.resolve(
+                    kept,
+                    here.as_ref(),
+                    Reach::Living,
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                for hire in [absorbed, kept] {
+                    if let Err(refusal) = self.leads(hire)? {
+                        return Ok(Err(refusal));
+                    }
+                }
+                let reason = tail(3);
+                let reason = if reason.is_empty() {
+                    "merged by the chief".to_owned()
+                } else {
+                    reason
+                };
+                let done = self
+                    .attempt(by, |cx, _| {
+                        crate::society::merges::merge(
+                            cx, kept, absorbed, &reason,
+                        )
+                    })
+                    .await?;
+                Ok(done.map(|_| {
+                    format!(
+                        "Merged `{}` into `{}`.",
+                        words[0], words[2]
+                    )
                 }))
             }
             "model" => {

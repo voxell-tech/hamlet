@@ -243,7 +243,8 @@ pub(crate) fn lay(
     Ok(Ok(id))
 }
 
-fn insert(
+/// Lays a road of `kind` between `a` and `b`.
+pub(crate) fn insert(
     cx: &mut Change<'_>,
     a: AgentId,
     b: AgentId,

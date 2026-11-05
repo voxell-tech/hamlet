@@ -4,13 +4,13 @@
 use anyhow::{Context, Result, bail};
 use hamlet_git::{Author, Change, CommitId, MAIN, Repository, Step};
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, OfferId, ScholarId};
 
 use super::folder::{Folder, remove_folder};
 use super::{CHARACTER, branch, lodging, outside_git};
 use crate::jobs::{Fork, Job};
 use crate::layout::Layout;
-use crate::society::{city, hires};
+use crate::society::{city, hires, library as shelf};
 
 /// The longest a failed job waits before it runs again.
 const MOST_WAIT: i64 = 300_000;
@@ -80,7 +80,76 @@ pub(crate) fn run(
         Job::EraseHamlet { hamlet } => {
             remove_folder(&layout.hamlet(hamlet))
         }
+        Job::Merge { merge } => {
+            super::merging::merge(db, layout, *merge, at)
+        }
+        Job::Split { merge } => {
+            super::merging::split(db, layout, *merge, at)
+        }
+        Job::Shelve { offer } => shelve(db, layout, *offer, at),
     }
+}
+
+/// Shelves the skill of `offer`, which the librarian took, once, and
+/// takes it out of the offerer's lodge while it is as offered.
+fn shelve(
+    db: &mut Db,
+    layout: &Layout,
+    offer: OfferId,
+    at: i64,
+) -> Result<()> {
+    let found = shelf::get(db, offer)?;
+    let tree =
+        found.tree.as_deref().context("the offer kept no files")?;
+    let files = super::library::offered(layout, tree)?;
+    if !super::library::has(layout, &found.skill)? {
+        let by = Actor::Agent(found.agent).to_string();
+        let commit = super::library::shelve(
+            layout,
+            &found.skill,
+            &files,
+            &format!("Shelved {}: {}", found.skill, found.reason),
+            &by,
+            at,
+        )?;
+        shelf::event(
+            db,
+            at,
+            shelf::Event {
+                kind: shelf::EventKind::Shelved,
+                skill: &found.skill,
+                agent: Some(found.agent),
+                chief: None,
+                reason: Some(&found.reason),
+                commit: Some(&commit.to_string()),
+            },
+        )?;
+    }
+    let lodge = lodging(db, layout, found.agent)?.path;
+    let Ok(folder) = Folder::open(&lodge) else {
+        return Ok(());
+    };
+    let prefix = format!("skills/{}/", found.skill);
+    let present = folder
+        .list_under(&format!("skills/{}", found.skill))?
+        .into_iter()
+        .map(|entry| {
+            Ok((
+                entry.path[prefix.len()..].to_owned(),
+                folder.read(&entry.path)?,
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut offered = files;
+    offered.sort();
+    let mut present = present;
+    present.sort();
+    if present == offered {
+        for (path, _) in &present {
+            folder.remove(&format!("{prefix}{path}"))?;
+        }
+    }
+    Ok(())
 }
 
 /// Makes the repository of `scholar`, from its character or as a
@@ -164,7 +233,7 @@ fn target(repo: &Repository, pin: Option<&str>) -> Result<CommitId> {
 
 /// Makes the folder hold the files of `commit`, but the character and
 /// the inbox.
-fn check_out(
+pub(super) fn check_out(
     repo: &Repository,
     commit: CommitId,
     folder: &Folder,
