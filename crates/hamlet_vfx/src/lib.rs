@@ -27,7 +27,7 @@ use self::magic::MagicSettings;
 use self::pads::PadSettings;
 use self::sparks::SparkSettings;
 use self::water::WaterSettings;
-use self::wind::{WindSettings, WindStrength};
+use self::wind::{WindChoice, WindSettings};
 
 /// Every effect. Insert [`Tints`] before adding it.
 pub struct VfxPlugin;
@@ -114,7 +114,7 @@ pub(crate) struct VfxTuning {
     pub sparks: SparkSettings,
     pub magic: MagicSettings,
     pub wind: WindSettings,
-    pub wind_strength: WindStrength,
+    pub wind_choice: WindChoice,
     pub flag: FlagSettings,
     pub ground: GroundSettings,
     pub water: WaterSettings,
@@ -130,7 +130,7 @@ impl Tuning for VfxTuning {
         follow(world, &was.sparks, &self.sparks);
         follow(world, &was.magic, &self.magic);
         follow(world, &was.wind, &self.wind);
-        follow(world, &was.wind_strength, &self.wind_strength);
+        follow(world, &was.wind_choice, &self.wind_choice);
         follow(world, &was.flag, &self.flag);
         follow(world, &was.ground, &self.ground);
         follow(world, &was.water, &self.water);
@@ -144,7 +144,7 @@ designed!(VfxTuning {
     SparkSettings => sparks,
     MagicSettings => magic,
     WindSettings => wind,
-    WindStrength => wind_strength,
+    WindChoice => wind_choice,
     FlagSettings => flag,
     GroundSettings => ground,
     WaterSettings => water,

@@ -24,7 +24,7 @@ use crate::{Now, Tints, VfxSystems};
 pub(crate) fn plugin(app: &mut App) {
     load_shader_library!(app, "wind.wesl");
     app.init_resource::<WindSettings>()
-        .init_resource::<WindStrength>()
+        .init_resource::<WindChoice>()
         .add_systems(Startup, prepare)
         .add_systems(Update, blow.in_set(VfxSystems));
 }
@@ -41,9 +41,10 @@ pub struct WindSettings {
     pub heading: f32,
     pub veer: f32,
     /// Breadth in metres of the bands of strong wind that roll
-    /// downwind, and their speed in metres a second. Each band has
-    /// smaller gusts within it, half its breadth.
-    pub band: (f32, f32),
+    /// downwind, with no turbulence and with all of it, and their
+    /// speed in metres a second.
+    pub breadth: (f32, f32),
+    pub speed: f32,
     /// The share of its full strength the wind keeps between gusts.
     pub calm: f32,
     /// The share of its strength the whole wind keeps at the depth
@@ -67,10 +68,8 @@ pub struct WindSettings {
     pub night: f32,
 }
 
-/// How hard the wind blows at its weakest, in a lull between gusts,
-/// and at its strongest, in a gust at the height of a swell, as
-/// shares of the strength everything that sways is tuned to. Set on
-/// the Sight page, so kept with the view.
+/// How the chief has the wind blow, set on the Sight page and so
+/// kept with the view.
 #[derive(
     Resource,
     Clone,
@@ -81,14 +80,20 @@ pub struct WindSettings {
     serde::Deserialize,
 )]
 #[serde(deny_unknown_fields)]
-pub struct WindStrength {
+pub struct WindChoice {
+    /// How hard it blows at its weakest, in a lull between gusts,
+    /// and at its strongest, in a gust at the height of a swell, as
+    /// shares of the strength everything that sways is tuned to.
     pub least: f32,
     pub most: f32,
+    /// From 0 to 1, how small its bands are: the more, the more
+    /// plants side by side bend each as far as its own band blows.
+    pub turbulence: f32,
 }
 
-impl WindStrength {
-    /// The least and the most either end is set to.
-    pub const BOUNDS: (f32, f32) = (0.0, 2.0);
+impl WindChoice {
+    /// The least and the most either end of the strength is set to.
+    pub const STRENGTH: (f32, f32) = (0.0, 2.0);
 }
 
 impl WindSettings {
@@ -100,21 +105,27 @@ impl WindSettings {
     }
 
     /// How hard the wind blows at `at` on the ground at `now`, from
-    /// `strength`'s least to its most. The same as `strength` in
+    /// `choice`'s least to its most. The same as `strength` in
     /// `wind.wesl`.
     pub fn strength(
         &self,
-        strength: WindStrength,
+        choice: WindChoice,
         at: Vec2,
         now: f32,
     ) -> f32 {
-        self.uniform(strength).strength(at, now)
+        self.uniform(choice).strength(at, now)
     }
 
-    /// What the shaders are told of the wind, blowing as hard as
-    /// `strength` lets it, from which they find it at any time.
-    pub fn uniform(&self, strength: WindStrength) -> WindUniform {
-        let across = 1.0 / self.band.0.max(1e-3);
+    /// What the shaders are told of the wind, blowing as `choice`
+    /// has it, from which they find it at any time.
+    pub fn uniform(&self, choice: WindChoice) -> WindUniform {
+        // Turbulence narrows the bands evenly on a log scale, so each
+        // step of it halves them as often.
+        let (calm, wild) =
+            (self.breadth.0.max(0.1), self.breadth.1.max(0.1));
+        let breadth = calm
+            * (wild / calm).powf(choice.turbulence.clamp(0.0, 1.0));
+        let across = 1.0 / breadth;
         // The bands roll along the wind's mean heading: by its
         // veering one, scaled by the time, they would swing ever
         // faster sideways.
@@ -128,15 +139,15 @@ impl WindSettings {
             ),
             scale: Vec4::new(
                 across,
-                self.band.1 * across,
+                self.speed * across,
                 mean.sin(),
                 mean.cos(),
             ),
             swell: Vec4::new(
                 self.swell.0.clamp(0.0, 1.0),
                 TAU / self.swell.1.max(1.0),
-                strength.least,
-                strength.most.max(strength.least),
+                choice.least,
+                choice.most.max(choice.least),
             ),
         }
     }
@@ -154,7 +165,8 @@ impl WindUniform {
     fn strength(&self, at: Vec2, now: f32) -> f32 {
         let rolled = Vec2::new(self.scale.z, self.scale.w)
             * (now * self.scale.y);
-        let band = 0.5 + 0.5 * fbm(at * self.scale.x - rolled);
+        let band =
+            0.5 + 0.5 * perlin(at * self.scale.x - rolled, SEED);
         let gust = smoothstep(0.3, 0.75, band);
         let raw = (self.flow.w + (1.0 - self.flow.w) * gust)
             * self.swelling(now);
@@ -206,11 +218,6 @@ fn perlin(p: Vec2, seed: u32) -> f32 {
     let c = gradient(x, z + 1, seed).dot(f - Vec2::Y);
     let d = gradient(x + 1, z + 1, seed).dot(f - Vec2::ONE);
     a.lerp(b, fade.x).lerp(c.lerp(d, fade.x), fade.y) * 1.41
-}
-
-/// `fbm` in `noise.wesl` of two octaves, with the wind's seed.
-fn fbm(p: Vec2) -> f32 {
-    (perlin(p, SEED) + 0.5 * perlin(p * 2.03, SEED + 1)) / 1.5
 }
 
 fn smoothstep(low: f32, high: f32, x: f32) -> f32 {

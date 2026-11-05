@@ -10,9 +10,7 @@ use bevy::render::render_resource::{AsBindGroup, Face, ShaderType};
 use bevy::shader::ShaderRef;
 use bevy::window::RequestRedraw;
 
-use crate::wind::{
-    WindSettings, WindStrength, WindUniform, downwind,
-};
+use crate::wind::{WindChoice, WindSettings, WindUniform, downwind};
 use crate::{Now, NowOffset, VfxSystems};
 
 pub type FlagMaterial = ExtendedMaterial<StandardMaterial, FlagExt>;
@@ -203,7 +201,7 @@ fn wave(
     offset: Res<NowOffset>,
     set: Res<FlagSettings>,
     wind: Res<WindSettings>,
-    strength: Res<WindStrength>,
+    strength: Res<WindChoice>,
     waving: Res<Waving>,
     mut flags: Query<(&mut Transform, Option<&ChildOf>), With<Cloth>>,
     masts: Query<&GlobalTransform>,

@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use hamlet_vfx::Density;
 use hamlet_vfx::magic::chance;
-use hamlet_vfx::wind::{Breeze, WindSettings, WindStrength, gust};
+use hamlet_vfx::wind::{Breeze, WindChoice, WindSettings, gust};
 
 use super::land::Land;
 use super::view::GeneratorView;
@@ -24,7 +24,7 @@ pub(super) fn gusts(
     mut commands: Commands,
     clock: Res<Clock>,
     set: Res<WindSettings>,
-    strength: Res<WindStrength>,
+    strength: Res<WindChoice>,
     density: Res<Density>,
     breeze: Option<Res<Breeze>>,
     view: Res<GeneratorView>,

@@ -1,9 +1,9 @@
 // The wind, as `WindSettings::strength` in `wind.rs` has it: one way
 // across the whole world, veering slowly, and a strength that rolls
-// downwind in bands, smaller gusts within each. The two must give the same
-// answer, so a change to one is a change to the other.
+// downwind in bands of one noise. The two must give the same answer, so a
+// change to one is a change to the other.
 
-import hamlet_vfx::noise::fbm;
+import hamlet_vfx::noise::perlin;
 
 struct Wind {
     // x: the way it blows on the whole, in radians from north. y: how far
@@ -16,7 +16,7 @@ struct Wind {
     scale: vec4<f32>,
     // x: the share of its strength the whole wind keeps at the depth of a
     // lull. y: how far its swelling turns in a second, in radians. z and
-    // w: the least and the most it blows, `WindStrength` in `wind.rs`.
+    // w: the least and the most it blows, `WindChoice` in `wind.rs`.
     swell: vec4<f32>,
 }
 
@@ -43,7 +43,7 @@ fn swelling(wind: Wind, t: f32) -> f32 {
 // of it within one, and that swelling and lulling as a whole.
 fn strength(wind: Wind, at: vec2<f32>, t: f32) -> f32 {
     let rolled = wind.scale.zw * (t * wind.scale.y);
-    let band = 0.5 + 0.5 * fbm(at * wind.scale.x - rolled, 2u, SEED);
+    let band = 0.5 + 0.5 * perlin(at * wind.scale.x - rolled, SEED);
     let gust = smoothstep(0.3, 0.75, band);
     let raw = (wind.flow.w + (1.0 - wind.flow.w) * gust) * swelling(wind, t);
     // From the weakest it may be to the strongest, laid between the least

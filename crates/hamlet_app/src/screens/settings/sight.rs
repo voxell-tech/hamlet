@@ -27,7 +27,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::range::range;
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{View, built, with_cx};
-use hamlet_vfx::wind::WindStrength;
+use hamlet_vfx::wind::WindChoice;
 
 use super::{field, told};
 use crate::roll::moved;
@@ -194,34 +194,45 @@ fn amount<R: Resource<Mutability = Mutable>>(
 }
 
 /// How hard the wind blows at its calmest and at its strongest, both
-/// on one track.
-fn wind_strength() -> impl View {
+/// on one track, and how turbulent it is.
+fn wind() -> impl View {
     with_cx(|cx| {
-        row((
-            glyph(Glyph::Meter, AMOUNT_ICON)
-                .tone(Tone::Dim)
-                .tooltip(|| note("Strength")),
-            range(
-                resource::<WindStrength, _>(|wind| wind.least),
-                resource::<WindStrength, _>(|wind| wind.most),
-                WindStrength::BOUNDS,
-                |world, least, most| {
-                    let to = WindStrength { least, most };
-                    let mut wind =
-                        world.resource_mut::<WindStrength>();
-                    if *wind != to {
-                        *wind = to;
-                    }
-                },
+        column((
+            row((
+                glyph(Glyph::Meter, AMOUNT_ICON)
+                    .tone(Tone::Dim)
+                    .tooltip(|| note("Strength")),
+                range(
+                    resource::<WindChoice, _>(|wind| wind.least),
+                    resource::<WindChoice, _>(|wind| wind.most),
+                    WindChoice::STRENGTH,
+                    |world, least, most| {
+                        let mut wind =
+                            world.resource_mut::<WindChoice>();
+                        if (wind.least, wind.most) != (least, most) {
+                            wind.least = least;
+                            wind.most = most;
+                        }
+                    },
+                ),
+                label(resource::<WindChoice, _>(|wind| {
+                    format!("{:.2}-{:.2}", wind.least, wind.most)
+                }))
+                .wide(px(72.0)),
+            ))
+            .gap(cx.theme().space.gap)
+            .width(percent(100.0))
+            .align(AlignItems::Center),
+            amount::<WindChoice>(
+                Glyph::Scatter,
+                "Turbulence",
+                |wind| wind.turbulence,
+                |wind, to| wind.turbulence = to,
+                (0.0, 1.0),
             ),
-            label(resource::<WindStrength, _>(|wind| {
-                format!("{:.2}-{:.2}", wind.least, wind.most)
-            }))
-            .wide(px(72.0)),
         ))
-        .gap(cx.theme().space.gap)
+        .gap(cx.theme().space.gap / 2.0)
         .width(percent(100.0))
-        .align(AlignItems::Center)
     })
 }
 
@@ -337,10 +348,11 @@ pub(super) fn page() -> impl View {
         field(
             "Wind",
             told(
-                wind_strength(),
+                wind(),
                 description(
                     "How hard it blows, at its calmest and its \
-                     strongest.",
+                     strongest, and how unevenly from plant to \
+                     plant.",
                 ),
             ),
         ),

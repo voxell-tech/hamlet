@@ -33,7 +33,7 @@ use crate::ground::{
     BloomsUniform, PagesUniform, SoilUniform, blank_pages,
 };
 use crate::leaves::LeafView;
-use crate::wind::{WindSettings, WindStrength, WindUniform};
+use crate::wind::{WindChoice, WindSettings, WindUniform};
 use crate::{Now, NowOffset, VfxSystems};
 
 /// Shapes of tuft. `SHAPES` in `grass_shape.wesl`.
@@ -583,7 +583,7 @@ fn sway(
     now: Res<Now>,
     set: Res<GrassSettings>,
     wind: Res<WindSettings>,
-    strength: Res<WindStrength>,
+    strength: Res<WindChoice>,
     view: Res<LeafView>,
     grass: Option<ResMut<Grass>>,
 ) {
