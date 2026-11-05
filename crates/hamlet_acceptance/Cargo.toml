@@ -99,3 +99,8 @@ required-features = ["acceptance"]
 [[test]]
 name = "dreams"
 required-features = ["acceptance"]
+
+[[test]]
+name = "frames"
+path = "tests/frames/main.rs"
+required-features = ["acceptance"]

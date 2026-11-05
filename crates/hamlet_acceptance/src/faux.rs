@@ -23,6 +23,8 @@ pub struct Faux {
     kinds: BTreeMap<String, Vec<Step>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     price: Option<Price>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tokens_per_second: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -82,6 +84,12 @@ impl Faux {
             input: dollars,
             output: dollars,
         });
+        self
+    }
+
+    /// Streams each answer at `rate` tokens a second.
+    pub fn tokens_per_second(mut self, rate: f64) -> Self {
+        self.tokens_per_second = Some(rate);
         self
     }
 

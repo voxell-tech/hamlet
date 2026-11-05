@@ -65,7 +65,7 @@ endpoint, which bills a fixed price per answer.
 |---|---|
 | `connection` | Token, version, hello order, malformed and oversized messages, shared changes, shutdown, one server per home. |
 | `city` | The empty realm, founding hamlets, the hire tree, `/undo`, removing, restoring and erasing scholars and hamlets, hamlet administration. |
-| `chats` | Answers, sessions, `/new`, `/resume`, `/retry`, `/stop`, history, reflection. |
+| `chats` | Answers, sessions, `/new`, `/resume`, `/retry`, `/stop`, `Rewind`, history, reflection. |
 | `oversight` | Network approvals and grants, manual and auto modes, `ask_chief`, objections. |
 | `society` | The Hand's and a lead's tools, tell and ask, workers, reserved acts, roads. |
 | `documents` | Charter, character, memory, limits, settings, catalogue, and the prompt that follows them. |
@@ -74,4 +74,39 @@ endpoint, which bills a fixed price per answer.
 | `restart` | Waits and the realm across a crash and a stop. |
 | `models` | Model and connection checks, key sign-in, listings and prices, refusals. |
 | `oauth` | Sign-in prompts and token rotation. |
+| `gifts` | Files handed over in parts to an inbox, skills given to a scholar from a starter, the library or another scholar. |
+| `versions` | `/tag`, `/versions`, `/pin`, `/revert`, `/fork` and `/purge`. |
+| `merges` | `/merge` and the split by `/restore`. |
+| `library` | `submit_skill` judged by the librarian, `ask_librarian` and `/unshelve`. |
+| `review` | A lead's review of a chief's line to a hire, and a chief's `/worker`. |
+| `dreams` | `/dream` of a hire and of a scholar. |
 | `cli` | `hamlet chat`, `hamlet edit`, switching agents, approvals across a crash, and the bare, dev and insecure commands. |
+
+## Recording protocol frames
+
+`tests/frames/` records 19 real server sessions through the client protocol:
+the Hand's chats, a hire's approvals, reads and edits, sign-in, spend, file
+and skill gifts, letters and questions, leaving and merging, hamlets and
+roads, the library, and the questions and objections that wait for a chief.
+It uses scratch homes, faux responses and a loopback endpoint, never a live
+provider. Both wire directions are saved as JSONL; connection tokens and the
+fake sign-in key are redacted. IDs, timestamps and stream boundaries come
+from the running server.
+
+From the repository root, using the Node version in `harnesses/pi/.nvmrc`:
+
+```sh
+npm ci --prefix harnesses/pi
+cargo build -p hamlet_cli -p hamlet_server
+cargo test -p hamlet_acceptance --features acceptance --test frames -- --ignored
+cargo test -p hamlet_protocol -p hamlet_client
+```
+
+For a custom Cargo target directory, set `HAMLET_CLI` to the absolute path of
+that build's `hamlet`. Recording overwrites
+`crates/hamlet_protocol/frames/*.jsonl`; ordinary tests never do. To inspect
+new captures without replacing the checked-in fixtures, set
+`HAMLET_FRAME_DIR` to an absolute scratch directory for the recorder and
+the schema package's `npm test`. Rust client replay reads the checked-in
+fixtures. Review replacements before keeping them; changing server code
+does not by itself require fixture churn.
