@@ -91,3 +91,7 @@ required-features = ["acceptance"]
 [[test]]
 name = "library"
 required-features = ["acceptance"]
+
+[[test]]
+name = "review"
+required-features = ["acceptance"]
