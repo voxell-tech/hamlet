@@ -30,3 +30,7 @@ rustix = { workspace = true, features = ["process"] }
 [[test]]
 name = "connection"
 required-features = ["acceptance"]
+
+[[test]]
+name = "city"
+required-features = ["acceptance"]
