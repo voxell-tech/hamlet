@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::client::{Address, RequestId};
+use crate::client::{AgentId, Keeper, RequestId, ScholarId};
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -13,12 +13,14 @@ pub enum Give {
     Files {
         files: Vec<GiveFile>,
         id: RequestId,
-        to: Address,
+        /// The agent whose inbox takes them.
+        to: AgentId,
     },
     Skill {
         id: RequestId,
         skill: GiveSkillSource,
-        to: Address,
+        /// The scholar whose `main` takes it.
+        to: ScholarId,
     },
 }
 
@@ -37,8 +39,14 @@ pub struct GiveFile {
 )]
 #[serde(untagged, deny_unknown_fields)]
 pub enum GiveSkillSource {
-    Starter { starter: String },
-    From { from: Address, name: String },
+    Starter {
+        starter: String,
+    },
+    /// A skill of a scholar's `main` or of a hire's lodge.
+    From {
+        from: Keeper,
+        name: String,
+    },
 }
 
 #[derive(

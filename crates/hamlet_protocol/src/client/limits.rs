@@ -1,8 +1,9 @@
-//! The chief's limits on the hamlets and their agents.
+//! The chief's limits: each hamlet's and the realm's own (H22).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/// A hamlet's limits.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -10,22 +11,38 @@ use serde::{Deserialize, Serialize};
 pub struct Limits {
     pub asking: LimitsAsking,
     pub budget: LimitsBudget,
-    pub efforts: std::collections::BTreeMap<String, crate::Effort>,
-    pub hamlets: HamletLimits,
-    pub leaving: LimitsLeaving,
-    pub mayor: LimitsMayor,
+    /// How deep its tree may be under its mayor.
+    pub depth: i64,
+    /// The hamlet's own model, else the realm's.
     #[serde(deserialize_with = "Option::deserialize")]
     pub model: Option<String>,
+    /// The models its leads may choose; empty is any.
     pub models: Vec<String>,
-    #[serde(rename = "mostAgents")]
-    pub most_agents: i64,
-    #[serde(rename = "mostRoads")]
-    pub most_roads: i64,
-    pub permissions: LimitsPermissions,
-    pub pinned: std::collections::BTreeMap<String, String>,
+    /// How long after a chief's task a lead may not end or merge the
+    /// hire (H7).
+    #[serde(rename = "protectedMinutes")]
+    pub protected_minutes: i64,
+    /// The leads' acts that wait for a chief.
+    pub reserved: LimitsReserved,
     pub road: LimitsRoad,
     pub task: LimitsTask,
-    pub votes: VoteLimits,
+    /// How many days of decisions each hire is told (H17).
+    #[serde(rename = "toldDays")]
+    pub told_days: i64,
+}
+
+/// The realm's own limits.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct RealmLimits {
+    /// The Hand's budget, and that of the workers started outside a
+    /// hamlet.
+    pub budget: LimitsBudget,
+    /// Whether mayors may agree roads between their hamlets.
+    #[serde(rename = "roadsBetween")]
+    pub roads_between: bool,
 }
 
 #[derive(
@@ -33,24 +50,34 @@ pub struct Limits {
 )]
 #[serde(deny_unknown_fields)]
 pub struct LimitsAsking {
-    #[serde(rename = "mayorReview")]
-    pub mayor_review: LimitsAskingMayorReview,
     pub questions: i64,
     pub refusals: i64,
+    pub review: LimitsReview,
 }
 
+/// When a lead reviews a chief's instruction to a hire under it
+/// (H10).
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
 )]
-pub enum LimitsAskingMayorReview {
+pub enum LimitsReview {
     #[serde(rename = "always")]
     Always,
-    #[serde(rename = "never")]
-    Never,
+    /// When the lead's model is served from another machine.
     #[serde(rename = "remote")]
     Remote,
+    #[serde(rename = "never")]
+    Never,
 }
 
+/// A budget for a period, in dollars and minutes of model time (H8).
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -61,59 +88,35 @@ pub struct LimitsBudget {
     #[serde(deserialize_with = "Option::deserialize")]
     pub minutes: Option<i64>,
     pub period: Period,
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub tokens: Option<i64>,
 }
 
+/// The leads' acts a chief keeps for itself, so they wait for a
+/// chief.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct LimitsLeaving {
-    #[serde(rename = "mergedNotes")]
-    pub merged_notes: i64,
-    #[serde(rename = "protectedMinutes")]
-    pub protected_minutes: i64,
+pub struct LimitsReserved {
+    pub end: bool,
+    pub hire: bool,
+    pub merge: bool,
+    pub roads: bool,
 }
 
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
-pub struct LimitsMayor {
-    #[serde(rename = "buildRoads")]
-    pub build_roads: bool,
-    #[serde(rename = "createAgents")]
-    pub create_agents: bool,
-    #[serde(rename = "mergeAgents")]
-    pub merge_agents: bool,
-    #[serde(rename = "removeAgents")]
-    pub remove_agents: bool,
-    #[serde(rename = "toldDays")]
-    pub told_days: i64,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
-pub struct LimitsPermissions {
-    pub network: Vec<String>,
-    pub unconfined: Vec<String>,
-}
-
+/// What roads cost and how many a hamlet holds (H3).
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
 pub struct LimitsRoad {
-    pub cost: f64,
     #[serde(rename = "growsOverDays")]
     pub grows_over_days: i64,
-    pub minutes: i64,
-    pub tokens: i64,
+    pub most: i64,
+    /// Dollars.
+    pub price: f64,
 }
 
+/// The most one task may do (H12).
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -124,46 +127,17 @@ pub struct LimitsTask {
     pub messages: i64,
     #[serde(deserialize_with = "Option::deserialize")]
     pub minutes: Option<i64>,
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub tokens: Option<i64>,
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
-pub struct VoteLimits {
-    #[serde(rename = "ballotMinutes")]
-    pub ballot_minutes: i64,
-    #[serde(rename = "groundedOnly")]
-    pub grounded_only: bool,
-    #[serde(rename = "leastVoters")]
-    pub least_voters: i64,
-    #[serde(rename = "openMinutes")]
-    pub open_minutes: i64,
-    #[serde(rename = "passOf")]
-    pub pass_of: i64,
-    #[serde(rename = "passYes")]
-    pub pass_yes: i64,
-    #[serde(rename = "retryMinutes")]
-    pub retry_minutes: i64,
-    pub sealed: bool,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
-pub struct HamletLimits {
-    pub most: i64,
-    #[serde(rename = "removalMayors")]
-    pub removal_mayors: i64,
-    #[serde(rename = "roadsBetween")]
-    pub roads_between: bool,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
 )]
 pub enum Period {
     #[serde(rename = "day")]
@@ -173,7 +147,14 @@ pub enum Period {
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
 )]
 pub enum Permission {
     #[serde(rename = "network")]

@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::client::{AgentRef, Change, ChatRef, RequestId};
+use crate::client::{AgentId, Change, ChatRef, RequestId};
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -12,7 +12,7 @@ use crate::client::{AgentRef, Change, ChatRef, RequestId};
 pub struct Wait {
     pub about: String,
     #[serde(deserialize_with = "Option::deserialize")]
-    pub agent: Option<AgentRef>,
+    pub agent: Option<AgentId>,
     pub answers: Vec<Choice>,
     pub asked: u64,
     pub by: String,

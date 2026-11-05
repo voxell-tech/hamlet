@@ -10,8 +10,8 @@ mod version;
 
 pub use version::{BadVersion, Version};
 
-/// The first hamlet's id.
-pub const HOME: &str = "home";
+/// The address of the Hand.
+pub const HAND: &str = "hand";
 /// The agent of an address that names a hamlet's mayor, whoever holds
 /// the office.
 pub const MAYOR: &str = "mayor";

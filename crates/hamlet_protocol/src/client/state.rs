@@ -5,7 +5,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::client::{
-    Limits, Period, Permission, ProviderView, SettingsView, Wait,
+    Limits, Period, Permission, ProviderView, RealmLimits,
+    SettingsView, Wait,
 };
 
 #[derive(
@@ -13,6 +14,7 @@ use crate::client::{
 )]
 #[serde(deny_unknown_fields)]
 pub struct State {
+    /// The Hand, every hire and every worker, living and ended.
     pub agents: Vec<Agent>,
     pub chief: String,
     pub closed: Vec<ClosedHamlet>,
@@ -21,14 +23,56 @@ pub struct State {
     pub epoch: i64,
     pub grants: Vec<Grant>,
     pub hamlets: Vec<Hamlet>,
-    pub houses: String,
+    /// The Hand, the realm's own agent.
+    pub hand: AgentId,
     pub library: Vec<LibrarySkill>,
+    /// The realm's own limits.
+    pub limits: RealmLimits,
     pub providers: Vec<ProviderView>,
+    /// The realm's folder on the server, whose paths are never
+    /// links.
+    pub realm: String,
     pub revision: i64,
+    /// The city's scholars, living and archived.
+    pub scholars: Vec<Scholar>,
     pub settings: SettingsView,
     pub starters: Vec<Skill>,
     pub waits: Vec<Wait>,
 }
+
+/// An agent of the realm: the Hand, a hire or a worker.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+#[serde(transparent)]
+pub struct AgentId(pub u64);
+
+/// A scholar of the city.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+#[serde(transparent)]
+pub struct ScholarId(pub u64);
 
 /// What keeps the agents' commands from the rest of the machine.
 #[derive(
@@ -58,23 +102,29 @@ impl Confinement {
 impl State {
     /// Applies one change, as a client does between whole states.
     ///
-    /// A hamlet, an agent or a wait replaces the one with its id in
-    /// its place, or is added at the end when it is new. `AgentGone`
-    /// and `WaitClosed` remove theirs. Grants, settings and providers
-    /// replace the whole value. The epoch and the revision are the
-    /// caller's to keep.
+    /// A hamlet, an agent, a scholar or a wait replaces the one with
+    /// its id in its place, or is added at the end when it is new.
+    /// `AgentGone`, `ScholarGone` and `WaitClosed` remove theirs.
+    /// Grants, settings and providers replace the whole value. The
+    /// epoch and the revision are the caller's to keep.
     pub fn apply(&mut self, update: &Update) {
         match update {
             Update::Hamlet { hamlet } => {
                 put(&mut self.hamlets, hamlet, |h| h.id == hamlet.id);
             }
             Update::Agent { agent } => {
-                put(&mut self.agents, agent, |a| {
-                    a.agent == agent.agent
+                put(&mut self.agents, agent, |a| a.id == agent.id);
+            }
+            Update::AgentGone { id } => {
+                self.agents.retain(|a| a.id != *id);
+            }
+            Update::Scholar { scholar } => {
+                put(&mut self.scholars, scholar, |s| {
+                    s.id == scholar.id
                 });
             }
-            Update::AgentGone { agent } => {
-                self.agents.retain(|a| a.agent != *agent);
+            Update::ScholarGone { id } => {
+                self.scholars.retain(|s| s.id != *id);
             }
             Update::Wait { wait } => {
                 put(&mut self.waits, wait, |w| w.id == wait.id);
@@ -131,11 +181,14 @@ pub enum Update {
     Hamlet { hamlet: Hamlet },
     #[serde(rename = "agent")]
     Agent { agent: Agent },
+    /// An agent erased for good.
     #[serde(rename = "agent-gone")]
-    AgentGone {
-        #[serde(rename = "ref")]
-        agent: AgentRef,
-    },
+    AgentGone { id: AgentId },
+    #[serde(rename = "scholar")]
+    Scholar { scholar: Scholar },
+    /// A scholar erased for good.
+    #[serde(rename = "scholar-gone")]
+    ScholarGone { id: ScholarId },
     #[serde(rename = "wait")]
     Wait { wait: Wait },
     #[serde(rename = "wait-closed")]
@@ -152,44 +205,107 @@ pub enum Update {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct Address {
-    pub agent: String,
-    pub hamlet: String,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
-pub struct AgentRef {
-    pub hamlet: String,
-    pub number: u64,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
 pub struct Agent {
     pub activity: AgentActivity,
     pub busy: bool,
     pub consulting: bool,
     pub conversations: Vec<ConversationView>,
     pub faulted: bool,
+    /// A hire's hamlet, or a worker's when it has one.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub hamlet: Option<String>,
+    pub id: AgentId,
+    pub kind: AgentKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Left")]
     pub left: Option<Left>,
     pub mayor: bool,
     pub model: String,
+    /// How it is named: `hand`, `name@hamlet`, `name#number@hamlet`
+    /// or `worker#id`.
     pub name: String,
+    /// A hire's number in its hamlet.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub number: Option<u64>,
+    /// The agent it answers to: a hire's lead, the Hand for a mayor,
+    /// a worker's starter. None for the Hand, or a chief's worker.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub parent: Option<AgentId>,
     pub purpose: String,
-    #[serde(rename = "ref")]
-    pub agent: AgentRef,
     pub saying: AgentSaying,
+    /// The scholar a hire is of, or the Hand's own knowledge.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub scholar: Option<ScholarId>,
     pub since: u64,
     pub skills: Vec<String>,
     pub spent: AgentSpent,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+pub enum AgentKind {
+    #[serde(rename = "hand")]
+    Hand,
+    #[serde(rename = "hire")]
+    Hire,
+    #[serde(rename = "worker")]
+    Worker,
+}
+
+/// A scholar of the city: a repository of its character, memory and
+/// skills.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Scholar {
+    /// The chief it belongs to.
+    pub chief: String,
+    /// Its living hires and those that may come back.
+    pub hires: Vec<AgentId>,
+    /// Where its house stands in the city.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub house: Option<TownAt>,
+    pub id: ScholarId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "ScholarLeft")]
+    pub left: Option<ScholarLeft>,
+    pub name: String,
+    pub since: u64,
+    pub skills: Vec<String>,
+    pub versions: Vec<VersionView>,
+}
+
+/// A tag of a scholar's history.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct VersionView {
+    pub at: u64,
+    pub name: String,
+    pub note: String,
+}
+
+/// How a scholar left the city.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct ScholarLeft {
+    pub at: u64,
+    pub by: String,
+    pub reason: String,
 }
 
 #[derive(
@@ -273,7 +389,8 @@ pub struct ConversationView {
     pub kind: ConversationViewKind,
     #[serde(deserialize_with = "Option::deserialize")]
     pub last: Option<i64>,
-    pub with: AgentRef,
+    /// The agent the conversation is from.
+    pub with: AgentId,
 }
 
 #[derive(
@@ -294,20 +411,42 @@ pub struct Left {
     pub at: u64,
     pub by: String,
     pub how: LeftHow,
+    /// The hire it was merged into.
     #[serde(deserialize_with = "Option::deserialize")]
-    pub into: Option<AgentRef>,
+    pub into: Option<AgentId>,
     pub reason: String,
     pub words: String,
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
 )]
 pub enum LeftHow {
-    #[serde(rename = "removed")]
-    Removed,
+    /// A lead or a chief ended the hire.
+    #[serde(rename = "ended")]
+    Ended,
     #[serde(rename = "merged")]
     Merged,
+    /// Its scholar left the city.
+    #[serde(rename = "scholar")]
+    Scholar,
+    /// Its hamlet was removed.
+    #[serde(rename = "hamlet")]
+    Hamlet,
+    /// The worker answered its task.
+    #[serde(rename = "answered")]
+    Answered,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "stopped")]
+    Stopped,
 }
 
 #[derive(
@@ -319,16 +458,21 @@ pub struct Hamlet {
     pub at: Option<TownAt>,
     pub before: Vec<String>,
     pub budget: Report,
+    /// The chiefs it answers to.
+    pub chiefs: Vec<String>,
     #[serde(deserialize_with = "Option::deserialize")]
     pub folder: Option<String>,
     pub id: String,
     pub limits: Limits,
+    /// The hire at the root of its tree.
+    pub mayor: AgentId,
     pub mode: HamletMode,
     #[serde(rename = "modeWords")]
     pub mode_words: String,
     pub name: String,
     pub roads: Vec<Road>,
-    pub votes: Vec<VoteView>,
+    /// The most hires it holds.
+    pub tier: u64,
 }
 
 #[derive(
@@ -367,13 +511,39 @@ pub struct TownAt {
 )]
 #[serde(deny_unknown_fields)]
 pub struct Road {
-    pub a: AgentRef,
-    pub b: AgentRef,
+    pub a: AgentId,
+    pub b: AgentId,
+    pub kind: RoadKind,
     #[serde(rename = "lastFrom")]
     #[serde(deserialize_with = "Option::deserialize")]
-    pub last_from: Option<AgentRef>,
+    pub last_from: Option<AgentId>,
     pub level: RoadLevel,
     pub messages: u64,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+pub enum RoadKind {
+    /// A hire and its lead, or the Hand and a mayor.
+    #[serde(rename = "tree")]
+    Tree,
+    /// Two mayors.
+    #[serde(rename = "mayors")]
+    Mayors,
+    /// Laid between two hires of a hamlet.
+    #[serde(rename = "laid")]
+    Laid,
+    /// Agreed between hires of two hamlets.
+    #[serde(rename = "agreed")]
+    Agreed,
 }
 
 #[derive(
@@ -394,47 +564,9 @@ pub enum RoadLevel {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct VoteView {
-    pub by: String,
-    pub id: i64,
-    pub motion: String,
-    pub open: bool,
-    pub overturnable: bool,
-    pub report: String,
-    pub voters: Vec<Voter>,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
-pub struct Voter {
-    pub agent: AgentRef,
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub cast: Option<VoterCast>,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-pub enum VoterCast {
-    #[serde(rename = "yes")]
-    Yes,
-    #[serde(rename = "no")]
-    No,
-    #[serde(rename = "abstain")]
-    Abstain,
-    #[serde(rename = "none")]
-    None,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
 pub struct Grant {
     #[serde(deserialize_with = "Option::deserialize")]
-    pub agent: Option<AgentRef>,
+    pub agent: Option<AgentId>,
     #[serde(deserialize_with = "Option::deserialize")]
     pub by: Option<String>,
     pub name: String,
@@ -545,8 +677,8 @@ mod tests {
 
     fn state() -> State {
         let mut state = ours::<State>(realm::state());
-        state.hamlets.push(ours(realm::hamlet("orchard")));
-        state.agents.push(ours(realm::agent("home", 1, "scout")));
+        state.hamlets.push(ours(realm::hamlet("orchard", 3)));
+        state.agents.push(ours(realm::agent(3, "home", 1, "scout")));
         state.waits =
             vec![ours(realm::wait("a")), ours(realm::wait("b"))];
         state
@@ -555,32 +687,31 @@ mod tests {
     #[test]
     fn a_changed_agent_keeps_its_place_and_a_new_one_comes_last() {
         let mut state = state();
-        let mut founder = state.agents[0].clone();
-        founder.busy = true;
+        let mut hand = state.agents[0].clone();
+        hand.busy = true;
         state.apply(&Update::Agent {
-            agent: founder.clone(),
+            agent: hand.clone(),
         });
         let guest =
-            ours::<Agent>(realm::agent("orchard", 0, "guest"));
+            ours::<Agent>(realm::agent(9, "orchard", 0, "guest"));
         state.apply(&Update::Agent {
             agent: guest.clone(),
         });
-        let scout = ours(realm::agent("home", 1, "scout"));
-        assert_eq!(state.agents, [founder, scout, guest]);
+        let mayor = state.agents[1].clone();
+        let scout = ours(realm::agent(3, "home", 1, "scout"));
+        assert_eq!(state.agents, [hand, mayor, scout, guest]);
     }
 
     #[test]
     fn a_gone_agent_leaves_the_others_in_order() {
         let mut state = state();
-        state.agents.push(ours(realm::agent("home", 2, "smith")));
-        state.apply(&Update::AgentGone {
-            agent: ours(realm::reference("home", 1)),
-        });
+        state.agents.push(ours(realm::agent(4, "home", 2, "smith")));
+        state.apply(&Update::AgentGone { id: AgentId(3) });
         let names = state
             .agents
             .iter()
             .map(|a| a.name.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(names, ["founder", "smith"]);
+        assert_eq!(names, ["hand", "ada@home", "smith@home"]);
     }
 }

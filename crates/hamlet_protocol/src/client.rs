@@ -46,7 +46,7 @@ impl ClientMessage {
             | Self::Edit(
                 Edit::Charter { id, .. }
                 | Edit::Character { id, .. }
-                | Edit::Notes { id, .. }
+                | Edit::Memory { id, .. }
                 | Edit::Limits(
                     EditLimits::Set { id, .. }
                     | EditLimits::Whole { id, .. },
@@ -70,7 +70,7 @@ impl ClientMessage {
                 | Read::Papers { id, .. }
                 | Read::Charter { id },
             )
-            | Self::MoveHouses(MoveHouses { id }) => Some(id),
+            | Self::MoveLodges(MoveLodges { id }) => Some(id),
         }
     }
 }
@@ -135,8 +135,8 @@ pub enum ClientMessage {
     Check(Check),
     #[serde(rename = "read")]
     Read(Read),
-    #[serde(rename = "move-houses")]
-    MoveHouses(MoveHouses),
+    #[serde(rename = "move-lodges")]
+    MoveLodges(MoveLodges),
 }
 
 #[derive(
