@@ -50,3 +50,7 @@ required-features = ["acceptance"]
 [[test]]
 name = "documents"
 required-features = ["acceptance"]
+
+[[test]]
+name = "spend"
+required-features = ["acceptance"]
