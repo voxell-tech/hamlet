@@ -162,10 +162,11 @@ mod tests {
     fn the_library_shows_the_clients_empty_shelf_and_received_skills()
     {
         let mut app = panel_app();
-        app.insert_resource(Selected(Some(Thing::Library)));
+        app.insert_resource(Selected(Some(Thing::Library)))
+            .insert_resource(crate::hub::Showing::Library);
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
-            crate::inspector::screen(),
+            crate::hub::screen(),
         );
         app.update();
         assert!(words(&mut app).iter().any(|text| text.starts_with("The library is empty.")));

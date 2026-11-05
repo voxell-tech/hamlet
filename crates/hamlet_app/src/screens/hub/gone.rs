@@ -16,8 +16,8 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
-use super::agent::dim;
 use super::papers::Papers;
+use super::thread::dim;
 use crate::convo::Convo;
 use crate::world_menu::{self, Deed};
 use crate::{lists, overview};
@@ -69,7 +69,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 .gap(section)
                 .align(AlignItems::Center)
                 .tagged(Wraps),
-                super::agent::said(purpose),
+                super::thread::said(purpose),
                 dim("Its house is kept in the archive. Deleting it \
                      frees the space on disk."),
                 buttons(vec![

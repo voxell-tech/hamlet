@@ -18,6 +18,7 @@ use hamlet_realm::pick::{Selected, Thing, select};
 
 use crate::PanelSystems;
 use crate::dock::{HUB, show_tab};
+use crate::hub::{self, Showing};
 
 /// Opens the chat with the Hand as soon as the realm names it.
 pub(crate) fn plugin(app: &mut App) {
@@ -163,11 +164,13 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
         };
         select(world, Some(thing));
     }
+    hub::show(world, Showing::Thread);
     show_tab(world, HUB);
 }
 
 /// Points the chat back at the Hand, which is drawn nowhere, so
-/// nothing is selected in the world.
+/// nothing is selected in the world. The Hub turns to its thread
+/// and comes to the front.
 pub(crate) fn talk_to_hand(world: &mut World) {
     let Some(hand) = agents::hand(world) else {
         return;
@@ -176,8 +179,16 @@ pub(crate) fn talk_to_hand(world: &mut World) {
     if world.contains_resource::<Selected>() {
         select(world, None);
     }
+    hub::show(world, Showing::Thread);
     show_tab(world, HUB);
+    focus_hand_tower(world);
 }
+
+/// Where the world is asked to look at the Hand's tower when the
+/// chief goes to talk to the Hand. The Hand has no tower in the
+/// world yet, so this does nothing; once the world draws one, its
+/// camera focus is called from here.
+pub(crate) fn focus_hand_tower(_world: &mut World) {}
 
 /// Points the chat at the agent `to`.
 pub(crate) fn talk_at(world: &mut World, to: protocol::AgentId) {

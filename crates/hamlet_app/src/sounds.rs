@@ -18,7 +18,7 @@ use hamlet_ui::widgets::effects::ControlSound;
 
 use crate::chat::{ChatError, Unfolded};
 use crate::hover::Card;
-use crate::inspector::Section;
+use crate::hub::Showing;
 use crate::menu::OpenMenu;
 use crate::world_menu::Open;
 
@@ -109,7 +109,7 @@ struct Docked {
     let_go: f32,
     /// A tab has been in front.
     tabs: bool,
-    section: Option<Section>,
+    showing: Option<Showing>,
 }
 
 /// A tab brought to the front, in the dock or in the selection, and
@@ -117,7 +117,7 @@ struct Docked {
 fn tabs(
     time: Res<Time>,
     drag: Res<DockDrag>,
-    section: Res<Section>,
+    showing: Res<Showing>,
     fronted: Query<(), (Added<ActiveTab>, With<DockTab>)>,
     fronts: Query<(), With<ActiveTab>>,
     mut docked: Local<Docked>,
@@ -135,8 +135,8 @@ fn tabs(
     // The tabs a docked panel brings with it, and the first tabs of
     // all, were not brought to the front by hand.
     let by_hand = docked.tabs && now - docked.let_go > 0.4;
-    let chosen = docked.section.replace(*section);
-    let turned = chosen.is_some_and(|was| was != *section);
+    let chosen = docked.showing.replace(*showing);
+    let turned = chosen.is_some_and(|was| was != *showing);
     if !fronted.is_empty() && by_hand || turned {
         write(&mut cues, &mut turn, Sound::Tab);
     }
@@ -187,7 +187,7 @@ mod tests {
             .init_resource::<OpenMenu>()
             .init_resource::<Open>()
             .init_resource::<DockDrag>()
-            .init_resource::<Section>()
+            .init_resource::<Showing>()
             .init_resource::<Unfolded>()
             .init_resource::<Card>();
         app.add_plugins(plugin);

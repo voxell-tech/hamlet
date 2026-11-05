@@ -11,7 +11,7 @@ use bevy_fynix::dock::{
 };
 use bevy_fynix::views::{FrameProps, column, frame, overlay};
 use hamlet_app::{
-    Convo, chat, highlight_panel, inspector, menu, panel, petition,
+    Convo, chat, highlight_panel, hub, menu, panel, petition,
     settings, status_bar, toolbar, welcome,
 };
 use hamlet_client::chats::{Entry, Transcript};
@@ -75,7 +75,7 @@ pub(super) fn seed_dock(world: &mut World) {
         "hub",
         DockWindowKind::new("HUB", || {
             highlight_panel(
-                inspector::screen(),
+                hub::screen(),
                 Highlight {
                     attention: false,
                     flash: true,

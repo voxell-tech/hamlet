@@ -1,7 +1,8 @@
 //! The notes, character and prompt gallery scenes.
 
 use bevy::ecs::world::World;
-use hamlet_app::{Convo, inspector};
+use hamlet_app::Convo;
+use hamlet_app::hub::{self, Showing};
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 
@@ -14,20 +15,17 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     ) {
         keep_notes(world);
     }
-    if scene == Scene::Character {
-        world.insert_resource(inspector::Section::Character);
-    }
     if scene == Scene::Prompt {
         let agent = world.resource::<Convo>().agent;
         let text = "You are an agent of Hamlet.\n\nSandbox: \
                     seatbelt. Network for tools: off.\n\nKeep the \
                     orchard's notes in order."
             .into();
-        world.insert_resource(inspector::Briefing {
+        world.insert_resource(hub::Briefing {
             agent: Some(agent),
             text,
         });
-        world.insert_resource(inspector::Section::Prompt);
+        world.insert_resource(Showing::Prompt);
     }
 }
 
@@ -49,7 +47,7 @@ fn keep_notes(world: &mut World) {
          March |\n| Comice | April |\n\n> The quince stock came too \
          late for a fourth row.\n",
     );
-    inspector::keep_papers(world);
+    hub::keep_papers(world);
     let id = world
         .resource::<Outbox>()
         .iter()
@@ -76,5 +74,7 @@ fn keep_notes(world: &mut World) {
             },
         }),
     );
-    world.insert_resource(inspector::Section::Notes);
+    // The thread with its details open beside it.
+    world.insert_resource(Showing::Thread);
+    world.insert_resource(hub::Sheet { open: true });
 }

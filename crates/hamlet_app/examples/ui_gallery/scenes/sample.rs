@@ -2,7 +2,7 @@
 
 mod chat;
 mod history;
-mod inspector;
+mod hub;
 mod menu;
 mod needs;
 mod overview;
@@ -74,12 +74,11 @@ pub(super) fn setup(world: &mut World) {
     world.insert_resource(ViewFolder(scratch().join("window")));
     menu::setup(world, scene);
     settings::setup(world, scene);
-    inspector::setup(world, scene);
+    hub::setup(world, scene);
     overview::setup(world, scene);
     needs::setup(world, scene);
     if matches!(scene, Scene::History | Scene::Reading) {
-        world
-            .insert_resource(hamlet_app::inspector::Section::History);
+        world.insert_resource(hamlet_app::hub::Showing::Sessions);
         history::setup(world, scene == Scene::Reading);
     }
     if scene == Scene::Chief {

@@ -21,7 +21,7 @@ use super::deed::Deed;
 use super::{Open, close, restore, stop};
 use crate::chat;
 use crate::convo::talk_to;
-use crate::inspector::show_prompt;
+use crate::hub::show_prompt;
 
 /// An agent of the hamlet that is not its mayor and has not left,
 /// with its name.

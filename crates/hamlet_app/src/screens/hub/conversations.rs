@@ -7,12 +7,10 @@ use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::chats::Chat;
 use hamlet_client::realm::{PeerChats, id_of, name_of};
 use hamlet_protocol::client as protocol;
-use hamlet_ui::styles::{
-    breadcrumb, close, filling, group, lettered, note, scroll_area,
-};
+use hamlet_ui::styles::{close, filling, group, lettered, note};
 use hamlet_ui::{View, built};
 
-use super::Section;
+use super::{Showing, show};
 use crate::convo::Convo;
 
 pub(super) fn is_read_only(world: &World) -> bool {
@@ -22,7 +20,12 @@ pub(super) fn is_read_only(world: &World) -> bool {
         .is_some_and(|chat| chat.0.from.is_some())
 }
 
-fn open(world: &mut World, peer: protocol::ConversationView) {
+/// Watches the letters or questions `peer` has with the agent the
+/// Hub is seated at.
+pub(super) fn open(
+    world: &mut World,
+    peer: protocol::ConversationView,
+) {
     let convo = world.resource::<Convo>();
     let Some(with) = convo.to(world) else {
         return;
@@ -44,13 +47,14 @@ fn open(world: &mut World, peer: protocol::ConversationView) {
     let session =
         kept.unwrap_or_else(|| world.spawn(Chat(reference)).id());
     world.resource_mut::<Convo>().session = session;
-    *world.resource_mut::<Section>() = Section::Conversation;
+    show(world, Showing::Thread);
 }
 
+/// Goes back to the chief's own chat with the agent.
 pub(super) fn chief(world: &mut World) {
     let agent = world.resource::<Convo>().agent;
     crate::convo::seat(world, agent);
-    *world.resource_mut::<Section>() = Section::Conversation;
+    show(world, Showing::Thread);
 }
 
 fn peers(world: &World) -> Vec<protocol::ConversationView> {
@@ -61,34 +65,38 @@ fn peers(world: &World) -> Vec<protocol::ConversationView> {
         .unwrap_or_default()
 }
 
+/// The exchange the chat shown is of, when it is a watched one.
+pub(super) fn peer_shown(
+    world: &World,
+) -> Option<protocol::ConversationView> {
+    let convo = world.resource::<Convo>();
+    let shown = world.get::<Chat>(convo.session)?.0.clone();
+    let from = shown.from?;
+    peers(world).into_iter().find(|peer| {
+        peer.with == from
+            && matches!(
+                (&peer.kind, &shown.kind),
+                (
+                    protocol::ConversationViewKind::Letters,
+                    Some(protocol::ChatRefKind::Letters)
+                ) | (
+                    protocol::ConversationViewKind::Questions,
+                    Some(protocol::ChatRefKind::Questions)
+                )
+            )
+    })
+}
+
 /// The name of the agent `with` is, or its id while it is not
 /// known.
-fn name_of_peer(world: &World, with: protocol::AgentId) -> String {
+pub(super) fn name_of_peer(
+    world: &World,
+    with: protocol::AgentId,
+) -> String {
     hamlet_client::realm::agent(world, with)
         .filter(|agent| id_of(world, *agent).is_some())
         .map(|agent| name_of(world, agent))
         .unwrap_or_else(|| format!("agent#{}", with.0))
-}
-
-/// Where the chat that is watched read-only is: back to the chief's
-/// chat, then the letters or questions it is of.
-pub(super) fn path(world: &World) -> impl View + use<> {
-    let convo = world.resource::<Convo>();
-    let current = world
-        .get::<Chat>(convo.session)
-        .and_then(|chat| {
-            let with = chat.0.from?;
-            let kind = match chat.0.kind {
-                Some(protocol::ChatRefKind::Questions) => "QUESTIONS",
-                _ => "LETTERS",
-            };
-            let name = name_of_peer(world, with);
-            Some(format!("{kind} WITH {}", name.to_uppercase()))
-        })
-        .unwrap_or_default();
-    breadcrumb(vec!["CHIEF CHAT".into()], current, |world, _| {
-        chief(world);
-    })
 }
 
 fn exchange(peer: protocol::ConversationView) -> impl View {
@@ -117,26 +125,22 @@ fn exchange(peer: protocol::ConversationView) -> impl View {
     })
 }
 
-pub(super) fn screen() -> impl View {
+/// The letters and questions the agent has had with others, each
+/// to be watched.
+pub(super) fn list() -> impl View {
     keyed(derived(peers).when(every_frame()), |chats| {
-        let mut rows = vec![
-            breadcrumb(
-                vec!["CHIEF CHAT".into()],
-                "AGENT CHATS",
-                |world, _| chief(world),
-            )
-            .boxed(),
-        ];
         if chats.is_empty() {
-            rows.push(
-                note("No conversations with other agents yet.")
-                    .boxed(),
-            );
+            return note("No conversations with other agents yet.")
+                .boxed();
         }
-        rows.extend(
-            chats.iter().cloned().map(|peer| exchange(peer).boxed()),
-        );
-        scroll_area((group(rows),)).boxed()
+        group(
+            chats
+                .iter()
+                .cloned()
+                .map(|peer| exchange(peer).boxed())
+                .collect::<Vec<_>>(),
+        )
+        .boxed()
     })
     .within(filling())
 }
