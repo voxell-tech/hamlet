@@ -203,7 +203,8 @@ impl Core {
                 .await
             }
             Edit::Settings { set, .. } => {
-                let mut settings = self.env.settings.clone();
+                let db = self.realm.store().connection();
+                let mut settings = crate::settings::stored(db)?;
                 if let Some(model) = set.model {
                     settings.model = model;
                 }
@@ -228,23 +229,22 @@ impl Core {
                 }
                 settings.saved = true;
                 let db = self.realm.store().connection();
-                diesel::replace_into(document::table)
-                    .values((
-                        document::kind.eq("settings"),
-                        document::value
-                            .eq(serde_json::to_string(&settings)?),
-                        document::at.eq(at),
-                        document::chief.eq(chief),
-                    ))
-                    .execute(db)?;
+                crate::settings::keep(
+                    db,
+                    &settings,
+                    at,
+                    Some(chief),
+                )?;
                 self.env.settings =
                     self.env.overrides.apply(settings);
                 self.publish().await?;
                 Ok(Ok("The settings are saved.".into()))
             }
-            Edit::Catalogue { .. } => Ok(Err(Refusal::Unsupported {
-                what: "the model catalogue".into(),
-            })),
+            Edit::Catalogue { model, set, .. } => {
+                let answer = self.edit_catalogue(&model, set)?;
+                self.publish().await?;
+                Ok(answer)
+            }
         }
     }
 
@@ -450,12 +450,7 @@ impl Core {
                     to: id,
                 })
             }
-            Read::Models { id, .. } => {
-                ServerMessage::Read(ReadResult::Models {
-                    models: Vec::new(),
-                    to: id,
-                })
-            }
+            Read::Models { id, .. } => self.catalogue_read(&id)?,
             Read::Papers { of, id, .. } => match self.papers(of)? {
                 Ok(papers) => {
                     ServerMessage::Read(ReadResult::Papers {

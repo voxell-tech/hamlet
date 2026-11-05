@@ -25,15 +25,20 @@ use crate::clock;
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
 use crate::knowledge::runner::Runner;
+use crate::providers::{FAUX, Providers};
 use crate::realm::Realm;
 use crate::society::agents;
 use crate::society::refusal::Refusal;
 use crate::talk::activity::Activity;
 use crate::talk::follow::{Followed, follow};
 use crate::talk::inputs::{self, Status};
+use crate::talk::leases::Authority;
 use crate::talk::process::{Pi, Received};
 use crate::talk::runtimes::{self, Pending, Runtimes};
-use crate::talk::{Env, conversations, items, prompt, sync, turns};
+use crate::talk::turns::Admission;
+use crate::talk::{
+    Env, conversations, items, prompt, sync, turns, verdicts,
+};
 use crate::work::added::{self, Manifest};
 use crate::work::catalogue::SOCIETY;
 use crate::work::tools::{self, Shells};
@@ -57,6 +62,10 @@ pub(crate) struct Core {
     /// Every tool a model may be offered.
     pub catalogue: Vec<ToolSpec>,
     pub calls: Calls,
+    /// The model catalogue and what waits on the providers.
+    pub providers: Providers,
+    /// Which runtime may read or rotate which provider's credential.
+    pub leases: Authority,
     runner: Runner,
 }
 
@@ -112,6 +121,7 @@ impl Core {
         catalogue.extend(
             added.iter().map(|manifest| manifest.spec.clone()),
         );
+        let providers = Providers::open(&layout, env.overrides.faux)?;
         let db = realm.store().connection();
         runtimes::of_harness(db, agents::HARNESS)?;
         let mut runtimes = Runtimes::new(pi, lines_to);
@@ -130,9 +140,12 @@ impl Core {
             added,
             catalogue,
             calls: Calls::new(ran_to),
+            providers,
+            leases: Authority::default(),
             runner,
         };
         core.retool()?;
+        core.start_providers()?;
         Ok((
             core,
             Inbox {
@@ -155,6 +168,10 @@ impl Core {
         let restart = self
             .runtimes
             .next_start()
+            .map(tokio::time::Instant::from_std);
+        let expiry = self
+            .providers
+            .next_expiry()
             .map(tokio::time::Instant::from_std);
         let listener = inbox.listener.as_ref();
         tokio::select! {
@@ -191,6 +208,15 @@ impl Core {
             } => {
                 let layout = self.realm.layout().clone();
                 self.runtimes.start(self.realm.store().connection(), &layout)?;
+                Ok(true)
+            }
+            () = async {
+                match expiry {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                self.expire_providers().await?;
                 Ok(true)
             }
             () = tokio::time::sleep(wait) => Ok(false),
@@ -378,10 +404,14 @@ impl Core {
         let index = received.runtime;
         let Some(line) = received.line else {
             self.runtimes.failed(index);
+            self.leases.gone(index);
             return Ok(());
         };
         match serde_json::from_str::<RuntimeMessage>(&line) {
-            Ok(message) => self.heard(index, message).await,
+            Ok(message) => {
+                self.heard(index, message).await?;
+                self.answer_credentials().await
+            }
             Err(error) => {
                 tell(
                     Secrets::Of(&self.credentials),
@@ -392,6 +422,28 @@ impl Core {
                 Ok(())
             }
         }
+    }
+
+    /// Answers the credential requests the leases let through.
+    async fn answer_credentials(&mut self) -> Result<()> {
+        let serving = self
+            .env
+            .settings
+            .provider()
+            .unwrap_or_default()
+            .to_owned();
+        for (index, mut answer) in
+            self.leases.flush(&mut self.credentials, &serving)
+        {
+            self.runtimes
+                .send(index, |v, id| {
+                    answer.v = v;
+                    answer.id = id;
+                    ServerMessage::CredentialResult(answer)
+                })
+                .await;
+        }
+        Ok(())
     }
 
     async fn heard(
@@ -447,6 +499,7 @@ impl Core {
                             true,
                         )
                         .await?;
+                        self.send_providers().await?;
                     }
                 }
             }
@@ -494,8 +547,13 @@ impl Core {
                     )?;
                     if ended {
                         let followed = self
-                            .change(Actor::Realm, |cx, _| {
-                                follow(cx, conversation, &request)
+                            .change(Actor::Realm, |cx, env| {
+                                follow(
+                                    cx,
+                                    env,
+                                    conversation,
+                                    &request,
+                                )
                             })
                             .await?;
                         self.woken(followed).await;
@@ -526,8 +584,8 @@ impl Core {
                 )? {
                     let request = settled.request;
                     let followed = self
-                        .change(Actor::Realm, |cx, _| {
-                            follow(cx, conversation.id, &request)
+                        .change(Actor::Realm, |cx, env| {
+                            follow(cx, env, conversation.id, &request)
                         })
                         .await?;
                     self.woken(followed).await;
@@ -634,27 +692,75 @@ impl Core {
                     .await;
             }
             RuntimeMessage::Attempt(asked) => {
-                let selection = turns::allow(
+                let admission = turns::allow(
                     self.realm.store().connection(),
                     &self.env,
+                    &self.providers,
                     &runtime,
                     &asked,
                     at,
                 )?;
                 let re = asked.id;
-                self.runtimes
-                    .send(index, |v, id| {
-                        ServerMessage::Allowance(runtime::Allowance {
-                            credential: None,
-                            id,
-                            re,
-                            selection,
-                            v,
-                        })
-                    })
-                    .await;
+                match admission {
+                    Admission::Allowed(selection) => {
+                        let provider =
+                            selection.model.provider.clone();
+                        self.leases
+                            .grant(index, &asked.key, &provider);
+                        let serving = self
+                            .env
+                            .settings
+                            .provider()
+                            .unwrap_or_default()
+                            .to_owned();
+                        let credential = (provider != FAUX)
+                            .then(|| {
+                                self.credentials
+                                    .model(&provider, &serving)
+                            })
+                            .flatten()
+                            .map(crate::credentials::pack)
+                            .transpose()?;
+                        self.runtimes
+                            .send(index, |v, id| {
+                                ServerMessage::Allowance(
+                                    runtime::Allowance {
+                                        credential,
+                                        id,
+                                        re,
+                                        selection,
+                                        v,
+                                    },
+                                )
+                            })
+                            .await;
+                    }
+                    Admission::Stopped(words) => {
+                        let notice = Some(
+                            crate::talk::marks::Mark::Notice {
+                                text: words.clone(),
+                                at,
+                            }
+                            .wire(),
+                        );
+                        self.runtimes
+                            .send(index, |v, id| {
+                                ServerMessage::Stopped(
+                                    runtime::Stopped {
+                                        id,
+                                        notice,
+                                        re,
+                                        v,
+                                        words,
+                                    },
+                                )
+                            })
+                            .await;
+                    }
+                }
             }
             RuntimeMessage::Usage(report) => {
+                self.leases.finish(index, &report.key);
                 turns::charge(
                     self.realm.store().connection(),
                     &runtime,
@@ -680,16 +786,27 @@ impl Core {
                 self.operation(index, asked).await?;
             }
             RuntimeMessage::Yield(answer) => {
+                let db = self.realm.store().connection();
+                let conversation = turns::conversation(
+                    db,
+                    &runtime,
+                    &answer.conversation,
+                )?;
+                let ruled = self
+                    .change(Actor::Realm, |cx, _| {
+                        verdicts::rule(cx, &conversation, &answer)
+                    })
+                    .await?;
                 let re = answer.id;
                 self.runtimes
                     .send(index, |v, id| {
                         ServerMessage::Verdict(runtime::Verdict {
-                            compact: None,
+                            compact: ruled.compact.then_some(true),
                             id,
-                            notice: None,
+                            notice: ruled.notice,
                             re,
                             v,
-                            words: None,
+                            words: ruled.words,
                         })
                     })
                     .await;
@@ -715,11 +832,17 @@ impl Core {
                     format!("{runtime}: {}", error.message),
                 );
             }
-            RuntimeMessage::Page(_)
-            | RuntimeMessage::Statuses(_)
-            | RuntimeMessage::CredentialRequest(_)
-            | RuntimeMessage::ProviderResult(_)
-            | RuntimeMessage::ProviderEvent(_) => {}
+            RuntimeMessage::CredentialRequest(request) => {
+                self.leases.request(index, request);
+            }
+            RuntimeMessage::ProviderResult(result) => {
+                self.provider_result(Some(index), result).await?;
+            }
+            RuntimeMessage::ProviderEvent(event) => {
+                self.provider_event(index, event)?;
+            }
+            RuntimeMessage::Page(_) | RuntimeMessage::Statuses(_) => {
+            }
         }
         Ok(())
     }

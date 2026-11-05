@@ -4,13 +4,18 @@
 //! lodge committed and its scholar's learning taken in.
 
 use anyhow::Result;
+use diesel::prelude::*;
+use hamlet_protocol::client::Choice;
 use hamlet_store::ids::ConversationId;
+use hamlet_store::schema::answer_fault;
+use serde_json::Value;
 
-use super::conversations::{self, Kind, Last};
-use super::inputs::{self, InputKind, Status};
-use super::{items, letters, tasks};
+use super::conversations::{self, Conversation, Kind, Last};
+use super::inputs::{self, Input, InputKind, Status};
+use super::{Env, items, letters, reflections, tasks};
 use crate::change::Change;
 use crate::jobs::{self, Job};
+use crate::oversight::{self, Raise, WaitKind};
 use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::workers;
 
@@ -24,6 +29,7 @@ pub(crate) struct Followed {
 /// Follows the end of input `request` of `conversation`, once.
 pub(crate) fn follow(
     cx: &mut Change<'_>,
+    env: &Env,
     conversation: ConversationId,
     request: &str,
 ) -> Result<Followed> {
@@ -104,6 +110,24 @@ pub(crate) fn follow(
         }
         return Ok(followed);
     }
+    if input.kind == InputKind::Reflection {
+        reflections::ended(cx, conversation, request)?;
+    } else if kept.kind == Kind::Chat
+        && last == Last::Done
+        && input.mark()?.is_chief_turn()
+    {
+        reflections::answered(
+            cx,
+            conversation,
+            env.settings.reflect_every,
+        )?;
+    }
+    if kept.kind == Kind::Chat
+        && last == Last::Failed
+        && input.kind != InputKind::Reflection
+    {
+        fault(cx, &kept, &input)?;
+    }
     let found = agents::get(cx.db, agent)?;
     if found.kind != AgentKind::Worker
         && found.is_living()
@@ -113,4 +137,52 @@ pub(crate) fn follow(
         jobs::add(cx, &Job::TakeIn { hire: agent })?;
     }
     Ok(followed)
+}
+
+/// Raises a fault for a chief's chat whose turn failed, unless its
+/// final answer's check already did.
+fn fault(
+    cx: &mut Change<'_>,
+    kept: &Conversation,
+    input: &Input,
+) -> Result<()> {
+    let checked = match &input.submission {
+        Some(submission) => {
+            answer_fault::table
+                .find((kept.id, submission))
+                .count()
+                .get_result::<i64>(cx.db)?
+                > 0
+        }
+        None => false,
+    };
+    if checked {
+        return Ok(());
+    }
+    let about = match input
+        .detail
+        .as_deref()
+        .map(serde_json::from_str::<Value>)
+    {
+        Some(Ok(Value::String(detail))) => detail,
+        _ => input
+            .reason
+            .clone()
+            .unwrap_or_else(|| "The model failed.".into()),
+    };
+    oversight::raise(
+        cx,
+        Raise {
+            kind: WaitKind::Fault,
+            danger: None,
+            agent: kept.agent,
+            conversation: Some(kept.id),
+            task: input.task,
+            about,
+            change: None,
+            answers: vec![Choice::Dismiss],
+            questions: None,
+        },
+    )?;
+    Ok(())
 }

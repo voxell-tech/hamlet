@@ -19,6 +19,7 @@ mod jobs;
 mod knowledge;
 mod layout;
 mod oversight;
+mod providers;
 mod realm;
 pub mod serve;
 mod settings;

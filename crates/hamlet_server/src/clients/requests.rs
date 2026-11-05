@@ -49,7 +49,8 @@ impl Core {
             }
             Event::Gone(client) => {
                 self.clients.gone(client);
-                Ok(())
+                self.providers.disconnect(client);
+                self.send_providers().await
             }
         }
     }
@@ -165,6 +166,9 @@ impl Core {
         message: ClientMessage,
     ) -> Result<()> {
         let chief = self.realm.chief();
+        if self.model_request(client, &message).await? {
+            return Ok(());
+        }
         match message {
             ClientMessage::Hello(_) => Ok(()),
             ClientMessage::Say(say) => {
@@ -340,10 +344,6 @@ impl Core {
                     | ClientMessage::GivePart(_) => "gifts",
                     ClientMessage::Rewind(_) => {
                         "taking a conversation back"
-                    }
-                    ClientMessage::Login(_)
-                    | ClientMessage::Check(_) => {
-                        "sign-ins and model checks"
                     }
                     ClientMessage::MoveLodges(_) => "moving lodges",
                     _ => "that",
@@ -635,6 +635,7 @@ impl Core {
         let layout = self.realm.layout().clone();
         let confinement = self.confinement();
         let settings_view = self.settings_view();
+        let providers = self.provider_views()?;
         let db = self.realm.store().connection();
         let chief_name = crate::society::chiefs::find(db, chief)?
             .map(|c| c.name)
@@ -646,7 +647,7 @@ impl Core {
             chief: chief_name,
             confinement,
             activity: &activity,
-            providers: Vec::new(),
+            providers,
             deeds: crate::commands::deeds(),
             settings_view,
             waits,
@@ -666,32 +667,17 @@ impl Core {
         let settings = &self.env.settings;
         protocol::SettingsView {
             allow_net: settings.allow_net,
-            effort: settings.effort.map(|effort| {
-                use crate::society::hires::Effort;
-                match effort {
-                    Effort::Off => hamlet_protocol::Effort::Off,
-                    Effort::Minimal => {
-                        hamlet_protocol::Effort::Minimal
-                    }
-                    Effort::Low => hamlet_protocol::Effort::Low,
-                    Effort::Medium => hamlet_protocol::Effort::Medium,
-                    Effort::High => hamlet_protocol::Effort::High,
-                }
-            }),
+            effort: settings.effort.map(hires::Effort::wire),
             endpoints: settings
                 .endpoints
                 .iter()
                 .map(|e| protocol::SettingsViewEndpoints {
                     base_url: e.base_url.clone(),
-                    key: false,
+                    key: self.credentials.is_configured(&e.name),
                     name: e.name.clone(),
                 })
                 .collect(),
-            link: protocol::Link {
-                models: None,
-                state: protocol::LinkState::Untested,
-                words: None,
-            },
+            link: settings.link.clone(),
             model: settings.model.clone(),
             reflect_every: i64::try_from(settings.reflect_every)
                 .unwrap_or(0),

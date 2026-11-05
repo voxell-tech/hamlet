@@ -1,6 +1,8 @@
 //! The chief's commands: typed lines that begin with `/` (H24, H26),
 //! said to an agent, whose hamlet is the one they mean.
 
+mod oversight;
+
 use anyhow::Result;
 use hamlet_git::Repository;
 use hamlet_protocol::client as protocol;
@@ -58,6 +60,71 @@ const TABLE: &[Command] = &[
         name: "stop",
         usage: "/stop [address|all]",
         does: "Stop an agent's work",
+    },
+    Command {
+        name: "to",
+        usage: "/to <address> <instruction>",
+        does: "Instruct another agent from here",
+    },
+    Command {
+        name: "reflect",
+        usage: "/reflect",
+        does: "Ask the agent to keep what this session taught it",
+    },
+    Command {
+        name: "queue",
+        usage: "/queue",
+        does: "List what waits for you",
+    },
+    Command {
+        name: "allow",
+        usage: "/allow [#wait] [reason]",
+        does: "Allow what waits, this once",
+    },
+    Command {
+        name: "always",
+        usage: "/always [#wait] [reason]",
+        does: "Allow it, and the like from now on",
+    },
+    Command {
+        name: "deny",
+        usage: "/deny [#wait] [reason]",
+        does: "Refuse what waits",
+    },
+    Command {
+        name: "go",
+        usage: "/go [#wait] [reason]",
+        does: "Carry out an instruction an agent objected to",
+    },
+    Command {
+        name: "withdraw",
+        usage: "/withdraw [#wait] [reason]",
+        does: "Withdraw an instruction an agent objected to",
+    },
+    Command {
+        name: "reply",
+        usage: "/reply [#wait] <text>",
+        does: "Answer a question that waits",
+    },
+    Command {
+        name: "dismiss",
+        usage: "/dismiss [#wait]",
+        does: "Put away a fault or a question",
+    },
+    Command {
+        name: "grants",
+        usage: "/grants",
+        does: "List what agents may use for good",
+    },
+    Command {
+        name: "revoke",
+        usage: "/revoke <address> <network|unconfined>",
+        does: "Take back a lasting grant",
+    },
+    Command {
+        name: "undo",
+        usage: "/undo",
+        does: "Bring back the hire ended last",
     },
     Command {
         name: "hamlets",
@@ -214,7 +281,14 @@ pub(crate) fn deeds() -> Vec<protocol::Deed> {
         .map(|command| protocol::Deed {
             description: command.does.into(),
             name: command.name.into(),
-            usage: command.usage.into(),
+            // A deed's usage is what follows its name.
+            usage: command
+                .usage
+                .strip_prefix('/')
+                .and_then(|rest| rest.strip_prefix(command.name))
+                .unwrap_or(command.usage)
+                .trim()
+                .into(),
         })
         .collect()
 }
@@ -248,6 +322,12 @@ impl Core {
             let db = self.realm.store().connection();
             hires::find(db, agent)?.map(|hire| hire.hamlet)
         };
+        if let Some(answer) = self
+            .oversight_command(agent, here.as_ref(), name, rest)
+            .await?
+        {
+            return Ok(answer);
+        }
         let tail = |from: usize| {
             words.get(from..).unwrap_or_default().join(" ")
         };

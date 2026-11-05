@@ -206,7 +206,8 @@ pub(crate) fn new_session(
     agent: AgentId,
     chief: ChiefId,
 ) -> Result<i64> {
-    current(cx, env, agent, chief)?;
+    let leaving = current(cx, env, agent, chief)?;
+    super::reflections::owed(cx, leaving)?;
     let number = sessions(cx.db, agent, chief)?
         .last()
         .map_or(1, |(number, _, _)| number + 1);
@@ -242,9 +243,27 @@ pub(crate) fn resume(
             crate::society::refusal::Refusal::NoSession { number }
         );
     };
+    if let Some(leaving) = current_number(cx.db, agent, chief)?
+        .map(|current| session(cx.db, agent, chief, current))
+        .transpose()?
+        .flatten()
+        && leaving != conversation
+    {
+        super::reflections::owed(cx, leaving)?;
+    }
     diesel::update(chat::table.find((agent, chief)))
         .set(chat::current.eq(number))
         .execute(cx.db)?;
+    // A session gone back to asks again what it was trusted with
+    // (H11).
+    crate::oversight::gate::reset_trust(
+        cx.db,
+        crate::oversight::gate::Session {
+            agent,
+            chief,
+            session: number,
+        },
+    )?;
     notice(cx, conversation, "Went back to an earlier session.")?;
     cx.touched.agents.insert(agent);
     Ok(Ok(()))

@@ -31,6 +31,19 @@ text_enum! {
     }
 }
 
+impl Effort {
+    /// The effort as the protocols carry it.
+    pub fn wire(self) -> hamlet_protocol::Effort {
+        match self {
+            Self::Off => hamlet_protocol::Effort::Off,
+            Self::Minimal => hamlet_protocol::Effort::Minimal,
+            Self::Low => hamlet_protocol::Effort::Low,
+            Self::Medium => hamlet_protocol::Effort::Medium,
+            Self::High => hamlet_protocol::Effort::High,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = hire)]
 pub(crate) struct Hire {

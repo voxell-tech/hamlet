@@ -46,6 +46,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 unicode-normalization = "0.1"
+url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

@@ -9,15 +9,18 @@ pub(crate) mod conversations;
 pub(crate) mod follow;
 pub(crate) mod inputs;
 pub(crate) mod items;
+pub(crate) mod leases;
 pub(crate) mod letters;
 pub(crate) mod marks;
 pub(crate) mod models;
 pub(crate) mod process;
 pub(crate) mod prompt;
+pub(crate) mod reflections;
 pub(crate) mod runtimes;
 pub(crate) mod sync;
 pub(crate) mod tasks;
 pub(crate) mod turns;
+pub(crate) mod verdicts;
 
 use crate::settings::{Overrides, Settings};
 

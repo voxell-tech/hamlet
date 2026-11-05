@@ -3,12 +3,13 @@
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
-use hamlet_protocol::runtime::{Attempt, Price, Selection, Usage};
+use hamlet_protocol::runtime::{Attempt, Selection, Usage};
 use hamlet_store::Db;
 use hamlet_store::schema::{attempt, usage};
 
 use super::conversations::{self, Conversation};
 use super::{Env, inputs, models, tasks};
+use crate::providers::Providers;
 
 /// The conversation `runtime` knows as `handle`.
 pub(crate) fn conversation(
@@ -21,15 +22,26 @@ pub(crate) fn conversation(
     )
 }
 
+/// Whether a model call may be made.
+pub(crate) enum Admission {
+    /// With this model and price.
+    Allowed(Selection),
+    /// A budget, a task's cap or an allowance is spent, in these
+    /// words.
+    Stopped(String),
+}
+
 /// Admits the model call `asked` of `runtime`, once (S20), with the
-/// model its agent runs now. Who pays is its task's payer.
+/// model its agent runs now, unless what pays for it is spent (H8,
+/// H12). Who pays is its task's payer.
 pub(crate) fn allow(
     db: &mut Db,
     env: &Env,
+    providers: &Providers,
     runtime: &str,
     asked: &Attempt,
     at: i64,
-) -> Result<Selection> {
+) -> Result<Admission> {
     let conversation =
         conversation(db, runtime, &asked.conversation)?;
     let choice = models::choose(
@@ -49,12 +61,30 @@ pub(crate) fn allow(
         Some(task) => tasks::get(db, task)?.payer,
         None => tasks::payer_of(db, conversation.agent)?,
     };
-    let price = Price {
-        cache_read: 0.0,
-        cache_write: 0.0,
-        input: 0.0,
-        output: 0.0,
-    };
+    let charged = attempt::table
+        .find((runtime, &asked.key))
+        .count()
+        .get_result::<i64>(db)?
+        > 0;
+    if !charged
+        && let Some(words) = crate::spend::stopped(
+            db,
+            conversation.agent,
+            payer.as_ref(),
+            task,
+            at,
+        )?
+    {
+        return Ok(Admission::Stopped(words));
+    }
+    let selection = providers.select(
+        db,
+        &env.settings,
+        choice.model,
+        choice.effort,
+    )?;
+    let model = &selection.model;
+    let price = &selection.price;
     diesel::insert_into(attempt::table)
         .values((
             attempt::runtime.eq(runtime),
@@ -63,20 +93,14 @@ pub(crate) fn allow(
             attempt::agent.eq(conversation.agent),
             attempt::payer.eq(&payer),
             attempt::task.eq(task),
-            attempt::provider.eq(&choice.model.provider),
-            attempt::model.eq(&choice.model.id),
-            attempt::price.eq(serde_json::to_string(&price)?),
+            attempt::provider.eq(&model.provider),
+            attempt::model.eq(&model.id),
+            attempt::price.eq(serde_json::to_string(price)?),
             attempt::at.eq(at),
         ))
         .on_conflict_do_nothing()
         .execute(db)?;
-    Ok(Selection {
-        context_window: None,
-        effort: None,
-        max_tokens: None,
-        model: choice.model,
-        price,
-    })
+    Ok(Admission::Allowed(selection))
 }
 
 /// Charges what the call `key` of `runtime` used, once.

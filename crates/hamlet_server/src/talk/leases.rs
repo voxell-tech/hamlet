@@ -11,7 +11,7 @@ use hamlet_protocol::runtime::{
 use crate::credentials::{Credentials, pack, unpack};
 
 #[derive(Default)]
-pub(super) struct Authority {
+pub(crate) struct Authority {
     scopes: HashMap<(usize, String), (String, bool)>,
     /// The lease held on each provider's credential, by provider.
     held: HashMap<String, Lease>,

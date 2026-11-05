@@ -3,8 +3,10 @@
 
 use anyhow::Result;
 use diesel::prelude::*;
+use hamlet_protocol::client::{Link, LinkState};
 use hamlet_protocol::runtime::ModelRef;
 use hamlet_store::Db;
+use hamlet_store::ids::ChiefId;
 use hamlet_store::schema::document;
 use serde::{Deserialize, Serialize};
 
@@ -54,8 +56,19 @@ pub(crate) struct Settings {
     /// otherwise (H29a).
     pub effort: Option<Effort>,
     pub dreams: Dreams,
+    /// How the last check of the model's provider went.
+    #[serde(default = "untested")]
+    pub link: Link,
     /// Whether the chief saved them.
     pub saved: bool,
+}
+
+fn untested() -> Link {
+    Link {
+        models: None,
+        state: LinkState::Untested,
+        words: None,
+    }
 }
 
 impl Default for Settings {
@@ -70,9 +83,44 @@ impl Default for Settings {
             allow_net: false,
             effort: None,
             dreams: Dreams::default(),
+            link: untested(),
             saved: false,
         }
     }
+}
+
+impl Settings {
+    /// The endpoint the realm's model is served by.
+    pub fn provider(&self) -> Option<&str> {
+        self.model.split_once("::").map(|(provider, _)| provider)
+    }
+
+    /// The address of the endpoint `provider`, when the settings name
+    /// one.
+    pub fn base_url(&self, provider: &str) -> Option<&str> {
+        self.endpoints
+            .iter()
+            .find(|e| e.name == provider)
+            .map(|e| e.base_url.as_str())
+    }
+}
+
+/// Keeps `settings` as the realm's, saved by `chief`.
+pub(crate) fn keep(
+    db: &mut Db,
+    settings: &Settings,
+    at: i64,
+    chief: Option<ChiefId>,
+) -> Result<()> {
+    diesel::replace_into(document::table)
+        .values((
+            document::kind.eq("settings"),
+            document::value.eq(serde_json::to_string(settings)?),
+            document::at.eq(at),
+            document::chief.eq(chief),
+        ))
+        .execute(db)?;
+    Ok(())
 }
 
 /// The settings the chief saved, else the defaults.

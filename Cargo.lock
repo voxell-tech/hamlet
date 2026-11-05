@@ -4544,6 +4544,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "unicode-normalization",
+ "url",
  "uuid",
 ]
 
