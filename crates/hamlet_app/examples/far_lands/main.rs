@@ -19,6 +19,8 @@ use std::time::{Duration, Instant};
 use bevy::audio::AudioPlugin;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use hamlet_client::realm::{Busy, HandId, Identity, Scholar};
+use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::land::Land;
 use hamlet_realm::generator::society::{Ground, Society, TownId};
 use hamlet_realm::generator::{GeneratorView, Loading, Tally};
@@ -49,6 +51,12 @@ enum Step {
         pitch: f32,
     },
     Night(bool),
+    /// Gives the city scholars, each with a spot for its house, the
+    /// hires that live and whether it has left, as the server
+    /// would send them.
+    Scholars(Vec<(Vec2, usize, bool)>),
+    /// Sets the Hand to work, or to rest.
+    Hand(bool),
     /// Saves a still under this name once everything is built.
     Shot(&'static str),
     /// Waits until everything is built.
@@ -133,8 +141,34 @@ fn stills() -> Vec<Step> {
             pitch: 55.0,
         },
         Shot("01-both-islands"),
+        Scholars(vec![
+            (Vec2::new(70.0, 45.0), 2, false),
+            (Vec2::new(85.0, -25.0), 1, false),
+            (Vec2::new(-75.0, 55.0), 0, false),
+            (Vec2::new(-65.0, -60.0), 0, true),
+            (Vec2::new(25.0, -85.0), 3, false),
+        ]),
+        Hand(true),
         look(City(Vec2::ZERO), 420.0),
         Shot("02-the-city-island"),
+        Look {
+            at: City(Vec2::ZERO),
+            dist: 150.0,
+            yaw: 0.4,
+            pitch: 22.0,
+        },
+        Shot("02b-the-hands-tower"),
+        look(City(Vec2::new(60.0, 10.0)), 130.0),
+        Shot("02c-the-scholars-houses"),
+        Night(true),
+        Look {
+            at: City(Vec2::new(30.0, 0.0)),
+            dist: 150.0,
+            yaw: 0.4,
+            pitch: 30.0,
+        },
+        Shot("02d-the-city-at-night"),
+        Night(false),
         look(home, 78.0),
         Shot("03-home"),
         look(home, 330.0),
@@ -474,6 +508,48 @@ fn run(
         Step::Night(night) => {
             stage.night = night;
             hour.0 = Some(sky.held(night));
+        }
+        Step::Scholars(scholars) => {
+            for (k, (at, hires, left)) in
+                scholars.into_iter().enumerate()
+            {
+                let id = 100 + k as u64;
+                let hired = (0..hires as u64)
+                    .map(|n| protocol::AgentId(1000 + id * 10 + n))
+                    .collect::<Vec<_>>();
+                for hire in &hired {
+                    commands.spawn(Identity(*hire));
+                }
+                commands.spawn((
+                    Name::new(format!("Scholar {k}")),
+                    Scholar(protocol::Scholar {
+                        chief: String::new(),
+                        hires: hired,
+                        house: Some(protocol::TownAt {
+                            x: at.x as f64,
+                            z: at.y as f64,
+                        }),
+                        id: protocol::ScholarId(id),
+                        left: left.then(|| protocol::ScholarLeft {
+                            at: 0,
+                            by: String::new(),
+                            reason: String::new(),
+                        }),
+                        name: format!("Scholar {k}"),
+                        since: 0,
+                        skills: Vec::new(),
+                        versions: Vec::new(),
+                    }),
+                ));
+            }
+        }
+        Step::Hand(busy) => {
+            let hand = protocol::AgentId(9000);
+            commands.insert_resource(HandId(hand));
+            let mut agent = commands.spawn(Identity(hand));
+            if busy {
+                agent.insert(Busy);
+            }
         }
         Step::Hold => clock.frozen = true,
         Step::Run(secs) => {

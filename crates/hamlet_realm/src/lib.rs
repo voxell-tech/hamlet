@@ -4,6 +4,7 @@
 
 pub mod bubble;
 pub mod chief;
+pub mod city;
 pub mod debug;
 pub mod generator;
 pub mod hamlet;
@@ -61,6 +62,7 @@ impl Plugin for RealmPlugin {
                 orders::plugin,
                 chief::plugin,
                 library::plugin,
+                city::plugin,
                 moving::plugin,
                 works::plugin,
                 lantern::plugin,

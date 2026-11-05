@@ -125,6 +125,11 @@ pub enum Thing {
     ChiefPlace(Entity),
     /// The library every agent shares.
     Library,
+    /// The Hand's tower, at the middle of the city.
+    Hand,
+    /// The house of a scholar: the entity that carries its
+    /// `Scholar` and `Name`.
+    Scholar(Entity),
     /// The clockwork on a hamlet's workbench, which sets its mode.
     Clockwork(Entity),
     /// The workbench on a hamlet's common, which stands for its
@@ -160,6 +165,10 @@ impl Thing {
                 format!("{}'s Hearth", named(chief))
             }
             Thing::Library => "The Library".into(),
+            Thing::Hand => "The Hand's Tower".into(),
+            Thing::Scholar(scholar) => {
+                format!("{}'s House", named(scholar))
+            }
             Thing::Clockwork(hamlet) => {
                 format!("The Clockwork of {}", named(hamlet))
             }
@@ -195,6 +204,10 @@ impl Thing {
             }
             // A hamlet is known by the name over its common.
             Thing::Common(hamlet) => Thing::Agent(hamlet).name(names),
+            // A scholar's house carries its scholar's name.
+            Thing::Scholar(scholar) => {
+                Thing::Agent(scholar).name(names)
+            }
             other => other.name(names),
         }
     }

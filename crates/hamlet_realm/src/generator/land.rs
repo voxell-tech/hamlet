@@ -276,6 +276,12 @@ impl Land {
         land.reshore();
     }
 
+    /// The places the city island is grown about, in the order
+    /// [`Land::fill_city`] was given them.
+    pub fn city_spots(&self) -> &[Vec2] {
+        &self.city
+    }
+
     /// Grows the city island about `spots`, the places of what
     /// stands in the city, and lets go of the land about any others.
     pub fn fill_city(&mut self, spots: &[Vec2]) {

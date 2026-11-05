@@ -16,6 +16,9 @@ pub enum Ground {
     Chief,
     /// The library, which is nobody's and everyone's.
     Library,
+    /// The Hand's tower, at the middle of the city. It stays where
+    /// it stands.
+    Tower,
 }
 
 impl Ground {

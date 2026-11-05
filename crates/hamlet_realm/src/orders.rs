@@ -133,6 +133,8 @@ fn set_down(world: &mut World, set: SetDown) {
             }
             world.resource_mut::<Stood>().0 = Some(set.to);
         }
+        // Nothing carries it, so nothing sets it down.
+        Ground::Tower => {}
     }
 }
 

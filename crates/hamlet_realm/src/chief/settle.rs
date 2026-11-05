@@ -11,6 +11,7 @@ use super::mascot::Rig;
 use super::{
     Chief, ChiefSettings, Look, Mascot, Place, Settled, Stands, place,
 };
+use crate::city::{self, Level};
 use crate::generator::land::{IslandId, Land};
 use crate::generator::society::{Claim, Ground, Society};
 use crate::generator::{flora, glow};
@@ -59,6 +60,7 @@ pub(super) fn hold_ground(
     set: Res<ChiefSettings>,
     places: Query<&Place>,
     libraries: Query<&Library>,
+    levels: Query<&Level>,
     mut land: ResMut<Land>,
 ) {
     let mut rounds = places
@@ -69,6 +71,7 @@ pub(super) fn hold_ground(
                 .iter()
                 .map(|library| (library.held, library::GROUNDS)),
         )
+        .chain(city::rounds(&levels))
         .collect::<Vec<_>>();
     rounds.sort_by(|a, b| {
         a.0.x.total_cmp(&b.0.x).then(a.0.y.total_cmp(&b.0.y))

@@ -337,5 +337,7 @@ pub(super) fn items(
             for_chief(thing, chief)
         }
         Thing::Library => for_library(thing),
+        // They stand where the city puts them: only the view moves.
+        Thing::Hand | Thing::Scholar(_) => vec![focus(thing)],
     }
 }

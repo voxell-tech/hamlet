@@ -206,6 +206,8 @@ impl Chosen {
             Thing::Chief(_) => Chosen::Chief,
             Thing::ChiefPlace(_) => Chosen::Hearth,
             Thing::Library
+            | Thing::Hand
+            | Thing::Scholar(_)
             | Thing::Clockwork(_)
             | Thing::Workbench(_) => {
                 return None;
