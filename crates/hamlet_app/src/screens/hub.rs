@@ -204,6 +204,11 @@ pub(crate) fn follow_selection(world: &mut World) {
             Showing::Chief(chief)
         }
         Some(Thing::Library) => Showing::Library,
+        Some(Thing::Scholar(scholar))
+            if world.get_entity(scholar).is_ok() =>
+        {
+            Showing::Scholar(scholar)
+        }
         // Nothing, or what has no page of its own.
         _ => return,
     };

@@ -31,6 +31,7 @@ use hamlet_client::realm::{
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
+use hamlet_realm::pick::{Selected, Thing, focus_on, select};
 use hamlet_ui::styles::{
     Fills, ICON, caption, hairline, note, scroll_area, text_input,
 };
@@ -690,11 +691,26 @@ fn go(world: &mut World, target: Target) {
     match target {
         Target::Hand => talk_to_hand(world),
         Target::Agent(agent) => talk_to(world, agent),
+        // A scholar's house, or its place on the pier, and the
+        // library are chosen and looked at in the world too.
         Target::Scholar(scholar) => {
             show(world, Showing::Scholar(scholar));
+            look_at(world, Thing::Scholar(scholar));
         }
-        Target::Library => show(world, Showing::Library),
+        Target::Library => {
+            show(world, Showing::Library);
+            look_at(world, Thing::Library);
+        }
         Target::Gone(agent) => show(world, Showing::Gone(agent)),
+    }
+}
+
+/// Chooses `thing` in the world and brings the camera to it, where
+/// there is a world.
+fn look_at(world: &mut World, thing: Thing) {
+    if world.contains_resource::<Selected>() {
+        select(world, Some(thing));
+        focus_on(world, thing, false);
     }
 }
 
