@@ -103,8 +103,17 @@ the database and the credentials, in one folder (`HAMLET_HOME`).
 _Avoid_: home, world, server
 
 **City**:
-Where the scholars live, apart from any hamlet.
+Where the scholars live, apart from any hamlet, each in a house the server
+sets down.
 _Avoid_: town (for anything), guild
+
+**Harbor**:
+Where a newcomer waits until it is let into the city.
+
+**Newcomer**:
+A scholar a lead made, waiting at the harbor until a chief or the Hand lets
+it into the city, as the realm's `newcomers` setting says.
+_Avoid_: applicant, guest
 
 **Hamlet**:
 A group of hires under one mayor, with its own record, limits and the

@@ -447,8 +447,10 @@ diesel::table! {
         since -> BigInt,
         made_by -> Text,
         planted -> Bool,
+        arrival -> Text,
         house_x -> Nullable<Double>,
         house_z -> Nullable<Double>,
+        house_turn -> Nullable<Double>,
         fork_of -> Nullable<BigInt>,
         fork_at -> Nullable<Text>,
         left_at -> Nullable<BigInt>,
@@ -548,6 +550,7 @@ diesel::table! {
         kind -> Text,
         danger -> Nullable<Text>,
         agent -> Nullable<BigInt>,
+        scholar -> Nullable<BigInt>,
         conversation -> Nullable<BigInt>,
         task -> Nullable<BigInt>,
         about -> Text,
@@ -648,6 +651,7 @@ diesel::joinable!(turn_gate -> conversation (conversation));
 diesel::joinable!(wait -> agent (agent));
 diesel::joinable!(wait -> chief (chief));
 diesel::joinable!(wait -> conversation (conversation));
+diesel::joinable!(wait -> scholar (scholar));
 diesel::joinable!(wait -> task (task));
 diesel::joinable!(worker -> agent (agent));
 diesel::joinable!(worker -> chief (chief));

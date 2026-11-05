@@ -25,6 +25,7 @@ use tokio::task::AbortHandle;
 use self::held::State;
 use self::objections::OBJECTING;
 pub(crate) use self::society::library::LIBRARIAN;
+pub(crate) use self::society::welcome;
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
 use crate::oversight::gate::{
@@ -990,6 +991,7 @@ impl Core {
                                 kind: WaitKind::Approval,
                                 danger: Some(danger),
                                 agent,
+                                scholar: None,
                                 conversation: Some(conversation),
                                 task,
                                 about,
@@ -1114,6 +1116,7 @@ impl Core {
                     kind: WaitKind::Question,
                     danger: None,
                     agent,
+                    scholar: None,
                     conversation: Some(conversation),
                     task,
                     about: asking::about(&questions),

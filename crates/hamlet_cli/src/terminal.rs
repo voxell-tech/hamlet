@@ -226,7 +226,9 @@ async fn edit(
                 "{}\n",
                 serde_json::to_string_pretty(&EditSettingsSet {
                     allow_net: Some(settings.allow_net),
+                    character: Some(settings.character.clone()),
                     effort: Some(settings.effort),
+                    newcomers: Some(settings.newcomers),
                     reflect_every: Some(settings.reflect_every),
                     model: Some(settings.model.clone()),
                     endpoints: Some(endpoints),

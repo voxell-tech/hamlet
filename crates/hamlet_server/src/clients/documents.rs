@@ -230,6 +230,22 @@ impl Core {
                 if let Some(effort) = set.effort {
                     settings.effort = effort.map(effort_of);
                 }
+                if let Some(newcomers) = set.newcomers {
+                    settings.newcomers = newcomers;
+                }
+                if let Some(character) = set.character {
+                    if character.trim().is_empty() {
+                        return Ok(Err(Refusal::Usage {
+                            words: "A blank scholar needs a \
+                                    character to start from."
+                                .into(),
+                        }));
+                    }
+                    if character.chars().count() > CHARACTER_MOST {
+                        return Ok(Err(Refusal::LongCharacter));
+                    }
+                    settings.character = character;
+                }
                 let mut removed = Vec::new();
                 if let Some(endpoints) = set.endpoints {
                     let endpoints = endpoints

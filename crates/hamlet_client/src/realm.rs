@@ -259,7 +259,9 @@ impl Default for Settings {
     fn default() -> Self {
         Self(protocol::SettingsView {
             model: String::new(),
+            character: String::new(),
             effort: None,
+            newcomers: protocol::Newcomers::default(),
             reflect_every: 0,
             allow_net: false,
             endpoints: Vec::new(),

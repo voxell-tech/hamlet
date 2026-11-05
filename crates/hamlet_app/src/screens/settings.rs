@@ -530,7 +530,9 @@ fn save(
     let mut set = protocol::EditSettingsSet {
         model: None,
         endpoints: None,
+        character: None,
         effort: None,
+        newcomers: None,
         reflect_every: None,
         allow_net: None,
         workspace: None,

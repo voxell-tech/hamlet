@@ -232,9 +232,27 @@ fn button(need: &Need, at: usize) -> AnyView {
                 primary_button,
                 Variant::Primary,
             ),
-            Choice::Dismiss => {
-                (Cross, "DISMISS", styles::button, Variant::Default)
-            }
+            // A newcomer dismissed waits on at the harbor.
+            Choice::Dismiss => match need.detail {
+                WaitDetail::Newcomer { .. } => (
+                    Restore,
+                    "LATER",
+                    styles::button,
+                    Variant::Default,
+                ),
+                _ => (
+                    Cross,
+                    "DISMISS",
+                    styles::button,
+                    Variant::Default,
+                ),
+            },
+            Choice::Welcome => (
+                Check,
+                "WELCOME INTO THE CITY",
+                primary_button,
+                Variant::Primary,
+            ),
         };
     let need = need.clone();
     marked(which, text)
@@ -321,6 +339,7 @@ fn strip(need: &Need) -> AnyView {
             WaitDetail::Objection {} => "OBJECTION",
             WaitDetail::Question { .. } => "QUESTION",
             WaitDetail::Fault {} => "FAULT",
+            WaitDetail::Newcomer { .. } => "NEWCOMER",
         };
         let asked = match need.asked {
             1 => String::new(),

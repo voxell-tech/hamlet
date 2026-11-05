@@ -16,6 +16,7 @@ use super::inputs::{self, Input, InputKind, Status};
 use super::{Env, items, letters, reflections, tasks};
 use crate::calls::LIBRARIAN;
 use crate::calls::reviews::REVIEW;
+use crate::calls::welcome::{self, WELCOME};
 use crate::change::Change;
 use crate::jobs::{self, Job};
 use crate::oversight::{self, Raise, WaitKind};
@@ -199,6 +200,10 @@ fn errand_ended(
         reviewed(cx, owner, ended)?;
         return Ok(None);
     }
+    if kind == WELCOME {
+        welcome::judged(cx, owner, ended)?;
+        return Ok(None);
+    }
     if kind != LIBRARIAN {
         return Ok(None);
     }
@@ -375,6 +380,7 @@ fn reviewed(
             kind: WaitKind::Objection,
             danger: None,
             agent: found.agent,
+            scholar: None,
             conversation: Some(conversation),
             task: Some(task),
             about,
@@ -433,6 +439,7 @@ fn fault(
             kind: WaitKind::Fault,
             danger: None,
             agent: kept.agent,
+            scholar: None,
             conversation: Some(kept.id),
             task: input.task,
             about,

@@ -102,6 +102,10 @@ pub struct EditSettingsSet {
     pub allow_net: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "String", length(max = 4000))]
+    pub character: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Option<crate::Effort>")]
     pub effort: Option<Option<crate::Effort>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -112,6 +116,10 @@ pub struct EditSettingsSet {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "crate::client::Newcomers")]
+    pub newcomers: Option<crate::client::Newcomers>,
     #[serde(rename = "reflectEvery")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]

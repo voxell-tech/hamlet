@@ -251,7 +251,9 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
             id: id(),
             set: EditSettingsSet {
                 model: Some("faux/test".into()),
+                character: None,
                 effort: None,
+                newcomers: None,
                 reflect_every: Some(10),
                 allow_net: Some(false),
                 endpoints: Some(vec![Endpoint {
@@ -268,7 +270,9 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
             id: id(),
             set: EditSettingsSet {
                 model: None,
+                character: None,
                 effort: None,
+                newcomers: None,
                 reflect_every: None,
                 allow_net: None,
                 endpoints: None,
@@ -490,7 +494,8 @@ fn agent_wire() -> Value {
 
 fn scholar_wire() -> Value {
     json!({
-        "id": 1, "name": "founder", "chief": "chief", "since": 0, "house": null,
+        "id": 1, "name": "founder", "chief": "chief", "since": 0,
+        "arrival": "waiting", "house": null,
         "skills": ["release"], "versions": [{"at": 5, "name": "v1", "note": "First"}], "hires": [2]
     })
 }
@@ -523,6 +528,7 @@ fn grants_wire() -> Value {
 fn settings_wire() -> Value {
     json!({
         "model": "faux/test", "reflectEvery": 10, "allowNet": false, "effort": "low",
+        "newcomers": "hand", "character": "Curious.",
         "endpoints": [{"name": "local", "baseUrl": "http://localhost:8080", "key": false}],
         "unset": false, "link": {"state": "connected", "models": 1, "words": "Connected"},
         "workspace": {"url": null, "running": null}
@@ -720,7 +726,9 @@ fn society_and_realm_fields_round_trip_without_losing_departures_or_scholars()
     wire["hamlets"][0]["roads"] = json!([{"a": a, "b": b, "kind": "agreed", "messages": 10, "level": "rail", "lastFrom": null}]);
     wire["scholars"][0]["left"] =
         json!({"at": 14, "by": "the chief", "reason": "Retired"});
-    wire["scholars"][0]["house"] = json!({"x": 1.0, "z": 2.0});
+    wire["scholars"][0]["arrival"] = json!("housed");
+    wire["scholars"][0]["house"] =
+        json!({"x": 1.0, "z": 2.0, "turn": 0.5});
     wire["hamlets"][0]["at"] = json!({"x": 2.5, "z": -3.5});
     wire["library"] = json!([{"name": "maps", "description": "Draw maps", "by": "scout"}]);
     wire["closed"] = json!([{"id": "mill", "name": "The Mill", "at": 13, "by": "the chief", "reason": "Finished"}]);

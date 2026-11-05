@@ -1,28 +1,55 @@
-//! The city: every scholar of the realm, with its house.
+//! The city: every scholar of the realm, with its house. A scholar a
+//! chief or the Hand makes moves in at once; one another agent makes
+//! waits at the harbor until it is let in, as the realm's settings
+//! say (H45).
+
+use std::f64::consts::PI;
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
+use hamlet_protocol::client::{Choice, Newcomers};
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, ChiefId, ScholarId};
-use hamlet_store::schema::{agent, hamlet, hire, scholar};
+use hamlet_store::ids::{Actor, AgentId, ChiefId, ScholarId};
+use hamlet_store::schema::{agent, hamlet, hire, scholar, wait};
 
 use super::agents::EndHow;
-use super::hires;
 use super::names::check_name;
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
+use super::{hand, hires};
 use crate::change::{Change, Done, done, refuse};
 use crate::jobs::{self, Fork, Job};
+use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::text::text_enum;
 
 /// The most characters a character may have (C11, C13).
 pub(crate) const CHARACTER_MOST: usize = 4000;
+
+/// The round at the city's middle that its landmarks keep: the Hand's
+/// tower, the Hearth and the Library.
+pub(crate) const MIDDLE: f64 = 30.0;
+
+/// The least distance between the middles of two houses.
+pub(crate) const APART: f64 = 12.0;
 
 text_enum! {
     pub(crate) enum ScholarKind {
         Scholar = "scholar",
         /// The Hand's own knowledge, never hired or listed.
         Hand = "hand",
+    }
+}
+
+text_enum! {
+    /// Where a scholar stands with the city.
+    pub(crate) enum Arrival {
+        /// It lives in its house in the city.
+        Housed = "housed",
+        /// It waits at the harbor to be let in.
+        Waiting = "waiting",
+        /// It was turned away, and waits at the harbor until a chief
+        /// lets it in.
+        Turned = "turned",
     }
 }
 
@@ -36,8 +63,10 @@ pub(crate) struct Scholar {
     pub since: i64,
     pub made_by: Actor,
     pub planted: bool,
+    pub arrival: Arrival,
     pub house_x: Option<f64>,
     pub house_z: Option<f64>,
+    pub house_turn: Option<f64>,
     pub fork_of: Option<ScholarId>,
     pub fork_at: Option<String>,
     pub left_at: Option<i64>,
@@ -98,8 +127,210 @@ pub(crate) fn make(
         },
     )?;
     record::keep(cx, Decision::new(kind, "").scholar(id))?;
+    match newcomer(cx)? {
+        Some((maker, policy)) => {
+            diesel::update(scholar::table.find(id))
+                .set(scholar::arrival.eq(Arrival::Waiting))
+                .execute(cx.db)?;
+            // Under the Hand, its errand is begun where the settings
+            // and the models are at hand.
+            if policy == Newcomers::Chief {
+                oversight::raise(
+                    cx,
+                    Raise {
+                        kind: WaitKind::Newcomer,
+                        danger: None,
+                        agent: maker,
+                        scholar: Some(id),
+                        conversation: None,
+                        task: None,
+                        about: name.into(),
+                        change: None,
+                        answers: vec![
+                            Choice::Welcome,
+                            Choice::Dismiss,
+                        ],
+                        questions: None,
+                    },
+                )?;
+            }
+        }
+        None => house(cx, id)?,
+    }
     cx.touched.scholars.insert(id);
     Ok(Ok(id))
+}
+
+/// The agent making a scholar now and who lets it in, when it waits
+/// at the harbor: when an agent other than the Hand makes it in a
+/// realm that is not open.
+fn newcomer(
+    cx: &mut Change<'_>,
+) -> Result<Option<(AgentId, Newcomers)>> {
+    let Actor::Agent(maker) = cx.actor else {
+        return Ok(None);
+    };
+    if maker == hand::id(cx.db)? {
+        return Ok(None);
+    }
+    let policy = crate::settings::stored(cx.db)?.newcomers;
+    Ok((policy != Newcomers::Open).then_some((maker, policy)))
+}
+
+/// Whether the Hand is to judge the newcomer `id`.
+pub(crate) fn awaits_hand(
+    db: &mut Db,
+    id: ScholarId,
+) -> Result<bool> {
+    Ok(get(db, id)?.arrival == Arrival::Waiting
+        && crate::settings::stored(db)?.newcomers == Newcomers::Hand)
+}
+
+/// Gives the scholar `id` the next free spot in the city, its door
+/// toward the middle, and lets it in.
+fn house(cx: &mut Change<'_>, id: ScholarId) -> Result<()> {
+    let (x, z) = free_spot(cx.db)?;
+    diesel::update(scholar::table.find(id))
+        .set((
+            scholar::arrival.eq(Arrival::Housed),
+            scholar::house_x.eq(x),
+            scholar::house_z.eq(z),
+            scholar::house_turn.eq(facing_middle(x, z)),
+        ))
+        .execute(cx.db)?;
+    cx.touched.scholars.insert(id);
+    Ok(())
+}
+
+/// The turn about the vertical that faces a door at `x, z` toward the
+/// city's middle.
+fn facing_middle(x: f64, z: f64) -> f64 {
+    (-x).atan2(-z)
+}
+
+/// The spots of every house that stands in the city, a scholar's that
+/// left included, but `but`'s own.
+fn houses(
+    db: &mut Db,
+    but: Option<ScholarId>,
+) -> Result<Vec<(f64, f64)>> {
+    let kept = scholar::table
+        .filter(scholar::erased.eq(false))
+        .filter(scholar::arrival.eq(Arrival::Housed))
+        .select((scholar::id, scholar::house_x, scholar::house_z))
+        .load::<(ScholarId, Option<f64>, Option<f64>)>(db)?;
+    Ok(kept
+        .into_iter()
+        .filter(|(id, ..)| Some(*id) != but)
+        .filter_map(|(_, x, z)| Some((x?, z?)))
+        .collect())
+}
+
+/// Whether a house at `x, z` keeps clear of the middle and of every
+/// house in `taken`.
+fn is_clear(taken: &[(f64, f64)], x: f64, z: f64) -> bool {
+    x.hypot(z) >= MIDDLE + APART * 0.5
+        && taken
+            .iter()
+            .all(|(tx, tz)| (x - tx).hypot(z - tz) >= APART)
+}
+
+/// The first spot on a golden-angle spiral out from the middle that
+/// keeps clear of every house, as a sunflower lays its seeds.
+pub(crate) fn free_spot(db: &mut Db) -> Result<(f64, f64)> {
+    let taken = houses(db, None)?;
+    let golden = PI * (3.0 - 5f64.sqrt());
+    let first = MIDDLE + APART * 0.5;
+    // Each spot holds about this much ground, so the spiral packs
+    // close without crowding.
+    let share = APART * APART * 1.1 / PI;
+    for k in 0..100_000_u32 {
+        let k = f64::from(k);
+        let radius = (first * first + k * share).sqrt();
+        let (x, z) = (
+            radius * (k * golden).cos(),
+            radius * (k * golden).sin(),
+        );
+        if is_clear(&taken, x, z) {
+            return Ok((x, z));
+        }
+    }
+    anyhow::bail!("the city has no free spot left")
+}
+
+/// Lets the newcomer `id` into the city at the next free spot.
+pub(crate) fn welcome(
+    cx: &mut Change<'_>,
+    id: ScholarId,
+    reason: &str,
+) -> Done<()> {
+    let scholar = get(cx.db, id)?;
+    if !scholar.is_living() || scholar.kind != ScholarKind::Scholar {
+        refuse!(Refusal::ScholarGone { name: scholar.name });
+    }
+    if scholar.arrival == Arrival::Housed {
+        refuse!(Refusal::Housed { name: scholar.name });
+    }
+    house(cx, id)?;
+    settle_newcomer(cx, id, Ruling::Welcome)?;
+    record::keep(
+        cx,
+        Decision::new(DecisionKind::Welcomed, reason).scholar(id),
+    )?;
+    Ok(Ok(()))
+}
+
+/// Keeps the scholar `id` at the harbor: a newcomer turned away, or
+/// one sent back out of its house.
+pub(crate) fn turn_away(
+    cx: &mut Change<'_>,
+    id: ScholarId,
+    reason: &str,
+) -> Done<()> {
+    let scholar = get(cx.db, id)?;
+    if !scholar.is_living() || scholar.kind != ScholarKind::Scholar {
+        refuse!(Refusal::ScholarGone { name: scholar.name });
+    }
+    if scholar.arrival == Arrival::Turned {
+        refuse!(Refusal::TurnedAway { name: scholar.name });
+    }
+    diesel::update(scholar::table.find(id))
+        .set((
+            scholar::arrival.eq(Arrival::Turned),
+            scholar::house_x.eq(None::<f64>),
+            scholar::house_z.eq(None::<f64>),
+            scholar::house_turn.eq(None::<f64>),
+        ))
+        .execute(cx.db)?;
+    settle_newcomer(cx, id, Ruling::Dismiss)?;
+    record::keep(
+        cx,
+        Decision::new(DecisionKind::TurnedAway, reason).scholar(id),
+    )?;
+    cx.touched.scholars.insert(id);
+    Ok(Ok(()))
+}
+
+/// Ends the open petition about the newcomer `id`, as `ruling`.
+fn settle_newcomer(
+    cx: &mut Change<'_>,
+    id: ScholarId,
+    ruling: Ruling,
+) -> Result<()> {
+    let open = wait::table
+        .filter(wait::open.eq(true))
+        .filter(wait::kind.eq(WaitKind::Newcomer))
+        .filter(wait::scholar.eq(id))
+        .select(wait::id)
+        .load(cx.db)?;
+    let chief = match cx.actor {
+        Actor::Chief(chief) => Some(chief),
+        _ => None,
+    };
+    for wait in open {
+        oversight::settle(cx, wait, ruling, "", chief)?;
+    }
+    Ok(())
 }
 
 /// Makes the Hand's own knowledge, once, with the realm.
@@ -167,24 +398,41 @@ pub(crate) fn all(db: &mut Db) -> Result<Vec<Scholar>> {
         .load(db)?)
 }
 
-/// Sets where the house of `id` stands in the city.
+/// Sets where the house of `id` stands in the city, and the way its
+/// door faces: toward the middle unless `turn` says.
 pub(crate) fn place(
     cx: &mut Change<'_>,
     id: ScholarId,
     x: f64,
     z: f64,
+    turn: Option<f64>,
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
     if !scholar.is_living() {
         refuse!(Refusal::ScholarGone { name: scholar.name });
     }
-    if !(x.is_finite() && z.is_finite()) {
+    if scholar.arrival != Arrival::Housed {
+        refuse!(Refusal::AtHarbor { name: scholar.name });
+    }
+    if !(x.is_finite()
+        && z.is_finite()
+        && turn.is_none_or(f64::is_finite))
+    {
         refuse!(Refusal::BadAddress {
             address: format!("{x}, {z}")
         });
     }
+    let taken = houses(cx.db, Some(id))?;
+    if !is_clear(&taken, x, z) {
+        refuse!(Refusal::Crowded { name: scholar.name });
+    }
     diesel::update(scholar::table.find(id))
-        .set((scholar::house_x.eq(x), scholar::house_z.eq(z)))
+        .set((
+            scholar::house_x.eq(x),
+            scholar::house_z.eq(z),
+            scholar::house_turn
+                .eq(turn.unwrap_or_else(|| facing_middle(x, z))),
+        ))
         .execute(cx.db)?;
     record::keep(
         cx,

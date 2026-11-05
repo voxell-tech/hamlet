@@ -120,7 +120,9 @@ async fn the_settings_can_allow_the_network_to_every_agent() {
                 id,
                 set: EditSettingsSet {
                     allow_net: Some(true),
+                    character: None,
                     effort: None,
+                    newcomers: None,
                     endpoints: None,
                     model: None,
                     reflect_every: None,

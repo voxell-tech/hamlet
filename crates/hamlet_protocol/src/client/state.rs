@@ -264,13 +264,16 @@ pub enum AgentKind {
 )]
 #[serde(deny_unknown_fields)]
 pub struct Scholar {
+    /// Whether it lives in the city or waits at its harbor.
+    pub arrival: Arrival,
     /// The chief it belongs to.
     pub chief: String,
     /// Its living hires and those that may come back.
     pub hires: Vec<AgentId>,
-    /// Where its house stands in the city.
+    /// Where its house stands in the city, from the city's middle;
+    /// none while it is not let in.
     #[serde(deserialize_with = "Option::deserialize")]
-    pub house: Option<TownAt>,
+    pub house: Option<HouseAt>,
     pub id: ScholarId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
@@ -280,6 +283,42 @@ pub struct Scholar {
     pub since: u64,
     pub skills: Vec<String>,
     pub versions: Vec<VersionView>,
+}
+
+/// Where a scholar stands with the city.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+pub enum Arrival {
+    /// It lives in its house in the city.
+    #[serde(rename = "housed")]
+    Housed,
+    /// It waits at the city's harbor to be let in.
+    #[serde(rename = "waiting")]
+    Waiting,
+    /// It was turned away, and waits at the harbor until a chief lets
+    /// it in.
+    #[serde(rename = "turned")]
+    Turned,
+}
+
+/// A house's spot from the city's middle, and the way its door faces,
+/// in radians about the vertical.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct HouseAt {
+    pub turn: f64,
+    pub x: f64,
+    pub z: f64,
 }
 
 /// A tag of a scholar's history.

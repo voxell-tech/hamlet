@@ -4,8 +4,10 @@
 /.amp/in/
 /.amp/portals/
 
-# Worktrees of agents working in parallel.
+# Worktrees of agents working in parallel, and the build folders they
+# make beside the shared one.
 .claude/worktrees/
+/target-*/
 
 # The stills an example draws, wherever the examples live.
 **/examples/*/out/
