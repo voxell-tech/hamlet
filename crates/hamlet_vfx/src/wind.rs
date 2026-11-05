@@ -45,6 +45,10 @@ pub struct WindSettings {
     pub band: (f32, f32),
     /// The share of its full strength the wind keeps between gusts.
     pub calm: f32,
+    /// The share of its strength the whole wind keeps at the depth
+    /// of a lull, and the seconds from one lull to the next: it
+    /// rises and falls everywhere at once, over the bands.
+    pub swell: (f32, f32),
     /// Length and width of a gust's ribbon, and its height over the
     /// ground at its lowest and highest.
     pub length: f32,
@@ -71,7 +75,7 @@ impl WindSettings {
     }
 
     /// How hard the wind blows at `at` on the ground at `now`, from
-    /// the calm share to 1. The same as `strength` in `wind.wesl`.
+    /// nothing to 1. The same as `strength` in `wind.wesl`.
     pub fn strength(&self, at: Vec2, now: f32) -> f32 {
         self.uniform().strength(at, now)
     }
@@ -97,6 +101,12 @@ impl WindSettings {
                 mean.sin(),
                 mean.cos(),
             ),
+            swell: Vec4::new(
+                self.swell.0.clamp(0.0, 1.0),
+                TAU / self.swell.1.max(1.0),
+                0.0,
+                0.0,
+            ),
         }
     }
 }
@@ -106,6 +116,7 @@ impl WindSettings {
 pub struct WindUniform {
     pub flow: Vec4,
     pub scale: Vec4,
+    pub swell: Vec4,
 }
 
 impl WindUniform {
@@ -114,7 +125,17 @@ impl WindUniform {
             * (now * self.scale.y);
         let band = 0.5 + 0.5 * fbm(at * self.scale.x - rolled);
         let gust = smoothstep(0.3, 0.75, band);
-        self.flow.w + (1.0 - self.flow.w) * gust
+        (self.flow.w + (1.0 - self.flow.w) * gust)
+            * self.swelling(now)
+    }
+
+    /// The share of its strength the whole wind has at `now`, from
+    /// the lull's to all of it. `swelling` in `wind.wesl`.
+    fn swelling(&self, now: f32) -> f32 {
+        let t = now * self.swell.y;
+        let rise = 0.5 + 0.25 * (t.sin() + (t * 1.618 + 1.3).sin());
+        self.swell.x
+            + (1.0 - self.swell.x) * smoothstep(0.0, 1.0, rise)
     }
 }
 

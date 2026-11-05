@@ -50,6 +50,7 @@ heading = 70.0
 veer = 18.0
 band = [30.0, 6.0]
 calm = 0.45
+swell = [0.35, 40.0]
 length = 17.0
 width = 0.42
 height = [1.8, 5.5]
