@@ -14,11 +14,10 @@ use crate::generator::society::{
     Agent, Ground, Pair, RoadLevel, Society,
 };
 use crate::generator::{
-    Ahead, GeneratorSettings, GeneratorView, Objecting, Trips,
+    Ahead, GeneratorView, Objecting, Trips, testing,
 };
 use crate::keeper::KeeperState;
 use crate::keeper::work::Task;
-use crate::palette::Palette;
 use crate::pick::{Centre, Glide, Leash, Orbit, Stance};
 use crate::sky::CameraSettings;
 use crate::testing::{receive_change, receive_state};
@@ -50,11 +49,7 @@ fn bare() -> App {
         .init_resource::<Trips>()
         .init_resource::<Objecting>()
         .init_resource::<Clock>()
-        .insert_resource(Land::new(
-            1,
-            GeneratorSettings::default(),
-            Palette::default(),
-        ))
+        .insert_resource(testing::land(1))
         .init_resource::<CameraSettings>()
         .init_resource::<Glide>()
         .init_resource::<Orbit>()
@@ -438,9 +433,12 @@ fn meadow(app: &mut App, hamlet: Entity) -> Vec2 {
     let town = town_of(app.world(), hamlet).unwrap();
     let land = app.world().resource::<Land>();
     let society = app.world().resource::<Society>();
+    let centre = land.hamlet_centre();
     (0..900)
         .map(|i| {
-            Vec2::from_angle(i as f32) * (260.0 + i as f32 * 3.0)
+            centre
+                + Vec2::from_angle(i as f32)
+                    * (150.0 + i as f32 * 0.4)
         })
         .find(|&p| society.fits(land, Ground::Town(town), p).is_ok())
         .unwrap()
@@ -460,11 +458,7 @@ fn towns_never_set_down_stand_on_the_first_free_sites() {
     );
     app.update();
     let land = app.world().resource::<Land>().clone();
-    let fresh = Land::new(
-        1,
-        GeneratorSettings::default(),
-        Palette::default(),
-    );
+    let fresh = testing::land(1);
     assert_eq!(land.sites, fresh.sites);
     let free = fresh
         .sites
@@ -491,10 +485,13 @@ fn a_town_follows_where_the_record_sets_it_down() {
     let people = app.world().resource::<Society>().clone();
     let to = meadow(&mut app, mill);
     let view = *app.world().resource::<GeneratorView>();
+    // The record keeps places from the hamlet island's middle.
+    let centre = app.world().resource::<Land>().hamlet_centre();
+    let said = to - centre;
 
     app.world_mut()
         .entity_mut(mill)
-        .insert(Spot(Some((to.x, to.y))));
+        .insert(Spot(Some((said.x, said.y))));
     app.update();
     let after = towns(&mut app);
     assert_eq!(after[0], before[0]);
@@ -509,7 +506,7 @@ fn a_town_follows_where_the_record_sets_it_down() {
     assert_ne!(app.world().resource::<Centre>().0, view.focus);
 
     // Ground that cannot take it leaves it where it is.
-    let home = before[0].1;
+    let home = before[0].1 - centre;
     app.world_mut()
         .entity_mut(mill)
         .insert(Spot(Some((home.x + 6.0, home.y))));
@@ -524,7 +521,7 @@ fn a_town_follows_where_the_record_sets_it_down() {
     later
         .world_mut()
         .entity_mut(mill)
-        .insert(Spot(Some((to.x, to.y))));
+        .insert(Spot(Some((said.x, said.y))));
     later.update();
     assert_eq!(towns(&mut later), after);
 }

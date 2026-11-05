@@ -21,8 +21,11 @@ struct Relief {
     drift: vec4<f32>,
     wilds: vec4<f32>,
     counts: vec4<u32>,
-    // Sites, then shores, as x and z; then held ground as x, z, radius
-    // and the height it is held at.
+    held: vec4<u32>,
+    centres: vec4<f32>,
+    // Sites, then the shores of the city island and of the hamlet island,
+    // as x and z; then held ground as x, z, radius and the height it is held
+    // at.
     points: array<vec4<f32>>,
 }
 
@@ -44,6 +47,14 @@ const OPEN: f32 = 40.0;
 // The farthest from the shore its distance tells, in metres. `SHORE_REACH`
 // in `hamlet_vfx`'s `water.rs`.
 const SHORE_REACH: f32 = 40.0;
+
+// `Frame` in `land.rs`: the island a point is on, its place measured from
+// that island's middle, and how far inside the coast it lies.
+struct Frame {
+    hamlet: bool,
+    local: vec2<f32>,
+    inside: f32,
+}
 
 fn seed() -> u32 {
     return relief.counts.x;
@@ -71,8 +82,8 @@ fn ragged(p: vec2<f32>) -> f32 {
 // `near_town` in `terrain.rs`.
 fn near_town(p: vec2<f32>, reach: f32) -> bool {
     let clear = reach + relief.town.y;
-    let first = relief.counts.y;
-    for (var i = first; i < first + relief.counts.z; i++) {
+    let first = relief.counts.y + relief.counts.z;
+    for (var i = first; i < first + relief.counts.w; i++) {
         if distance(relief.points[i].xy, p) < clear {
             return true;
         }
@@ -80,7 +91,8 @@ fn near_town(p: vec2<f32>, reach: f32) -> bool {
     return false;
 }
 
-// `hill` in `terrain.rs`.
+// `hill_in` in `terrain.rs`, with `p` measured from the hamlet island's
+// middle.
 fn hill(p: vec2<f32>) -> f32 {
     let side = relief.mounds.x;
     let share = relief.mounds.y;
@@ -109,7 +121,7 @@ fn hill(p: vec2<f32>) -> f32 {
             let flat = mix(relief.sizes.x, relief.sizes.y, unit_of(s, x, z, 6u));
             let skirt = radians(mix(relief.sizes.z, relief.sizes.w, unit_of(s, x, z, 7u)));
             let run = tall / max(tan(skirt), 0.05);
-            if near_town(mid, flat + run + length(half) + 8.0) {
+            if near_town(mid + relief.centres.zw, flat + run + length(half) + 8.0) {
                 continue;
             }
             let along = segment_dist(p, mid - half, mid + half);
@@ -124,10 +136,14 @@ fn hill(p: vec2<f32>) -> f32 {
 }
 
 // `wild` in `terrain.rs`.
-fn wild(p: vec2<f32>, d: f32) -> f32 {
+fn wild(f: Frame, d: f32) -> f32 {
+    let p = f.local;
     let h = relief.plains.x
         + relief.plains.z * fbm(p * relief.plains.y, 4u, seed() + 20u)
         + relief.rise.x * perlin(p * relief.plains.w, seed() + 30u);
+    if !f.hamlet {
+        return h;
+    }
     return h + hill(p) * smooth_step(8.0, 40.0, d);
 }
 
@@ -144,8 +160,12 @@ fn river_centre(k: i32, u: f32) -> f32 {
         + relief.drift.x * perlin(vec2<f32>(u * relief.river.w, 9.1), s);
 }
 
-// `river_dist` in `terrain.rs`.
-fn river_dist(p: vec2<f32>) -> f32 {
+// `river_dist_in` in `terrain.rs`: only the hamlet island has rivers.
+fn river_dist(f: Frame) -> f32 {
+    if !f.hamlet {
+        return FAR;
+    }
+    let p = f.local;
     let dir = relief.town.zw;
     let u = dot(p, dir);
     let v = dot(p, vec2<f32>(-dir.y, dir.x));
@@ -183,15 +203,27 @@ fn smooth_min(a: f32, b: f32, k: f32) -> f32 {
     return mix(b, a, h) - k * h * (1.0 - h);
 }
 
-// `inside` in `terrain.rs`.
-fn inside(p: vec2<f32>) -> f32 {
+// How near `p` lies to the `count` shores from `first`, their reaches run
+// smoothly together.
+fn near_shores(first: u32, count: u32, p: vec2<f32>) -> f32 {
     let island = relief.tops.z;
     var near = FAR;
-    let first = relief.counts.y;
-    for (var i = first; i < first + relief.counts.z; i++) {
+    for (var i = first; i < first + count; i++) {
         near = smooth_min(near, distance(relief.points[i].xy, p), island * 0.3);
     }
-    return island - near - relief.sea.y * perlin(p * relief.sea.x, seed() + 40u);
+    return near;
+}
+
+// `frame` in `terrain.rs`.
+fn frame_of(p: vec2<f32>) -> Frame {
+    let island = relief.tops.z;
+    let city = near_shores(relief.counts.y, relief.counts.z, p);
+    let hamlet = near_shores(relief.counts.y + relief.counts.z, relief.counts.w, p);
+    let on_hamlet = !(city < hamlet);
+    let local = p - select(relief.centres.xy, relief.centres.zw, on_hamlet);
+    let near = select(city, hamlet, on_hamlet);
+    let inside = island - near - relief.sea.y * perlin(local * relief.sea.x, seed() + 40u);
+    return Frame(on_hamlet, local, inside);
 }
 
 // `unit(key(&[a, b, c, d]))` in `noise.rs`.
@@ -216,26 +248,26 @@ fn waterline(top: f32, bed: f32) -> f32 {
 // coast `p` lies, which grows about a metre to a metre, so it runs
 // smooth; the coast's raggedness is left out, and the plains taken as
 // level.
-fn shore_dist(p: vec2<f32>) -> f32 {
-    let run = mix(relief.rim.y, relief.rim.z, 0.5 + 0.5 * perlin(p * 0.012, seed() + 41u));
+fn shore_dist(f: Frame) -> f32 {
+    let run = mix(relief.rim.y, relief.rim.z, 0.5 + 0.5 * perlin(f.local * 0.012, seed() + 41u));
     let shelf = relief.sea.w - relief.rim.x;
-    let d = run * (1.0 - waterline(relief.plains.x, shelf)) - inside(p);
+    let d = run * (1.0 - waterline(relief.plains.x, shelf)) - f.inside;
     return clamp(d, -SHORE_REACH, SHORE_REACH);
 }
 
 // `shore` in `terrain.rs`.
-fn shore(p: vec2<f32>, h: f32) -> f32 {
+fn shore(f: Frame, h: f32) -> f32 {
     let water = relief.sea.w;
-    let into = inside(p) + ragged(p);
-    let run = mix(relief.rim.y, relief.rim.z, 0.5 + 0.5 * perlin(p * 0.012, seed() + 41u));
+    let into = f.inside + ragged(f.local);
+    let run = mix(relief.rim.y, relief.rim.z, 0.5 + 0.5 * perlin(f.local * 0.012, seed() + 41u));
     let bed = mix(water - relief.rim.x, water - relief.sea.z, smooth_step(0.0, -OPEN, into));
     return bed + (h - bed) * stroke(run - into, 0.0, run);
 }
 
 // `height_wide` in `terrain.rs`.
-fn height(p: vec2<f32>, wide: f32) -> f32 {
-    let d = river_dist(p);
-    var h = wild(p, d);
+fn height(p: vec2<f32>, f: Frame, wide: f32) -> f32 {
+    let d = river_dist(f);
+    var h = wild(f, d);
 
     let site_y = relief.town.x;
     let radius = relief.town.y;
@@ -247,10 +279,10 @@ fn height(p: vec2<f32>, wide: f32) -> f32 {
     let dw = max(d - wide, 0.0);
     h = mix(0.3, h, smooth_step(4.0, 22.0, dw));
     h = mix(h, -1.3, smooth_step(5.2, 2.2, dw));
-    h = shore(p, h);
+    h = shore(f, h);
 
-    let first = relief.counts.y + relief.counts.z;
-    for (var i = first; i < first + relief.counts.w; i++) {
+    let first = relief.counts.y + relief.counts.z + relief.counts.w;
+    for (var i = first; i < first + relief.held.x; i++) {
         let hold = relief.points[i];
         let away = distance(hold.xy, p);
         h = mix(h, hold.w, smooth_step(hold.z + HOLD_EASE, hold.z, away));
@@ -259,33 +291,37 @@ fn height(p: vec2<f32>, wide: f32) -> f32 {
 }
 
 // `afar` in `terrain.rs`.
-fn afar(p: vec2<f32>) -> f32 {
+fn afar(f: Frame) -> f32 {
+    if !f.hamlet {
+        return 0.0;
+    }
     let plains = relief.rise.y;
-    return smooth_step(plains, plains + 500.0, length(p));
+    return smooth_step(plains, plains + 500.0, length(f.local));
 }
 
 // `forest` in `terrain.rs`.
-fn forest(p: vec2<f32>) -> f32 {
-    let n = fbm(p * 0.017, 3u, seed() + 70u);
+fn forest(p: vec2<f32>, f: Frame) -> f32 {
+    let q = f.local;
+    let n = fbm(q * 0.017, 3u, seed() + 70u);
     let ds = site_dist(p);
-    let far_out = afar(p);
+    let far_out = afar(f);
     var bare = 0.0;
     if far_out > 0.0 {
-        bare = relief.wilds.x * far_out * fbm(p * 0.0021, 2u, seed() + 72u);
+        bare = relief.wilds.x * far_out * fbm(q * 0.0021, 2u, seed() + 72u);
     }
     let radius = relief.town.y;
     return smooth_step(-0.12 + bare, 0.22 + bare, n)
         * smooth_step(radius + 2.0, radius + 12.0, ds);
 }
 
-// The share of heath in the grass at `p`: none near the middle, and far out
-// in some regions. Only the ground's colour needs it, so the CPU has none.
-fn heath(p: vec2<f32>) -> f32 {
-    let far_out = afar(p);
+// The share of heath in the grass at a point: none near the middle, and far
+// out in some regions. Only the ground's colour needs it, so the CPU has none.
+fn heath(f: Frame) -> f32 {
+    let far_out = afar(f);
     if far_out <= 0.0 {
         return 0.0;
     }
-    let share = fbm(p * 0.0016, 2u, seed() + 73u);
+    let share = fbm(f.local * 0.0016, 2u, seed() + 73u);
     return relief.wilds.y * far_out * smooth_step(0.05, 0.4, share);
 }
 
@@ -297,11 +333,12 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     // Texels lie on the grid's points, the first at the page's corner.
     let p = level.page.xy + vec2<f32>(id.xy) * level.page.z;
+    let f = frame_of(p);
     // The height as its bits; then the woods and the heath as two shares of
     // 8 bits, and the distance out from the shore over `SHORE_REACH` either
     // way in 16. Half what four floats would take, and the height exact.
-    let shares = pack4x8unorm(vec4<f32>(forest(p), heath(p), 0.0, 0.0)) & 0xffffu;
-    let out = shore_dist(p) / SHORE_REACH * 0.5 + 0.5;
+    let shares = pack4x8unorm(vec4<f32>(forest(p, f), heath(f), 0.0, 0.0)) & 0xffffu;
+    let out = shore_dist(f) / SHORE_REACH * 0.5 + 0.5;
     let packed = shares | (u32(round(out * 65535.0)) << 16u);
-    textureStore(page, id.xy, vec4<u32>(bitcast<u32>(height(p, level.page.w)), packed, 0u, 0u));
+    textureStore(page, id.xy, vec4<u32>(bitcast<u32>(height(p, f, level.page.w)), packed, 0u, 0u));
 }

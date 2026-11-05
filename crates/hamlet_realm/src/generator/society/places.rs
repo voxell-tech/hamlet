@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 
 use super::{Society, Town, TownId};
-use crate::generator::land::{Land, Unfit};
+use crate::generator::land::{IslandId, Land, Unfit};
 use crate::generator::layout::{HALL_PLOT, plot};
 
 /// Something that stands on a round of ground of its own, and can
@@ -16,6 +16,17 @@ pub enum Ground {
     Chief,
     /// The library, which is nobody's and everyone's.
     Library,
+}
+
+impl Ground {
+    /// The island the place stands on: towns on the hamlet island,
+    /// everything else in the city.
+    pub fn island(self) -> IslandId {
+        match self {
+            Ground::Town(_) => IslandId::Hamlet,
+            _ => IslandId::City,
+        }
+    }
 }
 
 /// The ground held by a place that is not a town.
@@ -98,6 +109,9 @@ impl Society {
         let Some((_, radius)) = self.stands(land, place) else {
             return Err(Unfit::Crowded);
         };
+        if land.island_at(to) != place.island() {
+            return Err(Unfit::Elsewhere);
+        }
         // The ground a town was founded on takes it back as it is.
         let home = match place {
             Ground::Town(id) => self

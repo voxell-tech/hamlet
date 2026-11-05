@@ -8,6 +8,7 @@ use hamlet_client::realm::{self as agents, Deeds, HamletId};
 use hamlet_client::{ViewFolder, gifts};
 
 use crate::chief::{Kept, Player, Stands};
+use crate::generator::land::Land;
 use crate::generator::society::Ground;
 use crate::hamlet::{hamlet_of, town_of};
 use crate::hand::{self, Wish};
@@ -104,7 +105,11 @@ fn set_down(world: &mut World, set: SetDown) {
             else {
                 return;
             };
-            let (x, z) = (set.to.x, set.to.y);
+            // The record keeps a town's place from its island's
+            // middle, which moves.
+            let to =
+                set.to - world.resource::<Land>().hamlet_centre();
+            let (x, z) = (to.x, to.y);
             world.trigger(Decree {
                 text: format!("/move-hamlet {name} {x:.1} {z:.1}"),
                 hamlet: Some(name),

@@ -1018,7 +1018,8 @@ pub struct Consulted {
     pub agent: Option<Entity>,
 }
 
-/// A town's optional place in the world.
+/// A town's optional place on the hamlet island, measured from its
+/// middle.
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
 pub struct Spot(pub Option<(f32, f32)>);
 

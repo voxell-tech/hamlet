@@ -1,5 +1,5 @@
 //! The library in the world: a stone house under a dome, on ground of
-//! its own beside the first town and in no hamlet. It stands for the
+//! its own beside the Hand's tower in the city. It stands for the
 //! skills every agent shares.
 
 mod build;
@@ -13,7 +13,7 @@ pub use self::librarian::Librarian;
 use self::librarian::{ATTENDS, LOOK, STANDS, sage};
 use crate::chief::mascot::{self, Rig};
 use crate::chief::{Chief, Settled, place};
-use crate::generator::land::Land;
+use crate::generator::land::{IslandId, Land};
 use crate::generator::society::{Claim, Ground, Society};
 use crate::lantern::NightLight;
 use crate::palette::Palette;
@@ -87,7 +87,7 @@ pub struct Library {
 }
 
 /// Stands the library in the world, once every chief there is has
-/// its own place: beside the first town, on ground nothing else
+/// its own place: beside the Hand's tower, on ground nothing else
 /// holds.
 fn raise(
     mut commands: Commands,
@@ -110,7 +110,9 @@ fn raise(
         .map(|town| land.sites[town.site].at)
         .chain(society.claims.iter().map(|claim| claim.at))
         .collect::<Vec<_>>();
-    let Some(at) = stood.0.or_else(|| place::stand(&land, &taken))
+    let kept =
+        stood.0.filter(|at| land.island_at(*at) == IslandId::City);
+    let Some(at) = kept.or_else(|| place::stand(&land, &taken))
     else {
         return;
     };
@@ -119,13 +121,8 @@ fn raise(
         at,
         radius: land.set.town.keep_apart * 0.5,
     });
-    // The door looks toward the first town.
-    let home = land
-        .sites
-        .iter()
-        .find(|site| site.buildable)
-        .map_or(Vec2::ZERO, |site| site.at);
-    let toward = (home - at).normalize_or(Vec2::Y);
+    // The door looks toward the Hand's tower.
+    let toward = (-at).normalize_or(Vec2::Y);
     let (walls, glass) = build::build(&pal);
     let glow = pal.glass_lit.to_linear();
     let lit = materials.add(StandardMaterial {

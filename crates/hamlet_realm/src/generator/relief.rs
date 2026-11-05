@@ -40,7 +40,7 @@ use hamlet_vfx::ground::{GroundMaterial, LEVELS, PagesUniform};
 use hamlet_vfx::patch;
 use hamlet_vfx::water::WaterMaterial;
 
-use super::land::Land;
+use super::land::{IslandId, Land};
 use super::{DetailSettings, Kit};
 use crate::WorldCamera;
 
@@ -90,7 +90,8 @@ struct ReliefInput {
     sea: Vec4,
     /// `shelf` and `rim`.
     rim: Vec4,
-    /// `site_y`, the towns' radius, and the way the rivers run.
+    /// `site_y`, the towns' radius, and the way the rivers run,
+    /// which are measured from the hamlet island's middle.
     town: Vec4,
     /// `river_gap`, `bends` and the scale of the `kinks`.
     river: Vec4,
@@ -98,9 +99,13 @@ struct ReliefInput {
     drift: Vec4,
     /// `wilds` and `heath`.
     wilds: Vec4,
-    /// The seed, and how many sites, shores and held rounds there
-    /// are in `points`.
+    /// The seed, and how many sites and shores of the city island
+    /// and of the hamlet island there are in `points`.
     counts: UVec4,
+    /// How many held rounds there are in `points`.
+    held: UVec4,
+    /// The middles of the city island and of the hamlet island.
+    centres: Vec4,
     #[shader(size(runtime))]
     points: Vec<Vec4>,
 }
@@ -115,15 +120,31 @@ impl ReliefInput {
             .iter()
             .map(|s| point(s.at))
             .collect::<Vec<_>>();
-        let shores = land.shores().map(point).collect::<Vec<_>>();
+        let shores = |id: IslandId| {
+            land.island(id)
+                .shores
+                .iter()
+                .copied()
+                .map(point)
+                .collect::<Vec<_>>()
+        };
+        let (city, hamlet) =
+            (shores(IslandId::City), shores(IslandId::Hamlet));
         let holds = land.hold_levels().collect::<Vec<_>>();
         let counts = UVec4::new(
             land.seed,
             sites.len() as u32,
-            shores.len() as u32,
-            holds.len() as u32,
+            city.len() as u32,
+            hamlet.len() as u32,
         );
-        let points = [sites, shores, holds].concat();
+        let held = UVec4::new(holds.len() as u32, 0, 0, 0);
+        let (city_at, hamlet_at) = (
+            land.island(IslandId::City).centre,
+            land.hamlet_centre(),
+        );
+        let centres =
+            Vec4::new(city_at.x, city_at.y, hamlet_at.x, hamlet_at.y);
+        let points = [sites, city, hamlet, holds].concat();
         Self {
             plains: Vec4::new(
                 set.plain_y,
@@ -182,6 +203,8 @@ impl ReliefInput {
             ),
             wilds: Vec4::new(set.wilds, set.heath, 0.0, 0.0),
             counts,
+            held,
+            centres,
             points,
         }
     }

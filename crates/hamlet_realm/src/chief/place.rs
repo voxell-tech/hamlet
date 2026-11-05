@@ -2,7 +2,7 @@
 //! meshes in the place's own frame, whose +Z is the way the door
 //! faces.
 
-use std::f32::consts::{FRAC_PI_4, TAU};
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, TAU};
 
 use bevy::prelude::*;
 
@@ -13,34 +13,23 @@ use crate::lantern::lantern_cage;
 use crate::meshes::{Meshing, Rng};
 use crate::palette::Palette;
 
-/// The site of a chief's place, clear of the middles in `taken`: the
-/// last neighbour of the first town a new town would be founded on.
-/// None when the land has no room left.
+/// The spot of a chief's place or of the library in the city, clear
+/// of the middles in `taken`: on the ring about the Hand's tower,
+/// starting at the side off the harbor. None when the ring is full.
 pub fn stand(land: &Land, taken: &[Vec2]) -> Option<Vec2> {
-    let spacing = land.set.land.site_spacing;
-    let first = land.sites.iter().position(|site| site.buildable)?;
-    let home = land.sites[first].at;
+    let set = &land.set.land;
     let free = |at: Vec2| {
-        taken.iter().all(|other| other.distance(at) > spacing * 0.5)
+        taken
+            .iter()
+            .all(|other| other.distance(at) > set.site_spacing * 0.5)
     };
-    let open = land
-        .sites
-        .iter()
-        .enumerate()
-        .filter(|(i, site)| {
-            *i != first && site.buildable && free(site.at)
+    let first = land.bearing().to_angle() + FRAC_PI_2;
+    (0..6)
+        .map(|i| {
+            let turn = first + i as f32 * TAU / 6.0;
+            Vec2::from_angle(turn) * set.city_ring
         })
-        .map(|(_, site)| site.at)
-        .collect::<Vec<_>>();
-    open.iter()
-        .rev()
-        .find(|at| at.distance(home) < spacing * 1.5)
-        .or_else(|| {
-            open.iter().min_by(|a, b| {
-                a.distance(home).total_cmp(&b.distance(home))
-            })
-        })
-        .copied()
+        .find(|&at| free(at) && land.suits(at).is_ok())
 }
 
 /// The mascot's pastime at a spot of its grounds.

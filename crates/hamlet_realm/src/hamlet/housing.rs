@@ -84,8 +84,11 @@ pub(super) fn house(
                 // At the spot its chief set it down, or on the first
                 // free site.
                 let town = match spot.0 {
-                    Some((x, z)) => society
-                        .found_town_at(&mut land, Vec2::new(x, z)),
+                    Some((x, z)) => {
+                        let at =
+                            land.hamlet_centre() + Vec2::new(x, z);
+                        society.found_town_at(&mut land, at)
+                    }
                     None => society.found_town(&mut land),
                 };
                 commands.entity(hamlet).try_insert(Sited(town));
@@ -173,7 +176,7 @@ pub(super) fn resite(
         let Some((x, z)) = spot.0 else {
             continue;
         };
-        let to = Vec2::new(x, z);
+        let to = land.hamlet_centre() + Vec2::new(x, z);
         let stands = society
             .town(sited.0)
             .map(|town| land.sites[town.site].at);

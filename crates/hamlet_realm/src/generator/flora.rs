@@ -11,7 +11,7 @@ use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 use hamlet_vfx::leaves::{Stroke, tint};
 
-use super::land::Land;
+use super::land::{IslandId, Land};
 use super::noise::{key, unit};
 use crate::meshes::{Meshing, Rng, smoothstep};
 use crate::palette::Palette;
@@ -346,35 +346,58 @@ fn conifer(
 }
 
 /// The trees that stand between `lo` and `hi`, one in `every` of
-/// them, each grown to cover the ground of those left out.
+/// them, each grown to cover the ground of those left out. Each
+/// island scatters its own on a grid that moves with it.
 pub fn trees(
     land: &Land,
     lo: Vec2,
     hi: Vec2,
     every: u32,
 ) -> Vec<Tree> {
-    let (cell, origin) =
-        (land.set.land.tree_cell, land.set.land.tree_origin);
+    let mut out = Vec::new();
+    for id in IslandId::BOTH {
+        let middle = land.island(id).centre;
+        if middle.clamp(lo, hi).distance(middle) < land.extent(id) {
+            scatter(land, id, (lo, hi), every, &mut out);
+        }
+    }
+    out
+}
+
+/// Adds the trees of island `id` that stand within `tile`.
+fn scatter(
+    land: &Land,
+    id: IslandId,
+    (lo, hi): (Vec2, Vec2),
+    every: u32,
+    out: &mut Vec<Tree>,
+) {
+    let cell = land.set.land.tree_cell;
+    let origin = land.island(id).centre + land.set.land.tree_origin;
+    let salt = match id {
+        IslandId::Hamlet => 71,
+        IslandId::City => 74,
+    };
     let first = ((lo - origin) / cell).floor() - 1.0;
     let last = ((hi - origin) / cell).floor();
     let grown = (every as f32).sqrt();
-    let mut out = Vec::new();
     for cx in first.x as i32..=last.x as i32 {
         for cz in first.y as i32..=last.y as i32 {
-            let h = key(&[land.seed, 71, cx as u32, cz as u32]);
+            let h = key(&[land.seed, salt, cx as u32, cz as u32]);
             if every > 1 && !key(&[h, 8]).is_multiple_of(every) {
                 continue;
             }
             let roll = |salt: u32| unit(key(&[h, salt]));
             let p = Vec2::new(
-                (cx as f32 + roll(0)) * cell + origin,
-                (cz as f32 + roll(1)) * cell + origin,
+                (cx as f32 + roll(0)) * cell + origin.x,
+                (cz as f32 + roll(1)) * cell + origin.y,
             );
             if p.cmplt(lo).any() || p.cmpge(hi).any() {
                 continue;
             }
             if land.site_dist(p) < land.set.town.radius + 1.5
                 || land.is_held(p, 1.5)
+                || land.island_at(p) != id
             {
                 continue;
             }
@@ -420,7 +443,6 @@ pub fn trees(
             });
         }
     }
-    out
 }
 
 /// The share of broadleaves in blossom at `p`: more near a town.

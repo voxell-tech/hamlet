@@ -17,8 +17,21 @@ use crate::palette::Palette;
 use crate::{Clock, Stock};
 
 /// The land as designed, from `seed`.
-pub(crate) fn land(seed: u32) -> Land {
+pub(crate) fn designed_land(seed: u32) -> Land {
     Land::new(seed, GeneratorSettings::default(), Palette::default())
+}
+
+/// The settings with islands whose radii round up to a step too wide
+/// to cross, so that founding towns never moves the hamlet island.
+pub(crate) fn still() -> GeneratorSettings {
+    let mut set = GeneratorSettings::default();
+    set.land.island_step = 3000.0;
+    set
+}
+
+/// [`designed_land`] with the hamlet island held still.
+pub(crate) fn land(seed: u32) -> Land {
+    Land::new(seed, still(), Palette::default())
 }
 
 /// [`land`] with a town on every site it has, so that the island

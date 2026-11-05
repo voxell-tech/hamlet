@@ -94,9 +94,10 @@ impl LandData {
             self.set.town.gate_radius + 12.0,
             ds,
         );
+        let q = (p - self.hamlet_centre()) * 0.021;
         p + Vec2::new(
-            perlin(p * 0.021, self.seed + 90),
-            perlin(p * 0.021, self.seed + 91),
+            perlin(q, self.seed + 90),
+            perlin(q, self.seed + 91),
         ) * 6.5
             * fade
     }

@@ -70,8 +70,8 @@ fn a_wood_is_the_same_whatever_was_looked_at_before() {
     let detail = DetailSettings::default();
     let tile = Tile {
         level: 1,
-        x: 2,
-        z: 2,
+        x: 0,
+        z: 0,
     };
     let stand = Stand::of(&detail, tile);
     let first = grove(&land, tile, stand);

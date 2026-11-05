@@ -11,7 +11,7 @@ use super::mascot::Rig;
 use super::{
     Chief, ChiefSettings, Look, Mascot, Place, Settled, Stands, place,
 };
-use crate::generator::land::Land;
+use crate::generator::land::{IslandId, Land};
 use crate::generator::society::{Claim, Ground, Society};
 use crate::generator::{flora, glow};
 use crate::lantern::lantern_glass;
@@ -107,19 +107,17 @@ pub(super) fn settle(
         .chain(society.claims.iter().map(|claim| claim.at))
         .collect::<Vec<_>>();
     for (chief, stands) in &new {
-        let chosen = stands.map(|stands| stands.0);
+        // A place kept from before the islands may lie in the sea.
+        let chosen = stands
+            .map(|stands| stands.0)
+            .filter(|at| land.island_at(*at) == IslandId::City);
         let Some(at) = chosen.or_else(|| place::stand(&land, &taken))
         else {
             continue;
         };
         taken.push(at);
-        // The door looks toward the first town.
-        let home = land
-            .sites
-            .iter()
-            .find(|site| site.buildable)
-            .map_or(Vec2::ZERO, |site| site.at);
-        let toward = (home - at).normalize_or(Vec2::Y);
+        // The door looks toward the Hand's tower.
+        let toward = (-at).normalize_or(Vec2::Y);
         let yaw = toward.x.atan2(toward.y);
         let frame = Transform::from_translation(land.on_ground(at))
             .with_rotation(Quat::from_rotation_y(yaw));

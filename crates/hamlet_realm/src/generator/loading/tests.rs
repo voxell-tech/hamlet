@@ -71,6 +71,11 @@ fn look(app: &mut App, focus: Vec2, far: f32) {
         app.update();
         let loading = app.world().resource::<Loading>();
         if loading.is_done() && loading.tiles().1 == 0 {
+            // Tiles of open sea come at once, and the ones they
+            // replace go a frame later.
+            for _ in 0..3 {
+                app.update();
+            }
             return;
         }
         assert!(began.elapsed() < Duration::from_secs(120));
@@ -202,7 +207,8 @@ fn the_woods_are_there_before_a_camera_that_is_on_its_way() {
 #[test]
 fn woods_a_town_comes_to_or_leaves_are_found_anew() {
     let mut app = app();
-    look(&mut app, Vec2::ZERO, 72.0);
+    let focus = app.world().resource::<Land>().hamlet_centre();
+    look(&mut app, focus, 72.0);
     let entities = |app: &mut App| {
         app.world()
             .resource::<Loading>()
@@ -215,7 +221,9 @@ fn woods_a_town_comes_to_or_leaves_are_found_anew() {
         let mut land = app.world_mut().resource_mut::<Land>();
         let from = land.sites[0].at;
         let to = (0..600)
-            .map(|i| Vec2::from_angle(i as f32) * (60.0 + i as f32))
+            .map(|i| {
+                focus + Vec2::from_angle(i as f32) * (60.0 + i as f32)
+            })
             .find(|&p| {
                 land.suits(p).is_ok()
                     && land
@@ -227,7 +235,7 @@ fn woods_a_town_comes_to_or_leaves_are_found_anew() {
         land.move_site(0, to);
         (from, to)
     };
-    look(&mut app, Vec2::ZERO, 72.0);
+    look(&mut app, focus, 72.0);
     let after = entities(&mut app);
     let anew = |tile: &Tile| before.get(tile) != after.get(tile);
     let near = |tile: &Tile, at: Vec2| {
