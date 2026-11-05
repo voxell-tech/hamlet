@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by [0012](0012-the-realm-is-a-database-of-tables-changed-in-transactions-with-a-jobs-outbox.md) and [0011](0011-scholars-are-git-repositories-hires-are-branches-lodges-are-checkouts.md)
 ---
 
 # The home is the server's store, the harnesses' stores and files

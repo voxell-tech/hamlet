@@ -5,11 +5,11 @@ status: accepted
 # The server queries its store through Diesel
 
 The server reaches `realm.sqlite` through Diesel's SQLite backend, on
-the one connection `Store` holds. Each query is written in Diesel's
-query builder against `schema.rs`, which `cargo test -p hamlet_server`
-generates from the store's schema and rewrites when it is stale. The
-schema stays the SQL beside each module, created in one transaction for
-a new store, and a store of another version is still refused.
+the connections `hamlet_store` opens. Each query is written in Diesel's
+query builder against `schema.rs`, which `cargo test -p hamlet_store`
+generates from `schema.sql` and rewrites when it is stale. The schema is
+that one SQL file, created in one transaction for a new store, and a store of
+an incompatible version is refused (ADR 0013).
 
 ## Considered options
 
