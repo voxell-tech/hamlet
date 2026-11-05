@@ -16,6 +16,7 @@ mod knowledge;
 mod layout;
 mod realm;
 mod society;
+mod talk;
 #[cfg(test)]
 mod testing;
 mod text;
