@@ -1,4 +1,4 @@
-//! The notes, character and prompt gallery scenes.
+//! The memory, character and prompt gallery scenes.
 
 use bevy::ecs::world::World;
 use hamlet_app::Convo;
@@ -11,7 +11,7 @@ use crate::scenes::Scene;
 pub(super) fn setup(world: &mut World, scene: Scene) {
     if matches!(
         scene,
-        Scene::Notes | Scene::Character | Scene::Prompt
+        Scene::Memory | Scene::Character | Scene::Prompt
     ) {
         keep_notes(world);
         // The thread with its details open beside it.
@@ -59,7 +59,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
 }
 
-/// Sample papers received for the Notes page.
+/// Sample papers received for the Memory page.
 fn keep_notes(world: &mut World) {
     let character = String::from(
         "You are **Juniper**, the orchard's keeper of notes.\n\n- \

@@ -567,7 +567,7 @@ fn reader() -> impl View {
     })
 }
 
-/// The Archive page.
+/// The sessions page.
 pub fn screen() -> AnyView {
     hub::of_agent("SESSIONS", || {
         keyed(

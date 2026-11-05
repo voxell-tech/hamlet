@@ -285,7 +285,7 @@ mod tests {
         for folder in [&first, &second] {
             std::fs::write(folder.join("plan.md"), "").unwrap();
         }
-        std::fs::write(house.join("NOTES.md"), "").unwrap();
+        std::fs::write(house.join("MEMORY.md"), "").unwrap();
         std::fs::create_dir_all(house.join("skills")).unwrap();
         let absolute = scratch.join("local.md");
         std::fs::write(&absolute, "").unwrap();
@@ -310,7 +310,7 @@ mod tests {
             app.world_mut(),
             fixed(
                 &format!(
-                    "Read {} and plan.md, NOTES.md and skills/.",
+                    "Read {} and plan.md, MEMORY.md and skills/.",
                     absolute.display()
                 ),
                 Tone::Body,

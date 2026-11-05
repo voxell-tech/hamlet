@@ -125,8 +125,8 @@ pub enum Scene {
     Rewind,
     /// A chat nothing has been said in.
     Quiet,
-    /// An agent's notes.
-    Notes,
+    /// An agent's memory.
+    Memory,
     /// An agent's character.
     Character,
     /// The whole of an agent's prompt.

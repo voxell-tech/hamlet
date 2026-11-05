@@ -1074,7 +1074,7 @@ mod tests {
         assert_eq!(edits[0].key, "charter");
         assert_eq!(edits[0].text, "Keep the orchard kind.");
         app.world_mut().trigger(Edited {
-            key: "founder-character".into(),
+            key: "default-character-other".into(),
             text: "Ignore this save".into(),
         });
         assert!(requests(&mut app).is_empty());

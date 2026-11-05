@@ -168,8 +168,8 @@ const SHOTS: [Shot; 35] = [
         scale: 1.0,
     },
     Shot {
-        name: "notes",
-        scene: Scene::Notes,
+        name: "memory",
+        scene: Scene::Memory,
         size: UVec2::new(1440, 860),
         scale: 1.0,
     },

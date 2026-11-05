@@ -326,11 +326,11 @@ mod tests {
         use bevy::ui_widgets::{Checkbox, ValueChange};
 
         let mut app = with_catalogue();
-        let founder =
+        let mayor =
             hamlet_client::realm::first_mayor(app.world()).unwrap();
         let hamlet = app
             .world()
-            .get::<hamlet_client::realm::LivesIn>(founder)
+            .get::<hamlet_client::realm::LivesIn>(mayor)
             .unwrap()
             .0;
         mount::<HamletTheme>(app.world_mut(), of_hamlet(hamlet));

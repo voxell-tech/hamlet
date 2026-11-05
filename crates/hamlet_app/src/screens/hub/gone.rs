@@ -183,7 +183,7 @@ pub(crate) fn of_agent(
                 Some(name) => {
                     format!("{}: {what}", name.to_uppercase())
                 }
-                None => format!("THE MAYOR: {what}"),
+                None => format!("THE HAND: {what}"),
             };
             let body = body();
             with_cx(move |cx| {

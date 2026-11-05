@@ -840,7 +840,7 @@ mod tests {
             .query_filtered::<Entity, With<EditableText>>()
             .single(world)
             .unwrap();
-        for command in ["/new", "/agent founder", "/hamlet home"] {
+        for command in ["/new", "/agent ada", "/hamlet home"] {
             app.world_mut()
                 .resource_mut::<InputFocus>()
                 .set(input, FocusCause::Pressed);
@@ -865,7 +865,7 @@ mod tests {
                         or right-click an agent or a hamlet."
             ));
         }
-        send(app.world_mut(), "/agent founder".into());
+        send(app.world_mut(), "/agent ada".into());
         send(app.world_mut(), "/hamlet home".into());
         assert!(!app.world().resource::<Outbox>().iter().any(
             |message| matches!(
