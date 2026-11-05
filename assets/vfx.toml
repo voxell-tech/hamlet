@@ -60,6 +60,10 @@ curl = 0.08
 light = 0.9
 night = 0.35
 
+[wind_strength]
+least = 0.15
+most = 1.0
+
 [flag]
 speed = 5.0
 swing = 0.11

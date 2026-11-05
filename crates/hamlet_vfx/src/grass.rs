@@ -33,7 +33,7 @@ use crate::ground::{
     BloomsUniform, PagesUniform, SoilUniform, blank_pages,
 };
 use crate::leaves::LeafView;
-use crate::wind::{WindSettings, WindUniform};
+use crate::wind::{WindSettings, WindStrength, WindUniform};
 use crate::{Now, NowOffset, VfxSystems};
 
 /// Shapes of tuft. `SHAPES` in `grass_shape.wesl`.
@@ -583,6 +583,7 @@ fn sway(
     now: Res<Now>,
     set: Res<GrassSettings>,
     wind: Res<WindSettings>,
+    strength: Res<WindStrength>,
     view: Res<LeafView>,
     grass: Option<ResMut<Grass>>,
 ) {
@@ -598,7 +599,7 @@ fn sway(
         current.mask_at,
     );
     grass.grass = next;
-    grass.wind = wind.uniform();
+    grass.wind = wind.uniform(*strength);
 }
 
 /// A number from 0 to 1 that follows from `i` and `k` alone.

@@ -25,6 +25,7 @@ use hamlet_realm::sky::{
 };
 use hamlet_realm::sound::SoundSettings;
 use hamlet_realm::{North, chief};
+use hamlet_vfx::wind::WindStrength;
 use serde::{Deserialize, Serialize};
 
 use crate::PanelSystems;
@@ -104,6 +105,10 @@ pub struct View {
     volumetric_fog: VolumetricFogSettings,
     #[serde(default, deserialize_with = "kept_or_designed")]
     distance_fog: DistanceFogSettings,
+    /// How hard the wind blows as the chief left it;
+    /// `assets/vfx.toml`'s before it was kept.
+    #[serde(default, deserialize_with = "kept_or_designed")]
+    wind_strength: WindStrength,
     /// Degrees the sun's path is turned.
     #[serde(default)]
     north: f32,
@@ -295,6 +300,7 @@ pub fn restore(world: &mut World) {
     *world.resource_mut::<Quality>() = view.quality;
     world.insert_resource(view.volumetric_fog);
     world.insert_resource(view.distance_fog);
+    world.insert_resource(view.wind_strength);
     // North starts where it was left, without a glide.
     let north = view.north.rem_euclid(360.0);
     world.insert_resource(NorthTarget(north));
@@ -343,9 +349,10 @@ pub fn keep(
         Res<Kept>,
         Res<NorthTarget>,
     ),
-    (fog, far): (
+    (fog, far, wind): (
         Res<VolumetricFogSettings>,
         Res<DistanceFogSettings>,
+        Res<WindStrength>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -359,6 +366,7 @@ pub fn keep(
         || awake.is_changed()
         || fog.is_changed()
         || far.is_changed()
+        || wind.is_changed()
         || north.is_changed()
     {
         *due = Some(now + SETTLE);
@@ -380,6 +388,7 @@ pub fn keep(
         quality: *quality,
         volumetric_fog: fog.clone(),
         distance_fog: far.clone(),
+        wind_strength: *wind,
         north: north.0,
         dock: Vec::new(),
         desks: Some(desks.clone()),
@@ -438,6 +447,10 @@ mod tests {
                 ..VolumetricFogSettings::default()
             },
             distance_fog: DistanceFogSettings { distance: 1200.0 },
+            wind_strength: WindStrength {
+                least: 0.3,
+                most: 1.4,
+            },
             north: 45.0,
             dock: Vec::new(),
             desks,
@@ -466,6 +479,7 @@ mod tests {
                 .init_resource::<Quality>()
                 .init_resource::<VolumetricFogSettings>()
                 .init_resource::<DistanceFogSettings>()
+                .init_resource::<WindStrength>()
                 .init_resource::<North>()
                 .init_resource::<NorthTarget>()
                 .init_resource::<KeepAwake>()

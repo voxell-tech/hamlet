@@ -10,7 +10,9 @@ use bevy::render::render_resource::{AsBindGroup, Face, ShaderType};
 use bevy::shader::ShaderRef;
 use bevy::window::RequestRedraw;
 
-use crate::wind::{WindSettings, WindUniform, downwind};
+use crate::wind::{
+    WindSettings, WindStrength, WindUniform, downwind,
+};
 use crate::{Now, NowOffset, VfxSystems};
 
 pub type FlagMaterial = ExtendedMaterial<StandardMaterial, FlagExt>;
@@ -201,6 +203,7 @@ fn wave(
     offset: Res<NowOffset>,
     set: Res<FlagSettings>,
     wind: Res<WindSettings>,
+    strength: Res<WindStrength>,
     waving: Res<Waving>,
     mut flags: Query<(&mut Transform, Option<&ChildOf>), With<Cloth>>,
     masts: Query<&GlobalTransform>,
@@ -211,13 +214,14 @@ fn wave(
     if told.replace((now.0, *offset)) == Some((now.0, *offset))
         && !set.is_changed()
         && !wind.is_changed()
+        && !strength.is_changed()
         && !waving.is_changed()
     {
         return;
     }
     // `get_mut` alone marks a material changed, so only one that
     // differs is taken.
-    let blowing = wind.uniform();
+    let blowing = wind.uniform(*strength);
     for (long, waving) in &waving.0 {
         let next = uniform(&set, *offset, *long);
         let changed = materials.get(waving).is_some_and(|waving| {

@@ -17,7 +17,7 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::{ShaderRef, load_shader_library};
 
-use crate::wind::{WindSettings, WindUniform};
+use crate::wind::{WindSettings, WindStrength, WindUniform};
 use crate::{NowOffset, VfxSystems};
 
 pub type LeafMaterial = ExtendedMaterial<StandardMaterial, LeafExt>;
@@ -231,9 +231,10 @@ fn sway(
     set: Res<LeafSettings>,
     view: Res<LeafView>,
     wind: Res<WindSettings>,
+    strength: Res<WindStrength>,
     mut materials: ResMut<Assets<LeafMaterial>>,
 ) {
-    let blowing = wind.uniform();
+    let blowing = wind.uniform(*strength);
     let ids = materials.ids().collect::<Vec<_>>();
     for id in ids {
         let Some(leaves) = materials.get(id) else {
