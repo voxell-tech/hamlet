@@ -16,7 +16,7 @@
           "id": "dc326bf3-b8e6-4e0a-8eba-219c3f307f91",
           "workspace": "fixture", "agent": 1,
           "project": false, "network": false, "read_only": false,
-          "operation": {"kind": "exec", "argv": ["/bin/bash", "-c", "touch /house/cancelled-escape"], "cwd": "/house", "timeout_ms": 10000}
+          "operation": {"kind": "exec", "argv": ["/bin/bash", "-c", "touch /lodge/cancelled-escape"], "cwd": "/lodge", "timeout_ms": 10000}
         }
       },
       "reply": {"kind": "error", "code": "aborted", "message": "Workspace operation cancelled before admission. Nothing was run.", "uncertain": false}
@@ -31,7 +31,7 @@
           "workspace": "fixture", "agent": 1,
           "project": false, "network": false, "read_only": false,
           "library": {"sha256": "e20ab8a0a1233a31f8a33f8a93850d939a3b83bdc4fe3713e6893af3bd9c5e07", "files": [{"path": "proof.txt", "data": "c2hhcmVkLTE3Cg==", "mode": 420}]},
-          "operation": {"kind": "exec", "argv": ["/bin/bash", "-c", "cat /library/proof.txt; if (printf wrong > /library/proof.txt) 2>/dev/null; then exit 7; fi"], "cwd": "/house", "timeout_ms": 10000}
+          "operation": {"kind": "exec", "argv": ["/bin/bash", "-c", "cat /library/proof.txt; if (printf wrong > /library/proof.txt) 2>/dev/null; then exit 7; fi"], "cwd": "/lodge", "timeout_ms": 10000}
         }
       },
       "reply": {"kind": "ok", "value": {"exitCode": 0, "stdout": "shared-17\n", "stderr": ""}}
@@ -50,7 +50,7 @@
           "read_only": false,
           "operation": {
             "kind": "write",
-            "path": "/house/greeting.txt",
+            "path": "/lodge/greeting.txt",
             "data": "aMOpbGxvLCB3w7ZybGQg4pyTCg==",
             "append": false
           }
@@ -73,7 +73,7 @@
           "read_only": false,
           "operation": {
             "kind": "write",
-            "path": "/house/blob.bin",
+            "path": "/lodge/blob.bin",
             "data": "AP/+gAo=",
             "append": false
           }
@@ -96,7 +96,7 @@
           "read_only": false,
           "operation": {
             "kind": "write",
-            "path": "/house/greeting.txt",
+            "path": "/lodge/greeting.txt",
             "data": "aMOpbGxvLCB3w7ZybGQg4pyTCg==",
             "append": false
           }
@@ -125,7 +125,7 @@
           "operation": {
             "kind": "exec",
             "argv": ["/bin/bash", "-c", "printf out; printf err >&2; exit 3"],
-            "cwd": "/house",
+            "cwd": "/lodge",
             "timeout_ms": 10000
           }
         }
@@ -150,7 +150,7 @@
           "operation": {
             "kind": "exec",
             "argv": ["/bin/true"],
-            "cwd": "/house",
+            "cwd": "/lodge",
             "timeout_ms": 10000
           }
         }

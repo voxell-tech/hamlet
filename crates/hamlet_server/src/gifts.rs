@@ -247,6 +247,7 @@ impl Core {
             paths.push(format!("`inbox/{}`", file.path));
         }
         remove_folder(&staging)?;
+        self.push_lodge(upload.to).await?;
         let paths = paths.join(", ");
         let line = self.credentials.scrub_text(&format!(
             "I handed you {paths} in your lodge. Read it and do \

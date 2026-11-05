@@ -1,5 +1,5 @@
-//! Authenticated operations of each home's agents, confined to one
-//! house and its optional shared project.
+//! Authenticated operations of each realm's agents, confined to one
+//! lodge and its optional shared project.
 
 #[cfg(test)]
 mod tests;
@@ -38,12 +38,12 @@ const CANCELLED: &[u8] = b"cancelled";
 pub struct Configuration {
     listen: String,
     root: PathBuf,
-    /// Each home's name and the bearer token its Hamlet sends.
-    homes: HashMap<String, String>,
+    /// Each realm's name and the bearer token its Hamlet sends.
+    realms: HashMap<String, String>,
 }
 
 pub async fn run(config: Configuration) -> Result<()> {
-    let homes = tokens(&config.homes)?;
+    let realms = tokens(&config.realms)?;
     // A missing root is a missing volume, never a new workspace.
     let root = fs::canonicalize(&config.root).with_context(|| {
         format!(
@@ -52,7 +52,7 @@ pub async fn run(config: Configuration) -> Result<()> {
         )
     })?;
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
-    // A dot keeps the control root apart from every valid home name.
+    // A dot keeps the control root apart from every valid realm name.
     let control = root.join(".control");
     fs::create_dir_all(&control)?;
     fs::set_permissions(&control, fs::Permissions::from_mode(0o700))?;
@@ -73,7 +73,7 @@ pub async fn run(config: Configuration) -> Result<()> {
     let mut calls = http::listen(&config.listen).await?;
     let mut worker = Worker {
         root,
-        homes,
+        realms,
         network,
         running: HashMap::new(),
         tasks: JoinSet::new(),
@@ -101,10 +101,10 @@ pub async fn run(config: Configuration) -> Result<()> {
 /// What the worker's loop holds between calls.
 struct Worker {
     root: PathBuf,
-    /// Each home by [`bearer`] of its authorization.
-    homes: HashMap<[u8; 32], String>,
+    /// Each realm by [`bearer`] of its authorization.
+    realms: HashMap<[u8; 32], String>,
     network: PathBuf,
-    /// The cancel switch of each running operation, by home and id.
+    /// The cancel switch of each running operation, by realm and id.
     running: HashMap<String, watch::Sender<bool>>,
     /// The running operations, each ending with its key in
     /// `running`.
@@ -115,20 +115,20 @@ impl Worker {
     /// Answers one authenticated call, or starts the operation that
     /// will.
     fn on_call(&mut self, call: http::Call) -> Result<()> {
-        let (home_name, message) = match self.admitted(&call) {
+        let (realm_name, message) = match self.admitted(&call) {
             Ok(admitted) => admitted,
             Err(refused) => {
                 let _ = call.reply.send(refused);
                 return Ok(());
             }
         };
-        let home = self.root.join(&home_name);
-        let journal = home.join("operations");
+        let realm = self.root.join(&realm_name);
+        let journal = realm.join("operations");
         fs::create_dir_all(&journal)?;
         let id = message.id().to_owned();
         let marker = journal.join(&id);
         let result = journal.join(format!("{id}.json"));
-        let active_key = format!("{home_name}:{id}");
+        let active_key = format!("{realm_name}:{id}");
         match message {
             Message::Cancel { .. } => {
                 let state = if let Some(cancel) =
@@ -196,7 +196,7 @@ impl Worker {
                 let network = self.network.clone();
                 self.tasks.spawn(async move {
                     let reply =
-                        execute(&home, &network, request, cancelled)
+                        execute(&realm, &network, request, cancelled)
                             .await
                             .unwrap_or_else(|_| {
                                 Reply::error(
@@ -222,14 +222,14 @@ impl Worker {
         Ok(())
     }
 
-    /// The home and message of `call` when its token is a home's,
+    /// The realm and message of `call` when its token is a realm's,
     /// else the reply that refuses it.
     fn admitted(
         &self,
         call: &http::Call,
     ) -> Result<(String, Message), Reply> {
-        let home = self
-            .homes
+        let realm = self
+            .realms
             .get(&bearer(&call.authorization))
             .ok_or_else(|| {
                 Reply::error(
@@ -241,7 +241,7 @@ impl Worker {
             })?;
         match serde_json::from_slice::<Message>(&call.body) {
             Ok(message) if is_valid_id(message.id()) => {
-                Ok((home.clone(), message))
+                Ok((realm.clone(), message))
             }
             _ => Err(Reply::error(
                 Code::Invalid,
@@ -252,24 +252,24 @@ impl Worker {
     }
 }
 
-/// Each home by the digest of the authorization header its Hamlet
+/// Each realm by the digest of the authorization header its Hamlet
 /// sends, so a token is never compared byte by byte.
 fn tokens(
-    homes: &HashMap<String, String>,
+    realms: &HashMap<String, String>,
 ) -> Result<HashMap<[u8; 32], String>> {
-    if homes.is_empty() {
-        bail!("The worker serves no home");
+    if realms.is_empty() {
+        bail!("The worker serves no realm");
     }
     let mut tokens = HashMap::new();
-    for (home, token) in homes {
-        if !is_valid_name(home) || token.len() < 16 {
-            bail!("Invalid name or token of home {home:?}");
+    for (realm, token) in realms {
+        if !is_valid_name(realm) || token.len() < 16 {
+            bail!("Invalid name or token of realm {realm:?}");
         }
         if tokens
-            .insert(bearer(&format!("Bearer {token}")), home.clone())
+            .insert(bearer(&format!("Bearer {token}")), realm.clone())
             .is_some()
         {
-            bail!("Two homes share a token");
+            bail!("Two realms share a token");
         }
     }
     Ok(tokens)
@@ -315,19 +315,19 @@ fn save(path: &Path, reply: &Reply) -> Result<()> {
 /// Runs one operation under a trusted PID 1 in fresh namespaces. Only
 /// a network-granted operation gets loopback and the proxy socket.
 async fn execute(
-    home: &Path,
+    realm: &Path,
     network: &Path,
     request: Request,
     mut cancelled: watch::Receiver<bool>,
 ) -> Result<Reply> {
-    let workspace = home.join(&request.workspace);
-    let house =
-        workspace.join("houses").join(request.agent.to_string());
-    fs::create_dir_all(&house)?;
-    if fs::symlink_metadata(&house)?.is_symlink() {
-        bail!("House root is a symlink");
+    let workspace = realm.join(&request.workspace);
+    let lodge =
+        workspace.join("lodges").join(request.agent.to_string());
+    fs::create_dir_all(&lodge)?;
+    if fs::symlink_metadata(&lodge)?.is_symlink() {
+        bail!("Lodge root is a symlink");
     }
-    let library = match library(home, &request) {
+    let library = match library(realm, &request) {
         Ok(library) => library,
         Err(Missing) => {
             return Ok(Reply::error(
@@ -366,8 +366,8 @@ async fn execute(
         } else {
             "--bind"
         })
-        .arg(&house)
-        .arg("/house")
+        .arg(&lodge)
+        .arg("/lodge")
         .arg("--ro-bind")
         .arg(executable)
         .arg("/runner");
@@ -401,7 +401,7 @@ async fn execute(
     command
         .args([
             "--chdir",
-            "/house",
+            "/lodge",
             "--remount-ro",
             "/",
             "/runner",
@@ -465,13 +465,13 @@ struct Missing;
 /// `.library/<sha256>` and written there once from the files that
 /// came with it.
 fn library(
-    home: &Path,
+    realm: &Path,
     request: &Request,
 ) -> Result<Option<PathBuf>, Missing> {
     let Some(library) = &request.library else {
         return Ok(None);
     };
-    let parent = home.join(".library");
+    let parent = realm.join(".library");
     let named = library.sha256.len() == 64
         && library.sha256.bytes().all(|b| b.is_ascii_hexdigit());
     let root = parent.join(&library.sha256);

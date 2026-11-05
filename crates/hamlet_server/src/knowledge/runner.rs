@@ -12,6 +12,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::clock;
 use crate::diagnostic::{Secrets, tell};
+use crate::jobs::Job;
 use crate::layout::Layout;
 
 /// The longest the runner sleeps with nothing due.
@@ -26,25 +27,25 @@ pub(crate) struct Runner {
 /// the realm's repositories and lodges at once.
 pub(crate) type Writing = Arc<Mutex<()>>;
 
-/// Runs every job due now, holding `writing`. Returns how many ran.
+/// Runs every job due now, holding `writing`. Returns the jobs done.
 pub(crate) fn run_due(
     db: &mut hamlet_store::Db,
     layout: &Layout,
     writing: &Writing,
-) -> Result<usize> {
+) -> Result<Vec<Job>> {
     let _held =
         writing.lock().unwrap_or_else(PoisonError::into_inner);
-    let mut ran = 0;
+    let mut done = Vec::new();
     // A job may keep jobs of its own, which run in the next pass.
     for _ in 0..4 {
         let now = clock::now();
-        let count = super::run::due(db, layout, now)?;
-        ran += count;
-        if count == 0 {
+        let ran = super::run::due(db, layout, now)?;
+        if ran.is_empty() {
             break;
         }
+        done.extend(ran);
     }
-    Ok(ran)
+    Ok(done)
 }
 
 impl Runner {
@@ -53,7 +54,7 @@ impl Runner {
     /// after each pass that ran a job.
     pub fn start(
         layout: &Layout,
-        worked: UnboundedSender<()>,
+        worked: UnboundedSender<Vec<Job>>,
         writing: Writing,
     ) -> Result<Self> {
         let mut store = Store::open(&layout.database())?;
@@ -68,9 +69,9 @@ impl Runner {
                         &layout,
                         &writing,
                     ) {
-                        Ok(0) => {}
-                        Ok(_) => {
-                            if worked.send(()).is_err() {
+                        Ok(done) if done.is_empty() => {}
+                        Ok(done) => {
+                            if worked.send(done).is_err() {
                                 return;
                             }
                         }

@@ -32,3 +32,4 @@ mod talk;
 mod testing;
 mod text;
 mod work;
+mod workspace;

@@ -4340,6 +4340,7 @@ dependencies = [
 name = "hamlet_acceptance"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "futures",
  "hamlet_protocol",
  "hamlet_testing",
@@ -4535,6 +4536,7 @@ dependencies = [
  "interprocess",
  "jsonschema",
  "regex",
+ "reqwest",
  "ring",
  "schemars",
  "serde",

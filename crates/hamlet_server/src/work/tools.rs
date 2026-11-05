@@ -282,14 +282,22 @@ fn object(value: Value) -> BTreeMap<String, Value> {
     }
 }
 
-/// An agent's tools on this machine, under the sandbox.
-pub(crate) struct ToolSession {
-    place: Place,
-    /// Whether commands reach the network.
-    net: bool,
-    sandbox: Sandbox,
-    shells: Shells,
-    leftovers: Leftovers,
+/// An agent's tools: on this machine under the sandbox, or in a
+/// remote workspace, which never falls back to this machine.
+pub(crate) enum ToolSession {
+    Local {
+        place: Place,
+        /// Whether commands reach the network.
+        net: bool,
+        sandbox: Sandbox,
+        shells: Shells,
+        leftovers: Leftovers,
+    },
+    Remote {
+        place: Place,
+        session: crate::workspace::Session,
+        shells: Shells,
+    },
 }
 
 impl ToolSession {
@@ -300,12 +308,24 @@ impl ToolSession {
         shells: Shells,
         leftovers: Leftovers,
     ) -> Self {
-        Self {
+        Self::Local {
             place,
             net,
             sandbox,
             shells,
             leftovers,
+        }
+    }
+
+    /// The tools of `session`, whose library is read from `place`.
+    pub fn remote(
+        place: Place,
+        session: crate::workspace::Session,
+    ) -> Self {
+        Self::Remote {
+            place,
+            session,
+            shells: Shells::remote(),
         }
     }
 
@@ -317,23 +337,40 @@ impl ToolSession {
         &self,
         path: &str,
     ) -> Result<Option<String>, FileError> {
-        let Ok(mut env) = environment::Local::open(
-            self.sandbox,
-            &self.place,
-            false,
-            self.leftovers.clone(),
-        )
-        .await
-        else {
-            return Ok(Some(UNREADABLE.into()));
-        };
-        files::preview(&mut env, path).await
+        match self {
+            Self::Local {
+                place,
+                sandbox,
+                leftovers,
+                ..
+            } => {
+                let Ok(mut env) = environment::Local::open(
+                    *sandbox,
+                    place,
+                    false,
+                    leftovers.clone(),
+                )
+                .await
+                else {
+                    return Ok(Some(UNREADABLE.into()));
+                };
+                files::preview(&mut env, path).await
+            }
+            Self::Remote { session, .. } => {
+                let mut env =
+                    environment::Remote::new(session.clone());
+                files::preview(&mut env, path).await
+            }
+        }
     }
 
     /// Whether an edit of `path` stays in the agent's own lodge,
-    /// where the sandbox keeps it.
+    /// where the sandbox keeps it. A remote lodge is never taken as
+    /// one.
     pub fn is_lodge_edit(&self, path: &str) -> bool {
-        let place = &self.place;
+        let Self::Local { place, .. } = self else {
+            return false;
+        };
         let lodge = text(&place.lodge);
         let folder = place.folder.as_deref().map(text);
         let there =
@@ -357,43 +394,83 @@ impl ToolSession {
         tool: &str,
         arguments: &Map<String, Value>,
     ) -> Outcome {
-        let mut outcome = if is_built_in(&self.shells, tool) {
-            let net = self.net && self.shells.named(tool).is_some();
-            match environment::Local::open(
-                self.sandbox,
-                &self.place,
+        let mut outcome = match self {
+            Self::Local {
+                place,
                 net,
-                self.leftovers.clone(),
-            )
-            .await
-            {
-                Ok(mut env) => {
-                    reach_run(
-                        &mut env,
-                        &self.shells,
-                        &self.place,
-                        secrets,
-                        tool,
-                        arguments,
-                    )
-                    .await
+                sandbox,
+                shells,
+                leftovers,
+            } if is_built_in(shells, tool) => {
+                let net = *net && shells.named(tool).is_some();
+                match environment::Local::open(
+                    *sandbox,
+                    place,
+                    net,
+                    leftovers.clone(),
+                )
+                .await
+                {
+                    Ok(mut env) => {
+                        reach_run(
+                            &mut env, shells, place, secrets, tool,
+                            arguments,
+                        )
+                        .await
+                    }
+                    Err(unopened) => Outcome::thrown(
+                        "tool_error",
+                        unopened.to_string(),
+                    ),
                 }
-                Err(unopened) => Outcome::thrown(
-                    "tool_error",
-                    unopened.to_string(),
-                ),
             }
-        } else {
-            crate::work::added::run(
-                &self.sandbox,
-                &self.place.realm,
-                self.net,
-                &self.leftovers,
-                secrets,
-                tool,
-                arguments,
-            )
-            .await
+            Self::Local {
+                place,
+                net,
+                sandbox,
+                leftovers,
+                ..
+            } => {
+                crate::work::added::run(
+                    sandbox,
+                    &place.realm,
+                    *net,
+                    leftovers,
+                    secrets,
+                    tool,
+                    arguments,
+                )
+                .await
+            }
+            Self::Remote {
+                place,
+                session,
+                shells,
+            } => {
+                // The library is read once for all the call's
+                // requests.
+                let library = place.realm.join("library");
+                match session.clone().with_library(library).await {
+                    Err(failure) => {
+                        Outcome::thrown("tool_error", failure.message)
+                    }
+                    Ok(session) if is_built_in(shells, tool) => {
+                        let mut env =
+                            environment::Remote::new(session);
+                        reach_run(
+                            &mut env, shells, place, secrets, tool,
+                            arguments,
+                        )
+                        .await
+                    }
+                    // A tool added by hand runs on this machine,
+                    // which a remote workspace never falls back to.
+                    Ok(_) => Outcome::failed(format!(
+                        "The tool {tool} was added by hand and does \
+                         not run in a remote workspace."
+                    )),
+                }
+            }
         };
         scrub(secrets, &mut outcome);
         outcome

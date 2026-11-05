@@ -12,12 +12,12 @@ const FIXTURE: &str = include_str!(
     "../../../hamlet_workspace_wire/fixtures/protocol.json"
 );
 
-/// A worker on `root` serving the home `home` with [`TOKEN`].
+/// A worker on `root` serving the realm `realm` with [`TOKEN`].
 fn worker(root: &Path) -> Worker {
     Worker {
         root: root.to_path_buf(),
-        homes: tokens(&HashMap::from([(
-            "home".to_owned(),
+        realms: tokens(&HashMap::from([(
+            "realm".to_owned(),
             TOKEN.to_owned(),
         )]))
         .unwrap(),
@@ -48,7 +48,7 @@ fn execute(id: &str) -> Value {
         "version": "0.1.0", "id": id, "workspace": "fixture", "agent": 1,
         "project": false, "network": false, "read_only": false,
         "operation": {"kind": "exec", "argv": ["/bin/true"],
-                      "cwd": "/house", "timeout_ms": 10000},
+                      "cwd": "/lodge", "timeout_ms": 10000},
     }})
 }
 
@@ -74,13 +74,13 @@ fn answers_the_fixture_s_refusals_alike() {
 }
 
 #[test]
-fn refuses_a_token_of_no_home() {
+fn refuses_a_token_of_no_realm() {
     let scratch = Scratch::new("worker");
     let mut worker = worker(&scratch);
     let reply =
         call(&mut worker, "another-token-1234567", &execute(ID));
     assert_eq!(reply["code"], "permission_denied");
-    assert!(!scratch.join("home").exists());
+    assert!(!scratch.join("realm").exists());
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn a_cancellation_before_admission_outlasts_a_restart() {
 #[test]
 fn an_admitted_id_is_never_run_again() {
     let scratch = Scratch::new("worker");
-    let journal = scratch.join("home/operations");
+    let journal = scratch.join("realm/operations");
     fs::create_dir_all(&journal).unwrap();
     mark(&journal, &journal.join(ID), &[]).unwrap();
     let mut worker = worker(&scratch);
@@ -127,23 +127,26 @@ fn an_admitted_id_is_never_run_again() {
 }
 
 #[test]
-fn homes_need_a_name_and_a_token_of_their_own() {
-    let homes = |entries: &[(&str, &str)]| {
+fn realms_need_a_name_and_a_token_of_their_own() {
+    let realms = |entries: &[(&str, &str)]| {
         tokens(
             &entries
                 .iter()
-                .map(|(home, token)| {
-                    ((*home).to_owned(), (*token).to_owned())
+                .map(|(realm, token)| {
+                    ((*realm).to_owned(), (*token).to_owned())
                 })
                 .collect(),
         )
     };
-    assert!(homes(&[]).is_err());
-    assert!(homes(&[("home", "short")]).is_err());
-    assert!(homes(&[("a/b", TOKEN)]).is_err());
-    assert!(homes(&[("one", TOKEN), ("two", TOKEN)]).is_err());
+    assert!(realms(&[]).is_err());
+    assert!(realms(&[("realm", "short")]).is_err());
+    assert!(realms(&[("a/b", TOKEN)]).is_err());
+    assert!(realms(&[("one", TOKEN), ("two", TOKEN)]).is_err());
     assert!(
-        homes(&[("one", TOKEN), ("two", "worker-test-token-654321")])
-            .is_ok()
+        realms(&[
+            ("one", TOKEN),
+            ("two", "worker-test-token-654321")
+        ])
+        .is_ok()
     );
 }

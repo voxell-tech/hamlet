@@ -414,26 +414,12 @@ impl Core {
                 };
                 self.answer(client, answer)
             }
-            message => {
-                let what = match &message {
-                    ClientMessage::MoveLodges(_) => "moving lodges",
-                    _ => "that",
-                };
-                match message.id() {
-                    Some(id) => {
-                        let id = id.clone();
-                        self.answer(
-                            client,
-                            reply(
-                                &id,
-                                Err(Refusal::Unsupported {
-                                    what: what.into(),
-                                }),
-                            ),
-                        )
-                    }
-                    None => Ok(()),
-                }
+            ClientMessage::MoveLodges(asked) => {
+                self.move_lodges(client, &asked.id).await
+            }
+            // The providers answered these above.
+            ClientMessage::Login(_) | ClientMessage::Check(_) => {
+                Ok(())
             }
         }
     }
@@ -785,9 +771,15 @@ impl Core {
                 .unwrap_or(0),
             unset: !settings.saved,
             workspace: protocol::SettingsViewWorkspace {
-                moving: None,
-                running: None,
-                url: None,
+                moving: self.moving.clone(),
+                running: self
+                    .workspace
+                    .as_ref()
+                    .map(|running| running.url().to_owned()),
+                url: self
+                    .credentials
+                    .workspace_url()
+                    .map(String::from),
             },
         }
     }

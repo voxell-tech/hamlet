@@ -43,6 +43,7 @@ use crate::talk::{
 use crate::work::added::{self, Manifest};
 use crate::work::catalogue::SOCIETY;
 use crate::work::tools::{self, Shells};
+use crate::workspace::Transport;
 
 pub(crate) struct Core {
     pub realm: Realm,
@@ -71,6 +72,11 @@ pub(crate) struct Core {
     pub leases: Authority,
     /// The file gifts being sent.
     pub gifts: Gifts,
+    /// The remote workspace the agents' tools run in, chosen before
+    /// the server started; none for this machine.
+    pub workspace: Option<Transport>,
+    /// How moving the lodges to the chosen workspace goes.
+    pub moving: Option<protocol::SettingsViewWorkspaceMove>,
     runner: Runner,
     /// Held while anything writes the realm's repositories and
     /// lodges.
@@ -87,7 +93,7 @@ pub(crate) struct Live {
 /// What the loop is woken by.
 pub(crate) struct Inbox {
     lines: mpsc::UnboundedReceiver<Received>,
-    worked: mpsc::UnboundedReceiver<()>,
+    worked: mpsc::UnboundedReceiver<Vec<crate::jobs::Job>>,
     events: mpsc::Receiver<Event>,
     ran: mpsc::UnboundedReceiver<Ran>,
     listener: Option<TcpListener>,
@@ -136,6 +142,11 @@ impl Core {
             added.iter().map(|manifest| manifest.spec.clone()),
         );
         let providers = Providers::open(&layout, env.overrides.faux)?;
+        let workspace = credentials
+            .workspace()
+            .cloned()
+            .map(Transport::new)
+            .transpose()?;
         let db = realm.store().connection();
         runtimes::of_harness(db, agents::HARNESS)?;
         let mut runtimes = Runtimes::new(pi, lines_to);
@@ -158,6 +169,8 @@ impl Core {
             providers,
             leases: Authority::default(),
             gifts: Gifts::default(),
+            workspace,
+            moving: None,
             runner,
             writing,
         };
@@ -196,7 +209,8 @@ impl Core {
                 self.received(received).await?;
                 Ok(true)
             }
-            Some(()) = inbox.worked.recv() => {
+            Some(done) = inbox.worked.recv() => {
+                self.push_lodges(&done).await;
                 self.publish().await?;
                 Ok(true)
             }
@@ -286,11 +300,12 @@ impl Core {
             // them; one that fails is run again by the runner.
             let layout = self.realm.layout().clone();
             let db = self.realm.store().connection();
-            if let Err(error) = run_due(db, &layout, &self.writing) {
-                tell(
+            match run_due(db, &layout, &self.writing) {
+                Ok(done) => self.push_lodges(&done).await,
+                Err(error) => tell(
                     Secrets::Fixed,
                     format!("running jobs: {error:#}"),
-                );
+                ),
             }
             self.runner.wake();
         }
@@ -364,7 +379,9 @@ impl Core {
 
     /// How the agents' commands are confined, as a client is told.
     pub(crate) fn confinement(&self) -> protocol::Confinement {
-        if self.sandbox.is_insecure() {
+        if self.workspace.is_some() {
+            protocol::Confinement::Remote
+        } else if self.sandbox.is_insecure() {
             protocol::Confinement::Insecure
         } else {
             protocol::Confinement::Sandbox {

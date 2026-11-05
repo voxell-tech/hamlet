@@ -152,6 +152,10 @@ impl Core {
                             &layout,
                             agent,
                         )?;
+                        let writing = self.writing.clone();
+                        let held = writing.lock().unwrap_or_else(
+                            std::sync::PoisonError::into_inner,
+                        );
                         let folder = Folder::make(&lodging.path)?;
                         if text.is_empty() {
                             folder.remove(&path)?;
@@ -162,6 +166,8 @@ impl Core {
                                 false,
                             )?;
                         }
+                        drop(held);
+                        self.push_lodge(agent).await?;
                         self.change(Actor::Chief(chief), |cx, _| {
                             jobs::add(
                                 cx,
@@ -274,6 +280,32 @@ impl Core {
                 )?;
                 for name in removed {
                     self.credentials.save_model(&name, None)?;
+                }
+                if let Some(chosen) = set.workspace {
+                    let chosen = match chosen {
+                        Some(workspace) => {
+                            let address = crate::settings::Endpoint {
+                                name: "workspace".into(),
+                                base_url: workspace
+                                    .url
+                                    .trim()
+                                    .to_owned(),
+                            };
+                            if let Some(words) = endpoint_fault(
+                                std::slice::from_ref(&address),
+                            ) {
+                                return Ok(Err(Refusal::Usage {
+                                    words,
+                                }));
+                            }
+                            Some(crate::credentials::WorkspaceAddress {
+                                url: address.base_url,
+                                token: workspace.token,
+                            })
+                        }
+                        None => None,
+                    };
+                    self.credentials.choose_workspace(chosen)?;
                 }
                 self.env.settings =
                     self.env.overrides.apply(settings);

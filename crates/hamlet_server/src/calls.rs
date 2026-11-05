@@ -16,7 +16,7 @@ use anyhow::Result;
 use hamlet_protocol::runtime::{
     self, ConfigureTools, ServerMessage, ToolSpec, ToolSpecReplay,
 };
-use hamlet_store::ids::{Actor, ConversationId};
+use hamlet_store::ids::{Actor, AgentId, ConversationId};
 use hamlet_store::marker::{self, Identity, Marked, Request};
 use serde_json::{Map, Value, json};
 use tokio::sync::mpsc;
@@ -102,6 +102,9 @@ struct Running {
     replies: Vec<Reply>,
     conversation: ConversationId,
     request: Request,
+    /// The agent whose remote lodge the call may write, to pull once
+    /// it ends.
+    pull: Option<AgentId>,
     abort: AbortHandle,
 }
 
@@ -119,6 +122,7 @@ impl Calls {
         conversation: ConversationId,
         reply: Reply,
         request: Request,
+        pull: Option<AgentId>,
         work: impl Future<Output = Outcome> + Send + 'static,
     ) {
         let ran = self.ran.clone();
@@ -133,6 +137,7 @@ impl Calls {
                 replies: vec![reply],
                 conversation,
                 request,
+                pull,
                 abort: task.abort_handle(),
             },
         );
@@ -665,13 +670,7 @@ impl Core {
                 .and_then(|change| {
                     serde_json::from_str::<Value>(&change).ok()
                 });
-        let session = ToolSession::local(
-            at.place,
-            net,
-            self.sandbox,
-            self.shells.clone(),
-            self.leftovers.of(agent.0),
-        );
+        let (session, pull) = self.tools_of(call, at.place, net)?;
         let secrets = self.credentials.secrets();
         let arguments =
             call.arguments.clone().into_iter().collect::<Map<_, _>>();
@@ -681,6 +680,7 @@ impl Core {
             call.conversation.id,
             reply,
             request,
+            (pull && once).then_some(agent),
             async move {
                 let mut outcome =
                     session.run(&secrets, &name, &arguments).await;
@@ -694,6 +694,38 @@ impl Core {
             },
         );
         Ok(None)
+    }
+
+    /// Where the tools of `call`'s agent run: in the remote workspace
+    /// the realm works in, whose lodge is pulled home after a call
+    /// that may write it, else on this machine. A dream works on this
+    /// machine's checkout of its scholar, so it runs here.
+    fn tools_of(
+        &mut self,
+        call: &Call<'_>,
+        place: crate::work::tools::Place,
+        net: bool,
+    ) -> Result<(ToolSession, bool)> {
+        let agent = call.conversation.agent;
+        let remote = match call.conversation.kind {
+            Kind::Dream => None,
+            _ => self.remote_session(agent, net)?,
+        };
+        Ok(match remote {
+            Some(session) => {
+                (ToolSession::remote(place, session), true)
+            }
+            None => (
+                ToolSession::local(
+                    place,
+                    net,
+                    self.sandbox,
+                    self.shells.clone(),
+                    self.leftovers.of(agent.0),
+                ),
+                false,
+            ),
+        })
     }
 
     /// Whether `tool` may not run twice: what writes, runs or is
@@ -720,6 +752,15 @@ impl Core {
             &ran.outcome,
             crate::clock::now(),
         )?;
+        // The lodge comes home before the agent's next call reads it.
+        if let Some(agent) = running.pull
+            && let Err(error) = self.pull_lodge(agent).await
+        {
+            crate::diagnostic::tell(
+                crate::diagnostic::Secrets::Of(&self.credentials),
+                format!("could not bring a lodge home: {error:#}"),
+            );
+        }
         for reply in running.replies {
             self.tell_call(
                 &reply,
@@ -799,13 +840,8 @@ impl Core {
             .map(crate::work::added::Manifest::has_net);
         let mut classified =
             gate::call_of(call.tool, &call.args(), added);
-        let session = ToolSession::local(
-            at.place.clone(),
-            false,
-            self.sandbox,
-            self.shells.clone(),
-            self.leftovers.of(agent.0),
-        );
+        let (session, _) =
+            self.tools_of(call, at.place.clone(), false)?;
         if let gate::Call::Edit {
             write: true,
             path,

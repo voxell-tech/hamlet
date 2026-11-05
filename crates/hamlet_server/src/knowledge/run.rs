@@ -15,20 +15,23 @@ use crate::society::{city, hires, library as shelf};
 /// The longest a failed job waits before it runs again.
 const MOST_WAIT: i64 = 300_000;
 
-/// Runs every job due at `now`, once each. A job that fails runs
-/// again later, waiting longer each time.
+/// Runs every job due at `now`, once each, returning those done. A
+/// job that fails runs again later, waiting longer each time.
 pub(crate) fn due(
     db: &mut Db,
     layout: &Layout,
     now: i64,
-) -> Result<usize> {
+) -> Result<Vec<Job>> {
     let jobs = hamlet_store::job::due(db, now)?;
-    let count = jobs.len();
+    let mut done = Vec::new();
     for kept in jobs {
         let job = serde_json::from_str::<Job>(&kept.payload)
             .with_context(|| format!("reading job {}", kept.id))?;
         match run(db, layout, &job, now) {
-            Ok(()) => hamlet_store::job::finish(db, kept.id, now)?,
+            Ok(()) => {
+                hamlet_store::job::finish(db, kept.id, now)?;
+                done.push(job);
+            }
             Err(error) => {
                 let wait =
                     (1000 << kept.tries.min(16)).min(MOST_WAIT);
@@ -41,7 +44,7 @@ pub(crate) fn due(
             }
         }
     }
-    Ok(count)
+    Ok(done)
 }
 
 /// Runs `job` once.

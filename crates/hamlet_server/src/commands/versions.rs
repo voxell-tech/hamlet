@@ -335,6 +335,10 @@ impl Core {
         let rewritten =
             hamlet_git::purge(&layout.repository(id), path)?;
         drop(held);
+        let db = self.realm.store().connection();
+        for hire in hires::living_of(db, id)? {
+            self.push_lodge(hire.agent).await?;
+        }
         let by = Actor::Chief(self.realm.chief());
         self.main_moved(by, id).await?;
         Ok(Ok(format!(

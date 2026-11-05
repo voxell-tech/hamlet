@@ -1,0 +1,226 @@
+//! The realm working in a remote workspace: each agent's session
+//! there, its lodge kept in step, and every lodge moved there at a
+//! chief's word.
+
+use std::sync::PoisonError;
+
+use anyhow::Result;
+use hamlet_protocol::client::{
+    RequestId, SettingsViewWorkspaceMove,
+    SettingsViewWorkspaceMoveState,
+};
+use hamlet_store::ids::AgentId;
+
+use super::{Policy, Session, Transport, lodges, workspace_of};
+use crate::clients::check::reply;
+use crate::core::Core;
+use crate::diagnostic::{Secrets, tell};
+use crate::jobs::Job;
+use crate::knowledge;
+use crate::society::agents::{self, AgentKind};
+use crate::society::refusal::Refusal;
+use crate::society::{hamlets, hires, merges, workers};
+
+impl Core {
+    /// The session of `agent`'s tools in the remote workspace, when
+    /// the realm works in one; its commands reach the network with
+    /// `net`.
+    pub(crate) fn remote_session(
+        &mut self,
+        agent: AgentId,
+        net: bool,
+    ) -> Result<Option<Session>> {
+        let Some(transport) = self.workspace.clone() else {
+            return Ok(None);
+        };
+        let db = self.realm.store().connection();
+        let hamlet = match agents::get(db, agent)?.kind {
+            AgentKind::Hand => None,
+            AgentKind::Hire => Some(hires::get(db, agent)?.hamlet),
+            AgentKind::Worker => {
+                let worker = workers::get(db, agent)?;
+                match (worker.hamlet, worker.starter) {
+                    (Some(hamlet), _) => Some(hamlet),
+                    (None, Some(starter)) => {
+                        hires::find(db, starter)?.map(|h| h.hamlet)
+                    }
+                    (None, None) => None,
+                }
+            }
+        };
+        let project = match &hamlet {
+            Some(id) => hamlets::get(db, id)?.folder.is_some(),
+            None => false,
+        };
+        Ok(Some(transport.session(
+            agent,
+            &workspace_of(hamlet.as_ref()),
+            Policy {
+                project,
+                network: net,
+                read_only: false,
+            },
+        )?))
+    }
+
+    /// Makes the remote copy of `agent`'s lodge the server's.
+    pub(crate) async fn push_lodge(
+        &mut self,
+        agent: AgentId,
+    ) -> Result<()> {
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        let Ok(lodging) = knowledge::lodging(db, &layout, agent)
+        else {
+            return Ok(());
+        };
+        let Some(session) = self.remote_session(agent, false)? else {
+            return Ok(());
+        };
+        lodges::push(&session, &lodging.path).await
+    }
+
+    /// Brings the remote copy of `agent`'s lodge home.
+    pub(crate) async fn pull_lodge(
+        &mut self,
+        agent: AgentId,
+    ) -> Result<()> {
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        let Ok(lodging) = knowledge::lodging(db, &layout, agent)
+        else {
+            return Ok(());
+        };
+        let Some(session) = self.remote_session(agent, false)? else {
+            return Ok(());
+        };
+        let pulled = lodges::pull(&session, &lodging.path).await?;
+        let writing = self.writing.clone();
+        let _held =
+            writing.lock().unwrap_or_else(PoisonError::into_inner);
+        pulled.apply(&lodging.path)
+    }
+
+    /// Pushes the lodges the jobs `done` changed, when the realm
+    /// works in a remote workspace.
+    pub(crate) async fn push_lodges(&mut self, done: &[Job]) {
+        if self.workspace.is_none() {
+            return;
+        }
+        let mut agents = Vec::new();
+        for job in done {
+            let found = match job {
+                Job::Lodge { hire } | Job::TakeIn { hire } => {
+                    vec![*hire]
+                }
+                Job::Merge { merge } | Job::Split { merge } => {
+                    let db = self.realm.store().connection();
+                    match merges::get(db, *merge) {
+                        Ok(found) => vec![found.kept, found.absorbed],
+                        Err(_) => Vec::new(),
+                    }
+                }
+                Job::DreamEnd { dream, .. } => {
+                    let db = self.realm.store().connection();
+                    crate::society::dreams::get(db, *dream)
+                        .ok()
+                        .and_then(|found| found.hire)
+                        .into_iter()
+                        .collect()
+                }
+                Job::Shelve { offer } => {
+                    let db = self.realm.store().connection();
+                    crate::society::library::get(db, *offer)
+                        .map(|found| vec![found.agent])
+                        .unwrap_or_default()
+                }
+                _ => Vec::new(),
+            };
+            agents.extend(found);
+        }
+        agents.sort();
+        agents.dedup();
+        for agent in agents {
+            if let Err(error) = self.push_lodge(agent).await {
+                tell(
+                    Secrets::Of(&self.credentials),
+                    format!(
+                        "could not bring a lodge to the workspace: \
+                         {error:#}"
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Copies every lodge to the workspace chosen in the settings,
+    /// replacing what is there, and answers `id` once done.
+    pub(crate) async fn move_lodges(
+        &mut self,
+        client: u64,
+        id: &RequestId,
+    ) -> Result<()> {
+        let Some(chosen) = self.credentials.workspace().cloned()
+        else {
+            let refusal = Refusal::Usage {
+                words: "Choose a remote workspace in the settings \
+                        first."
+                    .into(),
+            };
+            return self.answer(client, reply(id, Err(refusal)));
+        };
+        let previous =
+            self.workspace.replace(Transport::new(chosen)?);
+        let db = self.realm.store().connection();
+        let mut lodged = vec![crate::society::hand::id(db)?];
+        lodged.extend(agents::living(db)?.into_iter().filter(
+            |agent| {
+                hires::find(db, *agent)
+                    .is_ok_and(|found| found.is_some())
+            },
+        ));
+        let of = i64::try_from(lodged.len())?;
+        let mut failed = None;
+        for (done, agent) in lodged.into_iter().enumerate() {
+            self.moving = Some(SettingsViewWorkspaceMove {
+                done: i64::try_from(done)?,
+                of,
+                state: SettingsViewWorkspaceMoveState::Moving,
+                text: "Copying the lodges.".into(),
+            });
+            self.publish().await?;
+            if let Err(error) = self.push_lodge(agent).await {
+                failed = Some(
+                    self.credentials
+                        .scrub_text(&format!("{error:#}")),
+                );
+                break;
+            }
+        }
+        self.workspace = previous;
+        let (state, text) = match &failed {
+            None => (
+                SettingsViewWorkspaceMoveState::Moved,
+                "Every lodge is in the chosen workspace; the realm \
+                 works there from its next start."
+                    .to_owned(),
+            ),
+            Some(error) => (
+                SettingsViewWorkspaceMoveState::Failed,
+                format!("Moving the lodges failed: {error}"),
+            ),
+        };
+        self.moving = Some(SettingsViewWorkspaceMove {
+            done: of,
+            of,
+            state,
+            text: text.clone(),
+        });
+        self.publish().await?;
+        let answer = match failed {
+            None => Ok(text),
+            Some(_) => Err(Refusal::Usage { words: text }),
+        };
+        self.answer(client, reply(id, answer))
+    }
+}

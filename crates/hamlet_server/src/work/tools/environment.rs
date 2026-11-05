@@ -1,15 +1,23 @@
-//! What an agent's file tools reach: this machine under the sandbox.
+//! What an agent's file tools reach: this machine under the sandbox,
+//! or a remote workspace.
 
 use std::time::Duration;
 
 use hamlet_os::fs::path;
+use hamlet_sandbox::scrub::scrub_text;
 use hamlet_sandbox::{
     Env, ExecError, FileError, FileInfo, FileKind, Launch, Leftovers,
     Ran, Sandbox, SetupError,
 };
-use hamlet_workspace_wire::{Code, Listed, Walked};
+use hamlet_workspace_wire::{
+    Bytes, Canonical, Code, Exec, Info, Kind, LIST_ENTRIES, List,
+    Listed, MAX_FILE, Read, Walk, Walked, Write,
+};
 
+use super::truncate::{MAX_BYTES, MAX_LINES};
 use super::walk::{SKIPPED, VISITED};
+use crate::workspace::Session;
+use crate::workspace::lodges::LODGE;
 
 /// Said where a call lost the environment it works in.
 const LOST: &str = "The tool's environment was lost. Tell the chief.";
@@ -314,5 +322,273 @@ impl Reach for Local {
 
     fn degraded(&self) -> serde_json::Value {
         self.degraded.clone()
+    }
+}
+
+/// Where a remote workspace's agent finds its hamlet's project.
+pub(crate) const PROJECT: &str = "/project";
+
+/// A remote workspace's `/lodge` and `/project`.
+pub(super) struct Remote {
+    session: Session,
+}
+
+impl Remote {
+    pub fn new(session: Session) -> Self {
+        Self { session }
+    }
+
+    async fn contents(
+        &self,
+        path: &str,
+    ) -> Result<Vec<u8>, FileError> {
+        let read = self
+            .session
+            .call(Read {
+                path: self.absolute(path),
+                no_follow: false,
+            })
+            .await?;
+        let bytes = read.data.0;
+        if bytes.len() > MAX_FILE
+            || read.info.kind != Kind::File
+            || read.info.size != bytes.len() as u64
+        {
+            return Err(malformed());
+        }
+        Ok(bytes)
+    }
+}
+
+fn malformed() -> FileError {
+    FileError {
+        code: Code::Unknown,
+        message: "The workspace answered with a malformed result. \
+                  Inspect its files before repeating the operation."
+            .into(),
+    }
+}
+
+/// What `stat` saw of a remote path, refused unless its name is one.
+fn checked(
+    stat: hamlet_workspace_wire::Stat,
+) -> Result<FileInfo, FileError> {
+    if stat.name.contains(['/', '\0'])
+        || [".", ".."].contains(&stat.name.as_str())
+    {
+        return Err(malformed());
+    }
+    Ok(FileInfo {
+        name: stat.name,
+        kind: match stat.kind {
+            Kind::File => FileKind::File,
+            Kind::Directory => FileKind::Directory,
+            Kind::Symlink => FileKind::Symlink,
+        },
+        size: stat.size,
+    })
+}
+
+impl Reach for Remote {
+    fn cwd(&self) -> &str {
+        if self.session.policy().project {
+            PROJECT
+        } else {
+            LODGE
+        }
+    }
+
+    fn lodge(&self) -> &str {
+        LODGE
+    }
+
+    fn folder(&self) -> Option<&str> {
+        self.session.policy().project.then_some(PROJECT)
+    }
+
+    async fn exists(
+        &mut self,
+        path: &str,
+    ) -> Result<bool, FileError> {
+        match self.file_info(path).await {
+            Ok(_) => Ok(true),
+            Err(error) if error.code == Code::NotFound => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn read_file(
+        &mut self,
+        path: &str,
+    ) -> Result<Vec<u8>, FileError> {
+        self.contents(path).await
+    }
+
+    async fn read_text(
+        &mut self,
+        path: &str,
+    ) -> Result<String, FileError> {
+        let bytes = self.contents(path).await?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    async fn readable(
+        &mut self,
+        path: &str,
+    ) -> Result<(), FileError> {
+        self.contents(path).await.map(drop)
+    }
+
+    async fn file_info(
+        &mut self,
+        path: &str,
+    ) -> Result<FileInfo, FileError> {
+        let info = Info {
+            path: self.absolute(path),
+            no_follow: false,
+        };
+        checked(self.session.call(info).await?)
+    }
+
+    async fn list_dir(
+        &mut self,
+        path: &str,
+    ) -> Result<Vec<FileInfo>, FileError> {
+        let list = List {
+            path: self.absolute(path),
+            no_follow: false,
+        };
+        let entries = self.session.call(list).await?;
+        if entries.len() > LIST_ENTRIES {
+            return Err(malformed());
+        }
+        entries.into_iter().map(checked).collect()
+    }
+
+    async fn canonical_path(
+        &mut self,
+        path: &str,
+    ) -> Result<String, FileError> {
+        let canonical = Canonical {
+            path: self.absolute(path),
+        };
+        Ok(self.session.call(canonical).await?)
+    }
+
+    async fn write_file(
+        &mut self,
+        path: &str,
+        content: &str,
+    ) -> Result<(), FileError> {
+        if content.len() > MAX_FILE {
+            return Err(FileError {
+                code: Code::Invalid,
+                message: "Remote files are limited to 4 MiB per \
+                          transfer."
+                    .into(),
+            });
+        }
+        let write = Write {
+            path: self.absolute(path),
+            data: Bytes(content.as_bytes().to_vec()),
+            append: false,
+            parents: true,
+            no_follow: false,
+        };
+        Ok(self.session.call(write).await?)
+    }
+
+    async fn walk(&mut self, root: &str) -> Walked {
+        let walk = Walk {
+            path: root.into(),
+            skip: SKIPPED.map(String::from).into(),
+            files: VISITED as u64,
+        };
+        self.session.call(walk).await.unwrap_or_default()
+    }
+
+    /// The workspace gives the output whole, so it reaches `output`
+    /// once, and what is spilled is written to the lodge.
+    async fn exec(
+        &mut self,
+        argv: &[String],
+        timeout: Duration,
+        secrets: &[String],
+        output: &mut (impl FnMut(&str) + Send),
+    ) -> Result<Ran, ExecError> {
+        let timeout_ms =
+            u64::try_from(timeout.as_nanos().div_ceil(1_000_000))
+                .unwrap_or(u64::MAX);
+        let ran = self
+            .session
+            .call(Exec {
+                argv: argv.to_vec(),
+                cwd: self.cwd().into(),
+                timeout_ms,
+            })
+            .await
+            .map_err(|failure| {
+                if failure.code == Code::Timeout {
+                    ExecError::Timeout { spill: None }
+                } else {
+                    ExecError::Spawn(failure.to_string())
+                }
+            })?;
+        let text = scrub_text(
+            secrets,
+            &format!("{}{}", ran.stdout, ran.stderr),
+        );
+        let spill = if text.len() > MAX_BYTES
+            || text.lines().count() > MAX_LINES
+        {
+            let path = format!(
+                "{LODGE}/.tmp/bash-{}/output.txt",
+                uuid::Uuid::new_v4()
+            );
+            self.write_file(&path, &text).await.map_err(|error| {
+                ExecError::Spill(format!(
+                    "The command ran but its full output could not \
+                     be saved: {}. Inspect its files before \
+                     repeating it.",
+                    error.message
+                ))
+            })?;
+            Some(path)
+        } else {
+            None
+        };
+        output(&text);
+        Ok(Ran {
+            exit_code: ran.exit_code,
+            spill,
+        })
+    }
+
+    fn tmp(&self) -> Option<&str> {
+        None
+    }
+
+    /// The policy commands run under, as a result names it.
+    fn policy(&self) -> String {
+        let policy = self.session.policy();
+        format!(
+            "workspace:{}:{}:{}",
+            if policy.project { "project" } else { "lodge" },
+            if policy.network {
+                "public-http-proxy"
+            } else {
+                "netless"
+            },
+            if policy.read_only {
+                "read-only"
+            } else {
+                "writable"
+            }
+        )
+    }
+
+    /// The workspace's own sandbox holds every limit.
+    fn degraded(&self) -> serde_json::Value {
+        serde_json::Value::Bool(false)
     }
 }
