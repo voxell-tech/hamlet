@@ -53,6 +53,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<CharterRequests>()
     .add_observer(charter_received)
     .add_observer(charter_saved)
+    .add_observer(default_character_saved)
     .add_observer(
         |_: On<Reconnected>,
          pane: Res<Pane>,
@@ -190,6 +191,55 @@ fn not_enforced() -> AnyView {
 const EFFORTS: [(Option<Effort>, &str); 6] =
     crate::models::efforts("Model's own");
 
+/// Who can let a scholar into the city, as the pick shows them.
+const NEWCOMERS: [(protocol::Newcomers, &str); 3] = [
+    (protocol::Newcomers::Open, "Anyone"),
+    (protocol::Newcomers::Chief, "A chief"),
+    (protocol::Newcomers::Hand, "The Hand"),
+];
+
+/// The most letters of the default character shown under its edit.
+const CHARACTER_SHOWN: usize = 90;
+
+/// The longest default character the server takes, in letters.
+const CHARACTER_MOST: usize = 4000;
+
+/// The key of the default character in the editor.
+const CHARACTER_KEY: &str = "default-character";
+
+/// The start of `text` on one line.
+fn start_of(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    match flat.char_indices().nth(CHARACTER_SHOWN) {
+        Some((cut, _)) => format!("{}...", &flat[..cut]),
+        None => flat,
+    }
+}
+
+/// Opens the default character in the editor.
+fn edit_default_character(world: &mut World) {
+    let text = world.resource::<Settings>().0.character.clone();
+    world.trigger(Edit {
+        key: CHARACTER_KEY.into(),
+        text,
+    });
+    world.flush();
+}
+
+/// Sends the default character the editor saved.
+fn default_character_saved(
+    edited: On<Edited>,
+    mut commands: bevy::ecs::system::Commands,
+) {
+    if edited.key != CHARACTER_KEY {
+        return;
+    }
+    let text = edited.text.chars().take(CHARACTER_MOST).collect();
+    commands.queue(move |world: &mut World| {
+        save(world, |set| set.character = Some(text));
+    });
+}
+
 /// The settings of agents. Each applies when changed.
 fn agents() -> impl View {
     parts((
@@ -239,6 +289,70 @@ fn agents() -> impl View {
                     "How hard models think by default; an agent's \
                      own choice wins.",
                 ),
+            ),
+        ),
+        field(
+            "Newcomers",
+            told(
+                built(|cx| {
+                    cx.build(
+                        dropdown(
+                            NEWCOMERS.map(|(_, name)| name),
+                            resource::<Settings, _>(|s| {
+                                NEWCOMERS
+                                    .iter()
+                                    .position(|(who, _)| {
+                                        *who == s.0.newcomers
+                                    })
+                                    .unwrap_or_default()
+                            }),
+                            Glyph::Chevron.image(ICON),
+                            |world, at| {
+                                save(world, |set| {
+                                    set.newcomers =
+                                        Some(NEWCOMERS[at].0);
+                                });
+                            },
+                        )
+                        .width(px(160.0)),
+                    )
+                }),
+                description(resource::<Settings, _>(|s| {
+                    match s.0.newcomers {
+                        protocol::Newcomers::Open => {
+                            "A scholar an agent makes moves in at \
+                             once."
+                        }
+                        protocol::Newcomers::Chief => {
+                            "A scholar an agent makes waits at the \
+                             harbor until a chief welcomes it."
+                        }
+                        protocol::Newcomers::Hand => {
+                            "The Hand lets a scholar in or turns it \
+                             away. You can undo what it decides."
+                        }
+                    }
+                    .to_string()
+                })),
+            ),
+        ),
+        field(
+            "Default character",
+            told(
+                action(Glyph::Rename, "EDIT", edit_default_character)
+                    .tooltip(|| {
+                        note("Opens the text in your editor")
+                    }),
+                note(resource::<Settings, _>(|s| {
+                    if s.0.character.is_empty() {
+                        "A scholar made blank starts empty.".into()
+                    } else {
+                        format!(
+                            "A scholar made blank starts from: {}",
+                            start_of(&s.0.character)
+                        )
+                    }
+                })),
             ),
         ),
         field(
