@@ -61,9 +61,8 @@ pub(crate) fn tag(at: Vec3) -> u32 {
 
 /// The mesh of `form` of [`FORMS`], about three and a half units
 /// tall, standing on the origin. Its leaves are cards painted with
-/// strokes: a broadleaf's in layers with gaps between, a conifer's
-/// over a darker core. What is not a card lies at UV zero, on solid
-/// paint.
+/// strokes in layers with gaps between, and no solid core. What is
+/// not a card lies at UV zero, on solid paint.
 pub fn mesh(pal: &Palette, form: usize) -> Mesh {
     let (kind, variant) = (form / VARIANTS, form % VARIANTS);
     let mut rng = Rng::seeded(&format!("tree {kind} {variant}"));
@@ -256,9 +255,8 @@ fn accent(pal: &Palette, kind: usize, light: Vec3) -> Vec3 {
     }
 }
 
-/// A conifer: a thin trunk, skirts of dark needles in tiers, and
-/// long strokes hanging from each skirt past its edge, olive at the
-/// top and dark below.
+/// A conifer: a thin trunk, and tiers of long strokes hanging about
+/// it out past each tier's edge, olive at the top and dark below.
 fn conifer(
     meshing: &mut Meshing,
     rng: &mut Rng,
@@ -291,19 +289,17 @@ fn conifer(
             1.15 * wide * (1.0 - k * 0.78) * rng.range(0.92, 1.08);
         let h = span / tiers as f32 * 1.8;
         let colour = dark.lerp(top_colour, k);
-        let core = dark * 0.75;
-        meshing.lathe(
-            Vec3::Y * base,
-            &[(r * 0.85, 0.0), (r * 0.45, h * 0.55), (0.0, h)],
-            8,
-            move |_, _| core,
-        );
-        // Two rows of strokes: the long ones from halfway up out past
-        // the edge, and shorter ones above them.
-        for (row, (from, to, length)) in
-            [(0.55, 1.15, 1.0), (0.2, 0.7, 0.75)]
-                .into_iter()
-                .enumerate()
+        // Three rows of strokes and no solid core: the long ones from
+        // halfway up out past the edge, shorter ones above them, and
+        // darker ones close about the trunk, so the tier has body and
+        // gaps where the sky shows.
+        for (row, (from, to, length, rise, dim)) in [
+            (0.55, 1.15, 1.0, 0.45, 1.0),
+            (0.2, 0.7, 0.75, 0.85, 1.0),
+            (0.05, 0.5, 0.6, 0.65, 0.8),
+        ]
+        .into_iter()
+        .enumerate()
         {
             let count = ((TAU * r * to / 0.3) as usize).max(6);
             let turn = rng.f() * TAU;
@@ -312,7 +308,6 @@ fn conifer(
                     + i as f32 / count as f32 * TAU
                     + rng.sym(0.15);
                 let out = Vec3::new(a.cos(), 0.0, a.sin());
-                let rise = if row == 0 { 0.45 } else { 0.85 };
                 let top =
                     Vec3::Y * (base + h * rise) + out * r * from;
                 let end = Vec3::Y * (base - h * 0.12 * length)
@@ -321,8 +316,8 @@ fn conifer(
                 let across = Vec3::new(-a.sin(), 0.0, a.cos())
                     * rng.range(0.28, 0.4)
                     * wide;
-                let mut c =
-                    colour.lerp(top_colour, 0.25 * row as f32);
+                let lift = if row == 1 { 0.25 } else { 0.0 };
+                let mut c = colour.lerp(top_colour, lift);
                 if snowy && row == 1 {
                     c = c.lerp(pal.conifer_snow, 0.7);
                 }
@@ -332,7 +327,7 @@ fn conifer(
                     down,
                     across,
                     Stroke::Hang,
-                    c * rng.value(0.08),
+                    c * dim * rng.value(0.08),
                 );
             }
         }
