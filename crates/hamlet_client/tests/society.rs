@@ -3,7 +3,7 @@ use bevy_ecs::prelude::*;
 use hamlet_client::realm::*;
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
-use hamlet_testing::realm::{agent, hamlet, reference, road, state};
+use hamlet_testing::realm::{agent, hamlet, road, state};
 
 fn app() -> App {
     let mut app = App::new();
@@ -31,19 +31,19 @@ fn departures_resolve_later_merge_hosts_and_restores_keep_identity() {
     let mut app = app();
     let world = app.world_mut();
     let mut state = state();
-    let mut removed = agent("home", 1, "scout");
+    let mut removed = agent(3, "home", 1, "scout");
     removed.left = Some(protocol::Left {
-        how: protocol::LeftHow::Removed,
+        how: protocol::LeftHow::Ended,
         into: None,
         at: 2000,
         by: "chief".into(),
         reason: "done".into(),
         words: "Removed: done".into(),
     });
-    let mut merged = agent("home", 2, "smith");
+    let mut merged = agent(4, "home", 2, "smith");
     merged.left = Some(protocol::Left {
         how: protocol::LeftHow::Merged,
-        into: Some(reference("home", 3)),
+        into: Some(protocol::AgentId(5)),
         at: 3000,
         by: "mayor".into(),
         reason: "together".into(),
@@ -52,41 +52,41 @@ fn departures_resolve_later_merge_hosts_and_restores_keep_identity() {
     state.agents.extend([
         removed.clone(),
         merged,
-        agent("home", 3, "keeper"),
+        agent(5, "home", 3, "keeper"),
     ]);
     receive(world, protocol::ServerMessage::State(state));
     let gone = world
-        .query::<(Entity, &AgentNumber)>()
+        .query::<(Entity, &Identity)>()
         .iter(world)
-        .map(|(e, c)| (c.0, e))
+        .map(|(e, c)| (c.0.0, e))
         .collect::<std::collections::HashMap<_, _>>();
-    assert!(world.get::<Left>(gone[&1]).is_some());
+    assert!(world.get::<Left>(gone[&3]).is_some());
     assert_eq!(
-        world.get::<Lived>(gone[&1]).unwrap().until,
+        world.get::<Lived>(gone[&3]).unwrap().until,
         Some(2000)
     );
     assert_eq!(
-        world.get::<MergedInto>(gone[&2]).unwrap().0,
-        gone[&3]
+        world.get::<MergedInto>(gone[&4]).unwrap().0,
+        gone[&5]
     );
-    assert_eq!(named(world, "scout"), None);
+    assert_eq!(named(world, "scout@home"), None);
     removed.left = None;
     change(
         world,
         1,
         vec![protocol::Update::Agent { agent: removed }],
     );
-    assert_eq!(named(world, "scout"), Some(gone[&1]));
-    assert!(world.get::<Left>(gone[&1]).is_none());
-    assert_eq!(world.get::<Lived>(gone[&1]).unwrap().until, None);
+    assert_eq!(named(world, "scout@home"), Some(gone[&3]));
+    assert!(world.get::<Left>(gone[&3]).is_none());
+    assert_eq!(world.get::<Lived>(gone[&3]).unwrap().until, None);
     change(
         world,
         2,
         vec![protocol::Update::AgentGone {
-            agent: reference("home", 2),
+            id: protocol::AgentId(4),
         }],
     );
-    assert!(world.get_entity(gone[&2]).is_err());
+    assert!(world.get_entity(gone[&4]).is_err());
 }
 
 #[derive(Resource, Default)]
@@ -102,24 +102,23 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     );
     let world = app.world_mut();
     let mut state = state();
-    state.hamlets.push(hamlet("mill"));
+    state.hamlets.push(hamlet("mill", 4));
     state.agents.extend([
-        agent("home", 1, "scout"),
-        agent("mill", 0, "miller"),
+        agent(3, "home", 1, "scout"),
+        agent(4, "mill", 0, "miller"),
     ]);
-    let home_road =
-        road(reference("home", 0), reference("home", 1), 8);
-    let between = road(reference("home", 0), reference("mill", 0), 2);
-    let scout_road =
-        road(reference("home", 1), reference("mill", 0), 0);
+    let [ada, scout_id, miller] = [2, 3, 4].map(protocol::AgentId);
+    let home_road = road(ada, scout_id, 8);
+    let between = road(ada, miller, 2);
+    let scout_road = road(scout_id, miller, 0);
     state.hamlets[0].roads =
         vec![home_road.clone(), between.clone(), scout_road.clone()];
     state.hamlets[1].roads = vec![between.clone(), scout_road];
     receive(world, protocol::ServerMessage::State(state.clone()));
     assert_eq!(world.query::<&Road>().iter(world).count(), 3);
     assert!(world.resource::<Letters>().0.is_empty());
-    let founder = named(world, "founder").unwrap();
-    let scout = named(world, "scout").unwrap();
+    let founder = named(world, "ada@home").unwrap();
+    let scout = named(world, "scout@home").unwrap();
     let entity = world
         .query::<(Entity, &Road)>()
         .iter(world)
@@ -131,7 +130,7 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     let first = &mut roads[0];
     std::mem::swap(&mut first.a, &mut first.b);
     roads[0].messages += 1;
-    roads[0].last_from = Some(reference("home", 1));
+    roads[0].last_from = Some(scout_id);
     change(
         world,
         1,
@@ -163,8 +162,8 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     state.revision = 4;
     state.hamlets.truncate(1);
     state.hamlets[0].roads = Vec::new();
-    state.agents.retain(|a| a.agent.hamlet == "home");
-    let miller = named(world, "miller").unwrap();
+    state.agents.retain(|a| a.hamlet.as_deref() != Some("mill"));
+    let miller = named(world, "miller@mill").unwrap();
     let mill = world.get::<LivesIn>(miller).unwrap().0;
     receive(world, protocol::ServerMessage::State(state));
     assert!(world.get_entity(mill).is_err());
@@ -173,42 +172,19 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
 }
 
 #[derive(Resource, Default)]
-struct Ballots(Vec<Entity>);
-
-#[derive(Resource, Default)]
 struct Consultations(Vec<Option<Entity>>);
 
 #[test]
 fn society_views_reconcile_and_transition_effects_fire_once() {
     let mut app = app();
-    app.init_resource::<Ballots>()
-        .init_resource::<Consultations>()
-        .add_observer(
-            |event: On<Voted>, mut ballots: ResMut<Ballots>| {
-                ballots.0.push(event.agent);
-            },
-        )
-        .add_observer(
-            |event: On<Consulted>,
-             mut visits: ResMut<Consultations>| {
-                visits.0.push(event.agent);
-            },
-        );
+    app.init_resource::<Consultations>().add_observer(
+        |event: On<Consulted>, mut visits: ResMut<Consultations>| {
+            visits.0.push(event.agent);
+        },
+    );
     let world = app.world_mut();
     let mut state = state();
-    state.agents.push(agent("home", 1, "scout"));
-    state.hamlets[0].votes = vec![protocol::VoteView {
-        id: 7,
-        motion: "scout for mayor".into(),
-        by: "chief".into(),
-        open: true,
-        overturnable: false,
-        report: "Waiting for scout".into(),
-        voters: vec![protocol::Voter {
-            agent: reference("home", 1),
-            cast: None,
-        }],
-    }];
+    state.agents.push(agent(3, "home", 1, "scout"));
     state.hamlets[0].at =
         Some(protocol::TownAt { x: -21.5, z: 48.0 });
     state.library = vec![protocol::LibrarySkill {
@@ -224,7 +200,7 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
         reason: "quiet".into(),
     }];
     receive(world, protocol::ServerMessage::State(state.clone()));
-    let scout = named(world, "scout").unwrap();
+    let scout = named(world, "scout@home").unwrap();
     let home = world.get::<LivesIn>(scout).unwrap().0;
     assert_eq!(
         world.get::<Spot>(home).unwrap().0,
@@ -232,11 +208,7 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
     );
     assert_eq!(world.resource::<Skills>().0[0].name, "research");
     assert_eq!(world.resource::<Closed>().0[0].name, "The Mill");
-    assert_eq!(world.get::<Votes>(home).unwrap().0[0].id, 7);
-    assert!(world.resource::<Ballots>().0.is_empty());
-    state.hamlets[0].votes[0].voters[0].cast =
-        Some(protocol::VoterCast::Abstain);
-    state.agents[1].consulting = true;
+    state.agents[2].consulting = true;
     for revision in [1, 2] {
         change(
             world,
@@ -246,22 +218,61 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
                     hamlet: state.hamlets[0].clone(),
                 },
                 protocol::Update::Agent {
-                    agent: state.agents[1].clone(),
+                    agent: state.agents[2].clone(),
                 },
             ],
         );
     }
-    assert_eq!(world.resource::<Ballots>().0, [scout]);
     assert_eq!(world.resource::<Consultations>().0, [Some(scout)]);
     state.revision = 3;
     state.library = Vec::new();
     state.closed = Vec::new();
-    state.hamlets[0].votes = Vec::new();
     state.hamlets[0].at = None;
-    state.agents[1].consulting = false;
+    state.agents[2].consulting = false;
     receive(world, protocol::ServerMessage::State(state));
     assert!(world.resource::<Closed>().0.is_empty());
     assert!(world.resource::<Skills>().0.is_empty());
-    assert!(world.get::<Votes>(home).unwrap().0.is_empty());
     assert_eq!(world.get::<Spot>(home).unwrap().0, None);
+}
+
+#[test]
+fn the_hand_scholars_and_workers_are_agents_and_scholars_of_their_own()
+ {
+    let mut app = app();
+    let world = app.world_mut();
+    let mut state = state();
+    let mut worker = agent(3, "home", 1, "scout");
+    worker.kind = protocol::AgentKind::Worker;
+    worker.name = "worker#3".into();
+    worker.hamlet = None;
+    worker.number = None;
+    worker.scholar = None;
+    worker.parent = None;
+    state.agents.push(worker);
+    receive(world, protocol::ServerMessage::State(state.clone()));
+    let hand = hand(world).unwrap();
+    assert_eq!(
+        world.get::<Kind>(hand).unwrap().0,
+        protocol::AgentKind::Hand
+    );
+    assert!(world.get::<LivesIn>(hand).is_none());
+    assert!(world.get::<AgentNumber>(hand).is_none());
+    let worker = named(world, "worker#3").unwrap();
+    assert_eq!(
+        world.get::<Kind>(worker).unwrap().0,
+        protocol::AgentKind::Worker
+    );
+    assert!(world.get::<LivesIn>(worker).is_none());
+    let ada = scholar(world, protocol::ScholarId(1)).unwrap();
+    assert_eq!(world.get::<Name>(ada).unwrap().as_str(), "ada");
+    assert_eq!(
+        world.get::<Scholar>(ada).unwrap().0.hires,
+        [protocol::AgentId(2)]
+    );
+    let mayor = mayor_of(world, "home").unwrap();
+    assert_eq!(world.get::<AgentNumber>(mayor).unwrap().0, 0);
+    state.revision = 1;
+    state.scholars.clear();
+    receive(world, protocol::ServerMessage::State(state));
+    assert!(world.get_entity(ada).is_err());
 }

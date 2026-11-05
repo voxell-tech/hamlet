@@ -1,5 +1,5 @@
-//! The hamlets, agents, waits and chats by the ids the server names
-//! them with, kept by their components' hooks.
+//! The hamlets, agents, scholars, waits and chats by the ids the
+//! server names them with, kept by their components' hooks.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -12,7 +12,7 @@ use hamlet_protocol::client as protocol;
 
 use crate::chats::Chat;
 use crate::realm::{
-    AgentNumber, HOME, HamletId, Left, LivesIn, MAYOR, Mayor,
+    HamletId, Identity, Left, LivesIn, Mayor, Scholar,
 };
 use crate::waits::Waiting;
 
@@ -36,13 +36,14 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
-/// The entities of the server's hamlets, agents, waits and chats by
-/// their protocol ids.
+/// The entities of the server's hamlets, agents, scholars, waits and
+/// chats by their protocol ids.
 #[derive(Resource, Default)]
 pub(crate) struct Index {
     hamlets: HashMap<String, Entity>,
     agents: HashMap<Entity, Filed>,
-    numbers: HashMap<(Entity, u64), Vec<Entity>>,
+    ids: HashMap<protocol::AgentId, Vec<Entity>>,
+    scholars: HashMap<protocol::ScholarId, Entity>,
     /// Agents that have not left, by shown name.
     names: HashMap<String, Vec<Entity>>,
     /// Agents in office that have not left, by hamlet.
@@ -55,8 +56,9 @@ pub(crate) struct Index {
 /// What an agent is found by.
 #[derive(Clone, Debug, PartialEq)]
 struct Filed {
-    hamlet: Entity,
-    number: u64,
+    id: protocol::AgentId,
+    /// The Hand lives in no hamlet.
+    hamlet: Option<Entity>,
     name: Option<String>,
     mayor: bool,
     left: bool,
@@ -73,45 +75,39 @@ impl Index {
         self.hamlets.get(id).copied()
     }
 
-    /// An agent by its hamlet's id and its number, living or not.
+    /// An agent by its id, living or not.
     pub(crate) fn agent(
         &self,
-        reference: &protocol::AgentRef,
+        id: protocol::AgentId,
     ) -> Option<Entity> {
-        let hamlet = self.hamlet(&reference.hamlet)?;
-        first(&self.numbers, &(hamlet, reference.number))
+        first(&self.ids, &id)
     }
 
-    /// A living agent by name, or the first hamlet's mayor by its
-    /// office.
+    /// A living agent by its id.
+    pub(crate) fn living(
+        &self,
+        id: protocol::AgentId,
+    ) -> Option<Entity> {
+        let agent = self.agent(id)?;
+        (!self.agents.get(&agent)?.left).then_some(agent)
+    }
+
+    /// A scholar by its id.
+    pub(crate) fn scholar(
+        &self,
+        id: protocol::ScholarId,
+    ) -> Option<Entity> {
+        self.scholars.get(&id).copied()
+    }
+
+    /// A living agent by its shown name.
     pub(crate) fn named(&self, name: &str) -> Option<Entity> {
-        if name == MAYOR {
-            return self.mayor_of(HOME);
-        }
         first(&self.names, name)
     }
 
     /// The current mayor of a hamlet by its protocol id.
     pub(crate) fn mayor_of(&self, id: &str) -> Option<Entity> {
         first(&self.mayors, &self.hamlet(id)?)
-    }
-
-    /// The living agent at a chat's address, the mayor by its office.
-    pub(crate) fn at(
-        &self,
-        address: &protocol::Address,
-    ) -> Option<Entity> {
-        if address.agent == MAYOR {
-            return self.mayor_of(&address.hamlet);
-        }
-        let hamlet = self.hamlet(&address.hamlet)?;
-        self.names.get(&address.agent)?.iter().copied().find(
-            |agent| {
-                self.agents
-                    .get(agent)
-                    .is_some_and(|filed| filed.hamlet == hamlet)
-            },
-        )
     }
 
     /// A wait by its server id.
@@ -145,9 +141,15 @@ impl Index {
         self.hamlets.values().copied()
     }
 
-    /// Every agent with a number in a hamlet, living or not.
+    /// Every agent, living or not.
     pub(crate) fn agents(&self) -> impl Iterator<Item = Entity> + '_ {
         self.agents.keys().copied()
+    }
+
+    pub(crate) fn scholars(
+        &self,
+    ) -> impl Iterator<Item = Entity> + '_ {
+        self.scholars.values().copied()
     }
 
     pub(crate) fn waits(&self) -> impl Iterator<Item = Entity> + '_ {
@@ -161,19 +163,14 @@ impl Index {
             None => self.agents.remove(&agent),
         };
         let (was, now) = (was.as_ref(), now.as_ref());
-        let number = |filed: &Filed| (filed.hamlet, filed.number);
+        let id = |filed: &Filed| filed.id;
         let name = |filed: &Filed| {
             filed.name.clone().filter(|_| !filed.left)
         };
         let seat = |filed: &Filed| {
-            (filed.mayor && !filed.left).then_some(filed.hamlet)
+            filed.hamlet.filter(|_| filed.mayor && !filed.left)
         };
-        moved(
-            &mut self.numbers,
-            agent,
-            was.map(number),
-            now.map(number),
-        );
+        moved(&mut self.ids, agent, was.map(id), now.map(id));
         moved(
             &mut self.names,
             agent,
@@ -227,8 +224,8 @@ fn moved<K: Hash + Eq>(
 fn read(world: &World, agent: Entity) -> Option<Filed> {
     let entity = world.get_entity(agent).ok()?;
     Some(Filed {
-        hamlet: entity.get::<LivesIn>()?.0,
-        number: entity.get::<AgentNumber>()?.0,
+        id: entity.get::<Identity>()?.0,
+        hamlet: entity.get::<LivesIn>().map(|lives| lives.0),
         name: entity
             .get::<Name>()
             .map(|name| name.as_str().to_owned()),
@@ -276,12 +273,20 @@ pub(crate) fn file_agent(world: DeferredWorld, context: HookContext) {
     refile(world, context.entity);
 }
 
-/// Drops an agent losing its number or its hamlet.
+/// Drops an agent losing its id.
 pub(crate) fn unfile_agent(
     world: DeferredWorld,
     context: HookContext,
 ) {
     change(world, context.entity, |_| None);
+}
+
+/// Files an agent as living in no hamlet.
+pub(crate) fn unlive(world: DeferredWorld, context: HookContext) {
+    edit(world, context.entity, |filed| Filed {
+        hamlet: None,
+        ..filed
+    });
 }
 
 pub(crate) fn unseat(world: DeferredWorld, context: HookContext) {
@@ -329,6 +334,36 @@ pub(crate) fn unfile_hamlet(
     if index.hamlets.get(&id) == Some(&context.entity) {
         world.resource_mut::<Index>().hamlets.remove(&id);
         world.commands().trigger(Refiled);
+    }
+}
+
+pub(crate) fn file_scholar(
+    mut world: DeferredWorld,
+    context: HookContext,
+) {
+    let Some(id) =
+        world.get::<Scholar>(context.entity).map(|s| s.0.id)
+    else {
+        return;
+    };
+    if let Some(mut index) = world.get_resource_mut::<Index>() {
+        index.scholars.insert(id, context.entity);
+    }
+}
+
+pub(crate) fn unfile_scholar(
+    mut world: DeferredWorld,
+    context: HookContext,
+) {
+    let Some(id) =
+        world.get::<Scholar>(context.entity).map(|s| s.0.id)
+    else {
+        return;
+    };
+    if let Some(mut index) = world.get_resource_mut::<Index>()
+        && index.scholars.get(&id) == Some(&context.entity)
+    {
+        index.scholars.remove(&id);
     }
 }
 
@@ -392,9 +427,7 @@ mod tests {
     use bevy_app::App;
     use bevy_ecs::prelude::*;
     use hamlet_protocol::client as protocol;
-    use hamlet_testing::realm::{
-        agent, hamlet, reference, state, wait,
-    };
+    use hamlet_testing::realm::{agent, hamlet, state, wait};
 
     use crate::realm::{self, Left};
     use crate::{ClientPlugin, receive, waits};
@@ -409,46 +442,29 @@ mod tests {
         app
     }
 
-    fn at(app: &App, hamlet: &str, agent: &str) -> Option<Entity> {
-        app.world().resource::<super::Index>().at(
-            &protocol::Address {
-                hamlet: hamlet.into(),
-                agent: agent.into(),
-            },
-        )
-    }
-
     #[test]
     fn a_renamed_agent_is_found_by_its_new_name_only() {
         let mut app = app(state());
-        let founder = realm::named(app.world(), "founder").unwrap();
-        app.world_mut()
-            .entity_mut(founder)
-            .insert(Name::new("keeper"));
-        assert_eq!(realm::named(app.world(), "founder"), None);
-        assert_eq!(
-            realm::named(app.world(), "keeper"),
-            Some(founder)
-        );
-        assert_eq!(at(&app, "home", "keeper"), Some(founder));
+        let ada = realm::named(app.world(), "ada@home").unwrap();
+        app.world_mut().entity_mut(ada).insert(Name::new("keeper"));
+        assert_eq!(realm::named(app.world(), "ada@home"), None);
+        assert_eq!(realm::named(app.world(), "keeper"), Some(ada));
     }
 
     #[test]
     fn an_agent_that_left_is_found_again_when_it_comes_back() {
         let mut app = app(state());
-        let founder = realm::mayor(app.world()).unwrap();
-        app.world_mut().entity_mut(founder).insert(Left);
-        assert_eq!(realm::named(app.world(), "founder"), None);
-        assert_eq!(realm::mayor(app.world()), None);
-        assert_eq!(at(&app, "home", "mayor"), None);
-        let number = reference("home", 0);
-        assert_eq!(realm::agent(app.world(), &number), Some(founder));
-        app.world_mut().entity_mut(founder).remove::<Left>();
+        let ada = realm::mayor_of(app.world(), "home").unwrap();
+        app.world_mut().entity_mut(ada).insert(Left);
+        assert_eq!(realm::named(app.world(), "ada@home"), None);
+        assert_eq!(realm::mayor_of(app.world(), "home"), None);
         assert_eq!(
-            realm::named(app.world(), "founder"),
-            Some(founder)
+            realm::agent(app.world(), protocol::AgentId(2)),
+            Some(ada)
         );
-        assert_eq!(realm::mayor(app.world()), Some(founder));
+        app.world_mut().entity_mut(ada).remove::<Left>();
+        assert_eq!(realm::named(app.world(), "ada@home"), Some(ada));
+        assert_eq!(realm::mayor_of(app.world(), "home"), Some(ada));
     }
 
     #[test]
@@ -472,8 +488,8 @@ mod tests {
     #[test]
     fn a_closed_hamlet_takes_its_agents_out_of_the_index() {
         let mut realm = state();
-        realm.hamlets.push(hamlet("mill"));
-        realm.agents.push(agent("mill", 0, "miller"));
+        realm.hamlets.push(hamlet("mill", 3));
+        realm.agents.push(agent(3, "mill", 0, "miller"));
         let mut app = app(realm.clone());
         assert!(realm::mayor_of(app.world(), "mill").is_some());
         realm.hamlets.pop();
@@ -485,28 +501,43 @@ mod tests {
         );
         assert_eq!(realm::hamlet(app.world(), "mill"), None);
         assert_eq!(realm::mayor_of(app.world(), "mill"), None);
-        assert_eq!(realm::named(app.world(), "miller"), None);
-        let miller = reference("mill", 0);
-        assert_eq!(realm::agent(app.world(), &miller), None);
-        assert!(realm::mayor(app.world()).is_some());
+        assert_eq!(realm::named(app.world(), "miller@mill"), None);
+        assert_eq!(
+            realm::agent(app.world(), protocol::AgentId(3)),
+            None
+        );
+        assert!(realm::mayor_of(app.world(), "home").is_some());
+    }
+
+    #[test]
+    fn the_hand_lives_in_no_hamlet_and_is_found_by_id() {
+        let app = app(state());
+        let hand = realm::hand(app.world()).unwrap();
+        assert_eq!(realm::named(app.world(), "hand"), Some(hand));
+        assert_eq!(realm::hamlet_of(app.world(), hand), None);
+        assert_eq!(
+            realm::id_of(app.world(), hand),
+            Some(protocol::AgentId(1))
+        );
     }
 
     #[test]
     fn agents_of_one_name_in_two_hamlets_are_told_apart_by_hamlet() {
         let mut realm = state();
-        realm.hamlets.push(hamlet("mill"));
-        realm.agents.push(agent("home", 1, "scout"));
-        realm.agents.push(agent("mill", 0, "scout"));
+        realm.hamlets.push(hamlet("mill", 4));
+        realm.agents.push(agent(3, "home", 1, "scout"));
+        realm.agents.push(agent(4, "mill", 0, "scout"));
         let mut app = app(realm);
-        let home = realm::agent(app.world(), &reference("home", 1));
-        let mill = realm::agent(app.world(), &reference("mill", 0));
+        let home = realm::named(app.world(), "scout@home");
+        let mill = realm::named(app.world(), "scout@mill");
+        assert!(home.is_some() && mill.is_some());
         assert_ne!(home, mill);
-        assert_eq!(at(&app, "home", "scout"), home);
-        assert_eq!(at(&app, "mill", "scout"), mill);
-        assert_eq!(at(&app, "mill", "mayor"), mill);
-        assert_eq!(realm::named(app.world(), "scout"), home);
+        assert_eq!(
+            realm::agent(app.world(), protocol::AgentId(4)),
+            mill
+        );
         app.world_mut().entity_mut(home.unwrap()).insert(Left);
-        assert_eq!(realm::named(app.world(), "scout"), mill);
-        assert_eq!(at(&app, "home", "scout"), None);
+        assert_eq!(realm::named(app.world(), "scout@home"), None);
+        assert_eq!(realm::named(app.world(), "scout@mill"), mill);
     }
 }

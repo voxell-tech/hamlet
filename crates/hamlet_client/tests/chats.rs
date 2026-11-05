@@ -16,10 +16,7 @@ fn reference() -> protocol::ChatRef {
     protocol::ChatRef {
         kind: None,
         from: None,
-        with: protocol::Address {
-            hamlet: "home".into(),
-            agent: "mayor".into(),
-        },
+        with: protocol::AgentId(2),
         past: None,
     }
 }
@@ -248,59 +245,36 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
 }
 
 #[test]
-fn chats_follow_the_addressed_agent_and_the_current_mayor_as_the_realm_changes()
- {
+fn chats_follow_their_agent_as_it_leaves_and_comes_back() {
     use hamlet_client::chats::{Conversations, TalksTo};
-    use hamlet_client::realm::mayor;
-    use hamlet_testing::realm::{agent, state};
+    use hamlet_client::realm::mayor_of;
+    use hamlet_testing::realm::state;
     let mut app = app();
-    let office = app.world_mut().spawn(Chat(reference())).id();
-    let mut named_ref = reference();
-    named_ref.with.agent = "founder".into();
-    let named = app.world_mut().spawn(Chat(named_ref)).id();
+    let chat = app.world_mut().spawn(Chat(reference())).id();
     app.update();
-    assert!(app.world().get::<TalksTo>(office).is_none());
+    assert!(app.world().get::<TalksTo>(chat).is_none());
     let mut realm = state();
     receive(
         app.world_mut(),
         protocol::ServerMessage::State(realm.clone()),
     );
     app.update();
-    let founder = mayor(app.world_mut()).unwrap();
-    assert_eq!(
-        app.world().get::<TalksTo>(office).unwrap().0,
-        founder
-    );
-    assert_eq!(app.world().get::<TalksTo>(named).unwrap().0, founder);
+    let ada = mayor_of(app.world_mut(), "home").unwrap();
+    assert_eq!(app.world().get::<TalksTo>(chat).unwrap().0, ada);
     assert_eq!(
         app.world()
-            .get::<Conversations>(founder)
+            .get::<Conversations>(ada)
             .unwrap()
             .iter()
             .count(),
-        2
+        1
     );
-    realm.agents[0].mayor = false;
-    let mut other = agent("home", 1, "writer");
-    other.mayor = true;
-    realm.agents.push(other);
-    realm.revision += 1;
-    receive(
-        app.world_mut(),
-        protocol::ServerMessage::State(realm.clone()),
-    );
-    app.update();
-    let writer = mayor(app.world_mut()).unwrap();
-    assert_ne!(founder, writer);
-    assert_eq!(app.world().get::<TalksTo>(office).unwrap().0, writer);
-    assert_eq!(app.world().get::<TalksTo>(named).unwrap().0, founder);
     realm.agents.clear();
     realm.revision += 1;
     receive(app.world_mut(), protocol::ServerMessage::State(realm));
     app.update();
-    assert!(app.world().get::<TalksTo>(office).is_none());
-    assert!(app.world().get::<TalksTo>(named).is_none());
-    assert!(app.world().get::<Chat>(office).is_some());
+    assert!(app.world().get::<TalksTo>(chat).is_none());
+    assert!(app.world().get::<Chat>(chat).is_some());
 }
 
 #[derive(Resource, Default)]

@@ -47,7 +47,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
         works.words,
         "Agents ask you before each edit and command."
     );
-    assert_eq!(bylaws.0.most_agents, 12);
+    assert_eq!(bylaws.0.depth, 3);
     assert_eq!(treasury.0.summary, "Hamlet today: $0.00 of $5.00");
     let (agent, number, name, lives, account, activity) =
         world
@@ -62,7 +62,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
             .single(world)
             .unwrap();
     assert_eq!(number.0, 0);
-    assert_eq!(name.as_str(), "founder");
+    assert_eq!(name.as_str(), "founder@home");
     assert_eq!(lives.0, home);
     assert_eq!(account.model, "faux::faux-1");
     assert_eq!(account.summary(), "faux::faux-1, $0.00");
@@ -75,14 +75,13 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     assert!(world.resource::<Grants>().0.is_empty());
     assert!(world.resource::<Deeds>().is_supported("stop"));
     assert!(world.resource::<Deeds>().is_supported("found"));
-    assert_eq!(mayor(world), Some(agent));
-    assert_eq!(named(world, "mayor"), Some(agent));
+    assert_eq!(mayor_of(world, "home"), Some(agent));
+    assert_eq!(id_of(world, agent), Some(protocol::AgentId(2)));
+    let hand = hand(world).unwrap();
+    assert_eq!(named(world, "hand"), Some(hand));
     assert_eq!(
-        address_of(world, agent),
-        Some(protocol::Address {
-            hamlet: "home".into(),
-            agent: "founder".into()
-        })
+        id_of(world, hand),
+        Some(world.resource::<HandId>().0)
     );
 }
 
@@ -95,13 +94,13 @@ fn recorded_turn_keeps_the_agent_while_its_work_and_words_change() {
     ))
     .into_iter();
     receive(world, messages.next().unwrap());
-    let founder = named(world, "founder").unwrap();
+    let founder = named(world, "founder@home").unwrap();
     let mut worked = false;
     let mut thinking = false;
     let mut thought = false;
     for message in messages {
         receive(world, message);
-        assert_eq!(named(world, "founder"), Some(founder));
+        assert_eq!(named(world, "founder@home"), Some(founder));
         if world.get::<Busy>(founder).is_some() {
             worked = true;
             let activity = world.get::<Activity>(founder).unwrap();
@@ -139,7 +138,7 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
         "../../hamlet_protocol/frames/approval.jsonl"
     )) {
         receive(world, message);
-        let founder = named(world, "founder").unwrap();
+        let founder = named(world, "founder@home").unwrap();
         let open = world
             .query::<(Entity, &Waiting, &RaisedBy)>()
             .iter(world)
@@ -216,12 +215,12 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     let mut app = app();
     let world = app.world_mut();
     let mut first = state();
-    first.hamlets.push(hamlet("other"));
-    first.agents.push(agent("other", 0, "scout"));
+    first.hamlets.push(hamlet("other", 3));
+    first.agents.push(agent(3, "other", 0, "scout"));
     first.waits = vec![wait("kept"), wait("gone")];
     receive(world, protocol::ServerMessage::State(first.clone()));
-    let founder = named(world, "founder").unwrap();
-    let scout = named(world, "scout").unwrap();
+    let founder = named(world, "ada@home").unwrap();
+    let scout = named(world, "scout@other").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
     let other = world.get::<LivesIn>(scout).unwrap().0;
     let wait_ids = world
@@ -232,8 +231,8 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     first.epoch += 1;
     first.revision = 8;
     first.hamlets.truncate(1);
-    first.agents.truncate(1);
-    first.agents[0].name = "renamed".into();
+    first.agents.truncate(2);
+    first.agents[1].name = "renamed".into();
     first.waits.truncate(1);
     first.waits[0].about = "a new question".into();
     receive(world, protocol::ServerMessage::State(first.clone()));
@@ -259,7 +258,7 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
                 epoch,
                 revision,
                 changes: vec![protocol::Update::AgentGone {
-                    agent: first.agents[0].agent.clone(),
+                    id: first.agents[1].id,
                 }],
             }),
         );
@@ -278,7 +277,7 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
             epoch: first.epoch,
             revision: 9,
             changes: vec![protocol::Update::AgentGone {
-                agent: first.agents[0].agent.clone(),
+                id: first.agents[1].id,
             }],
         }),
     );
@@ -294,17 +293,18 @@ fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
         "../../hamlet_protocol/frames/fault.jsonl"
     )) {
         receive(world, message);
-        let faulted = named(world, "founder").is_some_and(|agent| {
-            world.get::<Faulted>(agent).is_some()
-                && world.get::<Busy>(agent).is_none()
-        });
+        let faulted =
+            named(world, "founder@home").is_some_and(|agent| {
+                world.get::<Faulted>(agent).is_some()
+                    && world.get::<Busy>(agent).is_none()
+            });
         if faulted
             && world.query::<&Waiting>().iter(world).next().is_some()
         {
             break;
         }
     }
-    let founder = named(world, "founder").unwrap();
+    let founder = named(world, "founder@home").unwrap();
     assert!(world.get::<Faulted>(founder).is_some());
     assert!(world.get::<Busy>(founder).is_none());
     let (wait, raised) = world
@@ -327,9 +327,9 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
     let mut state = state();
     state
         .agents
-        .push(hamlet_testing::realm::agent("home", 1, "scout"));
+        .push(hamlet_testing::realm::agent(3, "home", 1, "scout"));
     receive(world, protocol::ServerMessage::State(state.clone()));
-    let founder = mayor(world).unwrap();
+    let founder = mayor_of(world, "home").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
     let before = world
         .get::<Agents>(home)
@@ -337,7 +337,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
         .iter()
         .collect::<Vec<_>>();
     world.clear_trackers();
-    state.agents[0].saying.text = "Hello".into();
+    state.agents[1].saying.text = "Hello".into();
     receive(
         world,
         protocol::ServerMessage::Change(protocol::Changes {
@@ -348,7 +348,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
                     hamlet: state.hamlets.remove(0),
                 },
                 protocol::Update::Agent {
-                    agent: state.agents.remove(0),
+                    agent: state.agents.remove(1),
                 },
             ],
         }),

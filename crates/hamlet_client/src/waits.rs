@@ -125,7 +125,6 @@ pub(crate) fn upsert(
         .unwrap_or_else(|| world.spawn_empty().id());
     let agent = wait
         .agent
-        .as_ref()
         .and_then(|agent| crate::realm::agent(world, agent));
     let mut entity = world.entity_mut(entity);
     if let protocol::WaitDetail::Question { questions } = &wait.detail

@@ -143,6 +143,10 @@ pub enum ClientMessage {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(tag = "type", deny_unknown_fields)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a wire type; a box would show in every pattern"
+)]
 pub enum ServerMessage {
     #[serde(rename = "state")]
     State(State),

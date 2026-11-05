@@ -8,7 +8,6 @@ use hamlet_protocol::client as protocol;
 #[derive(Resource, Default)]
 struct SeenEvents {
     letters: usize,
-    ballots: usize,
     library: usize,
 }
 
@@ -21,9 +20,6 @@ fn replay(text: &str, mut inspect: impl FnMut(&mut World)) -> App {
                 seen.letters += 1;
             },
         )
-        .add_observer(|_: On<Voted>, mut seen: ResMut<SeenEvents>| {
-            seen.ballots += 1;
-        })
         .add_observer(
             |_: On<Consulted>, mut seen: ResMut<SeenEvents>| {
                 seen.library += 1;
@@ -128,22 +124,6 @@ fn recorded_leaving_restores_the_same_agent_then_resolves_its_merge_host()
 }
 
 #[test]
-fn recorded_vote_casts_ballots_and_moves_the_office() {
-    let mut app = replay(
-        include_str!("../../hamlet_protocol/frames/vote.jsonl"),
-        |_| {},
-    );
-    let world = app.world_mut();
-    let smith = named(world, "smith").unwrap();
-    assert!(world.get::<Mayor>(smith).is_some());
-    assert_eq!(world.resource::<SeenEvents>().ballots, 3);
-    let votes = world.query::<&Votes>().single(world).unwrap();
-    assert_eq!(votes.0.len(), 1);
-    assert!(!votes.0[0].open);
-    assert!(votes.0[0].report.contains("Passed: 3 yes of 3"));
-}
-
-#[test]
 fn recorded_realm_places_a_second_town_builds_a_road_and_closes_then_erases_it()
  {
     let mut placed = false;
@@ -175,7 +155,7 @@ fn recorded_realm_places_a_second_town_builds_a_road_and_closes_then_erases_it()
         !world
             .query::<&Name>()
             .iter(world)
-            .any(|name| name.as_str() == "miller")
+            .any(|name| name.as_str() == "miller@mill")
     );
 }
 

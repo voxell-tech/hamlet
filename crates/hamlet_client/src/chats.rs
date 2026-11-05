@@ -99,7 +99,7 @@ fn watch(
     let Ok((chat, talks)) = chats.get(watched.entity) else {
         return;
     };
-    let agent = index.at(&chat.0.with);
+    let agent = index.living(chat.0.with);
     talk(&mut commands, watched.entity, talks, agent);
     watches.pages.remove(&watched.entity);
     open(&mut outbox, chat.0.clone());
@@ -131,7 +131,7 @@ fn follow(
     mut commands: Commands,
 ) {
     for (chat, reference) in index.chats() {
-        let agent = index.at(&reference.with);
+        let agent = index.living(reference.with);
         talk(&mut commands, chat, talks.get(chat).ok(), agent);
     }
 }
@@ -604,14 +604,11 @@ mod tests {
         app
     }
 
-    fn with(name: &str) -> protocol::ChatRef {
+    fn with(id: u64) -> protocol::ChatRef {
         protocol::ChatRef {
             kind: None,
             from: None,
-            with: protocol::Address {
-                hamlet: realm::HOME.into(),
-                agent: name.into(),
-            },
+            with: protocol::AgentId(id),
             past: None,
         }
     }
@@ -620,7 +617,7 @@ mod tests {
     fn a_chat_added_and_removed_in_one_update_opens_and_closes_once()
     {
         let mut app = app();
-        let chat = app.world_mut().spawn(Chat(with("founder"))).id();
+        let chat = app.world_mut().spawn(Chat(with(2))).id();
         app.world_mut().despawn(chat);
         app.update();
         let sent = app
@@ -629,7 +626,7 @@ mod tests {
             .drain()
             .collect::<Vec<_>>();
         assert!(
-            matches!(&sent[..], [protocol::ClientMessage::Open(open), protocol::ClientMessage::Close(close)] if open.chat == with("founder") && close.chat == with("founder")),
+            matches!(&sent[..], [protocol::ClientMessage::Open(open), protocol::ClientMessage::Close(close)] if open.chat == with(2) && close.chat == with(2)),
             "{sent:?}"
         );
     }
@@ -638,20 +635,20 @@ mod tests {
     fn a_chat_watched_before_its_agent_arrives_talks_to_it_when_it_comes()
      {
         let mut app = app();
-        let chat = app.world_mut().spawn(Chat(with("scout"))).id();
+        let chat = app.world_mut().spawn(Chat(with(3))).id();
         let mut realm = state();
         receive(
             app.world_mut(),
             protocol::ServerMessage::State(realm.clone()),
         );
         assert!(app.world().get::<TalksTo>(chat).is_none());
-        realm.agents.push(agent("home", 1, "scout"));
+        realm.agents.push(agent(3, "home", 1, "scout"));
         realm.revision += 1;
         receive(
             app.world_mut(),
             protocol::ServerMessage::State(realm),
         );
-        let scout = realm::named(app.world(), "scout").unwrap();
+        let scout = realm::named(app.world(), "scout@home").unwrap();
         assert_eq!(
             app.world().get::<TalksTo>(chat),
             Some(&TalksTo(scout))

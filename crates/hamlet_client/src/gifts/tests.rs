@@ -7,7 +7,6 @@ use hamlet_testing::{Scratch, realm};
 
 use super::*;
 use crate::ClientPlugin;
-use crate::realm::HOME;
 
 /// The runtime every test's gifts are read on.
 static RUNTIME: LazyLock<tokio::runtime::Runtime> =
@@ -23,7 +22,8 @@ fn app() -> (App, Entity) {
         app.world_mut(),
         protocol::ServerMessage::State(state),
     );
-    let founder = crate::realm::mayor(app.world_mut()).unwrap();
+    let founder =
+        crate::realm::mayor_of(app.world_mut(), "home").unwrap();
     (app, founder)
 }
 
@@ -94,13 +94,7 @@ fn a_file_gift_begins_with_its_manifest_and_waits_for_acceptance() {
     else {
         panic!("one manifest: {messages:?}");
     };
-    assert_eq!(
-        to,
-        &protocol::Address {
-            hamlet: HOME.into(),
-            agent: "founder".into()
-        }
-    );
+    assert_eq!(to, &protocol::AgentId(2));
     assert_eq!(
         files,
         &[protocol::GiveFile {
@@ -239,8 +233,8 @@ fn skill_offers_use_received_starters_and_other_houses_without_local_files()
         name: "research".into(),
         description: "Find sources".into(),
     }];
-    state.agents[0].skills = vec!["own".into()];
-    let mut scout = realm::agent("home", 1, "scout");
+    state.agents[1].skills = vec!["own".into()];
+    let mut scout = realm::agent(3, "home", 1, "scout");
     scout.skills = vec!["maps".into(), "own".into()];
     state.agents.push(scout.clone());
     let message = protocol::ServerMessage::State(state);
@@ -261,10 +255,7 @@ fn skill_offers_use_received_starters_and_other_houses_without_local_files()
             starter: "research".into(),
         },
         protocol::GiveSkillSource::From {
-            from: protocol::Address {
-                hamlet: HOME.into(),
-                agent: "scout".into(),
-            },
+            from: protocol::Keeper::Agent(protocol::AgentId(3)),
             name: "maps".into(),
         },
     ]
@@ -284,7 +275,7 @@ fn skill_offers_use_received_starters_and_other_houses_without_local_files()
             panic!("skill gift: {messages:?}");
         };
         assert_eq!(skill, &expected);
-        assert_eq!(to.agent, "founder");
+        assert_eq!(to, &realm::state().agents[1].scholar.unwrap());
     }
     scout.skills = vec!["compass".into()];
     let message =

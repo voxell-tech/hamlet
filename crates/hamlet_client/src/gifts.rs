@@ -82,7 +82,7 @@ enum Pending {
     /// A letter's paths walked into its manifest.
     Walk {
         agent: Entity,
-        to: protocol::Address,
+        to: protocol::AgentId,
         done: oneshot::Receiver<io::Result<Vec<GiftFile>>>,
     },
     /// The next part of the first file of `gift`.
@@ -96,7 +96,7 @@ enum Pending {
 
 /// A skill gift sent to the receiving agent.
 pub fn give(world: &mut World, agent: Entity, offer: &Offer) {
-    let Some(to) = realm::address_of(world, agent) else {
+    let Some(to) = scholar_of(world, agent) else {
         return;
     };
     if !Deeds::is_allowed(world, "give") {
@@ -118,14 +118,23 @@ pub fn give(world: &mut World, agent: Entity, offer: &Offer) {
     );
 }
 
+/// The scholar a hire is of, whose `main` takes a skill gift.
+fn scholar_of(
+    world: &World,
+    agent: Entity,
+) -> Option<protocol::ScholarId> {
+    realm::id_of(world, agent)?;
+    Some(world.get::<realm::OfScholar>(agent)?.0)
+}
+
 /// The skills the received state offers to an agent.
 pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
     if !Deeds::is_allowed(world, "give") {
         return Vec::new();
     }
-    let Some(to) = realm::address_of(world, agent) else {
+    if scholar_of(world, agent).is_none() {
         return Vec::new();
-    };
+    }
     let own = world.get::<realm::HouseSkills>(agent);
     let has =
         |skill: &String| own.is_some_and(|own| own.0.contains(skill));
@@ -142,34 +151,39 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
             },
         })
         .collect::<Vec<_>>();
+    let hamlet = realm::hamlet_of(world, agent);
     let mut others = world
         .try_query::<(Entity, &realm::HouseSkills)>()
         .map(|mut query| {
             query
                 .iter(world)
                 .filter_map(|(entity, skills)| {
-                    let address = realm::address_of(world, entity)?;
-                    (entity != agent).then_some((address, skills))
+                    let id = realm::id_of(world, entity)?;
+                    (entity != agent).then_some((
+                        id,
+                        realm::name_of(world, entity),
+                        skills,
+                    ))
                 })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    others.sort_by(|(a, _), (b, _)| {
-        (&a.hamlet, &a.agent).cmp(&(&b.hamlet, &b.agent))
-    });
-    for (address, skills) in others {
-        let from = if address.hamlet == to.hamlet {
-            address.agent.clone()
-        } else {
-            format!("{}@{}", address.agent, address.hamlet)
-        };
+    others.sort_by(|(_, a, _), (_, b, _)| a.cmp(b));
+    for (id, name, skills) in others {
+        // A name in the receiver's own hamlet needs no `@hamlet`.
+        let from = hamlet
+            .and_then(|hamlet| {
+                name.strip_suffix(&format!("@{hamlet}"))
+            })
+            .unwrap_or(&name)
+            .to_owned();
         offers.extend(
             skills.0.iter().filter(|skill| !has(skill)).map(
                 |skill| Offer {
                     skill: skill.clone(),
                     from: Some(from.clone()),
                     source: protocol::GiveSkillSource::From {
-                        from: address.clone(),
+                        from: protocol::Keeper::Agent(id),
                         name: skill.clone(),
                     },
                 },
@@ -182,7 +196,7 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
 /// Files and folders sent to `agent` as one gift, its manifest queued
 /// once they are walked.
 pub fn letter(world: &mut World, agent: Entity, paths: Vec<PathBuf>) {
-    let Some(to) = realm::address_of(world, agent) else {
+    let Some(to) = realm::id_of(world, agent) else {
         return;
     };
     if !Deeds::is_allowed(world, "give") {
@@ -336,7 +350,7 @@ fn unread(world: &mut World, error: &io::Error) {
 fn manifest(
     world: &mut World,
     agent: Entity,
-    to: protocol::Address,
+    to: protocol::AgentId,
     files: Vec<GiftFile>,
 ) {
     let manifest = files
