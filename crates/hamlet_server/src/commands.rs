@@ -428,6 +428,8 @@ impl Core {
                         )
                     })
                     .await?;
+                // Who watches the chat turns to the new session.
+                self.rewatch(agent).await?;
                 Ok(Ok(format!("Session {number} began.")))
             }
             "resume" => {
@@ -458,6 +460,7 @@ impl Core {
                         )
                     })
                     .await?;
+                self.rewatch(agent).await?;
                 Ok(done
                     .map(|()| format!("Back in session {number}.")))
             }

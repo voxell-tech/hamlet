@@ -627,7 +627,10 @@ impl Core {
 
     /// Sends the watchers of `agent`'s chats the session they now
     /// stand for.
-    async fn rewatch(&mut self, agent: AgentId) -> Result<()> {
+    pub(crate) async fn rewatch(
+        &mut self,
+        agent: AgentId,
+    ) -> Result<()> {
         let watches = self
             .clients
             .watches

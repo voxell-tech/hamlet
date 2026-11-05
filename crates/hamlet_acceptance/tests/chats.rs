@@ -69,14 +69,15 @@ async fn sessions_are_numbered_and_come_back() {
         s.chief.command(hand, "/new").await,
         "Session 2 began."
     );
+    // The watch of the current session turns to the new one by
+    // itself, as the window's does.
+    s.chief.shows(&now, "Started a new session.").await;
     let first = ChatRef {
         past: Some(1),
         ..chat(hand)
     };
-    s.chief.shows(&now, "Kept it.").await;
-    // The watch of the current session starts again after /new.
-    let began = s.chief.open(&now).await;
-    assert_eq!(began.number, Some(2));
+    s.chief.open(&first).await;
+    s.chief.shows(&first, "Kept it.").await;
     s.chief.tell(hand, "b").await;
     s.chief.shows(&now, "Two.").await;
 
