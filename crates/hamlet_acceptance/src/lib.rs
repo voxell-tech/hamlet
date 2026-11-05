@@ -38,7 +38,16 @@ impl Session {
         faux: Faux,
         env: &[(&str, &str)],
     ) -> Self {
-        let mut home = Home::new();
+        Self::start_in(Home::new(), faux, env).await
+    }
+
+    /// `home`, served with `faux` and `env`, for a scenario that
+    /// needs the home's paths before its server runs.
+    pub async fn start_in(
+        mut home: Home,
+        faux: Faux,
+        env: &[(&str, &str)],
+    ) -> Self {
         let server = home.serve(&faux, env).await;
         let chief = Client::join(&server).await;
         Self {
