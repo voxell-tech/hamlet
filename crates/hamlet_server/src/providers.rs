@@ -880,7 +880,7 @@ impl Core {
     }
 
     /// Takes the models `provider` lists into the catalogue, keeping
-    /// a chief's own prices.
+    /// a chief's own prices, and lets go of those it no longer lists.
     fn take_models(
         &mut self,
         provider: &str,
@@ -888,6 +888,13 @@ impl Core {
     ) -> Result<()> {
         let db = self.realm.store().connection();
         let mut cards = catalogue(db)?;
+        let prefix = format!("{provider}::");
+        cards.retain(|name, _| {
+            name.strip_prefix(&prefix).is_none_or(|id| {
+                list.iter()
+                    .any(|model| model["id"].as_str() == Some(id))
+            })
+        });
         for model in list {
             let name = format!(
                 "{provider}::{}",
