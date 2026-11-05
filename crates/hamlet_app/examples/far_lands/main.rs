@@ -523,11 +523,13 @@ fn run(
                 commands.spawn((
                     Name::new(format!("Scholar {k}")),
                     Scholar(protocol::Scholar {
+                        arrival: protocol::Arrival::Housed,
                         chief: String::new(),
                         hires: hired,
-                        house: Some(protocol::TownAt {
-                            x: at.x as f64,
-                            z: at.y as f64,
+                        house: Some(protocol::HouseAt {
+                            turn: f64::from((-at.x).atan2(-at.y)),
+                            x: f64::from(at.x),
+                            z: f64::from(at.y),
                         }),
                         id: protocol::ScholarId(id),
                         left: left.then(|| protocol::ScholarLeft {

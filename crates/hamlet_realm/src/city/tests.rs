@@ -17,9 +17,18 @@ fn scholar(
     left: bool,
 ) -> Scholar {
     Scholar(protocol::Scholar {
+        arrival: if house.is_some() {
+            protocol::Arrival::Housed
+        } else {
+            protocol::Arrival::Waiting
+        },
         chief: String::new(),
         hires: hires.into_iter().map(protocol::AgentId).collect(),
-        house: house.map(|(x, z)| protocol::TownAt { x, z }),
+        house: house.map(|(x, z)| protocol::HouseAt {
+            turn: 0.0,
+            x,
+            z,
+        }),
         id: protocol::ScholarId(id),
         left: left.then(|| protocol::ScholarLeft {
             at: 0,
