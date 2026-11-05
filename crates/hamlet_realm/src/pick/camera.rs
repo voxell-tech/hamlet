@@ -144,6 +144,13 @@ pub fn focus_on(world: &mut World, thing: Thing, stay: bool) {
     let Some(at) = at else {
         return;
     };
+    glide_to(world, at);
+    world.resource_mut::<Following>().0 = stay.then_some(thing);
+}
+
+/// Brings the place `at` on the ground to the middle of the view and
+/// comes in close.
+pub fn glide_to(world: &mut World, at: Vec2) {
     if let Some(mut played) =
         world.get_resource_mut::<Messages<Played>>()
     {
@@ -163,7 +170,6 @@ pub fn focus_on(world: &mut World, thing: Thing, stay: bool) {
     let mut orbit = world.resource_mut::<Orbit>();
     orbit.pan = pan;
     orbit.zoom = orbit.zoom.min(close);
-    world.resource_mut::<Following>().0 = stay.then_some(thing);
 }
 
 /// F brings the selected thing to the middle and comes in close,

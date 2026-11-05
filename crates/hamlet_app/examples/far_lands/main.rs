@@ -21,7 +21,7 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use hamlet_client::realm::{Busy, HandId, Identity, Scholar};
 use hamlet_protocol::client as protocol;
-use hamlet_realm::generator::land::Land;
+use hamlet_realm::generator::land::{IslandId, Land};
 use hamlet_realm::generator::society::{Ground, Society, TownId};
 use hamlet_realm::generator::{GeneratorView, Loading, Tally};
 use hamlet_realm::moving::{self, Carrying};
@@ -86,6 +86,8 @@ enum Spot {
     Hamlet(Vec2),
     /// Halfway between the middles of the two islands.
     Mid,
+    /// The middle of the pier of an island.
+    Pier(IslandId),
     /// The site of a town, and so far to its side.
     Town(u32, Vec2),
     /// The nearest ground to a point, measured from the middle of the
@@ -160,6 +162,20 @@ fn stills() -> Vec<Step> {
         Shot("02b-the-hands-tower"),
         look(City(Vec2::new(60.0, 10.0)), 130.0),
         Shot("02c-the-scholars-houses"),
+        Look {
+            at: Pier(IslandId::City),
+            dist: 60.0,
+            yaw: 0.6,
+            pitch: 24.0,
+        },
+        Shot("02e-the-city-pier"),
+        Look {
+            at: Pier(IslandId::Hamlet),
+            dist: 60.0,
+            yaw: 0.6,
+            pitch: 24.0,
+        },
+        Shot("02f-the-hamlet-pier"),
         Night(true),
         Look {
             at: City(Vec2::new(30.0, 0.0)),
@@ -383,6 +399,10 @@ fn place(
         Spot::City(at) => at,
         Spot::Hamlet(off) => centre + off,
         Spot::Mid => centre * 0.5,
+        Spot::Pier(isle) => {
+            land.coast_toward_other(isle)
+                + land.toward_other(isle) * 8.0
+        }
         Spot::Town(town, off) => society
             .town(TownId(town))
             .map_or(off, |town| land.sites[town.site].at + off),

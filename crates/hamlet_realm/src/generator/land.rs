@@ -558,6 +558,34 @@ impl LandData {
         (self.extent(id) / step).ceil().max(1.0) * step
     }
 
+    /// The way from the middle of the island `id` to the middle of
+    /// the other, as a unit vector.
+    pub fn toward_other(&self, id: IslandId) -> Vec2 {
+        match id {
+            IslandId::City => self.bearing,
+            IslandId::Hamlet => -self.bearing,
+        }
+    }
+
+    /// The water's edge of the island `id` on the straight way to
+    /// the other island's middle: out from its middle to where the
+    /// land's field says the sea begins, then back in to the last
+    /// dry ground.
+    pub fn coast_toward_other(&self, id: IslandId) -> Vec2 {
+        const STEP: f32 = 0.5;
+        let from = self.island(id).centre;
+        let way = self.toward_other(id);
+        let reach = from.distance(self.island(id.other()).centre);
+        let mut out = 0.0;
+        while out < reach && self.inside(from + way * out) > 0.0 {
+            out += STEP;
+        }
+        while out > 0.0 && self.is_water(from + way * out) {
+            out -= STEP;
+        }
+        from + way * out
+    }
+
     /// Where the hamlet island's middle belongs: past the city
     /// island's radius and its own, and the channel, along the
     /// bearing.
