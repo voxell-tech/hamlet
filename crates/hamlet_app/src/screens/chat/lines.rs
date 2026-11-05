@@ -765,9 +765,7 @@ pub fn transcript() -> impl View {
     let corner = overlay((back,))
         .justify(JustifyContent::FlexEnd)
         .align(AlignItems::FlexEnd);
-    column((bubble::header(), column((said, corner)).fills_height()))
-        .fills_height()
-        .gap(6.0)
+    column((said, corner)).fills_height()
 }
 
 /// A row of the chat.

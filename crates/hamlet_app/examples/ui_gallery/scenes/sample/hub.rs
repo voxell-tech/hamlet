@@ -1,7 +1,8 @@
-//! The notes, character and prompt gallery scenes.
+//! The memory, character and prompt gallery scenes.
 
 use bevy::ecs::world::World;
-use hamlet_app::{Convo, inspector};
+use hamlet_app::Convo;
+use hamlet_app::hub::{self, Showing};
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 
@@ -10,12 +11,39 @@ use crate::scenes::Scene;
 pub(super) fn setup(world: &mut World, scene: Scene) {
     if matches!(
         scene,
-        Scene::Notes | Scene::Character | Scene::Prompt
+        Scene::Memory | Scene::Character | Scene::Prompt
     ) {
         keep_notes(world);
+        // The thread with its details open beside it.
+        world.insert_resource(Showing::Thread);
+        world.insert_resource(hub::Sheet { open: true });
     }
-    if scene == Scene::Character {
-        world.insert_resource(inspector::Section::Character);
+    if matches!(
+        scene,
+        Scene::Hub
+            | Scene::Desk
+            | Scene::Toasts
+            | Scene::Chat
+            | Scene::Group
+            | Scene::Links
+            | Scene::Edits
+            | Scene::Pictures
+            | Scene::Rewind
+            | Scene::Quiet
+    ) {
+        world.insert_resource(Showing::Thread);
+    }
+    if scene == Scene::Hub {
+        world.resource_mut::<hub::Rail>().show_rows();
+    }
+    if scene == Scene::Scholar {
+        let scholar = hamlet_client::realm::scholar(
+            world,
+            protocol::ScholarId(2),
+        )
+        .expect("the received scholar");
+        world.insert_resource(Showing::Scholar(scholar));
+        keep_notes(world);
     }
     if scene == Scene::Prompt {
         let agent = world.resource::<Convo>().agent;
@@ -23,15 +51,15 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
                     seatbelt. Network for tools: off.\n\nKeep the \
                     orchard's notes in order."
             .into();
-        world.insert_resource(inspector::Briefing {
+        world.insert_resource(hub::Briefing {
             agent: Some(agent),
             text,
         });
-        world.insert_resource(inspector::Section::Prompt);
+        world.insert_resource(Showing::Prompt);
     }
 }
 
-/// Sample papers received for the Notes page.
+/// Sample papers received for the Memory page.
 fn keep_notes(world: &mut World) {
     let character = String::from(
         "You are **Juniper**, the orchard's keeper of notes.\n\n- \
@@ -49,16 +77,17 @@ fn keep_notes(world: &mut World) {
          March |\n| Comice | April |\n\n> The quince stock came too \
          late for a fourth row.\n",
     );
-    inspector::keep_papers(world);
+    hub::keep_papers(world);
     let id = world
         .resource::<Outbox>()
         .iter()
-        .find_map(|message| match message {
+        .filter_map(|message| match message {
             protocol::ClientMessage::Read(
                 protocol::Read::Papers { id, .. },
             ) => Some(id.clone()),
             _ => None,
         })
+        .last()
         .expect("the papers read");
     hamlet_client::receive(
         world,
@@ -76,5 +105,4 @@ fn keep_notes(world: &mut World) {
             },
         }),
     );
-    world.insert_resource(inspector::Section::Notes);
 }

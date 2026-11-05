@@ -8,7 +8,7 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
-use bevy::ui::AlignItems;
+use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, text_field,
@@ -46,7 +46,7 @@ pub(crate) struct NameField;
 pub struct Naming(pub(super) Option<Entity>);
 
 /// The words typed in the field under a root marked `M`.
-fn typed<M: Component>(world: &mut World) -> String {
+pub(crate) fn typed<M: Component>(world: &mut World) -> String {
     let roots = world
         .query_filtered::<&Children, With<M>>()
         .iter(world)
@@ -146,7 +146,8 @@ fn list_of(hamlet: Entity) -> impl View {
             } else {
                 Thing::Agent(agent)
             };
-            pressable(
+            // Each lead's hires stand a step in from it.
+            column((pressable(
                 thing,
                 title,
                 beside,
@@ -158,7 +159,8 @@ fn list_of(hamlet: Entity) -> impl View {
                         talk_to(world, agent);
                     }
                 },
-            )
+            ),))
+            .padding(UiRect::left(px(row.depth as f32 * 18.0)))
         };
         let living = rows
             .iter()
@@ -243,9 +245,15 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         }
         group((
             breadcrumb(
-                vec!["HAMLETS".into()],
+                vec!["HOME".into()],
                 facts.title.to_uppercase(),
-                |world, _| select(world, None),
+                |world, _| {
+                    select(world, None);
+                    crate::hub::show(
+                        world,
+                        crate::hub::Showing::Home,
+                    );
+                },
             ),
             beside((
                 title(facts.title.to_uppercase()),

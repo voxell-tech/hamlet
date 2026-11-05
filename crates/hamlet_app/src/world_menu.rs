@@ -134,6 +134,13 @@ pub(super) fn open_for(world: &mut World, thing: Thing) {
     *world.resource_mut::<Open>() = Open::Menu(thing, at);
 }
 
+/// Opens the menu of the skills `agent` could be given, at the
+/// pointer.
+pub(super) fn open_skills(world: &mut World, agent: Entity) {
+    let at = pointer(world);
+    *world.resource_mut::<Open>() = Open::Skills(agent, at);
+}
+
 /// Opens the form a hamlet is founded with, at the pointer.
 pub(super) fn ask_found(world: &mut World) {
     if !Deeds::is_allowed(world, "found") {

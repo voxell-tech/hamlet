@@ -17,7 +17,7 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
-use crate::dock::show_tab;
+use crate::dock::{HUB, show_tab};
 use crate::world_menu::{self, Deed};
 
 #[derive(Clone, PartialEq)]
@@ -49,7 +49,7 @@ fn empty_state<R: Resource>(
                 column((
                     description(hint),
                     action(Glyph::Talk, "OPEN CHAT", |w| {
-                        show_tab(w, "agent");
+                        show_tab(w, HUB);
                     }),
                 ))
                 .gap(section)
@@ -162,10 +162,12 @@ mod tests {
     fn the_library_shows_the_clients_empty_shelf_and_received_skills()
     {
         let mut app = panel_app();
-        app.insert_resource(Selected(Some(Thing::Library)));
+        app.insert_resource(Selected(Some(Thing::Library)))
+            .insert_resource(crate::hub::Showing::Library)
+            .init_resource::<crate::hub::Rail>();
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
-            crate::inspector::screen(),
+            crate::hub::screen(),
         );
         app.update();
         assert!(words(&mut app).iter().any(|text| text.starts_with("The library is empty.")));

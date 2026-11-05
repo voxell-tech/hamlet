@@ -294,7 +294,7 @@ fn people(world: &mut World) {
         ))
         .id();
     world.spawn((
-        Name::new("founder"),
+        Name::new("ada"),
         Identity(hamlet_protocol::client::AgentId(2)),
         AgentNumber(0),
         Mayor,

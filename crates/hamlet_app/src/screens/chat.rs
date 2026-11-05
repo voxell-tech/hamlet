@@ -6,7 +6,7 @@
 //! them (`rewind`). A message can `reply` to another, and `quote`
 //! lines as chat apps do.
 
-mod bubble;
+pub(crate) mod bubble;
 mod change;
 mod entry;
 mod field;
@@ -572,7 +572,7 @@ mod tests {
             .init_resource::<crate::menu::OpenMenu>()
             .init_resource::<crate::world_menu::Open>()
             .init_resource::<bevy_fynix::dock::DockDrag>()
-            .init_resource::<crate::inspector::Section>()
+            .init_resource::<crate::hub::Showing>()
             .init_resource::<crate::hover::Card>()
             .add_plugins((plugin, crate::sounds::plugin));
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
@@ -840,7 +840,7 @@ mod tests {
             .query_filtered::<Entity, With<EditableText>>()
             .single(world)
             .unwrap();
-        for command in ["/new", "/agent founder", "/hamlet home"] {
+        for command in ["/new", "/agent ada", "/hamlet home"] {
             app.world_mut()
                 .resource_mut::<InputFocus>()
                 .set(input, FocusCause::Pressed);
@@ -865,7 +865,7 @@ mod tests {
                         or right-click an agent or a hamlet."
             ));
         }
-        send(app.world_mut(), "/agent founder".into());
+        send(app.world_mut(), "/agent ada".into());
         send(app.world_mut(), "/hamlet home".into());
         assert!(!app.world().resource::<Outbox>().iter().any(
             |message| matches!(

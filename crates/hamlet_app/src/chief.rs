@@ -419,8 +419,7 @@ mod tests {
         library.write_at(&Stood::file(&dir.join("view"))).unwrap();
         let make = || {
             let mut app = App::new();
-            let agent =
-                app.world_mut().spawn(Name::new("founder")).id();
+            let agent = app.world_mut().spawn(Name::new("ada")).id();
             let chat = app.world_mut().spawn_empty().id();
             app.insert_resource(ViewFolder(dir.join("view")))
                 .insert_resource(

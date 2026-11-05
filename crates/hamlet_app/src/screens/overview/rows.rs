@@ -11,10 +11,11 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::realm::{
-    Account, Activity, AgentNumber, Busy, HamletId, Left, LivesIn,
-    Mayor, MergedInto, Purpose, Treasury,
+    Account, Activity, AgentNumber, Busy, HamletId, Identity, Left,
+    LivesIn, Mayor, MergedInto, Parent, Purpose, Treasury,
 };
 use hamlet_client::waits::Waiting;
+use hamlet_protocol::client::AgentId;
 use hamlet_realm::pick::Thing;
 use hamlet_ui::styles::{card_button, card_name, note, status_label};
 use hamlet_ui::widgets::effects::Variant;
@@ -108,6 +109,9 @@ pub(super) struct AgentRow {
     pub waiting: usize,
     pub gone: bool,
     pub account: String,
+    /// How many leads there are between it and the top of its
+    /// hamlet's tree.
+    pub depth: usize,
 }
 
 type Told<'a> = (
@@ -120,7 +124,69 @@ type Told<'a> = (
     Option<&'a Account>,
     Option<&'a MergedInto>,
     (Has<Busy>, Has<Mayor>, Has<Left>),
+    &'a Identity,
+    Option<&'a Parent>,
 );
+
+/// `rows` in the order of their tree: each lead followed by its
+/// hires, the living before those that are gone.
+fn in_tree(
+    rows: Vec<AgentRow>,
+    parents: &[(AgentId, Option<AgentId>)],
+    ids: &[(Entity, AgentId)],
+) -> Vec<AgentRow> {
+    let id_of = |row: &AgentRow| {
+        ids.iter()
+            .find(|(entity, _)| *entity == row.agent)
+            .map(|(_, id)| *id)
+    };
+    let parent_of = |id: AgentId| {
+        parents
+            .iter()
+            .find(|(of, _)| *of == id)
+            .and_then(|(_, parent)| *parent)
+    };
+    let here =
+        |id: AgentId| rows.iter().any(|row| id_of(row) == Some(id));
+    let mut ordered = Vec::new();
+    let mut pending = rows
+        .iter()
+        .filter(|row| {
+            id_of(row)
+                .and_then(parent_of)
+                .is_none_or(|parent| !here(parent))
+        })
+        .cloned()
+        .map(|row| (row, 0))
+        .collect::<Vec<_>>();
+    pending.reverse();
+    while let Some((mut row, depth)) = pending.pop() {
+        let id = id_of(&row);
+        row.depth = depth;
+        ordered.push(row);
+        let mut below = rows
+            .iter()
+            .filter(|other| {
+                id.is_some()
+                    && id_of(other).and_then(parent_of) == id
+                    && !ordered
+                        .iter()
+                        .any(|done| done.agent == other.agent)
+            })
+            .cloned()
+            .map(|row| (row, depth + 1))
+            .collect::<Vec<_>>();
+        below.reverse();
+        pending.extend(below);
+    }
+    // Whatever no lead reaches goes last.
+    for row in rows {
+        if !ordered.iter().any(|done| done.agent == row.agent) {
+            ordered.push(row);
+        }
+    }
+    ordered
+}
 
 /// Everyone of `hamlet`, or of every hamlet: the mayor, the living
 /// by their numbers, then those that are gone.
@@ -142,6 +208,8 @@ pub(super) fn agent_rows(
         .unwrap_or_default();
     let named =
         |agent: Entity| hamlet_client::realm::name_of(world, agent);
+    let mut ids = Vec::new();
+    let mut parents = Vec::new();
     let mut rows = agents
         .iter(world)
         .filter(|told| hamlet.is_none_or(|h| told.3.0 == h))
@@ -156,7 +224,11 @@ pub(super) fn agent_rows(
                 account,
                 into,
                 (busy, mayor, gone),
+                id,
+                parent,
             )| {
+                ids.push((agent, id.0));
+                parents.push((id.0, parent.map(|parent| parent.0)));
                 let name = name.as_str().to_string();
                 let state = match (gone, into) {
                     (true, Some(host)) => {
@@ -188,11 +260,15 @@ pub(super) fn agent_rows(
                     account: account
                         .map(Account::summary)
                         .unwrap_or_default(),
+                    depth: 0,
                 }
             },
         )
         .collect::<Vec<_>>();
     rows.sort_by_key(|row| (row.gone, !row.mayor, row.number));
+    let (gone, living) = rows.into_iter().partition(|row| row.gone);
+    let mut rows = in_tree(living, &parents, &ids);
+    rows.extend(in_tree(gone, &parents, &ids));
     rows
 }
 

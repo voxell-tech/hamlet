@@ -17,7 +17,8 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, select};
 
 use crate::PanelSystems;
-use crate::dock::show_tab;
+use crate::dock::{HUB, show_tab};
+use crate::hub::{self, Showing};
 
 /// Opens the chat with the Hand as soon as the realm names it.
 pub(crate) fn plugin(app: &mut App) {
@@ -163,11 +164,13 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
         };
         select(world, Some(thing));
     }
-    show_tab(world, "agent");
+    hub::show(world, Showing::Thread);
+    show_tab(world, HUB);
 }
 
 /// Points the chat back at the Hand, which is drawn nowhere, so
-/// nothing is selected in the world.
+/// nothing is selected in the world. The Hub turns to its thread
+/// and comes to the front.
 pub(crate) fn talk_to_hand(world: &mut World) {
     let Some(hand) = agents::hand(world) else {
         return;
@@ -176,8 +179,16 @@ pub(crate) fn talk_to_hand(world: &mut World) {
     if world.contains_resource::<Selected>() {
         select(world, None);
     }
-    show_tab(world, "agent");
+    hub::show(world, Showing::Thread);
+    show_tab(world, HUB);
+    focus_hand_tower(world);
 }
+
+/// Where the world is asked to look at the Hand's tower when the
+/// chief goes to talk to the Hand. The Hand has no tower in the
+/// world yet, so this does nothing; once the world draws one, its
+/// camera focus is called from here.
+pub(crate) fn focus_hand_tower(_world: &mut World) {}
 
 /// Points the chat at the agent `to`.
 pub(crate) fn talk_at(world: &mut World, to: protocol::AgentId) {
@@ -246,6 +257,8 @@ impl Convo {
 
 #[cfg(test)]
 mod tests {
+    use bevy_fynix::dock::DockTree;
+
     use super::*;
     use crate::testing::{panel_app, press};
 
@@ -314,6 +327,40 @@ mod tests {
         assert_eq!(app.world().resource::<Convo>().session, first);
         talk_to(app.world_mut(), ada);
         assert_eq!(app.world().resource::<Convo>().session, chat);
+    }
+
+    #[test]
+    fn the_hand_button_seats_the_hand_and_brings_the_hub_forward() {
+        use crate::dock::{PETITIONS, designed};
+
+        let mut app = panel_app();
+        app.insert_resource(Showing::Home);
+        let ada = agents::named(app.world_mut(), "ada@home").unwrap();
+        seat(app.world_mut(), ada);
+        let mut tree = app.world_mut().resource_mut::<DockTree>();
+        designed(&mut tree);
+        let side = tree.find_leaf_with_window(HUB).unwrap();
+        let petitions = tree
+            .leaf(side)
+            .unwrap()
+            .tabs()
+            .find(|(window, _)| *window == PETITIONS)
+            .map(|(_, tab)| tab)
+            .unwrap();
+        tree.set_active(side, petitions);
+        talk_to_hand(app.world_mut());
+        let hand = agents::hand(app.world()).unwrap();
+        assert_eq!(app.world().resource::<Convo>().agent, hand);
+        assert_eq!(
+            *app.world().resource::<Showing>(),
+            Showing::Thread
+        );
+        let tree = app.world().resource::<DockTree>();
+        let front = tree.active(side).unwrap();
+        assert_eq!(
+            tree.leaf(side).unwrap().tab_index(front),
+            Some(0)
+        );
     }
 
     #[test]

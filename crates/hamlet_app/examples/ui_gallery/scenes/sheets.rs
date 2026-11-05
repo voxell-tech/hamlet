@@ -168,13 +168,13 @@ fn tabs() -> Ui {
     row((
         cell(
             "AT REST",
-            tab(Glyph::Notes, "NOTES")
+            tab(Glyph::Notes, "MEMORY")
                 .tagged(Underglow::new(false))
                 .boxed(),
         ),
         cell(
             "UNDER THE POINTER",
-            tab(Glyph::Notes, "NOTES")
+            tab(Glyph::Notes, "MEMORY")
                 .tagged(Underglow::new(false))
                 .tagged(Held::Hover)
                 .boxed(),

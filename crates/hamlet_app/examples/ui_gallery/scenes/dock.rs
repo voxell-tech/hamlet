@@ -11,7 +11,7 @@ use bevy_fynix::dock::{
 };
 use bevy_fynix::views::{FrameProps, column, frame, overlay};
 use hamlet_app::{
-    Convo, chat, highlight_panel, inspector, menu, panel, petition,
+    Convo, chat, highlight_panel, hub, menu, panel, petition,
     settings, status_bar, toolbar, welcome,
 };
 use hamlet_client::chats::{Entry, Transcript};
@@ -35,7 +35,7 @@ fn world_stand() -> Ui {
             });
         cx.build(
             column((
-                column(())
+                column((hamlet_app::toasts::stack(),))
                     .grow(1.0)
                     .min_height(px(0.0))
                     .width(percent(100.0))
@@ -60,7 +60,7 @@ pub(super) fn seed_dock(world: &mut World) {
     );
     registry.register(
         "needs",
-        DockWindowKind::new("NEEDS YOU", || {
+        DockWindowKind::new("PETITIONS", || {
             highlight_panel(
                 petition::screen(),
                 Highlight {
@@ -72,10 +72,10 @@ pub(super) fn seed_dock(world: &mut World) {
         .icon(Glyph::Bell.image(ICON)),
     );
     registry.register(
-        "agent",
-        DockWindowKind::new("INSPECTOR", || {
+        "hub",
+        DockWindowKind::new("HUB", || {
             highlight_panel(
-                inspector::screen(),
+                hub::screen(),
                 Highlight {
                     attention: false,
                     flash: true,
@@ -95,18 +95,13 @@ pub(super) fn seed_dock(world: &mut World) {
         DockLeaf::new("centre", DockAreaStyle::TabBar)
             .with_windows(vec!["world".into()]),
     );
-    if let Some((queue, _)) =
-        tree.split(centre, Edge::Left, "needs".into())
-        && let Some(parent) = tree.parent_of(queue)
+    if let Some((side, hub)) =
+        tree.split(centre, Edge::Right, "hub".into())
     {
-        tree.set_fraction(parent, 0.24);
-    }
-    if let Some((side, agent)) =
-        tree.split(centre, Edge::Right, "agent".into())
-    {
-        tree.set_active(side, agent);
+        tree.add_tab(side, "needs");
+        tree.set_active(side, hub);
         if let Some(parent) = tree.parent_of(side) {
-            tree.set_fraction(parent, 0.62);
+            tree.set_fraction(parent, 0.6);
         }
         if matches!(
             scene,

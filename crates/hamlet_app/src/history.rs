@@ -9,7 +9,6 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::Changed;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::schedule::common_conditions::resource_equals;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent};
@@ -37,8 +36,9 @@ use hamlet_ui::{AnyView, View, built, with_cx};
 use protocol::Past;
 
 use crate::convo::Convo;
-use crate::dock::show_tab;
-use crate::{PanelSystems, chat, inspector};
+use crate::dock::{HUB, show_tab};
+use crate::hub::{self, Showing};
+use crate::{PanelSystems, chat};
 
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
@@ -51,11 +51,7 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Requests>()
         .add_observer(response)
         .add_observer(stale_on_job)
-        .add_systems(
-            Update,
-            refresh
-                .run_if(resource_equals(inspector::Section::History)),
-        )
+        .add_systems(Update, refresh.run_if(hub::reads_sessions))
         .add_systems(
             PreUpdate,
             keep_reader.in_set(PanelSystems::Bind),
@@ -227,7 +223,7 @@ fn format_tokens(n: u64) -> String {
 }
 
 /// The numbered conversation opened as a read-only watched chat.
-fn open(world: &mut World, number: i64) {
+pub(crate) fn open(world: &mut World, number: i64) {
     close(world);
     let Some(with) = id_of(world, world.resource::<Convo>().agent)
     else {
@@ -270,9 +266,8 @@ fn resume(world: &mut World) {
         to,
         text: format!("/resume {number}"),
     });
-    *world.resource_mut::<inspector::Section>() =
-        inspector::Section::Conversation;
-    show_tab(world, "agent");
+    hub::show(world, Showing::Thread);
+    show_tab(world, HUB);
 }
 
 /// The server's history requested while the page is open.
@@ -355,12 +350,12 @@ fn stale_on_job(job: On<JobFinished>, mut commands: Commands) {
 }
 
 fn keep_reader(
-    section: Res<inspector::Section>,
+    showing: Res<Showing>,
     mut requests: ResMut<Requests>,
     mut history: ResMut<History>,
     transcripts: Query<&Transcript, Changed<Transcript>>,
 ) {
-    if *section != inspector::Section::History && requests.open {
+    if !hub::reads_sessions(showing) && requests.open {
         requests.open = false;
     }
     let Some(reading) = &history.reading else {
@@ -572,9 +567,9 @@ fn reader() -> impl View {
     })
 }
 
-/// The Archive page.
+/// The sessions page.
 pub fn screen() -> AnyView {
-    inspector::of_agent("ARCHIVE", || {
+    hub::of_agent("SESSIONS", || {
         keyed(
             resource::<History, _>(|h| {
                 h.reading.as_ref().map(|r| r.number)
@@ -604,9 +599,9 @@ mod tests {
     fn history_reads_received_rows_searches_and_opens_a_numbered_chat()
      {
         let mut app = panel_app();
-        app.add_plugins((inspector::plugin, plugin));
-        *app.world_mut().resource_mut::<inspector::Section>() =
-            inspector::Section::History;
+        app.add_plugins((hub::plugin, plugin));
+        *app.world_mut().resource_mut::<Showing>() =
+            Showing::Sessions;
         app.update();
         let read = app
             .world()
@@ -713,7 +708,7 @@ mod tests {
     fn opening_the_tab_and_finishing_its_chat_request_fresh_history()
     {
         let mut app = panel_app();
-        app.add_plugins((inspector::plugin, plugin));
+        app.add_plugins((hub::plugin, plugin));
         app.update();
         let reads = |app: &App| {
             app.world()
@@ -730,8 +725,12 @@ mod tests {
                 .count()
         };
         assert_eq!(reads(&app), 0);
-        *app.world_mut().resource_mut::<inspector::Section>() =
-            inspector::Section::History;
+        // The thread lists the sessions too, for its menu.
+        *app.world_mut().resource_mut::<Showing>() = Showing::Thread;
+        app.update();
+        assert_eq!(reads(&app), 1);
+        *app.world_mut().resource_mut::<Showing>() =
+            Showing::Sessions;
         app.update();
         assert_eq!(reads(&app), 1);
         app.update();
@@ -745,11 +744,10 @@ mod tests {
         app.world_mut().trigger(JobFinished { chat });
         app.update();
         assert_eq!(reads(&app), 2);
-        *app.world_mut().resource_mut::<inspector::Section>() =
-            inspector::Section::Notes;
+        *app.world_mut().resource_mut::<Showing>() = Showing::Home;
         app.update();
-        *app.world_mut().resource_mut::<inspector::Section>() =
-            inspector::Section::History;
+        *app.world_mut().resource_mut::<Showing>() =
+            Showing::Sessions;
         app.update();
         assert_eq!(reads(&app), 3);
     }

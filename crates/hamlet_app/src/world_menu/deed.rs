@@ -167,13 +167,14 @@ impl Deed {
         let name = |agent: &Entity| agents::name_of(world, *agent);
         match self {
             Deed::End(agent) => format!(
-                "The hire {} goes to the archive, with its notes, \
+                "The hire {} goes to the archive, with its memory, \
                  skills and log. It can be restored.",
                 name(agent)
             ),
             Deed::Merge { absorbed, kept } => format!(
-                "{} takes the notes, skills, files and roads of {}, \
-                 whose house is archived. It can be split out again.",
+                "{} takes the memory, skills, files and roads of \
+                 {}, whose house is archived. It can be split out \
+                 again.",
                 name(kept),
                 name(absorbed)
             ),
@@ -189,10 +190,10 @@ impl Deed {
                      disk. This cannot be undone."
                 )
             }
-            Deed::NewSession => "This conversation goes to the \
-                                 Archive, where it can be read and \
-                                 resumed. The agent keeps its notes \
-                                 and skills."
+            Deed::NewSession => "This conversation goes to \
+                                 SESSIONS, where it can be read and \
+                                 resumed. The agent keeps its \
+                                 memory and skills."
                 .to_string(),
             Deed::Unshelve(skill) => format!(
                 "{skill} is deleted from the library for every \

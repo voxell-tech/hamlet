@@ -9,7 +9,7 @@ use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
-use bevy::ecs::query::With;
+use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
@@ -21,21 +21,26 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::{
-    self as agents, Closed, Deeds, HamletId, Scholar,
+    Busy, Closed, Deeds, HamletId, Identity, Left, Scholar,
 };
+use hamlet_client::waits::Waiting;
+use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, focus_on, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bare, beside, close, description, group,
-    note, raised, scroll_area, section, text_input, title,
+    Fills, ICON, action, bare, beside, close, description, framed,
+    group, note, raised, scroll_area, section, status_label_large,
+    text_input, title,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, View, with_cx};
 
+pub(crate) use self::hamlet::typed;
 pub use self::hamlet::{Naming, Page, hamlet};
 pub use self::record::Annals;
 use self::rows::{hamlet_rows, pressable};
 pub(crate) use self::rows::{stale, standing};
+use crate::status::Bar;
 use crate::{chat, world_menu};
 
 pub fn plugin(app: &mut App) {
@@ -167,12 +172,13 @@ pub fn overview() -> impl View {
     with_cx(move |cx| {
         column((
             beside((
-                title("HAMLETS"),
-                note("Click a hamlet to see who lives there."),
+                title("HOME"),
+                note("Today in your realm, and its hamlets."),
             )),
+            today(),
             search,
             note("Search by a hamlet's name or its mayor's."),
-            scroll_area((hand(), list, closed(), scholars())),
+            scroll_area((hand(), list, closed())),
             beside((
                 action(
                     Glyph::Hearth,
@@ -196,80 +202,136 @@ fn hand() -> AnyView {
     .boxed()
 }
 
-/// A scholar of the realm, and the hires that work as it.
+/// How the realm stands today.
 #[derive(Clone, PartialEq)]
-struct ScholarRow {
-    name: String,
-    living: usize,
-    /// The hire to open when the row is pressed.
-    hire: Option<Entity>,
-    gone: bool,
+struct Today {
+    needs: usize,
+    working: usize,
+    resting: usize,
+    scholars: usize,
+    harbor: usize,
+    budget: String,
 }
 
-fn scholars() -> AnyView {
+fn today_of(world: &World) -> Today {
+    let needs = world
+        .try_query::<&Waiting>()
+        .map_or(0, |mut waits| waits.iter(world).count());
+    let (mut working, mut resting) = (0, 0);
+    if let Some(mut query) = world.try_query_filtered::<Has<Busy>, (
+        With<Identity>,
+        Without<Left>,
+    )>() {
+        for busy in query.iter(world) {
+            if busy {
+                working += 1;
+            } else {
+                resting += 1;
+            }
+        }
+    }
+    let (mut scholars, mut harbor) = (0, 0);
+    if let Some(mut query) = world.try_query::<&Scholar>() {
+        for scholar in query.iter(world).map(|scholar| &scholar.0) {
+            if scholar.left.is_some() {
+                continue;
+            }
+            match scholar.arrival {
+                protocol::Arrival::Housed => scholars += 1,
+                _ => harbor += 1,
+            }
+        }
+    }
+    Today {
+        needs,
+        working,
+        resting,
+        scholars,
+        harbor,
+        budget: world
+            .get_resource::<Bar>()
+            .map(|bar| bar.budget.clone())
+            .unwrap_or_default(),
+    }
+}
+
+/// A card of the day's figures: what waits, what works, who lives
+/// in the city and what was spent.
+fn today() -> AnyView {
     keyed(
-        derived(|world: &World| {
-            let mut rows = world
-                .try_query::<&Scholar>()
-                .map(|mut query| {
-                    query
-                        .iter(world)
-                        .map(|scholar| &scholar.0)
-                        .map(|scholar| {
-                            let hires = scholar
-                                .hires
-                                .iter()
-                                .filter_map(|id| {
-                                    agents::agent(world, *id)
-                                })
-                                .filter(|hire| {
-                                    agents::id_of(world, *hire)
-                                        .is_some()
-                                })
-                                .collect::<Vec<_>>();
-                            ScholarRow {
-                                name: scholar.name.clone(),
-                                living: hires.len(),
-                                hire: hires.first().copied(),
-                                gone: scholar.left.is_some(),
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            rows.sort_by_key(|row| row.name.to_lowercase());
-            rows
-        })
-        .when(stale()),
-        |rows| {
-            if rows.is_empty() {
-                return column(()).boxed();
+        derived(today_of).when(bevy_fynix::every_frame()),
+        |today| {
+            let (mark, words, tone) = match today.needs {
+                0 => (
+                    Glyph::Check,
+                    "Nothing waits for you".into(),
+                    Tone::Dim,
+                ),
+                1 => (
+                    Glyph::Bell,
+                    "1 waits for you".into(),
+                    Tone::Critical,
+                ),
+                n => (
+                    Glyph::Bell,
+                    format!("{n} wait for you"),
+                    Tone::Critical,
+                ),
+            };
+            let mut lines = vec![
+                status_label_large(mark, words, tone).boxed(),
+                status_label_large(
+                    Glyph::Bolt,
+                    format!("{} at work", today.working),
+                    Tone::Accent,
+                )
+                .boxed(),
+                status_label_large(
+                    Glyph::Moon,
+                    format!("{} at rest", today.resting),
+                    Tone::Dim,
+                )
+                .boxed(),
+                status_label_large(
+                    Glyph::Hamlet,
+                    format!("{} in the city", today.scholars),
+                    Tone::Body,
+                )
+                .boxed(),
+            ];
+            if today.harbor > 0 {
+                lines.push(
+                    status_label_large(
+                        Glyph::Signpost,
+                        format!("{} at the harbor", today.harbor),
+                        Tone::Body,
+                    )
+                    .boxed(),
+                );
             }
-            let mut parts = vec![heading(
-                Glyph::Robot,
-                format!("SCHOLARS ({})", rows.len()),
-            )];
-            for row in rows {
-                let status = match (row.gone, row.living) {
-                    (true, _) => "gone".to_string(),
-                    (false, 0) => "not hired".to_string(),
-                    (false, 1) => "1 hire".to_string(),
-                    (false, n) => format!("{n} hires"),
-                };
-                let line = format!("{}: {status}", row.name);
-                parts.push(note(line).boxed());
-                if let Some(hire) = row.hire {
-                    parts.push(
-                        action(Glyph::Robot, "OPEN", move |world| {
-                            let thing = Thing::Agent(hire);
-                            select(world, Some(thing));
-                            focus_on(world, thing, false);
-                        })
-                        .boxed(),
-                    );
-                }
+            if !today.budget.is_empty() {
+                lines.push(
+                    status_label_large(
+                        Glyph::Coins,
+                        format!("Spent today: {}", today.budget),
+                        Tone::Body,
+                    )
+                    .boxed(),
+                );
             }
-            group(parts).boxed()
+            if today.needs > 0 {
+                lines.push(action(
+                    Glyph::Bell,
+                    "OPEN PETITIONS",
+                    |world| {
+                        crate::dock::show_tab(
+                            world,
+                            crate::dock::PETITIONS,
+                        );
+                    },
+                ));
+            }
+            framed(lines).boxed()
         },
     )
     .within(bare())

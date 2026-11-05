@@ -544,7 +544,7 @@ mod tests {
             app.world().get::<Chat>(session).unwrap().0.clone();
         let question = |id: &str, since, chat: &protocol::ChatRef| {
             serde_json::from_value::<protocol::Wait>(json!({
-                "id": id, "agent": null, "by": "founder",
+                "id": id, "agent": null, "by": "ada",
                 "about": "Choose", "subject": "Choose",
                 "change": null, "answers": ["reply", "dismiss"],
                 "since": since, "asked": 1, "chat": chat,
