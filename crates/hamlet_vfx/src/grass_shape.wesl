@@ -13,12 +13,12 @@ import hamlet_vfx::noise::{key, scramble, smooth_step, swell};
 import hamlet_vfx::soil::{
     BLOOMS, bloom_colour, blooms_at, grass_colour, grass_likely, heads_shown, soil,
 };
-import hamlet_vfx::wind::{Wind, blowing, strength};
+import hamlet_vfx::wind::{Wind, blowing, overall, strength};
 
 // `GrassUniform` in `grass.rs`; the settings are explained on
 // `GrassSettings` there.
 struct Grass {
-    // x: `spacing`. y: `bare`. z: `flowers`.
+    // x: `spacing`. y: `bare`. z: `flowers`. w: `shorten`.
     grow: vec4<f32>,
     // xy: `across`. zw: `up`.
     size: vec4<f32>,
@@ -33,7 +33,7 @@ struct Grass {
     // the farthest does; then the same for each tuft's blades.
     thin: vec4<f32>,
     // xyz: the eye. w: how far from it the grass is gone, shortening
-    // over the last half of the way.
+    // over its last `shorten` metres.
     reach: vec4<f32>,
     // x: where the middle detail begins. y: where the farthest does. z:
     // how high the eye stands over the ground under it. w: the share of
@@ -241,7 +241,7 @@ fn tuft_at(s: Spot) -> Tuft {
             strength(wind, p, grass.sway.y),
             shine,
             about,
-            smooth_step(grass.reach.w, grass.reach.w * 0.5, away) * kept_tuft,
+            smooth_step(grass.reach.w, grass.reach.w - grass.grow.w, away) * kept_tuft,
         ),
         vec4<f32>(s.normal, flowering),
         vec4<f32>(grass_colour(p, s.y, s.woods, s.heath), 0.0),
@@ -299,11 +299,11 @@ fn blade(
 
     // The wind bends the tips the most: down the wind in a gust, and
     // back a little past upright as it eases, each tuft at its own
-    // moment. A bent tip comes down a little, as its blade's length is
-    // kept.
+    // moment, all of it as much more as the whole wind blows harder. A
+    // bent tip comes down a little, as its blade's length is kept.
     let t = grass.sway.y;
     let phase = dot(p, vec2<f32>(0.37, 0.23)) + rank * 1.7;
-    let gust = 1.5 * tuft.sway.x - 0.55 + 0.25 * sin(t * 2.1 + phase);
+    let gust = 1.5 * tuft.sway.x - overall(wind, t) * (0.55 - 0.25 * sin(t * 2.1 + phase));
     let flow = blowing(wind, t);
     let push = grass.sway.x * gust * up * up * rise;
     let sink = 0.5 * push * push / max(rise, 0.05);

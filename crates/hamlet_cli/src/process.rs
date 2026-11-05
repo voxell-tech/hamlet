@@ -308,8 +308,15 @@ async fn inspect(
     )
 }
 
+/// The checkout, as a plain path: Bevy's file watcher strips it from
+/// the paths it is told of, which never hold a `..`. Two folders up
+/// from this crate, which Cargo names in full; with its links
+/// resolved where it can be found.
 fn repo() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root =
+        manifest.parent().and_then(Path::parent).unwrap_or(manifest);
+    root.canonicalize().unwrap_or_else(|_| root.to_path_buf())
 }
 
 fn server_command(

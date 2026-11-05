@@ -33,7 +33,7 @@ use crate::ground::{
     BloomsUniform, PagesUniform, SoilUniform, blank_pages,
 };
 use crate::leaves::LeafView;
-use crate::wind::{WindSettings, WindUniform};
+use crate::wind::{WindChoice, WindSettings, WindUniform};
 use crate::{Now, NowOffset, VfxSystems};
 
 /// Shapes of tuft. `SHAPES` in `grass_shape.wesl`.
@@ -105,10 +105,13 @@ pub struct GrassSettings {
     /// in their colour, against the flowers themselves.
     pub halo: f32,
     /// How far from the eye each detail reaches, the finest first,
-    /// where the eye stands low. The grass shortens to nothing over
-    /// the last half of the last, so the furthest blades, too small
-    /// to draw steadily, lie low.
+    /// where the eye stands low.
     pub rings: [f32; 3],
+    /// Metres at the end of the last ring over which the grass
+    /// shortens to nothing, so the furthest blades, too small to
+    /// draw steadily, lie low. The narrower, the less of the field
+    /// is seen rising and sinking as the eye moves.
+    pub shorten: f32,
 }
 
 /// What the grass is drawn from, as the world last told it.
@@ -225,7 +228,12 @@ impl GrassUniform {
             ),
             reach: Vec4::ZERO,
             rings: Vec4::ZERO,
-            grow: Vec4::new(set.spacing, set.bare, set.flowers, 0.0),
+            grow: Vec4::new(
+                set.spacing,
+                set.bare,
+                set.flowers,
+                set.shorten.max(0.01),
+            ),
             size: Vec4::new(
                 set.across.0,
                 set.across.1,
@@ -254,7 +262,7 @@ impl GrassUniform {
                 self.grow.z,
                 self.reach.w,
                 self.grow.x,
-                0.0,
+                self.grow.w,
             ),
             glow: self.glow.truncate().extend(offset.0),
         }
@@ -575,6 +583,7 @@ fn sway(
     now: Res<Now>,
     set: Res<GrassSettings>,
     wind: Res<WindSettings>,
+    strength: Res<WindChoice>,
     view: Res<LeafView>,
     grass: Option<ResMut<Grass>>,
 ) {
@@ -590,7 +599,7 @@ fn sway(
         current.mask_at,
     );
     grass.grass = next;
-    grass.wind = wind.uniform();
+    grass.wind = wind.uniform(*strength);
 }
 
 /// A number from 0 to 1 that follows from `i` and `k` alone.
