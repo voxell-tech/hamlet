@@ -82,7 +82,11 @@ chief. See [`chat.md`](chat.md) for paging and watches.
 
 `/end` ends a hire: its turns stop, its waits lapse, its grants are taken
 back, its lodge is committed one last time and archived, and its hires go to
-its parent. The mayor cannot be ended; give the office away first.
+its parent. The mayor cannot be ended; give the office away first. A lead,
+the Hand included, may not end or merge a hire on a chief's task (H7): while
+an input of that task is still to end in its conversations, or until the
+hamlet's `protectedMinutes` have passed since the chief's instruction was
+answered. A chief may.
 `/merge <a> into <b>` makes one hire of two of a hamlet: the kept hire takes
 the absorbed one's laid roads, hires and inbox, and takes in what it learned.
 Hires of one scholar merge their branches; hires of different scholars bring
