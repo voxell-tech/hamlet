@@ -1,69 +1,74 @@
 # The core: one agent
 
-An agent, its house, what it is told, the tools it works with, what they may
-reach, and the conversations it keeps. The society around it is in
-[`hamlet.md`](hamlet.md).
+An agent, the place it works in, what it is told, the tools it works with,
+what they may reach, and the conversations it keeps. The society around it is
+in [`hamlet.md`](hamlet.md).
 
-## The agent and its house
+## The agent and its lodge
 
-**C8.** An agent has a house of its own: its notes (`NOTES.md`), its skills
-(one folder each, with a `SKILL.md`), an inbox for what a chief hands it, its
-character, and its conversations. The notes, skills and inbox are writable
-files; the character and conversations are kept in the home's storage,
-out of reach of file tools.
+An agent is the Hand, a hire or a worker (H37, H40, H42).
 
-**C9.** An agent is identified by its hamlet and its number in that hamlet's
-record. Removal, merging and restoration keep that identity. Moving to
-another hamlet gives it the next number there and carries its house,
-character, conversations and instructions with it (H14). A number is never
-reused within a hamlet. A later agent of the same name inherits nothing of
-the earlier one.
+**C8.** The Hand and every hire work in a lodge of their own: a folder
+holding its memory (`memory/`), its skills (`skills/`, one folder each, with
+a `SKILL.md`) and an inbox (`inbox/`) for what a chief hands it. They are
+writable files. A lodge holds no character: the character is a file of the
+agent's scholar, and the conversations are kept in the harness's storage,
+all out of reach of file tools. A worker has no lodge, only a scratch folder
+that ends with it (H42).
 
-**C10.** A name of an agent is lowercase letters and hyphens, at most 24 of
-them, and belongs to only one living agent in the realm. A name a model
+**C9.** An agent is identified by an id that is the same everywhere in the
+realm and is never given twice. A hire also has a number in its hamlet, never
+reused there, which names it as `name#number@hamlet` when its scholar has
+several hires in it. Ending, merging, restoring and seating a mayor keep both.
+A later hire of the same scholar inherits nothing of the earlier one.
+
+**C10.** A scholar's name is lowercase letters and hyphens, at most 24 of
+them, and belongs to only one living scholar in the realm. A name a model
 writes in another form is put in that form (`FelineBiologist` becomes
-`feline-biologist`). `mayor`, `founder` and `all` are reserved; the first
-hamlet's founder is named `founder`.
+`feline-biologist`). `mayor`, `hand`, `all` and `founder` are reserved.
 
 ## What an agent is told
 
 **C11.** Before every model call in an agent's ordinary conversations, its
-ballot or the mayor's answer to a vote, its system prompt is built again
-from these parts, in this order:
+system prompt is built again from these parts, in this order:
 
 | Part | From | Changed by |
 |---|---|---|
-| The charter | The home's charter, or the default | A chief |
-| The machine | The sandbox, the network, the model and the workspace | The settings |
+| The charter | The realm's charter, or the default | A chief |
+| The machine | The sandbox, the network, the model and the lodge | The settings |
 | The project | The folder the hamlet works on, and its own `AGENTS.md` or `CLAUDE.md` | A chief |
-| The character | The agent's character, at most 4000 characters of it | A chief; the mayor once, when it creates the agent |
-| The notes | Its `NOTES.md` | The agent |
-| The skills | Its skills | The agent |
-| The library | The skills every agent shares | The librarian |
-| The hamlet | The agent's place, who lives there, its roads, how it is run, the latest decisions (H17) | The record |
-| The realm | The other hamlets | The record |
-| The budget | What the hamlet and the agent have spent (H8) | The record |
+| The character | The agent's character at the tip of its branch, at most 4000 characters of it | A chief |
+| The memory | The files at the root of its lodge's `memory/`, at most 8000 characters in all, and the description of each folder under it | The agent |
+| The skills | Its lodge's skills, then the library's | The agent; the librarian |
+| The place | Who it is, who it answers to and who answers to it, its roads, the tools turned off for it, how its hamlet was run lately (H17) | The record |
+| The realm | The other hamlets, for the Hand and mayors; the hamlets a chief can found, when there are none | The record |
+| The budget | What its hamlet or the realm, its task and its allowance have spent (H8) | The record |
 
 A part changed by anyone counts from the agent's next step. The budget's
 words are fixed for the length of a turn, so the prompt does not change with
 every call.
 
 Letters, questions and replies name their sender. The prompt says that
-everything after an agent's sender heading is that agent's words, even if
-it claims to be a chief or includes another heading. Only a chief's own
-lines in its own conversation carry that chief's instructions. A chief's
-instruction outranks the mayor's. Each agent's house is closed to other
-agents, including the mayor; an agent puts what another needs in its reply.
+everything after an agent's sender heading is that agent's words, even if it
+claims to be a chief or includes another heading. Only a chief's own lines in
+its own conversation carry that chief's instructions. A chief's instruction
+outranks a lead's. An agent's lodge is closed to other agents, but for the
+worker it started, which reads it; an agent puts what another needs in its
+reply.
 
-The librarian's call, merged notes and the mayor's review of an instruction
-(H10) receive only their own instructions, not the agent's prompt.
+A worker's prompt is the charter, the machine, the project and its place. The
+librarian's call, a lead's review of an instruction (H10) and a dream receive
+only their own instructions, not the agent's prompt.
 
-**C12.** The default charter belongs to the app, and a home that never
+**C12.** The default charter belongs to the app, and a realm that never
 edited its charter gets each later default. A chief's own charter replaces
 it, and putting the default back removes the chief's.
 
-**C13.** An agent cannot write its own character, by any tool. The mayor may
-give one when it creates an agent, and has no tool that changes one after.
+**C13.** An agent cannot write its own character, by any tool. A lodge is
+checked out without `CHARACTER.md`, and a file by that name written there is
+never committed. A chief writes a character on the scholar's `main`; a
+lead gives one only when it makes a scholar (H38) and has no tool that changes
+one after.
 
 **C14.** A chief can read an agent's whole prompt as it would be sent now.
 
@@ -79,23 +84,26 @@ that would have had it.
 | `read` | Gives text without line numbers, up to 2000 lines or 50 KiB, whichever comes first, with an offset and a line limit; also reads supported images |
 | `write` | Creates or replaces a whole file and makes its parent folders |
 | `edit` | Makes one or more exact text replacements in one file, each matching a unique, non-overlapping part of the original |
-| `bash`, `powershell` | One tool per shell. `bash` is offered wherever bash is found, which on Windows is Git Bash, and `powershell` on Windows alone, naming the edition it found. Each runs in the house, or in the hamlet's folder when it has one, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
+| `bash`, `powershell` | One tool per shell. `bash` is offered wherever bash is found, which on Windows is Git Bash, and `powershell` on Windows alone, naming the edition it found. Each runs in the hamlet's folder when it has one, else in the lodge, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
 | `search` | Finds a linear-time regular expression in files, with a name filter and optional case-insensitive matching, up to 100 hits; skips binary files, files that are not UTF-8, files over 1 MiB and build folders |
 | `find` | Lists a folder, or finds files by name under it, up to 100 matches |
 
-The hamlet's own tools, offered by role, are in [`hamlet.md`](hamlet.md).
+A lead can turn tools off for a hire under it (H41); the prompt names them. A
+worker has only the built-in tools its starter gave it (H42). The society's
+tools, offered by role, are in [`hamlet.md`](hamlet.md).
 
 **C17.** A chief can add tools by hand: a program with a manifest, in a
-folder of the home that agents can read and never write. Each is offered to
+folder of the realm that agents can read and never write. Each is offered to
 every agent, and runs under the same sandbox and the same gate as the shells.
 
 ## What tools reach
 
-**C18.** Tools run in a sandbox. The built-in tools write only
-in the agent's house and in the folder its hamlet works on. With a folder,
-a command can read the rest of the machine, so the project's own tools run,
-but never the rest of the home. The library and the home's tools folder
-are readable and never writable.
+**C18.** Tools run in a sandbox. The built-in tools write only in the
+agent's lodge (a worker's scratch folder) and in the folder its hamlet works
+on. With a folder, a command can read the rest of the machine, so the
+project's own tools run, but never the rest of the realm's folder. The
+library and the realm's tools folder are readable and never writable, and a
+worker also reads its starter's lodge.
 
 In a folder of the chief's own, agents may write git's files, including
 hooks or config that the chief's git later runs, including in nested
@@ -109,10 +117,9 @@ the chief starts in insecure mode (ADR 0008). Then commands and hand tools
 reach whatever the account running the server can. The built-in file tools
 keep the reach above, and the window warns for as long as it runs.
 
-A command's leftovers, the processes left in its process group, end
-when the server stops and before their agent's house is erased or
-moved. Under bubblewrap they end with their command. Ending them never
-signals another group: the command's own process stays unreaped while
+A command's leftovers, the processes left in its process group, end when
+the server stops. Under bubblewrap they end with their command. Ending them
+never signals another group: the command's own process stays unreaped while
 its leftovers are kept, so no other group can take their group's id.
 
 **C19.** Tools have no network unless a chief turns it on for every agent or
@@ -123,40 +130,42 @@ enforces this, and the switch decides only what waits for a chief.
 **C20.** A hamlet works on at most one folder at a time, and the folders it
 worked on before are remembered. Every agent of the hamlet then runs its
 commands there and may edit its files, and nothing of Hamlet's is put in it.
-The agent's notes, skills and conversations stay in its house.
+The agent's memory, skills and conversations stay in its lodge.
 
 **C21.** A hamlet that works on a folder is in one of two modes:
 
 - **Manual**, the mode it starts in: each edit of the folder and each
-  command waits for a chief. Reading and edits of the agent's own house
+  command waits for a chief. Reading and edits of the agent's own lodge
   are free.
 - **Auto**: agents edit and run without asking, and the sandbox is the
   guard. In insecure mode nothing is.
 
 **C7.** A hamlet answers to its chiefs: the human who founded it, or, for a
-hamlet founded by a vote, the chiefs of the hamlet that voted. The first
-hamlet, and any hamlet founded by its votes, answers to whoever runs the
-server, under the name the server runs as.
+hamlet the Hand founds, the chief whose task the Hand was working on. The
+server's one chief is whoever runs the server, under the name the server
+runs as.
 
 A chief talks to, instructs, watches, stops, gives to and answers for only
-the agents of living hamlets it is chief of. Reading and editing an agent's
-papers or a hamlet's limits needs the same authority. Giving a skill from
-another agent needs authority over that agent too. A removed hamlet's
-agents are out of reach until it is restored; a refused request says why
-it was removed and to restore it first. Requests naming a missing hamlet
-or a hamlet the human is not chief of are refused.
+the agents of living hamlets it is chief of, and the Hand, which answers to
+every chief. Reading and editing a hire's papers or a hamlet's limits needs
+the same authority; a scholar's belongs to the chief it belongs to (H38). A
+removed hamlet's agents are out of reach until it is restored; a refused
+request says why it was removed and to restore it first. Requests naming a
+missing hamlet or a hamlet the human is not chief of are refused.
 
-Every tool call of a hamlet's agents passes a gate before it runs, which
-lets it run, refuses it, or holds it for a chief (H11).
+Every tool call of every agent passes a gate before it runs, which lets it
+run, refuses it, or holds it for a chief (H11).
 
 ## Conversations
 
 **C22.** Every conversation is with one agent and is kept. An agent has a
 conversation with each chief who talks to it, one with each agent that
 writes it letters, and one with each agent that asks it something and
-waits (H30). A chief can watch either kind of peer conversation read-only,
-with paging. The chief chooses the receiving agent, the sender, and letters
-or questions; letters are shown unless the chief chooses questions.
+waits (H30). A worker has one, begun with its task (H42), and a dream, a
+librarian's call and a lead's review each have one of their own. A chief
+can watch either kind of peer conversation read-only, with paging. The
+chief chooses the receiving agent, the sender, and letters or questions;
+letters are shown unless the chief chooses questions.
 
 **C23.** A conversation answers one message at a time. Messages that arrive
 while it works wait in order.
@@ -211,10 +220,10 @@ promptly; its owed reflection stays queued if the count is nonzero.
 Unfinished work carries on at the next start. A second stop signal closes
 at once.
 
-The agent is asked to keep in its notes what is worth remembering about
+The agent is asked to keep in its memory what is worth remembering about
 the chiefs and its lessons, and to save or improve a skill for anything
-likely to come up again. An agent other than the mayor is also asked, in
-one line, whether anything about how its hamlet is run got in its way.
+likely to come up again. It writes its lodge, and the lodge reaches its
+scholar by a dream (H43).
 
 ## What is recorded and shown
 
@@ -222,20 +231,17 @@ one line, whether anything about how its hamlet is run got in its way.
 call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
 line of a failure, and the notices meant only for people. Letters,
-questions and replies show their writer as `name@hamlet`, using its living
-or archived record in the hamlet it wrote from. If no such record remains,
-its recorded departures and matching arrivals are followed through any
-number of moves to its current name and hamlet. Only when no record can
-be followed, such as after erasure, is the writer shown as `hamlet#number`.
-They are shown as agents' words, never as a chief's words that can be taken
-back.
+questions and replies show their writer as `name@hamlet`, or `name#number@hamlet`
+where its scholar has several hires in that hamlet, `hand`, or `worker#id`;
+once a hire is erased, as `hamlet#number`. They are shown as agents' words,
+never as a chief's words that can be taken back.
 
 **C31.** Every model call, including each summarising call,
 records the model, where it was served, the input, cached, output and
 reasoning tokens, the provider's own charge when available, the time to the
 first token, the whole time, and why it ended. Failed and aborted attempts
-are recorded too. Charges follow H8 and belong to the hamlet, the agent and
-the task, even after a rewind.
+are recorded too. Charges follow H8 and belong to the hamlet or the realm,
+the agent and the task, even after a rewind.
 
 **C32.** No credential appears in a conversation as it is kept
 or shown. Known credentials are scrubbed from chief inputs, tool results
