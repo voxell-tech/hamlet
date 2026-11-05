@@ -308,8 +308,11 @@ async fn inspect(
     )
 }
 
+/// The checkout, as a plain path: Bevy's file watcher strips it from
+/// the paths it is told of, which never hold a `..`.
 fn repo() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    root.canonicalize().unwrap_or(root)
 }
 
 fn server_command(
