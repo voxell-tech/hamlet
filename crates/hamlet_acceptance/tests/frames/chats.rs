@@ -211,8 +211,14 @@ async fn rewind() {
     let reply = c.ask(json!({"type":"rewind","chat":{"with":HAND},"item":target})).await;
     assert_eq!(reply["kind"], "rewound");
     assert_eq!(reply["text"], "Take back this line.");
-    // The replacement transcript follows the reply; `finish` keeps
-    // what is in flight.
+    c.until(|c| {
+        c.items(HAND)
+            .iter()
+            .map(|i| i.text.as_str())
+            .collect::<Vec<_>>()
+            == ["Keep this line.", "First answer."]
+    })
+    .await;
     c.finish("rewind").await;
 }
 

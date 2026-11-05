@@ -16,11 +16,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-pub use script::{Script, Step, call, calls, failure, words};
+pub use script::{Step, call, calls, failure, words};
 #[cfg(unix)]
 pub use server::{
-    Home, Models, Server, Socket, Unstarted, answers, cli, send,
-    until,
+    Models, Server, Socket, Unstarted, answers, cli, send, until,
 };
 
 /// The variables a developer's shell may carry that would change what

@@ -4,7 +4,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use hamlet_testing::{Home, Scratch, Server, Socket, send};
+use hamlet_acceptance::Home;
+use hamlet_testing::{Scratch, Server, Socket, send};
 use serde_json::{Value, json};
 
 const SECRETS: &[&str] = &[
