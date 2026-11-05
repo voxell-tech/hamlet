@@ -2,11 +2,12 @@
 
 use anyhow::Result;
 use hamlet_store::ids::{
-    AgentId, HamletId, JobId, MergeId, OfferId, ScholarId,
+    AgentId, DreamId, HamletId, JobId, MergeId, OfferId, ScholarId,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::change::Change;
+use crate::society::dreams::Outcome;
 
 /// An effect on files or repositories, kept with the change that
 /// needs it and run until done.
@@ -42,6 +43,13 @@ pub(crate) enum Job {
     /// Puts a skill the librarian took on the shelves, and takes it
     /// out of the lodge it was offered from.
     Shelve { offer: OfferId },
+    /// Ends a dream whose turn ended as `last`: commits what it left
+    /// and takes the new `main` in.
+    DreamEnd {
+        dream: DreamId,
+        last: Outcome,
+        summary: String,
+    },
 }
 
 /// The commit of another scholar a fork starts from.
@@ -64,11 +72,12 @@ impl Job {
             Self::Merge { .. } => "merge",
             Self::Split { .. } => "split",
             Self::Shelve { .. } => "shelve",
+            Self::DreamEnd { .. } => "dream-end",
         }
     }
 
     /// The key two waiting jobs may not share.
-    fn key(&self) -> String {
+    pub fn key(&self) -> String {
         match self {
             Self::Plant { scholar, .. }
             | Self::EraseScholar { scholar } => {
@@ -88,6 +97,9 @@ impl Job {
             }
             Self::Shelve { offer } => {
                 format!("{}:{offer}", self.kind())
+            }
+            Self::DreamEnd { dream, .. } => {
+                format!("{}:{dream}", self.kind())
             }
         }
     }

@@ -6,6 +6,7 @@ pub(crate) mod agents;
 pub(crate) mod authority;
 pub(crate) mod chiefs;
 pub(crate) mod city;
+pub(crate) mod dreams;
 pub(crate) mod hamlets;
 pub(crate) mod hand;
 pub(crate) mod hires;

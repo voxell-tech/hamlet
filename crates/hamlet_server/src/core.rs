@@ -227,7 +227,10 @@ impl Core {
                 self.expire_providers().await?;
                 Ok(true)
             }
-            () = tokio::time::sleep(wait) => Ok(false),
+            () = tokio::time::sleep(wait) => {
+                self.dream_tick().await?;
+                Ok(false)
+            }
         }
     }
 
@@ -1014,6 +1017,54 @@ mod tests {
             .await
             .unwrap();
         (core, inbox, said)
+    }
+
+    #[tokio::test]
+    async fn a_scholars_dream_writes_its_main_through_its_tools() {
+        let dir = Scratch::new("server-core-dream");
+        let script = r#"{
+            "responses": ["Hello."],
+            "kinds": {"dream": [
+                {"calls": [{"name": "write", "arguments": {"path": "memory/shared.md", "content": "---\ndescription: What every hire knows.\n---\nBe brief."}}]},
+                "Kept one shared note."
+            ]}
+        }"#;
+        let (mut core, mut inbox, _) = told(&dir, script, "Hi").await;
+        let chief = core.realm.chief();
+        let ada = core
+            .attempt(Actor::Chief(chief), |cx, _| {
+                crate::society::city::make(
+                    cx, "ada", chief, "Careful.", None,
+                )
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        until(&mut core, &mut inbox, "the scholar planted", |core| {
+            let db = core.realm.store().connection();
+            Ok(crate::society::city::get(db, ada)?.planted)
+        })
+        .await
+        .unwrap();
+        let began = core.dream_command(None, &["ada"]).await.unwrap();
+        assert!(began.is_ok(), "{began:?}");
+        until(&mut core, &mut inbox, "the dream's end", |core| {
+            let db = core.realm.store().connection();
+            Ok(crate::society::dreams::last_of_scholar(db, ada)?
+                .is_some_and(|dream| dream.ended.is_some()))
+        })
+        .await
+        .unwrap();
+        let repo = hamlet_git::Repository::open(
+            &core.realm.layout().repository(ada),
+        )
+        .unwrap();
+        let main = repo.tip(hamlet_git::MAIN).unwrap().unwrap();
+        assert!(
+            repo.read(main, "memory/shared.md").unwrap().is_some(),
+            "the dream's note is on main"
+        );
+        core.stop(std::time::Duration::from_secs(5)).await.unwrap();
     }
 
     #[tokio::test]

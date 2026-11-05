@@ -105,6 +105,9 @@ pub(crate) struct Begin {
     /// An errand's kind, the key it is made once under, and its
     /// instructions.
     pub errand: Option<(String, String, String)>,
+    /// The whole prompt of a conversation that is told its own, such
+    /// as a dream's.
+    pub instructions: Option<String>,
 }
 
 impl Begin {
@@ -116,6 +119,7 @@ impl Begin {
             session: None,
             peer: None,
             errand: None,
+            instructions: None,
         }
     }
 }
@@ -133,7 +137,7 @@ pub(crate) fn begin(
         Some((errand, owner, instructions)) => {
             (Some(errand), Some(owner), Some(instructions))
         }
-        None => (None, None, None),
+        None => (None, None, begin.instructions),
     };
     let id = diesel::insert_into(conversation::table)
         .values((

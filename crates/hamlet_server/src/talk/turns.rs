@@ -77,6 +77,17 @@ pub(crate) fn allow(
     {
         return Ok(Admission::Stopped(words));
     }
+    if !charged
+        && conversation.kind == conversations::Kind::Dream
+        && let Some(task) = task
+        && crate::spend::of_task(db, task)?.micros
+            >= env.settings.dreams.cost
+    {
+        return Ok(Admission::Stopped(format!(
+            "This dream has spent the {} a dream may.",
+            crate::spend::money(env.settings.dreams.cost)
+        )));
+    }
     let selection = providers.select(
         db,
         &env.settings,

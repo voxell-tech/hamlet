@@ -108,6 +108,15 @@ pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Agent> {
     find(db, id)?.with_context(|| format!("no agent {id}"))
 }
 
+/// Every hire, living or ended, oldest first.
+pub(crate) fn all_hires(db: &mut Db) -> Result<Vec<AgentId>> {
+    Ok(agent::table
+        .filter(agent::kind.eq(AgentKind::Hire))
+        .order(agent::id)
+        .select(agent::id)
+        .load(db)?)
+}
+
 /// Every living agent, oldest first.
 pub(crate) fn living(db: &mut Db) -> Result<Vec<AgentId>> {
     Ok(agent::table

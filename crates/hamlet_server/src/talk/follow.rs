@@ -21,7 +21,7 @@ use crate::jobs::{self, Job};
 use crate::oversight::{self, Raise, WaitKind};
 use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::library::{self as shelf, Verdict};
-use crate::society::workers;
+use crate::society::{dreams, workers};
 
 /// What a follow leaves to do once its change is kept.
 #[derive(Debug, Default)]
@@ -82,6 +82,32 @@ pub(crate) fn follow(
     cx.touched.agents.insert(agent);
     if kept.kind == Kind::Errand && input.kind == InputKind::Errand {
         followed.wake.extend(errand_ended(cx, &kept, &input)?);
+        return Ok(followed);
+    }
+    if kept.kind == Kind::Dream && input.kind == InputKind::Dream {
+        if let Some(dream) =
+            dreams::of_conversation(cx.db, conversation)?
+        {
+            let summary =
+                items::answer_of(cx.db, conversation, request)?
+                    .and_then(|answer| {
+                        answer.lines().next().map(String::from)
+                    })
+                    .unwrap_or_default();
+            let last = match last {
+                Last::Done => dreams::Outcome::Done,
+                Last::Stopped => dreams::Outcome::Stopped,
+                Last::Failed => dreams::Outcome::Failed,
+            };
+            jobs::add(
+                cx,
+                &Job::DreamEnd {
+                    dream: dream.id,
+                    last,
+                    summary,
+                },
+            )?;
+        }
         return Ok(followed);
     }
     if kept.kind == Kind::Worker && input.kind == InputKind::Worker {

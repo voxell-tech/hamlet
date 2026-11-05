@@ -635,7 +635,8 @@ impl Core {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
         let agent = call.conversation.agent;
-        let at = place::of(db, &layout, agent)?;
+        let at =
+            place::of_conversation(db, &layout, &call.conversation)?;
         if let Some(refusal) = character_refusal(&at.place, call) {
             return Ok(Some(said(refusal, true)));
         }
@@ -778,7 +779,8 @@ impl Core {
             return Ok(Decision::Block(STOPPED.into()));
         }
         let agent = call.conversation.agent;
-        let at = place::of(db, &layout, agent)?;
+        let at =
+            place::of_conversation(db, &layout, &call.conversation)?;
         let added = self
             .added
             .iter()

@@ -14,6 +14,7 @@ mod commands;
 mod core;
 mod credentials;
 mod diagnostic;
+mod dreaming;
 mod fault;
 mod gifts;
 mod jobs;

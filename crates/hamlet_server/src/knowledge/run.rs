@@ -87,6 +87,13 @@ pub(crate) fn run(
             super::merging::split(db, layout, *merge, at)
         }
         Job::Shelve { offer } => shelve(db, layout, *offer, at),
+        Job::DreamEnd {
+            dream,
+            last,
+            summary,
+        } => super::dreaming::end(
+            db, layout, *dream, *last, summary, at,
+        ),
     }
 }
 

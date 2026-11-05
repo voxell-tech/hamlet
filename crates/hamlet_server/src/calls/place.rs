@@ -134,6 +134,29 @@ pub(crate) fn of(
     })
 }
 
+/// Where the tools of `conversation` work: its agent's place, but a
+/// dream writes the checkout of its scholar's `main` in place of a
+/// folder, and asks nothing.
+pub(crate) fn of_conversation(
+    db: &mut Db,
+    layout: &Layout,
+    conversation: &crate::talk::conversations::Conversation,
+) -> Result<Where> {
+    let mut at = of(db, layout, conversation.agent)?;
+    if conversation.kind == Kind::Dream
+        && let Some(dream) = crate::society::dreams::of_conversation(
+            db,
+            conversation.id,
+        )?
+    {
+        at.place.folder = Some(crate::knowledge::dreaming::checkout(
+            layout, dream.id,
+        ));
+        at.manual = false;
+    }
+    Ok(at)
+}
+
 /// The folder `hamlet` works on, and whether its work there asks.
 fn folder(
     db: &mut Db,

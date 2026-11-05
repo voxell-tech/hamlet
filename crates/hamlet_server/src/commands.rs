@@ -175,6 +175,12 @@ const TABLE: &[Command] = &[
         does: "Take a skill off the library's shelves",
     },
     Command {
+        name: "dream",
+        usage: "/dream <scholar|address>",
+        does: "Have a hire bring its learning home, or a scholar \
+               tidy",
+    },
+    Command {
         name: "hamlets",
         usage: "/hamlets",
         does: "List the hamlets",
@@ -1333,7 +1339,7 @@ impl Core {
     }
 
     /// Refuses unless this server's chief leads the hire `hire`.
-    fn leads(
+    pub(crate) fn leads(
         &mut self,
         hire: AgentId,
     ) -> Result<Result<(), Refusal>> {
