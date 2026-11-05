@@ -30,10 +30,6 @@ impl Layout {
         self.root.join("realm.id")
     }
 
-    pub fn credentials(&self) -> PathBuf {
-        self.root.join("credentials.json")
-    }
-
     pub fn models(&self) -> PathBuf {
         self.root.join("models.json")
     }

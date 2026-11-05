@@ -49,7 +49,6 @@ pub(crate) enum Phase {
 
 pub(crate) struct Runtime {
     pub id: String,
-    pub harness: String,
     pub phase: Phase,
     process: Option<Process>,
     generation: u64,
@@ -66,7 +65,6 @@ pub(crate) enum Pending {
     Cancel(ConversationId),
     /// The tools a conversation offers, as told.
     Configure(ConversationId, String),
-    History(ConversationId),
 }
 
 pub(crate) struct Runtimes {
@@ -121,15 +119,14 @@ impl Runtimes {
     ) -> Result<()> {
         let kept = runtime::table
             .order(runtime::id)
-            .select((runtime::id, runtime::harness, runtime::begun))
-            .load::<(String, String, bool)>(db)?;
-        for (id, harness, begun) in kept {
+            .select((runtime::id, runtime::begun))
+            .load::<(String, bool)>(db)?;
+        for (id, begun) in kept {
             let index = match self.index_of(&id) {
                 Some(index) => index,
                 None => {
                     self.list.push(Runtime {
                         id,
-                        harness,
                         phase: Phase::Down,
                         process: None,
                         generation: 0,

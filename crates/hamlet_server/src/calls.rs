@@ -296,6 +296,8 @@ struct Call<'a> {
     input: Option<&'a str>,
     tool: &'a str,
     arguments: &'a BTreeMap<String, Value>,
+    /// What its marker keeps it as.
+    request: Request,
 }
 
 impl Call<'_> {
@@ -426,7 +428,7 @@ impl Core {
         asked: runtime::Allow,
     ) -> Result<()> {
         let reply = self.reply_of(index, &asked.id);
-        let (conversation, _) = match self.admit(
+        let (conversation, request) = match self.admit(
             index,
             &asked.conversation,
             &asked.key,
@@ -449,6 +451,7 @@ impl Core {
             input: asked.input.as_deref(),
             tool: &asked.tool,
             arguments: &asked.arguments,
+            request,
         };
         if call.tool != "object" && self.withdrawn(&call)? {
             self.tell_call(
@@ -517,6 +520,7 @@ impl Core {
             input: asked.input.as_deref(),
             tool: &asked.tool,
             arguments: &asked.arguments,
+            request: request.clone(),
         };
         if self.calls.join(&call.call, &reply) {
             return Ok(());
@@ -595,6 +599,7 @@ impl Core {
                     {
                         match self.society(&call).await? {
                             society::Step::Done(outcome) => {
+                                crate::fault::point("carried");
                                 Some(outcome)
                             }
                             society::Step::Wait(words) => {
@@ -613,7 +618,8 @@ impl Core {
                             reply.clone(),
                             request.clone(),
                             net,
-                        )?
+                        )
+                        .await?
                     }
                 }
             }
@@ -640,7 +646,7 @@ impl Core {
     /// Runs the built-in or added tool of `call` with the network
     /// `net`, after marking it begun when it may not run again. Gives
     /// the outcome of a call refused before it runs.
-    fn run_tool(
+    async fn run_tool(
         &mut self,
         call: &Call<'_>,
         reply: Reply,
@@ -670,7 +676,11 @@ impl Core {
                 .and_then(|change| {
                     serde_json::from_str::<Value>(&change).ok()
                 });
-        let (session, pull) = self.tools_of(call, at.place, net)?;
+        let (session, pull) =
+            match self.tools_of(call, at.place, net).await? {
+                Ok(found) => found,
+                Err(words) => return Ok(Some(said(words, true))),
+            };
         let secrets = self.credentials.secrets();
         let arguments =
             call.arguments.clone().into_iter().collect::<Map<_, _>>();
@@ -699,20 +709,29 @@ impl Core {
     /// Where the tools of `call`'s agent run: in the remote workspace
     /// the realm works in, whose lodge is pulled home after a call
     /// that may write it, else on this machine. A dream works on this
-    /// machine's checkout of its scholar, so it runs here.
-    fn tools_of(
+    /// machine's checkout of its scholar, so it runs here. Gives the
+    /// words of a lodge the workspace could not take in.
+    async fn tools_of(
         &mut self,
         call: &Call<'_>,
         place: crate::work::tools::Place,
         net: bool,
-    ) -> Result<(ToolSession, bool)> {
+    ) -> Result<Result<(ToolSession, bool), String>> {
         let agent = call.conversation.agent;
         let remote = match call.conversation.kind {
             Kind::Dream => None,
             _ => self.remote_session(agent, net)?,
         };
-        Ok(match remote {
+        Ok(Ok(match remote {
             Some(session) => {
+                if let Err(error) = self.lodge_in_step(agent).await {
+                    return Ok(Err(self.credentials.scrub_text(
+                        &format!(
+                            "The remote workspace could not take \
+                             the lodge in: {error:#}"
+                        ),
+                    )));
+                }
                 (ToolSession::remote(place, session), true)
             }
             None => (
@@ -725,7 +744,7 @@ impl Core {
                 ),
                 false,
             ),
-        })
+        }))
     }
 
     /// Whether `tool` may not run twice: what writes, runs or is
@@ -744,6 +763,7 @@ impl Core {
         else {
             return Ok(());
         };
+        crate::fault::point("ran");
         let db = self.realm.store().connection();
         marker::settle(
             db,
@@ -840,8 +860,22 @@ impl Core {
             .map(crate::work::added::Manifest::has_net);
         let mut classified =
             gate::call_of(call.tool, &call.args(), added);
-        let (session, _) =
-            self.tools_of(call, at.place.clone(), false)?;
+        let session =
+            match self.tools_of(call, at.place.clone(), false).await?
+            {
+                Ok((session, _)) => session,
+                Err(words) => {
+                    let db = self.realm.store().connection();
+                    held::block(
+                        db,
+                        &call.call.runtime,
+                        &call.call.key,
+                        &words,
+                        None,
+                    )?;
+                    return Ok(Decision::Block(words));
+                }
+            };
         if let gate::Call::Edit {
             write: true,
             path,

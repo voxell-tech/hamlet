@@ -186,10 +186,7 @@ pub(crate) fn tools(
     let kept = agents::get(db, agent)?;
     let mut only = match kept.kind {
         AgentKind::Worker => {
-            let worker = workers::get(db, agent)?;
-            let given =
-                serde_json::from_str::<Vec<String>>(&worker.tools)
-                    .unwrap_or_default();
+            let given = workers::get(db, agent)?.tools()?;
             built_in
                 .into_iter()
                 .filter(|name| {

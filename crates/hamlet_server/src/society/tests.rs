@@ -340,7 +340,7 @@ fn a_worker_starts_no_worker_and_works_where_its_starter_does() {
         .unwrap();
     let found = workers::get(realm.db(), worker).unwrap();
     assert_eq!(found.hamlet, Some(docs()));
-    assert_eq!(found.starter(), Starter::Agent(ada));
+    assert_eq!(found.starter, Some(ada));
     assert_eq!(
         realm.by(Actor::Agent(worker), |cx| {
             workers::start(cx, start(Starter::Agent(worker)))

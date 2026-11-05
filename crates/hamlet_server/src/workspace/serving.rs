@@ -63,7 +63,9 @@ impl Core {
         )?))
     }
 
-    /// Makes the remote copy of `agent`'s lodge the server's.
+    /// Sends the remote copy of `agent`'s lodge what the server's
+    /// changed since they were last in step, or all of it when they
+    /// never were.
     pub(crate) async fn push_lodge(
         &mut self,
         agent: AgentId,
@@ -77,10 +79,15 @@ impl Core {
         let Some(session) = self.remote_session(agent, false)? else {
             return Ok(());
         };
-        lodges::push(&session, &lodging.path).await
+        let base = self.synced.get(&agent);
+        let synced =
+            lodges::push(&session, &lodging.path, base).await?;
+        self.synced.insert(agent, synced);
+        Ok(())
     }
 
-    /// Brings the remote copy of `agent`'s lodge home.
+    /// Brings home what the remote copy of `agent`'s lodge changed
+    /// since they were last in step.
     pub(crate) async fn pull_lodge(
         &mut self,
         agent: AgentId,
@@ -94,11 +101,31 @@ impl Core {
         let Some(session) = self.remote_session(agent, false)? else {
             return Ok(());
         };
-        let pulled = lodges::pull(&session, &lodging.path).await?;
+        // Never in step: nothing the remote holds is known to be
+        // newer, so the server's lodge stands.
+        let Some(base) = self.synced.get(&agent) else {
+            return self.push_lodge(agent).await;
+        };
+        let (pulled, synced) = lodges::pull(&session, base).await?;
         let writing = self.writing.clone();
-        let _held =
+        let held =
             writing.lock().unwrap_or_else(PoisonError::into_inner);
-        pulled.apply(&lodging.path)
+        pulled.apply(&lodging.path)?;
+        drop(held);
+        self.synced.insert(agent, synced);
+        Ok(())
+    }
+
+    /// Makes sure the remote copy of `agent`'s lodge was in step once
+    /// before a call runs there.
+    pub(crate) async fn lodge_in_step(
+        &mut self,
+        agent: AgentId,
+    ) -> Result<()> {
+        if self.synced.contains_key(&agent) {
+            return Ok(());
+        }
+        self.push_lodge(agent).await
     }
 
     /// Pushes the lodges the jobs `done` changed, when the realm
@@ -171,6 +198,8 @@ impl Core {
         };
         let previous =
             self.workspace.replace(Transport::new(chosen)?);
+        // What was in step was in step with another workspace.
+        self.synced.clear();
         let db = self.realm.store().connection();
         let mut lodged = vec![crate::society::hand::id(db)?];
         lodged.extend(agents::living(db)?.into_iter().filter(
@@ -198,6 +227,7 @@ impl Core {
             }
         }
         self.workspace = previous;
+        self.synced.clear();
         let (state, text) = match &failed {
             None => (
                 SettingsViewWorkspaceMoveState::Moved,

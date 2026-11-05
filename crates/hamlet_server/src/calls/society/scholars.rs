@@ -147,6 +147,7 @@ impl Core {
             }
         };
         let message = text(call, "message");
+        self.begin(call)?;
         self.commit_main(
             Actor::Agent(call.conversation.agent),
             scholar,
@@ -185,6 +186,7 @@ impl Core {
             }));
         };
         let by = Actor::Agent(call.conversation.agent).to_string();
+        self.begin(call)?;
         let writing = self.writing.clone();
         let _held =
             writing.lock().unwrap_or_else(PoisonError::into_inner);
@@ -221,6 +223,7 @@ impl Core {
         let by = Actor::Agent(call.conversation.agent);
         let author = by.to_string();
         let reason = text(call, "reason");
+        self.begin(call)?;
         let writing = self.writing.clone();
         let held =
             writing.lock().unwrap_or_else(PoisonError::into_inner);

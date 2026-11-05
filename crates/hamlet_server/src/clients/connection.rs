@@ -3,7 +3,6 @@
 //! codes. A message is only text here: what it asks is for the
 //! requests to read.
 
-use std::collections::VecDeque;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -41,8 +40,6 @@ pub(crate) struct Client {
     pub(crate) send: mpsc::Sender<Out>,
     pub(crate) welcomed: bool,
     pub(crate) refused: bool,
-    pub(crate) busy: bool,
-    pub(crate) waiting: VecDeque<String>,
 }
 
 /// Starts carrying `stream` as connection `id`, its task in `tasks`;
@@ -60,8 +57,6 @@ pub(crate) fn accept(
         send,
         welcomed: false,
         refused: false,
-        busy: false,
-        waiting: VecDeque::new(),
     }
 }
 

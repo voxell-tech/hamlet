@@ -21,9 +21,6 @@ pub struct Pi {
 }
 
 impl Pi {
-    /// The provider of the faux script's models.
-    pub const FAUX_PROVIDER: &str = "faux";
-
     /// The pi harness the environment gives: `HAMLET_NODE` and
     /// `HAMLET_PI_HARNESS`, else Node on the path and the entry
     /// beside the server or in the checkout it was built from.
@@ -167,10 +164,6 @@ impl Process {
             });
         });
         Ok(Self { child, stdin })
-    }
-
-    pub fn pid(&self) -> Option<u32> {
-        self.child.id()
     }
 
     /// Writes one line; a runtime that is gone is noticed when its

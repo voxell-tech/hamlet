@@ -1,9 +1,5 @@
 //! The Hamlet server: the realm, its society, and its agents'
 //! conversations and work.
-#![expect(
-    dead_code,
-    reason = "the rebuild wires its parts up in steps"
-)]
 
 mod calls;
 mod change;

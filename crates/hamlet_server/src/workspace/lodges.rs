@@ -1,8 +1,11 @@
 //! A lodge's copy in a remote workspace. The server's lodge holds
 //! what git keeps; the remote `/lodge` is where the agent's tools
-//! write during a turn. A push makes the remote copy the server's,
-//! after the server's changed; a pull brings the remote copy home,
-//! after a tool may have written it.
+//! write during a turn. Both are kept against the files they last
+//! held alike: a push sends what the server changed since, after
+//! the server's changed; a pull brings home what the remote changed
+//! since, after a tool may have written it. Neither undoes the
+//! other's changes, and a first push, with nothing held alike yet,
+//! makes the remote copy the server's.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -21,10 +24,14 @@ use crate::knowledge::folder::Folder;
 pub(crate) const LODGE: &str = "/lodge";
 
 /// A regular file as one side has it.
-struct File {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct File {
     sha256: String,
     executable: bool,
 }
+
+/// A lodge's files as both copies last held them, by path.
+pub(crate) type Synced = BTreeMap<String, File>;
 
 fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -71,25 +78,36 @@ fn local(
         .collect()
 }
 
-/// Makes the remote copy of the lodge at `lodge` hold its files. A
-/// file past what one request carries stays as it is there.
+/// Sends the remote copy what the server's lodge at `lodge` changed
+/// since `base`, or all of it, replacing what is there, with no
+/// `base`; gives what both hold alike after. A file past what one
+/// request carries stays as it is there.
 pub(crate) async fn push(
     session: &Session,
     lodge: &Path,
-) -> Result<()> {
+    base: Option<&Synced>,
+) -> Result<Synced> {
     let folder = Folder::make(lodge)?;
     let theirs = remote(session).await?;
     let ours = local(&folder)?;
+    let mut synced = base.cloned().unwrap_or_default();
     for (path, (bytes, executable)) in &ours {
         if bytes.len() > MAX_FILE {
             continue;
         }
-        let digest = sha256(bytes);
+        let file = File {
+            sha256: sha256(bytes),
+            executable: *executable,
+        };
+        // Unchanged here since: the remote's to change.
+        if base.is_some_and(|base| base.get(path) == Some(&file)) {
+            continue;
+        }
         let at = format!("{LODGE}/{path}");
         let mode = if *executable { 0o755 } else { 0o644 };
         match theirs.get(path) {
-            Some(file) if file.sha256 == digest => {
-                if file.executable != *executable {
+            Some(held) if held.sha256 == file.sha256 => {
+                if held.executable != *executable {
                     session.call(SetMode { path: at, mode }).await?;
                 }
             }
@@ -119,9 +137,22 @@ pub(crate) async fn push(
                     .await?;
             }
         }
+        synced.insert(path.clone(), file);
     }
-    for path in theirs.keys().filter(|path| !ours.contains_key(*path))
-    {
+    // What the server removed since, or all it lacks on a first push.
+    let gone = match base {
+        Some(base) => base
+            .keys()
+            .filter(|path| !ours.contains_key(*path))
+            .cloned()
+            .collect::<Vec<_>>(),
+        None => theirs
+            .keys()
+            .filter(|path| !ours.contains_key(*path))
+            .cloned()
+            .collect(),
+    };
+    for path in gone {
         session
             .call(Remove {
                 path: format!("{LODGE}/{path}"),
@@ -130,8 +161,9 @@ pub(crate) async fn push(
                 no_follow: true,
             })
             .await?;
+        synced.remove(&path);
     }
-    Ok(())
+    Ok(synced)
 }
 
 /// What a pull brings home: each path's new bytes and whether it
@@ -154,22 +186,17 @@ impl Pulled {
     }
 }
 
-/// What the remote copy of the lodge at `lodge` holds that it lacks.
+/// What the remote copy changed since `base`, which the server's
+/// lodge takes in, and what both hold alike after.
 pub(crate) async fn pull(
     session: &Session,
-    lodge: &Path,
-) -> Result<Pulled> {
-    let folder = Folder::make(lodge)?;
+    base: &Synced,
+) -> Result<(Pulled, Synced)> {
     let theirs = remote(session).await?;
-    let ours = local(&folder)?;
+    let mut synced = base.clone();
     let mut pulled = Vec::new();
     for (path, file) in &theirs {
-        let same =
-            ours.get(path).is_some_and(|(bytes, executable)| {
-                sha256(bytes) == file.sha256
-                    && *executable == file.executable
-            });
-        if same {
+        if base.get(path) == Some(file) {
             continue;
         }
         let read = session
@@ -185,10 +212,12 @@ pub(crate) async fn pull(
             path.clone(),
             Some((read.data.0, file.executable)),
         ));
+        synced.insert(path.clone(), file.clone());
     }
-    for path in ours.keys().filter(|path| !theirs.contains_key(*path))
+    for path in base.keys().filter(|path| !theirs.contains_key(*path))
     {
         pulled.push((path.clone(), None));
+        synced.remove(path);
     }
-    Ok(Pulled(pulled))
+    Ok((Pulled(pulled), synced))
 }

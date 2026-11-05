@@ -36,14 +36,6 @@ pub(crate) struct Worker {
 }
 
 impl Worker {
-    pub fn starter(&self) -> Starter {
-        match (self.starter, self.chief) {
-            (Some(agent), _) => Starter::Agent(agent),
-            (None, Some(chief)) => Starter::Chief(chief),
-            (None, None) => unreachable!("a worker has a starter"),
-        }
-    }
-
     /// The built-in tools it was given.
     pub fn tools(&self) -> Result<Vec<String>> {
         Ok(serde_json::from_str(&self.tools)?)

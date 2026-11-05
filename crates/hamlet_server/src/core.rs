@@ -2,13 +2,15 @@
 //! say and what clients ask, makes each change in one transaction,
 //! and wakes what the change needs: the jobs runner and the runtimes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::panic::AssertUnwindSafe;
 
 use anyhow::Result;
+use futures::FutureExt;
 use hamlet_protocol::client as protocol;
 use hamlet_protocol::runtime::{
-    self, AdmittedStatus, RuntimeMessage, ServerMessage,
-    SettledStatus, ToolSpec,
+    self, AdmittedStatus, ErrorCode, ProtocolError, RuntimeMessage,
+    ServerMessage, SettledStatus, ToolSpec,
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
@@ -23,7 +25,7 @@ use crate::clients::connection::Event;
 use crate::clients::fold::Fold;
 use crate::clock;
 use crate::credentials::Credentials;
-use crate::diagnostic::{Secrets, tell};
+use crate::diagnostic::{self, Secrets, tell};
 use crate::gifts::Gifts;
 use crate::knowledge::runner::{Runner, Writing, run_due};
 use crate::providers::{FAUX, Providers};
@@ -44,6 +46,7 @@ use crate::work::added::{self, Manifest};
 use crate::work::catalogue::SOCIETY;
 use crate::work::tools::{self, Shells};
 use crate::workspace::Transport;
+use crate::workspace::lodges::Synced;
 
 pub(crate) struct Core {
     pub realm: Realm,
@@ -75,6 +78,10 @@ pub(crate) struct Core {
     /// The remote workspace the agents' tools run in, chosen before
     /// the server started; none for this machine.
     pub workspace: Option<Transport>,
+    /// Each lodge as both copies held it when last in step, by
+    /// agent; a lodge not here is pushed before its next remote
+    /// call.
+    pub synced: HashMap<AgentId, Synced>,
     /// How moving the lodges to the chosen workspace goes.
     pub moving: Option<protocol::SettingsViewWorkspaceMove>,
     runner: Runner,
@@ -107,8 +114,10 @@ impl Inbox {
 }
 
 impl Core {
-    /// Takes `realm` on: its jobs runner and its harness's runtime.
-    pub fn start(
+    /// Takes `realm` on: its jobs runner and its harness's runtime,
+    /// and follows the turns that ended before the last stop but
+    /// were not followed.
+    pub async fn start(
         mut realm: Realm,
         env: Env,
         pi: Pi,
@@ -170,12 +179,22 @@ impl Core {
             leases: Authority::default(),
             gifts: Gifts::default(),
             workspace,
+            synced: HashMap::new(),
             moving: None,
             runner,
             writing,
         };
         core.retool()?;
         core.start_providers()?;
+        let unfollowed =
+            inputs::unfollowed(core.realm.store().connection())?;
+        for input in unfollowed {
+            // No runtime waits on anything from before the stop.
+            core.change(Actor::Realm, |cx, env| {
+                follow(cx, env, input.conversation, &input.request)
+            })
+            .await?;
+        }
         Ok((
             core,
             Inbox {
@@ -296,6 +315,7 @@ impl Core {
 
     async fn after(&mut self, touched: Touched) -> Result<()> {
         if touched.jobs {
+            crate::fault::point("jobs");
             // The change's effects come before anything that reads
             // them; one that fails is run again by the runner.
             let layout = self.realm.layout().clone();
@@ -480,7 +500,40 @@ impl Core {
         };
         match serde_json::from_str::<RuntimeMessage>(&line) {
             Ok(message) => {
-                self.heard(index, message).await?;
+                let re = awaited(&message);
+                // A line whose handling fails leaves its transaction
+                // rolled back; the runtime is told and goes on.
+                let heard =
+                    AssertUnwindSafe(self.heard(index, message))
+                        .catch_unwind()
+                        .await;
+                let failure = match heard {
+                    Ok(Ok(())) => None,
+                    Ok(Err(error)) => Some(format!("{error:#}")),
+                    Err(panic) => Some(diagnostic::panicked(&*panic)),
+                };
+                if let Some(failure) = failure {
+                    tell(
+                        Secrets::Of(&self.credentials),
+                        format!("a runtime's line failed: {failure}"),
+                    );
+                    if let Some(re) = re {
+                        let message = self.credentials.scrub_text(
+                            &format!("The server failed: {failure}"),
+                        );
+                        self.runtimes
+                            .send(index, |v, id| {
+                                ServerMessage::Error(ProtocolError {
+                                    code: ErrorCode::Failed,
+                                    id,
+                                    message,
+                                    re: Some(re),
+                                    v,
+                                })
+                            })
+                            .await;
+                    }
+                }
                 self.answer_credentials().await
             }
             Err(error) => {
@@ -617,6 +670,7 @@ impl Core {
                         detail.as_deref(),
                     )?;
                     if ended {
+                        crate::fault::point("followed");
                         let followed = self
                             .change(Actor::Realm, |cx, env| {
                                 follow(
@@ -653,6 +707,7 @@ impl Core {
                     settled.reason.as_deref(),
                     detail.as_deref(),
                 )? {
+                    crate::fault::point("followed");
                     let request = settled.request;
                     let followed = self
                         .change(Actor::Realm, |cx, env| {
@@ -797,6 +852,16 @@ impl Core {
                             selection.model.provider.clone();
                         self.leases
                             .grant(index, &asked.key, &provider);
+                        let db = self.realm.store().connection();
+                        let conversation = turns::conversation(
+                            db,
+                            &runtime,
+                            &asked.conversation,
+                        )?;
+                        self.live(conversation.id)?
+                            .activity
+                            .attempted();
+                        self.publish().await?;
                         let serving = self
                             .env
                             .settings
@@ -971,9 +1036,20 @@ impl Core {
     }
 }
 
-/// The realm's chief, for a change a chief makes.
-pub(crate) fn chief(core: &Core) -> Actor {
-    Actor::Chief(core.realm.chief())
+/// The id of `message` when the runtime waits for its answer.
+fn awaited(message: &RuntimeMessage) -> Option<String> {
+    let id = match message {
+        RuntimeMessage::Prompt(asked) => &asked.id,
+        RuntimeMessage::Attempt(asked) => &asked.id,
+        RuntimeMessage::Usage(report) => &report.id,
+        RuntimeMessage::Allow(asked) => &asked.id,
+        RuntimeMessage::Operation(asked) => &asked.id,
+        RuntimeMessage::Yield(answer) => &answer.id,
+        RuntimeMessage::Scrub(asked) => &asked.id,
+        RuntimeMessage::CredentialRequest(request) => &request.id,
+        _ => return None,
+    };
+    Some(id.clone())
 }
 
 /// What a test reads to wait on a condition of the realm.
@@ -1065,6 +1141,7 @@ mod tests {
             sandbox,
             closed,
         )
+        .await
         .unwrap();
         let hand = hand::id(core.realm.store().connection()).unwrap();
         let said = core

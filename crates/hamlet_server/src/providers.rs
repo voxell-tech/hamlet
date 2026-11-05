@@ -122,19 +122,6 @@ impl Providers {
         self.outgoing.clear();
     }
 
-    /// The address `provider` lists `model` at.
-    pub fn base_url(
-        &self,
-        provider: &str,
-        model: &str,
-    ) -> Option<&str> {
-        self.lists
-            .get(provider)?
-            .iter()
-            .find(|entry| entry["id"] == model)?["baseUrl"]
-            .as_str()
-    }
-
     /// The soonest a request times out.
     pub fn next_expiry(&self) -> Option<Instant> {
         self.pending.values().filter_map(|p| p.expires).min()

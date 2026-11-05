@@ -27,14 +27,6 @@ pub(crate) struct Amount {
     pub tokens: i64,
 }
 
-impl Amount {
-    fn add(&mut self, other: Self) {
-        self.micros = self.micros.saturating_add(other.micros);
-        self.ms = self.ms.saturating_add(other.ms);
-        self.tokens = self.tokens.saturating_add(other.tokens);
-    }
-}
-
 /// `micros` in dollars to the cent, a half cent rounding up.
 pub(crate) fn money(micros: Micros) -> String {
     if (1..10_000).contains(&micros) {

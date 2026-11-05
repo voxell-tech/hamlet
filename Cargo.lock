@@ -4526,6 +4526,7 @@ dependencies = [
  "chrono",
  "diesel",
  "futures",
+ "hamlet_acceptance",
  "hamlet_git",
  "hamlet_os",
  "hamlet_protocol",

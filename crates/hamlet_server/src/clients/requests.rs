@@ -2,7 +2,10 @@
 //! a chief's lines and commands, watching conversations, and a chat's
 //! deeds.
 
+use std::panic::AssertUnwindSafe;
+
 use anyhow::Result;
+use futures::FutureExt;
 use hamlet_protocol::client::{
     self as protocol, ChatRef, ChatRefKind, ClientMessage, RequestId,
     ServerMessage, Transcript,
@@ -131,23 +134,34 @@ impl Core {
             }
             message => {
                 let id = message.id().cloned();
-                if let Err(error) =
-                    self.request(client, message).await
-                {
-                    crate::diagnostic::tell(
-                        crate::diagnostic::Secrets::Of(
-                            &self.credentials,
-                        ),
-                        format!("a request failed: {error:#}"),
-                    );
-                    self.answer(
-                        client,
-                        fault(
-                            id.as_ref(),
-                            format!("The server failed: {error}"),
-                        ),
-                    )?;
-                }
+                // A handler that panics leaves its transaction rolled
+                // back, so the realm is as before the request.
+                let handled =
+                    AssertUnwindSafe(self.request(client, message))
+                        .catch_unwind()
+                        .await;
+                let (shown, logged) = match handled {
+                    Ok(Ok(())) => return Ok(()),
+                    Ok(Err(error)) => {
+                        (format!("{error}"), format!("{error:#}"))
+                    }
+                    Err(panic) => {
+                        let words =
+                            crate::diagnostic::panicked(&*panic);
+                        (words.clone(), words)
+                    }
+                };
+                crate::diagnostic::tell(
+                    crate::diagnostic::Secrets::Of(&self.credentials),
+                    format!("a request failed: {logged}"),
+                );
+                self.answer(
+                    client,
+                    fault(
+                        id.as_ref(),
+                        format!("The server failed: {shown}"),
+                    ),
+                )?;
                 Ok(())
             }
         }
@@ -167,6 +181,7 @@ impl Core {
         client: u64,
         message: ClientMessage,
     ) -> Result<()> {
+        crate::fault::panic_at("request");
         let chief = self.realm.chief();
         if self.model_request(client, &message).await? {
             return Ok(());

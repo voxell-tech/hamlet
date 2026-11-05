@@ -136,8 +136,3 @@ pub(crate) fn ended(
         .execute(cx.db)?;
     Ok(())
 }
-
-/// Whether any reflection is still owed or running.
-pub(crate) fn pending(db: &mut hamlet_store::Db) -> Result<bool> {
-    Ok(reflection::table.count().get_result::<i64>(db)? > 0)
-}

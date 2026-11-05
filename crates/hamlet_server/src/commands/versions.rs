@@ -13,7 +13,7 @@ use crate::jobs::Fork;
 use crate::knowledge::folder::Folder;
 use crate::society::addresses::{self, Reach};
 use crate::society::refusal::Refusal;
-use crate::society::{authority, city, hires};
+use crate::society::{authority, city, hires, names};
 
 /// The most commits `/versions` lists.
 const MOST_SHOWN: usize = 12;
@@ -74,6 +74,9 @@ impl Core {
         let (scholar, at) = scholar
             .split_once('@')
             .map_or((*scholar, None), |(s, a)| (s, Some(a)));
+        if let Err(refusal) = names::check_version(version) {
+            return Ok(Err(refusal));
+        }
         let (_, repo) = match self.chiefs_scholar(scholar)? {
             Ok(found) => found,
             Err(refusal) => return Ok(Err(refusal)),

@@ -372,14 +372,6 @@ impl Shells {
     }
 }
 
-/// Whether a call of `tool` may not run again once it began.
-pub(crate) fn runs_once(tool: &str) -> bool {
-    Dialect::of_tool(tool).is_some()
-        || super::specs(&Shells::local()).iter().any(|spec| {
-            spec.name == tool && spec.replay == ToolSpecReplay::Unsafe
-        })
-}
-
 /// pi's `timeout` in seconds, at most [`WALL_SECS`]; none when it is
 /// not a finite number above zero.
 fn seconds(timeout: Option<f64>) -> Option<f64> {

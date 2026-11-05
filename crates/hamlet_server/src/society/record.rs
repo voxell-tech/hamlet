@@ -214,17 +214,3 @@ impl DecisionKind {
         }
     }
 }
-
-/// Every decision about `agent`, oldest first.
-pub(crate) fn about(
-    db: &mut Db,
-    agent: AgentId,
-) -> Result<Vec<Kept>> {
-    Ok(decision::table
-        .filter(
-            decision::subject.eq(agent).or(decision::other.eq(agent)),
-        )
-        .order(decision::id)
-        .select(Kept::as_select())
-        .load(db)?)
-}

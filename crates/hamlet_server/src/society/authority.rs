@@ -51,22 +51,6 @@ pub(crate) fn may_lead(
     })
 }
 
-/// Whether `actor` may lead in `hamlet` as a whole: a chief of it,
-/// the Hand, or its mayor.
-pub(crate) fn may_lead_hamlet(
-    db: &mut Db,
-    actor: Actor,
-    hamlet: &HamletId,
-) -> Result<bool> {
-    Ok(match actor {
-        Actor::Chief(chief) => is_chief_of(db, chief, hamlet)?,
-        Actor::Agent(agent) => {
-            is_hand(db, actor)? || tree::mayor(db, hamlet)? == agent
-        }
-        Actor::Realm => true,
-    })
-}
-
 /// Whether `actor` may keep the scholar `id`: change it, tag, revert,
 /// fork or purge it, archive, restore or erase it. Its chief may, and
 /// the Hand, whose acts wait for a chief.

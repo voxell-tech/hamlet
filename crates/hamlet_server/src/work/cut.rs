@@ -215,28 +215,19 @@ pub enum Cut {
     Bare,
     /// As written, a cut excerpt ending with `...`.
     Dotted,
-    /// Each run of white space one space and the ends trimmed, a cut
-    /// excerpt ending with `...`.
-    Flat,
 }
 
 /// An excerpt of at most `most` characters, shown as `cut` says.
 pub fn clip(text: &str, most: usize, cut: Cut) -> String {
-    let shown = match cut {
-        Cut::Flat => {
-            text.split_whitespace().collect::<Vec<_>>().join(" ")
-        }
-        Cut::Bare | Cut::Dotted => text.to_owned(),
-    };
-    match shown.char_indices().nth(most) {
+    match text.char_indices().nth(most) {
         Some((end, _)) => {
             let dots = match cut {
                 Cut::Bare => "",
-                Cut::Dotted | Cut::Flat => "...",
+                Cut::Dotted => "...",
             };
-            format!("{}{dots}", &shown[..end])
+            format!("{}{dots}", &text[..end])
         }
-        None => shown,
+        None => text.to_owned(),
     }
 }
 

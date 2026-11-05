@@ -11,6 +11,7 @@ use hamlet_store::ids::{Actor, AgentId, ChiefId, HamletId, TaskId};
 use serde_json::{Value, json};
 
 use super::{Call, said, spec};
+use crate::change::{Change, Done};
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, EndHow};
@@ -19,6 +20,7 @@ use crate::society::hires::{self, Hiring, Spec};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, city, limits, record, roads};
 use crate::spend::micros;
+use crate::talk::Env;
 use crate::work::tools::Outcome;
 
 /// What a society call comes to.
@@ -53,6 +55,9 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                    `mayor@<hamlet>`, `<name>`, `<name>@<hamlet>` or \
                    `<name>#<n>@<hamlet>`.";
     let reason = "Why, in a sentence; the record keeps it.";
+    // A call cut off by a crash may be asked again: its change is
+    // kept with its answer, or what it began is found by its call.
+    // A write of a scholar's repository is kept by no transaction.
     let unsafe_ = ToolSpecReplay::Unsafe;
     let safe = ToolSpecReplay::Safe;
     vec![
@@ -64,7 +69,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"to": string(address), "text": string("The letter.")}),
                 &["to", "text"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "ask",
@@ -75,7 +80,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"to": string(address), "question": string("The question.")}),
                 &["to", "question"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "start_worker",
@@ -92,7 +97,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 }),
                 &["task"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "submit_skill",
@@ -102,7 +107,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"skill": string("The skill's folder name under skills/."), "reason": string(reason)}),
                 &["skill", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "ask_librarian",
@@ -123,7 +128,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"reason": string("Why the instruction should not be done.")}),
                 &["reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "request_road",
@@ -133,7 +138,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"to": string(address), "reason": string(reason)}),
                 &["to", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "create_scholar",
@@ -143,7 +148,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"name": string("A short lowercase name."), "character": string("Who the scholar is and how it works.")}),
                 &["name", "character"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "hire",
@@ -158,7 +163,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 }),
                 &["scholar", "purpose"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "end_hire",
@@ -167,7 +172,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"hire": string(address), "reason": string(reason)}),
                 &["hire", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "merge_hires",
@@ -177,7 +182,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"absorbed": string(address), "into": string(address), "reason": string(reason)}),
                 &["absorbed", "into", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "set_model",
@@ -187,7 +192,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"hire": string(address), "model": string("The model, as `provider::id`."), "reason": string(reason)}),
                 &["hire", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "set_tools",
@@ -202,7 +207,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 }),
                 &["hire", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "set_allowance",
@@ -212,7 +217,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"hire": string(address), "dollars": {"type": "number"}, "reason": string(reason)}),
                 &["hire", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "lay_road",
@@ -222,7 +227,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"a": string(address), "b": string(address), "reason": string(reason)}),
                 &["a", "b", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "take_up_road",
@@ -231,7 +236,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"a": string(address), "b": string(address), "reason": string(reason)}),
                 &["a", "b", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "agree_road",
@@ -241,7 +246,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"mine": string(address), "theirs": string(address), "reason": string(reason)}),
                 &["mine", "theirs", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "found_hamlet",
@@ -254,7 +259,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 }),
                 &["hamlet", "scholar", "purpose"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "seat_mayor",
@@ -263,7 +268,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"hire": string(address), "reason": string(reason)}),
                 &["hire", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "remove_hamlet",
@@ -272,7 +277,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"hamlet": string("The hamlet's id."), "reason": string(reason)}),
                 &["hamlet", "reason"],
             ),
-            unsafe_.clone(),
+            safe.clone(),
         ),
         spec(
             "read_record",
@@ -384,15 +389,18 @@ impl Core {
                     here.as_ref(),
                     chief,
                 )?;
-                self.attempt(Actor::Agent(agent), |cx, _| {
-                    city::make(cx, &name, owner, &character, None)
+                self.carry(call, |cx, _| {
+                    Ok(city::make(
+                        cx, &name, owner, &character, None,
+                    )?
+                    .map(|_| {
+                        format!(
+                            "The scholar {name} is made; hire it \
+                             next."
+                        )
+                    }))
                 })
                 .await?
-                .map(|_| {
-                    format!(
-                        "The scholar {name} is made; hire it next."
-                    )
-                })
             }
             "hire" => self.hire_tool(call, here.as_ref()).await?,
             "end_hire" => {
@@ -404,11 +412,11 @@ impl Core {
                         }
                     };
                 let name = self.name(hire)?;
-                self.attempt(Actor::Agent(agent), |cx, _| {
-                    hires::end(cx, hire, EndHow::Ended, &reason)
+                self.carry(call, |cx, _| {
+                    Ok(hires::end(cx, hire, EndHow::Ended, &reason)?
+                        .map(|()| format!("Ended {name}.")))
                 })
                 .await?
-                .map(|()| format!("Ended {name}."))
             }
             "set_model" => {
                 let hire =
@@ -421,23 +429,20 @@ impl Core {
                 let model = text(call, "model");
                 let model = (!model.is_empty()).then_some(model);
                 let name = self.name(hire)?;
-                self.attempt(Actor::Agent(agent), |cx, _| {
-                    hires::set_model(
+                let words = format!(
+                    "{name} runs {} now.",
+                    model.as_deref().unwrap_or("its hamlet's model")
+                );
+                self.carry(call, |cx, _| {
+                    Ok(hires::set_model(
                         cx,
                         hire,
                         model.as_deref(),
                         &reason,
-                    )
+                    )?
+                    .map(|()| words))
                 })
                 .await?
-                .map(|()| {
-                    format!(
-                        "{name} runs {} now.",
-                        model
-                            .as_deref()
-                            .unwrap_or("its hamlet's model")
-                    )
-                })
             }
             "set_tools" => {
                 let hire =
@@ -449,11 +454,15 @@ impl Core {
                     };
                 let (off, on) = (list(call, "off"), list(call, "on"));
                 let name = self.name(hire)?;
-                self.attempt(Actor::Agent(agent), |cx, _| {
-                    hires::set_tools(cx, hire, &off, &on, &reason)
+                self.carry(call, |cx, _| {
+                    Ok(hires::set_tools(
+                        cx, hire, &off, &on, &reason,
+                    )?
+                    .map(|()| {
+                        format!("Changed the tools of {name}.")
+                    }))
                 })
                 .await?
-                .map(|()| format!("Changed the tools of {name}."))
             }
             "set_allowance" => {
                 let hire =
@@ -469,11 +478,15 @@ impl Core {
                     .and_then(Value::as_f64)
                     .map(micros);
                 let name = self.name(hire)?;
-                self.attempt(Actor::Agent(agent), |cx, _| {
-                    hires::set_allowance(cx, hire, allowance, &reason)
+                self.carry(call, |cx, _| {
+                    Ok(hires::set_allowance(
+                        cx, hire, allowance, &reason,
+                    )?
+                    .map(|()| {
+                        format!("Set the allowance of {name}.")
+                    }))
                 })
                 .await?
-                .map(|()| format!("Set the allowance of {name}."))
             }
             "lay_road" | "take_up_road" => {
                 let a = match self.led(call, "a", here.as_ref())? {
@@ -491,26 +504,29 @@ impl Core {
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 let task = self.task_of(call)?;
                 if call.tool == "lay_road" {
-                    self.attempt(Actor::Agent(agent), |cx, _| {
-                        roads::lay(cx, a, b, &reason, task)
+                    self.carry(call, |cx, _| {
+                        Ok(roads::lay(cx, a, b, &reason, task)?.map(
+                            |_| {
+                                format!(
+                                    "Laid a road between {one} and \
+                                     {other}."
+                                )
+                            },
+                        ))
                     })
                     .await?
-                    .map(|_| {
-                        format!(
-                            "Laid a road between {one} and {other}."
-                        )
-                    })
                 } else {
-                    self.attempt(Actor::Agent(agent), |cx, _| {
-                        roads::take_up(cx, a, b, &reason)
+                    self.carry(call, |cx, _| {
+                        Ok(roads::take_up(cx, a, b, &reason)?.map(
+                            |()| {
+                                format!(
+                                    "Took up the road between {one} \
+                                     and {other}."
+                                )
+                            },
+                        ))
                     })
                     .await?
-                    .map(|()| {
-                        format!(
-                            "Took up the road between {one} and \
-                             {other}."
-                        )
-                    })
                 }
             }
             "merge_hires" => {
@@ -533,13 +549,13 @@ impl Core {
                     };
                 let (one, other) =
                     (self.name(absorbed)?, self.name(kept)?);
-                self.attempt(Actor::Agent(agent), |cx, _| {
-                    crate::society::merges::merge(
+                self.carry(call, |cx, _| {
+                    Ok(crate::society::merges::merge(
                         cx, kept, absorbed, &reason,
-                    )
+                    )?
+                    .map(|_| format!("Merged {one} into {other}.")))
                 })
                 .await?
-                .map(|_| format!("Merged {one} into {other}."))
             }
             "agree_road" => {
                 self.agree_road(call, here.as_ref()).await?
@@ -564,19 +580,20 @@ impl Core {
                         return Ok(Step::of(Err(refusal)));
                     }
                 };
-                self.attempt(Actor::Agent(agent), |cx, _| {
-                    hamlets::found(
+                let words = format!("Founded {id}.");
+                self.carry(call, |cx, _| {
+                    Ok(hamlets::found(
                         cx,
                         Founding {
-                            id: id.clone(),
+                            id,
                             chief,
                             mayor,
                             purpose,
                         },
-                    )
+                    )?
+                    .map(|_| words))
                 })
                 .await?
-                .map(|_| format!("Founded {id}."))
             }
             "seat_mayor" => {
                 let hire =
@@ -594,21 +611,25 @@ impl Core {
                     }
                 };
                 let name = self.name(hire)?;
-                self.attempt(Actor::Agent(agent), |cx, _| {
-                    hires::seat(cx, &hamlet, hire, &reason)
+                self.carry(call, |cx, _| {
+                    Ok(hires::seat(cx, &hamlet, hire, &reason)?.map(
+                        |()| {
+                            format!(
+                                "{name} is the mayor of {hamlet} \
+                                 now."
+                            )
+                        },
+                    ))
                 })
                 .await?
-                .map(|()| {
-                    format!("{name} is the mayor of {hamlet} now.")
-                })
             }
             "remove_hamlet" => {
                 let id = HamletId(text(call, "hamlet"));
-                self.attempt(Actor::Agent(agent), |cx, _| {
-                    hamlets::remove(cx, &id, &reason)
+                self.carry(call, |cx, _| {
+                    Ok(hamlets::remove(cx, &id, &reason)?
+                        .map(|()| format!("Removed {id}.")))
                 })
                 .await?
-                .map(|()| format!("Removed {id}."))
             }
             "read_record" => {
                 let id = HamletId(text(call, "hamlet"));
@@ -625,6 +646,52 @@ impl Core {
             }),
         };
         Ok(Step::of(result))
+    }
+
+    /// Makes the change of `call` by its agent, and keeps the call's
+    /// answer in the same transaction: a call cut off by a crash
+    /// after its change is answered the same when it is asked again,
+    /// and never changes anything twice.
+    async fn carry(
+        &mut self,
+        call: &Call<'_>,
+        make: impl FnOnce(&mut Change<'_>, &Env) -> Done<String>,
+    ) -> Result<Result<String, Refusal>> {
+        let identity = call.call.identity();
+        let request = &call.request;
+        self.attempt(
+            Actor::Agent(call.conversation.agent),
+            |cx, env| {
+                let made = make(cx, env)?;
+                if let Ok(words) = &made
+                    && !crate::fault::is_marker_split()
+                {
+                    hamlet_store::marker::settle(
+                        cx.db,
+                        identity,
+                        request,
+                        &said(words.clone(), false),
+                        cx.at,
+                    )?;
+                }
+                Ok(made)
+            },
+        )
+        .await
+    }
+
+    /// Marks `call` begun before an effect outside the store, which
+    /// no transaction keeps with its answer: cut off by a crash, it
+    /// is answered as interrupted when it is asked again, never run
+    /// twice.
+    fn begin(&mut self, call: &Call<'_>) -> Result<()> {
+        let db = self.realm.store().connection();
+        hamlet_store::marker::begin(
+            db,
+            call.call.identity(),
+            &call.request,
+            crate::clock::now(),
+        )
     }
 
     /// The hamlet `agent` speaks in: a hire's own.
@@ -791,27 +858,25 @@ impl Core {
             overseer,
         )?;
         let purpose = text(call, "purpose");
-        let done = self
-            .attempt(Actor::Agent(agent), |cx, _| {
-                hires::hire(
-                    cx,
-                    Spec {
-                        hamlet: hamlet.clone(),
-                        parent: Some(parent),
-                        hiring,
-                        purpose,
-                        reason: String::new(),
-                        owner,
-                    },
-                )
-            })
-            .await?;
-        Ok(match done {
-            Ok(hired) => {
-                Ok(format!("Hired {}.", self.name(hired.agent)?))
-            }
-            Err(refusal) => Err(refusal),
+        self.carry(call, |cx, _| {
+            let hired = match hires::hire(
+                cx,
+                Spec {
+                    hamlet,
+                    parent: Some(parent),
+                    hiring,
+                    purpose,
+                    reason: String::new(),
+                    owner,
+                },
+            )? {
+                Ok(hired) => hired,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            let name = addresses::name_of(cx.db, hired.agent)?;
+            Ok(Ok(format!("Hired {name}.")))
         })
+        .await
     }
 
     async fn agree_road(
@@ -835,20 +900,20 @@ impl Core {
         let reason = text(call, "reason");
         let task = self.task_of(call)?;
         let (one, other) = (self.name(mine)?, self.name(theirs)?);
-        let done = self
-            .attempt(Actor::Agent(agent), |cx, _| {
-                roads::agree(cx, agent, mine, theirs, &reason, task)
-            })
-            .await?;
-        Ok(done.map(|agreed| match agreed {
-            roads::Agreed::Laid(_) => {
-                format!("The road between {one} and {other} is open.")
-            }
-            roads::Agreed::Waiting => format!(
-                "You agree a road between {one} and {other}; it \
-                 opens once the other mayor agrees."
-            ),
-        }))
+        self.carry(call, |cx, _| {
+            Ok(roads::agree(cx, agent, mine, theirs, &reason, task)?
+                .map(|agreed| match agreed {
+                    roads::Agreed::Laid(_) => format!(
+                        "The road between {one} and {other} is open."
+                    ),
+                    roads::Agreed::Waiting => format!(
+                        "You agree a road between {one} and \
+                         {other}; it opens once the other mayor \
+                         agrees."
+                    ),
+                }))
+        })
+        .await
     }
 }
 
