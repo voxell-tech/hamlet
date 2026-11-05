@@ -533,7 +533,7 @@ fn a_town_follows_where_the_record_sets_it_down() {
 fn a_received_realm_houses_the_founder_in_its_hall() {
     let mut app = bare();
     for line in
-        include_str!("../../../hamlet_protocol/frames/hello.jsonl")
+        include_str!("../../../hamlet_protocol/frames/society.jsonl")
             .lines()
     {
         let frame =
@@ -547,10 +547,18 @@ fn a_received_realm_houses_the_founder_in_its_hall() {
         }
     }
     app.update();
-    let founder = agent(&mut app, 0);
-    let society = app.world().resource::<Society>();
+    let world = app.world_mut();
+    let ada = world
+        .query::<(Entity, &AgentNumber)>()
+        .iter(world)
+        .find(|(_, number)| number.0 == 0)
+        .map(|(entity, _)| entity)
+        .unwrap();
+    let housed = world.get::<Housed>(ada).unwrap().0;
+    let society = world.resource::<Society>();
+    let founder = society.agent(housed).unwrap();
     assert_eq!(society.towns.len(), 1);
-    assert_eq!(society.agents.len(), 1);
+    assert_eq!(society.agents.len(), 3);
     assert_eq!(society.towns[0].mayor, founder.id);
     assert_eq!(founder.plot, 0);
     assert_eq!(founder.state, KeeperState::Rest);

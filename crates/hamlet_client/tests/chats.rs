@@ -12,13 +12,19 @@ fn app() -> App {
     app
 }
 
-fn reference() -> protocol::ChatRef {
+/// The current chat with the agent `agent`.
+fn chat_with(agent: u64) -> protocol::ChatRef {
     protocol::ChatRef {
         kind: None,
         from: None,
-        with: protocol::AgentId(2),
+        with: protocol::AgentId(agent),
         past: None,
     }
+}
+
+/// The current chat with the Hand, which the recordings are of.
+fn reference() -> protocol::ChatRef {
+    chat_with(1)
 }
 
 fn requests(app: &mut App) -> Vec<protocol::ClientMessage> {
@@ -147,7 +153,7 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     let said = world.get::<Transcript>(chat).unwrap();
     assert_eq!(said.items().len(), 4);
     assert!(
-        matches!(&said.items()[0].entry, Entry::Chief { name, text } if name == "chief" && text == "Hello, mayor.")
+        matches!(&said.items()[0].entry, Entry::Chief { name, text } if name == "nixon" && text == "Hello, Hand.")
     );
     assert!(
         matches!(&said.items()[1].entry, Entry::Reasoning(text) if text == "I will greet the chief.")
@@ -156,17 +162,14 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
         matches!(&said.items()[2].entry, Entry::Tool { name, exit: Some(0), ms: Some(_), .. } if name == "bash")
     );
     assert!(
-        matches!(&said.items()[3].entry, Entry::Assistant(text) if text == "Hello chief. The mayor is here and ready to work with you. ".repeat(6).trim_end())
+        matches!(&said.items()[3].entry, Entry::Assistant(text) if text == "Hello chief. The Hand is here and ready to work with you. ".repeat(6).trim_end())
     );
     assert!(!said.is_answering());
     assert!(!world.get::<Status>(chat).unwrap().is_working());
     let protocol::ServerMessage::Transcript(page) = &read_back else {
         panic!("the recording ends with a read-back transcript");
     };
-    assert_eq!(
-        world.get::<Usage>(chat).unwrap().summary(),
-        page.usage.summary
-    );
+    let summary = page.usage.summary.clone();
     assert_eq!(world.resource::<Observed>().output, expected_ops);
     assert_eq!(world.resource::<Observed>().finished, vec![chat]);
     let live = said.items().to_vec();
@@ -174,6 +177,12 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     assert_eq!(
         app.world().get::<Transcript>(chat).unwrap().items(),
         live
+    );
+    // The server sends no live `usage` operation, so the totals come
+    // with the read-back.
+    assert_eq!(
+        app.world().get::<Usage>(chat).unwrap().summary(),
+        summary
     );
     assert_eq!(
         app.world().resource::<Observed>().finished,
@@ -213,7 +222,7 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
         .unwrap()
         .items()
         .to_vec();
-    assert_eq!(later.len(), 40);
+    assert_eq!(later.len(), 100);
     assert!(pages[0].earlier.is_some());
     assert_eq!(
         app.world().get::<Transcript>(chat).unwrap().earlier(),
@@ -234,8 +243,8 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
         protocol::ServerMessage::Transcript(page),
     );
     let said = app.world().get::<Transcript>(chat).unwrap();
-    assert_eq!(said.items().len(), 46);
-    assert_eq!(&said.items()[6..], &later);
+    assert_eq!(said.items().len(), 120);
+    assert_eq!(&said.items()[20..], &later);
     assert!(
         matches!(&said.items()[0].entry, Entry::Chief { text, .. } if text == "Line 1.")
     );
@@ -250,7 +259,7 @@ fn chats_follow_their_agent_as_it_leaves_and_comes_back() {
     use hamlet_client::realm::mayor_of;
     use hamlet_testing::realm::state;
     let mut app = app();
-    let chat = app.world_mut().spawn(Chat(reference())).id();
+    let chat = app.world_mut().spawn(Chat(chat_with(2))).id();
     app.update();
     assert!(app.world().get::<TalksTo>(chat).is_none());
     let mut realm = state();
@@ -377,12 +386,13 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
 
 #[test]
 fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
-    for (recording, summary, code, failure) in [
+    for (recording, summary, code, failure, agent) in [
         (
             include_str!("../../hamlet_protocol/frames/tool.jsonl"),
             "exit 7",
             7,
             Some("broken"),
+            1,
         ),
         (
             include_str!(
@@ -391,6 +401,7 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             "reviewed",
             0,
             None,
+            2,
         ),
     ] {
         let recorded = frames(recording);
@@ -434,7 +445,7 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             })
             .expect("the recorded tool close carries its duration");
         let mut app = app();
-        let chat = app.world_mut().spawn(Chat(reference())).id();
+        let chat = app.world_mut().spawn(Chat(chat_with(agent))).id();
         for message in recorded {
             receive(app.world_mut(), message);
         }
@@ -459,7 +470,11 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
         assert_eq!(why.as_deref(), failure);
         if code == 0 {
             let change = change.as_ref().unwrap();
-            assert_eq!(change.path, "result.txt");
+            assert!(
+                change.path.ends_with("/work/result.txt"),
+                "{}",
+                change.path
+            );
             assert_eq!(change.count, "1 line added, 1 removed");
             assert_eq!(
                 change
@@ -552,7 +567,7 @@ fn new_and_resumed_conversations_keep_their_received_number() {
     }
     assert_eq!(numbers, [1, 2, 1]);
     let said = app.world().get::<Transcript>(chat).unwrap();
-    assert_eq!(said.items().len(), 3);
+    assert_eq!(said.items().len(), 5);
     assert!(
         matches!(&said.items()[0].entry, Entry::Chief { text, .. } if text == "Remember our first conversation.")
     );
@@ -862,7 +877,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
             protocol::ServerMessage::Transcript(fresh),
         );
         let said = app.world().get::<Transcript>(chat).unwrap();
-        assert_eq!(said.items().len(), 8);
+        assert_eq!(said.items().len(), 22);
         assert_eq!(said.items().last().unwrap().id, "latest:0");
     }
 }

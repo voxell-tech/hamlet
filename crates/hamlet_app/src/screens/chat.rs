@@ -876,29 +876,45 @@ mod tests {
     }
 
     fn paging_pages() -> Vec<protocol::Transcript> {
-        include_str!("../../../hamlet_protocol/frames/paging.jsonl")
-            .lines()
-            .filter_map(|line| {
-                let frame =
-                    serde_json::from_str::<serde_json::Value>(line)
-                        .unwrap();
-                (frame["from"] == "server")
-                    .then(|| {
-                        serde_json::from_value::<
-                            protocol::ServerMessage,
-                        >(
-                            frame["message"].clone()
-                        )
-                        .unwrap()
-                    })
-                    .and_then(|message| match message {
-                        protocol::ServerMessage::Transcript(page) => {
-                            Some(page)
-                        }
-                        _ => None,
-                    })
-            })
-            .collect::<Vec<_>>()
+        let mut pages = include_str!(
+            "../../../hamlet_protocol/frames/paging.jsonl"
+        )
+        .lines()
+        .filter_map(|line| {
+            let frame =
+                serde_json::from_str::<serde_json::Value>(line)
+                    .unwrap();
+            (frame["from"] == "server")
+                .then(|| {
+                    serde_json::from_value::<protocol::ServerMessage>(
+                        frame["message"].clone(),
+                    )
+                    .unwrap()
+                })
+                .and_then(|message| match message {
+                    protocol::ServerMessage::Transcript(page) => {
+                        Some(page)
+                    }
+                    _ => None,
+                })
+        })
+        .collect::<Vec<_>>();
+        // The recorded latest page holds 100 items; the window under
+        // test is built for a page of 40, with six older items before
+        // it.
+        let latest = &mut pages[0];
+        let keep = latest.items.len() - 40;
+        latest.items.drain(..keep);
+        latest.earlier = Some(latest.items[0].id.clone());
+        pages[1].items.truncate(6);
+        // The fixture state names its chief "chief".
+        for item in pages.iter_mut().flat_map(|page| &mut page.items)
+        {
+            if item.chief.is_some() {
+                item.chief = Some("chief".into());
+            }
+        }
+        pages
     }
 
     #[test]
@@ -906,7 +922,7 @@ mod tests {
      {
         use hamlet_client::outbox::Outbox;
         let mut app = crate::testing::panel_app();
-        crate::testing::seat_ada(&mut app);
+        crate::testing::seat_hand(&mut app);
         app.add_plugins(plugin);
         app.update();
         let pages = paging_pages();
@@ -971,7 +987,7 @@ mod tests {
 
         use crate::testing::{panel_app, words};
         let mut app = panel_app();
-        crate::testing::seat_ada(&mut app);
+        crate::testing::seat_hand(&mut app);
         app.add_plugins(plugin);
         // A window wide enough that one turn reaches the first row.
         app.insert_resource(Reach {
