@@ -58,3 +58,7 @@ required-features = ["acceptance"]
 [[test]]
 name = "sandbox"
 required-features = ["acceptance"]
+
+[[test]]
+name = "restart"
+required-features = ["acceptance"]
