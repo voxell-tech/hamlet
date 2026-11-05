@@ -24,6 +24,19 @@ pub struct HandId(pub protocol::AgentId);
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub struct RealmBylaws(pub protocol::RealmLimits);
 
+impl Default for RealmBylaws {
+    fn default() -> Self {
+        Self(protocol::RealmLimits {
+            budget: protocol::LimitsBudget {
+                cost: None,
+                minutes: None,
+                period: protocol::Period::Day,
+            },
+            roads_between: true,
+        })
+    }
+}
+
 /// The received mode for edits and commands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {

@@ -23,7 +23,12 @@ use crate::client::{self, Client, ServerAddress};
 pub enum Command {
     Edit {
         doc: String,
-        hamlet: String,
+        /// The hamlet whose limits to edit; the realm's when absent.
+        hamlet: Option<String>,
+        /// The scholar or agent whose character or memory to edit.
+        whom: Option<String>,
+        /// The memory file, under `memory/`.
+        path: Option<String>,
     },
     Login {
         provider: String,
@@ -49,8 +54,21 @@ pub async fn run(
         Command::Models { action, model } => {
             models(&mut client, &action, model).await
         }
-        Command::Edit { doc, hamlet } => {
-            edit(&mut client, &state, &doc, &hamlet).await
+        Command::Edit {
+            doc,
+            hamlet,
+            whom,
+            path,
+        } => {
+            edit(
+                &mut client,
+                &state,
+                &doc,
+                hamlet.as_deref(),
+                whom.as_deref(),
+                path.as_deref(),
+            )
+            .await
         }
     };
     let _ = client.close().await;
@@ -126,30 +144,74 @@ async fn models(
     Ok(())
 }
 
+/// The scholar or agent `whom` names, for its character or memory.
+fn keeper(state: &State, whom: &str) -> Result<Keeper> {
+    if let Some(scholar) = state
+        .scholars
+        .iter()
+        .find(|s| s.name == whom && s.left.is_none())
+    {
+        return Ok(Keeper::Scholar(scholar.id));
+    }
+    Ok(Keeper::Agent(crate::chat::resolve(state, whom)?))
+}
+
+/// The scholar whose character `whom` names: a scholar, or the
+/// scholar a hire works as.
+fn scholar(state: &State, whom: &str) -> Result<ScholarId> {
+    match keeper(state, whom)? {
+        Keeper::Scholar(id) => Ok(id),
+        Keeper::Agent(id) => state
+            .agents
+            .iter()
+            .find(|a| a.id == id)
+            .and_then(|a| a.scholar)
+            .with_context(|| format!("`{whom}` works as no scholar")),
+    }
+}
+
 async fn edit(
     client: &mut Client,
     state: &State,
     doc: &str,
-    hamlet: &str,
+    hamlet: Option<&str>,
+    whom: Option<&str>,
+    path: Option<&str>,
 ) -> Result<()> {
-    let agent = Address {
-        hamlet: hamlet.into(),
-        agent: hamlet_protocol::MAYOR.into(),
+    let whom = || {
+        whom.with_context(|| {
+            format!("edit {doc} needs a scholar or agent name")
+        })
+    };
+    let path = path.unwrap_or("notes.md");
+    let (of, scholar) = match doc {
+        "character" => {
+            let scholar = scholar(state, whom()?)?;
+            (Keeper::Scholar(scholar), Some(scholar))
+        }
+        "memory" => (keeper(state, whom()?)?, None),
+        _ => (Keeper::Agent(state.hand), None),
     };
     let text = match doc {
-        "limits" => {
-            let hamlet = state
-                .hamlets
-                .iter()
-                .find(|h| h.id == hamlet)
-                .with_context(|| {
-                    format!("no hamlet named `{hamlet}`")
-                })?;
-            format!(
+        "limits" => match hamlet {
+            Some(hamlet) => {
+                let hamlet = state
+                    .hamlets
+                    .iter()
+                    .find(|h| h.id == hamlet)
+                    .with_context(|| {
+                        format!("no hamlet named `{hamlet}`")
+                    })?;
+                format!(
+                    "{}\n",
+                    serde_json::to_string_pretty(&hamlet.limits)?
+                )
+            }
+            None => format!(
                 "{}\n",
-                serde_json::to_string_pretty(&hamlet.limits)?
-            )
-        }
+                serde_json::to_string_pretty(&state.limits)?
+            ),
+        },
         "settings" => {
             let settings = &state.settings;
             let endpoints = settings
@@ -179,7 +241,7 @@ async fn edit(
             } else {
                 Read::Papers {
                     id: id.clone(),
-                    agent: agent.clone(),
+                    of,
                     full: Some(true),
                 }
             };
@@ -196,8 +258,13 @@ async fn edit(
                     papers,
                     ..
                 }) => {
-                    if doc == "notes" {
-                        papers.notes
+                    if doc == "memory" {
+                        papers
+                            .memory
+                            .into_iter()
+                            .find(|file| file.path == path)
+                            .map(|file| file.text)
+                            .unwrap_or_default()
                     } else {
                         papers.character
                     }
@@ -208,29 +275,30 @@ async fn edit(
     };
     let text = in_editor(doc, &text).await?;
     let id = RequestId::new();
-    let message = match doc {
-        "charter" => Edit::Charter {
+    let message = match (doc, scholar) {
+        ("charter", _) => Edit::Charter {
             id: id.clone(),
             text: Some(text),
         },
-        "character" => Edit::Character {
+        ("character", Some(scholar)) => Edit::Character {
             id: id.clone(),
-            agent,
+            scholar,
             text,
         },
-        "notes" => Edit::Notes {
+        ("memory", _) => Edit::Memory {
             id: id.clone(),
-            agent,
+            of,
+            path: path.into(),
             text,
         },
-        "limits" => Edit::Limits(EditLimits::Whole {
+        ("limits", _) => Edit::Limits(EditLimits::Whole {
             id: id.clone(),
-            hamlet: hamlet.into(),
+            hamlet: hamlet.map(str::to_owned),
             whole: serde_json::from_str(&text)
                 .context("Invalid limits JSON; nothing was saved")?,
             reason: None,
         }),
-        "settings" => Edit::Settings {
+        ("settings", _) => Edit::Settings {
             id: id.clone(),
             set: serde_json::from_str::<EditSettingsSet>(&text)
                 .context(

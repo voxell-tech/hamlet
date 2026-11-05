@@ -33,6 +33,7 @@ impl Plugin for ClientPlugin {
             app.insert_resource(Server(server.clone()));
         }
         app.init_resource::<realm::Chief>()
+            .init_resource::<realm::RealmBylaws>()
             .init_resource::<realm::Confinement>()
             .init_resource::<realm::Settings>()
             .init_resource::<realm::Providers>()
