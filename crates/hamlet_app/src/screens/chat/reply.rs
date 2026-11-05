@@ -312,8 +312,8 @@ mod tests {
         let sent = replied(&answers, "Paper.\n\n> quoted\nThanks.");
         assert_eq!(
             sent,
-            "(Replying to Ada: \"Paper or \\\"ebook\\\"?\\n\\n> Both \
-             ship: soon.)\")\n\nPaper.\n\n> quoted\nThanks."
+            "(Replying to Ada: \"Paper or \\\"ebook\\\"?\\n\\n> \
+             Both ship: soon.)\")\n\nPaper.\n\n> quoted\nThanks."
         );
         assert_eq!(
             unreplied(&sent),

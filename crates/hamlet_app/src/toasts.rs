@@ -1,6 +1,8 @@
 //! Toasts: what newly waits for the chief, and what happened that
 //! needs no answer, stacked over the realm view.
 
+use std::collections::HashMap;
+
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -20,18 +22,23 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource};
 use hamlet_client::messages::{Answer, ServerFault};
-use hamlet_client::realm::{Departure, Faulted, Kind, Left, Seen};
+use hamlet_client::realm::{
+    Departure, Faulted, Kind, Left, Scholar, Seen, Settings,
+};
 use hamlet_client::waits::{RaisedBy, Waiting};
-use hamlet_protocol::client::{AgentKind, LeftHow, WaitDetail};
+use hamlet_protocol::client::{
+    AgentKind, Arrival, LeftHow, Newcomers, ScholarId, WaitDetail,
+};
 use hamlet_ui::styles::{
-    buttons, caption, card_button, close_button,
+    action, buttons, caption, card_button, close_button,
 };
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View};
 
-use crate::PanelSystems;
 use crate::dock::{PETITIONS, show_tab};
 use crate::screens::petition::{Need, button};
+use crate::{PanelSystems, chat};
 
 /// The most toasts on show at once.
 const MOST: usize = 3;
@@ -45,13 +52,13 @@ const FADES: f32 = 1.2;
 /// The width of the stack, in logical pixels.
 const WIDTH: f32 = 340.0;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Toasts>()
         .add_observer(answered)
         .add_observer(failed)
         .add_systems(
             PreUpdate,
-            (raise, keep).chain().in_set(PanelSystems::Bind),
+            (raise, judged, keep).chain().in_set(PanelSystems::Bind),
         );
 }
 
@@ -82,6 +89,9 @@ enum What {
         head: String,
         line: String,
     },
+    /// The Hand let a scholar in or turned it away, which a chief
+    /// can undo.
+    Verdict { scholar: String, housed: bool },
 }
 
 /// The node of a toast, whose hover keeps it.
@@ -159,6 +169,54 @@ fn raise(
     }
 }
 
+/// Raises a toast when the Hand lets a scholar in or turns it away.
+/// A scholar that went from waiting to housed or turned while the
+/// Hand holds the door was decided by the Hand. What was there at
+/// the first state is not new.
+fn judged(
+    time: Res<Time>,
+    seen: Option<Res<Seen>>,
+    settings: Res<Settings>,
+    scholars: Query<&Scholar>,
+    mut toasts: ResMut<Toasts>,
+    mut before: Local<HashMap<ScholarId, Arrival>>,
+    mut primed: Local<bool>,
+) {
+    if seen.is_none() {
+        return;
+    }
+    let now = time.elapsed_secs();
+    let by_hand = settings.0.newcomers == Newcomers::Hand;
+    for scholar in &scholars {
+        let scholar = &scholar.0;
+        let was = before.insert(scholar.id, scholar.arrival);
+        if !*primed || !by_hand || was != Some(Arrival::Waiting) {
+            continue;
+        }
+        let housed = match scholar.arrival {
+            Arrival::Housed => true,
+            Arrival::Turned => false,
+            Arrival::Waiting => continue,
+        };
+        toasts.push(
+            What::Verdict {
+                scholar: scholar.name.clone(),
+                housed,
+            },
+            now,
+        );
+    }
+    *primed = true;
+}
+
+/// The command that takes back the Hand's verdict on `scholar`.
+fn undo_of(scholar: &str, housed: bool) -> String {
+    match housed {
+        true => format!("/turn-away {scholar}"),
+        false => format!("/welcome {scholar}"),
+    }
+}
+
 /// A failure the server could not address to a request.
 fn failed(
     fault: On<ServerFault>,
@@ -209,7 +267,7 @@ fn keep(
         toast.opacity > 0.0
             && match &toast.what {
                 What::Petition(wait) => waiting.contains(*wait),
-                What::Notice { .. } => true,
+                What::Notice { .. } | What::Verdict { .. } => true,
             }
     });
     if next != toasts.shown {
@@ -282,6 +340,33 @@ fn card(toast: &Toast) -> AnyView {
                 line.clone(),
                 column(()).boxed(),
             ),
+            What::Verdict { scholar, housed } => {
+                let undo = undo_of(scholar, *housed);
+                let (head, line) = if *housed {
+                    (
+                        "THE HAND LET A SCHOLAR IN",
+                        format!("{scholar} has a house in the city."),
+                    )
+                } else {
+                    (
+                        "THE HAND TURNED A SCHOLAR AWAY",
+                        format!("{scholar} waits at the harbor."),
+                    )
+                };
+                (
+                    head.into(),
+                    Tone::Accent,
+                    line,
+                    buttons(vec![action(
+                        Glyph::Restore,
+                        "UNDO",
+                        move |world| {
+                            chat::command(world, undo.clone());
+                        },
+                    )])
+                    .boxed(),
+                )
+            }
         };
         let opens = matches!(what, What::Petition(_));
         let own = what.clone();
@@ -402,6 +487,50 @@ mod tests {
             });
         assert!(allowed);
         assert!(app.world().resource::<Toasts>().shown.is_empty());
+    }
+
+    #[test]
+    fn the_hands_verdict_toasts_with_a_way_to_undo_it() {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.settings.newcomers = Newcomers::Hand;
+        let mut moss = hamlet_testing::realm::scholar(3, "moss", &[]);
+        moss.arrival = Arrival::Waiting;
+        moss.house = None;
+        state.scholars.push(moss);
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state.clone()),
+        );
+        app.update();
+        state.revision += 1;
+        let moss = state.scholars.last_mut().unwrap();
+        moss.arrival = Arrival::Housed;
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
+        app.update();
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+            app.world_mut(),
+            stack(),
+        );
+        app.update();
+        let shown = words(&mut app);
+        assert!(
+            shown
+                .iter()
+                .any(|text| text == "THE HAND LET A SCHOLAR IN"),
+            "{shown:?}"
+        );
+        press(&mut app, "UNDO");
+        let undone =
+            app.world().resource::<Outbox>().iter().any(|message| {
+                matches!(message, protocol::ClientMessage::Say(say)
+                    if say.text == "/turn-away moss")
+            });
+        assert!(undone);
     }
 
     #[test]

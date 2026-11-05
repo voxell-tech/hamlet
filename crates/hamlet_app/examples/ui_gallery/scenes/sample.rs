@@ -5,7 +5,7 @@ mod history;
 mod hub;
 mod menu;
 mod needs;
-mod overview;
+pub(super) mod overview;
 mod settings;
 mod welcome;
 

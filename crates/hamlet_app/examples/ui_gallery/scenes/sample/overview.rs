@@ -1,5 +1,7 @@
 //! The overview and hamlet gallery scenes.
 
+use bevy::ecs::resource::Resource;
+use bevy::ecs::system::{Commands, ResMut};
 use bevy::ecs::world::World;
 use hamlet_client::realm::HamletId;
 use hamlet_protocol::client as protocol;
@@ -113,6 +115,27 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     burr.arrival = protocol::Arrival::Turned;
     burr.house = None;
     state.scholars.extend([moss, burr]);
+    if scene == Scene::Toasts {
+        // The Hand holds the door. Once the realm is on show it
+        // lets moss in and a hire raises a petition.
+        state.settings.newcomers = protocol::Newcomers::Hand;
+        let mut next = state.clone();
+        next.revision += 1;
+        for scholar in &mut next.scholars {
+            if scholar.name == "moss" {
+                scholar.arrival = protocol::Arrival::Housed;
+                scholar.house = Some(protocol::HouseAt {
+                    turn: 0.0,
+                    x: 40.0,
+                    z: 12.0,
+                });
+            }
+        }
+        let mut wait = hamlet_testing::realm::wait("toast");
+        wait.since = 1000;
+        next.waits.push(wait);
+        world.insert_resource(Later(next, 0));
+    }
     if let Some(ada) =
         state.scholars.iter_mut().find(|s| s.name == "ada")
     {
@@ -155,6 +178,34 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     if scene == Scene::Bylaws {
         world.insert_resource(hamlet_app::overview::Page::Bylaws);
+    }
+}
+
+/// A state to receive a few frames after the first, and the frames
+/// counted so far.
+#[derive(Resource)]
+pub(in crate::scenes) struct Later(protocol::State, u32);
+
+/// Frames to wait before the later state comes in.
+const AFTER: u32 = 10;
+
+/// Receives the later state once the first has been on show.
+pub(in crate::scenes) fn later(
+    mut commands: Commands,
+    mut state: Option<ResMut<Later>>,
+) {
+    let Some(state) = state.as_mut() else {
+        return;
+    };
+    state.1 += 1;
+    if state.1 == AFTER {
+        let next = state.0.clone();
+        commands.queue(move |world: &mut World| {
+            hamlet_client::receive(
+                world,
+                protocol::ServerMessage::State(next),
+            );
+        });
     }
 }
 

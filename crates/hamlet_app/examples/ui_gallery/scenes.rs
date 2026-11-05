@@ -77,6 +77,7 @@ impl Plugin for GalleryPlugin {
             .add_systems(
                 Update,
                 (
+                    sample::overview::later,
                     hold,
                     hold_message.run_if(|scene: Res<Scene>| {
                         *scene == Scene::Rewind
@@ -85,6 +86,7 @@ impl Plugin for GalleryPlugin {
             )
             .add_plugins((
                 hamlet_app::desk::plugin,
+                hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_app::screens::plugin,

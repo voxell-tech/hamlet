@@ -35,7 +35,7 @@ fn world_stand() -> Ui {
             });
         cx.build(
             column((
-                column(())
+                column((hamlet_app::toasts::stack(),))
                     .grow(1.0)
                     .min_height(px(0.0))
                     .width(percent(100.0))
