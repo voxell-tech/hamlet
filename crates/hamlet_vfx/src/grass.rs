@@ -107,10 +107,10 @@ pub struct GrassSettings {
     /// How far from the eye each detail reaches, the finest first,
     /// where the eye stands low.
     pub rings: [f32; 3],
-    /// The share of the last ring's reach, at its end, over which
-    /// the grass shortens to nothing, so the furthest blades, too
-    /// small to draw steadily, lie low. The narrower, the less of
-    /// the field is seen rising and sinking as the eye moves.
+    /// Metres at the end of the last ring over which the grass
+    /// shortens to nothing, so the furthest blades, too small to
+    /// draw steadily, lie low. The narrower, the less of the field
+    /// is seen rising and sinking as the eye moves.
     pub shorten: f32,
 }
 
@@ -232,7 +232,7 @@ impl GrassUniform {
                 set.spacing,
                 set.bare,
                 set.flowers,
-                set.shorten.clamp(0.01, 1.0),
+                set.shorten.max(0.01),
             ),
             size: Vec4::new(
                 set.across.0,

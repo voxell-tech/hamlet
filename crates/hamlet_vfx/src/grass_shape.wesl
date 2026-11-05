@@ -33,7 +33,7 @@ struct Grass {
     // the farthest does; then the same for each tuft's blades.
     thin: vec4<f32>,
     // xyz: the eye. w: how far from it the grass is gone, shortening
-    // over the last `shorten` of the way.
+    // over its last `shorten` metres.
     reach: vec4<f32>,
     // x: where the middle detail begins. y: where the farthest does. z:
     // how high the eye stands over the ground under it. w: the share of
@@ -241,7 +241,7 @@ fn tuft_at(s: Spot) -> Tuft {
             strength(wind, p, grass.sway.y),
             shine,
             about,
-            smooth_step(grass.reach.w, grass.reach.w * (1.0 - grass.grow.w), away) * kept_tuft,
+            smooth_step(grass.reach.w, grass.reach.w - grass.grow.w, away) * kept_tuft,
         ),
         vec4<f32>(s.normal, flowering),
         vec4<f32>(grass_colour(p, s.y, s.woods, s.heath), 0.0),

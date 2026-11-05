@@ -15,7 +15,7 @@ use super::land::Land;
 use super::sync::Drawn;
 use super::{Kit, relief};
 use crate::WorldCamera;
-use crate::sky::Quality;
+use crate::sky::{GrassRange, Quality};
 
 /// Texels across the mask, enough to reach past the grass's reach.
 const MASK: u32 = 1024;
@@ -98,12 +98,14 @@ fn follow(
     }
 }
 
-/// Tells the grass where the eye is and what it sees, and how far,
-/// how thick and how close together the quality lets it grow.
+/// Tells the grass where the eye is and what it sees, how far the
+/// chief or the quality lets it grow, and how thick and how close
+/// together the quality does.
 fn reach(
     grass: Option<ResMut<Grass>>,
     set: Res<GrassSettings>,
     quality: Res<Quality>,
+    range: Res<GrassRange>,
     land: Res<Land>,
     camera: Query<(&GlobalTransform, &Frustum), With<WorldCamera>>,
 ) {
@@ -115,12 +117,15 @@ fn reach(
     let share = quality.grass();
     let at = eye.translation();
     let low = (at.y - land.height(at.xz())).max(0.0);
+    // Every ring is scaled as the furthest is.
+    let furthest = set.rings[2].max(1.0);
+    let scale = range.metres(furthest, *quality) / furthest;
     // The details are measured from the eye itself, so seen from
     // higher up even the ground under it is drawn coarser.
     let reach = GrassReach {
         eye: at,
         low,
-        rings: set.rings.map(|r| r * share.reach),
+        rings: set.rings.map(|r| r * scale),
         kept: share.kept,
         spacing: if share.coarse {
             set.coarse_spacing
