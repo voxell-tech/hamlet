@@ -42,3 +42,7 @@ required-features = ["acceptance"]
 [[test]]
 name = "oversight"
 required-features = ["acceptance"]
+
+[[test]]
+name = "society"
+required-features = ["acceptance"]
