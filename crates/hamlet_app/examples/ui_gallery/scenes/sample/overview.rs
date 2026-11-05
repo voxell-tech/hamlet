@@ -28,6 +28,16 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         "restore-hamlet",
         "erase-hamlet",
         "found",
+        "tag",
+        "pin",
+        "revert",
+        "fork",
+        "purge",
+        "dream",
+        "remove-scholar",
+        "restore-scholar",
+        "welcome",
+        "turn-away",
     ]);
     state.closed = vec![protocol::ClosedHamlet {
         id: "press".into(),

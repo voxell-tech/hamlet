@@ -38,6 +38,7 @@ use crate::history::History;
 use crate::models::Shelf;
 use crate::overview::tell;
 use crate::roll::rolled;
+use crate::screens::chat::bubble::fresh;
 use crate::status::Bar;
 use crate::world_menu::{self};
 
@@ -335,6 +336,7 @@ fn header(agent: Entity) -> impl View {
                     path(agent),
                     state(agent),
                     frame().grow(1.0),
+                    fresh(),
                     sheet,
                     more,
                 ))

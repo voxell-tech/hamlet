@@ -6,7 +6,7 @@
 //! them (`rewind`). A message can `reply` to another, and `quote`
 //! lines as chat apps do.
 
-mod bubble;
+pub(crate) mod bubble;
 mod change;
 mod entry;
 mod field;

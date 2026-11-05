@@ -305,15 +305,15 @@ mod tests {
     #[test]
     fn a_reply_reads_back_as_it_was_written() {
         let answers = Answers::of(
-            "Mayor",
+            "Ada",
             "  Paper or \"ebook\"?\n\n> Both ship: soon.)  \n",
             100,
         );
         let sent = replied(&answers, "Paper.\n\n> quoted\nThanks.");
         assert_eq!(
             sent,
-            "(Replying to Mayor: \"Paper or \\\"ebook\\\"?\\n\\n> \
-             Both ship: soon.)\")\n\nPaper.\n\n> quoted\nThanks."
+            "(Replying to Ada: \"Paper or \\\"ebook\\\"?\\n\\n> Both \
+             ship: soon.)\")\n\nPaper.\n\n> quoted\nThanks."
         );
         assert_eq!(
             unreplied(&sent),

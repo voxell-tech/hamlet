@@ -18,6 +18,7 @@ use hamlet_ui::{AnyView, View, built, with_cx};
 
 use super::papers::Papers;
 use super::thread::dim;
+use super::{Showing, show};
 use crate::convo::Convo;
 use crate::world_menu::{self, Deed};
 use crate::{lists, overview};
@@ -41,7 +42,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
         // The path to it: every hamlet, then the one it lived in.
         let hamlet =
             cx.world.get::<LivesIn>(agent).map(|lives| lives.0);
-        let mut trail = vec!["HAMLETS".to_string()];
+        let mut trail = vec!["HOME".to_string()];
         if let Some(hamlet) = hamlet {
             trail.push(named(hamlet).to_uppercase());
         }
@@ -51,6 +52,9 @@ pub(super) fn ruin(agent: Entity) -> impl View {
             move |world, at| {
                 let place = hamlet.filter(|_| at == 1);
                 select(world, place.map(Thing::Common));
+                if place.is_none() {
+                    show(world, Showing::Home);
+                }
             },
         );
         let (section, gap) =
@@ -103,9 +107,12 @@ pub(super) fn library() -> impl View {
     with_cx(|cx| {
         column((
             breadcrumb(
-                vec!["HAMLETS".into()],
+                vec!["HOME".into()],
                 "THE LIBRARY",
-                |world, _| select(world, None),
+                |world, _| {
+                    select(world, None);
+                    show(world, Showing::Home);
+                },
             ),
             title("THE LIBRARY"),
             // On a line of their own, and on to another when the

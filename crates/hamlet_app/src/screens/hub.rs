@@ -7,6 +7,7 @@ mod gone;
 mod memory;
 mod papers;
 mod rail;
+mod scholar;
 mod thread;
 
 use bevy::app::{App, Update};
@@ -62,6 +63,7 @@ pub fn plugin(app: &mut App) {
     )
     .add_plugins(rail::plugin)
     .init_resource::<Showing>()
+    .init_resource::<scholar::Form>()
     .init_resource::<Sheet>()
     .init_resource::<Papers>()
     .init_resource::<Briefing>()
@@ -121,8 +123,9 @@ pub(crate) fn show(world: &mut World, showing: Showing) {
 fn page() -> impl View {
     keyed(resource::<Showing, _>(|showing| *showing), |showing| {
         match showing {
-            Showing::Home | Showing::Scholar(_) => {
-                overview::overview().boxed()
+            Showing::Home => overview::overview().boxed(),
+            Showing::Scholar(scholar) => {
+                scholar::page(*scholar).boxed()
             }
             Showing::Thread => thread::living().boxed(),
             Showing::Sessions => thread::sessions().boxed(),

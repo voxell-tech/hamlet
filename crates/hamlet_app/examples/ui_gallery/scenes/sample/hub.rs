@@ -14,8 +14,23 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         Scene::Notes | Scene::Character | Scene::Prompt
     ) {
         keep_notes(world);
+        // The thread with its details open beside it.
+        world.insert_resource(Showing::Thread);
+        world.insert_resource(hub::Sheet { open: true });
     }
-    if matches!(scene, Scene::Hub | Scene::Desk | Scene::Toasts) {
+    if matches!(
+        scene,
+        Scene::Hub
+            | Scene::Desk
+            | Scene::Toasts
+            | Scene::Chat
+            | Scene::Group
+            | Scene::Links
+            | Scene::Edits
+            | Scene::Pictures
+            | Scene::Rewind
+            | Scene::Quiet
+    ) {
         world.insert_resource(Showing::Thread);
     }
     if scene == Scene::Hub {
@@ -29,8 +44,6 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         .expect("the received scholar");
         world.insert_resource(Showing::Scholar(scholar));
         keep_notes(world);
-        world.insert_resource(Showing::Scholar(scholar));
-        world.insert_resource(hub::Sheet { open: false });
     }
     if scene == Scene::Prompt {
         let agent = world.resource::<Convo>().agent;
@@ -68,12 +81,13 @@ fn keep_notes(world: &mut World) {
     let id = world
         .resource::<Outbox>()
         .iter()
-        .find_map(|message| match message {
+        .filter_map(|message| match message {
             protocol::ClientMessage::Read(
                 protocol::Read::Papers { id, .. },
             ) => Some(id.clone()),
             _ => None,
         })
+        .last()
         .expect("the papers read");
     hamlet_client::receive(
         world,
@@ -91,7 +105,4 @@ fn keep_notes(world: &mut World) {
             },
         }),
     );
-    // The thread with its details open beside it.
-    world.insert_resource(Showing::Thread);
-    world.insert_resource(hub::Sheet { open: true });
 }
