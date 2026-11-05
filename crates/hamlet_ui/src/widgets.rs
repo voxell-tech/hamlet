@@ -6,6 +6,7 @@ pub mod effects;
 pub mod fade;
 pub mod icons;
 pub mod platform;
+pub mod range;
 pub mod switch;
 pub mod tabs;
 
