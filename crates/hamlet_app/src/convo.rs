@@ -257,6 +257,8 @@ impl Convo {
 
 #[cfg(test)]
 mod tests {
+    use bevy_fynix::dock::DockTree;
+
     use super::*;
     use crate::testing::{panel_app, press};
 
@@ -325,6 +327,40 @@ mod tests {
         assert_eq!(app.world().resource::<Convo>().session, first);
         talk_to(app.world_mut(), ada);
         assert_eq!(app.world().resource::<Convo>().session, chat);
+    }
+
+    #[test]
+    fn the_hand_button_seats_the_hand_and_brings_the_hub_forward() {
+        use crate::dock::{PETITIONS, designed};
+
+        let mut app = panel_app();
+        app.insert_resource(Showing::Home);
+        let ada = agents::named(app.world_mut(), "ada@home").unwrap();
+        seat(app.world_mut(), ada);
+        let mut tree = app.world_mut().resource_mut::<DockTree>();
+        designed(&mut tree);
+        let side = tree.find_leaf_with_window(HUB).unwrap();
+        let petitions = tree
+            .leaf(side)
+            .unwrap()
+            .tabs()
+            .find(|(window, _)| *window == PETITIONS)
+            .map(|(_, tab)| tab)
+            .unwrap();
+        tree.set_active(side, petitions);
+        talk_to_hand(app.world_mut());
+        let hand = agents::hand(app.world()).unwrap();
+        assert_eq!(app.world().resource::<Convo>().agent, hand);
+        assert_eq!(
+            *app.world().resource::<Showing>(),
+            Showing::Thread
+        );
+        let tree = app.world().resource::<DockTree>();
+        let front = tree.active(side).unwrap();
+        assert_eq!(
+            tree.leaf(side).unwrap().tab_index(front),
+            Some(0)
+        );
     }
 
     #[test]
