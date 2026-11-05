@@ -47,10 +47,10 @@ pub struct WindSettings {
     pub speed: f32,
     /// The share of its full strength the wind keeps between gusts.
     pub calm: f32,
-    /// The share of its strength the whole wind keeps at the depth
-    /// of a lull, and the seconds from one lull to the next: it
-    /// rises and falls everywhere at once, over the bands.
-    pub swell: (f32, f32),
+    /// The seconds from one lull of the whole wind to the next: it
+    /// rises and falls everywhere at once, over the bands, between
+    /// the least and the most of [`WindChoice`].
+    pub swell: f32,
     /// Length and width of a gust's ribbon, and its height over the
     /// ground at its lowest and highest.
     pub length: f32,
@@ -81,9 +81,11 @@ pub struct WindSettings {
 )]
 #[serde(deny_unknown_fields)]
 pub struct WindChoice {
-    /// How hard it blows at its weakest, in a lull between gusts,
-    /// and at its strongest, in a gust at the height of a swell, as
-    /// shares of the strength everything that sways is tuned to.
+    /// How hard the whole wind blows at the depth of a lull and at
+    /// the height of a swell, as shares of the strength everything
+    /// that sways is tuned to. It scales everything at once: the
+    /// gusts and calms rolling across the ground keep their full
+    /// range at any strength.
     pub least: f32,
     pub most: f32,
     /// From 0 to 1, how small its bands are: the more, the more
@@ -104,8 +106,9 @@ impl WindSettings {
             .to_radians()
     }
 
-    /// How hard the wind blows at `at` on the ground at `now`, from
-    /// `choice`'s least to its most. The same as `strength` in
+    /// How hard the wind blows at `at` on the ground at `now`: the
+    /// gust or calm passing there, times how hard the whole wind
+    /// blows as `choice` has it. The same as `strength` in
     /// `wind.wesl`.
     pub fn strength(
         &self,
@@ -144,10 +147,10 @@ impl WindSettings {
                 mean.cos(),
             ),
             swell: Vec4::new(
-                self.swell.0.clamp(0.0, 1.0),
-                TAU / self.swell.1.max(1.0),
+                TAU / self.swell.max(1.0),
                 choice.least,
                 choice.most.max(choice.least),
+                0.0,
             ),
         }
     }
@@ -167,22 +170,18 @@ impl WindUniform {
             * (now * self.scale.y);
         let band = 0.5 + 0.5 * fbm(at * self.scale.x - rolled);
         let gust = smoothstep(0.3, 0.75, band);
-        let raw = (self.flow.w + (1.0 - self.flow.w) * gust)
-            * self.swelling(now);
-        // From the weakest it may be to the strongest, laid between
-        // the least and the most it is let blow.
-        let weakest = self.flow.w * self.swell.x;
-        let share = (raw - weakest) / (1.0 - weakest).max(1e-3);
-        self.swell.z + (self.swell.w - self.swell.z) * share
+        (self.flow.w + (1.0 - self.flow.w) * gust) * self.overall(now)
     }
 
-    /// The share of its strength the whole wind has at `now`, from
-    /// the lull's to all of it. `swelling` in `wind.wesl`.
-    fn swelling(&self, now: f32) -> f32 {
-        let t = now * self.swell.y;
+    /// How hard the whole wind blows at `now`, from the least it is
+    /// let blow at the depth of a lull to the most at the height of
+    /// a swell. `overall` in `wind.wesl`.
+    fn overall(&self, now: f32) -> f32 {
+        let t = now * self.swell.x;
         let rise = 0.5 + 0.25 * (t.sin() + (t * 1.618 + 1.3).sin());
-        self.swell.x
-            + (1.0 - self.swell.x) * smoothstep(0.0, 1.0, rise)
+        self.swell.y
+            + (self.swell.z - self.swell.y)
+                * smoothstep(0.0, 1.0, rise)
     }
 }
 

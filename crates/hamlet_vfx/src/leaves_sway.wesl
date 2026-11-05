@@ -24,11 +24,14 @@ const STROKES: f32 = 512.0;
 // The height of a tree's crown on its mesh, which leans the most.
 const CROWN: f32 = 3.0;
 
+// The height on a tree's mesh up to which its trunk stands stiff.
+const STIFF: f32 = 1.0;
+
 // Where the point `local` of a tree's mesh is blown to, in the world.
-// The tree stands on its mesh's origin, and bends from there: not at
-// all at its foot, and the more the higher up. All of it leans down the
-// wind and rocks there, each tree at its own moment; its leaves shiver
-// on top of that, each at its own.
+// The tree stands on its mesh's origin. Its trunk stands stiff, and
+// from there up it bends the more the higher up. All of it leans down
+// the wind and rocks there, each tree at its own moment; its leaves
+// shiver on top of that, each at its own.
 fn swayed(
     leaves: Leaves,
     wind: Wind,
@@ -38,7 +41,7 @@ fn swayed(
     let foot = world_from_local[3].xyz;
     let size = length(world_from_local[1].xyz);
     let world = (world_from_local * vec4<f32>(local, 1.0)).xyz;
-    let rise = clamp(local.y / CROWN, 0.0, 1.0);
+    let rise = clamp((local.y - STIFF) / (CROWN - STIFF), 0.0, 1.0);
     return blown(leaves, wind, world, foot.xz, rise * rise * size, rise * size);
 }
 

@@ -14,9 +14,9 @@ struct Wind {
     // bands roll in a second, in breadths. zw: the way they roll, as world
     // x and z.
     scale: vec4<f32>,
-    // x: the share of its strength the whole wind keeps at the depth of a
-    // lull. y: how far its swelling turns in a second, in radians. z and
-    // w: the least and the most it blows, `WindChoice` in `wind.rs`.
+    // x: how far the whole wind's swelling turns in a second, in radians.
+    // y and z: how hard the whole wind blows at the depth of a lull and
+    // at the height of a swell, `WindChoice` in `wind.rs`.
     swell: vec4<f32>,
 }
 
@@ -30,25 +30,21 @@ fn blowing(wind: Wind, t: f32) -> vec2<f32> {
     return vec2<f32>(sin(a), cos(a));
 }
 
-// The share of its strength the whole wind has at `t` seconds, from the
-// lull's to 1: it rises and falls everywhere at once.
-fn swelling(wind: Wind, t: f32) -> f32 {
-    let a = t * wind.swell.y;
+// How hard the whole wind blows at `t` seconds, from the least it is let
+// blow at the depth of a lull to the most at the height of a swell: it
+// rises and falls everywhere at once.
+fn overall(wind: Wind, t: f32) -> f32 {
+    let a = t * wind.swell.x;
     let rise = 0.5 + 0.25 * (sin(a) + sin(a * 1.618 + 1.3));
-    return wind.swell.x + (1.0 - wind.swell.x) * smoothstep(0.0, 1.0, rise);
+    return mix(wind.swell.y, wind.swell.z, smoothstep(0.0, 1.0, rise));
 }
 
-// How hard the wind blows at a place on the ground at `t` seconds, from
-// the least it is let blow to the most: the calm share between gusts, all
-// of it within one, and that swelling and lulling as a whole.
+// How hard the wind blows at a place on the ground at `t` seconds: the
+// calm share between gusts, all of it within one, times how hard the
+// whole wind blows.
 fn strength(wind: Wind, at: vec2<f32>, t: f32) -> f32 {
     let rolled = wind.scale.zw * (t * wind.scale.y);
     let band = 0.5 + 0.5 * fbm(at * wind.scale.x - rolled, 2u, SEED);
     let gust = smoothstep(0.3, 0.75, band);
-    let raw = (wind.flow.w + (1.0 - wind.flow.w) * gust) * swelling(wind, t);
-    // From the weakest it may be to the strongest, laid between the least
-    // and the most it is let blow.
-    let weakest = wind.flow.w * wind.swell.x;
-    let share = (raw - weakest) / max(1.0 - weakest, 1e-3);
-    return mix(wind.swell.z, wind.swell.w, share);
+    return (wind.flow.w + (1.0 - wind.flow.w) * gust) * overall(wind, t);
 }
