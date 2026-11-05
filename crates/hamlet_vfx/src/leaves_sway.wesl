@@ -92,7 +92,9 @@ fn blown(
 fn stroke_cover(cover: f32, uv: vec2<f32>) -> f32 {
     let texels = uv * STROKES;
     let spread = max(length(dpdx(texels)), length(dpdy(texels)));
-    let level = clamp(log2(max(spread, 1.0)), 0.0, 4.0);
+    // No further than the sampler's deepest level, `lod_max_clamp` in
+    // `leaves.rs`.
+    let level = clamp(log2(max(spread, 1.0)), 0.0, 3.0);
     return cover * (1.0 + 0.25 * level);
 }
 

@@ -437,7 +437,7 @@ fn strokes() -> Image {
         );
         // A margin about each stroke, so that the levels far down
         // do not bleed one cell into the next.
-        const MARGIN: f32 = 0.04;
+        const MARGIN: f32 = 0.1;
         for y in 0..CELL.1 {
             for x in 0..CELL.0 {
                 let p = Vec2::new(
@@ -499,9 +499,11 @@ fn strokes() -> Image {
     image.texture_descriptor.mip_level_count = levels;
     image.sampler =
         ImageSampler::Descriptor(ImageSamplerDescriptor {
-            // Below this the cells run together.
-            lod_max_clamp: 4.0,
-            anisotropy_clamp: 8,
+            // Below this a texel reaches past a cell's margin, and a
+            // card's edge takes the paint of the next cell as a thin
+            // line; so do more taps along a slanted card.
+            lod_max_clamp: 3.0,
+            anisotropy_clamp: 4,
             ..ImageSamplerDescriptor::linear()
         });
     image
