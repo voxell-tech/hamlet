@@ -14,7 +14,7 @@ use crate::generator::society::{
     Agent, Ground, Pair, RoadLevel, Society,
 };
 use crate::generator::{
-    Ahead, GeneratorSettings, GeneratorView, Objecting, Trips, Voting,
+    Ahead, GeneratorSettings, GeneratorView, Objecting, Trips,
 };
 use crate::keeper::KeeperState;
 use crate::keeper::work::Task;
@@ -49,7 +49,6 @@ fn bare() -> App {
         .init_resource::<Society>()
         .init_resource::<Trips>()
         .init_resource::<Objecting>()
-        .init_resource::<Voting>()
         .init_resource::<Clock>()
         .insert_resource(Land::new(
             1,

@@ -62,9 +62,7 @@ use self::traffic::run_traffic;
 pub use self::traffic::{Trip, Trips};
 pub use self::view::{Ahead, GeneratorView};
 use self::view::{aim, robot_detail, town_detail};
-pub use self::work::{
-    Floor, Objecting, Passage, Rehearsal, Robot, Voting,
-};
+pub use self::work::{Floor, Objecting, Passage, Rehearsal, Robot};
 use self::work::{pass, work_robots};
 use self::yard::YardSettings;
 use super::debug::shown;
@@ -138,7 +136,6 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Ahead>()
     .init_resource::<GeneratorOptions>()
     .init_resource::<Rehearsal>()
-    .init_resource::<Voting>()
     .init_state::<Phase>()
     .init_resource::<Objecting>()
     .init_resource::<Loading>()

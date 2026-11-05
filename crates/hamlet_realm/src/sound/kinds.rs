@@ -174,8 +174,6 @@ pub enum Sound {
     Born,
     Gone,
     Restored,
-    VoteCalled,
-    Ballot,
     /// A hamlet has another mayor.
     Mayor,
     Founded,
@@ -204,7 +202,7 @@ pub enum Sound {
 }
 
 impl Sound {
-    pub const ALL: [Self; 70] = [
+    pub const ALL: [Self; 68] = [
         Self::Step,
         Self::RoadStep,
         Self::Hammer,
@@ -258,8 +256,6 @@ impl Sound {
         Self::Born,
         Self::Gone,
         Self::Restored,
-        Self::VoteCalled,
-        Self::Ballot,
         Self::Mayor,
         Self::Founded,
         Self::PopOpen,
@@ -336,8 +332,6 @@ impl Sound {
             Self::Born
             | Self::Gone
             | Self::Restored
-            | Self::VoteCalled
-            | Self::Ballot
             | Self::Mayor
             | Self::Founded => Family::Lives,
             Self::Allowed | Self::Denied | Self::Stopped => {
@@ -415,7 +409,6 @@ impl Sound {
             | Self::HouseShudder
             | Self::HouseFall
             | Self::Embers
-            | Self::Ballot
             | Self::PopOpen
             | Self::PopClose
             | Self::Fold
@@ -493,8 +486,6 @@ impl Sound {
             Self::Born => "born",
             Self::Gone => "gone",
             Self::Restored => "restored",
-            Self::VoteCalled => "vote-called",
-            Self::Ballot => "ballot",
             Self::Mayor => "mayor",
             Self::Founded => "founded",
             Self::PopOpen => "pop-open",

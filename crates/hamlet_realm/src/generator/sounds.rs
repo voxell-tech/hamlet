@@ -13,7 +13,7 @@ use super::shift::{Part, Shift};
 use super::society::{AgentId, Pair, RoadLevel, Society, TownId};
 use super::sync::Drawn;
 use super::traffic::Trips;
-use super::work::{Robot, Voting};
+use super::work::Robot;
 use super::{House, HouseMotion};
 use crate::keeper::{Keeper, KeeperState};
 use crate::sound::{Cue, Cues, Ears, Sound, SoundSettings};
@@ -29,7 +29,6 @@ pub(super) fn plugin(app: &mut App) {
                 (state_cues, life_cues)
                     .run_if(resource_changed::<Society>),
                 house_cues,
-                vote_cues,
                 muse_cues,
             )
                 .chain()
@@ -357,41 +356,6 @@ pub(super) fn house_cues(
         cues.write(Cue { sound, at, turn });
         false
     });
-}
-
-/// Seconds without a ballot after which the next one opens a vote.
-const VOTE_APART: f32 = 30.0;
-
-/// A gavel as a vote opens, and a slip of paper for every ballot.
-pub(super) fn vote_cues(
-    clock: Res<Clock>,
-    voting: Res<Voting>,
-    drawn: Res<Drawn>,
-    places: Query<&GlobalTransform>,
-    mut cast: Local<HashMap<AgentId, f32>>,
-    mut last: Local<Option<f32>>,
-    mut cues: MessageWriter<Cue>,
-) {
-    cast.retain(|agent, _| voting.0.contains_key(agent));
-    for (&agent, &when) in &voting.0 {
-        if cast.insert(agent, when) == Some(when) {
-            continue;
-        }
-        let at = home(&drawn, &places, agent).unwrap_or_default();
-        if last.is_none_or(|last| clock.t - last > VOTE_APART) {
-            cues.write(Cue {
-                sound: Sound::VoteCalled,
-                at,
-                turn: agent.0,
-            });
-        }
-        *last = Some(clock.t);
-        cues.write(Cue {
-            sound: Sound::Ballot,
-            at,
-            turn: agent.0 ^ when.to_bits(),
-        });
-    }
 }
 
 /// A note of glass as the light of a thinking agent appears.

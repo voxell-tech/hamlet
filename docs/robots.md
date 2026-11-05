@@ -40,7 +40,7 @@ cyan working, orange waiting for the chief, red fault, moon reflecting.
 | Waiting for the chief | `Wait`, `Object` |
 | Gone wrong | `Fault`, `Failed` |
 | Coming and going | `Appear`, `Leave`, `MergeInto`, `MergeHost` |
-| The hamlet's life | `Celebrate`, `Vote` |
+| The hamlet's life | `Celebrate` |
 | Under the chief's hand | `Startle`, `Sulk`, `Wiggle`, `Dangle`, `Land`, `Greet`, `Wave` |
 
 The motions under the chief's hand mean nothing about the agent's work.

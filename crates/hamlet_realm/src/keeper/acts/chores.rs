@@ -5,9 +5,7 @@ use std::f32::consts::TAU;
 use bevy::prelude::*;
 use hamlet_vfx::inlay::{self, EMBER, LIT};
 
-use super::parts::{
-    arm_high, arm_l, arm_r, blink, breathe, current, moon,
-};
+use super::parts::{arm_high, arm_l, arm_r, blink, breathe, current};
 use super::{CRANK_RATE, Context, SEAT_BACK};
 use crate::keeper::kit::KITE;
 use crate::keeper::pose::{
@@ -158,35 +156,6 @@ pub(super) fn celebrate(c: &Context) -> Pose {
     p.swing = Vec2::new(0.1 * land, 0.3 * up * (x * 9.0 - 1.2).sin());
     p.glow = candle(EMBER * 1.4 + LIT * (0.5 * up + 0.5 * air));
     p.key = c.t * 6.0;
-    p
-}
-
-pub(super) fn vote(c: &Context) -> Pose {
-    let mut p = Pose::stand();
-    breathe(&mut p, c, 1.0);
-    blink(&mut p, c);
-    let x = c.tau;
-    let hold = ramp(0.0, 0.4, x);
-    let weigh = pulse(0.3, 0.5, 1.2, 1.4, x);
-    let nod = arc(1.3, 1.6, x);
-    let cast = ramp(1.5, 1.95, x) - ramp(2.75, 3.2, x);
-    let down = ramp(2.75, 3.25, x);
-    p.arm_l = rz(-0.14)
-        .slerp(arm_l(0.5, 1.3), hold)
-        .slerp(arm_high(2.75), ramp(1.5, 1.95, x))
-        .slerp(rz(-0.14), down);
-    p.head = rz(0.14 * weigh * (x * 4.4).sin())
-        * rx(0.22 * hold * (1.0 - cast) + 0.2 * nod - 0.18 * cast);
-    p.gaze.x = 0.1 * weigh * (x * 4.4 + 1.0).sin();
-    p.shift.y = 0.025 * cast;
-    p.squash *= 1.0 - 0.05 * arc(1.4, 1.6, x) + 0.04 * cast;
-    p.hat_lift = 0.02 * arc(1.9, 2.2, x);
-    p.prop = Prop::Ballot;
-    p.prop_size = hold * (1.0 - ramp(2.9, 3.1, x));
-    // It weighs the choice by its own notes, then shows it.
-    p.glow = moon(LIT * 0.6)
-        .lerp(candle(LIT * 0.9), ramp(1.4, 1.9, x))
-        .lerp(candle(EMBER * 1.4), down);
     p
 }
 

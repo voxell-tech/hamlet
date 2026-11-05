@@ -7,9 +7,7 @@ use super::land::Land;
 use super::society::AgentId;
 use super::sync::Drawn;
 use super::traffic::Trips;
-use super::work::{
-    Engine, Lot, Rehearsal, Robot, Voting, pass, work_robots,
-};
+use super::work::{Engine, Lot, Rehearsal, Robot, pass, work_robots};
 use super::{
     DetailSettings, GeneratorSettings, Kit, flora, house, layout,
 };
@@ -75,7 +73,6 @@ pub(crate) fn rehearse(app: &mut App) {
         .init_resource::<Drawn>()
         .init_resource::<Trips>()
         .init_resource::<Rehearsal>()
-        .init_resource::<Voting>()
         .init_resource::<crate::Sky>()
         .init_resource::<DetailSettings>()
         .init_resource::<Motion>()

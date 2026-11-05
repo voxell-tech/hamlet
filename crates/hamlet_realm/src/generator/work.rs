@@ -201,15 +201,10 @@ impl Job {
     fn is_real_work(&self) -> bool {
         !matches!(
             self.chore,
-            Chore::House | Chore::Stand | Chore::Done | Chore::Vote
+            Chore::House | Chore::Stand | Chore::Done
         )
     }
 }
-
-/// Agents that have just cast a ballot, each with the clock time it
-/// did.
-#[derive(Resource, Default)]
-pub struct Voting(pub HashMap<AgentId, f32>);
 
 /// Chores put on for show: an agent listed here does its chore
 /// whatever its work says, while it is working.
@@ -278,7 +273,7 @@ fn settled(
         let station = match chore {
             Chore::Oops => Station::Engine,
             Chore::Done => Station::Desk,
-            Chore::Vote | Chore::Stand => Station::Porch,
+            Chore::Stand => Station::Porch,
             chore => chore.station(),
         };
         lot.stand(land, station, beat)
@@ -312,7 +307,6 @@ pub(super) fn work_robots(
     drawn: Res<Drawn>,
     traffic: Res<Trips>,
     rehearsal: Res<Rehearsal>,
-    voting: Res<Voting>,
     objecting: Option<Res<Objecting>>,
     motion: Res<Motion>,
     mut commands: Commands,
@@ -434,15 +428,6 @@ pub(super) fn work_robots(
 
         let (want, began) =
             wanted(robot, &rehearsal, seed, now, live);
-        // A ballot is cast whatever else the robot was at.
-        let (want, began) = match voting.0.get(&robot.agent) {
-            Some(&cast)
-                if live && now - cast < Chore::Vote.least() =>
-            {
-                (Chore::Vote, cast)
-            }
-            _ => (want, began),
-        };
         if !live {
             robot.job = Some(settled(
                 robot,

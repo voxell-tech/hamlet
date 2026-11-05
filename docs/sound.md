@@ -39,7 +39,7 @@ and `synth/` builds the clips.
 | `hand` | What the chief's hand does in the world |
 | `magic` | Houses rising and falling, merges, roads, dawn and dusk |
 | `talk` | Speech and thought balloons |
-| `lives` | Agents born, restored and gone, votes, a new mayor, a founding |
+| `lives` | Agents born, restored and gone, a new mayor, a founding |
 | `interface` | The panels: buttons, menus, tabs, sending a message |
 
 The alert and the answers are written as a pair: the chime leaves a
