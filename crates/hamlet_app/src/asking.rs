@@ -559,7 +559,7 @@ mod tests {
             })).unwrap()
         };
         let mut other = chat.clone();
-        other.with.agent = "scout".into();
+        other.with = protocol::AgentId(3);
         let mut state = hamlet_testing::realm::state();
         state.waits = vec![
             question("later", 20, &chat),

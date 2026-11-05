@@ -18,7 +18,7 @@ use hamlet_client::Connection;
 use hamlet_client::chats::{Status, Usage};
 use hamlet_client::connection::Contact;
 use hamlet_client::realm::{
-    Confinement, HOME, HamletId, Settings, Treasury,
+    Confinement, LivesIn, Settings, Treasury,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{hairline, note, small_rules};
@@ -51,7 +51,8 @@ pub struct Bar {
     pub connection: String,
     /// Tokens and cost (or model time) of the current session.
     pub usage: String,
-    /// The hamlet's spend against its budget.
+    /// The spend against the budget of the hamlet the chat's agent
+    /// lives in.
     pub budget: String,
 }
 
@@ -60,14 +61,16 @@ pub(crate) fn update_status(
     sessions: Query<(Ref<Status>, Ref<Usage>)>,
     settings: Res<Settings>,
     connection: Res<Connection>,
-    treasury: Query<(&HamletId, Ref<Treasury>)>,
+    lives: Query<&LivesIn>,
+    treasury: Query<Ref<Treasury>>,
     mut bar: ResMut<Bar>,
 ) {
     let session = sessions.get(convo.session).ok();
-    let home = treasury
-        .iter()
-        .find(|(id, _)| id.0 == HOME)
-        .map(|(_, treasury)| treasury);
+    // The Hand is of no hamlet, and has no budget to show here.
+    let home = lives
+        .get(convo.agent)
+        .ok()
+        .and_then(|lives| treasury.get(lives.0).ok());
     let moved = convo.is_changed()
         || settings.is_changed()
         || connection.is_changed()

@@ -20,7 +20,7 @@ use bevy::picking::events::{
 };
 use bevy::picking::pointer::PointerButton;
 use hamlet_client::messages::JobFinished;
-use hamlet_client::realm::{Houses, LivesIn, Works};
+use hamlet_client::realm::{LivesIn, RealmFolder, Works};
 use hamlet_desktop::open;
 use hamlet_realm::sound::{Cue, Sound};
 use hamlet_ui::markdown::{Anchor, PathLinks};
@@ -130,14 +130,14 @@ pub(crate) fn seek(
     // The chat is drawn for another agent before the system that
     // keeps the folders has seen it turn.
     turn(world);
-    let houses = world
-        .get_resource::<Houses>()
-        .map(|houses| PathBuf::from(&houses.0))
+    let kept = world
+        .get_resource::<RealmFolder>()
+        .map(|folder| PathBuf::from(&folder.0))
         .map(|path| path.canonicalize().unwrap_or(path));
     let mut found = world.get_resource_or_init::<Found>();
-    if found.1 != houses {
+    if found.1 != kept {
         found.0.clear();
-        found.1 = houses.clone();
+        found.1 = kept.clone();
     }
     let known = world
         .get_resource::<Found>()
@@ -154,9 +154,7 @@ pub(crate) fn seek(
             .and_then(|roots| open::locate(written, &roots.folders))
     };
     let file = file.filter(|file| {
-        !houses
-            .as_ref()
-            .is_some_and(|houses| file.starts_with(houses))
+        !kept.as_ref().is_some_and(|kept| file.starts_with(kept))
     });
     let mut found = world.get_resource_or_init::<Found>();
     if found.0.len() >= REMEMBERED {
@@ -298,7 +296,8 @@ mod tests {
         assert_eq!(seek(&mut world, "plan.md"), Some(file));
     }
     #[test]
-    fn received_houses_stay_plain_even_through_work_folder_links() {
+    fn the_received_realm_folder_stays_plain_even_through_work_folder_links()
+     {
         let home = hamlet_testing::Scratch::new("house-links");
         let houses = home.join("houses");
         std::fs::create_dir_all(houses.join("home/1")).unwrap();
@@ -317,7 +316,7 @@ mod tests {
         let mut state =
             serde_json::to_value(hamlet_testing::realm::state())
                 .unwrap();
-        state["houses"] = serde_json::json!(houses);
+        state["realm"] = serde_json::json!(houses);
         hamlet_client::receive(
             app.world_mut(),
             hamlet_protocol::client::ServerMessage::State(

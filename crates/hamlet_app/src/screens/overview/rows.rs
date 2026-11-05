@@ -11,8 +11,8 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::realm::{
-    Account, Activity, AgentNumber, Busy, HOME, HamletId, Left,
-    LivesIn, Mayor, MergedInto, Purpose, Treasury,
+    Account, Activity, AgentNumber, Busy, HamletId, Left, LivesIn,
+    Mayor, MergedInto, Purpose, Treasury,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_realm::pick::Thing;
@@ -238,10 +238,7 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
             }
         })
         .collect::<Vec<_>>();
-    // The first hamlet first, then by name.
-    rows.sort_by_key(|row| {
-        (row.id != HOME, row.title.to_lowercase())
-    });
+    rows.sort_by_key(|row| row.title.to_lowercase());
     rows
 }
 

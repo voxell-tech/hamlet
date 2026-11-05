@@ -21,11 +21,9 @@ use bevy_fynix::views::{
     label, number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_client::messages::{ChiefMessage, Reconnected, Response};
+use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{
-    Confinement, Grants, HOME, MAYOR, Settings,
-};
+use hamlet_client::realm::{Confinement, Grants, Settings};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::{Effort, client as protocol};
@@ -322,11 +320,6 @@ fn permissions() -> AnyView {
                     protocol::Permission::Unconfined => "unconfined",
                 };
                 let by = grant.by.as_deref().unwrap_or("limits");
-                let hamlet = grant
-                    .agent
-                    .as_ref()
-                    .map(|agent| agent.hamlet.clone())
-                    .unwrap_or_else(|| HOME.into());
                 let says = format!(
                     "{agent} may use: {permission} (given by {by})"
                 );
@@ -337,16 +330,13 @@ fn permissions() -> AnyView {
                             Glyph::Cross,
                             "REVOKE",
                             move |world| {
-                                world.trigger(ChiefMessage {
-                                    to: protocol::Address {
-                                        hamlet: hamlet.clone(),
-                                        agent: MAYOR.into(),
-                                    },
-                                    text: format!(
+                                crate::chat::command(
+                                    world,
+                                    format!(
                                         "/revoke {agent} \
                                          {permission}"
                                     ),
-                                });
+                                );
                                 world.flush();
                             },
                         ),
@@ -812,17 +802,14 @@ mod tests {
         );
     }
     #[test]
-    fn received_grants_show_the_giver_and_revoke_through_the_mayor() {
+    fn received_grants_show_the_giver_and_revoke_through_the_hand() {
         let mut app = settings_page(Pane::Agents);
         assert!(words_and_spans(&mut app).iter().any(|text| text
             == "None yet. Choosing Always Allow on a petition \
                 adds one."));
         let grant = protocol::Grant {
-            agent: Some(protocol::AgentRef {
-                hamlet: "home".into(),
-                number: 0,
-            }),
-            name: "founder".into(),
+            agent: Some(protocol::AgentId(2)),
+            name: "ada@home".into(),
             permission: protocol::Permission::Network,
             by: Some("chief".into()),
             source: protocol::GrantSource::Grant,
@@ -839,12 +826,12 @@ mod tests {
         );
         settle(&mut app);
         assert!(words_and_spans(&mut app).iter().any(|text| text
-            == "founder may use: network (given by chief)"));
+            == "ada@home may use: network (given by chief)"));
         crate::testing::press(&mut app, "REVOKE");
         assert_eq!(
             requests(&mut app),
             [serde_json::json!({
-                "type": "say", "to": {"hamlet": "home", "agent": "mayor"}, "text": "/revoke founder network"
+                "type": "say", "to": 1, "text": "/revoke ada@home network"
             })]
         );
     }
@@ -861,7 +848,7 @@ mod tests {
                 changes: vec![protocol::Update::Grants {
                     grants: vec![protocol::Grant {
                         agent: None,
-                        name: "founder".into(),
+                        name: "ada@home".into(),
                         permission: protocol::Permission::Network,
                         by: None,
                         source: protocol::GrantSource::Limits,

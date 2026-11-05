@@ -9,7 +9,7 @@ use bevy_fynix::views::{BehaviorExt, label, menu_item};
 use hamlet_client::gifts::{give, offers};
 use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::{
-    self as agents, Busy, Deeds, HOME, HamletId, Left, Mayor, Road,
+    self as agents, Busy, Deeds, HamletId, Left, Mayor, Road,
     road_between, roads_of,
 };
 use hamlet_realm::generator::society::Ground;
@@ -20,7 +20,7 @@ use hamlet_ui::AnyView;
 use super::deed::Deed;
 use super::{Open, close, restore, stop};
 use crate::chat;
-use crate::convo::{talk_to, talk_to_mayor};
+use crate::convo::talk_to;
 use crate::inspector::show_prompt;
 
 /// An agent of the hamlet that is not its mayor and has not left,
@@ -75,13 +75,19 @@ fn joined(world: &World, agent: Entity) -> Vec<(Entity, String)> {
     peers
 }
 
+fn talk_to_first_mayor(world: &mut World) {
+    if let Some(mayor) = agents::first_mayor(world) {
+        talk_to(world, mayor);
+    }
+}
+
 fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
 }
 
 fn new_conversation(agent: Entity) -> AnyView {
     item("New Conversation".into(), move |world| {
-        if let Some(to) = agents::address_of(world, agent) {
+        if let Some(to) = agents::id_of(world, agent) {
             world.trigger(ChiefMessage {
                 to,
                 text: "/new".into(),
@@ -109,21 +115,21 @@ fn gifts(world: &World, agent: Entity, at: Vec2) -> Vec<AnyView> {
 
 fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
     let mut items = vec![
-        item("Talk to the Mayor".into(), talk_to_mayor),
+        item("Talk to the Mayor".into(), talk_to_first_mayor),
         item("Prompt".into(), |world| {
-            talk_to_mayor(world);
+            talk_to_first_mayor(world);
             show_prompt(world);
         }),
         item("Stop the Mayor".into(), |world| {
-            if let Some(mayor) = agents::mayor(world) {
+            if let Some(mayor) = agents::first_mayor(world) {
                 stop(world, mayor);
             }
         }),
         item("Undo the Last Change".into(), |world| {
-            chat::decree(world, HOME, "/undo".into());
+            chat::command(world, "/undo".into());
         }),
     ];
-    if let Some(mayor) = agents::mayor(world) {
+    if let Some(mayor) = agents::first_mayor(world) {
         items.insert(1, new_conversation(mayor));
         items.extend(gifts(world, mayor, at));
     }
@@ -236,10 +242,10 @@ fn for_agent(
             at,
         ));
     }
-    if Deeds::is_allowed(world, "remove") {
+    if Deeds::is_allowed(world, "end") {
         items.push(asking(
-            format!("Remove {me}..."),
-            Deed::Remove(agent),
+            format!("End {me}..."),
+            Deed::End(agent),
             at,
         ));
     }
@@ -254,8 +260,7 @@ fn for_common(
 ) -> Vec<AnyView> {
     let name = agents::name_of(world, hamlet);
     let mut items = vec![focus(thing)];
-    // It is closed by the name commands know it by. The
-    // first hamlet is the home itself and stays.
+    // It is closed by the name commands know it by.
     let id = world
         .get::<HamletId>(hamlet)
         .map(|id| id.0.clone())
@@ -265,10 +270,7 @@ fn for_common(
             orders::carry(w, hamlet);
         }));
     }
-    if !id.is_empty()
-        && id != HOME
-        && Deeds::is_allowed(world, "remove-hamlet")
-    {
+    if !id.is_empty() && Deeds::is_allowed(world, "remove-hamlet") {
         items.push(asking(
             format!("Close Down {name}..."),
             Deed::Close(id),

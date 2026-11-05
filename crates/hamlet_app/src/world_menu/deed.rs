@@ -32,7 +32,7 @@ use crate::convo::Convo;
 /// one.
 #[derive(Clone, PartialEq)]
 pub(crate) enum Deed {
-    Remove(Entity),
+    End(Entity),
     Merge {
         absorbed: Entity,
         kept: Entity,
@@ -53,7 +53,7 @@ pub(crate) enum Deed {
         session: Entity,
         entry: String,
     },
-    /// Removes the home's own charter, so the built-in one stands.
+    /// Ends the home's own charter, so the built-in one stands.
     DefaultCharter,
 }
 
@@ -66,8 +66,11 @@ impl Deed {
         }
         let name = |agent: Entity| agents::name_of(world, agent);
         match self {
-            Deed::Remove(agent) => {
-                let text = format!("/remove {}", name(*agent));
+            Deed::End(agent) => {
+                let text = format!(
+                    "/end {} ended by the chief",
+                    name(*agent)
+                );
                 orders::decree(world, *agent, text);
             }
             Deed::Merge { absorbed, kept } => {
@@ -83,7 +86,10 @@ impl Deed {
                 orders::decree(world, *agent, text);
             }
             Deed::Mayor(agent) => {
-                let text = format!("/mayor {}", name(*agent));
+                let text = format!(
+                    "/mayor {} chosen by the chief",
+                    name(*agent)
+                );
                 orders::decree(world, *agent, text);
             }
             // The hamlets and the library are the realm's, and the
@@ -93,11 +99,9 @@ impl Deed {
                 hamlet,
                 format!("/remove-hamlet {hamlet}"),
             ),
-            Deed::Unshelve(skill) => chat::decree(
-                world,
-                agents::HOME,
-                format!("/unshelve {skill}"),
-            ),
+            Deed::Unshelve(skill) => {
+                chat::command(world, format!("/unshelve {skill}"));
+            }
             Deed::NewSession => chat::send(world, "/new".into()),
             Deed::DefaultCharter => {
                 crate::settings::default_charter(world);
@@ -114,7 +118,7 @@ impl Deed {
 
     fn is_available(&self, world: &World) -> bool {
         let command = match self {
-            Self::Remove(_) => "remove",
+            Self::End(_) => "end",
             Self::Merge { .. } => "merge",
             Self::Close(_) => "remove-hamlet",
             Self::Erase(_) => "erase",
@@ -132,7 +136,7 @@ impl Deed {
             agents::name_of(world, *agent).to_uppercase()
         };
         match self {
-            Deed::Remove(agent) => format!("REMOVE {}?", name(agent)),
+            Deed::End(agent) => format!("END {}?", name(agent)),
             Deed::Merge { absorbed, kept } => format!(
                 "MERGE {} INTO {}?",
                 name(absorbed),
@@ -162,9 +166,9 @@ impl Deed {
     fn outcome(&self, world: &World) -> String {
         let name = |agent: &Entity| agents::name_of(world, *agent);
         match self {
-            Deed::Remove(agent) => format!(
-                "The house of {} goes to the archive, with its \
-                 notes, skills and log. It can be restored.",
+            Deed::End(agent) => format!(
+                "The hire {} goes to the archive, with its notes, \
+                 skills and log. It can be restored.",
                 name(agent)
             ),
             Deed::Merge { absorbed, kept } => format!(
@@ -215,7 +219,7 @@ impl Deed {
 
     fn verb(&self) -> &'static str {
         match self {
-            Deed::Remove(_) => "REMOVE",
+            Deed::End(_) => "END",
             Deed::Merge { .. } => "MERGE",
             Deed::Close(_) => "CLOSE DOWN",
             Deed::Erase(_) => "DELETE",
@@ -237,7 +241,7 @@ impl Deed {
                 .collect()
         };
         match self {
-            Deed::Remove(agent) => busy(world, &[*agent]),
+            Deed::End(agent) => busy(world, &[*agent]),
             Deed::Merge { absorbed, kept } => {
                 busy(world, &[*absorbed, *kept])
             }
@@ -338,26 +342,26 @@ mod tests {
         let mut app = crate::testing::panel_app();
         app.add_plugins(chat::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["remove"]);
-        state.hamlets.push(hamlet_testing::realm::hamlet("mill"));
-        state
-            .agents
-            .push(hamlet_testing::realm::agent("mill", 0, "miller"));
-        state
-            .agents
-            .push(hamlet_testing::realm::agent("mill", 1, "carder"));
+        state.deeds = hamlet_testing::realm::deeds(&["end"]);
+        state.hamlets.push(hamlet_testing::realm::hamlet("mill", 4));
+        state.agents.push(hamlet_testing::realm::agent(
+            4, "mill", 0, "miller",
+        ));
+        state.agents.push(hamlet_testing::realm::agent(
+            5, "mill", 1, "carder",
+        ));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        // The chief's seat opened the mayor's chat.
+        // The chief's seat opened the Hand's chat.
         app.world_mut()
             .resource_mut::<Outbox>()
             .drain()
             .for_each(drop);
         let carder =
-            agents::named(app.world_mut(), "carder").unwrap();
-        Deed::Remove(carder).run(app.world_mut());
+            agents::named(app.world_mut(), "carder@mill").unwrap();
+        Deed::End(carder).run(app.world_mut());
         app.world_mut().flush();
         let sent = app
             .world_mut()
@@ -367,13 +371,7 @@ mod tests {
         let [protocol::ClientMessage::Say(say)] = &sent[..] else {
             panic!("one command: {sent:?}");
         };
-        assert_eq!(
-            say.to,
-            protocol::Address {
-                hamlet: "mill".into(),
-                agent: "mayor".into(),
-            }
-        );
-        assert_eq!(say.text, "/remove carder");
+        assert_eq!(say.to, protocol::AgentId(4));
+        assert_eq!(say.text, "/end carder@mill ended by the chief");
     }
 }

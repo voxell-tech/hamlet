@@ -5,7 +5,7 @@ use bevy::ecs::world::World;
 use bevy_fynix::views::BehaviorExt;
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::chats::Chat;
-use hamlet_client::realm::{PeerChats, address_of, name_of};
+use hamlet_client::realm::{PeerChats, id_of, name_of};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     breadcrumb, close, filling, group, lettered, note, scroll_area,
@@ -24,8 +24,11 @@ pub(super) fn is_read_only(world: &World) -> bool {
 
 fn open(world: &mut World, peer: protocol::ConversationView) {
     let convo = world.resource::<Convo>();
+    let Some(with) = convo.to(world) else {
+        return;
+    };
     let reference = protocol::ChatRef {
-        with: convo.to.clone(),
+        with,
         from: Some(peer.with),
         kind: Some(match peer.kind {
             protocol::ConversationViewKind::Letters => {
@@ -58,13 +61,13 @@ fn peers(world: &World) -> Vec<protocol::ConversationView> {
         .unwrap_or_default()
 }
 
-/// The name of the agent `with` is, or its place in its hamlet while
-/// it is not known.
-fn name_of_peer(world: &World, with: &protocol::AgentRef) -> String {
+/// The name of the agent `with` is, or its id while it is not
+/// known.
+fn name_of_peer(world: &World, with: protocol::AgentId) -> String {
     hamlet_client::realm::agent(world, with)
-        .filter(|agent| address_of(world, *agent).is_some())
+        .filter(|agent| id_of(world, *agent).is_some())
         .map(|agent| name_of(world, agent))
-        .unwrap_or_else(|| format!("{}#{}", with.hamlet, with.number))
+        .unwrap_or_else(|| format!("agent#{}", with.0))
 }
 
 /// Where the chat that is watched read-only is: back to the chief's
@@ -74,7 +77,7 @@ pub(super) fn path(world: &World) -> impl View + use<> {
     let current = world
         .get::<Chat>(convo.session)
         .and_then(|chat| {
-            let with = chat.0.from.as_ref()?;
+            let with = chat.0.from?;
             let kind = match chat.0.kind {
                 Some(protocol::ChatRefKind::Questions) => "QUESTIONS",
                 _ => "LETTERS",
@@ -90,7 +93,7 @@ pub(super) fn path(world: &World) -> impl View + use<> {
 
 fn exchange(peer: protocol::ConversationView) -> impl View {
     built(move |cx| {
-        let name = name_of_peer(cx.world, &peer.with);
+        let name = name_of_peer(cx.world, peer.with);
         let kind = match peer.kind {
             protocol::ConversationViewKind::Letters => "LETTERS",
             protocol::ConversationViewKind::Questions => "QUESTIONS",

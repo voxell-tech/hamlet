@@ -182,7 +182,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                         let Some(to) = world
                             .get::<Chat>(session)
                             .filter(|chat| chat.0.past.is_none())
-                            .map(|chat| chat.0.with.clone())
+                            .map(|chat| chat.0.with)
                         else {
                             return;
                         };

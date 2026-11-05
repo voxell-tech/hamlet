@@ -305,6 +305,7 @@ mod tests {
             crate::links::plugin,
         ));
         app.update();
+        crate::testing::seat_ada(&mut app);
         mount::<HamletTheme>(
             app.world_mut(),
             fixed(

@@ -25,7 +25,7 @@ use bevy_fynix::{
 use hamlet_client::chats::{Chat, Entry, TalksTo, Transcript};
 use hamlet_client::messages::{ChiefMessage, JobFinished, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
-use hamlet_client::realm::address_of;
+use hamlet_client::realm::id_of;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, breadcrumb, buttons, card_button, command, filling,
@@ -103,7 +103,7 @@ struct Line {
 
 #[derive(Resource, Default)]
 struct Requests {
-    agent: Option<protocol::Address>,
+    agent: Option<protocol::AgentId>,
     pending: Option<RequestId>,
     open: bool,
 }
@@ -229,8 +229,7 @@ fn format_tokens(n: u64) -> String {
 /// The numbered conversation opened as a read-only watched chat.
 fn open(world: &mut World, number: i64) {
     close(world);
-    let Some(with) =
-        address_of(world, world.resource::<Convo>().agent)
+    let Some(with) = id_of(world, world.resource::<Convo>().agent)
     else {
         return;
     };
@@ -262,7 +261,7 @@ fn resume(world: &mut World) {
     let Some(number) = number else {
         return;
     };
-    let Some(to) = address_of(world, world.resource::<Convo>().agent)
+    let Some(to) = id_of(world, world.resource::<Convo>().agent)
     else {
         return;
     };
@@ -279,7 +278,7 @@ fn resume(world: &mut World) {
 /// The server's history requested while the page is open.
 pub(crate) fn refresh(world: &mut World) {
     let convo = world.resource::<Convo>();
-    let agent = address_of(world, convo.agent);
+    let agent = id_of(world, convo.agent);
     let moved = world.resource::<Requests>().agent != agent;
     if moved {
         close(world);
@@ -298,7 +297,7 @@ pub(crate) fn refresh(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Read(protocol::Read::History {
             id,
-            agent: agent.clone(),
+            agent,
         })
     });
     let mut requests = world.resource_mut::<Requests>();
@@ -315,7 +314,7 @@ fn response(reply: On<Response>, mut commands: Commands) {
         let requests = world.resource::<Requests>();
         if requests.pending.as_ref() != Some(&reply.to)
             || requests.agent
-                != address_of(world, world.resource::<Convo>().agent)
+                != id_of(world, world.resource::<Convo>().agent)
         {
             return;
         }
@@ -616,10 +615,7 @@ mod tests {
             .map(|m| serde_json::to_value(m).unwrap())
             .find(|m| m["what"] == "history")
             .expect("read history when the tab opens");
-        assert_eq!(
-            read["agent"],
-            json!({"hamlet": "home", "agent": "founder"})
-        );
+        assert_eq!(read["agent"], json!(1));
         bevy_fynix::mount::<HamletTheme>(app.world_mut(), screen());
         app.update();
         assert!(
@@ -671,7 +667,7 @@ mod tests {
             .0
             .clone();
         assert_eq!(chat.past, Some(1));
-        assert_eq!(chat.with.agent, "founder");
+        assert_eq!(chat.with, protocol::AgentId(1));
         let open = app
             .world()
             .resource::<Outbox>()
@@ -709,10 +705,7 @@ mod tests {
             .find(|m| m["type"] == "say")
             .unwrap();
         assert_eq!(sent["text"], "/resume 1");
-        assert_eq!(
-            sent["to"],
-            json!({"hamlet": "home", "agent": "founder"})
-        );
+        assert_eq!(sent["to"], json!(1));
         assert!(app.world().get_entity(holder).is_err());
     }
 

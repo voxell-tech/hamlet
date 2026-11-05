@@ -65,8 +65,13 @@ fn keep_notes(world: &mut World) {
         protocol::ServerMessage::Read(protocol::ReadResult::Papers {
             to: id,
             papers: protocol::Papers {
-                notes,
                 character,
+                learned: Vec::new(),
+                memory: vec![protocol::MemoryFile {
+                    description: String::new(),
+                    path: "notes.md".into(),
+                    text: notes,
+                }],
                 skills: Vec::new(),
             },
         }),

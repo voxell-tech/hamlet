@@ -20,7 +20,7 @@ use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 
-pub(crate) use self::choice::{efforts, of_agent, of_hamlet};
+pub(crate) use self::choice::{efforts, of_hamlet};
 pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
 use crate::PanelSystems;
@@ -320,51 +320,6 @@ mod tests {
     }
 
     #[test]
-    fn the_mayors_model_is_pinned_by_its_office() {
-        let mut app = with_catalogue();
-        let founder =
-            hamlet_client::realm::mayor(app.world_mut()).unwrap();
-        mount::<HamletTheme>(app.world_mut(), of_agent(founder));
-        press_and_update(&mut app, "faux::faux-1");
-        press_and_update(&mut app, "far::small");
-        let edit = sent(&mut app).remove(0);
-        assert_eq!(edit["doc"], "limits");
-        assert_eq!(edit["hamlet"], "home");
-        assert_eq!(
-            edit["set"],
-            json!({"section":"pinned", "key":"mayor", "value":"far::small"})
-        );
-        incoming(
-            &mut app,
-            json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This pin was refused."}),
-        );
-        assert!(
-            all_words(&mut app).contains("This pin was refused.")
-        );
-    }
-
-    #[test]
-    fn an_agents_model_is_pinned_by_its_name() {
-        let mut app = with_catalogue();
-        incoming(
-            &mut app,
-            json!({"type":"change", "epoch":1, "revision":1,
-            "changes":[{"type":"agent", "agent":hamlet_testing::realm::agent("home", 1, "scout")}]}),
-        );
-        let scout =
-            hamlet_client::realm::named(app.world_mut(), "scout")
-                .unwrap();
-        mount::<HamletTheme>(app.world_mut(), of_agent(scout));
-        press_and_update(&mut app, "faux::faux-1");
-        press_and_update(&mut app, "far::small");
-        let edit = sent(&mut app).remove(0);
-        assert_eq!(
-            edit["set"],
-            json!({"section":"pinned", "key":"scout", "value":"far::small"})
-        );
-    }
-
-    #[test]
     fn a_hamlets_list_and_default_keep_the_rest_of_its_received_limits()
      {
         use bevy::ecs::query::With;
@@ -372,7 +327,7 @@ mod tests {
 
         let mut app = with_catalogue();
         let founder =
-            hamlet_client::realm::mayor(app.world_mut()).unwrap();
+            hamlet_client::realm::first_mayor(app.world()).unwrap();
         let hamlet = app
             .world()
             .get::<hamlet_client::realm::LivesIn>(founder)
@@ -392,7 +347,7 @@ mod tests {
         app.update();
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["whole"]["models"], json!(["far::small"]));
-        assert_eq!(edit["whole"]["mostAgents"], 12);
+        assert_eq!(edit["whole"]["road"]["most"], 24);
         assert_eq!(edit["whole"]["budget"]["cost"], 5.0);
         incoming(
             &mut app,
@@ -406,7 +361,7 @@ mod tests {
         press_and_update(&mut app, "far::small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["whole"]["model"], "far::small");
-        assert_eq!(edit["whole"]["mostAgents"], 12);
+        assert_eq!(edit["whole"]["road"]["most"], 24);
     }
     #[test]
     fn prices_and_notes_are_catalogue_edits_and_success_reads_the_server_again()

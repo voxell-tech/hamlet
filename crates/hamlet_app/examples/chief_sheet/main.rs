@@ -14,8 +14,8 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{
-    AgentNumber, Consulted, HOME, HamletId, Lived, LivesIn, Mayor,
-    Treasury,
+    AgentNumber, Consulted, HamletId, Identity, Lived, LivesIn,
+    Mayor, Treasury,
 };
 use hamlet_realm::chief::mascot::Doing;
 use hamlet_realm::chief::{
@@ -284,7 +284,7 @@ fn people(world: &mut World) {
     let hamlet = world
         .spawn((
             Name::new("Pear Tree Hollow"),
-            HamletId(HOME.to_string()),
+            HamletId("home".to_string()),
             Treasury(serde_json::from_value(serde_json::json!({
                 "period": "day", "periodWords": "today", "gone": 0.33,
                 "spent": {"tokens": 560, "micros": 0, "ms": 0},
@@ -295,6 +295,7 @@ fn people(world: &mut World) {
         .id();
     world.spawn((
         Name::new("founder"),
+        Identity(hamlet_protocol::client::AgentId(2)),
         AgentNumber(0),
         Mayor,
         LivesIn(hamlet),
@@ -307,6 +308,9 @@ fn people(world: &mut World) {
         let agent = world
             .spawn((
                 Name::new(name),
+                Identity(hamlet_protocol::client::AgentId(
+                    2 + number,
+                )),
                 AgentNumber(number),
                 LivesIn(hamlet),
                 Lived {

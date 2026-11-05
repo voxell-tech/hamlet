@@ -14,7 +14,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_client::realm::{Deeds, HOME};
+use hamlet_client::realm::Deeds;
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
@@ -232,7 +232,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 orders::carry(world, hamlet);
             }));
         }
-        if *close && facts.id != HOME {
+        if *close {
             actions.push(bad_action(
                 Glyph::Gone,
                 "CLOSE DOWN",

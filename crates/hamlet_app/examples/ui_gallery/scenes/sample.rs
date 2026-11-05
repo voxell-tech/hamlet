@@ -32,11 +32,9 @@ pub(super) fn setup(world: &mut World) {
         world,
         protocol::ServerMessage::State(state),
     );
-    let agent = realm::mayor(world).expect("the received founder");
-    let to = protocol::Address {
-        hamlet: "home".into(),
-        agent: "mayor".into(),
-    };
+    let agent =
+        realm::first_mayor(world).expect("the received mayor");
+    let to = protocol::AgentId(2);
     let talk = chat::setup(world, scene);
     let usage = serde_json::json!({
         "calls": 3,
@@ -57,7 +55,7 @@ pub(super) fn setup(world: &mut World) {
             Chat(protocol::ChatRef {
                 kind: None,
                 from: None,
-                with: to.clone(),
+                with: to,
                 past: None,
             }),
             talk,
@@ -67,10 +65,9 @@ pub(super) fn setup(world: &mut World) {
         .id();
     world.insert_resource(Convo {
         session,
-        to,
         name: "chief".into(),
         agent,
-        with: None,
+        with: Some("ada@home".into()),
     });
     world.init_resource::<Also>();
     world.insert_resource(Selected(Some(Thing::Agent(agent))));

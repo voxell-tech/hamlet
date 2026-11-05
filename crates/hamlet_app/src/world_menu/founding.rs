@@ -8,7 +8,7 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{ScopedExt, resource};
-use hamlet_client::realm::{Deeds, HOME};
+use hamlet_client::realm::Deeds;
 use hamlet_ui::styles::{
     button, description, lettered, primary_button, section,
     text_input,
@@ -125,7 +125,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
                         close(world);
                         *world.resource_mut::<Founding>() =
                             Founding::default();
-                        chat::decree(world, HOME, command);
+                        chat::command(world, command);
                     }),
                 lettered("CANCEL").rules(button).on_activate(close),
             ))
@@ -151,21 +151,23 @@ mod tests {
     use crate::testing::{panel_app, press};
 
     #[test]
-    fn founding_goes_to_the_first_mayor_even_from_another_chat() {
+    fn founding_goes_to_the_hand_even_from_another_chat() {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
             .init_resource::<hamlet_realm::pick::Asked>()
             .init_resource::<hamlet_realm::pick::AskedGround>();
         let mut state = realm::state();
         state.deeds = realm::deeds(&["found"]);
-        state.agents.push(realm::agent("home", 1, "scout"));
+        state.agents.push(realm::agent(3, "home", 1, "scout"));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        let scout =
-            hamlet_client::realm::named(app.world_mut(), "scout")
-                .unwrap();
+        let scout = hamlet_client::realm::named(
+            app.world_mut(),
+            "scout@home",
+        )
+        .unwrap();
         crate::convo::talk_to(app.world_mut(), scout);
         app.insert_resource(Founding {
             name: "mill".into(),
@@ -191,12 +193,6 @@ mod tests {
             panic!("one founding: {sent:?}");
         };
         assert_eq!(say.text, "/found mill miller Grinds flour");
-        assert_eq!(
-            say.to,
-            protocol::Address {
-                hamlet: "home".into(),
-                agent: "mayor".into()
-            }
-        );
+        assert_eq!(say.to, protocol::AgentId(1));
     }
 }

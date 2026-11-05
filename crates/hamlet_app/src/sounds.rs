@@ -213,10 +213,7 @@ mod tests {
         let chat = protocol::ChatRef {
             kind: None,
             from: None,
-            with: protocol::Address {
-                hamlet: "home".into(),
-                agent: "mayor".into(),
-            },
+            with: protocol::AgentId(1),
             past: None,
         };
         app.world_mut().spawn(Chat(chat.clone()));

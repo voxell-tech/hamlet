@@ -54,10 +54,7 @@ pub(super) fn setup(world: &mut World, reading: bool) {
                     Chat(protocol::ChatRef {
                         kind: None,
                         from: None,
-                        with: world
-                            .resource::<hamlet_app::Convo>()
-                            .to
-                            .clone(),
+                        with: protocol::AgentId(2),
                         past: Some(pasts[1].number),
                     }),
                     transcript,

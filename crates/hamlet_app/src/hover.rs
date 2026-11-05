@@ -140,7 +140,7 @@ impl Told<'_, '_> {
     fn agent_of(&self, thing: Thing) -> Option<(Entity, bool)> {
         match thing {
             Thing::Keeper | Thing::Cottage => {
-                self.roster.mayor().map(|mayor| (mayor, false))
+                self.roster.first_mayor().map(|mayor| (mayor, false))
             }
             Thing::Agent(agent) | Thing::House(agent) => {
                 Some((agent, false))

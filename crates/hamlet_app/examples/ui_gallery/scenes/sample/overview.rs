@@ -18,7 +18,6 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     state.chief = "chief".into();
     state.deeds = hamlet_testing::realm::deeds(&[
         "record",
-        "overturn",
         "restore-hamlet",
         "erase-hamlet",
         "found",
@@ -31,25 +30,16 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         reason: "The harvest is finished. Its houses are kept."
             .into(),
     }];
+    let mut next = 10;
     for (id, title, mayor, others) in [
-        ("home", "Pear Tree Hollow", "founder", 3),
+        ("home", "Pear Tree Hollow", "ada", 3),
         ("mill", "mill", "miller", 2),
         ("quay", "The Quay", "harbourmaster", 1),
     ] {
-        let mut hamlet = hamlet_testing::realm::hamlet(id);
+        let first = if id == "home" { 2 } else { next };
+        let mut hamlet = hamlet_testing::realm::hamlet(id, first);
         hamlet.name = title.into();
         if id == "home" {
-            hamlet.votes = vec![protocol::VoteView {
-                id: 3,
-                motion: "scout for mayor".into(),
-                by: "chief".into(),
-                open: false,
-                overturnable: true,
-                report: "Vote 3: scout for mayor. Two yes of three; \
-                         passed."
-                    .into(),
-                voters: vec![],
-            }];
             hamlet.folder = Some("/projects/orchard-almanac".into());
             hamlet.mode_words = "Agents ask before each edit and \
                                  command on the server."
@@ -69,12 +59,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             state.hamlets.push(hamlet);
         }
         if id != "home" {
-            state
-                .agents
-                .push(hamlet_testing::realm::agent(id, 0, mayor));
+            state.agents.push(hamlet_testing::realm::agent(
+                first, id, 0, mayor,
+            ));
+            next += 1;
         }
         for number in 1..=others {
             let mut agent = hamlet_testing::realm::agent(
+                next,
                 id,
                 number,
                 &format!("{id}-hand-{number}"),
@@ -84,8 +76,21 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             agent.activity.doing_words =
                 "Reading the orchard's notes".into();
             state.agents.push(agent);
+            next += 1;
         }
     }
+    state.scholars = state
+        .agents
+        .iter()
+        .filter_map(|agent| agent.scholar.map(|id| (id, agent)))
+        .map(|(id, agent)| {
+            hamlet_testing::realm::scholar(
+                id.0,
+                &agent.name,
+                &[agent.id.0],
+            )
+        })
+        .collect();
     hamlet_client::receive(
         world,
         protocol::ServerMessage::State(state),

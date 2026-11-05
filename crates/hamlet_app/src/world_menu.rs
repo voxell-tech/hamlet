@@ -277,7 +277,7 @@ fn gift_reports() -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_client::realm::{HOME, HamletId};
+    use hamlet_client::realm::HamletId;
     use hamlet_protocol::client as protocol;
     use hamlet_realm::pick::{Also, Selected};
     use hamlet_testing::realm;
@@ -360,12 +360,13 @@ mod tests {
     fn roads_are_offered_only_when_supported_and_sent_to_the_mayor() {
         let mut state = realm::state();
         state.agents.extend([
-            realm::agent(HOME, 1, "scout"),
-            realm::agent(HOME, 2, "scribe"),
+            realm::agent(3, "home", 1, "scout"),
+            realm::agent(4, "home", 2, "scribe"),
         ]);
         let mut app = app(state.clone());
-        let a = agents::named(app.world_mut(), "scout").unwrap();
-        let b = agents::named(app.world_mut(), "scribe").unwrap();
+        let a = agents::named(app.world_mut(), "scout@home").unwrap();
+        let b =
+            agents::named(app.world_mut(), "scribe@home").unwrap();
         app.world_mut().resource_mut::<Selected>().0 =
             Some(Thing::Agent(a));
         app.world_mut().resource_mut::<Also>().0 =
@@ -373,10 +374,10 @@ mod tests {
         open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
         let shown = words(&mut app);
         for absent in [
-            "Build a road to scribe",
-            "Remove scout...",
-            "Make scout Mayor...",
-            "Merge scout into scribe...",
+            "Build a road to scribe@home",
+            "End scout@home...",
+            "Make scout@home Mayor...",
+            "Merge scout@home into scribe@home...",
         ] {
             assert!(
                 !shown.iter().any(|text| text == absent),
@@ -390,26 +391,20 @@ mod tests {
         );
         open(&mut app, Open::Nothing);
         open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
-        press(&mut app, "Build a road to scribe");
+        press(&mut app, "Build a road to scribe@home");
         let messages = sent(&mut app);
         let [protocol::ClientMessage::Say(say)] = &messages[..]
         else {
             panic!("one road: {messages:?}");
         };
-        assert_eq!(
-            say.to,
-            protocol::Address {
-                hamlet: HOME.into(),
-                agent: "mayor".into()
-            }
-        );
-        assert_eq!(say.text, "/road scout scribe");
+        assert_eq!(say.to, protocol::AgentId(2));
+        assert_eq!(say.text, "/road scout@home scribe@home");
     }
 
     #[test]
-    fn the_founders_menu_keeps_new_prompt_stop_and_undo() {
+    fn the_first_mayors_menu_keeps_new_prompt_stop_and_undo() {
         let mut app = app(realm::state());
-        let founder = agents::mayor(app.world_mut()).unwrap();
+
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
         assert!(words(&mut app).iter().any(|text| text == "Prompt"));
         press(&mut app, "New Conversation");
@@ -418,13 +413,7 @@ mod tests {
         else {
             panic!("one new: {messages:?}");
         };
-        assert_eq!(
-            say.to,
-            protocol::Address {
-                hamlet: HOME.into(),
-                agent: "founder".into()
-            }
-        );
+        assert_eq!(say.to, protocol::AgentId(2));
         assert_eq!(say.text, "/new");
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
         press(&mut app, "Stop the Mayor");
@@ -433,17 +422,14 @@ mod tests {
         else {
             panic!("one stop: {messages:?}");
         };
-        assert_eq!(
-            stop.agent,
-            agents::address_of(app.world(), founder)
-        );
+        assert_eq!(stop.agent, Some(protocol::AgentId(2)));
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
         press(&mut app, "Undo the Last Change");
         assert!(sent(&mut app).iter().any(|message| matches!(message, protocol::ClientMessage::Say(say) if say.text == "/undo")));
     }
 
     #[test]
-    fn the_founders_skill_menu_sends_a_received_starter_or_agents_skill()
+    fn the_first_mayors_skill_menu_sends_a_received_starter_or_agents_skill()
      {
         let mut state = realm::state();
         state.deeds = realm::deeds(&["give"]);
@@ -451,7 +437,7 @@ mod tests {
             name: "research".into(),
             description: "Find sources".into(),
         }];
-        let mut scout = realm::agent(HOME, 1, "scout");
+        let mut scout = realm::agent(3, "home", 1, "scout");
         scout.skills = vec!["maps".into()];
         state.agents.push(scout);
         let mut app = app(state);
@@ -465,10 +451,9 @@ mod tests {
             (
                 "maps (of scout)",
                 protocol::GiveSkillSource::From {
-                    from: protocol::Address {
-                        hamlet: HOME.into(),
-                        agent: "scout".into(),
-                    },
+                    from: protocol::Keeper::Agent(protocol::AgentId(
+                        3,
+                    )),
                     name: "maps".into(),
                 },
             ),
@@ -487,7 +472,7 @@ mod tests {
                 panic!("one skill: {messages:?}");
             };
             assert_eq!(skill, &expected);
-            assert_eq!(to.agent, "founder");
+            assert_eq!(*to, protocol::ScholarId(2));
         }
     }
 }

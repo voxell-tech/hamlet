@@ -5,9 +5,7 @@ use bevy::ecs::world::World;
 use bevy::ui::percent;
 use bevy_fynix::views::{FrameProps, column, dropdown};
 use bevy_fynix::{ViewExt, keyed};
-use hamlet_client::realm::{
-    Account, Bylaws, LivesIn, MAYOR, Mayor, Settings, address_of,
-};
+use hamlet_client::realm::{Bylaws, Settings};
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{bare, close, description, group, section};
 use hamlet_ui::widgets::icons::Glyph;
@@ -109,47 +107,9 @@ fn whole(
     edit(world, |id| {
         protocol::Edit::Limits(protocol::EditLimits::Whole {
             id,
-            hamlet: place,
+            hamlet: Some(place),
             reason: None,
             whole,
-        })
-    });
-}
-
-/// The hamlet of `agent`, and the name its limits know it by.
-fn limits_name(
-    world: &World,
-    agent: Entity,
-) -> Option<(String, String)> {
-    let address = address_of(world, agent)?;
-    let name = if world.get::<Mayor>(agent).is_some() {
-        MAYOR.into()
-    } else {
-        address.agent
-    };
-    Some((address.hamlet, name))
-}
-
-/// Sets `agent`'s entry in the limits' `section`; `null` removes it.
-fn set_limit(
-    world: &mut World,
-    agent: Entity,
-    section: &str,
-    value: serde_json::Value,
-) {
-    let Some((hamlet, key)) = limits_name(world, agent) else {
-        return;
-    };
-    edit(world, |id| {
-        protocol::Edit::Limits(protocol::EditLimits::Set {
-            id,
-            hamlet,
-            reason: None,
-            set: protocol::LimitsEdit {
-                section: section.into(),
-                key,
-                value,
-            },
         })
     });
 }
@@ -167,68 +127,6 @@ pub(crate) const fn efforts(
         (Some(Effort::Medium), "Medium"),
         (Some(Effort::High), "High"),
     ]
-}
-
-const AGENT_EFFORTS: [(Option<Effort>, &str); 6] =
-    efforts("Settings' effort");
-
-fn effort_chooser(agent: Entity) -> impl View {
-    let own = bevy_fynix::derived(move |world: &World| {
-        let (_, name) = limits_name(world, agent)?;
-        let hamlet = world.get::<LivesIn>(agent)?.0;
-        let limits = &world.get::<Bylaws>(hamlet)?.0;
-        Some(limits.efforts.get(&name).copied())
-    })
-    .when(either(agents_moved(), hamlets_moved()));
-    keyed(own, move |own| {
-        let was = own.flatten();
-        let at = AGENT_EFFORTS
-            .iter()
-            .position(|(effort, _)| *effort == was)
-            .unwrap_or_default();
-        dropdown(
-            AGENT_EFFORTS.map(|(_, name)| name),
-            at,
-            Glyph::Chevron.image(hamlet_ui::styles::ICON),
-            move |world, chosen| {
-                let (effort, _) = AGENT_EFFORTS[chosen];
-                if effort != was {
-                    let value = serde_json::to_value(effort)
-                        .expect("an effort is plain text");
-                    set_limit(world, agent, "efforts", value);
-                }
-            },
-        )
-        .width(percent(100.0))
-        .max_width(percent(100.0))
-        .boxed()
-    })
-    .within(bare())
-}
-
-pub(crate) fn of_agent(agent: Entity) -> impl View {
-    built(move |cx| {
-        if cx.world.get::<LivesIn>(agent).is_none() {
-            return cx.build(column(()));
-        }
-        cx.build(close((
-            section("Model"),
-            super::problem(),
-            chooser(
-                move |world| {
-                    world
-                        .get::<Account>(agent)
-                        .map(|account| account.model.clone())
-                        .unwrap_or_default()
-                },
-                move |world, model| {
-                    set_limit(world, agent, "pinned", model.into());
-                },
-            ),
-            section("Thinking effort"),
-            effort_chooser(agent),
-        )))
-    })
 }
 
 pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {

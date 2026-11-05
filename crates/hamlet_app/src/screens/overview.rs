@@ -20,7 +20,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_client::realm::{Closed, Deeds, HOME, HamletId};
+use hamlet_client::realm::{
+    self as agents, Closed, Deeds, HamletId, Scholar,
+};
 use hamlet_realm::pick::{Thing, focus_on, select};
 use hamlet_ui::styles::{
     Fills, ICON, action, bare, beside, close, description, group,
@@ -170,7 +172,7 @@ pub fn overview() -> impl View {
             )),
             search,
             note("Search by a hamlet's name or its mayor's."),
-            scroll_area((list, closed())),
+            scroll_area((hand(), list, closed(), scholars())),
             beside((
                 action(
                     Glyph::Hearth,
@@ -183,6 +185,95 @@ pub fn overview() -> impl View {
         .fills_height()
         .gap(cx.theme().space.section)
     })
+}
+
+/// The Hand, the one agent of the whole realm, to talk to.
+fn hand() -> AnyView {
+    beside((
+        action(Glyph::Mayor, "THE HAND", crate::convo::talk_to_hand),
+        note("Speaks for the realm: hires, founding and its limits."),
+    ))
+    .boxed()
+}
+
+/// A scholar of the realm, and the hires that work as it.
+#[derive(Clone, PartialEq)]
+struct ScholarRow {
+    name: String,
+    living: usize,
+    /// The hire to open when the row is pressed.
+    hire: Option<Entity>,
+    gone: bool,
+}
+
+fn scholars() -> AnyView {
+    keyed(
+        derived(|world: &World| {
+            let mut rows = world
+                .try_query::<&Scholar>()
+                .map(|mut query| {
+                    query
+                        .iter(world)
+                        .map(|scholar| &scholar.0)
+                        .map(|scholar| {
+                            let hires = scholar
+                                .hires
+                                .iter()
+                                .filter_map(|id| {
+                                    agents::agent(world, *id)
+                                })
+                                .filter(|hire| {
+                                    agents::id_of(world, *hire)
+                                        .is_some()
+                                })
+                                .collect::<Vec<_>>();
+                            ScholarRow {
+                                name: scholar.name.clone(),
+                                living: hires.len(),
+                                hire: hires.first().copied(),
+                                gone: scholar.left.is_some(),
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            rows.sort_by_key(|row| row.name.to_lowercase());
+            rows
+        })
+        .when(stale()),
+        |rows| {
+            if rows.is_empty() {
+                return column(()).boxed();
+            }
+            let mut parts = vec![heading(
+                Glyph::Robot,
+                format!("SCHOLARS ({})", rows.len()),
+            )];
+            for row in rows {
+                let status = match (row.gone, row.living) {
+                    (true, _) => "gone".to_string(),
+                    (false, 0) => "not hired".to_string(),
+                    (false, 1) => "1 hire".to_string(),
+                    (false, n) => format!("{n} hires"),
+                };
+                let line = format!("{}: {status}", row.name);
+                parts.push(note(line).boxed());
+                if let Some(hire) = row.hire {
+                    parts.push(
+                        action(Glyph::Robot, "OPEN", move |world| {
+                            let thing = Thing::Agent(hire);
+                            select(world, Some(thing));
+                            focus_on(world, thing, false);
+                        })
+                        .boxed(),
+                    );
+                }
+            }
+            group(parts).boxed()
+        },
+    )
+    .within(bare())
+    .boxed()
 }
 
 #[derive(Resource, Default)]
@@ -248,9 +339,8 @@ fn closed() -> AnyView {
                             {
                                 world.resource_mut::<Erasing>().0 =
                                     None;
-                                chat::decree(
+                                chat::command(
                                     world,
-                                    HOME,
                                     format!("/restore-hamlet {id}"),
                                 );
                             }
@@ -315,9 +405,8 @@ fn closed() -> AnyView {
                                                         && h.at == at
                                                 })
                                         {
-                                            chat::decree(
+                                            chat::command(
                                                 world,
-                                                HOME,
                                                 format!(
                                                     "/erase-hamlet \
                                                      {id}"
@@ -397,7 +486,7 @@ mod tests {
             words(&mut app).iter().any(|s| s == "CLOSED DOWN (1)")
         );
         press(&mut app, "RESTORE");
-        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/restore-hamlet mill" && s.to.hamlet == "home")));
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/restore-hamlet mill" && s.to == protocol::AgentId(1))));
         press(&mut app, "DELETE FOR GOOD");
         assert!(!app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text.starts_with("/erase-hamlet"))));
         app.update();
@@ -407,7 +496,7 @@ mod tests {
                 .any(|s| s == "DELETE THE MILL FOR GOOD?")
         );
         press(&mut app, "DELETE");
-        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/erase-hamlet mill" && s.to.hamlet == "home")));
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/erase-hamlet mill" && s.to == protocol::AgentId(1))));
         app.world_mut().resource_mut::<Deeds>().0.clear();
         app.update();
         let shown = words(&mut app);
@@ -567,6 +656,5 @@ mod tests {
                 |text| text == "The server's second budget line."
             )
         );
-        assert!(shown.iter().any(|text| text == "VOTES (0)"));
     }
 }

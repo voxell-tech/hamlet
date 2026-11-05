@@ -264,13 +264,7 @@ mod tests {
             .iter()
             .filter_map(|message| match message {
                 protocol::ClientMessage::Say(say) => {
-                    assert_eq!(
-                        say.to,
-                        protocol::Address {
-                            hamlet: "home".into(),
-                            agent: "mayor".into()
-                        }
-                    );
+                    assert_eq!(say.to, protocol::AgentId(2));
                     Some(say.text.as_str())
                 }
                 _ => None,

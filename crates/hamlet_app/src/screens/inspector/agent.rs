@@ -20,7 +20,7 @@ use hamlet_client::realm::{
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, breadcrumb, close,
-    filling, hairline, note, scroll_area, title,
+    filling, hairline, note, scroll_area, section, title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -171,8 +171,8 @@ fn header(agent: Entity, with: Option<String>) -> impl View {
         .rules(hamlet_ui::styles::button)
         .tagged(Variant::Default)
         .on_activate(move |world| {
-            let mayor = hamlet_client::realm::mayor(world);
-            let thing = if mayor == Some(agent) {
+            let hall = hamlet_client::realm::first_mayor(world);
+            let thing = if hall == Some(agent) {
                 Thing::Keeper
             } else {
                 Thing::Agent(agent)
@@ -203,7 +203,6 @@ fn header(agent: Entity, with: Option<String>) -> impl View {
                 // Its spending from the hamlet's budget, which is
                 // more than this one chat.
                 note(rolled(move |world| spent(world, agent))),
-                crate::models::of_agent(agent),
             ))
             .gap(gap),
         )
@@ -211,15 +210,39 @@ fn header(agent: Entity, with: Option<String>) -> impl View {
 }
 
 fn notes() -> impl View {
-    let shown =
-        keyed(resource::<Papers, _>(|p| p.notes.clone()), |text| {
-            if text.trim().is_empty() {
-                note("No notes yet.").boxed()
-            } else {
-                hamlet_ui::markdown::fixed(text, Tone::Body).boxed()
+    let shown = keyed(
+        resource::<Papers, _>(|p| {
+            (p.memory.clone(), p.learned.clone())
+        }),
+        |(memory, learned)| {
+            if memory.is_empty() {
+                return note("No memory files yet.").boxed();
             }
-        })
-        .within(bare());
+            close(
+                memory
+                    .iter()
+                    .map(|file| {
+                        let title = if learned.contains(&file.path) {
+                            format!("{} (LEARNED)", file.path)
+                        } else {
+                            file.path.clone()
+                        };
+                        close((
+                            section(title),
+                            note(file.description.clone()),
+                            hamlet_ui::markdown::fixed(
+                                &file.text,
+                                Tone::Body,
+                            ),
+                        ))
+                        .boxed()
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .boxed()
+        },
+    )
+    .within(bare());
     // Reflecting is what writes them.
     let reflect = action(Glyph::Notes, "REFLECT NOW", |w| {
         if let Some(to) = super::papers::selected(w) {
@@ -431,9 +454,7 @@ mod tests {
                 else {
                     return false;
                 };
-                stop.agent.as_ref().is_some_and(|agent| {
-                    agent.hamlet == "home" && agent.agent == "founder"
-                })
+                stop.agent == Some(protocol::AgentId(1))
             });
         assert!(stopped);
         hamlet_client::receive(
@@ -471,9 +492,9 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins((chat::plugin, crate::inspector::plugin));
         app.init_resource::<Bar>();
-        let agent = app.world().resource::<Convo>().agent;
+        let ada = crate::testing::seat_ada(&mut app);
         app.insert_resource(hamlet_realm::pick::Selected(Some(
-            Thing::Agent(agent),
+            Thing::Agent(ada),
         )));
         app.update();
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
@@ -515,14 +536,11 @@ mod tests {
         use serde_json::json;
         let mut app = inspector_app();
         let read = request(&app, "papers");
-        assert_eq!(
-            read["agent"],
-            json!({"hamlet": "home", "agent": "founder"})
-        );
+        assert_eq!(read["of"], json!({"agent": 2}));
         receive(
             &mut app,
             json!({"type": "read", "to": read["id"], "papers": {
-                "notes": "", "character": "", "skills": []
+                "memory": [], "learned": [], "character": "", "skills": []
             }}),
         );
         press(&mut app, "NOTES");
@@ -530,7 +548,7 @@ mod tests {
         assert!(
             words(&mut app)
                 .iter()
-                .any(|text| text == "No notes yet.")
+                .any(|text| text == "No memory files yet.")
         );
         press(&mut app, "CHARACTER");
         app.update();
@@ -556,7 +574,7 @@ mod tests {
         receive(
             &mut app,
             json!({"type": "read", "to": read["id"], "papers": {
-                "notes": "Received notes", "character": "Received character", "skills": [{"name": "orchard", "description": "Tends trees"}]
+                "memory": [{"path": "notes.md", "description": "", "text": "Received notes"}], "learned": [], "character": "Received character", "skills": [{"name": "orchard", "description": "Tends trees"}]
             }}),
         );
         assert!(has_span(&mut app, "Received character"));
@@ -579,10 +597,7 @@ mod tests {
             .map(|m| serde_json::to_value(m).unwrap())
             .find(|m| m["type"] == "say")
             .unwrap();
-        assert_eq!(
-            sent["to"],
-            json!({"hamlet": "home", "agent": "founder"})
-        );
+        assert_eq!(sent["to"], json!(2));
         assert_eq!(sent["text"], "/reflect");
     }
 
@@ -592,7 +607,7 @@ mod tests {
         let mut app = inspector_app();
         show_prompt(app.world_mut());
         let read = request(&app, "prompt");
-        assert_eq!(read["agent"]["agent"], "founder");
+        assert_eq!(read["agent"], json!(2));
         receive(
             &mut app,
             json!({"type": "read", "to": read["id"], "prompt": "The received prompt"}),
@@ -644,7 +659,7 @@ mod tests {
         let text = "character ".repeat(1000);
         receive(
             &mut app,
-            json!({"type": "read", "to": read["id"], "papers": {"notes": "", "character": text, "skills": []}}),
+            json!({"type": "read", "to": read["id"], "papers": {"memory": [], "learned": [], "character": text, "skills": []}}),
         );
         let edit =
             app.world().resource::<Edits>().0.last().unwrap().clone();
@@ -662,10 +677,7 @@ mod tests {
             .find(|m| m["type"] == "edit")
             .unwrap();
         assert_eq!(sent["doc"], "character");
-        assert_eq!(
-            sent["agent"],
-            json!({"hamlet": "home", "agent": "founder"})
-        );
+        assert_eq!(sent["scholar"], json!(2));
         assert_eq!(sent["text"], "Saved character");
         receive(
             &mut app,
@@ -690,44 +702,39 @@ mod tests {
             .filter(|m| m["type"] == "edit")
             .last()
             .unwrap();
-        assert_eq!(
-            sent["agent"],
-            json!({"hamlet": "home", "agent": "founder"})
-        );
+        assert_eq!(sent["scholar"], json!(2));
         assert_eq!(sent["text"], "Still the founder's character");
     }
 
     fn select_scout(app: &mut App) {
         use hamlet_client::chats::Chat;
         let mut state = hamlet_testing::realm::state();
-        state
-            .agents
-            .push(hamlet_testing::realm::agent("home", 1, "scout"));
+        state.agents.push(hamlet_testing::realm::agent(
+            3, "home", 1, "scout",
+        ));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        let agent =
-            hamlet_client::realm::named(app.world_mut(), "scout")
-                .unwrap();
-        let to = protocol::Address {
-            hamlet: "home".into(),
-            agent: "scout".into(),
-        };
+        let agent = hamlet_client::realm::named(
+            app.world_mut(),
+            "scout@home",
+        )
+        .unwrap();
+        let to = protocol::AgentId(3);
         let session = app
             .world_mut()
             .spawn(Chat(protocol::ChatRef {
                 kind: None,
                 from: None,
-                with: to.clone(),
+                with: to,
                 past: None,
             }))
             .id();
         let mut convo = app.world_mut().resource_mut::<Convo>();
         convo.agent = agent;
         convo.session = session;
-        convo.to = to;
-        convo.with = Some("scout".into());
+        convo.with = Some("scout@home".into());
         app.update();
     }
 
@@ -740,14 +747,14 @@ mod tests {
         let prompt = request(&app, "prompt");
         select_scout(&mut app);
         let scout = request(&app, "papers");
-        assert_eq!(scout["agent"]["agent"], "scout");
+        assert_eq!(scout["of"], json!({"agent": 3}));
         receive(
             &mut app,
-            json!({"type": "read", "to": scout["id"], "papers": {"notes": "Scout notes", "character": "Scout character", "skills": []}}),
+            json!({"type": "read", "to": scout["id"], "papers": {"memory": [{"path": "notes.md", "description": "", "text": "Scout notes"}], "learned": [], "character": "Scout character", "skills": []}}),
         );
         receive(
             &mut app,
-            json!({"type": "read", "to": papers["id"], "papers": {"notes": "Wrong notes", "character": "Wrong character", "skills": []}}),
+            json!({"type": "read", "to": papers["id"], "papers": {"memory": [{"path": "notes.md", "description": "", "text": "Wrong notes"}], "learned": [], "character": "Wrong character", "skills": []}}),
         );
         receive(
             &mut app,
@@ -777,13 +784,15 @@ mod tests {
         use serde_json::json;
         let mut app = inspector_app();
         let mut state = hamlet_testing::realm::state();
-        state
-            .agents
-            .push(hamlet_testing::realm::agent("home", 1, "scout"));
-        state.agents[0].conversations = serde_json::from_value(json!([
-            {"with":{"hamlet":"home","number":1},"kind":"letters","count":2,"last":1000},
-            {"with":{"hamlet":"home","number":1},"kind":"questions","count":1,"last":2000}
-        ])).unwrap();
+        state.agents.push(hamlet_testing::realm::agent(
+            3, "home", 1, "scout",
+        ));
+        state.agents[1].conversations =
+            serde_json::from_value(json!([
+                {"with":3,"kind":"letters","count":2,"last":1000},
+                {"with":3,"kind":"questions","count":1,"last":2000}
+            ]))
+            .unwrap();
         receive(
             &mut app,
             serde_json::to_value(protocol::ServerMessage::State(
@@ -795,8 +804,8 @@ mod tests {
         press(&mut app, "AGENT CHATS");
         app.update();
         for (label, kind) in [
-            ("LETTERS WITH SCOUT", "letters"),
-            ("QUESTIONS WITH SCOUT", "questions"),
+            ("LETTERS WITH SCOUT@HOME", "letters"),
+            ("QUESTIONS WITH SCOUT@HOME", "questions"),
         ] {
             press(&mut app, label);
             app.update();
@@ -806,7 +815,7 @@ mod tests {
             assert_eq!(
                 serde_json::to_value(&chat).unwrap(),
                 json!({
-                    "with":{"hamlet":"home","agent":"mayor"}, "from":{"hamlet":"home","number":1}, "kind":kind
+                    "with":2, "from":3, "kind":kind
                 })
             );
             assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Open(open) if open.chat == chat)));
@@ -836,7 +845,7 @@ mod tests {
             app.update();
         }
         // The path over a watched chat leads back to the chief's.
-        press(&mut app, "LETTERS WITH SCOUT");
+        press(&mut app, "LETTERS WITH SCOUT@HOME");
         app.update();
         press(&mut app, "CHIEF CHAT");
         app.update();

@@ -145,7 +145,7 @@ pub(crate) fn follow_selection(world: &mut World) {
     }
     let agent = match selected.0 {
         Some(Thing::Keeper | Thing::Cottage) => {
-            match hamlet_client::realm::mayor(world) {
+            match hamlet_client::realm::first_mayor(world) {
                 Some(mayor) => mayor,
                 None => return,
             }

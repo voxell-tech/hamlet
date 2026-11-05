@@ -49,7 +49,7 @@ use hamlet_client::messages::{
     ChiefMessage, Response, Rewind, ServerFault,
 };
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::MAYOR;
+use hamlet_client::realm as agents;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders::{Decree, Tell};
 use hamlet_ui::styles::{note, text_input};
@@ -257,7 +257,7 @@ pub fn send(world: &mut World, text: String) {
     }
     if matches!(
         text.split_whitespace().next(),
-        Some("/agent" | "/hamlet")
+        Some("/hand" | "/agent" | "/hamlet")
     ) {
         return;
     }
@@ -268,28 +268,41 @@ pub fn send(world: &mut World, text: String) {
     {
         return;
     }
-    let to = convo.to.clone();
+    let Some(to) = convo.to(world) else {
+        return;
+    };
     // What is sent is at the end of the chat.
     to_end(world);
     world.trigger(ChiefMessage { to, text });
 }
 
-/// A chief's command addressed to a hamlet's mayor.
+/// A chief's command about a hamlet, addressed to its mayor.
 pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
-    world.trigger(ChiefMessage {
-        to: protocol::Address {
-            hamlet: hamlet.into(),
-            agent: MAYOR.into(),
-        },
-        text,
-    });
+    if let Some(mayor) = agents::mayor_of(world, hamlet) {
+        command_to(world, mayor, text);
+    }
 }
 
-/// Gives a decree of the world's as [`decree`] does.
+/// A chief's command about the realm, addressed to the Hand.
+pub(crate) fn command(world: &mut World, text: String) {
+    if let Some(hand) = agents::hand(world) {
+        command_to(world, hand, text);
+    }
+}
+
+fn command_to(world: &mut World, agent: Entity, text: String) {
+    if let Some(to) = agents::id_of(world, agent) {
+        world.trigger(ChiefMessage { to, text });
+    }
+}
+
+/// Gives a decree of the world's as [`decree`] does, or as
+/// [`command`] does when it is about no hamlet.
 pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
     let Decree { hamlet, text } = decree.event().clone();
-    commands.queue(move |world: &mut World| {
-        self::decree(world, &hamlet, text);
+    commands.queue(move |world: &mut World| match hamlet {
+        Some(hamlet) => self::decree(world, &hamlet, text),
+        None => command(world, text),
     });
 }
 
@@ -893,6 +906,7 @@ mod tests {
      {
         use hamlet_client::outbox::Outbox;
         let mut app = crate::testing::panel_app();
+        crate::testing::seat_ada(&mut app);
         app.add_plugins(plugin);
         app.update();
         let pages = paging_pages();
@@ -957,6 +971,7 @@ mod tests {
 
         use crate::testing::{panel_app, words};
         let mut app = panel_app();
+        crate::testing::seat_ada(&mut app);
         app.add_plugins(plugin);
         // A window wide enough that one turn reaches the first row.
         app.insert_resource(Reach {

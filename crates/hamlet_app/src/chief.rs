@@ -22,6 +22,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
 use hamlet_client::ViewFolder;
 use hamlet_client::messages::ChiefMessage;
+use hamlet_client::realm::Identity;
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
@@ -146,9 +147,12 @@ pub(crate) fn accompany(
 pub(crate) fn spoke(
     message: On<ChiefMessage>,
     convo: Res<Convo>,
+    identities: Query<&Identity>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
-    if message.to != convo.to {
+    if identities.get(convo.agent).map(|identity| identity.0)
+        != Ok(message.to)
+    {
         return;
     }
     for (chief, mut beside) in &mut chiefs {

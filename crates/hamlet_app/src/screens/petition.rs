@@ -155,7 +155,7 @@ pub(crate) fn keep_queue(
 fn answer(world: &mut World, need: &Need, choice: Choice) {
     if choice == Choice::Reply {
         if let Some(chat) = &need.chat {
-            talk_at(world, &chat.with);
+            talk_at(world, chat.with);
         }
         return;
     }
@@ -430,6 +430,7 @@ mod tests {
     #[test]
     fn a_received_approval_offers_its_answers_and_stop_all() {
         let mut app = panel_app();
+        crate::testing::seat_ada(&mut app);
         let mut state = hamlet_testing::realm::state();
         state.waits.push(hamlet_testing::realm::wait("approve-pwd"));
         hamlet_client::receive(
@@ -444,7 +445,12 @@ mod tests {
         );
         app.update();
         let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text.starts_with("APPROVAL FROM FOUNDER")), "{shown:?}");
+        assert!(
+            shown.iter().any(
+                |text| text.starts_with("APPROVAL FROM ADA@HOME")
+            ),
+            "{shown:?}"
+        );
         for text in [
             "ALLOW ONCE",
             "FOR THIS SESSION",
