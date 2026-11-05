@@ -87,3 +87,7 @@ required-features = ["acceptance"]
 [[test]]
 name = "merges"
 required-features = ["acceptance"]
+
+[[test]]
+name = "library"
+required-features = ["acceptance"]
