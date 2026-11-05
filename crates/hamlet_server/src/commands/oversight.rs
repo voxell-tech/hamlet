@@ -49,6 +49,7 @@ impl Core {
             "undo" => self.undo().await?,
             "to" => self.instruct(here, rest).await?,
             "reflect" => self.reflect(agent).await?,
+            "worker" => self.chiefs_worker(here, rest).await?,
             _ => return Ok(None),
         }))
     }
@@ -300,6 +301,61 @@ impl Core {
         Ok(Ok(match asked {
             Some(_) => format!("Asked {name} to reflect."),
             None => format!("{name} is reflecting already."),
+        }))
+    }
+
+    /// Starts a worker on `brief` in `here`, or outside every hamlet,
+    /// whose answer shows in its own transcript.
+    async fn chiefs_worker(
+        &mut self,
+        here: Option<&HamletId>,
+        brief: &str,
+    ) -> Result<Result<String, Refusal>> {
+        if brief.is_empty() {
+            return Ok(Err(super::usage("worker")));
+        }
+        let chief = self.realm.chief();
+        let db = self.realm.store().connection();
+        let author =
+            addresses::actor_name(db, Some(Actor::Chief(chief)))?;
+        let hamlet = here.cloned();
+        let brief = self.credentials.scrub_text(brief);
+        let done = self
+            .attempt(Actor::Chief(chief), |cx, env| {
+                let id = match crate::society::workers::start(
+                    cx,
+                    crate::society::workers::Start {
+                        starter:
+                            crate::society::workers::Starter::Chief(
+                                chief,
+                            ),
+                        hamlet,
+                        brief: brief.clone(),
+                        tools: Vec::new(),
+                        model: None,
+                        waits: false,
+                        call: None,
+                    },
+                )? {
+                    Ok(id) => id,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                crate::talk::briefs::give(
+                    cx,
+                    env,
+                    id,
+                    &brief,
+                    &author,
+                    Some(chief),
+                )?;
+                Ok(Ok(id))
+            })
+            .await?;
+        Ok(done.map(|id| {
+            format!(
+                "Started worker#{id}; open it to watch it and read \
+                 its answer."
+            )
         }))
     }
 

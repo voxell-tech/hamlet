@@ -1045,7 +1045,8 @@ fn keep_catalogue(db: &mut Db, cards: &Catalogue) -> Result<()> {
     Ok(())
 }
 
-fn is_local(base_url: Option<&str>) -> bool {
+/// Whether `base_url` is served on this machine.
+pub(crate) fn is_local(base_url: Option<&str>) -> bool {
     base_url
         .and_then(|s| url::Url::parse(s).ok())
         .is_some_and(|u| {

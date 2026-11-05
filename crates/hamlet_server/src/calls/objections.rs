@@ -155,6 +155,11 @@ impl Core {
             tasks::get(db, task)?.text.unwrap_or_default();
         let reason = self.credentials.scrub_text(&reason);
         let agent = call.conversation.agent;
+        let name = crate::society::addresses::name_of(db, agent)?;
+        let about = format!(
+            "A chief told `{name}`: {instruction}\n`{name}` \
+             objects: {reason}"
+        );
         let conversation = call.conversation.id;
         let (runtime, key) =
             (call.call.runtime.clone(), call.call.key.clone());
@@ -167,7 +172,7 @@ impl Core {
                     agent,
                     conversation: Some(conversation),
                     task: Some(task),
-                    about: format!("{reason}\n{instruction}"),
+                    about,
                     change: None,
                     answers: vec![Choice::Go, Choice::Withdraw],
                     questions: None,

@@ -269,6 +269,75 @@ pub(crate) fn resume(
     Ok(Ok(()))
 }
 
+/// Takes `chief`'s chat with `agent` back to before the chief's line
+/// shown as `item` (C27): the session points at a fork of its
+/// conversation made at the entry before that line, and what waited
+/// since lapses. Returns the line, for the chief to send again.
+pub(crate) fn rewind(
+    cx: &mut Change<'_>,
+    env: &Env,
+    agent: AgentId,
+    chief: ChiefId,
+    item: &str,
+) -> crate::change::Done<String> {
+    use crate::society::refusal::Refusal;
+    let not_a_line = || Refusal::Usage {
+        words: "That is not one of your lines in this conversation."
+            .into(),
+    };
+    let conversation = current(cx, env, agent, chief)?;
+    if inputs::is_busy(cx.db, conversation)? {
+        crate::change::refuse!(Refusal::TurnRunning {
+            then: "rewind".into()
+        });
+    }
+    let entry = item.strip_suffix(":0").unwrap_or(item);
+    let items =
+        super::items::page(cx.db, conversation, None, i64::MAX)?;
+    let Some(target) =
+        items.iter().position(|(_, kept)| kept.entry == entry)
+    else {
+        crate::change::refuse!(not_a_line());
+    };
+    let name = chiefs::find(cx.db, chief)?
+        .context("the chief is not in the realm")?
+        .name;
+    let mark = items[target]
+        .1
+        .mark
+        .as_ref()
+        .map(Mark::of)
+        .transpose()?
+        .flatten();
+    let Some(Mark::Chief {
+        chief: by, text, ..
+    }) = mark
+    else {
+        crate::change::refuse!(not_a_line());
+    };
+    if by != name {
+        crate::change::refuse!(not_a_line());
+    }
+    let kept = conversations::get(cx.db, conversation)?;
+    let session = kept.session.unwrap_or(1);
+    crate::oversight::lapse_in(
+        cx,
+        conversation,
+        crate::oversight::Ruling::Rewound,
+    )?;
+    let fork = match target.checked_sub(1).map(|at| &items[at].1) {
+        Some(previous) => {
+            conversations::fork(cx, &kept, &previous.entry)?
+        }
+        None => begin(cx, env, agent, chief, session)?,
+    };
+    diesel::update(chat_session::table.find((agent, chief, session)))
+        .set(chat_session::conversation.eq(fork))
+        .execute(cx.db)?;
+    cx.touched.agents.insert(agent);
+    Ok(Ok(text))
+}
+
 /// Carries on the current session's failed or stopped turn as a new
 /// task (C26). Returns the input's request.
 pub(crate) fn retry(

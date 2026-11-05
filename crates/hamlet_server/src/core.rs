@@ -708,9 +708,29 @@ impl Core {
                     &runtime,
                     &asked.conversation,
                 )?;
+                let re = asked.id.clone();
+                if let Some((key, words)) = self
+                    .before_prompt(
+                        &conversation,
+                        asked.input.as_deref(),
+                    )
+                    .await?
+                {
+                    self.runtimes
+                        .send(index, |v, id| {
+                            ServerMessage::Waiting(runtime::Waiting {
+                                id,
+                                key,
+                                re,
+                                v,
+                                words,
+                            })
+                        })
+                        .await;
+                    return Ok(());
+                }
                 let sections = self
                     .prompt(&conversation, asked.input.as_deref())?;
-                let re = asked.id;
                 self.runtimes
                     .send(index, |v, id| {
                         ServerMessage::Sections(runtime::Sections {

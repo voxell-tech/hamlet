@@ -6,6 +6,7 @@ mod answer;
 mod held;
 mod objections;
 pub(crate) mod place;
+pub(crate) mod reviews;
 mod society;
 
 use std::collections::{BTreeMap, HashMap};

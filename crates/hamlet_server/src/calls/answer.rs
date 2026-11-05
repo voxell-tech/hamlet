@@ -76,6 +76,29 @@ fn words(
     Ok(Ok(format!("{} {}", asking::ANSWERS, text.trim())))
 }
 
+/// Withdraws the chief's instruction of `task`: its turn in
+/// `conversation` stops, and the transcript says why.
+fn withdraw(
+    cx: &mut crate::change::Change<'_>,
+    conversation: hamlet_store::ids::ConversationId,
+    task: hamlet_store::ids::TaskId,
+) -> Result<()> {
+    let text = crate::talk::tasks::get(cx.db, task)?
+        .text
+        .unwrap_or_default();
+    crate::talk::inputs::drop_kept(cx.db, conversation)?;
+    if crate::talk::inputs::is_busy(cx.db, conversation)? {
+        conversations::set_cancelling(cx.db, conversation, true)?;
+    }
+    crate::talk::tasks::done(cx.db, task, cx.at)?;
+    crate::talk::chats::notice(
+        cx,
+        conversation,
+        &format!("The chief withdrew the instruction: {text}"),
+    )?;
+    Ok(())
+}
+
 impl Core {
     /// A chief's `choice` on the wait `id`, in the words a reply
     /// gives.
@@ -158,6 +181,12 @@ impl Core {
                         ruling == Ruling::Go,
                         cx.at,
                     )?;
+                    if ruling == Ruling::Withdraw
+                        && let (Some(task), Some(conversation)) =
+                            (wait.task, wait.conversation)
+                    {
+                        withdraw(cx, conversation, task)?;
+                    }
                 }
                 if ruling == Ruling::Always
                     && let (
@@ -232,6 +261,18 @@ impl Core {
             self.wake_call(&call.runtime, &call.key).await;
         }
         if wait.kind == WaitKind::Objection {
+            if let (Some(task), Some(conversation)) =
+                (wait.task, wait.conversation)
+            {
+                let db = self.realm.store().connection();
+                let runtime =
+                    conversations::get(db, conversation)?.runtime;
+                self.wake_call(
+                    &runtime,
+                    &super::reviews::hold_key(task),
+                )
+                .await;
+            }
             self.flush(false).await?;
         }
         Ok(Ok(format!(

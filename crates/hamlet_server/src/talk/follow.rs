@@ -6,8 +6,8 @@
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_protocol::client::Choice;
-use hamlet_store::ids::{ConversationId, OfferId};
-use hamlet_store::schema::answer_fault;
+use hamlet_store::ids::{ConversationId, OfferId, TaskId};
+use hamlet_store::schema::{answer_fault, objection, review};
 use serde_json::Value;
 
 use super::conversations::{self, Conversation, Kind, Last};
@@ -15,6 +15,7 @@ use super::errands::{self, Ended};
 use super::inputs::{self, Input, InputKind, Status};
 use super::{Env, items, letters, reflections, tasks};
 use crate::calls::LIBRARIAN;
+use crate::calls::reviews::REVIEW;
 use crate::change::Change;
 use crate::jobs::{self, Job};
 use crate::oversight::{self, Raise, WaitKind};
@@ -158,12 +159,16 @@ fn errand_ended(
     else {
         return Ok(None);
     };
-    if kind != LIBRARIAN {
-        return Ok(None);
-    }
     let Some(ended) = errands::ended(cx.db, kind, owner)? else {
         return Ok(None);
     };
+    if kind == REVIEW {
+        reviewed(cx, owner, ended)?;
+        return Ok(None);
+    }
+    if kind != LIBRARIAN {
+        return Ok(None);
+    }
     let Some(task) = input.task else {
         return Ok(None);
     };
@@ -269,6 +274,93 @@ fn errand_ended(
             author: Some("the librarian"),
         },
     )
+}
+
+/// Keeps how a lead's review of the instruction `owner` names ended,
+/// raising its objection for the chief to rule on.
+fn reviewed(
+    cx: &mut Change<'_>,
+    owner: &str,
+    ended: Ended,
+) -> Result<()> {
+    let Some(task) = owner
+        .strip_prefix("review:")
+        .and_then(|task| task.parse::<i64>().ok())
+        .map(TaskId)
+    else {
+        return Ok(());
+    };
+    let reason = match &ended {
+        Ended::Answered(answer) => answer
+            .trim()
+            .split_once(':')
+            .filter(|(word, _)| {
+                word.trim_matches(|c: char| !c.is_alphabetic())
+                    .eq_ignore_ascii_case("OBJECT")
+            })
+            .map(|(_, reason)| reason.trim().to_owned())
+            .filter(|reason| !reason.is_empty()),
+        Ended::Failed(_) => None,
+    };
+    let outcome = match (&ended, &reason) {
+        (Ended::Failed(_), _) => "failed",
+        (_, Some(_)) => "object",
+        (_, None) => "pass",
+    };
+    diesel::update(review::table.find(task))
+        .set(review::outcome.eq(outcome))
+        .execute(cx.db)?;
+    let Some(reason) = reason else {
+        return Ok(());
+    };
+    let objected = objection::table
+        .find(task)
+        .count()
+        .get_result::<i64>(cx.db)?
+        > 0;
+    let found = tasks::get(cx.db, task)?;
+    let Some(conversation) = inputs::of_task(cx.db, task)? else {
+        return Ok(());
+    };
+    if objected || found.done_at.is_some() {
+        return Ok(());
+    }
+    let lead = review::table
+        .find(task)
+        .select(review::lead)
+        .first::<hamlet_store::ids::AgentId>(cx.db)?;
+    let lead_name = crate::society::addresses::name_of(cx.db, lead)?;
+    let name =
+        crate::society::addresses::name_of(cx.db, found.agent)?;
+    let about = format!(
+        "A chief told `{name}`: {}\n{lead_name} objects: {reason}",
+        found.text.unwrap_or_default()
+    );
+    let on = oversight::raise(
+        cx,
+        Raise {
+            kind: WaitKind::Objection,
+            danger: None,
+            agent: found.agent,
+            conversation: Some(conversation),
+            task: Some(task),
+            about,
+            change: None,
+            answers: vec![Choice::Go, Choice::Withdraw],
+            questions: None,
+        },
+    )?;
+    diesel::insert_into(objection::table)
+        .values((
+            objection::task.eq(task),
+            objection::agent.eq(lead),
+            objection::source.eq("review"),
+            objection::reason.eq(&reason),
+            objection::wait.eq(on),
+            objection::at.eq(cx.at),
+        ))
+        .execute(cx.db)?;
+    Ok(())
 }
 
 /// Raises a fault for a chief's chat whose turn failed, unless its

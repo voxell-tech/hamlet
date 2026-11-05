@@ -74,6 +74,11 @@ const TABLE: &[Command] = &[
         does: "Ask the agent to keep what this session taught it",
     },
     Command {
+        name: "worker",
+        usage: "/worker <task>",
+        does: "Start a worker on a task in this hamlet",
+    },
+    Command {
         name: "queue",
         usage: "/queue",
         does: "List what waits for you",

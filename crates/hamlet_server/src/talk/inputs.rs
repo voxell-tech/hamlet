@@ -142,6 +142,19 @@ pub(crate) fn find(
         .optional()?)
 }
 
+/// The conversation the instruction of `task` was given in.
+pub(crate) fn of_task(
+    db: &mut Db,
+    task: TaskId,
+) -> Result<Option<ConversationId>> {
+    Ok(input::table
+        .filter(input::task.eq(task))
+        .order(input::ordinal)
+        .select(input::conversation)
+        .first(db)
+        .optional()?)
+}
+
 /// The input its runtime calls `submission`.
 pub(crate) fn by_submission(
     db: &mut Db,

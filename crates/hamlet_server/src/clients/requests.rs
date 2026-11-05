@@ -364,11 +364,55 @@ impl Core {
                 let answer = self.give_part(client, part).await?;
                 self.answer(client, answer)
             }
+            ClientMessage::Rewind(rewind) => {
+                if rewind.chat.from.is_some()
+                    || rewind.chat.past.is_some()
+                {
+                    let refusal = Refusal::Usage {
+                        words: "Only the current session of a \
+                                chief's chat goes back."
+                            .into(),
+                    };
+                    return self.answer(
+                        client,
+                        reply(&rewind.id, Err(refusal)),
+                    );
+                }
+                let agent =
+                    AgentId(i64::try_from(rewind.chat.with.0)?);
+                if let Err(refusal) = self.reaches(agent)? {
+                    return self.answer(
+                        client,
+                        reply(&rewind.id, Err(refusal)),
+                    );
+                }
+                let done = self
+                    .attempt(Actor::Chief(chief), |cx, env| {
+                        chats::rewind(
+                            cx,
+                            env,
+                            agent,
+                            chief,
+                            &rewind.item,
+                        )
+                    })
+                    .await?;
+                self.rewatch(agent).await?;
+                let answer = match done {
+                    Ok(text) => {
+                        ServerMessage::Reply(protocol::Reply {
+                            kind: protocol::ReplyKind::Rewound,
+                            text,
+                            to: rewind.id.clone(),
+                            upload: None,
+                        })
+                    }
+                    Err(refusal) => reply(&rewind.id, Err(refusal)),
+                };
+                self.answer(client, answer)
+            }
             message => {
                 let what = match &message {
-                    ClientMessage::Rewind(_) => {
-                        "taking a conversation back"
-                    }
                     ClientMessage::MoveLodges(_) => "moving lodges",
                     _ => "that",
                 };
