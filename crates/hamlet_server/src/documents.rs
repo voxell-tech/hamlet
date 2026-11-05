@@ -212,21 +212,15 @@ impl Service {
         };
         let text = &self.credentials.scrub_text(text);
         if character {
-            let operation = self.operation(
-                &agent.hamlet,
-                Change::SetCharacter {
-                    number: member.number,
-                    text: text.into(),
+            let by = format!("chief:{}", self.chief);
+            self.scholars.set_character(
+                member.scholar,
+                text,
+                crate::scholars::repository::Author {
+                    name: &by,
+                    at: crate::clock::now() / 1000,
                 },
-                "",
-            );
-            let mut tx = self.home.store().transaction()?;
-            if let Outcome::Refused(error) =
-                crate::operation::change(&mut tx, &operation)?
-            {
-                return Ok(Err(Refusal::Record(Box::new(error))));
-            }
-            tx.commit()?;
+            )?;
         } else if self
             .houses
             .write_notes(&agent.hamlet, member.number, text)
@@ -517,10 +511,11 @@ pub(crate) fn prepare_read(
             agent.number,
             false,
         )?;
+        let kept = service.scholars.character(agent.scholar)?;
         let character = if full {
-            agent.character
+            kept
         } else {
-            cut(agent.character.trim(), 6000, "")
+            cut(kept.trim(), 6000, "")
         };
         return Ok(Reading::Papers {
             id,

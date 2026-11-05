@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::record::{
-    Actor, Admit, Change, Departure, RecordOperation,
+    Actor, Admit, Change, Departure, Hiring, RecordOperation,
 };
 use crate::service::Service;
 use crate::{
@@ -151,15 +151,19 @@ fn change(service: &mut Service, change: Change) -> bool {
             },
         )
         .unwrap();
+    // As the server does after a change that makes a scholar.
+    service.scholars.plant(service.home.connection()).unwrap();
     matches!(result, Reply::Outcome(Outcome::Done(_)))
 }
 
 fn admit(name: &str) -> Change {
     Change::Admit(Admit {
-        name: name.into(),
+        scholar: Hiring::New {
+            name: name.into(),
+            character: String::new(),
+        },
         purpose: "Inspect".into(),
         model: None,
-        character: String::new(),
         roads: vec![],
     })
 }

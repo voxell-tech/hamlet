@@ -1,10 +1,9 @@
-//! Names, office addresses and the realm's living name index.
+//! Names and office addresses.
 
 use anyhow::Result;
-use diesel::prelude::*;
+use diesel::SqliteConnection;
 
 use super::{Agent, Archived, DecisionKind, End, Hamlet, Reason};
-use crate::schema::record_name;
 
 /// A model's spelling normalized to the record's name spelling.
 pub fn tidy_name(name: &str) -> String {
@@ -39,23 +38,19 @@ pub fn check_name(name: &str) -> Option<Reason> {
     }
 }
 
+/// Why `name` cannot be a new scholar's, if it cannot: names belong
+/// to living scholars (C10).
 pub(super) fn available(
     db: &mut SqliteConnection,
     name: &str,
-    archive: Option<&Archived>,
 ) -> Result<Option<Reason>> {
-    if archive.is_none_or(|a| a.agent.name != name)
-        && let Some(reason) = check_name(name)
-    {
+    if let Some(reason) = check_name(name) {
         return Ok(Some(reason));
     }
-    let taken = diesel::select(diesel::dsl::exists(
-        record_name::table.find(name),
-    ))
-    .get_result::<bool>(db)?;
+    let taken = crate::scholars::named(db, name)?.is_some();
     Ok(taken.then(|| Reason::NameTaken {
         name: name.into(),
-        archive: archive.map(|a| a.id.clone()),
+        archive: None,
     }))
 }
 
@@ -113,7 +108,7 @@ impl Hamlet {
             return agent.name.clone();
         }
         let named = |d: &super::Decision| match &d.kind {
-            DecisionKind::Created { agent, name, .. }
+            DecisionKind::Hired { agent, name, .. }
             | DecisionKind::Removed { agent, name, .. }
             | DecisionKind::Restored { agent, name, .. }
             | DecisionKind::Erased { agent, name, .. }
@@ -136,7 +131,7 @@ impl Hamlet {
                 .decisions
                 .iter()
                 .filter(|d| {
-                    matches!(d.kind, DecisionKind::Created { .. })
+                    matches!(d.kind, DecisionKind::Hired { .. })
                 })
                 .find_map(named)
                 .unwrap_or_else(|| number.to_string()),

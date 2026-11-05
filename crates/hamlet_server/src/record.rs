@@ -24,7 +24,8 @@ pub use refusals::{Action, Audience, Reason, Refusal};
 pub use roads::level;
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{record_hamlet, record_name, record_road_charge};
+use crate::schema::{record_hamlet, record_hire, record_road_charge};
+use crate::scholars::ScholarId;
 use crate::{Operation, Outcome, Store};
 
 /// The authenticated author of a record change.
@@ -146,14 +147,22 @@ pub struct RecordOperation {
     pub change: Change,
 }
 
-/// An agent's proposed admission.
+/// A proposed hire.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Admit {
-    pub name: String,
+    pub scholar: Hiring,
     pub purpose: String,
     pub model: Option<String>,
-    pub character: String,
     pub roads: Vec<String>,
+}
+
+/// The scholar a hire is of.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Hiring {
+    /// A new scholar, made for this hire.
+    New { name: String, character: String },
+    /// A living scholar of the actor's chief.
+    Existing(ScholarId),
 }
 
 /// The departure requested by the lifecycle owner.
@@ -178,7 +187,6 @@ pub enum Change {
     },
     Restore {
         archive: String,
-        name: String,
     },
     MoveMember {
         number: u64,
@@ -201,10 +209,6 @@ pub enum Change {
     /// The completed file work of a merge or split.
     FinishMerge {
         archive: String,
-    },
-    SetCharacter {
-        number: u64,
-        text: String,
     },
     SetLimits {
         limits: Limits,
@@ -266,7 +270,6 @@ impl Change {
             Self::CarryRoad { .. } => Action::CarryRoad,
             Self::Seat { .. } => Action::Seat,
             Self::FinishMerge { .. } => Action::FinishMerge,
-            Self::SetCharacter { .. } => Action::Character,
             Self::SetLimits { .. } => Action::Limits,
             Self::SetModel { .. } => Action::Model,
             Self::RefuseRoad { .. } => Action::RefuseRoad,
@@ -310,23 +313,12 @@ impl Store {
         read(self.connection(), hamlet)
     }
 
-    /// The current location of a living realm-wide name.
-    pub fn agent_named(
+    /// The living hires of `scholar` in the living hamlets.
+    pub fn hires_of(
         &mut self,
-        name: &str,
-    ) -> Result<Option<AgentRef>> {
-        record_name::table
-            .find(name)
-            .select((record_name::hamlet, record_name::number))
-            .first::<(String, i64)>(self.connection())
-            .optional()?
-            .map(|(hamlet, number)| {
-                Ok(AgentRef {
-                    hamlet,
-                    number: u64::try_from(number)?,
-                })
-            })
-            .transpose()
+        scholar: ScholarId,
+    ) -> Result<Vec<AgentRef>> {
+        hires_of(self.connection(), scholar)
     }
 
     /// All committed road charges for this hamlet, in charge order.
@@ -436,22 +428,43 @@ pub(crate) fn give_skill(
     Ok(())
 }
 
-/// Takes the living names of `hamlet` out of the realm's index, as
-/// the hamlet closes.
-pub(crate) fn release_names(
+/// The living hires of `scholar` in the living hamlets, as the
+/// transaction `db` holds them.
+pub(crate) fn hires_of(
+    db: &mut SqliteConnection,
+    scholar: ScholarId,
+) -> Result<Vec<AgentRef>> {
+    record_hire::table
+        .filter(record_hire::scholar.eq(i64::try_from(scholar.0)?))
+        .order((record_hire::hamlet, record_hire::number))
+        .select((record_hire::hamlet, record_hire::number))
+        .load::<(String, i64)>(db)?
+        .into_iter()
+        .map(|(hamlet, number)| {
+            Ok(AgentRef {
+                hamlet,
+                number: u64::try_from(number)?,
+            })
+        })
+        .collect()
+}
+
+/// Takes the hires of `hamlet` out of the realm's index, as the
+/// hamlet closes.
+pub(crate) fn release_hires(
     db: &mut SqliteConnection,
     hamlet: &str,
 ) -> Result<()> {
     diesel::delete(
-        record_name::table.filter(record_name::hamlet.eq(hamlet)),
+        record_hire::table.filter(record_hire::hamlet.eq(hamlet)),
     )
     .execute(db)?;
     Ok(())
 }
 
-/// Puts the living names of `hamlet` back in the realm's index, as
-/// the hamlet lives again.
-pub(crate) fn claim_names(
+/// Puts the hires of `hamlet` back in the realm's index, as the
+/// hamlet lives again.
+pub(crate) fn claim_hires(
     db: &mut SqliteConnection,
     hamlet: &str,
 ) -> Result<()> {
@@ -461,7 +474,7 @@ pub(crate) fn claim_names(
     }
 }
 
-/// Keeps `record` and its living names in the transaction `db`.
+/// Keeps `record` and its living hires in the transaction `db`.
 fn save(db: &mut SqliteConnection, record: &Hamlet) -> Result<()> {
     diesel::insert_into(record_hamlet::table)
         .values((
@@ -476,13 +489,14 @@ fn save(db: &mut SqliteConnection, record: &Hamlet) -> Result<()> {
                 .eq(excluded(record_hamlet::document)),
         )
         .execute(db)?;
-    release_names(db, &record.id)?;
+    release_hires(db, &record.id)?;
     for agent in &record.agents {
-        diesel::insert_into(record_name::table)
+        diesel::insert_into(record_hire::table)
             .values((
-                record_name::name.eq(&agent.name),
-                record_name::hamlet.eq(&record.id),
-                record_name::number.eq(i64::try_from(agent.number)?),
+                record_hire::hamlet.eq(&record.id),
+                record_hire::number.eq(i64::try_from(agent.number)?),
+                record_hire::scholar
+                    .eq(i64::try_from(agent.scholar.0)?),
             ))
             .execute(db)?;
     }
@@ -587,7 +601,6 @@ impl Operation for RecordOperation {
                 | Change::Seat { .. }
                 | Change::TakeUpRoad { .. }
                 | Change::FinishMerge { .. }
-                | Change::SetCharacter { .. }
                 | Change::SetLimits { .. }
                 | Change::SetGuards { .. }
                 | Change::Erase { .. }
@@ -704,8 +717,8 @@ impl Operation for RecordOperation {
             Change::Depart { name, how } => {
                 self.depart(&mut record, name, how)
             }
-            Change::Restore { archive, name } => {
-                self.restore(db, &mut record, archive, name)?
+            Change::Restore { archive } => {
+                self.restore(db, &mut record, archive)?
             }
             Change::MoveMember { number, to } => {
                 self.move_member(db, &mut record, *number, to)?
@@ -740,22 +753,6 @@ impl Operation for RecordOperation {
                     archive: archive.clone(),
                 })),
             },
-            Change::SetCharacter { number, text } => {
-                match record
-                    .agents
-                    .iter_mut()
-                    .find(|a| a.number == *number)
-                {
-                    Some(agent) => {
-                        agent.character = text.clone();
-                        Ok(RecordResult::Changed)
-                    }
-                    None => Err(self.refuse(Reason::AgentMissing {
-                        name: format!("#{number}"),
-                        local: true,
-                    })),
-                }
-            }
             Change::SetLimits { limits, runs } => {
                 if let Some(budget) = &limits.road_budget {
                     ensure!(
@@ -889,24 +886,40 @@ impl Operation for FoundRecord {
         if let Some(reason) = check_name(&self.hamlet) {
             return refuse(reason);
         }
-        let first = self.hamlet == "home" && self.name == "founder";
-        if !first
-            && let Some(reason) =
-                names::available(db, &self.name, None)?
-        {
-            return refuse(reason);
-        }
+        // The chief's own living scholar of that name is hired as the
+        // mayor; any other name makes a new scholar.
+        let scholar = match crate::scholars::named(db, &self.name)? {
+            Some(found) if found.chief == self.chief => found.id,
+            _ => {
+                let first =
+                    self.hamlet == "home" && self.name == "founder";
+                if !first
+                    && let Some(reason) =
+                        names::available(db, &self.name)?
+                {
+                    return refuse(reason);
+                }
+                crate::scholars::make(
+                    db,
+                    &self.name,
+                    &self.chief,
+                    self.at,
+                    "",
+                )?
+            }
+        };
         let record = Hamlet {
             id: self.hamlet.clone(),
             chiefs: vec![self.chief.clone()],
             founded: self.at,
             agents: vec![Agent {
                 number: 0,
+                scholar,
                 name: self.name.clone(),
                 purpose: self.purpose.trim().into(),
                 since: self.at,
                 model: None,
-                character: String::new(),
+                parent: None,
             }],
             mayor: 0,
             next: 1,

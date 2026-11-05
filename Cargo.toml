@@ -55,7 +55,9 @@ base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 diesel = { version = "2.3", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35", "32-column-tables"] }
 futures = "0.3"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+# Each scholar's repository, kept by the server with no git program.
+gix = { version = "0.90", default-features = false, features = ["sha1", "merge", "revision"] }
+image ={ version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 interprocess = "2"
 # SQLite itself, built in, for Diesel.
 libsqlite3-sys = { version = "0.38", features = ["bundled"] }

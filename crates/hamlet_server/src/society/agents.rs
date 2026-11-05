@@ -8,7 +8,7 @@ use super::{Caller, Deed, SocietyOutcome};
 use crate::harness::Harnesses;
 use crate::protocol::Refusal;
 use crate::record::{
-    self, Actor, Admit, Audience, Change, RecordOperation,
+    self, Actor, Admit, Audience, Change, Hiring, RecordOperation,
     RecordResult, tidy_name,
 };
 use crate::service::Service;
@@ -54,13 +54,15 @@ pub(super) async fn create(
                 reason: given.reason.clone(),
                 task: caller.task.clone(),
                 change: Change::Admit(Admit {
-                    name: given.name.clone(),
+                    scholar: Hiring::New {
+                        name: given.name.clone(),
+                        character: given
+                            .character
+                            .clone()
+                            .unwrap_or_default(),
+                    },
                     purpose: given.purpose.clone(),
                     model: given.model.clone(),
-                    character: given
-                        .character
-                        .clone()
-                        .unwrap_or_default(),
                     roads: given.roads.clone(),
                 }),
             };
@@ -106,6 +108,7 @@ pub(super) async fn create(
             Ok(SocietyOutcome::answered(text))
         },
     )?;
+    service.scholars.plant(service.home.connection())?;
     let record = service.home.store().record(&place.hamlet)?;
     if let Some(agent) = record
         .as_ref()

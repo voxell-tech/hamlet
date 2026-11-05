@@ -5,9 +5,10 @@ use hamlet_testing::Scratch;
 
 use super::{
     Action, Actor, Admit, AgentRef, Amount, Audience, By, Change,
-    DecisionKind, Departure, End, FoundRecord, Hamlet, Limits,
-    MergeFiles, MergeNotes, NameFallback, OpenVote, Protection,
-    Reason, RecordOperation, RecordResult, Refusal, RoadBudget,
+    DecisionKind, Departure, End, FoundRecord, Hamlet, Hiring,
+    Limits, MergeFiles, MergeNotes, NameFallback, OpenVote,
+    Protection, Reason, RecordOperation, RecordResult, Refusal,
+    RoadBudget,
 };
 use crate::{OperationId, Outcome, Reply, RuntimeInstance, Store};
 
@@ -38,12 +39,48 @@ fn request(hamlet: &str, change: Change) -> RecordOperation {
 
 fn admit(name: &str) -> Change {
     Change::Admit(Admit {
-        name: name.into(),
+        scholar: Hiring::New {
+            name: name.into(),
+            character: "Careful".into(),
+        },
         purpose: " Maps ".into(),
         model: None,
-        character: "Careful".into(),
         roads: Vec::new(),
     })
+}
+
+/// Hires the living scholar `name` again.
+fn rehire(store: &mut Store, name: &str) -> Change {
+    let scholar = crate::scholars::named(store.connection(), name)
+        .unwrap()
+        .unwrap();
+    Change::Admit(Admit {
+        scholar: Hiring::Existing(scholar.id),
+        purpose: " Maps ".into(),
+        model: None,
+        roads: Vec::new(),
+    })
+}
+
+/// The living hires of the living scholar `name`.
+fn hires_named(store: &mut Store, name: &str) -> Vec<AgentRef> {
+    match crate::scholars::named(store.connection(), name).unwrap() {
+        Some(scholar) => store.hires_of(scholar.id).unwrap(),
+        None => Vec::new(),
+    }
+}
+
+/// The character `name`'s repository is still to start with.
+fn seed_of(store: &mut Store, name: &str) -> String {
+    let scholar = crate::scholars::named(store.connection(), name)
+        .unwrap()
+        .unwrap();
+    crate::scholars::seeds(store.connection())
+        .unwrap()
+        .into_iter()
+        .find(|(id, _)| *id == scholar.id)
+        .unwrap()
+        .1
 }
 
 fn road(a: &str, b: &str) -> Change {
@@ -58,10 +95,9 @@ fn remove(name: &str) -> Change {
         how: Departure::Removed,
     }
 }
-fn restore(archive: &str, name: &str) -> Change {
+fn restore(archive: &str) -> Change {
     Change::Restore {
         archive: archive.into(),
-        name: name.into(),
     }
 }
 
@@ -169,7 +205,8 @@ fn a_departed_namesake_reports_the_latest_departure() {
     let (_scratch, mut store) = seeded("record-namesake");
     done(&mut store, "first", &request("home", admit("scout")));
     departed(&mut store, "first-left", "scout");
-    done(&mut store, "second", &request("home", admit("scout")));
+    let again = rehire(&mut store, "scout");
+    done(&mut store, "second", &request("home", again));
     let mut call = request("home", remove("scout"));
     call.reason = "The second scout finished".into();
     done(&mut store, "second-left", &call);
@@ -352,7 +389,7 @@ fn admission_has_realm_names_stable_numbers_and_a_cap_beside_the_current_mayor()
     );
     let archive = departed(&mut store, "depart-founder", "founder");
     assert!(
-        matches!(done(&mut store, "restore-founder", &request("home", restore(&archive, "founder"))), RecordResult::Restored { agent, .. } if agent.number == 0)
+        matches!(done(&mut store, "restore-founder", &request("home", restore(&archive))), RecordResult::Restored { agent, .. } if agent.number == 0)
     );
     let archive = departed(&mut store, "depart-second", "second");
     done(&mut store, "third", &request("home", admit("third")));
@@ -360,17 +397,14 @@ fn admission_has_realm_names_stable_numbers_and_a_cap_beside_the_current_mayor()
         refused(
             &mut store,
             "restore-full",
-            &request("home", restore(&archive, "second"))
+            &request("home", restore(&archive))
         )
         .text(Audience::Chief),
         "the hamlet is full (2 agents); remove one first, or raise \
          mostAgents in the limits"
     );
     assert_eq!(record(&mut store, "home").next, 4);
-    assert_eq!(
-        store.agent_named("third").unwrap(),
-        Some(place("home", 3))
-    );
+    assert_eq!(hires_named(&mut store, "third"), [place("home", 3)]);
 }
 
 #[test]
@@ -406,10 +440,12 @@ fn names_validate_after_tidying_and_admission_keeps_partial_roads_and_allowed_mo
     let mut call = request(
         "home",
         Change::Admit(Admit {
-            name: "  Feline__Biologist  ".into(),
+            scholar: Hiring::New {
+                name: "  Feline__Biologist  ".into(),
+                character: "Careful".into(),
+            },
             purpose: " Maps ".into(),
             model: Some("local::model".into()),
-            character: "Careful".into(),
             roads: vec![
                 "peer".into(),
                 "missing".into(),
@@ -439,9 +475,16 @@ fn names_validate_after_tidying_and_admission_keeps_partial_roads_and_allowed_mo
     let r = record(&mut store, "home");
     let agent = r.named("feline-biologist").unwrap();
     assert_eq!(
-        (&*agent.purpose, agent.model.as_deref(), &*agent.character),
-        ("Maps", Some("local::model"), "Careful")
+        (&*agent.purpose, agent.model.as_deref(), agent.parent),
+        ("Maps", Some("local::model"), Some(0))
     );
+    assert_eq!(seed_of(&mut store, "feline-biologist"), "Careful");
+    // A scholar a mayor makes belongs to the hamlet's founder.
+    let scholar =
+        crate::scholars::find(store.connection(), agent.scholar)
+            .unwrap()
+            .unwrap();
+    assert_eq!(scholar.chief, "chief");
     assert_eq!(r.decisions.len(), 4);
     assert!(r.decisions.iter().all(|d| d.reason == "Needed"));
     assert_eq!(
@@ -634,19 +677,13 @@ fn restoring_keeps_identity_and_surviving_roads_not_namesakes_and_does_not_charg
             .text(Audience::Agent)
             .contains("by the chief chief (\"Needed\")")
     );
+    // Removing a hire leaves its scholar, who is hired again, here
+    // and in another hamlet.
     departed(&mut store, "depart-poet", "poet");
-    done(&mut store, "new-poet", &request("home", admit("poet")));
-    done(&mut store, "new-scout", &request("mill", admit("scout")));
-    let taken = refused(
-        &mut store,
-        "taken",
-        &request("home", restore(&archive, "scout")),
-    );
-    assert!(
-        taken
-            .text(Audience::Chief)
-            .contains(&format!("/restore {archive} as <new-name>"))
-    );
+    let poet = rehire(&mut store, "poet");
+    done(&mut store, "new-poet", &request("home", poet));
+    let scout = rehire(&mut store, "scout");
+    done(&mut store, "new-scout", &request("mill", scout));
     limits(&mut store, "road-cap", "home", |l| {
         l.chief.most_roads = 0;
     });
@@ -654,7 +691,7 @@ fn restoring_keeps_identity_and_surviving_roads_not_namesakes_and_does_not_charg
     let RecordResult::Restored { agent, text } = done(
         &mut store,
         "restore",
-        &request("home", restore(&archive, "old-scout")),
+        &request("home", restore(&archive)),
     ) else {
         panic!()
     };
@@ -667,15 +704,19 @@ fn restoring_keeps_identity_and_surviving_roads_not_namesakes_and_does_not_charg
     assert!(r.has_road(1, 2) && r.has_road(1, 4) && r.has_road(1, 0));
     assert!(!r.has_road(1, 5));
     assert_eq!(r.next, 6);
-    assert_eq!(r.name_of(1, NameFallback::Recorded), "old-scout");
+    assert_eq!(r.name_of(1, NameFallback::Recorded), "scout");
     assert_eq!(store.road_charges("home").unwrap(), charges);
-    assert_eq!(r.archive[0].back.as_deref(), Some("old-scout"));
+    assert_eq!(r.archive[0].back.as_deref(), Some("scout"));
+    assert_eq!(
+        hires_named(&mut store, "scout"),
+        [place("home", 1), place("mill", 1)]
+    );
     let mut historical = r;
     historical.agents.retain(|a| a.number != 1);
     historical.archive.retain(|a| a.agent.number != 1);
     assert_eq!(
         historical.name_of(1, NameFallback::Recorded),
-        "old-scout"
+        "scout"
     );
     assert_eq!(historical.name_of(1, NameFallback::Created), "scout");
     assert_eq!(
@@ -850,7 +891,7 @@ fn current_vote_limits_and_chief_tasks_hold_effects_but_chiefs_can_overrule()
     done(
         &mut store,
         "bring-back",
-        &request("home", restore(&archive, "scout")),
+        &request("home", restore(&archive)),
     );
     call.actor = Actor::Mayor(place("home", 0));
     assert!(matches!(
@@ -922,20 +963,22 @@ fn moving_requires_both_current_mayors_and_uses_the_receiving_next_number()
         "the hamlet `mill` is full"
     );
     limits(&mut store, "room", "mill", |l| l.chief.most_agents = 3);
+    let old_scout_scholar =
+        record(&mut store, "home").named("scout").unwrap().scholar;
     assert_eq!(
         done(&mut store, "move", &call),
         RecordResult::Moved(place("mill", 3))
     );
-    assert_eq!(
-        store.agent_named("scout").unwrap(),
-        Some(place("mill", 3))
-    );
+    assert_eq!(hires_named(&mut store, "scout"), [place("mill", 3)]);
     let old = record(&mut store, "home");
     let target = record(&mut store, "mill");
     assert_eq!((old.next, target.next), (3, 4));
     assert!(!old.has_road(1, 2));
     assert!(target.has_road(2, 3));
-    assert_eq!(target.named("scout").unwrap().character, "Careful");
+    assert_eq!(
+        target.named("scout").unwrap().scholar,
+        old_scout_scholar
+    );
     assert!(old.protected.is_empty());
     assert_eq!(
         target.protected,
@@ -972,17 +1015,19 @@ fn moving_requires_both_current_mayors_and_uses_the_receiving_next_number()
 }
 
 #[test]
-fn a_failed_marker_rolls_back_admission_roads_charges_and_the_name_index()
+fn a_failed_marker_rolls_back_admission_its_scholar_roads_and_charges()
  {
     let (_scratch, mut store) = seeded("record-atomic");
     done(&mut store, "peer", &request("home", admit("peer")));
     let call = request(
         "home",
         Change::Admit(Admit {
-            name: "scout".into(),
+            scholar: Hiring::New {
+                name: "scout".into(),
+                character: String::new(),
+            },
             purpose: "Maps".into(),
             model: None,
-            character: String::new(),
             roads: vec!["peer".into()],
         }),
     );
@@ -995,7 +1040,11 @@ fn a_failed_marker_rolls_back_admission_roads_charges_and_the_name_index()
         )
         .unwrap();
     assert!(store.run(&id("fail"), &call).is_err());
-    assert_eq!(store.agent_named("scout").unwrap(), None);
+    assert!(
+        crate::scholars::named(store.connection(), "scout")
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(record(&mut store, "home").next, 2);
     assert!(store.road_charges("home").unwrap().is_empty());
     store
@@ -1003,10 +1052,7 @@ fn a_failed_marker_rolls_back_admission_roads_charges_and_the_name_index()
         .batch_execute("DROP TRIGGER fail_marker")
         .unwrap();
     done(&mut store, "fail", &call);
-    assert_eq!(
-        store.agent_named("scout").unwrap(),
-        Some(place("home", 2))
-    );
+    assert_eq!(hires_named(&mut store, "scout"), [place("home", 2)]);
     assert_eq!(store.road_charges("home").unwrap().len(), 1);
 }
 
@@ -1059,7 +1105,7 @@ fn merge_restoration_preserves_learned_traffic_and_enforces_reverse_order()
         refused(
             &mut store,
             "unfinished",
-            &request("home", restore(&archive, "scout"))
+            &request("home", restore(&archive))
         )
         .reason,
         Reason::MergeUnfinished
@@ -1094,7 +1140,7 @@ fn merge_restoration_preserves_learned_traffic_and_enforces_reverse_order()
         refused(
             &mut store,
             "wrong-order",
-            &request("home", restore(&archive, "scout"))
+            &request("home", restore(&archive))
         )
         .reason,
         Reason::LaterMerge { .. }
@@ -1115,17 +1161,13 @@ fn merge_restoration_preserves_learned_traffic_and_enforces_reverse_order()
         Reason::UnsplitMerge { .. }
     ));
     let charges = store.road_charges("home").unwrap();
-    done(
-        &mut store,
-        "split-poet",
-        &request("home", restore(&later, "poet")),
-    );
+    done(&mut store, "split-poet", &request("home", restore(&later)));
     limits(&mut store, "full", "home", |l| l.chief.most_agents = 3);
     assert!(matches!(
         refused(
             &mut store,
             "split-full",
-            &request("home", restore(&archive, "scout"))
+            &request("home", restore(&archive))
         )
         .reason,
         Reason::HamletFull { most: 3 }
@@ -1134,7 +1176,7 @@ fn merge_restoration_preserves_learned_traffic_and_enforces_reverse_order()
     done(
         &mut store,
         "split-scout",
-        &request("home", restore(&archive, "scout")),
+        &request("home", restore(&archive)),
     );
     let r = record(&mut store, "home");
     assert_eq!(r.named("smith").unwrap().purpose, "Maps");

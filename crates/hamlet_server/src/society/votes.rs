@@ -1070,6 +1070,8 @@ pub(super) async fn changed(
     service: &mut Service,
     harnesses: &mut Harnesses,
 ) -> Result<()> {
+    // A founding vote may have made the new mayor's scholar.
+    service.scholars.plant(service.home.connection())?;
     super::reconfigure(service, harnesses).await?;
     let owners = society_call::table
         .filter(society_call::tool.eq("call_vote"))
@@ -1212,7 +1214,7 @@ pub(super) async fn deed(
                 reason: reason.clone(),
             });
             crate::realm::write(&mut tx, &realm)?;
-            record::release_names(&mut tx, &v.destination)?;
+            record::release_hires(&mut tx, &v.destination)?;
             closed = record::read(&mut tx, &v.destination)?;
             format!(
                 "The hamlet `{}` is removed and archived.",

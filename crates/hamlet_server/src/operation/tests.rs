@@ -394,7 +394,7 @@ fn an_existing_empty_or_foreign_database_is_not_initialized() {
 
 #[test]
 fn a_store_of_another_version_is_refused() {
-    for version in [0, 2, 99] {
+    for version in [0, 1, 99] {
         let dir = Scratch::new("server-version");
         open(&dir).close().unwrap();
         let mut db = raw(&dir);

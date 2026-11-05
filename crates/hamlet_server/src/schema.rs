@@ -243,10 +243,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    record_name (name) {
-        name -> Text,
+    record_hire (hamlet, number) {
         hamlet -> Text,
         number -> BigInt,
+        scholar -> BigInt,
     }
 }
 
@@ -260,6 +260,26 @@ diesel::table! {
         tokens -> BigInt,
         micros -> BigInt,
         ms -> BigInt,
+    }
+}
+
+diesel::table! {
+    record_scholar (id) {
+        id -> BigInt,
+        name -> Nullable<Text>,
+        chief -> Text,
+        since -> BigInt,
+        left_at -> Nullable<BigInt>,
+        left_by -> Nullable<Text>,
+        left_reason -> Nullable<Text>,
+        archive -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    record_scholar_seed (scholar) {
+        scholar -> BigInt,
+        character -> Text,
     }
 }
 
@@ -391,8 +411,10 @@ diesel::joinable!(harness_attempt -> harness_binding (binding));
 diesel::joinable!(harness_binding -> harness_runtime (runtime));
 diesel::joinable!(harness_input -> harness_binding (binding));
 diesel::joinable!(harness_item -> harness_binding (binding));
-diesel::joinable!(record_name -> record_hamlet (hamlet));
+diesel::joinable!(record_hire -> record_hamlet (hamlet));
+diesel::joinable!(record_hire -> record_scholar (scholar));
 diesel::joinable!(record_road_charge -> record_hamlet (hamlet));
+diesel::joinable!(record_scholar_seed -> record_scholar (scholar));
 diesel::joinable!(society_binding -> harness_binding (binding));
 diesel::joinable!(society_call -> harness_binding (binding));
 diesel::joinable!(society_peer -> harness_binding (binding));
@@ -418,8 +440,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     harness_usage,
     marker,
     record_hamlet,
-    record_name,
+    record_hire,
     record_road_charge,
+    record_scholar,
+    record_scholar_seed,
     society_binding,
     society_call,
     society_document,

@@ -275,16 +275,7 @@ pub(super) async fn deed(
                 entry.agent.name
             ))));
         }
-        let rename = rest.split_whitespace().collect::<Vec<_>>();
-        let name = if rename.get(1) == Some(&"as") {
-            rename.get(2).copied().unwrap_or_default().into()
-        } else {
-            entry.agent.name
-        };
-        op.change = Change::Restore {
-            archive: entry.id,
-            name,
-        };
+        op.change = Change::Restore { archive: entry.id };
     }
     let mut tx = service.home.store().transaction()?;
     let result = crate::operation::change(&mut tx, &op)?;
@@ -376,8 +367,14 @@ fn history(r: &record::Hamlet) -> String {
         .map(|d| {
             let by = d.by.words();
             let text = match &d.kind {
-                DecisionKind::Created { name, purpose, .. } => {
-                    format!("the mayor created `{name}` ({purpose})")
+                DecisionKind::Hired {
+                    name,
+                    purpose,
+                    new: true,
+                    ..
+                } => format!("{by} created `{name}` ({purpose})"),
+                DecisionKind::Hired { name, purpose, .. } => {
+                    format!("{by} hired `{name}` ({purpose})")
                 }
                 DecisionKind::Removed { name, .. } => {
                     format!("{by} removed `{name}`")

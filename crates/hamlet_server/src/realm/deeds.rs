@@ -1,7 +1,6 @@
 //! Chief-controlled founding, placement and closure of hamlets.
 
 use anyhow::{Context, Result};
-use diesel::prelude::*;
 
 use super::{At, Removed, read, write};
 use crate::Outcome;
@@ -9,7 +8,6 @@ use crate::harness::Harnesses;
 use crate::papers::Capability;
 use crate::protocol::Refusal;
 use crate::record::{self, AgentRef, FoundRecord};
-use crate::schema::record_name;
 use crate::service::Service;
 use crate::society::{self, Deed};
 
@@ -103,6 +101,7 @@ pub(crate) async fn deed(
                 tx.commit()?;
             }
         }
+        service.scholars.plant(service.home.connection())?;
         service.houses.initialize(id, 0).await?;
         society::reconfigure(service, harnesses).await?;
         let notice = format!(
@@ -210,14 +209,12 @@ pub(crate) async fn deed(
                     .into());
             }
             for agent in &r.agents {
-                if diesel::select(diesel::dsl::exists(
-                    record_name::table.find(&agent.name),
-                ))
-                .get_result::<bool>(service.db())?
+                if crate::scholars::find(service.db(), agent.scholar)?
+                    .is_none_or(|scholar| scholar.name.is_none())
                 {
                     return bad(format!(
-                        "the name `{}` already belongs to a living \
-                         agent",
+                        "the scholar `{}` no longer lives in the \
+                         city",
                         agent.name
                     ));
                 }
@@ -238,9 +235,9 @@ pub(crate) async fn deed(
     let mut tx = service.home.store().transaction()?;
     write(&mut tx, &realm)?;
     if realm.is_living(id) {
-        record::claim_names(&mut tx, id)?;
+        record::claim_hires(&mut tx, id)?;
     } else {
-        record::release_names(&mut tx, id)?;
+        record::release_hires(&mut tx, id)?;
     }
     tx.commit()?;
     if realm.hamlets[index].erased {

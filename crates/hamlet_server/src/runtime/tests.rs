@@ -11,7 +11,7 @@ use super::{Serving, Since};
 use crate::harness::Harnesses;
 use crate::protocol::Protocol;
 use crate::record::{
-    Actor, Admit, Change, FoundRecord, RecordOperation,
+    Actor, Admit, Change, FoundRecord, Hiring, RecordOperation,
 };
 use crate::service::Service;
 use crate::{Home, Operation, OperationId, Overrides, Store};
@@ -90,10 +90,12 @@ fn serving(tag: &str, agents: usize) -> (Scratch, Serving) {
         run(
             store,
             &change(Change::Admit(Admit {
-                name: name(index),
+                scholar: Hiring::New {
+                    name: name(index),
+                    character: String::new(),
+                },
                 purpose: "Works".into(),
                 model: None,
-                character: String::new(),
                 roads: Vec::new(),
             })),
         );

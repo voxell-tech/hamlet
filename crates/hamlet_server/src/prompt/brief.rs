@@ -309,8 +309,11 @@ fn words(record: &Hamlet, d: &Decision) -> String {
         End::Agent(n) => named(n),
     };
     match &d.kind {
-        DecisionKind::Created { name, .. } => {
-            format!("{by} created `{name}`")
+        DecisionKind::Hired {
+            name, new: true, ..
+        } => format!("{by} created `{name}`"),
+        DecisionKind::Hired { name, .. } => {
+            format!("{by} hired `{name}`")
         }
         DecisionKind::Removed { name, .. } => {
             format!("{by} removed `{name}`")

@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::By;
+use crate::scholars::ScholarId;
 
 /// An agent's stable number within its hamlet (C9).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,15 +21,18 @@ impl From<AgentRef> for hamlet_protocol::client::AgentRef {
     }
 }
 
-/// A living or archived agent.
+/// A living or archived hire: a scholar working in this hamlet.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Agent {
     pub number: u64,
+    pub scholar: ScholarId,
+    /// Its scholar's name, which never changes.
     pub name: String,
     pub purpose: String,
     pub since: i64,
     pub model: Option<String>,
-    pub character: String,
+    /// The number of the hire it answers to, `None` for the mayor.
+    pub parent: Option<u64>,
 }
 
 /// A road end tied to an agent or to the office.
@@ -88,10 +92,13 @@ pub struct Decision {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DecisionKind {
-    Created {
+    /// A scholar hired, `new` when the hire made it.
+    Hired {
         agent: u64,
+        scholar: ScholarId,
         name: String,
         purpose: String,
+        new: bool,
     },
     Model {
         agent: u64,

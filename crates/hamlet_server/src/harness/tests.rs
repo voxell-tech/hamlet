@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 
 use super::{Answer, Binding, InputStatus, answers, parse, tools};
 use crate::record::{
-    Actor, Admit, AgentRef, Change, FoundRecord, RecordOperation,
+    Actor, Admit, AgentRef, Change, FoundRecord, Hiring,
+    RecordOperation,
 };
 use crate::schema::{harness_input, harness_usage, spend_reset};
 use crate::{OperationId, RuntimeInstance, Store};
@@ -44,10 +45,12 @@ fn bound(scratch: &Scratch, number: u64) -> (Store, Binding) {
             reason: "Seeded".into(),
             task: None,
             change: Change::Admit(Admit {
-                name: name.into(),
+                scholar: Hiring::New {
+                    name: name.into(),
+                    character: String::new(),
+                },
                 purpose: "Works".into(),
                 model: None,
-                character: String::new(),
                 roads: Vec::new(),
             }),
         };

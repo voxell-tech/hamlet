@@ -169,7 +169,13 @@ pub(crate) fn prepare(
         ("charter", Some(service.charter()?.0.trim_end().to_owned())),
         ("machine", Some(machine(service, subject, &house)?)),
         ("project", Some(String::new())),
-        ("character", agent.and_then(|a| character(&a.character))),
+        (
+            "character",
+            agent
+                .map(|a| service.scholars.character(a.scholar))
+                .transpose()?
+                .and_then(|text| character(&text)),
+        ),
         ("notes", Some(String::new())),
         ("skills", Some(String::new())),
         (

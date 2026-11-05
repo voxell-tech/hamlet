@@ -5,10 +5,11 @@ use diesel::SqliteConnection;
 
 use super::{
     Action, Actor, Admit, Agent, AgentRef, Archived, DecisionKind,
-    Departure, End, Hamlet, InheritedRoad, Merge, Reason,
+    Departure, End, Hamlet, Hiring, InheritedRoad, Merge, Reason,
     RecordOperation, RecordResult, Refusal, RoadRefusal, names, read,
     save, tidy_name,
 };
+use crate::scholars;
 
 impl Hamlet {
     fn room_for(&self, operation: Action) -> Option<Refusal> {
@@ -60,10 +61,38 @@ impl RecordOperation {
         r: &mut Hamlet,
         given: &Admit,
     ) -> Result<Result<RecordResult, Refusal>> {
-        let name = tidy_name(&given.name);
-        if let Some(reason) = names::available(db, &name, None)? {
-            return Ok(Err(self.refuse(reason)));
-        }
+        // A chief hires for themselves; a scholar a mayor makes
+        // belongs to the hamlet's founder.
+        let chief = match &self.actor {
+            Actor::Chief(chief) => chief.clone(),
+            _ => r.chiefs.first().cloned().unwrap_or_default(),
+        };
+        let name = match &given.scholar {
+            Hiring::New { name, .. } => {
+                let name = tidy_name(name);
+                if let Some(reason) = names::available(db, &name)? {
+                    return Ok(Err(self.refuse(reason)));
+                }
+                name
+            }
+            Hiring::Existing(id) => {
+                let Some((name, owner)) = scholars::find(db, *id)?
+                    .and_then(|found| {
+                        Some((found.name?, found.chief))
+                    })
+                else {
+                    return Ok(Err(
+                        self.refuse(Reason::ScholarMissing)
+                    ));
+                };
+                if owner != chief {
+                    return Ok(Err(
+                        self.refuse(Reason::ScholarNotOwn { name })
+                    ));
+                }
+                name
+            }
+        };
         if matches!(self.actor, Actor::Mayor(_))
             && given.purpose.trim().is_empty()
         {
@@ -72,6 +101,15 @@ impl RecordOperation {
         if let Some(refusal) = r.room_for(Action::Admit) {
             return Ok(Err(refusal));
         }
+        let (scholar, new) = match &given.scholar {
+            Hiring::New { character, .. } => (
+                scholars::make(
+                    db, &name, &chief, self.at, character,
+                )?,
+                true,
+            ),
+            Hiring::Existing(id) => (*id, false),
+        };
         let number = r.next;
         r.next = r
             .next
@@ -83,18 +121,21 @@ impl RecordOperation {
         let purpose = given.purpose.trim().to_string();
         r.agents.push(Agent {
             number,
+            scholar,
             name: name.clone(),
             purpose: purpose.clone(),
             since: self.at,
             model: model.clone(),
-            character: given.character.clone(),
+            parent: Some(r.mayor),
         });
         self.decision(
             r,
-            DecisionKind::Created {
+            DecisionKind::Hired {
                 agent: number,
+                scholar,
                 name: name.clone(),
                 purpose,
+                new,
             },
             true,
         );
@@ -320,7 +361,6 @@ impl RecordOperation {
         db: &mut SqliteConnection,
         r: &mut Hamlet,
         archive: &str,
-        name: &str,
     ) -> Result<Result<RecordResult, Refusal>> {
         let Some(index) = r
             .archive
@@ -361,10 +401,10 @@ impl RecordOperation {
                 })));
             }
         }
-        if let Some(reason) =
-            names::available(db, name, Some(&entry))?
+        if scholars::find(db, entry.agent.scholar)?
+            .is_none_or(|scholar| scholar.name.is_none())
         {
-            return Ok(Err(self.refuse(reason)));
+            return Ok(Err(self.refuse(Reason::ScholarMissing)));
         }
         if let Some(refusal) = r.room_for(Action::Restore) {
             return Ok(Err(refusal));
@@ -393,8 +433,8 @@ impl RecordOperation {
             }
             merge.applied = false;
         }
-        let mut agent = entry.agent.clone();
-        agent.name = name.into();
+        let agent = entry.agent.clone();
+        let name = agent.name.as_str();
         r.agents.push(agent.clone());
         for road in &entry.roads {
             if [road.a, road.b].iter().all(|end| match end {

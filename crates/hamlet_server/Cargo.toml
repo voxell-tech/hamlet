@@ -36,6 +36,7 @@ base64.workspace = true
 chrono.workspace = true
 diesel.workspace = true
 futures.workspace = true
+gix.workspace = true
 interprocess.workspace = true
 jsonschema = { version = "0.33", default-features = false }
 libsqlite3-sys.workspace = true

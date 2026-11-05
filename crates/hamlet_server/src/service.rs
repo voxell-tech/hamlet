@@ -16,6 +16,7 @@ use crate::papers::{Capability, Houses};
 use crate::protocol::{Cause, Refusable, Refusal, reply};
 use crate::record::{self, FoundRecord};
 use crate::schema::{chief_document, record_hamlet};
+use crate::scholars::Scholars;
 use crate::settings::{Overrides, Settings};
 use crate::{Home, OperationId, Outcome, Reply, RuntimeInstance};
 
@@ -26,6 +27,7 @@ pub struct Service {
     pub(crate) credentials: Credentials,
     pub(crate) limits: LimitsSchema,
     pub(crate) houses: Houses,
+    pub(crate) scholars: Scholars,
     pub(crate) overrides: Overrides,
     pub(crate) models: crate::models::Models,
     pub(crate) chats: crate::chats::Chats,
@@ -96,6 +98,8 @@ impl Service {
                 "the first hamlet could not be founded"
             );
         }
+        let scholars = Scholars::new(&root);
+        scholars.plant(home.connection())?;
         let houses =
             Houses::open(&root, workspace, overrides.isolation)?;
         let mut realm = crate::realm::read(home.connection())?;
@@ -139,6 +143,7 @@ impl Service {
             chief,
             credentials,
             houses,
+            scholars,
             limits: LimitsSchema::new()?,
             models: crate::models::Models::open(
                 &root,

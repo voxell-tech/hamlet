@@ -139,6 +139,12 @@ pub enum Reason {
         model: String,
         allowed: Vec<String>,
     },
+    /// No living scholar has that number.
+    ScholarMissing,
+    /// The scholar belongs to another chief.
+    ScholarNotOwn {
+        name: String,
+    },
 }
 
 impl Refusal {
@@ -315,6 +321,12 @@ impl Refusal {
             ),
             Reason::MergeSelf => {
                 "an agent cannot be merged with itself".into()
+            }
+            Reason::ScholarMissing => {
+                "that scholar no longer lives in the city".into()
+            }
+            Reason::ScholarNotOwn { name } => {
+                format!("`{name}` is another chief's scholar")
             }
             Reason::MergedPurposeEmpty => {
                 "say what the merged agent is for in `purpose`".into()

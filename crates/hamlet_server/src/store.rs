@@ -64,7 +64,7 @@ macro_rules! named_text {
 pub(crate) use named_text;
 
 /// The schema's version. A store of any other version is refused.
-const VERSION: i64 = 1;
+const VERSION: i64 = 2;
 
 /// The `application_id` that marks a realm store.
 const APPLICATION: i64 = 1_212_239_180;

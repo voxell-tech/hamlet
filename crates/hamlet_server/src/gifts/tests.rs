@@ -10,7 +10,8 @@ use hamlet_testing::links::{self, hard_link, symlink};
 
 use super::*;
 use crate::record::{
-    Actor, Admit, Change, DecisionKind, Departure, RecordOperation,
+    Actor, Admit, Change, DecisionKind, Departure, Hiring,
+    RecordOperation,
 };
 use crate::{Home, OperationId, Outcome, Reply, RuntimeInstance};
 
@@ -122,10 +123,12 @@ fn setup() -> (Scratch, Service) {
     change(
         &mut service,
         Change::Admit(Admit {
-            name: "scout".into(),
+            scholar: Hiring::New {
+                name: "scout".into(),
+                character: String::new(),
+            },
             purpose: "Maps".into(),
             model: None,
-            character: String::new(),
             roads: Vec::new(),
         }),
     );

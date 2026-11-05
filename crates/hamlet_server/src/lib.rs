@@ -35,6 +35,7 @@ mod runtime;
 mod sandbox;
 #[rustfmt::skip]
 mod schema;
+mod scholars;
 mod scrub;
 pub mod serve;
 mod service;
