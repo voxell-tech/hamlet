@@ -3,7 +3,7 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
@@ -334,8 +334,11 @@ pub(super) fn sheet(agent: Entity) -> impl View {
             conversations::list(),
             note("Letters and questions with other agents."),
         ))
-        .gap(gap),)),))
+        .gap(gap)
+        .width(percent(100.0)),)),))
         .width(px(WIDTH))
+        .max_width(percent(55.0))
+        .min_width(px(0.0))
         .fills_height()
     })
 }

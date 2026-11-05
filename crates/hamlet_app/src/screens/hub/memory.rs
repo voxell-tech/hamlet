@@ -4,7 +4,7 @@
 
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use bevy::ui::AlignItems;
+use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row, text_field,
@@ -173,6 +173,7 @@ fn add() -> impl View {
                 world.resource_mut::<Opened>().name = text;
             })
             .grow(1.0)
+            .min_width(px(0.0))
             .rules(text_input),
             action(Glyph::Plus, "ADD", |world| {
                 let name = world.resource::<Opened>().name.clone();
