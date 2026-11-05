@@ -4450,6 +4450,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_git"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gix",
+ "hamlet_testing",
+ "serde",
+]
+
+[[package]]
 name = "hamlet_os"
 version = "0.1.0"
 dependencies = [
@@ -4521,6 +4531,20 @@ dependencies = [
  "unicode-normalization",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "hamlet_store"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "diesel",
+ "hamlet_testing",
+ "libsqlite3-sys",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
