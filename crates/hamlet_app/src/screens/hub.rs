@@ -6,6 +6,7 @@ mod details;
 mod gone;
 mod memory;
 mod papers;
+mod rail;
 mod thread;
 
 use bevy::app::{App, Update};
@@ -16,18 +17,23 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Local, Res};
 use bevy::ecs::world::World;
+use bevy::ui::{percent, px};
 use bevy_fynix::dock::DockWindowKind;
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, column, frame, row,
+};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::Left;
 use hamlet_realm::pick::{Selected, Thing};
-use hamlet_ui::View;
-use hamlet_ui::styles::{ICON, filling};
+use hamlet_ui::styles::{Fills, ICON, filling};
 use hamlet_ui::widgets::effects::{Highlight, Updated};
 use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{View, with_cx};
 
 pub(crate) use self::gone::{of_agent, skills_screen};
 pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
+pub use self::rail::Rail;
 pub(crate) use self::thread::show_prompt;
 pub use self::thread::{Briefing, Sheet};
 use crate::convo::{Convo, seat};
@@ -54,6 +60,7 @@ pub fn plugin(app: &mut App) {
         DockWindowKind::new("SKILLS", || panel(skills_screen()))
             .icon(Glyph::Book.image(ICON)),
     )
+    .add_plugins(rail::plugin)
     .init_resource::<Showing>()
     .init_resource::<Sheet>()
     .init_resource::<Papers>()
@@ -131,9 +138,20 @@ fn page() -> impl View {
     .within(filling())
 }
 
-/// The Hub's contents.
+/// The Hub's contents: the rail beside the page.
 pub fn screen() -> impl View {
-    page()
+    with_cx(|cx| {
+        let gap = cx.theme().space.section;
+        row((
+            rail::view(),
+            frame().width(px(1.0)).fill(cx.theme().palette.gold_6),
+            column((page(),)).grow(1.0).min_width(px(0.0)),
+        ))
+        .gap(gap)
+        .fills_height()
+        .width(percent(100.0))
+        .tagged(rail::Frame)
+    })
 }
 
 /// A click on a robot or a house selects its agent, and the Hub turns

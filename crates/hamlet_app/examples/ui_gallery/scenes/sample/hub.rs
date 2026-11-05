@@ -15,6 +15,23 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     ) {
         keep_notes(world);
     }
+    if matches!(scene, Scene::Hub | Scene::Desk | Scene::Toasts) {
+        world.insert_resource(Showing::Thread);
+    }
+    if scene == Scene::Hub {
+        world.resource_mut::<hub::Rail>().show_rows();
+    }
+    if scene == Scene::Scholar {
+        let scholar = hamlet_client::realm::scholar(
+            world,
+            protocol::ScholarId(2),
+        )
+        .expect("the received scholar");
+        world.insert_resource(Showing::Scholar(scholar));
+        keep_notes(world);
+        world.insert_resource(Showing::Scholar(scholar));
+        world.insert_resource(hub::Sheet { open: false });
+    }
     if scene == Scene::Prompt {
         let agent = world.resource::<Convo>().agent;
         let text = "You are an agent of Hamlet.\n\nSandbox: \

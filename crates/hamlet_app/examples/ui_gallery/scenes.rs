@@ -84,6 +84,7 @@ impl Plugin for GalleryPlugin {
                 ),
             )
             .add_plugins((
+                hamlet_app::desk::plugin,
                 hamlet_app::secret::plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_app::screens::plugin,
@@ -128,6 +129,16 @@ pub enum Scene {
     Character,
     /// The whole of an agent's prompt.
     Prompt,
+    /// The Hub with its rail open over a realm at work.
+    Hub,
+    /// The Hub's page of a scholar.
+    Scholar,
+    /// The Hub's home page.
+    Home,
+    /// The starting desk, narrow enough for the rail's icons.
+    Desk,
+    /// Toasts stacked over the realm.
+    Toasts,
     /// Every hamlet, with nothing selected.
     Overview,
     /// One hamlet and everyone in it.

@@ -29,7 +29,7 @@ const FIRST: &str = "Main";
 /// The most characters a desk's name may have.
 const LONGEST_NAME: usize = 40;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<DeskSettings>()
         .init_resource::<Desks>()
         .init_resource::<Shown>()

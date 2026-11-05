@@ -163,7 +163,8 @@ mod tests {
     {
         let mut app = panel_app();
         app.insert_resource(Selected(Some(Thing::Library)))
-            .insert_resource(crate::hub::Showing::Library);
+            .insert_resource(crate::hub::Showing::Library)
+            .init_resource::<crate::hub::Rail>();
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             crate::hub::screen(),

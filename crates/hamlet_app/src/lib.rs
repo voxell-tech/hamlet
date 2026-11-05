@@ -7,7 +7,7 @@ mod chief;
 pub mod chrome;
 mod convo;
 pub mod cursor;
-mod desk;
+pub mod desk;
 mod dock;
 mod folder;
 pub mod history;
