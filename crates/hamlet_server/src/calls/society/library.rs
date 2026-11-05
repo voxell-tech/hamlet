@@ -3,9 +3,7 @@
 //! call waits for.
 
 use anyhow::Result;
-use diesel::prelude::*;
 use hamlet_store::ids::Actor;
-use hamlet_store::schema::document;
 
 use super::{Call, Step, said, text};
 use crate::core::Core;
@@ -37,17 +35,10 @@ pub(crate) fn judging(id: i64) -> String {
 }
 
 impl Core {
-    /// What the librarian is told before its task: its role, a
-    /// chief's words for it, and the shelves.
+    /// What the librarian is told before its task: its role and the
+    /// shelves.
     fn librarian(&mut self) -> Result<String> {
         let layout = self.realm.layout().clone();
-        let db = self.realm.store().connection();
-        let notes = document::table
-            .find("librarian")
-            .select(document::value)
-            .first::<String>(db)
-            .optional()?
-            .unwrap_or_default();
         let shelves = library::skills(&layout)?
             .into_iter()
             .map(|(name, description)| {
@@ -59,7 +50,7 @@ impl Core {
         } else {
             shelves.join("\n")
         };
-        Ok(format!("{ROLE}\n\n{notes}\n\n# The shelves\n{shelves}"))
+        Ok(format!("{ROLE}\n\n# The shelves\n{shelves}"))
     }
 
     pub(in crate::calls) async fn ask_librarian(
