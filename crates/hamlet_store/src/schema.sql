@@ -42,8 +42,14 @@ CREATE TABLE scholar (
     since INTEGER NOT NULL,
     made_by TEXT NOT NULL,
     planted INTEGER NOT NULL DEFAULT 0 CHECK (planted IN (0, 1)),
+    -- Whether it lives in the city or waits at its harbor.
+    arrival TEXT NOT NULL DEFAULT 'housed'
+        CHECK (arrival IN ('housed', 'waiting', 'turned')),
+    -- Its house's spot from the city's middle and the way its door
+    -- faces, while it lives in the city.
     house_x REAL,
     house_z REAL,
+    house_turn REAL,
     fork_of INTEGER REFERENCES scholar(id),
     fork_at TEXT,
     left_at INTEGER,
@@ -581,10 +587,12 @@ CREATE INDEX dream_scholar ON dream(scholar, began);
 CREATE TABLE wait (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN
-        ('approval', 'fault', 'question', 'objection')),
+        ('approval', 'fault', 'question', 'objection', 'newcomer')),
     danger TEXT CHECK (danger IS NULL OR danger IN
         ('network', 'unconfined', 'reserved', 'edit', 'command')),
     agent INTEGER REFERENCES agent(id),
+    -- The newcomer a `newcomer` wait asks about.
+    scholar INTEGER REFERENCES scholar(id),
     conversation INTEGER REFERENCES conversation(id),
     task INTEGER REFERENCES task(id),
     about TEXT NOT NULL,

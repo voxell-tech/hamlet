@@ -8,12 +8,12 @@ use diesel::prelude::*;
 use hamlet_git::{MAIN, Repository};
 use hamlet_protocol::client as protocol;
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, HamletId};
+use hamlet_store::ids::{AgentId, HamletId, ScholarId};
 use hamlet_store::schema::{agent, message, permission_grant};
 
 use crate::layout::Layout;
 use crate::society::agents::{Agent, AgentKind, EndHow};
-use crate::society::city::{self, Scholar};
+use crate::society::city::{self, Arrival, Scholar};
 use crate::society::hamlets::{self, Hamlet, Mode};
 use crate::society::limits::{
     self, Limits, Period, RealmLimits, Review,
@@ -109,6 +109,10 @@ pub(crate) fn compose(
 
 pub(crate) fn wire_agent(id: AgentId) -> protocol::AgentId {
     protocol::AgentId(u64::try_from(id.0).unwrap_or_default())
+}
+
+pub(crate) fn wire_scholar(id: ScholarId) -> protocol::ScholarId {
+    protocol::ScholarId(u64::try_from(id.0).unwrap_or_default())
 }
 
 fn wire_time(at: i64) -> u64 {
@@ -242,11 +246,7 @@ fn agent_view(
             text: shown.map(|a| a.saying.clone()).unwrap_or_default(),
             thought: shown.is_some_and(|a| a.thought),
         },
-        scholar: scholar.map(|s| {
-            protocol::ScholarId(
-                u64::try_from(s.0).unwrap_or_default(),
-            )
-        }),
+        scholar: scholar.map(wire_scholar),
         since: wire_time(found.since),
         skills,
         spent: protocol::AgentSpent {
@@ -490,15 +490,22 @@ fn scholar_view(
         None => String::new(),
     };
     Ok(protocol::Scholar {
+        arrival: match scholar.arrival {
+            Arrival::Housed => protocol::Arrival::Housed,
+            Arrival::Waiting => protocol::Arrival::Waiting,
+            Arrival::Turned => protocol::Arrival::Turned,
+        },
         chief,
         hires: hires_shown,
         house: match (scholar.house_x, scholar.house_z) {
-            (Some(x), Some(z)) => Some(protocol::TownAt { x, z }),
+            (Some(x), Some(z)) => Some(protocol::HouseAt {
+                turn: scholar.house_turn.unwrap_or_default(),
+                x,
+                z,
+            }),
             _ => None,
         },
-        id: protocol::ScholarId(
-            u64::try_from(scholar.id.0).unwrap_or_default(),
-        ),
+        id: wire_scholar(scholar.id),
         left: match scholar.left_at {
             Some(left) => Some(protocol::ScholarLeft {
                 at: wire_time(left),

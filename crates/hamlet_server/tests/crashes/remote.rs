@@ -424,9 +424,11 @@ async fn moved_to(
                 id,
                 set: EditSettingsSet {
                     allow_net: None,
+                    character: None,
                     effort: None,
                     endpoints: None,
                     model: None,
+                    newcomers: None,
                     reflect_every: None,
                     workspace: Some(Some(EditSettingsSetWorkspace {
                         token: TOKEN.into(),

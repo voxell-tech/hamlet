@@ -483,6 +483,12 @@ impl Screen {
             WaitDetail::Fault {} => {
                 ("fault", format!("{by} failed: {subject}"))
             }
+            WaitDetail::Newcomer { .. } => (
+                "newcomer",
+                format!(
+                    "{subject}, whom {by} made, waits at the harbor"
+                ),
+            ),
         };
         let answers = wait
             .answers

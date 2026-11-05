@@ -58,6 +58,7 @@ chief is talking to.
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
 | `/record` | Who was hired, ended, merged and restored, and the other decisions (H17) |
 | `/scholars`, `/scholar new <name> [character]` | List the city's scholars, or make one (H38) |
+| `/welcome <scholar> [reason]`, `/turn-away <scholar> [reason]` | Let a scholar at the harbor into the city, or send one back there (H45) |
 | `/remove-scholar <name> <reason>`, `/restore-scholar <name> [reason]`, `/erase-scholar <name>` | Archive a scholar and end its hires, bring it back, or erase it for good (H38) |
 | `/move-house <scholar> <x> <z>` | Set a scholar's house down elsewhere in the city |
 | `/tag`, `/versions`, `/pin`, `/revert`, `/fork`, `/purge` | A scholar's versions and history (H39) |
@@ -110,8 +111,15 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   founded that hamlet, else the realm's first chief. Only its chief edits it,
   tags, reverts, forks, purges, archives, restores, erases or hires it.
 - A chief makes one (`/scholar new`), or the Hand or a lead does
-  (`create_scholar`). It starts with one commit holding its character and an
-  empty `memory/`, and a house in the city.
+  (`create_scholar`, or `hire` with a new name, which makes a blank scholar
+  from the realm's default character). It starts with one commit holding its
+  character and an empty `memory/`. One a chief or the Hand makes has a
+  house in the city at once; one a lead makes may wait at the harbor
+  (H45).
+- The server sets a new house down at the first free spot on a spiral out
+  from the city's middle, clear of the middle and of every other house, its
+  door toward the middle. A chief can set it down elsewhere
+  (`/move-house`), on a spot just as clear.
 - `main` changes by a chief's edit of the character or a memory file, a skill
   given to the scholar (H25), a dream (H43), or a revert (H39). Never by a
   hire's tool.
@@ -120,6 +128,20 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   holds a hamlet's office. Restoring needs its name free, and brings back the
   hires its archiving ended in hamlets that still live. Erasing deletes its
   repository, its archived hires and their lodges, and cannot be undone.
+
+**H45.** A scholar a lead makes is a newcomer, which the realm's
+`newcomers` setting lets into the city:
+
+- `open`: it moves in at once.
+- `chief` [the default]: it waits at the city's harbor, and a petition asks
+  a chief to welcome it, or to leave it there for later.
+- `hand`: the Hand judges it in one call with no tools, given the city's
+  scholars and the newcomer's character, and lets it in or turns it away
+  with a reason the record keeps.
+
+A newcomer's hires work in their hamlet all the same. A chief can let any
+scholar at the harbor in (`/welcome`), and send one back to it
+(`/turn-away`), which undoes either verdict of the Hand.
 
 **H39.** A chief can name, hold to, undo, copy and cut out parts of a
 scholar's history:

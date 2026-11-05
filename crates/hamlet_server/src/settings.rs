@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use diesel::prelude::*;
-use hamlet_protocol::client::{Link, LinkState};
+use hamlet_protocol::client::{Link, LinkState, Newcomers};
 use hamlet_protocol::runtime::ModelRef;
 use hamlet_store::Db;
 use hamlet_store::ids::ChiefId;
@@ -56,6 +56,10 @@ pub(crate) struct Settings {
     /// otherwise (H29a).
     pub effort: Option<Effort>,
     pub dreams: Dreams,
+    /// Who lets a scholar an agent made into the city.
+    pub newcomers: Newcomers,
+    /// The character a scholar made blank starts from.
+    pub character: String,
     /// How the last check of the model's provider went.
     #[serde(default = "untested")]
     pub link: Link,
@@ -83,11 +87,21 @@ impl Default for Settings {
             allow_net: false,
             effort: None,
             dreams: Dreams::default(),
+            newcomers: Newcomers::default(),
+            character: CHARACTER.into(),
             link: untested(),
             saved: false,
         }
     }
 }
+
+/// The character a scholar made blank starts from, until a chief
+/// gives the realm its own.
+pub(crate) const CHARACTER: &str =
+    "You are a scholar new to this realm. You know nothing of your \
+     own yet: use the library's skills, learn from the work you are \
+     given, and keep what is worth keeping in your memory so that \
+     it lasts.";
 
 impl Settings {
     /// The endpoint the realm's model is served by.

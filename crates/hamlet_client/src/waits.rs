@@ -64,6 +64,12 @@ impl Waiting {
             protocol::WaitDetail::Fault {} => {
                 format!("{} failed: {clipped}", self.by)
             }
+            protocol::WaitDetail::Newcomer { .. } => {
+                format!(
+                    "{clipped}, whom {} made, waits at the harbor",
+                    self.by
+                )
+            }
         }
     }
 

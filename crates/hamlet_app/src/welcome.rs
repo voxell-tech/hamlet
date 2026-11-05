@@ -188,7 +188,9 @@ fn pick(world: &mut World, model: &str) {
             set: protocol::EditSettingsSet {
                 model: Some(model.into()),
                 allow_net: None,
+                character: None,
                 effort: None,
+                newcomers: None,
                 reflect_every: None,
                 endpoints: None,
                 workspace: None,

@@ -1,6 +1,6 @@
 //! What waits for a chief (H11, H10, H34): approvals, questions,
-//! objections and faults, each a row until a chief answers it or its
-//! asker goes.
+//! objections, faults and newcomers, each a row until a chief answers
+//! it or its asker goes.
 
 pub(crate) mod gate;
 
@@ -12,12 +12,12 @@ use hamlet_protocol::client::{
 };
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    AgentId, ChiefId, ConversationId, TaskId, WaitId,
+    AgentId, ChiefId, ConversationId, ScholarId, TaskId, WaitId,
 };
 use hamlet_store::schema::wait;
 
 use crate::change::Change;
-use crate::clients::state::wire_agent;
+use crate::clients::state::{wire_agent, wire_scholar};
 use crate::society::addresses;
 use crate::talk::conversations::{self, Kind};
 use crate::text::text_enum;
@@ -32,6 +32,9 @@ text_enum! {
         Question = "question",
         /// An objection to a chief's instruction.
         Objection = "objection",
+        /// A scholar an agent made, waiting at the harbor to be let
+        /// into the city.
+        Newcomer = "newcomer",
     }
 }
 
@@ -102,6 +105,8 @@ text_enum! {
         Withdraw = "withdraw",
         Reply = "reply",
         Dismiss = "dismiss",
+        /// A newcomer was let into the city.
+        Welcome = "welcome",
         /// The turn that asked was stopped.
         Stopped = "stopped",
         /// The agent that asked ended.
@@ -121,6 +126,7 @@ impl Ruling {
             Choice::Withdraw => Self::Withdraw,
             Choice::Reply => Self::Reply,
             Choice::Dismiss => Self::Dismiss,
+            Choice::Welcome => Self::Welcome,
         }
     }
 
@@ -137,6 +143,8 @@ pub(crate) struct Wait {
     pub kind: WaitKind,
     pub danger: Option<Danger>,
     pub agent: Option<AgentId>,
+    /// The newcomer it asks about.
+    pub scholar: Option<ScholarId>,
     /// The conversation it was asked in.
     pub conversation: Option<ConversationId>,
     pub task: Option<TaskId>,
@@ -188,6 +196,8 @@ pub(crate) struct Raise {
     pub kind: WaitKind,
     pub danger: Option<Danger>,
     pub agent: AgentId,
+    /// The newcomer a `newcomer` wait asks about.
+    pub scholar: Option<ScholarId>,
     pub conversation: Option<ConversationId>,
     pub task: Option<TaskId>,
     pub about: String,
@@ -208,6 +218,7 @@ pub(crate) fn raise(
         .filter(wait::agent.eq(raise.agent))
         .filter(wait::about.eq(&raise.about))
         .filter(wait::danger.is(raise.danger))
+        .filter(wait::scholar.is(raise.scholar))
         .filter(wait::conversation.is(raise.conversation))
         .select(wait::id)
         .first::<WaitId>(cx.db)
@@ -229,6 +240,7 @@ pub(crate) fn raise(
             wait::kind.eq(raise.kind),
             wait::danger.eq(raise.danger),
             wait::agent.eq(raise.agent),
+            wait::scholar.eq(raise.scholar),
             wait::conversation.eq(raise.conversation),
             wait::task.eq(raise.task),
             wait::about.eq(&raise.about),
@@ -347,6 +359,9 @@ pub(crate) fn line(wait: &Wait, by: &str, most: usize) -> String {
         }
         (WaitKind::Question, _) => format!("{by} asks: {subject}"),
         (WaitKind::Fault, _) => format!("{by} failed: {subject}"),
+        (WaitKind::Newcomer, _) => {
+            format!("{subject}, whom {by} made, waits at the harbor")
+        }
     }
 }
 
@@ -414,6 +429,11 @@ fn view(db: &mut Db, wait: &Wait) -> Result<protocol::Wait> {
             }),
         },
         WaitKind::Objection => WaitDetail::Objection {},
+        WaitKind::Newcomer => WaitDetail::Newcomer {
+            scholar: wire_scholar(wait.scholar.with_context(
+                || format!("wait {} has no scholar", wait.id),
+            )?),
+        },
     };
     let change = wait
         .change

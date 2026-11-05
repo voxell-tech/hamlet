@@ -4,10 +4,13 @@
 mod letters;
 pub(crate) mod library;
 mod scholars;
+pub(crate) mod welcome;
 
 use anyhow::Result;
 use hamlet_protocol::runtime::{ToolSpec, ToolSpecReplay};
-use hamlet_store::ids::{Actor, AgentId, ChiefId, HamletId, TaskId};
+use hamlet_store::ids::{
+    Actor, AgentId, ChiefId, HamletId, ScholarId, TaskId,
+};
 use serde_json::{Value, json};
 
 use super::{Call, said, spec};
@@ -142,26 +145,31 @@ pub(super) fn specs() -> Vec<ToolSpec> {
         ),
         spec(
             "create_scholar",
-            "Make a new scholar of the city with its character, to \
-             hire next.",
+            "Make a new scholar of the city, to hire next. Without \
+             a character it starts from the realm's own. A scholar \
+             you make may wait at the harbor until it is let into \
+             the city; its hires work all the same.",
             object(
                 json!({"name": string("A short lowercase name."), "character": string("Who the scholar is and how it works.")}),
-                &["name", "character"],
+                &["name"],
             ),
             safe.clone(),
         ),
         spec(
             "hire",
             "Hire a scholar into your hamlet under you, or under a \
-             hire of your tree.",
+             hire of your tree. When no scholar fits, give `name` \
+             instead to hire a new blank one, which starts from the \
+             realm's character and the library's skills.",
             object(
                 json!({
                     "scholar": string("The scholar's name, with `@<version>` to pin a version."),
+                    "name": string("A new blank scholar's name, in place of `scholar`."),
                     "purpose": string("What the hire is for."),
                     "under": string("The hire it answers to; you when left out."),
                     "hamlet": string("The hamlet, for the Hand.")
                 }),
-                &["scholar", "purpose"],
+                &["purpose"],
             ),
             safe.clone(),
         ),
@@ -389,16 +397,19 @@ impl Core {
                     here.as_ref(),
                     chief,
                 )?;
-                self.carry(call, |cx, _| {
-                    Ok(city::make(
+                self.carry(call, |cx, env| {
+                    let character = if character.is_empty() {
+                        env.settings.character.clone()
+                    } else {
+                        character
+                    };
+                    let made = match city::make(
                         cx, &name, owner, &character, None,
-                    )?
-                    .map(|_| {
-                        format!(
-                            "The scholar {name} is made; hire it \
-                             next."
-                        )
-                    }))
+                    )? {
+                        Ok(made) => made,
+                        Err(refusal) => return Ok(Err(refusal)),
+                    };
+                    Ok(Ok(arrived(cx, env, made, &name, &character)?))
                 })
                 .await?
             }
@@ -831,25 +842,45 @@ impl Core {
             }
             found
         };
-        let hiring =
-            match self.scholar_hiring(&text(call, "scholar"))? {
+        // A scholar of the city, or a new blank one when none fits.
+        let (named, blank) =
+            (text(call, "scholar"), text(call, "name"));
+        let hiring = match (named.is_empty(), blank.is_empty()) {
+            (false, true) => match self.scholar_hiring(&named)? {
                 Ok(hiring) => hiring,
                 Err(refusal) => return Ok(Err(refusal)),
-            };
-        let Hiring::Existing { scholar, .. } = &hiring else {
-            unreachable!("a tool hires a scholar that exists");
+            },
+            (true, false) => Hiring::New {
+                name: blank,
+                character: self.env.settings.character.clone(),
+            },
+            _ => {
+                return Ok(Err(Refusal::Usage {
+                    words: "Give `scholar` to hire one of the city, \
+                            or `name` to hire a new blank scholar."
+                        .into(),
+                }));
+            }
         };
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();
-        if !authority::may_hire(
-            db,
-            Actor::Agent(agent),
-            *scholar,
-            &hamlet,
-        )? {
+        if let Hiring::Existing { scholar, .. } = &hiring
+            && !authority::may_hire(
+                db,
+                Actor::Agent(agent),
+                *scholar,
+                &hamlet,
+            )?
+        {
             let name = city::get(db, *scholar)?.name;
             return Ok(Err(Refusal::ScholarNotOwn { name }));
         }
+        let made = match &hiring {
+            Hiring::New { name, character } => {
+                Some((name.clone(), character.clone()))
+            }
+            Hiring::Existing { .. } => None,
+        };
         let overseer = task_chief(db, task)?;
         let owner = authority::owner_for(
             db,
@@ -858,7 +889,7 @@ impl Core {
             overseer,
         )?;
         let purpose = text(call, "purpose");
-        self.carry(call, |cx, _| {
+        self.carry(call, |cx, env| {
             let hired = match hires::hire(
                 cx,
                 Spec {
@@ -874,7 +905,17 @@ impl Core {
                 Err(refusal) => return Ok(Err(refusal)),
             };
             let name = addresses::name_of(cx.db, hired.agent)?;
-            Ok(Ok(format!("Hired {name}.")))
+            let Some((scholar, character)) = made else {
+                return Ok(Ok(format!("Hired {name}.")));
+            };
+            let arrival = arrived(
+                cx,
+                env,
+                hired.scholar,
+                &scholar,
+                &character,
+            )?;
+            Ok(Ok(format!("Hired {name}. {arrival}")))
         })
         .await
     }
@@ -915,6 +956,30 @@ impl Core {
         })
         .await
     }
+}
+
+/// What a new scholar `name` comes to, in words for the agent that
+/// made it: in the city, or at the harbor, with the Hand asked to
+/// judge it when the realm leaves newcomers to the Hand.
+fn arrived(
+    cx: &mut Change<'_>,
+    env: &Env,
+    id: ScholarId,
+    name: &str,
+    character: &str,
+) -> Result<String> {
+    if city::get(cx.db, id)?.arrival == city::Arrival::Housed {
+        return Ok(format!(
+            "The scholar {name} lives in the city; hire it next."
+        ));
+    }
+    if city::awaits_hand(cx.db, id)? {
+        welcome::judge(cx, env, id, character)?;
+    }
+    Ok(format!(
+        "The scholar {name} is made and waits at the harbor until \
+         it is let into the city; you can hire it now."
+    ))
 }
 
 /// The chief overseeing task `task`.

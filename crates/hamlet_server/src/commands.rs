@@ -328,8 +328,18 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "move-house",
-        usage: "/move-house <scholar> <x> <z>",
+        usage: "/move-house <scholar> <x> <z> [degrees]",
         does: "Set a scholar's house down elsewhere in the city",
+    },
+    Command {
+        name: "welcome",
+        usage: "/welcome <scholar> [reason]",
+        does: "Let a scholar waiting at the harbor into the city",
+    },
+    Command {
+        name: "turn-away",
+        usage: "/turn-away <scholar> [reason]",
+        does: "Keep a scholar at the harbor, or send it back there",
     },
 ];
 
@@ -1077,17 +1087,20 @@ impl Core {
                 }))
             }
             "remove-scholar" | "restore-scholar"
-            | "erase-scholar" | "move-house" => {
+            | "erase-scholar" | "move-house" | "welcome"
+            | "turn-away" => {
                 let Some(text) = words.first() else {
                     return Ok(Err(usage(name)));
                 };
-                let scholar = match self.scholar_named(
-                    text,
-                    name != "remove-scholar" && name != "move-house",
-                )? {
-                    Ok(found) => found,
-                    Err(refusal) => return Ok(Err(refusal)),
-                };
+                let archived = matches!(
+                    name,
+                    "restore-scholar" | "erase-scholar"
+                );
+                let scholar =
+                    match self.scholar_named(text, archived)? {
+                        Ok(found) => found,
+                        Err(refusal) => return Ok(Err(refusal)),
+                    };
                 {
                     let db = self.realm.store().connection();
                     if !authority::may_keep(db, by, scholar)? {
@@ -1098,19 +1111,22 @@ impl Core {
                 }
                 let reason = tail(1);
                 if name == "move-house" {
-                    let (Some(x), Some(z)) = (
-                        words
-                            .get(1)
-                            .and_then(|w| w.parse::<f64>().ok()),
-                        words
-                            .get(2)
-                            .and_then(|w| w.parse::<f64>().ok()),
-                    ) else {
+                    let number = |at: usize| {
+                        words.get(at).map(|w| w.parse::<f64>().ok())
+                    };
+                    let (Some(Some(x)), Some(Some(z)), turn) =
+                        (number(1), number(2), number(3))
+                    else {
+                        return Ok(Err(usage(name)));
+                    };
+                    let Some(turn) = turn.map_or(Some(None), |t| {
+                        t.map(|degrees| Some(degrees.to_radians()))
+                    }) else {
                         return Ok(Err(usage(name)));
                     };
                     let done = self
                         .attempt(by, |cx, _| {
-                            city::place(cx, scholar, x, z)
+                            city::place(cx, scholar, x, z, turn)
                         })
                         .await?;
                     return Ok(done.map(|()| {
@@ -1127,6 +1143,12 @@ impl Core {
                         "restore-scholar" => {
                             city::restore(cx, scholar, &reason)
                         }
+                        "welcome" => {
+                            city::welcome(cx, scholar, &reason)
+                        }
+                        "turn-away" => {
+                            city::turn_away(cx, scholar, &reason)
+                        }
                         _ => city::erase(cx, scholar),
                     })
                     .await?;
@@ -1136,6 +1158,15 @@ impl Core {
                     ),
                     "restore-scholar" => {
                         format!("`{text}` is back in the city.")
+                    }
+                    "welcome" => {
+                        format!(
+                            "`{text}` moved into its house in the \
+                             city."
+                        )
+                    }
+                    "turn-away" => {
+                        format!("`{text}` waits at the harbor.")
                     }
                     _ => format!("`{text}` was erased for good."),
                 }))

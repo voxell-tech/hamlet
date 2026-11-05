@@ -175,6 +175,15 @@ impl Core {
                 )? {
                     return Ok(false);
                 }
+                // A newcomer gone or let in since stays as it is.
+                if wait.kind == WaitKind::Newcomer
+                    && ruling == Ruling::Welcome
+                    && let Some(scholar) = wait.scholar
+                {
+                    let _ = crate::society::city::welcome(
+                        cx, scholar, &text,
+                    )?;
+                }
                 if wait.kind == WaitKind::Objection {
                     super::objections::rule(
                         cx.db,

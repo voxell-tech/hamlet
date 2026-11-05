@@ -21,9 +21,11 @@ fn memory(description: &str, body: &str) -> String {
 fn settings() -> EditSettingsSet {
     EditSettingsSet {
         allow_net: None,
+        character: None,
         effort: None,
         endpoints: None,
         model: None,
+        newcomers: None,
         reflect_every: None,
         workspace: None,
     }

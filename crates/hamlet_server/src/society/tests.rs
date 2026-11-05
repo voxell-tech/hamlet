@@ -366,6 +366,80 @@ fn a_worker_starts_no_worker_and_works_where_its_starter_does() {
 }
 
 #[test]
+fn houses_keep_apart_and_clear_of_the_middle() {
+    let mut realm = Realm::new();
+    let chief = realm.chief;
+    for name in ["ada", "bo", "cy", "di", "ed", "flo"] {
+        realm
+            .chief(|cx| city::make(cx, name, chief, "", None))
+            .unwrap();
+    }
+    let spots = city::all(realm.db())
+        .unwrap()
+        .into_iter()
+        .map(|s| (s.house_x.unwrap(), s.house_z.unwrap()))
+        .collect::<Vec<_>>();
+    for (at, (x, z)) in spots.iter().enumerate() {
+        assert!(x.hypot(*z) >= city::MIDDLE);
+        for (ox, oz) in &spots[at + 1..] {
+            assert!((x - ox).hypot(z - oz) >= city::APART);
+        }
+    }
+}
+
+#[test]
+fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
+    use crate::oversight::{self, WaitKind};
+    let mut realm = Realm::new();
+    let mayor = realm.found("docs", "ada").agent;
+    let chief = realm.chief;
+    // The Hand makes scholars for the chiefs: they move in at once.
+    let hand = realm.hand;
+    let kept = realm
+        .by(Actor::Agent(hand), |cx| {
+            city::make(cx, "kept", chief, "", None)
+        })
+        .unwrap();
+    let arrival = |realm: &mut Realm, id| {
+        let found = city::get(realm.db(), id).unwrap();
+        (found.arrival, found.house_x.is_some())
+    };
+    assert_eq!(
+        arrival(&mut realm, kept),
+        (city::Arrival::Housed, true)
+    );
+    let sam = realm
+        .by(Actor::Agent(mayor), |cx| {
+            city::make(cx, "sam", chief, "", None)
+        })
+        .unwrap();
+    assert_eq!(
+        arrival(&mut realm, sam),
+        (city::Arrival::Waiting, false)
+    );
+    let asks = |realm: &mut Realm| {
+        oversight::open(realm.db()).unwrap().iter().any(|w| {
+            w.kind == WaitKind::Newcomer && w.scholar == Some(sam)
+        })
+    };
+    assert!(asks(&mut realm));
+    realm.chief(|cx| city::welcome(cx, sam, "")).unwrap();
+    assert_eq!(
+        arrival(&mut realm, sam),
+        (city::Arrival::Housed, true)
+    );
+    assert!(!asks(&mut realm));
+    // A chief can send it back again.
+    realm
+        .chief(|cx| city::turn_away(cx, sam, "not yet"))
+        .unwrap();
+    assert_eq!(
+        arrival(&mut realm, sam),
+        (city::Arrival::Turned, false)
+    );
+}
+
+#[test]
 fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
     let mut realm = Realm::new();
     let mayor = realm.found("docs", "ada").agent;

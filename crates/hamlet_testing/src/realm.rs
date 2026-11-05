@@ -19,7 +19,8 @@ pub fn state() -> protocol::State {
         "waits": [], "grants": [], "providers": [],
         "settings": {
             "model": "faux::faux-1", "reflectEvery": 0, "allowNet": false, "effort": null,
-            "endpoints": [], "unset": false,
+            "endpoints": [], "unset": false, "newcomers": "chief",
+            "character": "A scholar new to this realm.",
             "link": {"state": "untested", "models": null, "words": null},
             "workspace": {"url": null, "running": null}
         },
@@ -97,7 +98,8 @@ pub fn scholar(
     hires: &[u64],
 ) -> protocol::Scholar {
     serde_json::from_value(json!({
-        "id": id, "name": name, "chief": "chief", "since": 0, "house": null,
+        "id": id, "name": name, "chief": "chief", "since": 0,
+        "arrival": "housed", "house": {"x": 40.0, "z": 0.0, "turn": 0.0},
         "skills": [], "versions": [], "hires": hires
     })).unwrap()
 }

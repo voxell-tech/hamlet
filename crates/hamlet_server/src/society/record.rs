@@ -26,6 +26,10 @@ text_enum! {
         Mode = "mode",
         Limits = "limits",
         ScholarMade = "scholar-made",
+        /// A newcomer let into the city.
+        Welcomed = "welcomed",
+        /// A newcomer, or a scholar sent back, kept at the harbor.
+        TurnedAway = "turned-away",
         HouseMoved = "house-moved",
         ScholarArchived = "scholar-archived",
         ScholarRestored = "scholar-restored",
