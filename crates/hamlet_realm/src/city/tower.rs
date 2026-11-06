@@ -24,6 +24,9 @@ pub(super) const FOOT: f32 = 3.6;
 /// The radius of the lowest step of its footing, the widest it is.
 pub(super) const FOOTING: f32 = 6.4;
 
+/// The height of the top of that lowest step.
+const LOWER_TIER: f32 = 0.4;
+
 /// The shaft's radius at a height.
 fn shaft(y: f32) -> f32 {
     let (foot, top, tall) = (FOOT, 2.7, 21.5);
@@ -57,8 +60,8 @@ pub(super) fn build(pal: &Palette) -> (Mesh, Mesh) {
         Vec3::ZERO,
         &[
             (FOOTING, 0.0),
-            (FOOTING, 0.4),
-            (5.2, 0.4),
+            (FOOTING, LOWER_TIER),
+            (5.2, LOWER_TIER),
             (5.2, 0.9),
             (4.4, 0.9),
         ],
@@ -98,11 +101,15 @@ pub(super) fn build(pal: &Palette) -> (Mesh, Mesh) {
         shade,
         0.0,
     );
-    for step in 0..3 {
-        let step = step as f32;
+    // Two steps up from the footing's lower tier to its upper one,
+    // each top between theirs, so no top lies in the plane of a
+    // tier's and flickers with it. The upper reaches back into the
+    // curved wall; the lower stays on the tier.
+    for (top, near, far) in [(0.73, 4.9, 5.8), (0.565, 5.8, 6.2)] {
+        let bottom = LOWER_TIER - 0.02;
         meshing.rbox(
-            Vec3::new(0.0, 0.7 - step * 0.2, 4.3 + step * 0.5),
-            Vec3::new(1.5, 0.1, 0.3),
+            Vec3::new(0.0, (top + bottom) * 0.5, (near + far) * 0.5),
+            Vec3::new(1.5, (top - bottom) * 0.5, (far - near) * 0.5),
             0.02,
             Quat::IDENTITY,
             stone,
