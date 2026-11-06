@@ -19,7 +19,6 @@ use hamlet_ui::AnyView;
 
 use super::deed::Deed;
 use super::{Open, close, restore, stop};
-use crate::chat;
 use crate::convo::talk_to;
 
 /// An agent of the hamlet that is not its mayor and has not left,
@@ -118,16 +117,11 @@ fn gifts(world: &World, agent: Entity, at: Vec2) -> Vec<AnyView> {
 }
 
 fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
-    let mut items = vec![
-        item("Stop the Mayor".into(), |world| {
-            if let Some(mayor) = agents::first_mayor(world) {
-                stop(world, mayor);
-            }
-        }),
-        item("Undo the Last Change".into(), |world| {
-            chat::command(world, "/undo".into());
-        }),
-    ];
+    let mut items = vec![item("Stop the Mayor".into(), |world| {
+        if let Some(mayor) = agents::first_mayor(world) {
+            stop(world, mayor);
+        }
+    })];
     if let Some(mayor) = agents::first_mayor(world) {
         items.insert(0, new_conversation(mayor));
         if let Some(hire) = hire_under(world, mayor) {
@@ -167,9 +161,6 @@ fn for_agent(
             stop(w, agent);
         }));
     }
-    items.push(item("Undo the Last Change".into(), move |world| {
-        orders::decree(world, agent, "/undo".into());
-    }));
     let Some((_, me)) = plain_agent(world, thing) else {
         return items;
     };

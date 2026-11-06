@@ -108,8 +108,7 @@ Hires of one scholar merge their branches; hires of different scholars bring
 what the absorbed hire learned into the kept branch, a clashing file kept as
 `<name>.from-<absorbed>` and a clashing skill as `<skill>-from-<absorbed>`.
 `/restore` brings an ended hire back under the same id and number, or splits a
-merged one out again by undoing the merge's commit. `/undo` brings back the
-hire ended last. `/erase` deletes an ended hire's lodge and branch for good. A
+merged one out again by undoing the merge's commit. `/erase` deletes an ended hire's lodge and branch for good. A
 letter to a hire that has left is refused with how it left.
 
 `/remove-hamlet` ends every hire of a hamlet and keeps its tree and lodges;

@@ -97,12 +97,9 @@ async fn hires_form_a_tree_and_ending_one_can_be_undone() {
     assert_eq!(s.chief.agent("eve@docs").unwrap().parent, Some(ada));
     assert_eq!(s.chief.scholar("bob").unwrap().hires, [bob]);
 
-    // /undo brings back the hire ended last, under the same id.
+    // /restore brings back an ended hire, under the same id.
     s.chief.command(ada, "/end bob done").await;
-    assert_eq!(
-        s.chief.command(ada, "/undo").await,
-        "bob@docs is back."
-    );
+    s.chief.command(ada, "/restore bob").await;
     s.chief
         .until("bob back", |c| {
             c.agent("bob@docs").is_some_and(|a| a.left.is_none())

@@ -1,20 +1,17 @@
 //! A chief's commands on what waits and on what agents were allowed:
 //! answering a wait, listing what waits and what was granted, taking
-//! a grant back, undoing an ending, instructing another agent and
-//! asking a reflection.
+//! a grant back, instructing another agent and asking a reflection.
 
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_protocol::client::{Choice, Permission};
 use hamlet_store::ids::{Actor, AgentId, HamletId};
-use hamlet_store::schema::{agent, hire, permission_grant};
+use hamlet_store::schema::permission_grant;
 
 use crate::core::Core;
 use crate::oversight::{self, gate};
 use crate::society::addresses::{self, Reach};
-use crate::society::agents::EndHow;
 use crate::society::refusal::Refusal;
-use crate::society::{authority, hires};
 use crate::talk::{chats, reflections};
 
 impl Core {
@@ -46,7 +43,6 @@ impl Core {
             "queue" => self.queue()?,
             "grants" => self.grants()?,
             "revoke" => self.revoke(here, rest)?,
-            "undo" => self.undo().await?,
             "to" => self.instruct(here, rest).await?,
             "reflect" => self.reflect(agent).await?,
             "worker" => self.chiefs_worker(here, rest).await?,
@@ -205,41 +201,6 @@ impl Core {
                 format!("{name} holds no grant of {word}.")
             },
         ))
-    }
-
-    /// Brings back the hire ended latest in a hamlet of this chief's.
-    async fn undo(&mut self) -> Result<Result<String, Refusal>> {
-        let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        let ended = hire::table
-            .inner_join(agent::table)
-            .filter(agent::ended_how.eq(EndHow::Ended))
-            .filter(agent::erased.eq(false))
-            .order(agent::ended_at.desc())
-            .select((hire::agent, hire::hamlet))
-            .load::<(AgentId, HamletId)>(db)?;
-        let mut last = None;
-        for (id, hamlet) in ended {
-            if authority::is_chief_of(db, chief, &hamlet)? {
-                last = Some(id);
-                break;
-            }
-        }
-        let Some(id) = last else {
-            return Ok(Ok("Nothing to undo. Only an ended hire \
-                          can be brought back; a grant is taken \
-                          back with /revoke. A command that ran, \
-                          a file that was changed and what was \
-                          spent cannot be undone."
-                .into()));
-        };
-        let name = addresses::name_of(db, id)?;
-        let done = self
-            .attempt(Actor::Chief(chief), |cx, _| {
-                hires::come_back(cx, id, "undone by the chief")
-            })
-            .await?;
-        Ok(done.map(|()| format!("{name} is back.")))
     }
 
     /// Instructs the agent `rest` begins with, from any chat.

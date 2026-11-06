@@ -64,7 +64,7 @@ endpoint, which bills a fixed price per answer.
 | File | Covers |
 |---|---|
 | `connection` | Token, version, hello order, malformed and oversized messages, shared changes, shutdown, one server per home. |
-| `city` | The empty realm, founding hamlets, the hire tree, `/undo`, removing, restoring and erasing scholars and hamlets, hamlet administration. |
+| `city` | The empty realm, founding hamlets, the hire tree, removing, restoring and erasing scholars and hamlets, hamlet administration. |
 | `chats` | Answers, sessions, `/new`, `/resume`, `/retry`, `/stop`, `Rewind`, history, reflection. |
 | `oversight` | Network approvals and grants, manual and auto modes, `ask_chief`, objections. |
 | `society` | The Hand's and a lead's tools, tell and ask, workers, reserved acts, roads. |

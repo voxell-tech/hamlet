@@ -132,11 +132,6 @@ const TABLE: &[Command] = &[
         does: "Take back a lasting grant",
     },
     Command {
-        name: "undo",
-        usage: "/undo",
-        does: "Bring back the hire ended last",
-    },
-    Command {
         name: "tag",
         usage: "/tag <scholar>[@<commit>] <version> [note]",
         does: "Name a version of a scholar",

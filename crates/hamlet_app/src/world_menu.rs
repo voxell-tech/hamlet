@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn ground_and_town_offer_only_received_deeds() {
         let mut state = realm::state();
-        state.deeds = realm::deeds(&["new", "undo"]);
+        state.deeds = realm::deeds(&["new", "stop"]);
         let mut app = app(state.clone());
         app.world_mut().resource_mut::<AskedGround>().0 =
             Some(Vec2::ZERO);
@@ -441,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn the_first_mayors_menu_keeps_new_stop_and_undo() {
+    fn the_first_mayors_menu_keeps_new_and_stop() {
         let mut app = app(realm::state());
 
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
@@ -465,9 +465,6 @@ mod tests {
             panic!("one stop: {messages:?}");
         };
         assert_eq!(stop.agent, Some(protocol::AgentId(2)));
-        open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
-        press(&mut app, "Undo the Last Change");
-        assert!(sent(&mut app).iter().any(|message| matches!(message, protocol::ClientMessage::Say(say) if say.text == "/undo")));
     }
 
     #[test]
