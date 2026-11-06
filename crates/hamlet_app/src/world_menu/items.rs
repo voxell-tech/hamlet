@@ -334,6 +334,27 @@ pub(super) fn items(
         }
         Thing::Library => for_library(thing),
         // They stand where the city puts them: only the view moves.
-        Thing::Hand | Thing::Scholar(_) => vec![focus(thing)],
+        Thing::Hand => vec![focus(thing)],
+        // A scholar's house, or the scholar waiting on the pier.
+        Thing::Scholar(scholar) => {
+            let mut items = vec![
+                item("Open its page".into(), move |w| {
+                    crate::hub::show(
+                        w,
+                        crate::hub::Showing::Scholar(scholar),
+                    );
+                }),
+                focus(thing),
+            ];
+            let housed = world
+                .get::<hamlet_client::realm::Scholar>(scholar)
+                .is_some_and(|s| s.0.house.is_some());
+            if housed && Deeds::is_allowed(world, "move-house") {
+                items.push(item("Move House".into(), move |w| {
+                    orders::carry_house(w, scholar);
+                }));
+            }
+            items
+        }
     }
 }

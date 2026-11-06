@@ -10,6 +10,7 @@ pub mod cursor;
 pub mod desk;
 mod dock;
 mod folder;
+mod forms;
 pub mod history;
 mod hover;
 pub mod limits;

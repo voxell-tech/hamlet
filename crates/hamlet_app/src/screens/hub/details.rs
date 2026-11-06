@@ -168,6 +168,36 @@ fn nickname_field(facts: &Facts) -> AnyView {
     .boxed()
 }
 
+/// A field that gives the command `/<command> <address> <typed>` on
+/// Enter, with what to type beside it, and empties itself after.
+fn command_field(
+    address: &str,
+    command: &'static str,
+    hint: &'static str,
+) -> AnyView {
+    let address = address.to_string();
+    row((
+        text_field(String::new(), move |world, typed| {
+            let typed = typed.trim();
+            if !typed.is_empty() {
+                crate::chat::command(
+                    world,
+                    format!("/{command} {address} {typed}"),
+                );
+            }
+        })
+        .grow(1.0)
+        .min_width(px(0.0))
+        .rules(text_input),
+        dim(hint),
+    ))
+    .gap(6.0)
+    .align(AlignItems::Center)
+    .grow(1.0)
+    .min_width(px(0.0))
+    .boxed()
+}
+
 /// An agent's name that leads to its thread.
 fn link(entity: Entity, name: String) -> AnyView {
     lettered(name)
@@ -219,6 +249,22 @@ fn agent_section(agent: Entity) -> impl View {
                             Some(pin) => format!("pinned to {pin}"),
                             None => "main".to_string(),
                         }),
+                    ));
+                    parts.push(fact(
+                        "Allowance",
+                        command_field(
+                            &facts.address,
+                            "allowance",
+                            "dollars, or none",
+                        ),
+                    ));
+                    parts.push(fact(
+                        "Tools",
+                        command_field(
+                            &facts.address,
+                            "tools",
+                            "-bash to turn off, +bash on",
+                        ),
                     ));
                 }
             }

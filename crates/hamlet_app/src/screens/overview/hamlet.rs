@@ -11,14 +11,14 @@ use bevy::text::EditableText;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, row, text_field,
+    BehaviorExt, FrameProps, column, dropdown, label, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::Deeds;
-use hamlet_realm::orders;
+use hamlet_realm::orders::{self, Decree};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    self, Fills, action, bad_action, bare, beside, breadcrumb,
+    self, Fills, ICON, action, bad_action, bare, beside, breadcrumb,
     buttons, group, lettered, note, primary_button, scroll_area,
     status_label_large, text_input, title,
 };
@@ -33,6 +33,7 @@ use super::rows::{
     AgentRow, agent_rows, hamlet_rows, pressable, stale,
 };
 use crate::convo::talk_to;
+use crate::forms::{self, Asking};
 use crate::roll::{either, moved};
 use crate::world_menu::Deed;
 use crate::{chat, world_menu};
@@ -99,6 +100,104 @@ fn naming(hamlet: Entity, id: String) -> AnyView {
     )
     .within(bare())
     .boxed()
+}
+
+/// Gives the chief's command `text` to the hamlet `id`.
+fn decree(world: &mut World, id: &str, text: String) {
+    world.trigger(Decree {
+        hamlet: Some(id.to_string()),
+        text,
+    });
+    world.flush();
+}
+
+/// The tiers a hamlet may hold, in hires.
+const TIERS: [&str; 4] = ["50", "100", "200", "500"];
+
+/// How many hires the hamlet `id` may hold, chosen from its tiers.
+fn size(allowed: bool, id: String) -> AnyView {
+    if !allowed {
+        return column(()).boxed();
+    }
+    let names = TIERS
+        .iter()
+        .map(|tier| format!("Holds up to {tier} hires"))
+        .collect::<Vec<_>>();
+    row((
+        label("Size").tone(Tone::Faint).wrap(false),
+        dropdown(
+            names,
+            TIERS.len(),
+            Glyph::Chevron.image(ICON),
+            move |world, chosen| {
+                if let Some(tier) = TIERS.get(chosen) {
+                    decree(world, &id, format!("/tier {tier}"));
+                }
+            },
+        )
+        .placeholder("Choose how many hires it holds"),
+    ))
+    .gap(8.0)
+    .align(AlignItems::Center)
+    .boxed()
+}
+
+/// The form a scholar is hired into the hamlet `id` with.
+fn hire_form(hamlet: Entity, id: String) -> AnyView {
+    forms::form(
+        Asking::Hire(hamlet),
+        "Hire a scholar of the city into this hamlet, under one of \
+         its hires.",
+        &[
+            ("Scholar", "Its name, or name@version to pin it."),
+            (
+                "Under",
+                "The hire it answers to; the mayor if left empty.",
+            ),
+            ("Purpose", "What it is hired to do."),
+        ],
+        "HIRE",
+        move |world, typed| {
+            let [scholar, under, purpose] = typed else {
+                return false;
+            };
+            if scholar.is_empty() || purpose.is_empty() {
+                return false;
+            }
+            let under = if under.is_empty() {
+                String::new()
+            } else {
+                format!(" under {under}")
+            };
+            decree(
+                world,
+                &id,
+                format!("/hire {scholar}{under} {purpose}"),
+            );
+            true
+        },
+    )
+}
+
+/// The form a worker is started in the hamlet `id` with.
+fn worker_form(hamlet: Entity, id: String) -> AnyView {
+    forms::form(
+        Asking::Worker(hamlet),
+        "Start a worker on one task in this hamlet. It answers once \
+         and ends.",
+        &[("Task", "")],
+        "START",
+        move |world, typed| {
+            let [task] = typed else {
+                return false;
+            };
+            if task.is_empty() {
+                return false;
+            }
+            decree(world, &id, format!("/worker {task}"));
+            true
+        },
+    )
 }
 
 /// The page of a hamlet that is shown.
@@ -204,12 +303,20 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                     has("name-hamlet"),
                     has("move-hamlet"),
                     has("remove-hamlet"),
+                    (has("hire"), has("worker"), has("tier")),
                 )
             })
     })
     .when(either(stale(), moved::<Deeds>()));
     let head = keyed(facts, move |facts| {
-        let Some((facts, rename, carry, close)) = facts else {
+        let Some((
+            facts,
+            rename,
+            carry,
+            close,
+            (hires, workers, tier),
+        )) = facts
+        else {
             return column(()).boxed();
         };
         let (mark, state, tone) = facts.state();
@@ -220,6 +327,24 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             format!("Known to the server as {}", facts.id)
         };
         let mut actions = Vec::new();
+        if *hires {
+            actions.push(action(
+                Glyph::Robot,
+                "HIRE A SCHOLAR",
+                move |world| {
+                    forms::toggle(world, Asking::Hire(hamlet));
+                },
+            ));
+        }
+        if *workers {
+            actions.push(action(
+                Glyph::Chip,
+                "START A WORKER",
+                move |world| {
+                    forms::toggle(world, Asking::Worker(hamlet));
+                },
+            ));
+        }
         if *rename {
             actions.push(action(
                 Glyph::Rename,
@@ -262,6 +387,9 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             note(facts.account.clone()),
             note(known),
             buttons(actions),
+            size(*tier, facts.id.clone()),
+            hire_form(hamlet, facts.id.clone()),
+            worker_form(hamlet, facts.id.clone()),
             naming(hamlet, facts.id.clone()),
             crate::folder::section(hamlet),
         ))

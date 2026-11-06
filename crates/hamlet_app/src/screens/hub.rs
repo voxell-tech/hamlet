@@ -61,6 +61,7 @@ pub fn plugin(app: &mut App) {
     )
     .add_plugins(rail::plugin)
     .init_resource::<Showing>()
+    .init_resource::<crate::forms::OpenForm>()
     .init_resource::<scholar::Form>()
     .init_resource::<Sheet>()
     .init_resource::<Papers>()
