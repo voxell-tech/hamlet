@@ -63,7 +63,7 @@ struct Lamp;
 /// The glass of the city's buildings, each made once.
 #[derive(Resource, Clone)]
 struct Glass {
-    /// The lit windows of the scholars' houses.
+    /// The glowing windows of the scholars' houses.
     windows: Handle<StandardMaterial>,
     /// The windows of a house nobody is in.
     dark: Handle<StandardMaterial>,
@@ -78,14 +78,14 @@ fn glass(
     pal: Res<Palette>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let lit = StandardMaterial {
+    let glowing = StandardMaterial {
         base_color: pal.glass_lit,
         ..default()
     };
     let shutters = pal.timber_dark;
     commands.insert_resource(Glass {
-        windows: materials.add(lit.clone()),
-        lamp: materials.add(lit),
+        windows: materials.add(glowing.clone()),
+        lamp: materials.add(glowing),
         dark: materials.add(StandardMaterial {
             base_color: pal.pane_dark,
             perceptual_roughness: 0.3,
@@ -214,7 +214,8 @@ const EASE: f32 = 1.2;
 /// after dark and while the Hand works.
 const TOWER: (f32, f32, f32) = (3.0, 12.0, 14.0);
 
-/// The brightness of a lit window by day and the gain after dark.
+/// The brightness of a glowing window by day and the gain after
+/// dark.
 const WINDOWS: (f32, f32) = (1.2, 16.0);
 
 /// Burns the tower's light while the Hand works, and the windows of

@@ -121,7 +121,7 @@ fn raise(
         at,
         radius: land.set.town.keep_apart * 0.5,
     });
-    // The door looks toward the Hand's tower.
+    // The door faces the Hand's tower.
     let toward = (-at).normalize_or(Vec2::Y);
     let (walls, glass) = build::build(&pal);
     let glow = pal.glass_lit.to_linear();

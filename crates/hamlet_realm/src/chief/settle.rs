@@ -119,7 +119,7 @@ pub(super) fn settle(
             continue;
         };
         taken.push(at);
-        // The door looks toward the Hand's tower.
+        // The door faces the Hand's tower.
         let toward = (-at).normalize_or(Vec2::Y);
         let yaw = toward.x.atan2(toward.y);
         let frame = Transform::from_translation(land.on_ground(at))

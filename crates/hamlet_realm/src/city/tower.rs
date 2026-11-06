@@ -117,7 +117,7 @@ pub(super) fn build(pal: &Palette) -> (Mesh, Mesh) {
         );
     }
     // Narrow windows up the shaft, each stage turned a little from
-    // the one below, with a lit light in each.
+    // the one below, with a glowing pane in each.
     for (k, y) in [5.0f32, 9.5, 14.0, 18.5].into_iter().enumerate() {
         for side in 0..2 {
             let a =
@@ -183,7 +183,7 @@ pub(super) fn build(pal: &Palette) -> (Mesh, Mesh) {
             false,
         );
     }
-    // The observatory's drum with a ring of lit lights, and its
+    // The observatory's drum with a ring of glowing panes, and its
     // cornice.
     meshing.lathe(
         Vec3::ZERO,
@@ -223,7 +223,7 @@ pub(super) fn build(pal: &Palette) -> (Mesh, Mesh) {
             0.0,
         );
     }
-    // The dome, with brass ribs, a slit that looks out and the
+    // The dome, with brass ribs, a slit that opens outward and the
     // telescope through it.
     let dome = (0..=7)
         .map(|k| {
@@ -278,7 +278,7 @@ pub(super) fn build(pal: &Palette) -> (Mesh, Mesh) {
         pal.steel,
         false,
     );
-    // The lantern: a brass spire and, on it, a lamp of lit glass.
+    // The lantern: a brass spire and, on it, a lamp of glowing glass.
     meshing.tube(
         Vec3::Y * (HEIGHT - 0.4),
         Vec3::Y * (LANTERN - 0.5),

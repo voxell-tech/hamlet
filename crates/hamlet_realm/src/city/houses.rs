@@ -1,7 +1,7 @@
 //! The houses of the scholars in the city: one for each scholar that
-//! has a spot, with its name over it, a lit window for each of its
-//! hires that lives, and its windows shuttered once the scholar has
-//! left.
+//! has a spot, with its name over it, a glowing window for each of
+//! its hires that lives, and its windows shuttered once the scholar
+//! has left.
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
@@ -27,28 +27,27 @@ pub(super) const DOOR_OUT: f32 = 4.0;
 const LANTERN: (f32, f32) = (30_000.0, 6.0);
 
 /// A scholar's house, and what it was built as: where it stands, the
-/// way its door faces, how many of its windows are lit and whether
-/// it is shuttered.
+/// way its door faces, how many of its windows glow and whether it
+/// is shuttered.
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 pub(super) struct Home {
     pub(super) scholar: Entity,
     pub(super) at: Vec2,
     pub(super) turn: f32,
-    lit: usize,
+    glowing: usize,
     pub(super) shut: bool,
 }
 
 impl Home {
-    /// How many of its windows are lit, and whether they are
-    /// shuttered.
+    /// How many of its windows glow, and whether they are shuttered.
     #[cfg(test)]
     pub(super) fn windows(&self) -> (usize, bool) {
-        (self.lit, self.shut)
+        (self.glowing, self.shut)
     }
 }
 
-/// The windows to light for `hires`, those of them that live.
-fn lit(
+/// The windows to glow for `hires`, those of them that live.
+fn glowing(
     hires: &[hamlet_protocol::client::AgentId],
     living: &[u64],
 ) -> usize {
@@ -71,10 +70,10 @@ pub(super) fn wanted(
                 scholar: entity,
                 at: city + Vec2::new(at.x as f32, at.z as f32),
                 turn: at.turn as f32,
-                lit: if shut {
+                glowing: if shut {
                     0
                 } else {
-                    lit(&scholar.0.hires, living)
+                    glowing(&scholar.0.hires, living)
                 },
                 shut,
             })
@@ -180,9 +179,9 @@ pub(super) fn tend(
             0,
             &yard,
         );
-        // The first panes are the lit ones, the rest are dark, or
+        // The first panes are the glowing ones, the rest are dark, or
         // shuttered.
-        let lit = built.panes.take_quads(want.lit);
+        let glow = built.panes.take_quads(want.glowing);
         let yaw = Quat::from_rotation_y(want.turn);
         let lamp = built.lamp;
         let house = commands
@@ -207,9 +206,9 @@ pub(super) fn tend(
             NotShadowCaster,
             ChildOf(house),
         ));
-        if want.lit > 0 {
+        if want.glowing > 0 {
             commands.spawn((
-                Mesh3d(meshes.add(lit.build())),
+                Mesh3d(meshes.add(glow.build())),
                 MeshMaterial3d(glass.windows.clone()),
                 NotShadowCaster,
                 ChildOf(house),

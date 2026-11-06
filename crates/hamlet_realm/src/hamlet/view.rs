@@ -87,7 +87,7 @@ pub(super) struct Framed {
 /// Points the camera at the middle between the islands, far enough
 /// to see them all, moved by hand through `Orbit`. A town that is set
 /// down somewhere else, or an island that moves, leaves the view
-/// where it is, or with the hamlet island if it looks at that.
+/// where it is, or moves with the hamlet island if it is on it.
 pub(super) fn aim(
     mut orbit: ResMut<Orbit>,
     mut glide: ResMut<Glide>,

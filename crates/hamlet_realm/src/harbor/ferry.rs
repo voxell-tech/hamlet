@@ -61,19 +61,19 @@ pub(crate) fn course(
     trip
 }
 
-/// Casts off a copy of the boat `looks` like, moored at `home`, on
+/// Casts off a copy of the boat made of `model`, moored at `home`, on
 /// `trip`.
 pub(crate) fn launch(
     commands: &mut Commands,
-    looks: (&Mesh3d, &MeshMaterial3d<StandardMaterial>),
+    model: (&Mesh3d, &MeshMaterial3d<StandardMaterial>),
     home: IslandId,
     trip: Trip,
 ) -> Entity {
     commands
         .spawn((
             Ferry { home },
-            looks.0.clone(),
-            looks.1.clone(),
+            model.0.clone(),
+            model.1.clone(),
             Transform::from_translation(trip.way[0]),
             Visibility::Inherited,
             trip,
