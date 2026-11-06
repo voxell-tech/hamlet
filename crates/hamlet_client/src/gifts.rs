@@ -139,7 +139,6 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
     let has =
         |skill: &String| own.is_some_and(|own| own.0.contains(skill));
     let mut offers = Vec::new();
-    let hamlet = realm::hamlet_of(world, agent);
     let mut others = world
         .try_query::<(Entity, &realm::HouseSkills)>()
         .map(|mut query| {
@@ -149,7 +148,11 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
                     let id = realm::id_of(world, entity)?;
                     (entity != agent).then_some((
                         id,
-                        realm::name_of(world, entity),
+                        format!(
+                            "{} ({})",
+                            realm::shown_of(world, entity),
+                            realm::name_of(world, entity)
+                        ),
                         skills,
                     ))
                 })
@@ -157,14 +160,7 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
         })
         .unwrap_or_default();
     others.sort_by(|(_, a, _), (_, b, _)| a.cmp(b));
-    for (id, name, skills) in others {
-        // A name in the receiver's own hamlet needs no `@hamlet`.
-        let from = hamlet
-            .and_then(|hamlet| {
-                name.strip_suffix(&format!("@{hamlet}"))
-            })
-            .unwrap_or(&name)
-            .to_owned();
+    for (id, from, skills) in others {
         offers.extend(
             skills.0.iter().filter(|skill| !has(skill)).map(
                 |skill| Offer {

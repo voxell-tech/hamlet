@@ -230,9 +230,10 @@ fn skill_offers_use_other_houses_without_local_files() {
     let mut state = realm::state();
     state.deeds = realm::deeds(&["give"]);
     state.agents[1].skills = vec!["own".into()];
-    let mut scout = realm::agent(3, "home", 1, "scout");
+    let mut scout = realm::agent(3, "home", 1);
     scout.skills = vec!["maps".into(), "own".into()];
     state.agents.push(scout.clone());
+    state.scholars.push(realm::scholar(3, "scout", &[3]));
     let message = protocol::ServerMessage::State(state);
     crate::receive(app.world_mut(), message);
     let offered = offers(app.world(), founder);
@@ -241,7 +242,7 @@ fn skill_offers_use_other_houses_without_local_files() {
             .iter()
             .map(|offer| (offer.skill.as_str(), offer.from.as_str()))
             .collect::<Vec<_>>(),
-        [("maps", "scout")]
+        [("maps", "scout (home#1)")]
     );
     {
         let expected = protocol::GiveSkillSource {

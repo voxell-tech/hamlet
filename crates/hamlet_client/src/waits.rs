@@ -23,7 +23,10 @@ pub struct Refused(pub String);
 )]
 pub struct Waiting {
     pub id: String,
+    /// The address of who raised it, or `the realm`.
     pub by: String,
+    /// What who raised it is shown by.
+    pub shown: String,
     pub about: String,
     /// The line of `about` a one-line view quotes.
     pub subject: String,
@@ -48,26 +51,30 @@ impl Waiting {
             matches!(self.detail, protocol::WaitDetail::Objection {});
         // An objection's line has no name before it, so its subject
         // takes the name's room too.
-        let max = if objection { max + self.by.len() } else { max };
+        let max = if objection {
+            max + self.shown.len()
+        } else {
+            max
+        };
         let clipped = match flat.char_indices().nth(max) {
             Some((cut, _)) => format!("{}...", &flat[..cut]),
             None => flat,
         };
         match &self.detail {
             protocol::WaitDetail::Approval { says, .. } => {
-                format!("{} {says} `{clipped}`", self.by)
+                format!("{} {says} `{clipped}`", self.shown)
             }
             protocol::WaitDetail::Objection {} => clipped,
             protocol::WaitDetail::Question { .. } => {
-                format!("{} asks: {clipped}", self.by)
+                format!("{} asks: {clipped}", self.shown)
             }
             protocol::WaitDetail::Fault {} => {
-                format!("{} failed: {clipped}", self.by)
+                format!("{} failed: {clipped}", self.shown)
             }
             protocol::WaitDetail::Newcomer { .. } => {
                 format!(
                     "{clipped}, whom {} made, waits at the harbor",
-                    self.by
+                    self.shown
                 )
             }
         }
@@ -132,6 +139,10 @@ pub(crate) fn upsert(
     let agent = wait
         .agent
         .and_then(|agent| crate::realm::agent(world, agent));
+    let shown = match agent {
+        Some(agent) => crate::realm::shown_of(world, agent),
+        None => wait.by.clone(),
+    };
     let mut entity = world.entity_mut(entity);
     if let protocol::WaitDetail::Question { questions } = &wait.detail
     {
@@ -140,6 +151,7 @@ pub(crate) fn upsert(
     entity.insert(Waiting {
         id: wait.id,
         by: wait.by,
+        shown,
         about: wait.about,
         subject: wait.subject,
         change: wait.change,

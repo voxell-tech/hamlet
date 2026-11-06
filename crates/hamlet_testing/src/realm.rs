@@ -9,13 +9,13 @@ use tokio::runtime::Handle;
 use tokio_tungstenite::tungstenite::Message;
 
 /// A realm with its Hand and a first hamlet `home` under the mayor
-/// `ada`, at revision zero.
+/// `home#0`, a hire of the scholar `ada`, at revision zero.
 pub fn state() -> protocol::State {
     serde_json::from_value(json!({
         "epoch": 1, "revision": 0, "chief": "chief", "confinement": {"kind": "sandbox", "name": "test"},
         "hand": 1, "hamlets": [hamlet("home", 2)],
-        "agents": [hand(1), agent(2, "home", 0, "ada")],
-        "scholars": [scholar(1, "ada", &[2])],
+        "agents": [hand(1), agent(2, "home", 0)],
+        "scholars": [scholar(2, "ada", &[2])],
         "waits": [], "grants": [], "providers": [],
         "settings": {
             "model": "faux::faux-1", "reflectEvery": 0, "allowNet": false, "effort": null,
@@ -72,15 +72,11 @@ pub fn hand(id: u64) -> protocol::Agent {
     })).unwrap()
 }
 
-/// A hire `name@hamlet`, its hamlet's mayor for number zero.
-pub fn agent(
-    id: u64,
-    hamlet: &str,
-    number: u64,
-    name: &str,
-) -> protocol::Agent {
+/// A hire `hamlet#number` of the scholar with its own id, its
+/// hamlet's mayor for number zero.
+pub fn agent(id: u64, hamlet: &str, number: u64) -> protocol::Agent {
     serde_json::from_value(json!({
-        "id": id, "kind": "hire", "name": format!("{name}@{hamlet}"), "nickname": null,
+        "id": id, "kind": "hire", "name": format!("{hamlet}#{number}"), "nickname": null,
         "hamlet": hamlet, "number": number, "scholar": id,
         "parent": if number == 0 { json!(1) } else { json!(2) },
         "pin": null, "purpose": "", "since": 0, "mayor": number == 0,
@@ -111,7 +107,7 @@ pub fn scholar(
 /// An approval raised by the first hamlet's mayor.
 pub fn wait(id: &str) -> protocol::Wait {
     serde_json::from_value(json!({
-        "id": id, "agent": 2, "by": "ada@home",
+        "id": id, "agent": 2, "by": "home#0",
         "about": "pwd", "subject": "pwd", "change": null,
         "answers": ["allow", "always", "deny"], "since": 1000, "asked": 1,
         "chat": {"with": 2},
