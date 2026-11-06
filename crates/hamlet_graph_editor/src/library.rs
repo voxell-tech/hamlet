@@ -22,6 +22,7 @@ use hamlet_client::ViewFolder;
 use hamlet_graph::{Asset, Book, Catalogue, Does, Shape, Sheet};
 use hamlet_ui::widgets::icons::Glyph;
 
+pub mod carry;
 pub mod picker;
 pub mod thumbnails;
 
@@ -30,11 +31,12 @@ pub mod thumbnails;
 const RESCAN: Duration = Duration::from_secs(3);
 
 /// Adds the [`Library`] and the systems that find and read its
-/// folder, and the pickers of its meshes.
+/// folder, the pickers of its meshes, and the card a dragged tile
+/// shows.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Library>()
         .init_resource::<thumbnails::Thumbnails>()
-        .add_plugins(picker::plugin)
+        .add_plugins((picker::plugin, carry::plugin))
         .add_systems(Update, (find, rescan));
 }
 

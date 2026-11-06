@@ -19,7 +19,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::{Added, Changed, Or, With, Without};
+use bevy::ecs::query::{Added, Changed, Has, Or, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, If, Local, Query, Res, ResMut};
@@ -44,7 +44,8 @@ use bevy::ui::widget::Text;
 use bevy::ui::{
     AlignItems, BackgroundColor, BorderColor, BorderRadius,
     ComputedNode, Display, FlexDirection, JustifyContent, Node,
-    Overflow, PositionType, UiGlobalTransform, UiRect, UiTransform,
+    Outline, Overflow, PositionType, UiGlobalTransform, UiRect,
+    UiTransform,
     Val, Val2, ZIndex, px,
 };
 use bevy::ui_render::ui_material::MaterialNode;
@@ -63,7 +64,7 @@ use super::flavor::Flavor;
 use super::menu::Which;
 use super::wire::{Shape, WireMaterial};
 use super::{Editor, OUTPUTS, controls};
-use crate::library::{Item, Tile};
+use crate::library::carry::{Carried, tile_of};
 
 /// The gap between two columns of cards laid out, and between the
 /// last card and the Outputs card.
@@ -115,7 +116,32 @@ pub(super) fn plugin<F: Flavor>(app: &mut App) {
             Update,
             (forget_ended::<F>, cancel::<F>, faint::<F>).chain(),
         )
-        .add_systems(Update, (titles::<F>, retitled::<F>));
+        .add_systems(
+            Update,
+            (titles::<F>, retitled::<F>, drop_hint::<F>),
+        );
+}
+
+/// Outlines the canvas while a carried asset is over it, where letting
+/// it go would put it down.
+fn drop_hint<F: Flavor>(
+    mut commands: Commands,
+    carried: Res<Carried>,
+    If(theme): If<Res<Theme<HamletTheme>>>,
+    canvas: Query<(Entity, &Hovered, Has<Outline>), With<Canvas<F>>>,
+) {
+    for (canvas, hovered, outlined) in &canvas {
+        let wanted = carried.item.is_some() && hovered.get();
+        if wanted && !outlined {
+            commands.entity(canvas).insert(Outline::new(
+                px(2.0),
+                px(-2.0),
+                theme.0.palette.glow,
+            ));
+        } else if !wanted && outlined {
+            commands.entity(canvas).remove::<Outline>();
+        }
+    }
 }
 
 /// Set while any canvas drags a wire.
@@ -2301,16 +2327,6 @@ fn received<F: Flavor>(
         };
         F::dropped(&mut world.resource_mut::<Editor<F>>(), &item, at);
     });
-}
-
-/// The asset of the tile that is `entity` or holds it.
-fn tile_of(world: &World, mut entity: Entity) -> Option<Item> {
-    loop {
-        if let Some(tile) = world.get::<Tile>(entity) {
-            return Some(tile.0.clone());
-        }
-        entity = world.get::<ChildOf>(entity)?.parent();
-    }
 }
 
 /// Wires the output of the wire dropped on an input's dot to it, in
