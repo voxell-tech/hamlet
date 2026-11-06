@@ -490,7 +490,12 @@ pub(super) fn cut_glows(
             (rect.min.y, rect.max.y) =
                 (f32::NEG_INFINITY, f32::INFINITY);
         }
-        *clip = clip.with_rect(rect, at);
+        // Written only when it moves, so the glow is not marked
+        // changed each frame.
+        let cut = clip.with_rect(rect, at);
+        if *clip != cut {
+            *clip = cut;
+        }
     }
 }
 
