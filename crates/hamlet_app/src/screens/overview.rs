@@ -121,7 +121,10 @@ pub fn overview() -> impl View {
             .map(|row| {
                 let hamlet = row.hamlet;
                 let mut lines = vec![
-                    format!("Mayor: {}", row.mayor),
+                    format!(
+                        "Mayor: {}",
+                        hamlet_realm::pick::short(&row.mayor)
+                    ),
                     row.account.clone(),
                 ];
                 if row.gone > 0 {
@@ -173,7 +176,7 @@ pub fn overview() -> impl View {
     with_cx(move |cx| {
         column((
             beside((
-                title("HOME"),
+                title("REALM"),
                 note("Today in your realm, and its hamlets."),
             )),
             today(),

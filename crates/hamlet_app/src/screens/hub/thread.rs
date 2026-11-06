@@ -20,6 +20,7 @@ use hamlet_client::realm::{
     Activity, Busy, Kind, Left, LivesIn, Nickname, Parent, PeerChats,
     Settings, Works, id_of, name_of,
 };
+use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
@@ -39,6 +40,7 @@ use crate::models::Shelf;
 use crate::overview::tell;
 use crate::roll::rolled;
 use crate::screens::chat::bubble::fresh;
+use crate::screens::petition::{self, Need};
 use crate::status::Bar;
 use crate::world_menu::{self};
 
@@ -254,7 +256,7 @@ fn path(agent: Entity) -> impl View {
         let world = &*cx.world;
         let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
         let mut parts = vec![
-            step("Home".into(), |world| show(world, Showing::Home))
+            step("Realm".into(), |world| show(world, Showing::Home))
                 .boxed(),
         ];
         if let Some(hamlet) = hamlet {
@@ -315,34 +317,76 @@ fn path(agent: Entity) -> impl View {
     })
 }
 
-/// Work in the accent, rest dim, as the rail shows them.
-fn working_tone(world: &World, agent: Entity) -> Tone {
-    if world.get::<Busy>(agent).is_some() {
-        Tone::Accent
-    } else {
-        Tone::Faint
+/// The waits `agent` raised that the chief has not answered, oldest
+/// first.
+fn waits_of(world: &World, agent: Entity) -> Vec<Entity> {
+    let address = name_of(world, agent);
+    let Some(mut query) = world.try_query::<(Entity, &Waiting)>()
+    else {
+        return Vec::new();
+    };
+    let mut found = query
+        .iter(world)
+        .filter(|(_, waiting)| waiting.by == address)
+        .map(|(entity, waiting)| (waiting.since, entity))
+        .collect::<Vec<_>>();
+    found.sort();
+    found.into_iter().map(|(_, entity)| entity).collect()
+}
+
+/// What the agent waits on the chief for, each with its answers, over
+/// its chat, so a row of NEEDS YOU lands where it can be answered.
+fn waits(agent: Entity) -> impl View {
+    keyed(
+        derived(move |world: &World| waits_of(world, agent))
+            .when(every_frame()),
+        |waits| {
+            let cards = waits
+                .iter()
+                .copied()
+                .map(|wait| {
+                    AnyView::new(move |cx: &mut hamlet_ui::Cx| {
+                        match cx.world.get::<Waiting>(wait) {
+                            Some(waiting) => {
+                                let need = Need::of(wait, waiting);
+                                cx.build(petition::strip(&need))
+                            }
+                            None => cx.build(frame()),
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+            column(cards).gap(8.0).boxed()
+        },
+    )
+    .within(bare())
+}
+
+/// The state shown for `agent`: its waits first, then work or rest.
+fn standing(world: &World, agent: Entity) -> (Glyph, Tone, String) {
+    if !waits_of(world, agent).is_empty() {
+        return (Glyph::Bell, Tone::Critical, "Waits for you".into());
+    }
+    let words = world
+        .get::<Activity>(agent)
+        .cloned()
+        .unwrap_or_default()
+        .words;
+    match world.get::<Busy>(agent) {
+        Some(_) => (Glyph::Bolt, Tone::Accent, words),
+        None => (Glyph::Moon, Tone::Faint, words),
     }
 }
 
 /// What it is doing, with the mark of its state.
 fn state(agent: Entity) -> impl View {
-    let words = label(rolled(move |world| {
-        world
-            .get::<Activity>(agent)
-            .cloned()
-            .unwrap_or_default()
-            .words
-    }))
-    .tone(rolled(move |world| working_tone(world, agent)));
+    let words = label(rolled(move |world| standing(world, agent).2))
+        .tone(rolled(move |world| standing(world, agent).1));
     let mark = icon(rolled(move |world| {
-        let which = match world.get::<Busy>(agent) {
-            Some(_) => Glyph::Bolt,
-            None => Glyph::Moon,
-        };
-        which.image(ICON)
+        standing(world, agent).0.image(ICON)
     }))
     .size(ICON)
-    .tone(rolled(move |world| working_tone(world, agent)));
+    .tone(rolled(move |world| standing(world, agent).1));
     row((mark, words.wrap(false)))
         .gap(5.0)
         .align(AlignItems::Center)
@@ -379,9 +423,11 @@ fn header(agent: Entity) -> impl View {
         let (section, gap) =
             (cx.theme().space.section, cx.theme().space.gap);
         cx.build(
+            // The path on its own line; its state, then what can be
+            // done, on the next.
             column((
+                path(agent),
                 row((
-                    path(agent),
                     state(agent),
                     frame().grow(1.0),
                     fresh(),
@@ -389,8 +435,7 @@ fn header(agent: Entity) -> impl View {
                     more,
                 ))
                 .gap(section)
-                .align(AlignItems::Center)
-                .tagged(Wraps),
+                .align(AlignItems::Center),
                 note(resource::<Bar, _>(|b| {
                     format!("{}  This chat: {}", b.model, b.usage)
                 })),
@@ -709,7 +754,9 @@ pub(super) fn living() -> impl View {
             .within(filling());
             with_cx(move |cx| {
                 let gap = cx.theme().space.gap;
-                column((header(agent), body)).fills_height().gap(gap)
+                column((header(agent), waits(agent), body))
+                    .fills_height()
+                    .gap(gap)
             })
             .boxed()
         },

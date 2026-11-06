@@ -308,7 +308,7 @@ fn held(
     ))
 }
 
-fn strip(need: &Need) -> AnyView {
+pub(crate) fn strip(need: &Need) -> AnyView {
     let need = need.clone();
     AnyView::new(move |cx: &mut Cx| {
         let questions = match &need.detail {

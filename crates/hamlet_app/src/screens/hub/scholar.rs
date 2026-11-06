@@ -5,19 +5,22 @@ use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, dropdown, label, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
+    frame, label, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
-use hamlet_client::realm::{Deeds, Scholar, name_of};
+use hamlet_client::realm::{
+    Deeds, LivesIn, Nickname, Pin, Scholar, name_of,
+};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bad_action, bare, breadcrumb,
-    buttons, good_action, hairline, lettered, note, scroll_area,
+    buttons, good_action, hairline, note, scroll_area,
     status_label_large, text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
@@ -70,11 +73,22 @@ struct First;
 #[derive(Component)]
 struct Second;
 
+/// A hire of the scholar as the page shows it.
+#[derive(Clone, PartialEq)]
+struct HireShown {
+    entity: Entity,
+    address: String,
+    /// What it goes by, and the name of the hamlet it is in.
+    called: String,
+    hamlet: String,
+    pin: Option<String>,
+}
+
 /// A scholar and its hires as the page reads them.
 #[derive(Clone, PartialEq)]
 struct Shown {
     scholar: protocol::Scholar,
-    hires: Vec<(Entity, String)>,
+    hires: Vec<HireShown>,
     allowed: Vec<&'static str>,
 }
 
@@ -87,7 +101,24 @@ fn shown(world: &World, entity: Entity) -> Option<Shown> {
         .filter(|hire| {
             hamlet_client::realm::id_of(world, *hire).is_some()
         })
-        .map(|hire| (hire, name_of(world, hire)))
+        .map(|hire| {
+            let address = name_of(world, hire);
+            HireShown {
+                entity: hire,
+                called: match world.get::<Nickname>(hire) {
+                    Some(nickname) => nickname.0.clone(),
+                    None => {
+                        hamlet_realm::pick::short(&address).into()
+                    }
+                },
+                hamlet: world
+                    .get::<LivesIn>(hire)
+                    .map(|lives| name_of(world, lives.0))
+                    .unwrap_or_default(),
+                pin: world.get::<Pin>(hire).map(|pin| pin.0.clone()),
+                address,
+            }
+        })
         .collect();
     let allowed = DEEDS
         .into_iter()
@@ -272,21 +303,8 @@ fn arrival(shown: &Shown) -> AnyView {
                 ));
             }
         }
-        (None, protocol::Arrival::Housed) => {
-            if can("turn-away") {
-                let name = name.clone();
-                buttons_row.push(action(
-                    Glyph::Back,
-                    "TURN AWAY",
-                    move |world| {
-                        tell_hand(
-                            world,
-                            format!("/turn-away {name}"),
-                        );
-                    },
-                ));
-            }
-        }
+        // Sending it back is among the careful acts at the foot.
+        (None, protocol::Arrival::Housed) => {}
         (None, _) => {
             if can("welcome") {
                 let name = name.clone();
@@ -381,27 +399,44 @@ fn hires(shown: &Shown) -> AnyView {
     names.extend(
         shown.scholar.versions.iter().map(|v| v.name.clone()),
     );
-    for (hire, name) in &shown.hires {
-        let hire = *hire;
-        let address = name.clone();
+    for shown_hire in &shown.hires {
+        let hire = shown_hire.entity;
+        let address = shown_hire.address.clone();
         let choices = names.clone();
-        let past = choices.len();
+        // The version it follows now, main when it is not pinned.
+        let now = shown_hire
+            .pin
+            .as_ref()
+            .and_then(|pin| choices.iter().position(|v| v == pin))
+            .unwrap_or(0);
         let mut line = vec![
-            lettered(name.clone())
+            button(label(shown_hire.called.clone()).bold(true))
+                .padding(UiRect::all(px(0.0)))
                 .rules(back_link)
                 .tagged(Variant::Text)
+                .tooltip({
+                    let address = address.clone();
+                    move || note(address.clone())
+                })
                 .on_activate(move |world| talk_to(world, hire))
                 .boxed(),
+            label(format!("in {}", shown_hire.hamlet))
+                .tone(Tone::Dim)
+                .boxed(),
+            frame().grow(1.0).boxed(),
         ];
         if pins {
             let picked = choices.clone();
+            line.push(label("Follows").tone(Tone::Faint).boxed());
             line.push(
                 dropdown(
                     choices,
-                    past,
+                    now,
                     Glyph::Chevron.image(ICON),
                     move |world, chosen| {
-                        if let Some(to) = picked.get(chosen) {
+                        if chosen != now
+                            && let Some(to) = picked.get(chosen)
+                        {
                             tell_hand(
                                 world,
                                 format!("/pin {address} {to}"),
@@ -409,7 +444,6 @@ fn hires(shown: &Shown) -> AnyView {
                         }
                     },
                 )
-                .placeholder("PIN TO")
                 .boxed(),
             );
         }
@@ -468,17 +502,38 @@ fn knowledge() -> impl View {
     .gap(6.0)
 }
 
-/// What can be done to the scholar as a whole.
+/// What it is good to do to the scholar now and then.
 fn deeds(shown: &Shown) -> AnyView {
+    let name = shown.scholar.name.clone();
+    let mut acts = Vec::new();
+    if shown.scholar.left.is_none()
+        && shown.allowed.contains(&"dream")
+    {
+        acts.push(action(Glyph::Moon, "DREAM", move |world| {
+            tell_hand(world, format!("/dream {name}"));
+        }));
+    }
+    buttons(acts).boxed()
+}
+
+/// What changes the scholar for good or sends it away, kept at the
+/// foot of its page under its own heading.
+fn careful(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
     let can = |deed| shown.allowed.contains(&deed);
     let living = shown.scholar.left.is_none();
     let mut acts = Vec::new();
-    if living && can("dream") {
-        let name = name.clone();
-        acts.push(action(Glyph::Moon, "DREAM", move |world| {
-            tell_hand(world, format!("/dream {name}"));
-        }));
+    if living
+        && shown.scholar.arrival == protocol::Arrival::Housed
+        && can("turn-away")
+    {
+        acts.push(action(
+            Glyph::Back,
+            "SEND TO THE HARBOR",
+            move |world| {
+                tell_hand(world, format!("/turn-away {name}"));
+            },
+        ));
     }
     if living && can("purge") {
         acts.push(bad_action(
@@ -494,20 +549,36 @@ fn deeds(shown: &Shown) -> AnyView {
             ask(world, Act::Remove);
         }));
     }
-    buttons(acts).boxed()
+    if acts.is_empty() {
+        return frame().boxed();
+    }
+    column((
+        heading(Glyph::Stop, "CAREFUL"),
+        note("These change the scholar for good, or send it away."),
+        buttons(acts),
+    ))
+    .gap(6.0)
+    .boxed()
 }
 
+/// The scholar's page: where it stands, its hires, what it knows, its
+/// versions, then what changes it for good.
 fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
-    let (head, versions_part, hires_part, deeds_part) =
-        (arrival(shown), versions(shown), hires(shown), deeds(shown));
+    let (head, versions_part, hires_part, deeds_part, careful_part) = (
+        arrival(shown),
+        versions(shown),
+        hires(shown),
+        deeds(shown),
+        careful(shown),
+    );
     with_cx(move |cx| {
         let line = cx.theme().palette.gold_6;
         let section = cx.theme().space.section;
         column((
             breadcrumb(
-                vec!["HOME".into()],
-                name.to_uppercase(),
+                vec!["Realm".into(), "City".into()],
+                name.clone(),
                 |world, _| show(world, Showing::Home),
             ),
             title(name.to_uppercase()),
@@ -515,11 +586,13 @@ fn body(shown: &Shown) -> AnyView {
             deeds_part,
             form_view(name),
             hairline(line),
+            hires_part,
+            hairline(line),
             knowledge(),
             hairline(line),
             versions_part,
             hairline(line),
-            hires_part,
+            careful_part,
         ))
         .gap(section)
     })

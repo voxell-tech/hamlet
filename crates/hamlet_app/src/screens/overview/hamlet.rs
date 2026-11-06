@@ -245,8 +245,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         }
         group((
             breadcrumb(
-                vec!["HOME".into()],
-                facts.title.to_uppercase(),
+                vec!["Realm".into()],
+                facts.title.clone(),
                 |world, _| {
                     select(world, None);
                     crate::hub::show(
