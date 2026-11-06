@@ -16,8 +16,8 @@ use bevy::picking::events::{
 };
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, ComputedNode, JustifyContent, Overflow, UiRect,
-    percent, px,
+    AlignItems, ComputedNode, JustifyContent, Overflow,
+    UiGlobalTransform, UiRect, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, Tone};
@@ -167,24 +167,27 @@ fn grab(
     }
 }
 
+/// Sizes the rail to where the pointer is, so the line stays under
+/// it however fast it moves.
 fn drag(
     drag: On<PointerDrag>,
     dividers: Query<(), With<Divider>>,
-    frames: Query<&ComputedNode, With<Frame>>,
+    frames: Query<(&ComputedNode, &UiGlobalTransform), With<Frame>>,
     mut rail: ResMut<Rail>,
 ) {
     if !dividers.contains(drag.entity) {
         return;
     }
-    let most = frames
-        .iter()
-        .next()
-        .map(|node| {
-            node.size().x * node.inverse_scale_factor() - PAGE
-        })
-        .unwrap_or(WIDEST)
-        .clamp(FOLDS, WIDEST);
-    rail.width = (rail.width + drag.delta.x).clamp(ICONS, most);
+    let at = drag.pointer.position;
+    // The Hub starts where the rail does, in logical pixels.
+    let Some((node, place)) = frames.iter().next() else {
+        return;
+    };
+    let scale = node.inverse_scale_factor();
+    let left = (place.translation.x - node.size().x * 0.5) * scale;
+    let most = (node.size().x * scale - PAGE).clamp(FOLDS, WIDEST);
+    let width = at.x - left;
+    rail.width = width.clamp(ICONS, most);
 }
 
 fn drop(
