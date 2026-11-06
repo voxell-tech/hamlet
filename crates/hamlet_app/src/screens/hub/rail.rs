@@ -447,8 +447,15 @@ fn agents(world: &World) -> Vec<Agent> {
     let waiting = world
         .try_query::<&Waiting>()
         .map(|mut waits| {
+            // A newcomer's wait is about the scholar, not its maker.
             waits
                 .iter(world)
+                .filter(|wait| {
+                    !matches!(
+                        wait.detail,
+                        protocol::WaitDetail::Newcomer { .. }
+                    )
+                })
                 .map(|wait| wait.by.clone())
                 .collect::<Vec<_>>()
         })
