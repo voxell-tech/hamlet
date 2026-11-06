@@ -731,7 +731,7 @@ fn sound() -> impl View {
                     |s| s.wildlife_on,
                     |s, on| s.wildlife_on = on,
                 ),
-                description("Birds, crickets and other animals."),
+                description("Birds, owls and other animals."),
             ),
         ),
         field(

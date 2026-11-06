@@ -6,7 +6,7 @@ use crate::play::Play;
 /// A kind of sound, with a volume and a limit of its own.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Family {
-    /// The animals: birds and crickets.
+    /// The animals: birds and owls.
     Wildlife,
     /// The environment: wind.
     Ambience,
@@ -112,7 +112,7 @@ pub enum Sound {
     /// A letter or a page changing hands.
     Letter,
     Birds,
-    Crickets,
+    Owl,
     Wind,
     /// The pointer coming onto a button.
     Tick,
@@ -215,7 +215,7 @@ impl Sound {
         Self::Fault,
         Self::Letter,
         Self::Birds,
-        Self::Crickets,
+        Self::Owl,
         Self::Wind,
         Self::Tick,
         Self::Tap,
@@ -275,7 +275,7 @@ impl Sound {
 
     pub fn family(self) -> Family {
         match self {
-            Self::Birds | Self::Crickets => Family::Wildlife,
+            Self::Birds | Self::Owl => Family::Wildlife,
             Self::Wind => Family::Ambience,
             Self::Step | Self::RoadStep => Family::Steps,
             Self::Hammer
@@ -399,7 +399,7 @@ impl Sound {
             | Self::Door
             | Self::Letter
             | Self::Birds
-            | Self::Crickets
+            | Self::Owl
             | Self::Wind
             | Self::Tap
             | Self::Menu
@@ -445,7 +445,7 @@ impl Sound {
             Self::Fault => "fault",
             Self::Letter => "letter",
             Self::Birds => "birds",
-            Self::Crickets => "crickets",
+            Self::Owl => "owl",
             Self::Wind => "wind",
             Self::Tick => "tick",
             Self::Tap => "tap",

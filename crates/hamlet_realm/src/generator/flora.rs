@@ -243,13 +243,13 @@ fn broadleaf(
 }
 
 /// A colour a kind's crown is dabbed with here and there, apart
-/// from its light and shade: yellower in green leaves, redder in
+/// from its light and shade: yellower in green leaves, deeper in
 /// autumn, paler in blossom.
 fn accent(pal: &Palette, kind: usize, light: Vec3) -> Vec3 {
     if kind == BLOSSOM {
         pal.blossom.lerp(Vec3::ONE, 0.45)
     } else if kind == AUTUMN {
-        pal.autumn.lerp(pal.blossom, 0.5)
+        pal.autumn.lerp(pal.autumn_shade, 0.5)
     } else {
         light.lerp(pal.grass_tip, 0.6)
     }

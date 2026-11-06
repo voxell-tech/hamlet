@@ -28,21 +28,24 @@ const CROWN: f32 = 3.0;
 const STIFF: f32 = 1.0;
 
 // Where the point `local` of a tree's mesh is blown to, in the world.
-// The tree stands on its mesh's origin. Its trunk stands stiff, and
-// from there up it bends the more the higher up. All of it leans down
-// the wind and rocks there, each tree at its own moment; its leaves
-// shiver on top of that, each at its own.
+// The tree stands on its mesh's origin. It does not lean or rock, and
+// its bark, which lies at UV zero, stands still: only its leaf cards
+// shiver, each at its own moment, the more the higher up.
 fn swayed(
     leaves: Leaves,
     wind: Wind,
     local: vec3<f32>,
+    uv: vec2<f32>,
     world_from_local: mat4x4<f32>,
 ) -> vec3<f32> {
     let foot = world_from_local[3].xyz;
     let size = length(world_from_local[1].xyz);
     let world = (world_from_local * vec4<f32>(local, 1.0)).xyz;
+    if all(uv == vec2<f32>(0.0)) {
+        return world;
+    }
     let rise = clamp((local.y - STIFF) / (CROWN - STIFF), 0.0, 1.0);
-    return blown(leaves, wind, world, foot.xz, rise * rise * size, rise * size);
+    return blown(leaves, wind, world, foot.xz, 0.0, rise * size);
 }
 
 // Where the point `world` of a plant among many in one mesh is blown
