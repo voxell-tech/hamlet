@@ -27,6 +27,20 @@ pub(crate) struct Amount {
     pub tokens: i64,
 }
 
+/// The sums of a query over usage: micros, model time and tokens,
+/// none when nothing was used.
+type Sums = (Option<i64>, Option<i64>, Option<i64>);
+
+impl From<Sums> for Amount {
+    fn from((micros, ms, tokens): Sums) -> Self {
+        Self {
+            micros: micros.unwrap_or(0),
+            ms: ms.unwrap_or(0),
+            tokens: tokens.unwrap_or(0),
+        }
+    }
+}
+
 /// `micros` in dollars to the cent, a half cent rounding up.
 pub(crate) fn money(micros: Micros) -> String {
     if (1..10_000).contains(&micros) {
@@ -114,13 +128,7 @@ pub(crate) fn of_payer(
         Some(hamlet) => query.filter(attempt::payer.eq(hamlet)),
         None => query.filter(attempt::payer.is_null()),
     };
-    let (micros, ms, tokens) =
-        query.first::<(Option<i64>, Option<i64>, Option<i64>)>(db)?;
-    let mut amount = Amount {
-        micros: micros.unwrap_or(0),
-        ms: ms.unwrap_or(0),
-        tokens: tokens.unwrap_or(0),
-    };
+    let mut amount = Amount::from(query.first::<Sums>(db)?);
     if let Some(hamlet) = payer {
         let roads = road_charge::table
             .filter(road_charge::hamlet.eq(hamlet))
@@ -136,30 +144,27 @@ pub(crate) fn of_payer(
 
 /// What task `task` spent in its whole life.
 pub(crate) fn of_task(db: &mut Db, task: TaskId) -> Result<Amount> {
-    let (micros, ms, tokens) = usage::table
-        .inner_join(
-            attempt::table.on(attempt::runtime
-                .eq(usage::runtime)
-                .and(attempt::key.eq(usage::key))),
-        )
-        .filter(attempt::task.eq(task))
-        .select((
-            total(usage::micros),
-            total(usage::ms),
-            total(usage::input + usage::output),
-        ))
-        .first::<(Option<i64>, Option<i64>, Option<i64>)>(db)?;
+    let mut amount = Amount::from(
+        usage::table
+            .inner_join(
+                attempt::table.on(attempt::runtime
+                    .eq(usage::runtime)
+                    .and(attempt::key.eq(usage::key))),
+            )
+            .filter(attempt::task.eq(task))
+            .select((
+                total(usage::micros),
+                total(usage::ms),
+                total(usage::input + usage::output),
+            ))
+            .first::<Sums>(db)?,
+    );
     let roads = road_charge::table
         .filter(road_charge::task.eq(task))
         .select(total(road_charge::micros))
         .first::<Option<i64>>(db)?;
-    Ok(Amount {
-        micros: micros
-            .unwrap_or(0)
-            .saturating_add(roads.unwrap_or(0)),
-        ms: ms.unwrap_or(0),
-        tokens: tokens.unwrap_or(0),
-    })
+    amount.micros = amount.micros.saturating_add(roads.unwrap_or(0));
+    Ok(amount)
 }
 
 /// What the agents `ids` spent since `since`.
@@ -168,25 +173,22 @@ fn of_agents(
     ids: &[AgentId],
     since: i64,
 ) -> Result<Amount> {
-    let (micros, ms, tokens) = usage::table
-        .inner_join(
-            attempt::table.on(attempt::runtime
-                .eq(usage::runtime)
-                .and(attempt::key.eq(usage::key))),
-        )
-        .filter(attempt::agent.eq_any(ids))
-        .filter(usage::at.ge(since))
-        .select((
-            total(usage::micros),
-            total(usage::ms),
-            total(usage::input + usage::output),
-        ))
-        .first::<(Option<i64>, Option<i64>, Option<i64>)>(db)?;
-    Ok(Amount {
-        micros: micros.unwrap_or(0),
-        ms: ms.unwrap_or(0),
-        tokens: tokens.unwrap_or(0),
-    })
+    Ok(Amount::from(
+        usage::table
+            .inner_join(
+                attempt::table.on(attempt::runtime
+                    .eq(usage::runtime)
+                    .and(attempt::key.eq(usage::key))),
+            )
+            .filter(attempt::agent.eq_any(ids))
+            .filter(usage::at.ge(since))
+            .select((
+                total(usage::micros),
+                total(usage::ms),
+                total(usage::input + usage::output),
+            ))
+            .first::<Sums>(db)?,
+    ))
 }
 
 /// What `agent` spent in its payer's period at `at`.
@@ -195,13 +197,9 @@ pub(crate) fn of_agent(
     agent: AgentId,
     at: i64,
 ) -> Result<Amount> {
-    let payer = payer_of(db, agent)?;
+    let payer = crate::talk::tasks::payer_of(db, agent)?;
     let period = budget_of(db, payer.as_ref())?.period;
     of_agents(db, &[agent], period_start(period, at)?)
-}
-
-fn payer_of(db: &mut Db, agent: AgentId) -> Result<Option<HamletId>> {
-    crate::talk::tasks::payer_of(db, agent)
 }
 
 /// The budget of `payer`, a hamlet's or the realm's.
