@@ -15,7 +15,7 @@ use crate::core::Core;
 use crate::knowledge::CHARACTER;
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::refusal::Refusal;
-use crate::society::{addresses, authority};
+use crate::society::{addresses, authority, names};
 
 /// The most of a file `read_scholar` gives.
 const MOST_READ: usize = 50 * 1024;
@@ -179,11 +179,11 @@ impl Core {
         let name = text(call, "scholar");
         let tag = text(call, "tag");
         let repo = self.repository(scholar)?;
-        if tag.is_empty()
-            || tag == MAIN
-            || repo.resolve(&tag)?.is_some()
-        {
-            return Ok(Err(Refusal::BadVersion { version: tag }));
+        if let Err(refusal) = names::check_version(&tag) {
+            return Ok(Err(refusal));
+        }
+        if tag == MAIN || repo.resolve(&tag)?.is_some() {
+            return Ok(Err(Refusal::VersionTaken { version: tag }));
         }
         let Some(at) = repo.tip(MAIN)? else {
             return Ok(Err(Refusal::NoVersion {

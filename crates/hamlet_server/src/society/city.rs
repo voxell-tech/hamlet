@@ -13,6 +13,7 @@ use hamlet_store::ids::{Actor, AgentId, ChiefId, ScholarId};
 use hamlet_store::schema::{agent, hamlet, hire, scholar, wait};
 use serde_json::json;
 
+use super::addresses::scholar_address;
 use super::agents::EndHow;
 use super::names::check_name;
 use super::record::{self, Decision, DecisionKind};
@@ -83,7 +84,14 @@ impl Scholar {
 
     /// The scholar's address with its name beside it.
     pub fn label(&self) -> String {
-        format!("scholar#{} ({})", self.id, self.name)
+        format!("{} ({})", scholar_address(self.id), self.name)
+    }
+
+    /// The refusal of a call that names this scholar when it has left
+    /// the city or is the Hand's.
+    pub fn gone(&self) -> Option<Refusal> {
+        (!self.is_living() || self.kind != ScholarKind::Scholar)
+            .then(|| Refusal::ScholarGone { name: self.label() })
     }
 }
 
@@ -151,7 +159,10 @@ pub(crate) fn make(
                         scholar: Some(id),
                         conversation: None,
                         task: None,
-                        about: format!("scholar#{id} ({name})"),
+                        about: format!(
+                            "{} ({name})",
+                            scholar_address(id)
+                        ),
                         change: None,
                         answers: vec![
                             Choice::Welcome,
@@ -270,10 +281,8 @@ pub(crate) fn welcome(
     reason: &str,
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
-    if !scholar.is_living() || scholar.kind != ScholarKind::Scholar {
-        refuse!(Refusal::ScholarGone {
-            name: scholar.label()
-        });
+    if let Some(refusal) = scholar.gone() {
+        refuse!(refusal);
     }
     if scholar.arrival == Arrival::Housed {
         refuse!(Refusal::Housed {
@@ -297,10 +306,8 @@ pub(crate) fn turn_away(
     reason: &str,
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
-    if !scholar.is_living() || scholar.kind != ScholarKind::Scholar {
-        refuse!(Refusal::ScholarGone {
-            name: scholar.label()
-        });
+    if let Some(refusal) = scholar.gone() {
+        refuse!(refusal);
     }
     if scholar.arrival == Arrival::Turned {
         refuse!(Refusal::TurnedAway {
@@ -405,10 +412,8 @@ pub(crate) fn rename(
     name: &str,
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
-    if !scholar.is_living() || scholar.kind != ScholarKind::Scholar {
-        refuse!(Refusal::ScholarGone {
-            name: scholar.label()
-        });
+    if let Some(refusal) = scholar.gone() {
+        refuse!(refusal);
     }
     let name = match check_name(name) {
         Ok(name) => name,
@@ -450,10 +455,8 @@ pub(crate) fn place(
     turn: Option<f64>,
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
-    if !scholar.is_living() {
-        refuse!(Refusal::ScholarGone {
-            name: scholar.label()
-        });
+    if let Some(refusal) = scholar.gone() {
+        refuse!(refusal);
     }
     if scholar.arrival != Arrival::Housed {
         refuse!(Refusal::AtHarbor {
@@ -498,10 +501,8 @@ pub(crate) fn archive(
     reason: &str,
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
-    if !scholar.is_living() || scholar.kind == ScholarKind::Hand {
-        refuse!(Refusal::ScholarGone {
-            name: scholar.label()
-        });
+    if let Some(refusal) = scholar.gone() {
+        refuse!(refusal);
     }
     if reason.trim().is_empty() {
         refuse!(Refusal::NoReason);

@@ -74,6 +74,8 @@ pub(crate) enum Refusal {
          letters, digits, dots and hyphens"
     )]
     BadVersion { version: String },
+    #[error("the version `{version}` exists already; choose another")]
+    VersionTaken { version: String },
     #[error("a character may have at most 4000 characters")]
     LongCharacter,
     #[error("say what it is for")]
@@ -109,8 +111,10 @@ pub(crate) enum Refusal {
     AlreadyMayor { name: String },
     #[error("`{name}` is in another hamlet")]
     OtherHamlet { name: String },
-    #[error("nothing is named `{address}`")]
+    #[error("no agent has the address `{address}`")]
     NoOne { address: String },
+    #[error("`{name}` is not a hire")]
+    NotHire { name: String },
     #[error("`{address}` is not an address")]
     BadAddress { address: String },
     #[error("a road needs two different hires")]

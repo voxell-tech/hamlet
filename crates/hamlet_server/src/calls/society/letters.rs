@@ -12,7 +12,7 @@ use crate::core::Core;
 use crate::society::agents::{self, EndHow};
 use crate::society::refusal::Refusal;
 use crate::society::workers::{self, Start, Starter};
-use crate::society::{hires, roads};
+use crate::society::{addresses, hires, roads};
 use crate::talk::briefs;
 use crate::talk::conversations::Kind;
 use crate::talk::letters::{self, Message, MessageKind, Send};
@@ -293,7 +293,7 @@ impl Core {
         let db = self.realm.store().connection();
         let found = workers::get(db, id)?;
         let ended = agents::get(db, id)?;
-        let name = format!("worker#{id}");
+        let name = addresses::address_of(db, id)?;
         if !found.waits {
             return Ok(Step::Done(said(
                 format!(

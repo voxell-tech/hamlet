@@ -27,8 +27,7 @@ struct Command {
     does: &'static str,
 }
 
-/// The name of the new scholar a hamlet founded without a scholar is
-/// run by.
+/// The name of the scholar made for a mayor when `/found` names none.
 const MAYOR: &str = "Mayor";
 
 /// Whether `word` is a scholar's address, with or without a version.
@@ -203,7 +202,7 @@ const TABLE: &[Command] = &[
     Command {
         name: "move-hamlet",
         usage: "/move-hamlet <hamlet> <x> <z>",
-        does: "Set a hamlet's town down elsewhere",
+        does: "Set a hamlet down elsewhere on the hamlet island",
     },
     Command {
         name: "remove-hamlet",
@@ -653,7 +652,7 @@ impl Core {
                     .await?;
                 Ok(done.map(|()| {
                     format!(
-                        "The town of `{id}` is set down at {x}, {z}."
+                        "The hamlet `{id}` is set down at {x}, {z}."
                     )
                 }))
             }
@@ -742,9 +741,7 @@ impl Core {
                     format!("`{text}` holds the office of `{id}`.")
                 }))
             }
-            "hire" => {
-                self.hire_command(agent, here.as_ref(), &words).await
-            }
+            "hire" => self.hire_command(here.as_ref(), &words).await,
             "end" | "restore" | "erase" => {
                 let Some(text) = words.first() else {
                     return Ok(Err(usage(name)));
@@ -1363,8 +1360,8 @@ impl Core {
             }
             _ => Ok(Err(Refusal::Usage {
                 words: format!(
-                    "There is no command /{name}. Type /help... or \
-                     see the command list."
+                    "There is no command /{name}; the client lists \
+                     the commands."
                 ),
             })),
         }
@@ -1372,7 +1369,6 @@ impl Core {
 
     async fn hire_command(
         &mut self,
-        agent: AgentId,
         here: Option<&HamletId>,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
@@ -1421,7 +1417,6 @@ impl Core {
             Ok(hiring) => hiring,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        let _ = agent;
         let done = self
             .attempt(Actor::Chief(chief), |cx, _| {
                 hires::hire(
@@ -1454,31 +1449,53 @@ impl Core {
         text: &str,
         chief: hamlet_store::ids::ChiefId,
     ) -> Result<Result<Hiring, Refusal>> {
+        let (scholar, version) = match self.scholar_pinned(text)? {
+            Ok(found) => found,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let db = self.realm.store().connection();
+        if city::get(db, scholar)?.chief != Some(chief) {
+            return Ok(Err(Refusal::ScholarNotOwn {
+                name: addresses::scholar_name_of(db, scholar)?,
+            }));
+        }
+        self.existing(scholar, version)
+    }
+
+    /// The living scholar `text` addresses, `scholar#<id>` with
+    /// `@<version>` to pin one, and that version.
+    pub(crate) fn scholar_pinned(
+        &mut self,
+        text: &str,
+    ) -> Result<Result<(ScholarId, Option<String>), Refusal>> {
         let (address, version) = match text.split_once('@') {
             Some((address, version)) => {
                 (address, Some(version.to_owned()))
             }
             None => (text, None),
         };
-        let scholar = match self.scholar_at(address, false)? {
-            Ok(scholar) => scholar,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let layout = self.realm.layout().clone();
-        let db = self.realm.store().connection();
-        let shown = addresses::scholar_name_of(db, scholar)?;
-        if city::get(db, scholar)?.chief != Some(chief) {
-            return Ok(Err(Refusal::ScholarNotOwn { name: shown }));
-        }
+        Ok(self
+            .scholar_at(address, false)?
+            .map(|scholar| (scholar, version)))
+    }
+
+    /// A hire of the living `scholar`, at its `main` or pinned to
+    /// `version` when that is one the scholar has.
+    pub(crate) fn existing(
+        &mut self,
+        scholar: ScholarId,
+        version: Option<String>,
+    ) -> Result<Result<Hiring, Refusal>> {
         if let Some(version) = &version {
-            let found = Repository::open(&layout.repository(scholar))
-                .ok()
-                .and_then(|repo| {
-                    repo.resolve(version).ok().flatten()
-                });
+            let found = Repository::open(
+                &self.realm.layout().repository(scholar),
+            )
+            .ok()
+            .and_then(|repo| repo.resolve(version).ok().flatten());
             if found.is_none() || version == hamlet_git::MAIN {
+                let db = self.realm.store().connection();
                 return Ok(Err(Refusal::NoVersion {
-                    name: shown,
+                    name: addresses::scholar_name_of(db, scholar)?,
                     version: version.clone(),
                 }));
             }
@@ -1556,7 +1573,8 @@ impl Core {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         if agents::get(db, hire)?.kind != AgentKind::Hire {
-            return Ok(Err(Refusal::RoadEnds));
+            let name = addresses::name_of(db, hire)?;
+            return Ok(Err(Refusal::NotHire { name }));
         }
         if !authority::may_lead(db, Actor::Chief(chief), hire)? {
             let name = addresses::name_of(db, hire)?;

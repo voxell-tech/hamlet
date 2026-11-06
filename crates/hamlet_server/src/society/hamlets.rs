@@ -1,10 +1,12 @@
-//! Hamlets: projects or ideas, each with a mayor, a tree of hires, a
-//! folder it works on and the chief's limits.
+//! Hamlets: each with a mayor, a tree of hires, a folder it works on
+//! and the chief's limits.
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, ChiefId, HamletId};
+use hamlet_store::ids::{
+    Actor, AgentId, ChiefId, HamletId, ScholarId,
+};
 use hamlet_store::schema::{
     agent, hamlet, hamlet_chief, hamlet_folder, hire,
 };
@@ -199,7 +201,7 @@ pub(crate) fn rename(
     Ok(Ok(()))
 }
 
-/// Sets where the town of `id` stands (H32).
+/// Sets where the hamlet `id` stands on the hamlet island (H32).
 pub(crate) fn place(
     cx: &mut Change<'_>,
     id: &HamletId,
@@ -385,13 +387,11 @@ pub(crate) fn restore(
         .filter(agent::ended_how.eq(EndHow::Hamlet))
         .filter(agent::erased.eq(false))
         .select((hire::agent, hire::scholar))
-        .load::<(AgentId, hamlet_store::ids::ScholarId)>(cx.db)?;
+        .load::<(AgentId, ScholarId)>(cx.db)?;
     for (_, scholar) in &ended {
         let scholar = city::get(cx.db, *scholar)?;
-        if !scholar.is_living() {
-            refuse!(Refusal::ScholarGone {
-                name: scholar.label()
-            });
+        if let Some(refusal) = scholar.gone() {
+            refuse!(refusal);
         }
     }
     diesel::update(hamlet::table.find(id))

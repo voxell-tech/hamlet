@@ -69,7 +69,7 @@ pub(crate) fn is_above(
     Ok(false)
 }
 
-/// Every living hire under `lead`, breadth first.
+/// Every living hire under `lead`, at any depth.
 pub(crate) fn under(
     db: &mut Db,
     lead: AgentId,

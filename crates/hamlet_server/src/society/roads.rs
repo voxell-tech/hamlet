@@ -14,7 +14,7 @@ use super::hires::{self, Hire};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::{hamlets, limits, tree};
-use crate::change::{Change, Done, refuse};
+use crate::change::{Change, Done, done, refuse};
 use crate::text::text_enum;
 
 text_enum! {
@@ -206,9 +206,7 @@ pub(crate) fn lay(
         refuse!(Refusal::RoadEnds);
     };
     for id in [a, b] {
-        if !agents::get(cx.db, id)?.is_living() {
-            refuse!(hires::left(cx.db, id)?);
-        }
+        done!(hires::require_living(cx.db, id));
     }
     if one.hamlet != other.hamlet {
         refuse!(Refusal::OtherHamlet {
@@ -358,9 +356,7 @@ pub(crate) fn agree(
         refuse!(Refusal::RoadEnds);
     };
     for id in [a, b] {
-        if !agents::get(cx.db, id)?.is_living() {
-            refuse!(hires::left(cx.db, id)?);
-        }
+        done!(hires::require_living(cx.db, id));
     }
     if one.hamlet == other.hamlet {
         refuse!(Refusal::SameHamlet);

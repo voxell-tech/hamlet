@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, MergeId};
+use hamlet_store::ids::{AgentId, MergeId, RoadId, TaskId};
 use hamlet_store::schema::{hire, hire_merge, road};
 use serde_json::json;
 
@@ -74,9 +74,7 @@ pub(crate) fn merge(
     let (one, other) =
         (hires::get(cx.db, kept)?, hires::get(cx.db, absorbed)?);
     for id in [kept, absorbed] {
-        if !agents::get(cx.db, id)?.is_living() {
-            refuse!(hires::left(cx.db, id)?);
-        }
+        done!(hires::require_living(cx.db, id));
     }
     if one.hamlet != other.hamlet {
         refuse!(Refusal::OtherHamlet {
@@ -175,13 +173,9 @@ fn move_roads(
             road::reason,
             road::task,
         ))
-        .load::<(
-            hamlet_store::ids::RoadId,
-            AgentId,
-            AgentId,
-            String,
-            Option<hamlet_store::ids::TaskId>,
-        )>(cx.db)?;
+        .load::<(RoadId, AgentId, AgentId, String, Option<TaskId>)>(
+            cx.db,
+        )?;
     for (id, a, b, reason, task) in open {
         let other = if a == absorbed { b } else { a };
         diesel::update(road::table.find(id))
@@ -221,10 +215,7 @@ pub(crate) fn split(
     if found.split_at.is_some() {
         refuse!(Refusal::AlreadySplit);
     }
-    match hires::come_back(cx, found.absorbed, reason)? {
-        Ok(()) => {}
-        Err(refusal) => refuse!(refusal),
-    }
+    done!(hires::come_back(cx, found.absorbed, reason));
     diesel::update(hire_merge::table.find(id))
         .set((
             hire_merge::split_at.eq(cx.at),

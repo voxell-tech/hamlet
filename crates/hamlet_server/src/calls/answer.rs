@@ -186,10 +186,7 @@ impl Core {
                 }
                 if wait.kind == WaitKind::Objection {
                     super::objections::rule(
-                        cx.db,
-                        wait.id,
-                        ruling == Ruling::Go,
-                        cx.at,
+                        cx.db, wait.id, ruling, cx.at,
                     )?;
                     if ruling == Ruling::Withdraw
                         && let (Some(task), Some(conversation)) =
