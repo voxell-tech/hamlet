@@ -241,7 +241,7 @@ fn doing_of(
     let text = serde_json::to_string(arguments)
         .unwrap_or_default()
         .to_lowercase();
-    let (read, write) = if text.contains("notes.md") {
+    let (read, write) = if text.contains("memory/") {
         (Doing::ReadNotes, Doing::WriteNotes)
     } else if text.contains("skills/") || text.contains("skill.md") {
         (Doing::ReadSkill, Doing::WriteSkill)
@@ -268,17 +268,15 @@ fn doing_of(
             .any(|word| text.contains(word))
             {
                 Doing::Fetch
-            } else if text.contains("notes.md") {
+            } else if text.contains("memory/") {
                 Doing::ReadNotes
             } else {
                 Doing::Run
             }
         }
-        "create_agent" => Doing::Think,
-        "ask_agent" | "request_road" | "agree_road"
-        | "agree_move" | "ask_librarian" | "submit_skill" => {
-            Doing::Await
-        }
+        "hire" | "create_scholar" => Doing::Think,
+        "ask" | "request_road" | "agree_road" | "ask_librarian"
+        | "submit_skill" => Doing::Await,
         _ => Doing::Custom,
     }
 }
