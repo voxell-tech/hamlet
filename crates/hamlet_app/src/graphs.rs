@@ -7,7 +7,7 @@ mod gizmo;
 mod handles;
 mod overlay;
 mod preview;
-mod shader;
+pub(crate) mod shader;
 mod thumbnails;
 
 use bevy::app::{App, Update};

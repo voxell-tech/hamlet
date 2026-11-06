@@ -26,6 +26,8 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, Cx};
 
+use crate::graphs::shader::sample::{self, Sample};
+
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Open>();
 }
@@ -95,6 +97,7 @@ fn body(name: String) -> AnyView {
         let material = match read {
             Ok(material) => material,
             Err(error) => {
+                cx.world.resource_mut::<Sample>().graph = None;
                 return cx.build(column((description(format!(
                     "Error: {error:#}"
                 )),)));
@@ -146,6 +149,8 @@ fn body(name: String) -> AnyView {
                 .boxed(),
             ),
         }
+        cx.world.resource_mut::<Sample>().graph =
+            shader.as_ref().map(|graph| material.apply(graph));
         cx.world.insert_resource(Open {
             name: name.clone(),
             material,
@@ -372,7 +377,27 @@ fn change(
             return;
         }
     }
+    let graph = world
+        .resource::<Open>()
+        .shader
+        .as_ref()
+        .map(|graph| material.apply(graph));
+    world.resource_mut::<Sample>().graph = graph;
     world.resource_mut::<Open>().material = material;
+}
+
+/// The material on a turning sphere, while it uses a shader.
+pub(super) fn preview() -> AnyView {
+    column((sample::view(),))
+        .width(percent(100.0))
+        .display(resource::<Sample, _>(|sample| {
+            if sample.graph.is_some() {
+                Display::Flex
+            } else {
+                Display::None
+            }
+        }))
+        .boxed()
 }
 
 /// The value an input of `value_type` takes when nothing gives it one.

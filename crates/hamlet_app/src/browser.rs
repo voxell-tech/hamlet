@@ -699,6 +699,11 @@ fn details() -> AnyView {
                             .boxed()
                     }
                 };
+                let preview: AnyView = if item.kind == Kind::Material {
+                    material::preview()
+                } else {
+                    column(()).boxed()
+                };
                 let shown = |yes: bool| {
                     if yes { Display::Flex } else { Display::None }
                 };
@@ -734,6 +739,7 @@ fn details() -> AnyView {
                                 }),
                         ))
                         .gap(gap),
+                        preview,
                     ))
                     .gap(gap),
                 )

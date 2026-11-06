@@ -67,6 +67,18 @@ impl Material {
         }
     }
 
+    /// `shader` with each graph input's default what this material
+    /// makes it, so the shader compiled from it shades as the material.
+    pub fn apply(&self, shader: &Graph) -> Graph {
+        let mut applied = shader.clone();
+        for input in &mut applied.inputs {
+            if let Some(value) = self.value(shader, &input.name) {
+                input.default = Some(value);
+            }
+        }
+        applied
+    }
+
     /// Each value that `shader` takes no input for, or one of another
     /// type, in the order of their names.
     pub fn errors(&self, shader: &Graph) -> Vec<MaterialError> {

@@ -5,6 +5,7 @@
 //! sphere.
 
 mod preview;
+pub(crate) mod sample;
 mod swatch;
 
 use bevy::app::{App, Update};
@@ -70,6 +71,7 @@ pub(super) fn plugin(app: &mut App) {
     .add_plugins((
         hamlet_graph_editor::plugin::<ShaderGraph>(SETUP),
         preview::plugin,
+        sample::plugin,
         swatch::plugin,
     ));
 }
