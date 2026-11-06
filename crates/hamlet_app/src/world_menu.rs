@@ -4,6 +4,7 @@
 
 mod deed;
 mod founding;
+mod hire;
 mod items;
 mod new_scholar;
 
@@ -38,6 +39,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Open>()
         .init_resource::<Founding>()
         .init_resource::<new_scholar::Making>()
+        .init_resource::<hire::Hiring>()
         .add_observer(ask_of_row)
         .add_systems(Update, answer_ask);
 }
@@ -55,6 +57,8 @@ pub(crate) enum Open {
     Founding(Vec2),
     /// The form a scholar is made in the city with.
     NewScholar(Vec2),
+    /// The form a scholar is hired under a lead with.
+    Hire(Entity, Vec2),
     /// The skills an agent could be given.
     Skills(Entity, Vec2),
 }
@@ -164,6 +168,16 @@ pub(crate) fn ask_new_scholar(world: &mut World) {
     *world.resource_mut::<Open>() = Open::NewScholar(at);
 }
 
+/// Opens the form a scholar is hired under `lead` with, at the
+/// pointer.
+pub(crate) fn ask_hire(world: &mut World, lead: Entity) {
+    if !Deeds::is_allowed(world, "hire") {
+        return;
+    }
+    let at = pointer(world);
+    *world.resource_mut::<Open>() = Open::Hire(lead, at);
+}
+
 /// Asks before `deed` is done, at the pointer.
 pub(crate) fn ask(world: &mut World, deed: Deed) {
     let at = pointer(world);
@@ -233,6 +247,7 @@ fn menus() -> AnyView {
             Open::NewScholar(at) => {
                 new_scholar::new_scholar(at).boxed()
             }
+            Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
             Open::Skills(agent, at) => {
                 AnyView::new(move |cx: &mut Cx| {
                     let items = items::skills(cx.world, agent);

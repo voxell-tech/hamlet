@@ -144,43 +144,6 @@ fn size(allowed: bool, id: String) -> AnyView {
     .boxed()
 }
 
-/// The form a scholar is hired into the hamlet `id` with.
-fn hire_form(hamlet: Entity, id: String) -> AnyView {
-    forms::form(
-        Asking::Hire(hamlet),
-        "Hire a scholar of the city into this hamlet, under one of \
-         its hires.",
-        &[
-            ("Scholar", "Its name, or name@version to pin it."),
-            (
-                "Under",
-                "The hire it answers to; the mayor if left empty.",
-            ),
-            ("Purpose", "What it is hired to do."),
-        ],
-        "HIRE",
-        move |world, typed| {
-            let [scholar, under, purpose] = typed else {
-                return false;
-            };
-            if scholar.is_empty() || purpose.is_empty() {
-                return false;
-            }
-            let under = if under.is_empty() {
-                String::new()
-            } else {
-                format!(" under {under}")
-            };
-            decree(
-                world,
-                &id,
-                format!("/hire {scholar}{under} {purpose}"),
-            );
-            true
-        },
-    )
-}
-
 /// The form a worker is started in the hamlet `id` with.
 fn worker_form(hamlet: Entity, id: String) -> AnyView {
     forms::form(
@@ -450,11 +413,20 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         };
         let mut actions = Vec::new();
         if *hires {
+            // Under its mayor; under another hire from that hire's
+            // menu.
+            let mayor_of = facts.id.clone();
             actions.push(action(
                 Glyph::Robot,
                 "HIRE A SCHOLAR",
                 move |world| {
-                    forms::toggle(world, Asking::Hire(hamlet));
+                    if let Some(mayor) =
+                        hamlet_client::realm::mayor_of(
+                            world, &mayor_of,
+                        )
+                    {
+                        world_menu::ask_hire(world, mayor);
+                    }
                 },
             ));
         }
@@ -510,7 +482,6 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             note(known),
             buttons(actions),
             size(*tier, facts.id.clone()),
-            hire_form(hamlet, facts.id.clone()),
             worker_form(hamlet, facts.id.clone()),
             naming(hamlet, facts.id.clone()),
             crate::folder::section(hamlet),

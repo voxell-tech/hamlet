@@ -8,9 +8,10 @@ use bevy_fynix::ViewExt;
 use bevy_fynix::views::{BehaviorExt, label, menu_item};
 use hamlet_client::gifts::{give, offers};
 use hamlet_client::realm::{
-    self as agents, Busy, Deeds, HamletId, Left, Mayor, Road,
+    self as agents, Busy, Deeds, HamletId, Kind, Left, Mayor, Road,
     road_between, roads_of,
 };
+use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::society::Ground;
 use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
 use hamlet_realm::{moving, orders};
@@ -73,6 +74,20 @@ fn joined(world: &World, agent: Entity) -> Vec<(Entity, String)> {
     peers
 }
 
+/// Hires a scholar under `lead`, while it is a living hire.
+fn hire_under(world: &World, lead: Entity) -> Option<AnyView> {
+    let hire = world.get::<Kind>(lead).map(|kind| kind.0)
+        == Some(protocol::AgentKind::Hire);
+    (hire
+        && world.get::<Left>(lead).is_none()
+        && Deeds::is_allowed(world, "hire"))
+    .then(|| {
+        item("Hire Under...".into(), move |world| {
+            super::ask_hire(world, lead);
+        })
+    })
+}
+
 fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
 }
@@ -115,6 +130,9 @@ fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
     ];
     if let Some(mayor) = agents::first_mayor(world) {
         items.insert(0, new_conversation(mayor));
+        if let Some(hire) = hire_under(world, mayor) {
+            items.insert(1, hire);
+        }
         items.extend(gifts(world, mayor, at));
     }
     items
@@ -141,6 +159,7 @@ fn for_agent(
     // Selecting it already talks to it, and its prompt is among its
     // details.
     let mut items = vec![new_conversation(agent)];
+    items.extend(hire_under(world, agent));
     items.extend(gifts(world, agent, at));
     items.push(focus(thing));
     if world.get::<Busy>(agent).is_some() {

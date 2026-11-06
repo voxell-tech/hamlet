@@ -26,8 +26,6 @@ const LABEL: f32 = 90.0;
 /// What the open form is for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Asking {
-    /// Hiring a scholar into this hamlet.
-    Hire(Entity),
     /// Starting a worker in this hamlet.
     Worker(Entity),
 }
