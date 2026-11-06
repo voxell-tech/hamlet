@@ -67,7 +67,7 @@ pub(crate) fn update_status(
 ) {
     let session = sessions.get(convo.session).ok();
     // The Hand is of no hamlet, and has no budget to show here.
-    let home = lives
+    let spend = lives
         .get(convo.agent)
         .ok()
         .and_then(|lives| treasury.get(lives.0).ok());
@@ -77,7 +77,7 @@ pub(crate) fn update_status(
         || session.as_ref().is_some_and(|(status, usage)| {
             status.is_changed() || usage.is_changed()
         })
-        || home.as_ref().is_some_and(DetectChanges::is_changed);
+        || spend.as_ref().is_some_and(DetectChanges::is_changed);
     if !moved {
         return;
     }
@@ -108,7 +108,9 @@ pub(crate) fn update_status(
         },
         connection: connection.words.clone(),
         usage: session.map(|(_, u)| u.summary()).unwrap_or_default(),
-        budget: home.map(|t| t.0.summary.clone()).unwrap_or_default(),
+        budget: spend
+            .map(|t| t.0.summary.clone())
+            .unwrap_or_default(),
     };
     if *bar != next {
         *bar = next;
