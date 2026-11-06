@@ -44,7 +44,7 @@ pub(crate) struct Index {
     agents: HashMap<Entity, Filed>,
     ids: HashMap<protocol::AgentId, Vec<Entity>>,
     scholars: HashMap<protocol::ScholarId, Entity>,
-    /// Agents that have not left, by shown name.
+    /// Agents that have not left, by address.
     names: HashMap<String, Vec<Entity>>,
     /// Agents in office that have not left, by hamlet.
     mayors: HashMap<Entity, Vec<Entity>>,
@@ -100,7 +100,7 @@ impl Index {
         self.scholars.get(&id).copied()
     }
 
-    /// A living agent by its shown name.
+    /// A living agent by its address.
     pub(crate) fn named(&self, name: &str) -> Option<Entity> {
         first(&self.names, name)
     }

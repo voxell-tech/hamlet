@@ -439,7 +439,7 @@ pub struct Roster<'w, 's> {
 }
 
 impl Roster<'_, '_> {
-    /// A living agent by its shown name.
+    /// A living agent by its address.
     pub fn named(&self, name: &str) -> Option<Entity> {
         self.index.named(name)
     }
@@ -449,7 +449,7 @@ impl Roster<'_, '_> {
         self.index.agent(self.hand.as_ref()?.0)
     }
 
-    /// The current mayor of the named hamlet.
+    /// The current mayor of the hamlet with the id `name`.
     pub fn mayor_of(&self, name: &str) -> Option<Entity> {
         self.index.mayor_of(name)
     }
@@ -463,7 +463,7 @@ impl Roster<'_, '_> {
     }
 }
 
-/// A living agent by its shown name.
+/// A living agent by its address.
 pub fn named(world: &World, name: &str) -> Option<Entity> {
     world.get_resource::<Index>()?.named(name)
 }
@@ -1097,7 +1097,7 @@ pub struct Consulted {
     pub agent: Option<Entity>,
 }
 
-/// A town's optional place on the hamlet island, measured from its
+/// A hamlet's optional place on the hamlet island, measured from its
 /// middle.
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
 pub struct Spot(pub Option<(f32, f32)>);
