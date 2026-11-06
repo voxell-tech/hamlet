@@ -39,7 +39,7 @@ use crate::dock::{HUB, show_tab};
 use crate::hub::Showing;
 use crate::{PanelSystems, asking, chat};
 
-/// Seconds between two looks at the time each has waited.
+/// Seconds between two refreshes of the time each has waited.
 const TICK: f32 = 10.0;
 
 pub fn plugin(app: &mut App) {
@@ -205,7 +205,7 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
             crate::hub::show(world, Showing::Scholar(scholar));
         }
         (None, Some(agent)) => crate::convo::talk_to(world, agent),
-        (None, None) => crate::hub::show(world, Showing::Home),
+        (None, None) => crate::hub::show(world, Showing::Realm),
     }
 }
 

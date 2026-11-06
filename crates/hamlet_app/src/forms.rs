@@ -74,9 +74,8 @@ fn values(world: &mut World) -> Vec<String> {
 
 /// The form for `asking`, shown only while it is the open one: `says`
 /// over `fields`, each a label and what to type in it, and `go`
-/// naming the button. `send` makes the command of what was typed, or
-/// None while something it needs is missing; the form closes once it
-/// sends.
+/// naming the button. `send` sends the command of what was typed and
+/// returns whether it did; the form closes once it has.
 pub(crate) fn form(
     asking: Asking,
     says: &'static str,

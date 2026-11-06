@@ -78,7 +78,7 @@ impl Convo {
 
 /// The id and shown name of a living agent, the name `None` for the
 /// Hand.
-pub(crate) fn address(
+pub(crate) fn id_and_shown(
     world: &World,
     agent: Entity,
 ) -> Option<(protocol::AgentId, Option<String>)> {
@@ -119,7 +119,7 @@ pub(crate) enum Seating {
 
 /// The selected agent's watched chat.
 pub(crate) fn seat(world: &mut World, agent: Entity) -> Seating {
-    let Some((to, with)) = address(world, agent) else {
+    let Some((to, with)) = id_and_shown(world, agent) else {
         return Seating::Unaddressed;
     };
     seat_as(world, agent, to, with);
@@ -130,7 +130,7 @@ pub(crate) fn seat(world: &mut World, agent: Entity) -> Seating {
 /// whichever of its sessions is being read, and turns to it.
 pub(crate) fn new_session(world: &mut World) {
     let agent = world.resource::<Convo>().agent;
-    let Some((to, with)) = address(world, agent) else {
+    let Some((to, with)) = id_and_shown(world, agent) else {
         return;
     };
     seat_as(world, agent, to, with);
@@ -153,8 +153,6 @@ fn seat_as(
     convo.with = with;
 }
 
-/// Points the chat at one of the realm's agents, and selects it in
-/// the world.
 /// The house of `agent` in the world: the hall for the first mayor,
 /// else its own.
 pub(crate) fn home_of(world: &World, agent: Entity) -> Thing {
@@ -165,6 +163,8 @@ pub(crate) fn home_of(world: &World, agent: Entity) -> Thing {
     }
 }
 
+/// Points the chat at one of the realm's agents, and selects it in
+/// the world.
 pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     if seat(world, agent) == Seating::Unaddressed {
         return;
@@ -228,7 +228,7 @@ pub(crate) fn roster_moved(
 /// Hand once that agent is gone.
 pub(crate) fn reseat(world: &mut World) {
     let agent = world.resource::<Convo>().agent;
-    match address(world, agent) {
+    match id_and_shown(world, agent) {
         Some((_, with)) => {
             if world.resource::<Convo>().with != with {
                 world.resource_mut::<Convo>().with = with;
@@ -339,7 +339,7 @@ mod tests {
         use crate::dock::designed;
 
         let mut app = panel_app();
-        app.insert_resource(Showing::Home);
+        app.insert_resource(Showing::Realm);
         let ada = agents::named(app.world_mut(), "home#0").unwrap();
         seat(app.world_mut(), ada);
         let mut tree = app.world_mut().resource_mut::<DockTree>();

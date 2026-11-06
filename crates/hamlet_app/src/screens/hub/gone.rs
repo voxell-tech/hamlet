@@ -37,10 +37,10 @@ pub(super) fn ruin(agent: Entity) -> impl View {
             .get::<Purpose>(agent)
             .map(|p| p.0.clone())
             .unwrap_or_default();
-        // The path to it: every hamlet, then the one it lived in.
+        // The path to it: the realm, then the hamlet it lived in.
         let hamlet =
             cx.world.get::<LivesIn>(agent).map(|lives| lives.0);
-        let mut trail = vec!["HOME".to_string()];
+        let mut trail = vec!["REALM".to_string()];
         if let Some(hamlet) = hamlet {
             trail.push(named(hamlet).to_uppercase());
         }
@@ -51,7 +51,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 let place = hamlet.filter(|_| at == 1);
                 select(world, place.map(Thing::Common));
                 if place.is_none() {
-                    show(world, Showing::Home);
+                    show(world, Showing::Realm);
                 }
             },
         );
@@ -72,7 +72,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 .align(AlignItems::Center)
                 .tagged(Wraps),
                 super::thread::said(purpose),
-                dim("Its house is kept in the archive. Deleting it \
+                dim("Its lodge is kept in the archive. Deleting it \
                      frees the space on disk."),
                 buttons(vec![
                     good_action(
@@ -105,11 +105,11 @@ pub(super) fn library() -> impl View {
     with_cx(|cx| {
         column((
             breadcrumb(
-                vec!["HOME".into()],
+                vec!["REALM".into()],
                 "THE LIBRARY",
                 |world, _| {
                     select(world, None);
-                    show(world, Showing::Home);
+                    show(world, Showing::Realm);
                 },
             ),
             title("THE LIBRARY"),

@@ -1,8 +1,8 @@
-//! The Hub's rail: the realm as its chain of command. Home and the
-//! Hand first, then what waits for the chief, then each hamlet as the
-//! tree of its hires under its mayor, then the city's scholars, the
-//! library and those that left. A row keeps its place as its agent
-//! works and rests; only its mark changes.
+//! The Hub's rail: the realm as its chain of command. The realm and
+//! the Hand first, then what waits for the chief, then each hamlet as
+//! the tree of its hires under its mayor, then the city's scholars,
+//! the library and those that left. A row keeps its place as its
+//! agent works and rests; only its mark changes.
 
 use bevy::app::{App, Update};
 use bevy::color::Color;
@@ -282,7 +282,7 @@ pub(super) enum Group {
 /// What a row or a header leads to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Target {
-    Home,
+    Realm,
     Hand,
     Agent(Entity),
     Hamlet(Entity),
@@ -629,7 +629,7 @@ fn is_current(world: &World, target: Target) -> bool {
         | (Target::Gone(a), Some(Showing::Gone(b)))
         | (Target::Hamlet(a), Some(Showing::Hamlet(b))) => a == b,
         (Target::Library, Some(Showing::Library))
-        | (Target::Home, Some(Showing::Home)) => true,
+        | (Target::Realm, Some(Showing::Realm)) => true,
         _ => false,
     }
 }
@@ -822,7 +822,7 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
                 },
             ),
             // The realm's page has every wait in full.
-            None => (Target::Home, Glyph::Bell, wait.shown.clone()),
+            None => (Target::Realm, Glyph::Bell, wait.shown.clone()),
         };
         lines.push(Line {
             target,
@@ -1007,7 +1007,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     // hamlet.
     let mut top = vec![page_line(
         world,
-        Target::Home,
+        Target::Realm,
         Glyph::Globe,
         "Realm",
         String::new(),
@@ -1050,7 +1050,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     sections.push(Section {
         group: Group::Needs,
         title: "NEEDS YOU".into(),
-        opens: Some(Target::Home),
+        opens: Some(Target::Realm),
         mark: Mark::None,
         count: needs.len(),
         folded: false,
@@ -1058,17 +1058,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     });
 
     // Each hamlet as the tree under its mayor.
-    let mut hamlets = world
-        .try_query::<(Entity, &HamletId)>()
-        .map(|mut query| {
-            query
-                .iter(world)
-                .map(|(hamlet, _)| (hamlet, name_of(world, hamlet)))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    hamlets.sort_by_key(|(_, name)| name.to_lowercase());
-    for (hamlet, name) in hamlets {
+    for (hamlet, name) in hamlet_names(world) {
         let here = all
             .iter()
             .filter(|agent| agent.hamlet == Some(hamlet))
@@ -1155,7 +1145,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     sections
 }
 
-/// The hamlets the chief can choose to show, by name.
+/// Every hamlet with its name, in name order.
 fn hamlet_names(world: &World) -> Vec<(Entity, String)> {
     let mut found = world
         .try_query::<(Entity, &HamletId)>()
@@ -1330,7 +1320,7 @@ fn tabs_and_search() -> impl View {
 /// What pressing a row does.
 fn go(world: &mut World, target: Target) {
     match target {
-        Target::Home => show(world, Showing::Home),
+        Target::Realm => show(world, Showing::Realm),
         Target::Hand => talk_to_hand(world),
         // Its thread, and its house brought into view.
         Target::Agent(agent) => {
@@ -1345,7 +1335,8 @@ fn go(world: &mut World, target: Target) {
             look_at(world, Thing::Common(hamlet));
         }
         // A scholar's house, or its place on the pier, and the
-        // library are chosen and looked at in the world too.
+        // library are selected and brought into view in the world
+        // too.
         Target::Scholar(scholar) => {
             show(world, Showing::Scholar(scholar));
             look_at(world, Thing::Scholar(scholar));

@@ -34,13 +34,12 @@ use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
 use super::{Showing, conversations, details, show};
-use crate::chat;
 use crate::convo::Convo;
 use crate::history::History;
 use crate::overview::tell;
 use crate::roll::rolled;
 use crate::screens::petition::{self, Need};
-use crate::world_menu::{self};
+use crate::{chat, world_menu};
 
 /// What the thread's page shows: its chat, or its details in the
 /// chat's place.
@@ -255,7 +254,7 @@ fn called(world: &World, agent: Entity) -> String {
     shown_of(world, agent)
 }
 
-/// The chain of command down to the thread: `Home / hamlet / mayor /
+/// The chain of command down to the thread: `Realm / hamlet / mayor /
 /// lead / agent / Session n`. Each step above the agent leads to its
 /// page or its thread, and the session to the menu of the others.
 fn path(agent: Entity) -> impl View {
@@ -263,7 +262,7 @@ fn path(agent: Entity) -> impl View {
         let world = &*cx.world;
         let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
         let mut parts = vec![
-            step("Realm".into(), |world| show(world, Showing::Home))
+            step("Realm".into(), |world| show(world, Showing::Realm))
                 .boxed(),
         ];
         if let Some(hamlet) = hamlet {

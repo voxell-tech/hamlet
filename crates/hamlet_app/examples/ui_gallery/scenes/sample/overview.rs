@@ -17,7 +17,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Bylaws
             | Scene::Hub
             | Scene::Scholar
-            | Scene::Home
+            | Scene::Realm
             | Scene::Desk
             | Scene::Toasts
     ) {
@@ -47,7 +47,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         name: "The Old Press".into(),
         at: 1000,
         by: "chief".into(),
-        reason: "The harvest is finished. Its houses are kept."
+        reason: "The harvest is finished. Its lodges are kept."
             .into(),
     }];
     let mut next = 10;

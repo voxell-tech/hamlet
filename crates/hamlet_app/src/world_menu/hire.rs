@@ -74,7 +74,7 @@ fn choices(world: &World, search: &str) -> Vec<Choice> {
     found
 }
 
-/// One scholar of the list, lit while it is the one chosen.
+/// One scholar of the list, highlighted while it is the one chosen.
 fn row_of(choice_of: &Choice, on: bool) -> impl View + use<> {
     let (id, name) = (choice_of.id, choice_of.name.clone());
     let hires = match choice_of.hires {

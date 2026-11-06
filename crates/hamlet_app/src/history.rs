@@ -1,5 +1,4 @@
-//! The History page of the Inspector: the selected agent's
-//! sessions.
+//! The Hub's sessions page: the selected agent's past sessions.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -744,7 +743,7 @@ mod tests {
         app.world_mut().trigger(JobFinished { chat });
         app.update();
         assert_eq!(reads(&app), 2);
-        *app.world_mut().resource_mut::<Showing>() = Showing::Home;
+        *app.world_mut().resource_mut::<Showing>() = Showing::Realm;
         app.update();
         *app.world_mut().resource_mut::<Showing>() =
             Showing::Sessions;

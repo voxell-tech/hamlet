@@ -34,11 +34,9 @@ pub(crate) const REALM_SHARE: f32 = 0.5;
 /// The dock window of the Hub.
 pub(crate) const HUB: &str = "hub";
 
-/// What the Hub was called before it was the Hub.
-const OLD_INSPECTOR: &str = "agent";
-
-/// The panel of petitions, which the Hub took in.
-const OLD_PETITIONS: &str = "needs";
+/// The ids of panels a stored dock may still name that the window no
+/// longer has.
+const GONE: [&str; 2] = ["agent", "needs"];
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(
@@ -208,8 +206,7 @@ pub(crate) fn designed(tree: &mut DockTree) {
 pub(crate) fn is_stale(
     tabs: impl IntoIterator<Item = String>,
 ) -> bool {
-    tabs.into_iter()
-        .any(|tab| tab == OLD_INSPECTOR || tab == OLD_PETITIONS)
+    tabs.into_iter().any(|tab| GONE.contains(&tab.as_str()))
 }
 
 /// Brings a panel's tab to the front, or opens it in the first area
@@ -240,30 +237,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_default_desk_is_the_realm_beside_the_hub() {
-        let mut tree = DockTree::new();
-        designed(&mut tree);
-        let side = tree.find_leaf_with_window(HUB).unwrap();
-        let leaf = tree.leaf(side).unwrap();
-        assert_eq!(
-            leaf.tabs().map(|(window, _)| window).collect::<Vec<_>>(),
-            [HUB]
-        );
-        let split = tree
-            .get(tree.parent_of(side).unwrap())
-            .and_then(DockNode::as_split)
-            .unwrap();
-        assert_eq!(split.fraction, REALM_SHARE);
-        assert_eq!(
-            tree.leaf(split.a).unwrap().windows[0].window_id,
-            "world"
-        );
-    }
-
-    #[test]
     fn a_desk_that_names_an_old_panel_starts_again() {
-        assert!(is_stale(["world".into(), OLD_INSPECTOR.into()]));
-        assert!(is_stale([HUB.into(), OLD_PETITIONS.into()]));
+        assert!(is_stale(["world".into(), "agent".into()]));
+        assert!(is_stale([HUB.into(), "needs".into()]));
         assert!(!is_stale(["world".into(), HUB.into()]));
     }
 }

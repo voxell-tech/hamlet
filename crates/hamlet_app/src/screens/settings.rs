@@ -145,7 +145,7 @@ impl Pane {
                 "Reflection, network access and keeping awake."
             }
             Pane::Workspace => {
-                "Where agents' commands run and their houses are \
+                "Where agents' commands run and their lodges are \
                  kept."
             }
             Pane::Charter => "What every agent is told.",
@@ -483,7 +483,7 @@ fn permissions() -> AnyView {
 #[derive(Resource, Default, PartialEq)]
 pub struct Charter {
     pub text: String,
-    /// The home keeps one of its own.
+    /// The realm keeps one of its own.
     pub own: bool,
 }
 
@@ -633,7 +633,7 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
         ),
         note(resource::<Charter, _>(|charter| {
             if charter.own {
-                "The home's own charter.".to_string()
+                "The realm's own charter.".to_string()
             } else {
                 "The default charter.".to_string()
             }
@@ -995,7 +995,7 @@ mod tests {
     }
 
     #[test]
-    fn the_charter_page_reads_the_server_text_and_whether_the_home_keeps_its_own()
+    fn the_charter_page_reads_the_server_text_and_whether_the_realm_keeps_its_own()
      {
         let mut app = settings_page(Pane::Charter);
         let sent = app
@@ -1030,7 +1030,7 @@ mod tests {
         assert!(
             shown
                 .iter()
-                .any(|text| text == "The home's own charter."),
+                .any(|text| text == "The realm's own charter."),
             "{shown:?}"
         );
         assert!(

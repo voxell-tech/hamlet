@@ -27,9 +27,8 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, with_cx};
 
-use super::papers::{self, Papers};
 use super::thread::dim;
-use super::{Showing, memory, show};
+use super::{Showing, memory, papers, show};
 use crate::chat;
 use crate::convo::talk_to;
 use crate::overview::{heading, typed};
@@ -562,48 +561,14 @@ fn hires(shown: &Shown) -> AnyView {
 
 /// Its skills and the character a chief may edit.
 fn knowledge() -> impl View {
-    let skills = keyed(
-        resource::<Papers, _>(|p| p.skills.clone()),
-        |skills| {
-            if skills.is_empty() {
-                return note("No skills of its own yet.").boxed();
-            }
-            column(
-                skills
-                    .iter()
-                    .map(|(name, does)| {
-                        crate::lists::item(
-                            name.clone(),
-                            does.clone(),
-                            Tone::Body,
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .gap(4.0)
-            .boxed()
-        },
-    )
-    .within(bare());
-    let character = keyed(
-        resource::<Papers, _>(|p| p.character.clone()),
-        |text| {
-            if text.is_empty() {
-                note("It has no character written.").boxed()
-            } else {
-                hamlet_ui::markdown::fixed(text, Tone::Body).boxed()
-            }
-        },
-    )
-    .within(bare());
     column((
         heading(Glyph::Robot, "CHARACTER"),
-        character,
+        memory::character(),
         row((action(Glyph::Rename, "EDIT", papers::edit_character),)),
         heading(Glyph::Notes, "MEMORY"),
         memory::view(),
         heading(Glyph::Book, "SKILLS"),
-        skills,
+        memory::skills(),
     ))
     .gap(6.0)
 }
@@ -745,7 +710,7 @@ fn body(shown: &Shown) -> AnyView {
             breadcrumb(
                 vec!["Realm".into()],
                 name.clone(),
-                |world, _| show(world, Showing::Home),
+                |world, _| show(world, Showing::Realm),
             ),
             heading,
             head,

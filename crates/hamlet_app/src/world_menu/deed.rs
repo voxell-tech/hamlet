@@ -36,7 +36,7 @@ pub(crate) enum Deed {
         absorbed: Entity,
         kept: Entity,
     },
-    /// Closes down the hamlet of this name.
+    /// Closes down the hamlet of this id.
     Close(String),
     /// Deletes what is archived of an agent that left, for good.
     Erase(Entity),
@@ -52,7 +52,7 @@ pub(crate) enum Deed {
         session: Entity,
         entry: String,
     },
-    /// Ends the home's own charter, so the built-in one stands.
+    /// Ends the realm's own charter, so the built-in one stands.
     DefaultCharter,
 }
 
@@ -172,20 +172,20 @@ impl Deed {
             ),
             Deed::Merge { absorbed, kept } => format!(
                 "{} takes the memory, skills, files and roads of \
-                 {}, whose house is archived. It can be split out \
+                 {}, whose lodge is archived. It can be split out \
                  again.",
                 name(kept),
                 name(absorbed)
             ),
             Deed::Close(hamlet) => format!(
-                "Everyone in {hamlet} stops and every house is \
+                "Everyone in {hamlet} stops and every lodge is \
                  archived. You can restore it from the list of \
                  hamlets."
             ),
             Deed::Erase(agent) => {
                 let name = name(agent);
                 format!(
-                    "The archived house of {name} is deleted from \
+                    "The archived lodge of {name} is deleted from \
                      disk. This cannot be undone."
                 )
             }

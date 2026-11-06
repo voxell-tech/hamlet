@@ -3,21 +3,19 @@
 use bevy::ecs::resource::Resource;
 use bevy::math::{Rect, Vec2};
 use bevy::ui::px;
+use bevy_fynix::ScopedExt;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, popup, row,
-    text_field,
 };
-use bevy_fynix::{ScopedExt, resource};
 use hamlet_client::realm::Deeds;
 use hamlet_ui::styles::{
-    button, description, lettered, primary_button, section,
-    text_input,
+    button, description, lettered, primary_button,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{View, built};
 
-use super::close;
+use super::{asks, close};
 use crate::chat;
 
 /// The name of a scholar being made, and the character it starts
@@ -42,24 +40,6 @@ impl Making {
     }
 }
 
-/// One line of the form: its question, and its field.
-fn asks(
-    what: &'static str,
-    read: fn(&Making) -> &String,
-    write: fn(&mut Making, String),
-) -> impl View {
-    hamlet_ui::styles::close((
-        section(what),
-        text_field(
-            resource::<Making, _>(move |m| read(m).clone()),
-            move |world, text| {
-                write(&mut world.resource_mut::<Making>(), text);
-            },
-        )
-        .rules(text_input),
-    ))
-}
-
 /// The form a scholar is made with.
 pub(super) fn new_scholar(at: Vec2) -> impl View {
     built(move |cx| {
@@ -81,8 +61,12 @@ pub(super) fn new_scholar(at: Vec2) -> impl View {
                 .bold(true)
                 .tagged(DisplayText),
             description("It gets a house in the city at once."),
-            asks("Its name", |m| &m.name, |m, text| m.name = text),
-            asks(
+            asks::<Making>(
+                "Its name",
+                |m| &m.name,
+                |m, text| m.name = text,
+            ),
+            asks::<Making>(
                 "Who it is",
                 |m| &m.character,
                 |m, text| m.character = text,

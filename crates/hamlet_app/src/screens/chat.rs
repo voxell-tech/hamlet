@@ -316,7 +316,7 @@ pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
 fn told(tell: On<Tell>, mut commands: Commands) {
     let Tell { agent, text } = tell.event().clone();
     commands.queue(move |world: &mut World| {
-        let Some((to, _)) = convo::address(world, agent) else {
+        let Some((to, _)) = convo::id_and_shown(world, agent) else {
             return;
         };
         world.trigger(ChiefMessage { to, text });

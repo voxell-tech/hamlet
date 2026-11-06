@@ -54,6 +54,9 @@ const FADES: f32 = 1.2;
 /// The width of the stack, in logical pixels.
 const WIDTH: f32 = 340.0;
 
+/// How the server names the Hand as the one who decided an arrival.
+const HAND: &str = "hand";
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<Toasts>()
         .init_resource::<Decreed>()
@@ -181,9 +184,6 @@ fn raise(
         }
     }
 }
-
-/// How the server names the Hand as the one who decided an arrival.
-const HAND: &str = "hand";
 
 /// Raises a toast when the Hand lets a scholar in or turns it away:
 /// a scholar that went from waiting to housed or turned, by the Hand.
@@ -460,7 +460,6 @@ fn card(toast: &Toast) -> AnyView {
         let dismissed = what.clone();
         let space = &cx.theme().space;
         let palette = &cx.theme().palette;
-        // The answers are in the card, under its words.
         let card = column((
             row((
                 body,

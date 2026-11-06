@@ -140,23 +140,23 @@ pub enum Scene {
     Hub,
     /// The Hub's page of a scholar.
     Scholar,
-    /// The Hub's home page.
-    Home,
+    /// The Hub's page of the realm, over a realm at work.
+    Realm,
     /// The starting desk, narrow enough for the rail's icons.
     Desk,
     /// Toasts stacked over the realm.
     Toasts,
     /// The popup an agent's model is chosen in, over the Hub.
     Models,
-    /// Every hamlet, with nothing selected.
+    /// The Hub's page of the realm, with nothing selected.
     Overview,
     /// One hamlet and everyone in it.
     Hamlet,
     /// The running of that hamlet: its budget, models and limits.
     Bylaws,
-    /// The Inspector's History page, with its list of sessions.
+    /// The Hub's sessions page, with its list of sessions.
     History,
-    /// The Inspector's History page, with one session being read.
+    /// The Hub's sessions page, with one session being read.
     Reading,
     /// A chief, with every choice of its look.
     Chief,

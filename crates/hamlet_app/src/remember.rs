@@ -161,12 +161,12 @@ pub enum Chosen {
     /// The first hamlet's mayor, and its hall.
     Mayor,
     Hall,
-    /// An agent and its house, by the agent's name.
+    /// An agent and its house, by the agent's address.
     Agent(String),
     House(String),
     /// The ruin of one that is gone.
     Ruin(String),
-    /// A hamlet's common, by the hamlet's own name.
+    /// A hamlet's common, by the hamlet's id.
     Hamlet(String),
     /// This window's chief, and its Hearth.
     Chief,
@@ -190,7 +190,8 @@ impl Pending {
 }
 
 impl Chosen {
-    /// `thing` by the names it will still have at the next launch.
+    /// `thing` by the addresses and ids it will still have at the
+    /// next launch.
     fn of(
         names: &Query<&Name>,
         hamlets: &Query<&HamletId>,
@@ -222,7 +223,7 @@ impl Chosen {
 
     /// The thing it names, once the world has it.
     fn thing(&self, world: &mut World) -> Option<Thing> {
-        // An agent by its name, living or gone as asked.
+        // An agent by its address, living or gone as asked.
         let agent = |world: &mut World, name: &str, gone: bool| {
             world
                 .query_filtered::<(Entity, &Name, Has<Left>), With<AgentNumber>>()
