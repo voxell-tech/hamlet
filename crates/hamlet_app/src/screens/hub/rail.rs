@@ -158,6 +158,10 @@ pub(super) struct Frame;
 #[derive(Component)]
 pub(super) struct Divider;
 
+/// The rail itself, as laid out.
+#[derive(Component)]
+struct Body;
+
 /// The line between the rail and the page: dragged, it sizes the
 /// rail, between [`NARROWEST`] and [`WIDEST`].
 pub(super) fn divider() -> impl View {
@@ -188,28 +192,33 @@ fn grab(
     }
 }
 
-/// Sizes the rail to where the pointer is, so the line stays under
-/// it however fast it moves.
+/// Sizes the rail so that the line is where the pointer is, however
+/// fast it moves.
 fn drag(
     drag: On<PointerDrag>,
-    dividers: Query<(), With<Divider>>,
+    dividers: Query<&UiGlobalTransform, With<Divider>>,
     frames: Query<(&ComputedNode, &UiGlobalTransform), With<Frame>>,
+    bodies: Query<(&ComputedNode, &UiGlobalTransform), With<Body>>,
     mut rail: ResMut<Rail>,
 ) {
-    if !dividers.contains(drag.entity) {
+    let Ok(line) = dividers.get(drag.entity) else {
         return;
-    }
+    };
     let at = drag.pointer.position;
     // The Hub starts where the rail does, in logical pixels.
-    let Some((node, place)) = frames.iter().next() else {
+    let (Some((node, place)), Some((body, body_at))) =
+        (frames.iter().next(), bodies.iter().next())
+    else {
         return;
     };
     let scale = node.inverse_scale_factor();
     let left = (place.translation.x - node.size().x * 0.5) * scale;
+    // The line stands the gap past the rail's edge, as last laid out.
+    let edge = body_at.translation.x + body.size().x * 0.5;
+    let past = (line.translation.x - edge) * scale;
     let most =
         (node.size().x * scale - PAGE).clamp(NARROWEST, WIDEST);
-    let width = at.x - left;
-    rail.width = width.clamp(NARROWEST, most);
+    rail.width = (at.x - left - past).clamp(NARROWEST, most);
 }
 
 fn drop(
@@ -1641,6 +1650,7 @@ pub(super) fn view() -> impl View {
             .min_width(px(NARROWEST))
             .shrink(0.0)
             .fills_height()
+            .tagged(Body)
     })
 }
 
