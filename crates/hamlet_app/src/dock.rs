@@ -29,7 +29,7 @@ use crate::{PanelSystems, desk, remember};
 const LEAST: f32 = 300.0;
 
 /// The share of the window's width the realm takes on a new desk.
-pub(crate) const REALM_SHARE: f32 = 0.6;
+pub(crate) const REALM_SHARE: f32 = 0.5;
 
 /// The dock windows of the Hub and of the petitions.
 pub(crate) const HUB: &str = "hub";
