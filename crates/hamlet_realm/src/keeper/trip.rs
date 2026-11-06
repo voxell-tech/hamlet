@@ -71,8 +71,8 @@ impl Trip {
     }
 
     /// A walk across the city or from a pier: never slower than a
-    /// walk, and a long one hurried so it takes about
-    /// [`JOURNEY_SECONDS`] rather than minutes.
+    /// walk, and a long one hurried so it takes about ten seconds
+    /// rather than minutes.
     pub fn journey(
         way: Vec<Vec3>,
         depart: f32,
