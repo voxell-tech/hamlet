@@ -62,7 +62,9 @@ use self::traffic::run_traffic;
 pub use self::traffic::{Trip, Trips};
 pub use self::view::{Ahead, GeneratorView};
 use self::view::{aim, robot_detail, town_detail};
-pub use self::work::{Floor, Objecting, Passage, Rehearsal, Robot};
+pub use self::work::{
+    Away, Floor, Objecting, Passage, Rehearsal, Robot,
+};
 use self::work::{pass, work_robots};
 use self::yard::YardSettings;
 use super::debug::shown;

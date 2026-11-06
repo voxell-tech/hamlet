@@ -26,6 +26,10 @@ use crate::Clock;
 use crate::keeper::work::{Chore, Station, Task, Work, routine};
 use crate::keeper::{self, Act, Keeper, KeeperState, Motion, Stride};
 
+/// On a robot whose agent is away from its house, which hides it.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Away;
+
 /// An agent's robot. Its meshes are this entity's descendants.
 #[derive(Component, Debug)]
 pub struct Robot {

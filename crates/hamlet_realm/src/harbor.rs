@@ -1,6 +1,7 @@
 //! The harbor: a pier on each island where its coast faces the other,
 //! a boat moored at each, and the faint sea route between them.
 
+pub(crate) mod ferry;
 mod shapes;
 #[cfg(test)]
 mod tests;
@@ -8,6 +9,7 @@ mod tests;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
+use crate::generator::Robot;
 use crate::generator::land::{IslandId, Land};
 use crate::palette::Palette;
 use crate::pick::{Centre, Following, Orbit, glide_to};
@@ -18,7 +20,9 @@ pub(crate) fn plugin(app: &mut App) {
         Update,
         (
             raise.in_set(RealmSystems::Act),
-            bob.after(RealmSystems::Act),
+            (bob, ferry::sail, ferry::moor)
+                .chain()
+                .after(RealmSystems::Act),
         ),
     );
 }
@@ -38,33 +42,40 @@ const SWELLS: [(f32, f32); 3] =
 const ROLL: f32 = 0.05;
 const PITCH: f32 = 0.025;
 
+/// Where the swell of `isle`'s boat holds it at time `t`: its height
+/// over the still water and its roll and pitch. Each island's boat
+/// rides a beat apart from the other's.
+fn rock(isle: IslandId, t: f32) -> (f32, Quat) {
+    let beat = isle as usize as f32 * 2.3;
+    let swell = |offset: f32| -> f32 {
+        SWELLS
+            .iter()
+            .enumerate()
+            .map(|(k, (height, pace))| {
+                height * (pace * t + beat + offset * k as f32).sin()
+            })
+            .sum()
+    };
+    // The swell at its tallest, against which it leans its most.
+    let most: f32 = SWELLS.iter().map(|(height, _)| height).sum();
+    (
+        BOAT_REST + swell(0.0),
+        Quat::from_euler(
+            EulerRot::YXZ,
+            0.0,
+            PITCH * swell(1.1) / most,
+            ROLL * swell(2.2) / most,
+        ),
+    )
+}
+
 /// Rocks each moored boat on a swell of its own, worked out here and
 /// not on the graphics card, so that whoever rides it rides with it
 /// and its picking keeps to where it is drawn.
 fn bob(time: Res<Time>, mut boats: Query<(&Boat, &mut Transform)>) {
     let t = time.elapsed_secs();
     for (boat, mut at) in &mut boats {
-        // Each island's boat a beat apart from the other's.
-        let beat = boat.0 as usize as f32 * 2.3;
-        let swell = |offset: f32| -> f32 {
-            SWELLS
-                .iter()
-                .enumerate()
-                .map(|(k, (height, pace))| {
-                    height
-                        * (pace * t + beat + offset * k as f32).sin()
-                })
-                .sum()
-        };
-        // The swell at its tallest, against which it leans its most.
-        let most: f32 = SWELLS.iter().map(|(height, _)| height).sum();
-        at.translation.y = BOAT_REST + swell(0.0);
-        at.rotation = Quat::from_euler(
-            EulerRot::YXZ,
-            0.0,
-            PITCH * swell(1.1) / most,
-            ROLL * swell(2.2) / most,
-        );
+        (at.translation.y, at.rotation) = rock(boat.0, t);
     }
 }
 
@@ -119,6 +130,53 @@ impl Harbor {
     /// The height of the deck of a pier over the water.
     pub(crate) const DECK: f32 = shapes::DECK + 0.06;
 
+    /// The place on the pier of `isle` where one steps aboard its
+    /// boat or ashore from it.
+    pub(crate) fn gangway(&self, isle: IslandId) -> Vec2 {
+        self.spot(isle, shapes::MOORED, 0.8)
+    }
+
+    /// The place on the pier of `isle` where it meets the land.
+    pub(crate) fn shore(&self, isle: IslandId) -> Vec2 {
+        self.spot(isle, -shapes::INLAND + 0.5, 0.0)
+    }
+
+    /// The way on foot from `from`, a place on the ground of `isle`,
+    /// to the gangway of its pier.
+    pub(crate) fn to_gangway(
+        &self,
+        land: &Land,
+        isle: IslandId,
+        from: Vec2,
+    ) -> Vec<Vec3> {
+        let deck = land.set.land.water_y + Self::DECK;
+        let mut way = overland(land, from, self.shore(isle));
+        if let Some(last) = way.last_mut() {
+            last.y = deck;
+        }
+        let gangway = self.gangway(isle);
+        way.push(Vec3::new(gangway.x, deck, gangway.y));
+        way
+    }
+
+    /// The way on foot from the gangway of the pier of `isle` to
+    /// `to`, a place on its ground.
+    pub(crate) fn walk_ashore(
+        &self,
+        land: &Land,
+        isle: IslandId,
+        to: Vec2,
+    ) -> Vec<Vec3> {
+        let deck = land.set.land.water_y + Self::DECK;
+        let mut way = overland(land, self.shore(isle), to);
+        if let Some(first) = way.first_mut() {
+            first.y = deck;
+        }
+        let gangway = self.gangway(isle);
+        way.insert(0, Vec3::new(gangway.x, deck, gangway.y));
+        way
+    }
+
     /// Where the `slot`th of those who wait on the pier of `isle`
     /// stands on it, in a file from near its head back toward land.
     pub(crate) fn queue(&self, isle: IslandId, slot: usize) -> Vec2 {
@@ -126,6 +184,22 @@ impl Harbor {
             .max(-shapes::INLAND + 0.5);
         self.spot(isle, along, -0.4)
     }
+}
+
+/// Points a few metres apart on the straight line over the ground
+/// from `from` to `to`, at the height a robot stands.
+pub(crate) fn overland(
+    land: &Land,
+    from: Vec2,
+    to: Vec2,
+) -> Vec<Vec3> {
+    let count = (from.distance(to) / 3.0).ceil().max(1.0) as usize;
+    (0..=count)
+        .map(|k| {
+            let p = from.lerp(to, k as f32 / count as f32);
+            Vec3::new(p.x, Robot::ground(land, p), p.y)
+        })
+        .collect()
 }
 
 fn landfall(land: &Land, isle: IslandId) -> Landfall {

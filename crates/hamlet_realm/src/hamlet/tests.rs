@@ -595,3 +595,51 @@ fn a_frame_from_the_server_houses_the_founder_in_the_update_it_arrives()
     assert_eq!(app.world().resource::<Society>().towns.len(), 1);
     assert_eq!(founder.plot, 0);
 }
+
+#[test]
+fn a_hire_housed_after_the_first_state_crosses_by_boat() {
+    use bevy::transform::TransformPlugin;
+
+    use super::crossing::Voyage;
+    use crate::harbor::ferry::Ferry;
+    use crate::pick::Following;
+
+    let mut app = App::new();
+    testing::rehearse(&mut app);
+    app.add_plugins((
+        TransformPlugin,
+        ClientPlugin { server: None },
+        crate::harbor::plugin,
+        super::plugin,
+    ))
+    .init_resource::<Society>()
+    .init_resource::<CameraSettings>()
+    .init_resource::<Glide>()
+    .init_resource::<Orbit>()
+    .init_resource::<Leash>()
+    .init_resource::<Centre>()
+    .init_resource::<Stance>()
+    .init_resource::<GeneratorView>()
+    .init_resource::<Ahead>()
+    .init_resource::<Following>()
+    .init_resource::<Objecting>()
+    .init_resource::<crate::sky::Quality>()
+    .init_resource::<crate::pick::PickSettings>();
+    let hamlet = settle(&mut app, HOME);
+    app.update();
+    let voyages = |app: &mut App| {
+        let world = app.world_mut();
+        world.query::<&Voyage>().iter(world).count()
+    };
+    // The founder was housed in the first state.
+    assert_eq!(voyages(&mut app), 0);
+
+    tell(&mut app, hamlet, &[1], &[]);
+    assert_eq!(voyages(&mut app), 1);
+
+    // Past its walk to the pier, it is aboard a ferry.
+    app.world_mut().resource_mut::<Clock>().t = 1000.0;
+    app.update();
+    let world = app.world_mut();
+    assert_eq!(world.query::<&Ferry>().iter(world).count(), 1);
+}

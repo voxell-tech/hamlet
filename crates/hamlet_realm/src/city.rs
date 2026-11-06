@@ -3,7 +3,7 @@
 //! wait on its pier for a house. The Hearth and the library stand
 //! beside them on ground of their own.
 
-mod houses;
+pub(crate) mod houses;
 mod newcomers;
 #[cfg(test)]
 mod tests;
@@ -24,7 +24,14 @@ use crate::{Clock, RealmSystems, Sky, Stock};
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(Startup, glass).add_systems(
         Update,
-        (raise, houses::tend, newcomers::wait, shape, shine)
+        (
+            raise,
+            houses::tend,
+            newcomers::wait,
+            newcomers::arrive,
+            shape,
+            shine,
+        )
             .chain()
             .after(Raising)
             .in_set(RealmSystems::Act),

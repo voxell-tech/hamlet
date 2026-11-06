@@ -2,6 +2,7 @@
 //! agent and road entity takes its place in the society the generator
 //! draws.
 
+mod crossing;
 mod housing;
 mod pointing;
 mod roads;
@@ -15,6 +16,7 @@ use bevy::prelude::*;
 use crate::chief::Settling;
 use crate::generator::land::Land;
 use crate::generator::society::{AgentId, Pair, Society, TownId};
+use crate::harbor::Harbor;
 use crate::sky::CameraSettings;
 use crate::{RealmSystems, library};
 
@@ -42,6 +44,9 @@ pub(crate) fn plugin(app: &mut App) {
                     ),
                 ),
                 housing::house,
+                crossing::board.run_if(resource_exists::<Harbor>),
+                (crossing::leave_home, crossing::cross)
+                    .run_if(any_with_component::<crossing::Voyage>),
                 housing::resite,
                 roads::lay,
                 state::show,

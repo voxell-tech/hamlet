@@ -1,5 +1,5 @@
 //! The endless world from far-apart places, with no window
-//! (docs/endless-world.md): many towns, the land a long way from any
+//! (docs/islands.md): many towns, the land a long way from any
 //! of them, and a town picked up and set down somewhere else.
 //!
 //! Stills: `cargo run --release --example far_lands -- --out <dir>`
@@ -58,6 +58,9 @@ enum Step {
     /// Gives the city this many scholars waiting on its pier, some of
     /// them turned away.
     Newcomers(usize),
+    /// Lets the first scholar waiting on the pier in, to a house at
+    /// this spot.
+    LetIn(Vec2),
     /// Sets the Hand to work, or to rest.
     Hand(bool),
     /// Saves a still under this name once everything is built.
@@ -180,6 +183,17 @@ fn stills() -> Vec<Step> {
             pitch: 24.0,
         },
         Shot("02f-the-hamlet-pier"),
+        Look {
+            at: Pier(IslandId::City),
+            dist: 40.0,
+            yaw: 0.6,
+            pitch: 24.0,
+        },
+        Settle,
+        LetIn(Vec2::new(-40.0, 70.0)),
+        Run(7.0),
+        Snap("02g-walking-home"),
+        Hold,
         Night(true),
         Look {
             at: City(Vec2::new(30.0, 0.0)),
@@ -470,7 +484,7 @@ fn run(
     mut reach: ResMut<Reach>,
     mut carrying: ResMut<Carrying>,
     camera: Single<&Transform, With<WorldCamera>>,
-    entities: Query<Entity>,
+    (entities, scholars): (Query<Entity>, Query<(Entity, &Scholar)>),
     mut exit: MessageWriter<AppExit>,
 ) {
     run.settled = if loading.is_done() {
@@ -593,6 +607,22 @@ fn run(
                         versions: Vec::new(),
                     }),
                 ));
+            }
+        }
+        Step::LetIn(at) => {
+            if let Some((entity, scholar)) =
+                scholars.iter().find(|(_, s)| {
+                    s.0.arrival == protocol::Arrival::Waiting
+                })
+            {
+                let mut let_in = scholar.0.clone();
+                let_in.arrival = protocol::Arrival::Housed;
+                let_in.house = Some(protocol::HouseAt {
+                    turn: f64::from((-at.x).atan2(-at.y)),
+                    x: f64::from(at.x),
+                    z: f64::from(at.y),
+                });
+                commands.entity(entity).insert(Scholar(let_in));
             }
         }
         Step::Hand(busy) => {

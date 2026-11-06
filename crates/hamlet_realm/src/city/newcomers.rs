@@ -5,20 +5,28 @@ use bevy::prelude::*;
 use hamlet_client::realm::Scholar;
 use hamlet_protocol::client::Arrival;
 
+use super::houses;
+use crate::Clock;
 use crate::generator::land::{IslandId, Land};
 use crate::harbor::Harbor;
-use crate::keeper::{self, Kit, Who};
+use crate::keeper::{self, Kit, Motion, Trip, Who};
 use crate::pick::{self, Named, PickSettings, Thing, hit_box};
 
 /// The figure of a scholar waiting on the pier.
 #[derive(Component, Clone, Copy, Debug)]
 pub(super) struct Newcomer(pub(super) Entity);
 
+/// The figure of a scholar that was let in, walking to its house.
+#[derive(Component, Clone, Copy, Debug)]
+pub(super) struct Homebound;
+
 /// Stands a figure on the pier for each scholar that waits, in the
-/// order of their ids, and takes down the figure of one that is let
-/// in or has left.
+/// order of their ids, sends the figure of one that is let in home
+/// and takes down the figure of one that has left.
 pub(super) fn wait(
     mut commands: Commands,
+    clock: Res<Clock>,
+    motion: Res<Motion>,
     harbor: Option<Res<Harbor>>,
     land: Res<Land>,
     kit: Res<Kit>,
@@ -40,10 +48,32 @@ pub(super) fn wait(
         .map(|(entity, scholar)| (scholar.0.id.0, entity))
         .collect::<Vec<_>>();
     waiting.sort();
-    for (entity, figure, _) in &figures {
-        if !waiting.iter().any(|(_, scholar)| *scholar == figure.0) {
-            commands.entity(entity).despawn();
+    for (entity, figure, at) in &figures {
+        if waiting.iter().any(|(_, scholar)| *scholar == figure.0) {
+            continue;
         }
+        let door = scholars
+            .get(figure.0)
+            .ok()
+            .filter(|(_, scholar)| scholar.0.left.is_none())
+            .and_then(|(_, scholar)| scholar.0.house.as_ref())
+            .map(|house| houses::door(&land, house));
+        let Some(door) = door else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        // From where it stands to the foot of the pier, then home.
+        let mut way = vec![at.translation];
+        way.extend(
+            harbor
+                .walk_ashore(&land, IslandId::City, door)
+                .into_iter()
+                .skip(1),
+        );
+        commands
+            .entity(entity)
+            .remove::<Newcomer>()
+            .insert((Homebound, Trip::new(way, clock.t, &motion)));
     }
     let deck = land.set.land.water_y + Harbor::DECK;
     for (slot, (number, scholar)) in waiting.into_iter().enumerate() {
@@ -83,5 +113,18 @@ pub(super) fn wait(
             ))
             .id();
         pick::watch(&mut commands, boxed);
+    }
+}
+
+/// Takes down the figure of a scholar that has reached its house.
+pub(super) fn arrive(
+    mut commands: Commands,
+    clock: Res<Clock>,
+    walkers: Query<(Entity, &Trip), With<Homebound>>,
+) {
+    for (entity, trip) in &walkers {
+        if trip.has_arrived(clock.t) {
+            commands.entity(entity).despawn();
+        }
     }
 }
