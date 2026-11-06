@@ -16,6 +16,7 @@ sections; the pi harness asks for them before each request.
 | The skills | The lodge's skills, then the library's, with descriptions and how to run them | The agent; the librarian |
 | The place | Who the agent is, whom it answers to, the hires under it, the roads it can write along, the tools its lead turned off, and how its hamlet was run lately | The record |
 | The realm | For the Hand and mayors, the other hamlets, their mayors and hires; a realm with none says so and that a chief or the Hand can found one | The realm's record |
+| The scholars | For the Hand and a lead, the living scholars it may hire, each as `scholar#<id> (<name>)`, since no name finds one | The city |
 | The budget | What its hamlet or the realm has spent, its task's caps and its allowance | The ledger and limits |
 
 `crates/hamlet_server/src/talk/prompt.rs` composes the sections;
@@ -45,7 +46,7 @@ at its pin.
 Settings has the Charter page. CHARACTER in the Hub's details sheet shows the
 agent's scholar's character. EDIT opens a local temporary Markdown copy, and
 each save sends an `edit` request to the server. Character filenames name the
-scholar, so kept copies can be identified. `hamlet edit character <scholar>`
+scholar, so kept copies can be identified. `hamlet edit character <scholar#id>`
 does the same from a terminal.
 
 Closing the window polls the editor once more. While saves are unconfirmed it
@@ -60,7 +61,7 @@ An agent keeps its memory in its lodge, as files. Files at the root of
 `memory/` go into every prompt; a folder shows only the `description:` line at
 the top of its `MEMORY.md` until the agent reads it. Every memory file opens
 with such a front matter. A chief can read and edit a hire's memory or its
-scholar's: `hamlet edit memory <scholar|name@hamlet> [path]`, or MEMORY in
+scholar's: `hamlet edit memory <scholar#id|hamlet#number> [path]`, or MEMORY in
 the Hub. What a hire keeps stays on its branch until a dream brings it home
 to the scholar's `main` (see [`society.md`](society.md)).
 

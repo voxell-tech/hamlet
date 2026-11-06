@@ -18,16 +18,20 @@ reserved act does.
 
 The city holds the scholars. A scholar is a git repository
 (`scholars/<id>.git`) with a character, memory and skills, and a house in the
-city. A chief makes one with `/scholar new`, a lead with `create_scholar`, or
-with `hire` given a new name, which makes a blank scholar from the realm's
-default character (Settings); one a lead or the Hand makes belongs to the
-chief whose task the turn works on. `/scholars` lists them, and
-`/remove-scholar`, `/restore-scholar` and `/erase-scholar` archive one with
-its hires, bring it back, or erase it for good.
+city. A chief makes one with `/scholar new <name>[: <character>]`, a lead
+with `create_scholar`, or with `hire` given a new name, which makes a blank
+scholar from the realm's default character (Settings); one a lead or the Hand
+makes belongs to the chief whose task the turn works on. A scholar is its id:
+its address is `scholar#<id>`. Its name is a label of one line, 1 to 40
+characters with no colon, which may repeat and which `/name-scholar
+<scholar#id> <name>` changes, a decision of the chief's like `/name-hamlet`.
+`/scholars` lists them, and `/remove-scholar`, `/restore-scholar` and
+`/erase-scholar` archive one with its hires, bring it back, or erase it for
+good.
 
 The server sets each new house down itself, at the first free spot on a
 spiral out from the city's middle, its door toward the middle
-(`society/city.rs`); `/move-house <scholar> <x> <z> [degrees]` sets it down
+(`society/city.rs`); `/move-house <scholar#id> <x> <z> [degrees]` sets it down
 elsewhere, on a spot clear of the middle and of every house. One a chief or
 the Hand makes moves in at once. One a lead makes is a newcomer, which the
 `newcomers` setting lets in (H45): at once (`open`); after a chief welcomes
@@ -37,7 +41,7 @@ harbor, its hires working all the while. `/welcome` lets a scholar at the
 harbor in and `/turn-away` sends one back, undoing the Hand's verdicts.
 
 A chief reads and edits a scholar's character and memory through the
-Hub or `hamlet edit character <scholar>` and `hamlet edit memory`, and
+Hub or `hamlet edit character <scholar#id>` and `hamlet edit memory`, and
 each save is a commit on `main`. `/tag` names a version, `/versions` lists
 them, `/pin` holds a hire at one, `/revert` undoes a commit, `/fork` starts a
 new scholar from a version and `/purge` takes a path out of the whole history.
@@ -46,15 +50,23 @@ chief's behalf, each waiting for the chief.
 
 ## Hamlets, hires and the tree
 
-`/found <hamlet> [scholar] [purpose]` founds a hamlet. Its mayor is a hire of
-an existing scholar, of one at a version (`name@v3`), or of a new name, and
-of the scholar `mayor` when none is named; with no purpose it is there to run
-the hamlet. The
+`/found <hamlet> [scholar#id] [purpose]` founds a hamlet. Its mayor is a hire
+of an existing scholar, and of a new scholar named Mayor when none is named;
+with no purpose it is there to run the hamlet. The
 hamlet's id is lowercase letters, digits and hyphens, never reused, even
-after erasure. `/hire <scholar>[@<version>] [under <address>] <purpose>`
+after erasure; `hand`, `mayor`, `scholar` and `worker` are not ids.
+`/hire <scholar#id>[@<version>] [under <address>] <purpose>`
 hires a scholar into the hamlet you are in, up to the hamlet's tier of 50,
-100, 200 or 500 (`/tier`); the same scholar can be hired more than once, and
-`name#3@hamlet` names the third hire when `name@hamlet` is not enough.
+100, 200 or 500 (`/tier`); the same scholar can be hired more than once.
+
+An address names an agent by ids and never by a name: `hand`, `mayor@<hamlet>`
+(the hamlet's mayor), `<hamlet>#<number>` (the hire with that number in the
+hamlet, the mayor being 0) and `worker#<id>`. A scholar is `scholar#<id>`.
+Wherever an agent is shown to an agent or a chief, a prompt, a notice, a
+letter's header or a tool's result, its address comes first and its name beside
+it, as `winterfell#3 (Robb)`: a hire's nickname, else its scholar's name.
+Hands and leads see the scholars they may hire in their prompts, as
+`scholar#<id> (<name>)`, since a name finds nothing.
 
 A hire's branch and lodge are its own. Its tools write the lodge, a turn that
 changed it is committed to the branch, and the diff against `main` is what it
@@ -106,7 +118,8 @@ answered. A chief may.
 the absorbed one's laid roads, hires and inbox, and takes in what it learned.
 Hires of one scholar merge their branches; hires of different scholars bring
 what the absorbed hire learned into the kept branch, a clashing file kept as
-`<name>.from-<absorbed>` and a clashing skill as `<skill>-from-<absorbed>`.
+`<name>.from-<absorbed>` and a clashing skill as `<skill>-from-<absorbed>`,
+with the absorbed hire as `<hamlet>-<number>`.
 `/restore` brings an ended hire back under the same id and number, or splits a
 merged one out again by undoing the merge's commit. `/erase` deletes an ended hire's lodge and branch for good. A
 letter to a hire that has left is refused with how it left.
@@ -148,7 +161,7 @@ Answering allows once, for the session, or always; `/grants` lists and
 
 ## Several hamlets
 
-Another hamlet's hire is reached by `name@hamlet`, `mayor@mill` addresses
+Another hamlet's hire is reached by `mill#<number>`, `mayor@mill` addresses
 mill's mayor, and `/hamlet mill`
 switches the terminal to it. `/agent <address>` finds any agent of the realm.
 A mayor sees the other hamlets in its prompt.

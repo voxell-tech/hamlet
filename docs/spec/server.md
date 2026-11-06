@@ -152,10 +152,10 @@ server, and opens a window. Closing the window or terminal stops no agent.
 | `stop` | Stops the realm's server and waits for it to close in order |
 | `status` | Reports whether the realm's server runs |
 | `server` | Serves the realm; stopping it closes in order, and a second stop signal exits at once |
-| `chat [--to <hand\|name@hamlet\|mayor@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
+| `chat [--to <hand\|hamlet#number\|mayor@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
 | `dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order |
 | `window` | Opens a window connected to a running server |
-| `edit <charter\|limits\|settings>`, `edit character <scholar>`, `edit memory <scholar\|name@hamlet> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
+| `edit <charter\|limits\|settings>`, `edit character <scholar#id>`, `edit memory <scholar#id\|hamlet#number> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
 | `login <provider> [--key]` | Gives a key, or follows an offered sign-in |
 | `models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
 
