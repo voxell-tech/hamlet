@@ -146,6 +146,10 @@ fn retitle(
 ) {
     let known = standing.known();
     for (entity, parent, was) in &boxes {
+        // A scholar's figure is no hamlet's agent.
+        if matches!(was, Thing::Scholar(_)) {
+            continue;
+        }
         let now = match owners.get(parent.parent()) {
             Ok((Some(house), _)) => known.thing(house.agent, true),
             Ok((_, Some(robot))) => known.thing(robot.agent, false),

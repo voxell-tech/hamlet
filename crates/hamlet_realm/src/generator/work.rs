@@ -19,9 +19,11 @@ pub use self::passage::Passage;
 pub(super) use self::passage::pass;
 use super::homing::houseward;
 use super::land::Land;
+use super::layout::Plot;
 use super::society::AgentId;
 use super::sync::Drawn;
 use super::traffic::Trips;
+use super::yard::Yard;
 use crate::Clock;
 use crate::keeper::work::{Chore, Station, Task, Work, routine};
 use crate::keeper::{self, Act, Keeper, KeeperState, Motion, Stride};
@@ -90,6 +92,51 @@ impl Robot {
 }
 
 impl Robot {
+    /// The robot of a scholar's house in the city, which stands at
+    /// `at` with its door turned `turn` and `door_out` before it.
+    pub(crate) fn in_city(
+        land: &Land,
+        agent: AgentId,
+        yard: Yard,
+        at: Vec2,
+        turn: f32,
+        door_out: f32,
+    ) -> Self {
+        let spot = Plot {
+            at,
+            yaw: turn,
+            usable: true,
+            door_out,
+        };
+        // The house has no engine to work.
+        let part = Entity::PLACEHOLDER;
+        let engine = Engine {
+            wheel: part,
+            rings: [part; 2],
+        };
+        Self::new(
+            agent,
+            KeeperState::Rest,
+            Work::default(),
+            Lot::new(land, &spot, yard),
+            engine,
+        )
+    }
+
+    /// True when it is shown working.
+    pub(crate) fn is_busy(&self) -> bool {
+        self.state == KeeperState::Working
+    }
+
+    /// Has it pace its yard thinking, or stand at rest.
+    pub(crate) fn set_busy(&mut self, busy: bool) {
+        (self.state, self.work.task) = if busy {
+            (KeeperState::Working, Task::Think)
+        } else {
+            (KeeperState::Rest, Task::Unknown)
+        };
+    }
+
     /// Every place it stands for a chore, with the way it faces
     /// there.
     pub(super) fn stations(

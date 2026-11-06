@@ -3,9 +3,11 @@ use hamlet_client::ClientPlugin;
 use hamlet_client::realm::{Identity, Scholar};
 use hamlet_protocol::client as protocol;
 
+use super::figures::Figure;
 use super::houses::Home;
 use super::newcomers::Newcomer;
 use super::*;
+use crate::generator::Robot;
 use crate::generator::society::Society;
 use crate::generator::testing::rehearse;
 use crate::harbor::Harbor;
@@ -102,6 +104,13 @@ fn the_city_has_a_tower_and_a_house_for_each_scholar_with_a_spot() {
     for turn in turns {
         assert!((turn - TURN as f32).abs() < 1e-4, "{turn}");
     }
+    // Only the scholar that stayed has a figure, which can be picked
+    // and lifted.
+    let figures = world
+        .query_filtered::<&Robot, With<Figure>>()
+        .iter(world)
+        .count();
+    assert_eq!(figures, 1);
     // The island is grown about the tower and both houses.
     let land = world.resource::<Land>();
     for spot in [Vec2::ZERO, Vec2::new(60.0, 20.0)] {

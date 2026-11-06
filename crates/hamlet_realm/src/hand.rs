@@ -339,15 +339,30 @@ fn meet(
     }
 }
 
-/// The robot `thing` is, if it can be lifted now.
+/// The robot `thing` is, if it can be lifted now. A scholar's house
+/// shares its thing with the scholar's figure, so that one counts
+/// only when the pointer is on the figure's own box.
 fn liftable(
     thing: Option<Thing>,
     boxes: &Query<(Entity, &Thing, &ChildOf)>,
     robots: &Query<&Robot>,
     passages: &Query<&Passage>,
+    over: &HoverMap,
 ) -> Option<Entity> {
     thing
-        .and_then(|thing| robot_of(thing, boxes, robots))
+        .and_then(|thing| match thing {
+            Thing::Scholar(_) => boxes
+                .iter()
+                .find(|(hit, of, parent)| {
+                    **of == thing
+                        && robots.contains(parent.parent())
+                        && over
+                            .values()
+                            .any(|hits| hits.contains_key(hit))
+                })
+                .map(|(_, _, parent)| parent.parent()),
+            _ => robot_of(thing, boxes, robots),
+        })
         .filter(|robot| {
             robots.get(*robot).is_ok_and(|of| {
                 is_free(of, passages.get(*robot).ok())
@@ -380,7 +395,8 @@ fn claims(
             thought.over = on;
         }
     }
-    let within = liftable(hovered.0, &boxes, &robots, &passages);
+    let within =
+        liftable(hovered.0, &boxes, &robots, &passages, &over);
     if hand.within != within {
         hand.within = within;
     }

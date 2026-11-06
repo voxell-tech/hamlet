@@ -1,6 +1,7 @@
 //! A robot carried in the hand, and its fall when it is let go.
 
 use bevy::picking::Pickable;
+use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use hamlet_client::realm::{self, Mayor, Road, RoadsFrom, RoadsTo};
 
@@ -36,6 +37,7 @@ pub(super) fn grab(
     press: On<PointerPress>,
     surfaces: Query<(), With<WorldSurface>>,
     hovered: Res<Hovered>,
+    over: Res<HoverMap>,
     boxes: Query<(Entity, &Thing, &ChildOf)>,
     robots: Query<&Robot>,
     passages: Query<&Passage>,
@@ -55,12 +57,13 @@ pub(super) fn grab(
         return;
     }
     hand.released = false;
-    hand.held = liftable(hovered.0, &boxes, &robots, &passages).map(
-        |robot| Held {
-            robot,
-            lifted: false,
-        },
-    );
+    hand.held = liftable(
+        hovered.0, &boxes, &robots, &passages, &over,
+    )
+    .map(|robot| Held {
+        robot,
+        lifted: false,
+    });
     taken.drag = hand.held.is_some();
 }
 

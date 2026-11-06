@@ -3,6 +3,7 @@
 //! wait on its pier for a house. The Hearth and the library stand
 //! beside them on ground of their own.
 
+mod figures;
 pub(crate) mod houses;
 mod newcomers;
 #[cfg(test)]
@@ -28,6 +29,8 @@ pub(crate) fn plugin(app: &mut App) {
             raise,
             houses::claim,
             houses::tend,
+            figures::stand,
+            figures::work,
             newcomers::wait,
             newcomers::arrive,
             shape,

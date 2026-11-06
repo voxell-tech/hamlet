@@ -89,7 +89,11 @@ pub(super) fn tap(
         && !shift
         && !taken.click
         && travel.0 <= camera.click_slop
-        && matches!(thing, Thing::Keeper | Thing::Agent(_))
+        // A scholar's figure in the city as well as a hamlet's robot.
+        && matches!(
+            thing,
+            Thing::Keeper | Thing::Agent(_) | Thing::Scholar(_)
+        )
         && robots.contains(parent.parent())
     {
         taps.write(Tap(parent.parent()));
