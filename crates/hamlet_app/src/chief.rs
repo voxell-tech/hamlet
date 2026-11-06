@@ -1,6 +1,6 @@
 //! The chief in the panels (docs/chief.md): the company its mascot
 //! keeps, the look kept between launches, and the chief's page of the
-//! Inspector.
+//! Hub.
 
 use bevy::app::{App, PreUpdate, Startup, Update};
 use bevy::color::Color;

@@ -1,5 +1,4 @@
-//! The History page of the Inspector: the selected agent's
-//! sessions.
+//! The Hub's sessions page: the selected agent's past sessions.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
