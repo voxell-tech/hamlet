@@ -1,20 +1,25 @@
 //! The library's meshes as the blueprint editor shows them. A chosen
 //! `.glb` is copied into the library and added to its catalogue with
-//! a palette colour for each of its materials. The preview reads each
-//! file once and draws it at its own size times its object's scale.
+//! a palette colour for each of its materials, and the library keeps
+//! the file it came from: when that file is saved again, the copy is
+//! replaced and the mesh takes its new size, slots and sockets, each
+//! slot it had keeping its colour. The preview reads each file once
+//! and draws it at its own size times its object's scale.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
-use bevy::app::App;
+use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res};
 use bevy::ecs::world::World;
 use bevy::math::{Mat4, Quat, Vec3};
+use bevy::time::Time;
 use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{
@@ -28,7 +33,7 @@ use hamlet_graph_editor::library::picker::{
     Section, grid, picture, sections, shown,
 };
 use hamlet_graph_editor::library::{
-    Item, Kind, Library, Tile, mesh_file,
+    Item, Kind, Library, Tile, mesh_file, mesh_path, write_atomic,
 };
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
@@ -40,6 +45,10 @@ use super::thumbnails;
 
 /// The side of the picture on an added asset's card.
 const PICTURE: f32 = 48.0;
+
+/// How often the files the meshes were added from are looked at, for
+/// one saved again.
+const FOLLOW: Duration = Duration::from_secs(2);
 
 /// The palette's colours a material slot can take, of those a
 /// building is made of.
@@ -69,8 +78,10 @@ pub(super) const COLOURS: [&str; 20] = [
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Meshes>()
         .init_resource::<Importer>()
+        .init_resource::<Followed>()
         .add_plugins(thumbnails::plugin)
-        .add_observer(chosen);
+        .add_observer(chosen)
+        .add_systems(Update, follow);
 }
 
 /// The palette's colour named `name`, of [`COLOURS`].
@@ -421,7 +432,8 @@ fn added() -> AnyView {
         let mut parts = vec![
             description(
                 "Meshes added from .glb files. Each material takes \
-                 a palette colour, or keeps its own.",
+                 a palette colour, or keeps its own. Save a file \
+                 again and its mesh changes with it.",
             )
             .boxed(),
         ];
@@ -501,6 +513,14 @@ fn card(name: String, asset: Asset) -> AnyView {
             .align(AlignItems::Center)
             .boxed(),
         ];
+        if let Some(from) =
+            cx.world.resource::<Library>().sources.get(&name)
+        {
+            rows.push(labelled(
+                "file",
+                note(from.display().to_string()).boxed(),
+            ));
+        }
         for slot in asset.slots.keys() {
             rows.push(labelled(
                 &slot.replace('_', " "),
@@ -605,58 +625,182 @@ fn chosen(
     });
 }
 
-/// Copies the `.glb` file at `from` into the library's meshes, under
-/// a name no mesh has, with a palette colour guessed for each of its
-/// materials, and gives the name.
+/// Copies the `.glb` file at `from` into the library's meshes, with a
+/// palette colour guessed for each of its materials, follows the file
+/// from then on, and gives the mesh's name. A file added again, or
+/// one named as a mesh added before meshes followed their files,
+/// brings that mesh up to date; any other takes a name no mesh has.
 pub(crate) fn add_mesh(
     world: &mut World,
     from: &Path,
 ) -> anyhow::Result<String> {
+    let from =
+        std::path::absolute(from).unwrap_or_else(|_| from.to_owned());
     let library = world.resource::<Library>();
-    let root = library.root().context("no library yet")?.to_owned();
     let stem = from
         .file_stem()
         .map(|stem| stem.to_string_lossy().replace(' ', "_"))
         .filter(|stem| !stem.is_empty())
         .unwrap_or_else(|| "mesh".to_owned());
-    let name = library.free_name(Kind::Mesh, &stem);
-    let path = mesh_file(&name);
-    let to: PathBuf = root.join(&path);
+    let again = library
+        .sources
+        .iter()
+        .find(|(_, source)| **source == from)
+        .map(|(name, _)| name.clone())
+        .or_else(|| {
+            let earlier = matches!(
+                library.catalogue.0.get(&stem),
+                Some(Asset {
+                    shape: Shape::Mesh(_),
+                    ..
+                })
+            );
+            (earlier && !library.sources.contains_key(&stem))
+                .then(|| stem.clone())
+        });
+    let name =
+        again.unwrap_or_else(|| library.free_name(Kind::Mesh, &stem));
+    let bytes = fs::read(&from)
+        .with_context(|| format!("reading {}", from.display()))?;
+    refresh(world, &name, &bytes)?;
+    world
+        .resource_mut::<Followed>()
+        .stamps
+        .insert(name.clone(), stamp(&from));
+    world
+        .resource_mut::<Library>()
+        .set_source(&name, Some(from));
+    Ok(name)
+}
+
+/// Makes the mesh `name` the model in the `.glb` file `bytes`: its
+/// file in the library replaced, and its size, slots and sockets the
+/// model's. A slot it had keeps its colour, and a new one takes the
+/// colour its name suggests. Bytes that do not read change nothing.
+fn refresh(
+    world: &mut World,
+    name: &str,
+    bytes: &[u8],
+) -> anyhow::Result<()> {
+    let model = read(bytes)?;
+    let library = world.resource::<Library>();
+    let root = library.root().context("no library yet")?.to_owned();
+    let old = library.catalogue.0.get(name).cloned();
+    let path = match old.as_ref().map(|asset| &asset.shape) {
+        Some(Shape::Mesh(path)) => path.clone(),
+        _ => mesh_file(name),
+    };
+    let to = mesh_path(&root, &path)?;
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent).with_context(|| {
             format!("making {}", parent.display())
         })?;
     }
-    fs::copy(from, &to)
-        .with_context(|| format!("copying {}", from.display()))?;
-    let mut meshes = world.resource_mut::<Meshes>();
-    let model = match meshes.get(&root, &path) {
-        Ok(model) => model,
-        Err(error) => {
-            let error = anyhow::anyhow!("{error:#}");
-            meshes.0.remove(&path);
-            let _ = fs::remove_file(&to);
-            return Err(error);
-        }
-    };
+    write_atomic(&to, bytes)?;
+    let had = old.map(|asset| asset.slots).unwrap_or_default();
     let slots = model
         .slots()
         .into_iter()
         .map(|slot| {
-            let paint = Paint::Palette(guess(&slot).to_owned());
+            let paint = had.get(&slot).cloned().unwrap_or_else(|| {
+                Paint::Palette(guess(&slot).to_owned())
+            });
             (slot, paint)
         })
         .collect();
     let asset = Asset {
-        shape: Shape::Mesh(path),
+        shape: Shape::Mesh(path.clone()),
         size: model.size(),
         slots,
         sockets: model.sockets.clone(),
     };
+    world.resource_mut::<Meshes>().0.insert(path, Ok(model));
     world
         .resource_mut::<Library>()
-        .set_asset(name.clone(), Some(asset));
-    Ok(name)
+        .set_asset(name.to_owned(), Some(asset));
+    Ok(())
+}
+
+/// A file's length and the time it was last written, or nothing for
+/// one that cannot be looked at.
+type Stamp = Option<(u64, SystemTime)>;
+
+fn stamp(path: &Path) -> Stamp {
+    let data = fs::metadata(path).ok()?;
+    Some((data.len(), data.modified().ok()?))
+}
+
+/// The files the meshes follow, as they were when last looked at.
+#[derive(Resource, Default)]
+struct Followed {
+    /// By the mesh's name.
+    stamps: BTreeMap<String, Stamp>,
+    /// When they were last looked at.
+    checked: Duration,
+}
+
+/// Brings the meshes whose files have been saved again up to date,
+/// every few seconds.
+fn follow(world: &mut World) {
+    let now = world.resource::<Time>().elapsed();
+    let mut followed = world.resource_mut::<Followed>();
+    if now.saturating_sub(followed.checked) < FOLLOW {
+        return;
+    }
+    followed.checked = now;
+    catch_up(world);
+}
+
+/// Brings each mesh whose file has changed since it was last looked
+/// at up to date with it, and notes what was done. The first look at
+/// a file, as when the window opens, leaves a mesh that already
+/// matches it as it is; a file that is gone leaves its mesh as it was.
+fn catch_up(world: &mut World) {
+    let library = world.resource::<Library>();
+    let Some(root) = library.root().map(Path::to_owned) else {
+        return;
+    };
+    let sources: Vec<(String, PathBuf)> = library
+        .sources
+        .iter()
+        .map(|(name, from)| (name.clone(), from.clone()))
+        .collect();
+    let mut notes = Vec::new();
+    for (name, from) in sources {
+        let now = stamp(&from);
+        let last = world
+            .resource_mut::<Followed>()
+            .stamps
+            .insert(name.clone(), now);
+        if now.is_none() || last == Some(now) {
+            continue;
+        }
+        // A file still being written fails to read, and is read again
+        // once it is whole, as its stamp changes then.
+        let Ok(bytes) = fs::read(&from) else {
+            continue;
+        };
+        let copy = match world.resource::<Library>().catalogue.0.get(&name)
+        {
+            Some(Asset {
+                shape: Shape::Mesh(path),
+                ..
+            }) => mesh_path(&root, path)
+                .ok()
+                .and_then(|path| fs::read(path).ok()),
+            _ => None,
+        };
+        if last.is_none() && copy.is_some_and(|copy| copy == bytes) {
+            continue;
+        }
+        notes.push(match refresh(world, &name, &bytes) {
+            Ok(()) => format!("Updated {name}"),
+            Err(error) => format!("{name}: {error:#}"),
+        });
+    }
+    if !notes.is_empty() {
+        world.resource_mut::<Library>().note = notes.join("; ");
+    }
 }
 
 /// The palette colour a material's name suggests.
@@ -683,13 +827,16 @@ fn guess(slot: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use hamlet_testing::Scratch;
+
     use super::*;
 
-    /// A `.glb` of one triangle in the material `roof_tiles`, with no
+    /// The glTF of one triangle in the material `roof_tiles`, with no
     /// normals, lifted by its node, and a socket at its top corner.
+    const TRIANGLE: &str = r#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0,1]}],"nodes":[{"mesh":0,"translation":[0,1,0]},{"name":"socket_lamp","translation":[2,2,0]}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"material":0}]}],"materials":[{"name":"roof_tiles"}],"buffers":[{"byteLength":36}],"bufferViews":[{"buffer":0,"byteLength":36}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[2,1,0]}]}"#;
+
     fn triangle() -> Vec<u8> {
-        let json = r#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0,1]}],"nodes":[{"mesh":0,"translation":[0,1,0]},{"name":"socket_lamp","translation":[2,2,0]}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"material":0}]}],"materials":[{"name":"roof_tiles"}],"buffers":[{"byteLength":36}],"bufferViews":[{"buffer":0,"byteLength":36}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[2,1,0]}]}"#;
-        glb(json, &corners())
+        glb(TRIANGLE, &corners())
     }
 
     fn corners() -> Vec<u8> {
@@ -742,5 +889,45 @@ mod tests {
         let error =
             read(&glb(json, &bin)).err().expect("it is refused");
         assert_eq!(error.to_string(), "the file has no triangles");
+    }
+
+    #[test]
+    fn a_mesh_follows_its_file_and_keeps_the_colours_chosen_for_it() {
+        let folder = Scratch::new("assets-follow");
+        let file = folder.join("barrel.glb");
+        fs::write(&file, triangle()).unwrap();
+        let mut world = World::new();
+        world.insert_resource(Library::in_folder(folder.join("library")));
+        world.init_resource::<Meshes>();
+        world.init_resource::<Followed>();
+        let name = add_mesh(&mut world, &file).unwrap();
+        let mut asset =
+            world.resource::<Library>().catalogue.0[&name].clone();
+        asset.slots.insert("roof_tiles".to_owned(), Paint::Own);
+        world
+            .resource_mut::<Library>()
+            .set_asset(name.clone(), Some(asset));
+
+        // Saved again twice as wide, the file is longer than it was,
+        // so its stamp changes however coarse the clock.
+        let wider = TRIANGLE.replace(
+            r#""translation":[0,1,0]"#,
+            r#""translation":[0,1,0],"scale":[2,1,1]"#,
+        );
+        fs::write(&file, glb(&wider, &corners())).unwrap();
+        catch_up(&mut world);
+
+        let library = world.resource::<Library>();
+        let asset = &library.catalogue.0[&name];
+        assert_eq!(asset.size.x, 4.0);
+        assert_eq!(asset.slots["roof_tiles"], Paint::Own);
+        assert_eq!(
+            fs::read(folder.join("library").join(mesh_file(&name)))
+                .unwrap(),
+            fs::read(&file).unwrap()
+        );
+        // Added again, it is the same mesh, not a second one.
+        assert_eq!(add_mesh(&mut world, &file).unwrap(), name);
+        assert_eq!(world.resource::<Library>().catalogue.0.len(), 1);
     }
 }

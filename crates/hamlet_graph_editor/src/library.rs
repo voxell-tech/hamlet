@@ -1,10 +1,12 @@
 //! The library: every asset the editors share, in one folder in the
 //! window's folder. Meshes are `.glb` files in `meshes/`, each named
-//! in `catalogue.ron` with its slots' colours and its sockets;
-//! blueprint and shader graphs are `.ron` files in `blueprints/`
-//! and `shaders/`, one graph to a file; textures are `.png` files
-//! in `textures/`. A graph names the meshes it uses and the other
-//! graphs of its kind it runs. A removed asset is moved to `.trash/`.
+//! in `catalogue.ron` with its slots' colours and its sockets, and in
+//! `sources.ron` with the file outside the library it was added from
+//! and follows; blueprint and shader graphs are `.ron` files in
+//! `blueprints/` and `shaders/`, one graph to a file; textures are
+//! `.png` files in `textures/`. A graph names the meshes it uses and
+//! the other graphs of its kind it runs. A removed asset is moved to
+//! `.trash/`.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -150,6 +152,10 @@ pub struct Library {
     examples: Vec<(Kind, &'static [(&'static str, &'static str)])>,
     /// The meshes, by name.
     pub catalogue: Catalogue,
+    /// The file outside the library each mesh was added from, by the
+    /// mesh's name. Kept apart from the catalogue, which books and
+    /// bundles carry to other machines.
+    pub sources: BTreeMap<String, PathBuf>,
     /// Every asset, by kind and then name, the examples and built-in
     /// meshes after the library's own.
     pub items: Vec<Item>,
@@ -162,6 +168,17 @@ pub struct Library {
 }
 
 impl Library {
+    /// The library in the folder `root`, read, as the window finds it
+    /// once its own folder is known.
+    pub fn in_folder(root: PathBuf) -> Self {
+        let mut library = Self {
+            root: Some(root),
+            ..Self::default()
+        };
+        library.scan();
+        library
+    }
+
     /// The library's folder, once the window's folder is known.
     pub fn root(&self) -> Option<&Path> {
         self.root.as_deref()
@@ -182,6 +199,10 @@ impl Library {
         root.join("catalogue.ron")
     }
 
+    fn sources_at(root: &Path) -> PathBuf {
+        root.join("sources.ron")
+    }
+
     /// Reads the catalogue and lists every file again.
     fn scan(&mut self) {
         let Some(root) = self.root.clone() else {
@@ -191,6 +212,13 @@ impl Library {
             .ok()
             .and_then(|text| Catalogue::from_ron(&text).ok())
             .unwrap_or_default();
+        let mut sources = fs::read_to_string(Self::sources_at(&root))
+            .ok()
+            .and_then(|text| {
+                ron::from_str::<BTreeMap<String, PathBuf>>(&text).ok()
+            })
+            .unwrap_or_default();
+        sources.retain(|name, _| catalogue.0.contains_key(name));
         let mut items = Vec::new();
         for kind in [Kind::Blueprint, Kind::Shader, Kind::Texture] {
             let Ok(entries) = fs::read_dir(root.join(kind.shelf()))
@@ -242,9 +270,13 @@ impl Library {
                 });
             }
         }
-        if items != self.items || catalogue != self.catalogue {
+        if items != self.items
+            || catalogue != self.catalogue
+            || sources != self.sources
+        {
             self.items = items;
             self.catalogue = catalogue;
+            self.sources = sources;
             self.revision += 1;
         }
     }
@@ -258,6 +290,32 @@ impl Library {
             .to_ron()
             .context("writing the catalogue")?;
         write_atomic(&Self::catalogue_at(root), &text)
+    }
+
+    fn write_sources(&self) -> anyhow::Result<()> {
+        let root = self.root.as_deref().context("no library yet")?;
+        fs::create_dir_all(root)
+            .with_context(|| format!("making {}", root.display()))?;
+        let text = ron::ser::to_string_pretty(
+            &self.sources,
+            ron::ser::PrettyConfig::default(),
+        )
+        .context("writing the sources")?;
+        write_atomic(&Self::sources_at(root), &text)
+    }
+
+    /// Records `from` as the file the mesh `name` was added from and
+    /// follows, or that it follows none.
+    pub fn set_source(&mut self, name: &str, from: Option<PathBuf>) {
+        match from {
+            Some(from) => self.sources.insert(name.to_owned(), from),
+            None => self.sources.remove(name),
+        };
+        if let Err(error) = self.write_sources() {
+            self.note = format!("{error:#}");
+        }
+        self.scan();
+        self.revision += 1;
     }
 
     /// A name for an asset of `kind`, `wanted` or it with a number
@@ -510,6 +568,10 @@ impl Library {
             asset.shape = Shape::Mesh(mesh_file(&name));
             self.catalogue.0.insert(name.clone(), asset);
             self.write_catalogue()?;
+            if let Some(source) = self.sources.remove(&item.name) {
+                self.sources.insert(name.clone(), source);
+                self.write_sources()?;
+            }
         }
         self.scan();
         Ok(name)
@@ -539,6 +601,9 @@ impl Library {
         if item.kind == Kind::Mesh {
             self.catalogue.0.remove(&item.name);
             self.write_catalogue()?;
+            if self.sources.remove(&item.name).is_some() {
+                self.write_sources()?;
+            }
         }
         self.scan();
         Ok(())
@@ -606,12 +671,15 @@ pub fn temp_of(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{name}.tmp"))
 }
 
-/// Writes `text` to `path` so that the file there is the old one or
+/// Writes `bytes` to `path` so that the file there is the old one or
 /// the whole new one, never a part.
-pub fn write_atomic(path: &Path, text: &str) -> anyhow::Result<()> {
+pub fn write_atomic(
+    path: &Path,
+    bytes: impl AsRef<[u8]>,
+) -> anyhow::Result<()> {
     let temp = temp_of(path);
     let written = fs::File::create(&temp).and_then(|mut file| {
-        file.write_all(text.as_bytes())?;
+        file.write_all(bytes.as_ref())?;
         file.sync_all()
     });
     written
@@ -701,14 +769,23 @@ mod tests {
             barrel.source,
             Source::File(folder.join("library/meshes/barrel.glb"))
         );
+        let art = folder.join("art/barrel.glb");
+        library.set_source("barrel", Some(art.clone()));
 
         let name = library.rename(&barrel, "cask").unwrap();
         let cask = mesh(&library, &name).unwrap();
         assert!(folder.join("library/meshes/cask.glb").exists());
         assert!(!library.catalogue.0.contains_key("barrel"));
+        // It follows the same file under its new name, read back from
+        // the library's folder.
+        assert_eq!(
+            Library::in_folder(folder.join("library")).sources,
+            BTreeMap::from([("cask".to_owned(), art)])
+        );
 
         library.remove(&cask).unwrap();
         assert!(mesh(&library, "cask").is_none());
+        assert!(library.sources.is_empty());
         assert!(
             folder.join("library/.trash/meshes/cask.glb").exists()
         );
