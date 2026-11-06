@@ -238,7 +238,7 @@ fn turn(world: &mut World, by: isize, pages: usize) {
 }
 
 /// Makes `model` the realm's default, which the Hand speaks with.
-pub(crate) fn save_default(world: &mut World, model: &str) {
+fn save_default(world: &mut World, model: &str) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Edit(protocol::Edit::Settings {
             id,

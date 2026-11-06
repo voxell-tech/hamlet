@@ -30,6 +30,20 @@ const DENSITY: f32 = 2.0;
 /// The handles of the icons' images start here.
 const FIRST: u128 = 0x6861_6d6c_6574_5f69_636f_6e73_0000_0000;
 
+/// The points of a five-pointed star, outer and inner by turns.
+const STAR: [[f32; 2]; 10] = [
+    [8.0, 2.0],
+    [9.55, 6.2],
+    [13.95, 6.35],
+    [10.5, 9.1],
+    [11.7, 13.4],
+    [8.0, 10.9],
+    [4.3, 13.4],
+    [5.5, 9.1],
+    [2.05, 6.35],
+    [6.45, 6.2],
+];
+
 pub fn plugin(app: &mut App) {
     app.insert_resource(dock()).add_systems(Startup, draw);
 }
@@ -130,6 +144,10 @@ pub enum Glyph {
     Drop,
     /// An arrow rising from the ground.
     Rise,
+    /// A five-pointed star: something that could be a favourite.
+    Star,
+    /// The star filled: a favourite.
+    Starred,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -158,7 +176,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 53] = [
+    pub const ALL: [Glyph; 55] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -212,6 +230,8 @@ impl Glyph {
         Glyph::Scatter,
         Glyph::Drop,
         Glyph::Rise,
+        Glyph::Star,
+        Glyph::Starred,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -590,6 +610,8 @@ impl Glyph {
                 Path(&[[4.75, 5.5], [8.0, 2.25], [11.25, 5.5]]),
                 Line(3.0, 13.75, 13.0, 13.75),
             ],
+            Glyph::Star => &[Loop(&STAR)],
+            Glyph::Starred => &[Loop(&STAR), Fill(&STAR)],
         }
     }
 }

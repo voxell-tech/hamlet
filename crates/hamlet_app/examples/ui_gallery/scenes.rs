@@ -84,7 +84,12 @@ impl Plugin for GalleryPlugin {
                     }),
                 ),
             )
+            // The menus, and what the world tells them was asked
+            // about.
+            .init_resource::<hamlet_realm::pick::Asked>()
+            .init_resource::<hamlet_realm::pick::AskedGround>()
             .add_plugins((
+                hamlet_app::world_menu::plugin,
                 hamlet_app::desk::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
@@ -141,6 +146,8 @@ pub enum Scene {
     Desk,
     /// Toasts stacked over the realm.
     Toasts,
+    /// The popup an agent's model is chosen in, over the Hub.
+    Models,
     /// Every hamlet, with nothing selected.
     Overview,
     /// One hamlet and everyone in it.
@@ -186,4 +193,6 @@ fn mount_scene(world: &mut World) {
         _ => panels(),
     };
     mount::<HamletTheme>(world, view);
+    // The menus and questions the app's own root draws over all.
+    mount::<HamletTheme>(world, hamlet_app::world_menu::view());
 }

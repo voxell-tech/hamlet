@@ -18,7 +18,7 @@ use bevy_fynix::{
 };
 use hamlet_client::realm::{
     Activity, Busy, Kind, Left, LivesIn, Nickname, Parent, PeerChats,
-    Settings, Works, id_of, name_of,
+    Works, id_of, name_of,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
@@ -28,7 +28,7 @@ use hamlet_ui::styles::{
     hairline, lettered, note, scroll_area,
 };
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, View, built, with_cx};
@@ -37,7 +37,6 @@ use super::{Showing, conversations, details, show};
 use crate::chat;
 use crate::convo::Convo;
 use crate::history::History;
-use crate::models::Shelf;
 use crate::overview::tell;
 use crate::roll::rolled;
 use crate::screens::petition::{self, Need};
@@ -415,25 +414,25 @@ fn header(agent: Entity) -> impl View {
         // Everything else that can be done to it, as a right click on
         // it in the world offers: a new session, gifts, its prompt,
         // stopping, roads, merging, ending.
-        let more = button(hamlet_ui::widgets::icons::glyph(
-            Glyph::More,
-            ICON,
-        ))
-        .padding(UiRect::axes(px(8.0), px(4.0)))
-        .rules(hamlet_ui::styles::button)
-        .tagged(Variant::Default)
-        .tooltip(|| {
-            note("A new session, its prompt, gifts, roads, ending it")
-        })
-        .on_activate(move |world| {
-            let hall = hamlet_client::realm::first_mayor(world);
-            let thing = if hall == Some(agent) {
-                Thing::Keeper
-            } else {
-                Thing::Agent(agent)
-            };
-            world_menu::open_for(world, thing);
-        });
+        let more = button(glyph(Glyph::More, ICON))
+            .padding(UiRect::axes(px(8.0), px(4.0)))
+            .rules(hamlet_ui::styles::button)
+            .tagged(Variant::Default)
+            .tooltip(|| {
+                note(
+                    "A new session, its prompt, gifts, roads, \
+                     ending it",
+                )
+            })
+            .on_activate(move |world| {
+                let hall = hamlet_client::realm::first_mayor(world);
+                let thing = if hall == Some(agent) {
+                    Thing::Keeper
+                } else {
+                    Thing::Agent(agent)
+                };
+                world_menu::open_for(world, thing);
+            });
         // Which of its chats the chat tab shows: this session, an
         // earlier one, its letters and questions, its workers. It is
         // there on both tabs, so that the tabs keep their place.
@@ -470,167 +469,25 @@ fn header(agent: Entity) -> impl View {
     })
 }
 
-/// The agent's model, with the effort it thinks at.
-fn model_words(world: &World, agent: Entity) -> String {
-    let model = world
-        .get::<hamlet_client::realm::Account>(agent)
-        .map(|account| account.model.clone())
-        .filter(|model| !model.is_empty())
-        .unwrap_or_else(|| "default model".into());
-    let effort = world
-        .get_resource::<Settings>()
-        .and_then(|settings| settings.0.effort);
-    match effort {
-        Some(effort) => {
-            format!("{model} · {effort:?}").to_lowercase()
-        }
-        None => model,
-    }
-}
-
-/// The models a chief may pick for a hire, the first being its
-/// hamlet's own.
-fn model_choices(world: &World, agent: Entity) -> Vec<String> {
-    let mut names = vec!["hamlet's model".to_string()];
-    names.extend(
-        world
-            .get_resource::<Shelf>()
-            .into_iter()
-            .flat_map(|shelf| &shelf.models)
-            .map(|model| model.name.clone()),
-    );
-    if let Some(now) = world
-        .get::<hamlet_client::realm::Account>(agent)
-        .map(|account| account.model.clone())
-        .filter(|now| !now.is_empty() && !names.contains(now))
-    {
-        names.push(now);
-    }
-    names
-}
-
-/// The models the Hand may speak with, the one it does among them.
-fn default_choices(world: &World, agent: Entity) -> Vec<String> {
-    let mut names = world
-        .get_resource::<Shelf>()
-        .into_iter()
-        .flat_map(|shelf| &shelf.models)
-        .map(|model| model.name.clone())
-        .collect::<Vec<_>>();
-    if let Some(now) = world
-        .get::<hamlet_client::realm::Account>(agent)
-        .map(|account| account.model.clone())
-        .filter(|now| !now.is_empty() && !names.contains(now))
-    {
-        names.insert(0, now);
-    }
-    names
-}
-
-/// The Hand's chip: it speaks with the realm's default model, which
-/// a pick here changes.
-fn hand_model_chip(agent: Entity) -> AnyView {
-    keyed(
-        derived(move |world: &World| {
-            (default_choices(world, agent), model_words(world, agent))
-        })
-        .when(every_frame()),
-        move |(names, now)| {
-            let names = names.clone();
-            let at = names
-                .iter()
-                .position(|name| now.starts_with(name.as_str()))
-                .unwrap_or(0);
-            dropdown(
-                names.clone(),
-                at,
-                Glyph::Chevron.image(ICON),
-                move |world, chosen| {
-                    if chosen == at {
-                        return;
-                    }
-                    if let Some(picked) = names.get(chosen) {
-                        crate::models::save_default(world, picked);
-                    }
-                },
-            )
-            .boxed()
-        },
-    )
-    .within(bare())
-    .boxed()
-}
-
-/// The chip that shows the model and effort, and for a hire its
-/// hamlet's mayor can change it from, and for the Hand the realm's
-/// default.
+/// The chip of the model, its effort and its tier, which opens the
+/// popup they are chosen in.
 fn model_chip(agent: Entity) -> impl View {
-    let kind =
-        rolled(move |world| world.get::<Kind>(agent).map(|k| k.0));
-    keyed(kind, move |kind| {
-        if *kind == Some(protocol::AgentKind::Hand) {
-            return hand_model_chip(agent);
-        }
-        if *kind != Some(protocol::AgentKind::Hire) {
-            return label(rolled(move |world| {
-                model_words(world, agent)
+    button(
+        row((
+            label(rolled(move |world| {
+                world_menu::chip_words(world, agent)
             }))
-            .tone(Tone::Dim)
-            .wrap(false)
-            .boxed();
-        }
-        keyed(
-            derived(move |world: &World| {
-                (
-                    model_choices(world, agent),
-                    model_words(world, agent),
-                )
-            })
-            .when(every_frame()),
-            move |(names, now)| {
-                let names = names.clone();
-                let was = now.clone();
-                let at = names
-                    .iter()
-                    .position(|name| now.starts_with(name.as_str()))
-                    .unwrap_or(0);
-                dropdown(
-                    names.clone(),
-                    at,
-                    Glyph::Chevron.image(ICON),
-                    move |world, chosen| {
-                        let Some(picked) = names.get(chosen) else {
-                            return;
-                        };
-                        if *picked == was {
-                            return;
-                        }
-                        let model = if chosen == 0 {
-                            "none"
-                        } else {
-                            picked.as_str()
-                        };
-                        let Some(hamlet) = world
-                            .get::<LivesIn>(agent)
-                            .map(|lives| lives.0)
-                        else {
-                            return;
-                        };
-                        let address = name_of(world, agent);
-                        tell(
-                            world,
-                            hamlet,
-                            format!("/model {address} {model}"),
-                        );
-                    },
-                )
-                .boxed()
-            },
-        )
-        .within(bare())
-        .boxed()
-    })
-    .within(bare())
+            .wrap(false),
+            glyph(Glyph::Chevron, ICON),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center),
+    )
+    .padding(UiRect::axes(px(8.0), px(0.0)))
+    .min_height(px(hamlet_ui::styles::CONTROL))
+    .rules(hamlet_ui::styles::button)
+    .tagged(Variant::Default)
+    .on_activate(move |world| world_menu::ask_model(world, agent))
 }
 
 /// The chip of the hamlet's mode, which a press turns over.
@@ -673,7 +530,7 @@ fn mode_chip(agent: Entity) -> impl View {
 
 /// The `+` that offers the skills an agent could be given.
 fn gifts(agent: Entity) -> impl View {
-    row((button(hamlet_ui::widgets::icons::glyph(Glyph::Plus, ICON))
+    row((button(glyph(Glyph::Plus, ICON))
         .padding(UiRect::axes(px(8.0), px(0.0)))
         .min_height(px(hamlet_ui::styles::CONTROL))
         .tooltip(|| note("Give it a skill"))

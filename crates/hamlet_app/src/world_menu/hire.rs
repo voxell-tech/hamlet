@@ -6,7 +6,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::math::{Rect, Vec2};
-use bevy::ui::{AlignItems, percent, px};
+use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, dropdown, frame, label,
@@ -82,9 +82,11 @@ fn row_of(choice_of: &Choice, on: bool) -> impl View + use<> {
             label(hires).tone(Tone::Dim).wrap(false),
         ))
         .gap(0.0)
+        .padding(UiRect::axes(px(0.0), px(4.0)))
         .align(AlignItems::FlexStart),
     )
     .width(percent(100.0))
+    .justify(JustifyContent::FlexStart)
     .rules(choice(on))
     .on_activate(move |world| {
         let mut hiring = world.resource_mut::<Hiring>();
@@ -232,18 +234,13 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
                 .size(heading)
                 .bold(true)
                 .tagged(DisplayText),
-            styles::close((
-                section("A scholar of the city"),
-                text_field(
-                    bevy_fynix::resource::<Hiring, _>(|h| {
-                        h.search.clone()
-                    }),
-                    |world, text| {
-                        world.resource_mut::<Hiring>().search = text;
-                    },
-                )
-                .rules(text_input),
-            )),
+            super::search::search(
+                "Search scholars",
+                |world| world.resource::<Hiring>().search.clone(),
+                |world, text| {
+                    world.resource_mut::<Hiring>().search = text;
+                },
+            ),
             column((scroll_area((list(),)),)).max_height(px(LIST)),
             version(),
             styles::close((
@@ -286,7 +283,7 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
         cx.build(
             popup(Rect::from_corners(at, at), (body,))
                 .on_dismiss(|world, _| close(world))
-                .padding(bevy::ui::UiRect::all(px(padding))),
+                .padding(UiRect::all(px(padding))),
         )
     })
 }

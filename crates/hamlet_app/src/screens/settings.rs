@@ -187,7 +187,7 @@ fn not_enforced() -> AnyView {
     .boxed()
 }
 
-const EFFORTS: [(Option<Effort>, &str); 6] =
+const EFFORTS: [(Option<Effort>, &str); 8] =
     crate::models::efforts("Model's own");
 
 /// Who can let a scholar into the city, as the pick shows them.

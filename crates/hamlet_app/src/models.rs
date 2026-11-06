@@ -21,8 +21,8 @@ use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 
 pub(crate) use self::choice::{efforts, of_hamlet};
+pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
-pub(crate) use self::home::{narrowed, save_default};
 use crate::PanelSystems;
 use crate::settings::Pane;
 

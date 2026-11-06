@@ -6,8 +6,10 @@ mod deed;
 mod founding;
 mod hire;
 mod items;
+mod model;
 mod new_scholar;
 mod road;
+mod search;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -35,9 +37,12 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
+pub(crate) use self::model::chip_words;
+pub use self::model::{Favorites, open as open_model};
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Open>()
+    app.add_plugins((model::plugin, search::plugin))
+        .init_resource::<Open>()
         .init_resource::<Founding>()
         .init_resource::<new_scholar::Making>()
         .init_resource::<hire::Hiring>()
@@ -65,6 +70,8 @@ pub(crate) enum Open {
     Road(Entity, Vec2),
     /// The skills an agent could be given.
     Skills(Entity, Vec2),
+    /// The model an agent runs, its effort and its tier.
+    Model(Entity, Vec2),
 }
 
 /// On a row of a panel: the thing it stands for, whose menu the
@@ -191,6 +198,12 @@ pub(crate) fn ask_road(world: &mut World, agent: Entity) {
     *world.resource_mut::<Open>() = Open::Road(agent, at);
 }
 
+/// Opens the popup of `agent`'s model, at the pointer.
+pub(crate) fn ask_model(world: &mut World, agent: Entity) {
+    let at = pointer(world);
+    model::open(world, agent, at);
+}
+
 /// Asks before `deed` is done, at the pointer.
 pub(crate) fn ask(world: &mut World, deed: Deed) {
     let at = pointer(world);
@@ -262,6 +275,9 @@ fn menus() -> AnyView {
             }
             Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
             Open::Road(agent, at) => road::road(agent, at).boxed(),
+            Open::Model(agent, at) => {
+                model::picker(agent, at).boxed()
+            }
             Open::Skills(agent, at) => {
                 AnyView::new(move |cx: &mut Cx| {
                     let items = items::skills(cx.world, agent);

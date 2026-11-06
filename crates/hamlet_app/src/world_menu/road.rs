@@ -8,7 +8,6 @@ use bevy::math::{Rect, Vec2};
 use bevy::ui::{AlignItems, JustifyContent, percent, px};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, label, popup,
-    text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{
@@ -17,7 +16,7 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    self, choice, description, lettered, scroll_area, text_input,
+    self, choice, description, lettered, scroll_area,
 };
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{View, built};
@@ -124,15 +123,13 @@ pub(super) fn road(agent: Entity, at: Vec2) -> impl View {
                 .size(heading)
                 .bold(true)
                 .tagged(DisplayText),
-            text_field(
-                bevy_fynix::resource::<Roading, _>(|r| {
-                    r.search.clone()
-                }),
+            super::search::search(
+                "Search hires",
+                |world| world.resource::<Roading>().search.clone(),
                 |world, text| {
                     world.resource_mut::<Roading>().search = text;
                 },
-            )
-            .rules(text_input),
+            ),
             column((scroll_area((list(agent),)),))
                 .max_height(px(LIST)),
             lettered("CANCEL")

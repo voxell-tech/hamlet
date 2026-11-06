@@ -32,6 +32,7 @@ use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
+use crate::world_menu::Favorites;
 use crate::world_view::{NorthTarget, TimeOfDay};
 
 /// Seconds a change waits before it is written, so that dragging a
@@ -46,6 +47,7 @@ const PATIENCE: Duration = Duration::from_secs(10);
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pending>()
         .init_resource::<Kept>()
+        .init_resource::<Favorites>()
         .add_systems(
             PreUpdate,
             reselect
@@ -119,6 +121,9 @@ pub struct View {
     desks: Option<Desks>,
     /// The selection when the window closed.
     selected: Option<Chosen>,
+    /// The models the chief starred.
+    #[serde(default)]
+    favorite_models: Favorites,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -316,6 +321,7 @@ pub fn restore(world: &mut World) {
         None => Desks::first(view.dock).cleaned(),
     };
     world.insert_resource(desks);
+    world.insert_resource(view.favorite_models);
 }
 
 /// The selection, by the names it is kept under.
@@ -346,10 +352,11 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north): (
+    (pending, kept, north, favorites): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
+        Res<Favorites>,
     ),
     (fog, far, wind): (
         Res<VolumetricFogSettings>,
@@ -370,6 +377,7 @@ pub fn keep(
         || far.is_changed()
         || wind.is_changed()
         || north.is_changed()
+        || favorites.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -395,6 +403,7 @@ pub fn keep(
         dock: Vec::new(),
         desks: Some(desks.clone()),
         selected: kept.0.clone(),
+        favorite_models: favorites.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -449,6 +458,7 @@ mod tests {
             dock: Vec::new(),
             desks,
             selected: Some(Chosen::House("juniper".into())),
+            favorite_models: Favorites(vec!["faux::faux-1".into()]),
         }
     }
 
@@ -479,6 +489,7 @@ mod tests {
                 .init_resource::<KeepAwake>()
                 .init_resource::<DockRegistry<HamletTheme>>()
                 .init_resource::<Desks>()
+                .init_resource::<Favorites>()
                 .init_resource::<desk::Shown>()
                 .add_systems(Update, desk::capture)
                 .add_plugins(plugin);

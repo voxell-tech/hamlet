@@ -114,7 +114,7 @@ fn whole(
 /// none.
 pub(crate) const fn efforts(
     unset: &'static str,
-) -> [(Option<Effort>, &'static str); 6] {
+) -> [(Option<Effort>, &'static str); 8] {
     [
         (None, unset),
         (Some(Effort::Off), "Off"),
@@ -122,6 +122,8 @@ pub(crate) const fn efforts(
         (Some(Effort::Low), "Low"),
         (Some(Effort::Medium), "Medium"),
         (Some(Effort::High), "High"),
+        (Some(Effort::XHigh), "Extra High"),
+        (Some(Effort::Max), "Max"),
     ]
 }
 

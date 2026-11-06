@@ -21,6 +21,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if matches!(
         scene,
         Scene::Hub
+            | Scene::Models
             | Scene::Desk
             | Scene::Toasts
             | Scene::Chat
@@ -35,6 +36,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     if scene == Scene::Hub {
         world.resource_mut::<hub::Rail>().show_rows();
+    }
+    if scene == Scene::Models {
+        offer_models(world);
     }
     if scene == Scene::Scholar {
         let scholar = hamlet_client::realm::scholar(
@@ -57,6 +61,50 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         });
         world.insert_resource(Showing::Prompt);
     }
+}
+
+/// A catalogue of a few models over two providers, and the popup of
+/// the seated agent's model open over its composer.
+fn offer_models(world: &mut World) {
+    use hamlet_protocol::Effort;
+    let card = |name: &str, efforts: &[Effort], fast: bool| {
+        protocol::Listed {
+            context: Some(200_000),
+            default_effort: efforts
+                .contains(&Effort::Medium)
+                .then_some(Effort::Medium),
+            efforts: efforts.to_vec(),
+            fast,
+            name: name.into(),
+            note: String::new(),
+            price: None,
+            priced: protocol::ListedPriced::Unknown,
+        }
+    };
+    let thinks = [
+        Effort::Low,
+        Effort::Medium,
+        Effort::High,
+        Effort::XHigh,
+        Effort::Max,
+    ];
+    world.resource_mut::<hamlet_app::models::Shelf>().models = vec![
+        card("faux::faux-1", &[], false),
+        card("lantern::wren-large", &thinks, true),
+        card("lantern::wren-small", &thinks[..3], true),
+        card("lantern::wren-mini", &[Effort::Off], false),
+        card("meadow::finch-pro", &thinks[..4], false),
+        card("meadow::finch-lite", &thinks[..3], false),
+    ];
+    let agent = world.resource::<Convo>().agent;
+    hamlet_app::world_menu::open_model(
+        world,
+        agent,
+        bevy::math::Vec2::new(1180.0, 760.0),
+    );
+    // Starred after it opens, so it opens on every model.
+    world.resource_mut::<hamlet_app::world_menu::Favorites>().0 =
+        vec!["lantern::wren-large".into()];
 }
 
 /// Sample papers received for the Memory page.

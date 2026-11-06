@@ -41,7 +41,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 35] = [
+const SHOTS: [Shot; 36] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -100,6 +100,12 @@ const SHOTS: [Shot; 35] = [
         name: "desk",
         scene: Scene::Desk,
         size: UVec2::new(1440, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "models",
+        scene: Scene::Models,
+        size: UVec2::new(1800, 860),
         scale: 1.0,
     },
     Shot {
@@ -336,17 +342,6 @@ fn live(shot: &Shot) {
         // The stills keep hover off so a held hover stays; a hand at
         // the window needs it to point at anything.
         .insert_resource(bevy::picking::PickingSettings::default())
-        // The menus and questions the app's own root draws over all,
-        // and what the world tells them was asked about.
-        .add_plugins(hamlet_app::world_menu::plugin)
-        .init_resource::<hamlet_realm::pick::Asked>()
-        .init_resource::<hamlet_realm::pick::AskedGround>()
-        .add_systems(PostStartup, |world: &mut World| {
-            bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-                world,
-                hamlet_app::world_menu::view(),
-            );
-        })
         .add_systems(Startup, |mut commands: Commands| {
             commands.spawn((Camera2d, IsDefaultUiCamera));
         });
