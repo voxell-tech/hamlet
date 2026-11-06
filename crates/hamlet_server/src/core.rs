@@ -1224,7 +1224,9 @@ mod tests {
         })
         .await
         .unwrap();
-        let began = core.dream_command(None, &["ada"]).await.unwrap();
+        let address = format!("scholar#{}", ada.0);
+        let began =
+            core.dream_command(None, &[&address]).await.unwrap();
         assert!(began.is_ok(), "{began:?}");
         until(&mut core, &mut inbox, "the dream's end", |core| {
             let db = core.realm.store().connection();

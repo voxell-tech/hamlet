@@ -126,7 +126,9 @@ async fn a_job_cut_off_by_a_crash_runs_at_the_next_start() {
     let mut realm = Realm::faulting("jobs");
     let (mut server, mut chief) = realm.serve(Faux::new()).await;
     let hand = chief.hand();
-    chief.tell(hand, "/scholar new sam A careful reader.").await;
+    chief
+        .tell(hand, "/scholar new sam: A careful reader.")
+        .await;
     realm.paused().await;
     server.kill();
     // The scholar is kept and its repository is a job still to run:
@@ -139,7 +141,7 @@ async fn a_job_cut_off_by_a_crash_runs_at_the_next_start() {
     let (_server, mut chief) = realm.serve(Faux::new()).await;
     let mut versions = String::new();
     for _ in 0..100 {
-        versions = chief.command(hand, "/versions sam").await;
+        versions = chief.command(hand, "/versions scholar#2").await;
         if versions.contains("Latest commits of main") {
             return;
         }
@@ -207,11 +209,12 @@ async fn a_command_cut_off_after_it_ran_is_not_run_again() {
 }
 
 /// The Hand makes the scholar `sam`, and the server is killed after
-/// the change and before the call is answered; how the call failed
-/// once the Hand asked again, if it did.
+/// the change and before the call is answered; how many scholars
+/// named `sam` there are once the Hand asked again, and how the call
+/// failed, if it did.
 async fn scholar_made_across_a_crash(
     mut realm: Realm,
-) -> Option<String> {
+) -> (usize, Option<String>) {
     let make = call(
         "create_scholar",
         json!({"name": "sam", "character": "A careful reader."}),
@@ -229,35 +232,37 @@ async fn scholar_made_across_a_crash(
         realm.serve(Faux::new().responses([words("Made.")])).await;
     chief.open(&hand_chat).await;
     chief.shows(&hand_chat, "Made.").await;
-    let scholars = chief.realm().scholars;
-    assert_eq!(
-        scholars.iter().filter(|s| s.name == "sam").count(),
-        1,
-        "{scholars:?}"
-    );
-    chief
+    let made = chief
+        .realm()
+        .scholars
+        .iter()
+        .filter(|s| s.name == "sam")
+        .count();
+    let failure = chief
         .items(&hand_chat)
         .into_iter()
         .find_map(|item| item.tool)
         .expect("the call's result is kept")
-        .failure
+        .failure;
+    (made, failure)
 }
 
 #[tokio::test]
 async fn a_society_call_cut_off_after_its_change_is_answered_the_same()
  {
-    let failure =
+    let (made, failure) =
         scholar_made_across_a_crash(Realm::faulting("carried")).await;
-    assert_eq!(failure, None);
+    assert_eq!((made, failure), (1, None));
 }
 
 #[tokio::test]
 async fn control_a_change_and_its_answer_kept_apart_lose_the_answer()
 {
     // The crash test above must catch a change kept apart from its
-    // call's answer: asked again, the call is refused.
+    // call's answer: asked again, the call makes a second scholar,
+    // as a name no longer refuses it.
     let realm = Realm::faulting("carried")
         .with("HAMLET_FAULT_SPLIT_MARKER", "1");
-    let failure = scholar_made_across_a_crash(realm).await;
-    assert!(failure.is_some_and(|f| f.contains("sam")));
+    let (made, _) = scholar_made_across_a_crash(realm).await;
+    assert_eq!(made, 2);
 }
