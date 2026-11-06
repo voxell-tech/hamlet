@@ -22,6 +22,11 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
     var out: VertexOutput;
     let vertex = decompress_vertex(vertex_in, vertex_in.instance_index);
     let world_from_local = mesh_functions::get_world_from_local(vertex_in.instance_index);
+    // A mesh with no UVs has no bark to hold still.
+@if(VERTEX_UVS_A)
+    let uv = vertex.uv;
+@else
+    let uv = vec2<f32>(0.0);
 @if(VERTEX_UVS_B)
     let at = grown(
         leaves,
@@ -30,7 +35,7 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
         vertex.uv_b.x,
     );
 @else
-    let at = swayed(leaves, wind, vertex.position, vertex.uv, world_from_local);
+    let at = swayed(leaves, wind, vertex.position, uv, world_from_local);
     out.world_position = vec4<f32>(at, 1.0);
     out.position = position_world_to_clip(at);
 @if(UNCLIPPED_DEPTH_ORTHO_EMULATION) {
