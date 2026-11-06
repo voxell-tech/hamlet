@@ -336,6 +336,14 @@ fn live(shot: &Shot) {
         // The stills keep hover off so a held hover stays; a hand at
         // the window needs it to point at anything.
         .insert_resource(bevy::picking::PickingSettings::default())
+        // The menus and questions the app's own root draws over all.
+        .add_plugins(hamlet_app::world_menu::plugin)
+        .add_systems(PostStartup, |world: &mut World| {
+            bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+                world,
+                hamlet_app::world_menu::view(),
+            );
+        })
         .add_systems(Startup, |mut commands: Commands| {
             commands.spawn((Camera2d, IsDefaultUiCamera));
         });

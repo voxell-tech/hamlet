@@ -33,7 +33,7 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Open>()
         .init_resource::<Founding>()
         .add_observer(ask_of_row)

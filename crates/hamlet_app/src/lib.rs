@@ -33,7 +33,7 @@ pub mod toasts;
 mod tuning;
 pub mod welcome;
 mod window;
-mod world_menu;
+pub mod world_menu;
 mod world_view;
 
 use bevy::app::{App, Plugin, PreUpdate};
