@@ -262,7 +262,7 @@ fn the_hand_scholars_and_workers_are_agents_and_scholars_of_their_own()
         protocol::AgentKind::Worker
     );
     assert!(world.get::<LivesIn>(worker).is_none());
-    let ada = scholar(world, protocol::ScholarId(1)).unwrap();
+    let ada = scholar(world, protocol::ScholarId(2)).unwrap();
     assert_eq!(world.get::<Name>(ada).unwrap().as_str(), "ada");
     assert_eq!(
         world.get::<Scholar>(ada).unwrap().0.hires,

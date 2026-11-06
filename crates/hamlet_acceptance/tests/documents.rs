@@ -88,7 +88,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     let prompt = s.chief.prompt(ada).await;
     assert!(prompt.starts_with("Be brief."), "{prompt}");
     assert!(prompt.contains("# Your character\nCalm."), "{prompt}");
-    assert!(prompt.contains("You are `ada@docs`"), "{prompt}");
+    assert!(prompt.contains("You are `docs#0 (ada)`"), "{prompt}");
 
     let ServerMessage::Read(ReadResult::Charter { charter, .. }) =
         s.chief.read(|id| Read::Charter { id }).await

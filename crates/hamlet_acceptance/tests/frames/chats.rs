@@ -103,7 +103,7 @@ async fn approval() {
         ),
     )
     .await;
-    c.say(HAND, "/found docs ada keep the docs").await;
+    c.found("docs", "ada", "keep the docs").await;
     c.until(|c| c.state().agents.iter().any(|a| a.id.0 == 2))
         .await;
     c.open(2).await;

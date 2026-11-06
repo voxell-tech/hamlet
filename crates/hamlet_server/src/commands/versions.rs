@@ -77,7 +77,7 @@ impl Core {
         if let Err(refusal) = names::check_version(version) {
             return Ok(Err(refusal));
         }
-        let (_, repo) = match self.chiefs_scholar(scholar)? {
+        let (id, repo) = match self.chiefs_scholar(scholar)? {
             Ok(found) => found,
             Err(refusal) => return Ok(Err(refusal)),
         };
@@ -104,7 +104,11 @@ impl Core {
                 at: crate::clock::now(),
             },
         )?;
-        Ok(Ok(format!("Tagged {scholar} as {version}.")))
+        let label = addresses::scholar_name_of(
+            self.realm.store().connection(),
+            id,
+        )?;
+        Ok(Ok(format!("Tagged {label} as {version}.")))
     }
 
     /// `/versions <scholar>`: its versions and its latest commits.
@@ -249,12 +253,16 @@ impl Core {
         )?;
         drop(held);
         self.main_moved(by, id).await?;
+        let label = addresses::scholar_name_of(
+            self.realm.store().connection(),
+            id,
+        )?;
         Ok(Ok(if merged.clashes.is_empty() {
-            format!("Reverted {} on {scholar}'s main.", short(commit))
+            format!("Reverted {} on {label}'s main.", short(commit))
         } else {
             format!(
-                "Reverted {} on {scholar}'s main; these changed \
-                 again since and kept their later lines: {}",
+                "Reverted {} on {label}'s main; these changed again \
+                 since and kept their later lines: {}",
                 short(commit),
                 merged.clashes.join(", ")
             )
@@ -296,7 +304,14 @@ impl Core {
                 )
             })
             .await?;
-        Ok(done.map(|_| format!("Forked {from} as {name}.")))
+        let label = addresses::scholar_name_of(
+            self.realm.store().connection(),
+            id,
+        )?;
+        Ok(done.map(|_| match at == MAIN {
+            true => format!("Forked {label} as {name}."),
+            false => format!("Forked {label} at {at} as {name}."),
+        }))
     }
 
     /// `/purge <scholar> <path>`: the path leaves every commit, every
@@ -343,8 +358,12 @@ impl Core {
         }
         let by = Actor::Chief(self.realm.chief());
         self.main_moved(by, id).await?;
+        let label = addresses::scholar_name_of(
+            self.realm.store().connection(),
+            id,
+        )?;
         Ok(Ok(format!(
-            "Purged {path} from {scholar}: {} branches rewritten.",
+            "Purged {path} from {label}: {} branches rewritten.",
             rewritten.len()
         )))
     }

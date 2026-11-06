@@ -752,8 +752,7 @@ mod tests {
         state.apply(&Update::Agent {
             agent: hand.clone(),
         });
-        let guest =
-            ours::<Agent>(realm::agent(9, "orchard", 0));
+        let guest = ours::<Agent>(realm::agent(9, "orchard", 0));
         state.apply(&Update::Agent {
             agent: guest.clone(),
         });

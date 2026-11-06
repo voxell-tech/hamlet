@@ -7,25 +7,12 @@ use serde_json::json;
 
 use super::capture::{Capture, HAND};
 
-/// The id of the scholar named `name`, once the state has it.
-fn scholar(c: &Capture, name: &str) -> u64 {
-    c.state()
-        .scholars
-        .iter()
-        .find(|s| s.name == name)
-        .unwrap()
-        .id
-        .0
-}
-
 #[tokio::test]
 #[ignore = "records real sessions; see the acceptance README"]
 async fn reads_and_edits() {
     let mut c = Capture::start(Faux::new()).await;
-    c.say(HAND, "/found docs ada keep the docs").await;
-    c.until(|c| c.state().scholars.iter().any(|s| s.name == "ada"))
-        .await;
-    let ada = scholar(&c, "ada");
+    c.found("docs", "ada", "keep the docs").await;
+    let ada = c.scholar("ada");
     for what in ["prompt", "history"] {
         assert!(
             !c.ask(json!({"type":"read","what":what,"agent":HAND}))
@@ -185,14 +172,12 @@ async fn give() {
     c.say(HAND, "Write a skill.").await;
     c.shows(HAND, "Written.").await;
     c.idle().await;
-    c.say(HAND, "/found docs ada keep the docs").await;
-    c.until(|c| c.state().scholars.iter().any(|s| s.name == "ada"))
-        .await;
-    let ada = scholar(&c, "ada");
+    c.found("docs", "ada", "keep the docs").await;
+    let ada = c.scholar("ada");
     assert_eq!(c.ask(json!({"type":"give","to":ada,"skill":{"from":{"agent":HAND},"name":"greet"}})).await["kind"], "notice");
     c.until(|c| {
         c.state().agents.iter().any(|a| {
-            a.name == "ada@docs"
+            a.name == "docs#0"
                 && a.skills.iter().any(|s| s == "greet")
         })
     })

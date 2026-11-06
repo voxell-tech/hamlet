@@ -82,7 +82,7 @@ async fn ends_with_a_failure_when_its_agent_does_not_exist() {
         assert_eq!(chat.code(), Some(1), "{chat:?}");
         assert_eq!(chat.out, "");
         assert!(
-            chat.err.contains("no agent named `nobody`"),
+            chat.err.contains("no agent is at `nobody`"),
             "{chat:?}"
         );
     }
@@ -116,14 +116,14 @@ async fn starts_at_another_hamlet_and_switches_agents_and_hamlets() {
     let switched = Cli::run(
         home,
         &["chat"],
-        "/agent ada@docs\nAgain?\n/agent missing\n",
+        "/agent docs#0\nAgain?\n/agent missing\n",
         &[],
     )
     .await;
     assert_eq!(switched.code(), Some(0), "{switched:?}");
     assert!(switched.out.contains("Ada again.\n"), "{switched:?}");
     assert!(
-        switched.err.contains("no agent named `missing`"),
+        switched.err.contains("no agent is at `missing`"),
         "{switched:?}"
     );
 }
@@ -243,7 +243,12 @@ async fn edits_a_scholars_character_and_memory_in_editor() {
     let scholar = s.chief.scholar("ada").unwrap().id;
     let write =
         editor(&s, "write", "echo 'Brave and plain.' > \"$1\"");
-    let saved = edit(&s, &["character", "ada"], &write).await;
+    let saved = edit(
+        &s,
+        &["character", &format!("scholar#{}", scholar.0)],
+        &write,
+    )
+    .await;
     assert_eq!(saved.code(), Some(0), "{saved:?}");
     let note = editor(
         &s,
@@ -252,7 +257,7 @@ async fn edits_a_scholars_character_and_memory_in_editor() {
          \"$1\"",
     );
     let saved =
-        edit(&s, &["memory", "ada@docs", "tea.md"], &note).await;
+        edit(&s, &["memory", "docs#0", "tea.md"], &note).await;
     assert_eq!(saved.code(), Some(0), "{saved:?}");
     let papers = s.chief.papers(Keeper::Agent(ada)).await;
     assert_eq!(papers.character.trim(), "Brave and plain.");
@@ -267,7 +272,12 @@ async fn edits_a_scholars_character_and_memory_in_editor() {
     );
     let failing =
         editor(&s, "failing", "echo 'not saved' > \"$1\"; exit 2");
-    let failed = edit(&s, &["character", "ada"], &failing).await;
+    let failed = edit(
+        &s,
+        &["character", &format!("scholar#{}", scholar.0)],
+        &failing,
+    )
+    .await;
     assert_eq!(failed.code(), Some(1), "{failed:?}");
     assert!(
         failed.err.contains("The editor ended with 2"),

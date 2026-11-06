@@ -27,8 +27,7 @@ async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    s.chief.command(ada, "/hire bob write tests").await;
-    let bob = s.chief.id("bob@docs");
+    let bob = s.hire(ada, "bob", "write tests").await;
     assert_eq!(bob.0, 3);
     let reply = s
         .chief
@@ -55,7 +54,7 @@ async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
     assert_eq!(objection.agent, Some(bob));
     assert!(
         objection.about.contains(
-            "ada@docs objects: the odd line breaks the plan."
+            "docs#0 (ada) objects: the odd line breaks the plan."
         ),
         "{}",
         objection.about
@@ -74,8 +73,7 @@ async fn a_lead_does_not_review_unless_the_limits_say_so() {
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    s.chief.command(ada, "/hire bob write tests").await;
-    let bob = s.chief.id("bob@docs");
+    let bob = s.hire(ada, "bob", "write tests").await;
     let now = chat(bob);
     s.chief.open(&now).await;
     s.chief.tell(bob, "Any line.").await;

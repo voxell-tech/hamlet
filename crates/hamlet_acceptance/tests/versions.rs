@@ -40,37 +40,45 @@ async fn names_pins_reverts_and_forks_versions() {
     let hand = s.hand();
     let docs = s.found("docs", "ada", "keep the docs").await;
     let ada = s.chief.scholar("ada").unwrap().id;
+    let at = format!("scholar#{}", ada.0);
     character(&mut s, ada, "Brave.").await;
 
     assert!(
         s.chief
-            .command(hand, "/versions ada")
+            .command(hand, &format!("/versions {at}"))
             .await
             .starts_with("No versions yet; /tag names one.")
     );
     assert_eq!(
-        s.chief.command(hand, "/tag ada v1 The first draft").await,
-        "Tagged ada as v1."
+        s.chief
+            .command(hand, &format!("/tag {at} v1 The first draft"))
+            .await,
+        "Tagged scholar#2 (ada) as v1."
     );
-    let listed = s.chief.command(hand, "/versions ada").await;
+    let listed =
+        s.chief.command(hand, &format!("/versions {at}")).await;
     assert!(listed.contains("Versions:"), "{listed}");
     assert!(listed.contains("- v1 ("), "{listed}");
     assert!(listed.contains("): The first draft"), "{listed}");
     assert!(listed.contains("Latest commits of main:"), "{listed}");
     // A name is taken once, and `main` is no version name.
-    for line in ["/tag ada v1", "/tag ada main", "/tag nobody v2"] {
-        s.chief.refused(hand, line).await;
+    for line in [
+        format!("/tag {at} v1"),
+        format!("/tag {at} main"),
+        "/tag scholar#999 v2".to_string(),
+    ] {
+        s.chief.refused(hand, &line).await;
     }
 
     wait_for_character(&mut s, docs, "Brave.").await;
     // A pinned hire takes no later learning, until it follows main
     // again.
-    let said = s.chief.command(hand, "/pin ada@docs v1 steady").await;
+    let said = s.chief.command(hand, "/pin docs#0 v1 steady").await;
     assert_eq!(
         said,
-        "ada@docs takes v1 in once idle, and no later learning."
+        "docs#0 (ada) takes v1 in once idle, and no later learning."
     );
-    s.chief.refused(hand, "/pin ada@docs v9").await;
+    s.chief.refused(hand, "/pin docs#0 v9").await;
     character(&mut s, ada, "Careful.").await;
     assert_eq!(
         s.chief.papers(Keeper::Scholar(ada)).await.character,
@@ -81,17 +89,19 @@ async fn names_pins_reverts_and_forks_versions() {
     assert!(prompt.contains("Brave."), "{prompt}");
     assert!(!prompt.contains("Careful."), "{prompt}");
     assert_eq!(
-        s.chief.command(hand, "/pin ada@docs main").await,
-        "ada@docs follows its scholar's main again."
+        s.chief.command(hand, "/pin docs#0 main").await,
+        "docs#0 (ada) follows its scholar's main again."
     );
     wait_for_character(&mut s, docs, "Careful.").await;
 
     // A revert undoes the commit a version names.
-    s.chief.command(hand, "/tag ada v2").await;
-    let said =
-        s.chief.command(hand, "/revert ada v2 too careful").await;
+    s.chief.command(hand, &format!("/tag {at} v2")).await;
+    let said = s
+        .chief
+        .command(hand, &format!("/revert {at} v2 too careful"))
+        .await;
     assert!(said.starts_with("Reverted "), "{said}");
-    assert!(said.ends_with("on ada's main."), "{said}");
+    assert!(said.ends_with("on scholar#2 (ada)'s main."), "{said}");
     assert_eq!(
         s.chief.papers(Keeper::Scholar(ada)).await.character,
         "Brave."
@@ -100,10 +110,10 @@ async fn names_pins_reverts_and_forks_versions() {
     // A fork is a new scholar that starts from a version.
     character(&mut s, ada, "Loud.").await;
     assert_eq!(
-        s.chief.command(hand, "/fork ada@v1 bo").await,
-        "Forked ada@v1 as bo."
+        s.chief.command(hand, &format!("/fork {at}@v1 bo")).await,
+        "Forked scholar#2 (ada) at v1 as bo."
     );
-    s.chief.refused(hand, "/fork ada@v9 cy").await;
+    s.chief.refused(hand, &format!("/fork {at}@v9 cy")).await;
     let bo = s.chief.scholar("bo").unwrap().id;
     assert_eq!(
         s.chief.papers(Keeper::Scholar(bo)).await.character,
@@ -121,6 +131,7 @@ async fn purges_a_file_from_every_commit_and_lodge() {
     let hand = s.hand();
     let docs = s.found("docs", "ada", "keep the docs").await;
     let ada = s.chief.scholar("ada").unwrap().id;
+    let at = format!("scholar#{}", ada.0);
     let note = "---\ndescription: Secret\n---\nhush\n";
     for of in [Keeper::Scholar(ada), Keeper::Agent(docs)] {
         let reply = s
@@ -140,10 +151,14 @@ async fn purges_a_file_from_every_commit_and_lodge() {
         s.chief.papers(Keeper::Scholar(ada)).await.memory.len(),
         1
     );
-    let said =
-        s.chief.command(hand, "/purge ada memory/secret.md").await;
+    let said = s
+        .chief
+        .command(hand, &format!("/purge {at} memory/secret.md"))
+        .await;
     assert!(
-        said.starts_with("Purged memory/secret.md from ada: "),
+        said.starts_with(
+            "Purged memory/secret.md from scholar#2 (ada): "
+        ),
         "{said}"
     );
     assert!(
@@ -152,7 +167,10 @@ async fn purges_a_file_from_every_commit_and_lodge() {
     assert!(
         s.chief.papers(Keeper::Agent(docs)).await.memory.is_empty()
     );
-    for line in ["/purge ada ../x", "/purge nobody a.md"] {
-        s.chief.refused(hand, line).await;
+    for line in [
+        format!("/purge {at} ../x"),
+        "/purge scholar#999 a.md".to_string(),
+    ] {
+        s.chief.refused(hand, &line).await;
     }
 }
