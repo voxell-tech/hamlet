@@ -144,6 +144,12 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         wait.by = "scout@home".into();
         wait.about =
             "scout made moss, who waits to be let in.".into();
+        // It came in a few minutes ago.
+        wait.since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+            - 5 * 60_000;
         wait.detail = protocol::WaitDetail::Newcomer {
             scholar: protocol::ScholarId(90),
         };
