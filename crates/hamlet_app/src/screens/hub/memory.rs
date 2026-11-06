@@ -169,13 +169,14 @@ fn add() -> impl View {
     with_cx(|cx| {
         let gap = cx.theme().space.gap;
         row((
+            label("New file").tone(Tone::Faint).wrap(false),
             text_field(String::new(), |world, text| {
                 world.resource_mut::<Opened>().name = text;
             })
             .grow(1.0)
             .min_width(px(0.0))
             .rules(text_input),
-            action(Glyph::Plus, "ADD", |world| {
+            action(Glyph::Plus, "ADD FILE", |world| {
                 let name = world.resource::<Opened>().name.clone();
                 papers::add_memory(world, &name);
             }),
@@ -228,6 +229,14 @@ pub(super) fn view() -> impl View {
         },
     )
     .within(bare());
-    column((shown, add(), note("Name a file to start it."), failed))
-        .gap(8.0)
+    column((
+        shown,
+        add(),
+        note(
+            "Type a name like people.md, or a folder and name like \
+             orchard/rows.md, then add it.",
+        ),
+        failed,
+    ))
+    .gap(8.0)
 }

@@ -414,11 +414,15 @@ mod tests {
 
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
         assert!(words(&mut app).iter().any(|text| text == "Prompt"));
-        press(&mut app, "New Conversation");
+        // It asks first, as the Hub does.
+        press(&mut app, "New Session...");
+        app.update();
+        press(&mut app, "NEW SESSION");
+        // Its chat is opened, then the new session asked for there.
         let messages = sent(&mut app);
-        let [protocol::ClientMessage::Say(say)] = &messages[..]
+        let Some(protocol::ClientMessage::Say(say)) = messages.last()
         else {
-            panic!("one new: {messages:?}");
+            panic!("a new session last: {messages:?}");
         };
         assert_eq!(say.to, protocol::AgentId(2));
         assert_eq!(say.text, "/new");

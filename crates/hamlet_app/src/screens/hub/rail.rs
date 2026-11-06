@@ -1472,18 +1472,13 @@ fn sections_view(icons: bool, sections: &[Section]) -> AnyView {
     column(parts).gap(0.0).boxed()
 }
 
-/// A button that turns the rail between its rows and its icons.
-fn fold(icons: bool) -> impl View {
-    button(glyph(if icons { Glyph::Into } else { Glyph::Menu }, ICON))
+/// The button over a rail folded to its icons that opens it to its
+/// rows again; dragging the line beside it does the same.
+fn unfold() -> impl View {
+    button(glyph(Glyph::Into, ICON))
         .padding(UiRect::axes(px(8.0), px(0.0)))
         .min_height(px(hamlet_ui::styles::CONTROL))
-        .tooltip(move || {
-            note(if icons {
-                "Show the rows"
-            } else {
-                "Show only the icons"
-            })
-        })
+        .tooltip(|| note("Show the names"))
         .rules(hamlet_ui::styles::button)
         .tagged(Variant::Default)
         .on_activate(|world| world.resource_mut::<Rail>().fold())
@@ -1499,7 +1494,6 @@ fn expanded_head() -> impl View {
                 .min_width(px(0.0))
                 .rules(text_input)
                 .tagged(Search),
-            fold(false),
         ))
         .gap(gap)
         .align(AlignItems::Center)
@@ -1517,7 +1511,7 @@ pub(super) fn view() -> impl View {
         )
         .within(hamlet_ui::styles::bare());
         let head: AnyView = if icons {
-            fold(true).boxed()
+            unfold().boxed()
         } else {
             expanded_head().boxed()
         };

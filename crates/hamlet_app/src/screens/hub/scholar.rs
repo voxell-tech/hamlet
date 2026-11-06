@@ -351,60 +351,111 @@ fn arrival(shown: &Shown) -> AnyView {
 /// The versions, each with what can be done from it.
 fn versions(shown: &Shown) -> AnyView {
     let can = |deed| shown.allowed.contains(&deed);
-    let mut parts = vec![heading(Glyph::History, "VERSIONS")];
+    let mut parts = vec![
+        heading(Glyph::History, "VERSIONS"),
+        note(
+            "A version is a named point in what the scholar knows. \
+             Its hires follow main, or one of these.",
+        )
+        .boxed(),
+    ];
     if shown.scholar.versions.is_empty() {
-        parts.push(note("No version is tagged yet.").boxed());
+        parts.push(note("No version is named yet.").boxed());
     }
-    for version in &shown.scholar.versions {
-        let mut acts = Vec::new();
+    // Newest first; each with its own menu of what can be done from
+    // it, named in full there.
+    for version in shown.scholar.versions.iter().rev() {
+        let name = version.name.clone();
+        let mut choices = Vec::<(String, Act)>::new();
         if can("fork") {
-            let from = version.name.clone();
-            acts.push(action(
-                Glyph::NewSession,
-                "FORK",
-                move |world| {
-                    ask(world, Act::Fork(Some(from.clone())));
-                },
+            choices.push((
+                format!("Make a new scholar from {name}"),
+                Act::Fork(Some(name.clone())),
             ));
         }
         if can("revert") {
-            let to = version.name.clone();
-            acts.push(action(
-                Glyph::Restore,
-                "REVERT",
-                move |world| {
-                    ask(world, Act::Revert(to.clone()));
-                },
+            choices.push((
+                format!("Undo the change {name} named"),
+                Act::Revert(name.clone()),
             ));
         }
-        parts.push(
-            column((
-                row((
-                    label(version.name.clone()).bold(true),
-                    dim(version.note.clone()),
+        let followers = shown
+            .hires
+            .iter()
+            .filter(|hire| hire.pin.as_deref() == Some(name.as_str()))
+            .map(|hire| hire.called.clone())
+            .collect::<Vec<_>>();
+        let mut line = vec![
+            label(name.clone()).bold(true).boxed(),
+            dim(version.note.clone()).boxed(),
+        ];
+        if !followers.is_empty() {
+            line.push(
+                label(format!(
+                    "followed by {}",
+                    followers.join(", ")
                 ))
-                .gap(8.0)
-                .align(AlignItems::Center),
-                buttons(acts),
-            ))
-            .gap(4.0)
-            .boxed(),
+                .tone(Tone::Accent)
+                .boxed(),
+            );
+        }
+        line.push(frame().grow(1.0).boxed());
+        if !choices.is_empty() {
+            let names = choices
+                .iter()
+                .map(|(n, _)| n.clone())
+                .collect::<Vec<_>>();
+            let acts = choices
+                .into_iter()
+                .map(|(_, a)| a)
+                .collect::<Vec<_>>();
+            let none = names.len();
+            line.push(
+                dropdown(
+                    names,
+                    none,
+                    Glyph::Chevron.image(ICON),
+                    move |world, chosen| {
+                        if let Some(act) = acts.get(chosen) {
+                            ask(world, act.clone());
+                        }
+                    },
+                )
+                .placeholder("Actions")
+                .boxed(),
+            );
+        }
+        parts.push(
+            row(line).gap(8.0).align(AlignItems::Center).boxed(),
         );
     }
     let mut acts = Vec::new();
     if can("tag") {
-        acts.push(action(Glyph::Plus, "TAG ITS MAIN", |world| {
-            ask(world, Act::Tag);
-        }));
+        acts.push(
+            action(Glyph::Plus, "SAVE AS A VERSION", |world| {
+                ask(world, Act::Tag);
+            })
+            .tooltip(|| note("Name what the scholar knows now"))
+            .boxed(),
+        );
     }
     if can("fork") {
-        acts.push(action(
-            Glyph::NewSession,
-            "FORK ITS MAIN",
-            |world| {
-                ask(world, Act::Fork(None));
-            },
-        ));
+        acts.push(
+            action(
+                Glyph::NewSession,
+                "NEW SCHOLAR FROM THIS ONE",
+                |world| {
+                    ask(world, Act::Fork(None));
+                },
+            )
+            .tooltip(|| {
+                note(
+                    "Start another scholar knowing all this one \
+                     knows now",
+                )
+            })
+            .boxed(),
+        );
     }
     parts.push(buttons(acts).boxed());
     column(parts).gap(6.0).boxed()
@@ -525,15 +576,20 @@ fn knowledge() -> impl View {
 /// What it is good to do to the scholar now and then.
 fn deeds(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
-    let mut acts = Vec::new();
-    if shown.scholar.left.is_none()
-        && shown.allowed.contains(&"dream")
+    if shown.scholar.left.is_some()
+        || !shown.allowed.contains(&"dream")
     {
-        acts.push(action(Glyph::Moon, "DREAM", move |world| {
-            tell_hand(world, format!("/dream {name}"));
-        }));
+        return frame().boxed();
     }
-    buttons(acts).boxed()
+    row((
+        action(Glyph::Moon, "DREAM", move |world| {
+            tell_hand(world, format!("/dream {name}"));
+        }),
+        dim("Bring home what its hires learned, and tidy its memory."),
+    ))
+    .gap(8.0)
+    .align(AlignItems::Center)
+    .boxed()
 }
 
 /// What changes the scholar for good or sends it away, kept at the
@@ -556,13 +612,22 @@ fn careful(shown: &Shown) -> AnyView {
         ));
     }
     if living && can("purge") {
-        acts.push(bad_action(
-            Glyph::Delete,
-            "PURGE A FILE",
-            |world| {
-                ask(world, Act::Purge);
-            },
-        ));
+        acts.push(
+            bad_action(
+                Glyph::Delete,
+                "ERASE A FILE FROM ITS HISTORY",
+                |world| {
+                    ask(world, Act::Purge);
+                },
+            )
+            .tooltip(|| {
+                note(
+                    "Removes one file, like memory/notes.md, from \
+                     every commit and version, for good",
+                )
+            })
+            .boxed(),
+        );
     }
     if living && can("remove-scholar") {
         acts.push(bad_action(Glyph::Gone, "REMOVE", |world| {

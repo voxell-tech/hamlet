@@ -12,10 +12,9 @@ use bevy::ui::{
 use bevy_fynix::patch::Paint;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    label, row,
+    BehaviorExt, FrameProps, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, component, resource};
+use bevy_fynix::{ViewExt, component, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::markdown::Area;
 use hamlet_ui::theme::{Palette, contrast};
@@ -31,7 +30,6 @@ use super::timeline::{Kind, Line, Who};
 use crate::convo::Convo;
 use crate::markdown;
 use crate::select::{self, Quotable};
-use crate::world_menu::{self, Deed};
 
 /// The room at the left of the chat that a speaker's picture stands
 /// in, and the width of the picture.
@@ -463,25 +461,4 @@ pub(super) fn line_view(line: &Line) -> AnyView {
                 .boxed()
         }
     }
-}
-
-/// The way to a new session: a small mark with no plate, which asks
-/// before it acts.
-pub(crate) fn fresh() -> impl View {
-    button(hamlet_ui::styles::raised(
-        hamlet_ui::widgets::icons::glyph(
-            hamlet_ui::widgets::icons::Glyph::NewSession,
-            hamlet_ui::styles::ICON,
-        ),
-    ))
-    .padding(UiRect::axes(px(8.0), px(0.0)))
-    .min_height(px(hamlet_ui::styles::CONTROL))
-    .tooltip(|| {
-        hamlet_ui::styles::note(
-            "Start a new session. This one goes to SESSIONS.",
-        )
-    })
-    .rules(hamlet_ui::styles::back_link)
-    .tagged(hamlet_ui::widgets::effects::Variant::Text)
-    .on_activate(|world| world_menu::ask(world, Deed::NewSession))
 }

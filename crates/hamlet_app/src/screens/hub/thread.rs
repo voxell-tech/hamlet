@@ -39,7 +39,6 @@ use crate::history::History;
 use crate::models::Shelf;
 use crate::overview::tell;
 use crate::roll::rolled;
-use crate::screens::chat::bubble::fresh;
 use crate::screens::petition::{self, Need};
 use crate::status::Bar;
 use crate::world_menu::{self};
@@ -305,8 +304,6 @@ fn path(agent: Entity) -> impl View {
                 .tooltip(move || note(address.clone()))
                 .boxed(),
         );
-        parts.push(slash().boxed());
-        parts.push(session_menu().boxed());
         let gap = cx.theme().space.gap;
         cx.build(
             row(parts)
@@ -510,15 +507,9 @@ fn header(agent: Entity) -> impl View {
         });
         // Everything else that can be done to it, as a right click
         // on it in the world offers.
-        let more = button(hamlet_ui::styles::raised(
-            hamlet_ui::widgets::icons::glyph(Glyph::More, ICON),
-        ))
-        .padding(UiRect::axes(px(10.0), px(0.0)))
-        .min_height(px(hamlet_ui::styles::CONTROL))
-        .tooltip(|| note("More to do with it"))
-        .rules(hamlet_ui::styles::button)
-        .tagged(Variant::Default)
-        .on_activate(move |world| {
+        // Everything else that can be done to it: a new session,
+        // gifts, its prompt, stopping, roads, merging, ending.
+        let more = action(Glyph::More, "MORE", move |world| {
             let hall = hamlet_client::realm::first_mayor(world);
             let thing = if hall == Some(agent) {
                 Thing::Keeper
@@ -526,6 +517,26 @@ fn header(agent: Entity) -> impl View {
                 Thing::Agent(agent)
             };
             world_menu::open_for(world, thing);
+        })
+        .tooltip(|| {
+            note(
+                "A new session, its prompt, gifts, roads, ending \
+                 it...",
+            )
+        });
+        // Which of its chats the page shows: this session, an
+        // earlier one, its letters and questions, its workers.
+        let showing = row((
+            label("Showing").tone(Tone::Faint).wrap(false),
+            session_menu(),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center)
+        .tooltip(|| {
+            note(
+                "Switch to an earlier session, its letters or \
+                 questions with other agents, or a worker it started",
+            )
         });
         let (section, gap) =
             (cx.theme().space.section, cx.theme().space.gap);
@@ -538,7 +549,7 @@ fn header(agent: Entity) -> impl View {
                 row((
                     state(agent),
                     frame().grow(1.0),
-                    fresh(),
+                    showing,
                     sheet,
                     more,
                 ))

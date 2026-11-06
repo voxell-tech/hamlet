@@ -7,7 +7,6 @@ use bevy::math::Vec2;
 use bevy_fynix::ViewExt;
 use bevy_fynix::views::{BehaviorExt, label, menu_item};
 use hamlet_client::gifts::{give, offers};
-use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::{
     self as agents, Busy, Deeds, HamletId, Left, Mayor, Road,
     road_between, roads_of,
@@ -85,15 +84,12 @@ fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
 }
 
+/// Starts a new session with `agent`, in the Hub, after asking:
+/// the one it leaves goes to its past sessions.
 fn new_conversation(agent: Entity) -> AnyView {
-    item("New Conversation".into(), move |world| {
-        if let Some(to) = agents::id_of(world, agent) {
-            world.trigger(ChiefMessage {
-                to,
-                text: "/new".into(),
-            });
-            world.flush();
-        }
+    item("New Session...".into(), move |world| {
+        talk_to(world, agent);
+        super::ask(world, Deed::NewSession);
     })
 }
 
