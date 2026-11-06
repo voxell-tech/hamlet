@@ -30,8 +30,6 @@ pub(crate) enum Asking {
     Hire(Entity),
     /// Starting a worker in this hamlet.
     Worker(Entity),
-    /// Making a scholar in the city.
-    Scholar,
 }
 
 /// The form that is open, if one is.

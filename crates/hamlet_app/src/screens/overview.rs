@@ -186,50 +186,16 @@ pub fn overview() -> impl View {
                     "YOUR HEARTH",
                     crate::chief::go_home,
                 ),
-                action(Glyph::Notes, "NEW SCHOLAR", |world| {
-                    crate::forms::toggle(
-                        world,
-                        crate::forms::Asking::Scholar,
-                    );
-                }),
+                action(
+                    Glyph::Notes,
+                    "NEW SCHOLAR",
+                    world_menu::ask_new_scholar,
+                ),
             )),
-            new_scholar(),
         ))
         .fills_height()
         .gap(cx.theme().space.section)
     })
-}
-
-/// The form a scholar is made in the city with: its name, and the
-/// character it starts from, else the realm's default one.
-fn new_scholar() -> AnyView {
-    crate::forms::form(
-        crate::forms::Asking::Scholar,
-        "Make a scholar in the city. It gets a house there at once.",
-        &[
-            ("Name", "One word, like ada."),
-            (
-                "Character",
-                "Who it is; the realm's default if left empty.",
-            ),
-        ],
-        "MAKE",
-        |world, typed| {
-            let [name, character] = typed else {
-                return false;
-            };
-            if name.is_empty() || name.contains(char::is_whitespace) {
-                return false;
-            }
-            chat::command(
-                world,
-                format!("/scholar new {name} {character}")
-                    .trim_end()
-                    .to_string(),
-            );
-            true
-        },
-    )
 }
 
 /// The Hand, the one agent of the whole realm, to talk to, and the

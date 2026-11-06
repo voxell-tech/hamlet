@@ -1230,13 +1230,11 @@ fn search_row() -> impl View {
         ),
         on(
             Tab::City,
-            tool(Glyph::Plus, "Make a scholar", |w| {
-                show(w, Showing::Home);
-                crate::forms::toggle(
-                    w,
-                    crate::forms::Asking::Scholar,
-                );
-            }),
+            tool(
+                Glyph::Plus,
+                "Make a scholar",
+                crate::world_menu::ask_new_scholar,
+            ),
         ),
     ))
     .gap(2.0);

@@ -5,6 +5,7 @@
 mod deed;
 mod founding;
 mod items;
+mod new_scholar;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -36,6 +37,7 @@ pub(crate) use self::founding::Founding;
 pub fn plugin(app: &mut App) {
     app.init_resource::<Open>()
         .init_resource::<Founding>()
+        .init_resource::<new_scholar::Making>()
         .add_observer(ask_of_row)
         .add_systems(Update, answer_ask);
 }
@@ -51,6 +53,8 @@ pub(crate) enum Open {
     Ground(Vec2),
     /// The form a hamlet is founded with.
     Founding(Vec2),
+    /// The form a scholar is made in the city with.
+    NewScholar(Vec2),
     /// The skills an agent could be given.
     Skills(Entity, Vec2),
 }
@@ -150,6 +154,16 @@ pub(super) fn ask_found(world: &mut World) {
     *world.resource_mut::<Open>() = Open::Founding(at);
 }
 
+/// Opens the form a scholar is made in the city with, at the
+/// pointer.
+pub(crate) fn ask_new_scholar(world: &mut World) {
+    if !Deeds::is_allowed(world, "scholar") {
+        return;
+    }
+    let at = pointer(world);
+    *world.resource_mut::<Open>() = Open::NewScholar(at);
+}
+
 /// Asks before `deed` is done, at the pointer.
 pub(crate) fn ask(world: &mut World, deed: Deed) {
     let at = pointer(world);
@@ -216,6 +230,9 @@ fn menus() -> AnyView {
                 cx.build(menu(at, vec![found]))
             }),
             Open::Founding(at) => founding::founding(at).boxed(),
+            Open::NewScholar(at) => {
+                new_scholar::new_scholar(at).boxed()
+            }
             Open::Skills(agent, at) => {
                 AnyView::new(move |cx: &mut Cx| {
                     let items = items::skills(cx.world, agent);
