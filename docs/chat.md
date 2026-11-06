@@ -273,7 +273,7 @@ when the log is read back. It has no mark to rewind to, since it is a
 tool's answer and not a message of the log. A card dismissed shows
 nothing.
 
-`[asking] questions` in `limits.toml` counts the calls of one turn, not
+The `asking.questions` limit counts the calls of one turn, not
 the questions in them.
 
 ## What it costs

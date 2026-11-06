@@ -16,7 +16,7 @@ alone is not sufficient.
 lodge (or a worker's scratch folder), the folder its hamlet works on, the
 realm's folder (never read) and what is only read, the library and the tools
 added by hand. The pi harness has no host-tool implementation; it submits
-operations to the server (see [the harness](harness.md)). `calls/gate.rs`
+operations to the server (see [the harness](harness.md)). `oversight/gate.rs`
 decides admission and `calls.rs` checks permissions at execution, including
 after approval or replay.
 
@@ -110,8 +110,8 @@ offers no shell tool.
 ## Remote workspaces
 
 Settings can name a workspace URL and token (kept in `credentials.json`). The
-server then runs the agents' tools on that machine: `server/src/workspace.rs`
-sends authenticated requests to the worker, which gives each agent a `/lodge`,
+server then runs the agents' tools on that machine: `workspace.rs`
+and `workspace/` in `hamlet_server` send authenticated requests to the worker, which gives each agent a `/lodge`,
 its hamlet's `/project` and the library at `/library`. The requests and their
 replies are typed once in `hamlet_workspace_wire`, and `hamlet_workspace`
 supplies the Linux worker. The server's lodge holds what git keeps; the remote
