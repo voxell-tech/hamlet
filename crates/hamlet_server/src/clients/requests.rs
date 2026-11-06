@@ -193,13 +193,11 @@ impl Core {
                 fault(None, "This connection said hello already."),
             ),
             ClientMessage::Say(say) => {
-                let agent = AgentId(i64::try_from(say.to.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
-                    return self.answer(
-                        client,
-                        reply(&say.id, Err(refusal)),
-                    );
-                }
+                let Some(agent) =
+                    self.reached(client, &say.id, say.to.0)?
+                else {
+                    return Ok(());
+                };
                 let text = say.text.trim();
                 if text.starts_with('/') {
                     let answer = self.command(agent, text).await?;
@@ -260,13 +258,11 @@ impl Core {
                 Ok(())
             }
             ClientMessage::New(new) => {
-                let agent = AgentId(i64::try_from(new.to.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
-                    return self.answer(
-                        client,
-                        reply(&new.id, Err(refusal)),
-                    );
-                }
+                let Some(agent) =
+                    self.reached(client, &new.id, new.to.0)?
+                else {
+                    return Ok(());
+                };
                 let number = self
                     .change(Actor::Chief(chief), |cx, env| {
                         chats::new_session(cx, env, agent, chief)
@@ -282,13 +278,11 @@ impl Core {
                 )
             }
             ClientMessage::Resume(resume) => {
-                let agent = AgentId(i64::try_from(resume.to.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
-                    return self.answer(
-                        client,
-                        reply(&resume.id, Err(refusal)),
-                    );
-                }
+                let Some(agent) =
+                    self.reached(client, &resume.id, resume.to.0)?
+                else {
+                    return Ok(());
+                };
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, _| {
                         chats::resume(cx, agent, chief, resume.number)
@@ -301,13 +295,11 @@ impl Core {
                 self.answer(client, reply(&resume.id, words))
             }
             ClientMessage::Retry(retry) => {
-                let agent = AgentId(i64::try_from(retry.to.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
-                    return self.answer(
-                        client,
-                        reply(&retry.id, Err(refusal)),
-                    );
-                }
+                let Some(agent) =
+                    self.reached(client, &retry.id, retry.to.0)?
+                else {
+                    return Ok(());
+                };
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, env| {
                         chats::retry(cx, env, agent, chief)
@@ -319,13 +311,11 @@ impl Core {
             ClientMessage::Stop(stop) => {
                 let targets = match stop.agent {
                     Some(agent) => {
-                        let agent = AgentId(i64::try_from(agent.0)?);
-                        if let Err(refusal) = self.reaches(agent)? {
-                            return self.answer(
-                                client,
-                                reply(&stop.id, Err(refusal)),
-                            );
-                        }
+                        let Some(agent) =
+                            self.reached(client, &stop.id, agent.0)?
+                        else {
+                            return Ok(());
+                        };
                         vec![agent]
                     }
                     None => self.reachable()?,
@@ -400,14 +390,14 @@ impl Core {
                         reply(&rewind.id, Err(refusal)),
                     );
                 }
-                let agent =
-                    AgentId(i64::try_from(rewind.chat.with.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
-                    return self.answer(
-                        client,
-                        reply(&rewind.id, Err(refusal)),
-                    );
-                }
+                let Some(agent) = self.reached(
+                    client,
+                    &rewind.id,
+                    rewind.chat.with.0,
+                )?
+                else {
+                    return Ok(());
+                };
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, env| {
                         chats::rewind(
@@ -439,6 +429,24 @@ impl Core {
             // The providers answered these above.
             ClientMessage::Login(_) | ClientMessage::Check(_) => {
                 Ok(())
+            }
+        }
+    }
+
+    /// The agent `to` names, or `None` once request `id` was refused
+    /// because this server's chief may not reach it.
+    fn reached(
+        &mut self,
+        client: u64,
+        id: &RequestId,
+        to: u64,
+    ) -> Result<Option<AgentId>> {
+        let agent = AgentId(i64::try_from(to)?);
+        match self.reaches(agent)? {
+            Ok(()) => Ok(Some(agent)),
+            Err(refusal) => {
+                self.answer(client, reply(id, Err(refusal)))?;
+                Ok(None)
             }
         }
     }

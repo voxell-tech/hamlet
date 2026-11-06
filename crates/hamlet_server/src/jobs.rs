@@ -78,30 +78,21 @@ impl Job {
 
     /// The key two waiting jobs may not share.
     pub fn key(&self) -> String {
-        match self {
+        let of = match self {
             Self::Plant { scholar, .. }
-            | Self::EraseScholar { scholar } => {
-                format!("{}:{scholar}", self.kind())
-            }
+            | Self::EraseScholar { scholar } => scholar.to_string(),
             Self::Lodge { hire }
             | Self::Commit { hire }
             | Self::TakeIn { hire }
-            | Self::EraseHire { hire } => {
-                format!("{}:{hire}", self.kind())
-            }
-            Self::EraseHamlet { hamlet } => {
-                format!("{}:{hamlet}", self.kind())
-            }
+            | Self::EraseHire { hire } => hire.to_string(),
+            Self::EraseHamlet { hamlet } => hamlet.to_string(),
             Self::Merge { merge } | Self::Split { merge } => {
-                format!("{}:{merge}", self.kind())
+                merge.to_string()
             }
-            Self::Shelve { offer } => {
-                format!("{}:{offer}", self.kind())
-            }
-            Self::DreamEnd { dream, .. } => {
-                format!("{}:{dream}", self.kind())
-            }
-        }
+            Self::Shelve { offer } => offer.to_string(),
+            Self::DreamEnd { dream, .. } => dream.to_string(),
+        };
+        format!("{}:{of}", self.kind())
     }
 }
 

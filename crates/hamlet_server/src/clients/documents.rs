@@ -15,6 +15,7 @@ use super::check::reply;
 use crate::core::Core;
 use crate::jobs::{self, Job};
 use crate::knowledge::folder::Folder;
+use crate::knowledge::library::field;
 use crate::knowledge::{self, CHARACTER, outside_git};
 use crate::society::agents::Effort;
 use crate::society::city::{self, CHARACTER_MOST};
@@ -23,18 +24,6 @@ use crate::society::refusal::Refusal;
 use crate::society::{authority, hamlets, hires};
 use crate::spend::micros;
 use crate::talk::{chats, items, prompt};
-
-/// The front matter's `description:` of a memory file or a skill.
-pub(crate) fn description_of(text: &str) -> String {
-    let Some(rest) = text.strip_prefix("---") else {
-        return String::new();
-    };
-    let head = rest.split("\n---").next().unwrap_or_default();
-    head.lines()
-        .find_map(|line| line.trim().strip_prefix("description:"))
-        .map(|d| d.trim().trim_matches('"').to_owned())
-        .unwrap_or_default()
-}
 
 /// Refuses a memory path that is not a plain relative path under
 /// `memory/`.
@@ -647,7 +636,7 @@ impl Core {
             let text = String::from_utf8_lossy(&bytes).into_owned();
             if let Some(rest) = path.strip_prefix("memory/") {
                 memory.push(protocol::MemoryFile {
-                    description: description_of(&text),
+                    description: field(&text, "description:"),
                     path: rest.to_owned(),
                     text,
                 });
@@ -655,7 +644,7 @@ impl Core {
                 && let Some((name, "SKILL.md")) = rest.split_once('/')
             {
                 skills.push(protocol::Skill {
-                    description: description_of(&text),
+                    description: field(&text, "description:"),
                     name: name.to_owned(),
                 });
             }

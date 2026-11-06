@@ -343,16 +343,13 @@ fn hamlet_view(
             let kind = match way {
                 Way::Tree => protocol::RoadKind::Tree,
                 Way::Mayors => protocol::RoadKind::Mayors,
-                Way::Road(id) => {
+                Way::Road(_) => {
                     let found = roads::open(db, pair.0, pair.1)?;
                     match found.map(|r| r.kind) {
                         Some(RoadKind::Agreed) => {
                             protocol::RoadKind::Agreed
                         }
-                        _ => {
-                            let _ = id;
-                            protocol::RoadKind::Laid
-                        }
+                        _ => protocol::RoadKind::Laid,
                     }
                 }
             };
@@ -572,11 +569,10 @@ fn grants(db: &mut Db) -> Result<Vec<protocol::Grant>> {
             agent: Some(wire_agent(agent)),
             by: chiefs::find(db, chief)?.map(|c| c.name),
             name: addresses::address_of(db, agent)?,
-            permission: if permission == "network" {
-                protocol::Permission::Network
-            } else {
-                protocol::Permission::Unconfined
-            },
+            permission: crate::oversight::gate::permission(
+                &permission,
+            )
+            .unwrap_or(protocol::Permission::Unconfined),
             source: protocol::GrantSource::Grant,
         });
     }

@@ -248,8 +248,19 @@ pub(super) fn check_out(
     commit: CommitId,
     folder: &Folder,
 ) -> Result<()> {
-    let listing = folder.list(&outside_git)?;
-    for step in repo.plan(commit, &listing, &outside_git)? {
+    write_tree(repo, commit, folder, &outside_git)
+}
+
+/// Makes the folder hold the files of `commit`, leaving the paths
+/// `outside` names alone.
+pub(super) fn write_tree(
+    repo: &Repository,
+    commit: CommitId,
+    folder: &Folder,
+    outside: &dyn Fn(&str) -> bool,
+) -> Result<()> {
+    let listing = folder.list(outside)?;
+    for step in repo.plan(commit, &listing, outside)? {
         match step {
             Step::Write {
                 path,

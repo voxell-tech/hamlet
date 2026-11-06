@@ -260,7 +260,7 @@ async fn control_a_change_and_its_answer_kept_apart_lose_the_answer()
 {
     // The crash test above must catch a change kept apart from its
     // call's answer: asked again, the call makes a second scholar,
-    // as a name no longer refuses it.
+    // since scholar names may repeat.
     let realm = Realm::faulting("carried")
         .with("HAMLET_FAULT_SPLIT_MARKER", "1");
     let (made, _) = scholar_made_across_a_crash(realm).await;

@@ -1,4 +1,4 @@
-//! The claim on a home that keeps every other server out of it (S2).
+//! The claim on a realm that keeps every other server out of it (S2).
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 /// The interval between accepting probes and checking for release.
 const POLL: Duration = Duration::from_millis(50);
 
-/// The error of claiming a home another process holds.
+/// The error of claiming a realm another process holds.
 #[derive(Debug)]
 pub struct Held(pub PathBuf);
 
@@ -31,11 +31,11 @@ impl std::fmt::Display for Held {
 
 impl std::error::Error for Held {}
 
-fn socket_name(home: &Path) -> Result<Name<'static>> {
+fn socket_name(root: &Path) -> Result<Name<'static>> {
     if GenericNamespaced::is_supported() {
         // A hash keeps the name within the socket path limit.
         let digest =
-            Sha256::digest(home.to_string_lossy().as_bytes());
+            Sha256::digest(root.to_string_lossy().as_bytes());
         let tag = digest
             .iter()
             .take(6)
@@ -45,22 +45,22 @@ fn socket_name(home: &Path) -> Result<Name<'static>> {
             .to_ns_name::<GenericNamespaced>()?
             .into_owned())
     } else {
-        Ok(home
+        Ok(root
             .join("hamlet.sock")
             .to_fs_name::<GenericFilePath>()?
             .into_owned())
     }
 }
 
-/// This process's claim on a home, held until dropped: a listener
-/// on the home's socket, served by a thread of its own.
+/// This process's claim on a realm, held until dropped: a listener
+/// on the realm's socket, served by a thread of its own.
 pub(crate) struct Claim {
     stop: Sender<()>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Claim {
-    /// Claims the home at the canonical path `root`.
+    /// Claims the realm at the canonical path `root`.
     pub fn take(root: &Path) -> Result<Self> {
         let name = socket_name(root)?;
         let held = || anyhow::Error::new(Held(root.to_owned()));

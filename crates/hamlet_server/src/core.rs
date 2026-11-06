@@ -421,6 +421,15 @@ impl Core {
         if operations.is_empty() {
             return Ok(());
         }
+        self.send_turn(watching, operations)
+    }
+
+    /// Sends `operations` to each of `watching`.
+    fn send_turn(
+        &mut self,
+        watching: Vec<crate::clients::Watch>,
+        operations: Vec<protocol::TranscriptOperation>,
+    ) -> Result<()> {
         for watch in watching {
             let number = watch
                 .chat
@@ -457,30 +466,27 @@ impl Core {
             self.realm.store().connection(),
             conversation,
         )?;
-        for watch in watching {
-            let number = watch
-                .chat
-                .from
-                .is_none()
-                .then_some(watch.chat.past)
-                .flatten();
-            let turn =
-                protocol::ServerMessage::Turn(protocol::Turn {
-                    chat: watch.chat.clone(),
-                    number,
-                    operations: vec![
-                        protocol::TranscriptOperation::Usage {
-                            usage: usage.clone(),
-                        },
-                    ],
-                });
-            self.clients.send(
-                watch.client,
-                &self.credentials,
-                turn,
-            )?;
-        }
-        Ok(())
+        self.send_turn(
+            watching,
+            vec![protocol::TranscriptOperation::Usage { usage }],
+        )
+    }
+
+    /// Follows the end of input `request` of `conversation`, wakes
+    /// what its follow freed and answers the replies owed for it.
+    async fn input_ended(
+        &mut self,
+        conversation: ConversationId,
+        request: &str,
+    ) -> Result<()> {
+        crate::fault::point("followed");
+        let followed = self
+            .change(Actor::Realm, |cx, env| {
+                follow(cx, env, conversation, request)
+            })
+            .await?;
+        self.woken(followed).await;
+        self.settle_owed(conversation, request)
     }
 
     /// Answers the replies owed for input `request` of
@@ -710,19 +716,8 @@ impl Core {
                         detail.as_deref(),
                     )?;
                     if ended {
-                        crate::fault::point("followed");
-                        let followed = self
-                            .change(Actor::Realm, |cx, env| {
-                                follow(
-                                    cx,
-                                    env,
-                                    conversation,
-                                    &request,
-                                )
-                            })
+                        self.input_ended(conversation, &request)
                             .await?;
-                        self.woken(followed).await;
-                        self.settle_owed(conversation, &request)?;
                     }
                 }
                 self.flush(false).await?;
@@ -747,15 +742,11 @@ impl Core {
                     settled.reason.as_deref(),
                     detail.as_deref(),
                 )? {
-                    crate::fault::point("followed");
-                    let request = settled.request;
-                    let followed = self
-                        .change(Actor::Realm, |cx, env| {
-                            follow(cx, env, conversation.id, &request)
-                        })
-                        .await?;
-                    self.woken(followed).await;
-                    self.settle_owed(conversation.id, &request)?;
+                    self.input_ended(
+                        conversation.id,
+                        &settled.request,
+                    )
+                    .await?;
                 }
             }
             RuntimeMessage::Kept(kept) => {

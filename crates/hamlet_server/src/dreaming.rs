@@ -238,7 +238,7 @@ impl Core {
             return Ok(None);
         }
         let checkout = dreaming::checkout(&layout, id);
-        let name = city::get(db, scholar)?.label();
+        let label = city::get(db, scholar)?.label();
         let instructions = match hire {
             Some(hire) => {
                 let lodge =
@@ -246,13 +246,13 @@ impl Core {
                 let who = addresses::name_of(db, hire)?;
                 format!(
                     "You are dreaming, between your work as \
-                     `{who}`, a hire of the scholar `{name}`. Your \
+                     `{who}`, a hire of the scholar `{label}`. Your \
                      lodge at {} holds what you learned as this \
-                     hire: your memory/ and skills/. `{name}`'s \
+                     hire: your memory/ and skills/. `{label}`'s \
                      shared knowledge, its main, is checked out at \
-                     {}; every hire of `{name}` starts from it and \
+                     {}; every hire of `{label}` starts from it and \
                      takes it in.\n\nBring home what any hire of \
-                     `{name}` would want to know: move or merge it \
+                     `{label}` would want to know: move or merge it \
                      into the checkout's memory/ and skills/, \
                      written for a reader who was not there. Keep \
                      in your lodge what only this hire needs. Tidy \
@@ -268,7 +268,7 @@ impl Core {
             }
             None => format!(
                 "You are tidying the knowledge of the scholar \
-                 `{name}`, checked out at {}: its memory/ and \
+                 `{label}`, checked out at {}: its memory/ and \
                  skills/. Merge what is said twice, correct or \
                  remove what is stale, keep the root memory files \
                  short and every memory file's `description:` true, \
