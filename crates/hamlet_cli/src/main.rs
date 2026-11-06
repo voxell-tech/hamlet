@@ -22,10 +22,10 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
                      [--insecure] [--hot]
        hamlet window
-       hamlet chat [--to <hand|name@hamlet|mayor@hamlet>]
+       hamlet chat [--to <hand|hamlet#number|mayor@hamlet>]
        hamlet edit <charter|limits|settings> [--hamlet <id>]
-       hamlet edit character <scholar>
-       hamlet edit memory <scholar|name@hamlet> [path]
+       hamlet edit character <scholar#id>
+       hamlet edit memory <scholar#id|hamlet#number> [path]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
 
@@ -229,7 +229,7 @@ fn parse(args: &[String]) -> Result<Command> {
                             .ok_or_else(|| {
                                 anyhow::anyhow!(
                                     "edit {doc} needs a scholar or \
-                                     agent name"
+                                     agent address"
                                 )
                             })?
                             .clone(),

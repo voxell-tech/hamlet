@@ -117,7 +117,7 @@ fn settle(app: &mut App, name: &str) -> Entity {
         receive_change(
             app,
             protocol::Update::Agent {
-                agent: realm::agent(mayor, name, 0, "founder"),
+                agent: realm::agent(mayor, name, 0),
             },
         );
     } else {

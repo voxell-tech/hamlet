@@ -19,53 +19,37 @@ fn chat_ref(with: AgentId) -> ChatRef {
     }
 }
 
-/// The living agent `to` names: `hand`, `mayor@<hamlet>`,
-/// `name@<hamlet>` or a name that only one hamlet has.
+/// The living agent `to` addresses: `hand`, `mayor@<hamlet>`,
+/// `<hamlet>#<number>` or `worker#<id>`.
 pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
     if to == HAND {
         return Ok(state.hand);
     }
-    let (who, hamlet) = match to.split_once('@') {
-        Some((who, hamlet)) => (who, Some(hamlet)),
-        None => (to, None),
-    };
     anyhow::ensure!(
-        !who.is_empty() && hamlet.is_none_or(|h| !h.is_empty()),
-        "`{to}` is not an agent, name@hamlet or mayor@hamlet"
+        to != MAYOR,
+        "mayor needs a hamlet: mayor@<hamlet>"
     );
-    if let Some(hamlet) = hamlet {
+    if let Some(hamlet) = to.strip_prefix("mayor@") {
         let found = state
             .hamlets
             .iter()
             .find(|h| h.id == hamlet)
             .with_context(|| format!("no hamlet named `{hamlet}`"))?;
-        if who == MAYOR {
-            return Ok(found.mayor);
-        }
+        return Ok(found.mayor);
     }
-    anyhow::ensure!(
-        who != MAYOR,
-        "mayor needs a hamlet: mayor@<hamlet>"
-    );
-    let named = state
+    state
         .agents
         .iter()
-        .filter(|a| {
-            a.left.is_none()
-                && a.kind != AgentKind::Hand
-                && hamlet
-                    .is_none_or(|h| a.hamlet.as_deref() == Some(h))
-                && (a.name == to
-                    || a.name.split('@').next() == Some(who))
+        .find(|a| {
+            a.left.is_none() && a.kind != AgentKind::Hand && a.name == to
         })
-        .collect::<Vec<_>>();
-    match named[..] {
-        [agent] => Ok(agent.id),
-        [] => bail!("no agent named `{to}`"),
-        _ => {
-            bail!("several agents are named `{to}`; use name@hamlet")
-        }
-    }
+        .map(|agent| agent.id)
+        .with_context(|| {
+            format!(
+                "no agent is at `{to}`; use hand, mayor@<hamlet>, \
+                 <hamlet>#<number> or worker#<id>"
+            )
+        })
 }
 
 /// Chats until EOF has received every submitted line's reply;
