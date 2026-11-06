@@ -18,8 +18,8 @@ use hamlet_store::schema::{conversation, document};
 
 use super::conversations::Conversation;
 use super::inputs;
-use crate::clients::documents::description_of;
 use crate::knowledge::folder::Folder;
+use crate::knowledge::library::field;
 use crate::knowledge::{self, CHARACTER};
 use crate::layout::Layout;
 use crate::settings::Settings;
@@ -328,9 +328,10 @@ fn memory(lodge: &Path) -> String {
                 let description = folder
                     .read(&entry.path)
                     .map(|bytes| {
-                        description_of(&String::from_utf8_lossy(
-                            &bytes,
-                        ))
+                        field(
+                            &String::from_utf8_lossy(&bytes),
+                            "description:",
+                        )
                     })
                     .unwrap_or_default();
                 folders.push((name.to_owned(), description));
@@ -412,18 +413,17 @@ fn shelf(path: &Path, under: &str) -> Vec<Skill> {
             .read(&entry.path)
             .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
             .unwrap_or_default();
-        let head = text.strip_prefix("---").unwrap_or_default();
-        let head = head.split("\n---").next().unwrap_or_default();
-        let field = |key: &str| {
-            head.lines()
-                .find_map(|line| line.trim().strip_prefix(key))
-                .map(|v| v.trim().trim_matches('"').to_owned())
-        };
+        let named = field(&text, "name:");
+        let usage = field(&text, "usage:");
         skills.push(Skill {
             folder: name.to_owned(),
-            name: field("name:").unwrap_or_else(|| name.to_owned()),
-            description: field("description:").unwrap_or_default(),
-            usage: field("usage:").filter(|usage| !usage.is_empty()),
+            name: if named.is_empty() {
+                name.to_owned()
+            } else {
+                named
+            },
+            description: field(&text, "description:"),
+            usage: (!usage.is_empty()).then_some(usage),
         });
     }
     skills
