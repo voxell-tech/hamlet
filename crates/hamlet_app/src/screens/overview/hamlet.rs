@@ -1,5 +1,5 @@
-//! One hamlet's page of the Inspector: what it is, what can be done
-//! to it, and its agents, its bylaws and its record as tabs.
+//! One hamlet's page of the Hub: what it is, what can be done to it,
+//! and its agents, its bylaws and its record as tabs.
 
 use bevy::color::Color;
 use bevy::ecs::component::Component;
@@ -37,8 +37,8 @@ use super::rows::{
 use crate::convo::talk_to;
 use crate::forms::{self, Asking};
 use crate::roll::{either, moved};
+use crate::world_menu;
 use crate::world_menu::Deed;
-use crate::{chat, world_menu};
 
 /// The field a hamlet's new name is typed in.
 #[derive(Component)]
@@ -83,8 +83,9 @@ fn naming(hamlet: Entity, id: String) -> AnyView {
                         .on_activate(move |world| {
                             let name = typed::<NameField>(world);
                             world.resource_mut::<Naming>().0 = None;
-                            chat::send(
+                            decree(
                                 world,
+                                &id,
                                 format!("/name-hamlet {id} {name}"),
                             );
                         }),
