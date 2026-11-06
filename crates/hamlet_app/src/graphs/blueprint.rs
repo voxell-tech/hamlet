@@ -132,8 +132,8 @@ pub(super) fn plugin(app: &mut App) {
 }
 
 /// The editor's panel: the toolbar with the export tool and what the
-/// last run put down, the parameters card with the assets beside
-/// them, and the preview beside the canvas.
+/// last run put down, the parameters card, and the preview beside
+/// the canvas.
 fn screen() -> AnyView {
     let status = description(
         derived(|world: &World| {
@@ -162,9 +162,8 @@ fn screen() -> AnyView {
             toolbar::cards::<Blueprint>(ICON),
         ],
     );
-    let parameters = hamlet_graph_editor::parameters::<Blueprint>(
-        vec![(Glyph::Folder, "ASSETS", assets::tab)],
-    );
+    let parameters =
+        hamlet_graph_editor::parameters::<Blueprint>(Vec::new());
     editor::<Blueprint>(
         toolbar,
         vec![parameters],

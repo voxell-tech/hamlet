@@ -1,10 +1,12 @@
-//! The library's meshes as the blueprint editor shows them. A chosen
-//! `.glb` is copied into the library and added to its catalogue with
-//! a palette colour for each of its materials, and the library keeps
-//! the file it came from: when that file is saved again, the copy is
-//! replaced and the mesh takes its new size, slots and sockets, each
-//! slot it had keeping its colour. The preview reads each file once
-//! and draws it at its own size times its object's scale.
+//! The library's meshes: read from their files, drawn in the blueprint
+//! editor's preview, and changed in the ASSETS panel's details. A
+//! chosen `.glb` is copied into the library and added to its catalogue
+//! with a palette colour for each of its materials, and the library
+//! keeps the file it came from: when that file is saved again, the
+//! copy is replaced and the mesh takes its new size, slots and
+//! sockets, each slot it had keeping its colour. The preview reads
+//! each file once and draws it at its own size times its object's
+//! scale.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -20,31 +22,25 @@ use bevy::ecs::system::{Commands, Res};
 use bevy::ecs::world::World;
 use bevy::math::{Mat4, Quat, Vec3};
 use bevy::time::Time;
-use bevy::ui::{AlignItems, UiRect, percent, px};
-use bevy::window::SystemCursorIcon;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    icon_button, row, scroll,
-};
-use bevy_fynix::{EntityCursor, ScopedExt, ViewExt};
+use bevy::ui::percent;
+use bevy_fynix::views::{FrameProps, column, dropdown};
+use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_desktop::file::{ChooseFiles, FilesChosen};
 use hamlet_graph::{Asset, Catalogue, Paint, Shape, Socket};
-use hamlet_graph_editor::library::picker::{
-    Section, grid, picture, sections, shown,
-};
+use hamlet_graph_editor::library::picker::picture;
 use hamlet_graph_editor::library::{
-    Item, Kind, Library, Tile, mesh_file, mesh_path, write_atomic,
+    Kind, Library, mesh_file, mesh_path, write_atomic,
 };
 use hamlet_realm::meshes::Meshing;
 use hamlet_realm::palette::Palette as Colours;
-use hamlet_ui::styles::{ICON, command, description, labelled, note};
-use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::styles::{ICON, labelled, note};
+use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, with_cx};
 
 use super::thumbnails;
 
-/// The side of the picture on an added asset's card.
-const PICTURE: f32 = 48.0;
+/// The side of a mesh's picture in the ASSETS panel's details.
+const PICTURE: f32 = 128.0;
 
 /// How often the files the meshes were added from are looked at, for
 /// one saved again.
@@ -388,161 +384,65 @@ impl Meshes {
     }
 }
 
-/// The parameters card's tab for the library's assets, in the
-/// sections of [`Section`].
-pub(super) fn tab() -> AnyView {
-    with_cx(|cx| {
-        let gap = cx.theme().space.gap;
-        column((
-            sections(),
-            scroll((
-                shown(Section::BuiltIn, built_in()),
-                shown(Section::Added, added()),
-            ))
-            .grow(1.0),
-        ))
-        .gap(gap)
-    })
+/// The details of the mesh `name` in the ASSETS panel, built again
+/// whenever the library changes, as when its file is saved again.
+pub(crate) fn details(name: String) -> AnyView {
+    keyed(
+        resource::<Library, _>(|library| library.revision),
+        move |_: &u64| mesh(name.clone()),
+    )
+    .within(column(()).gap(0.0))
     .boxed()
 }
 
-/// The built-in assets as pictures.
-fn built_in() -> AnyView {
-    with_cx(|cx| {
-        let gap = cx.theme().space.gap;
-        column((
-            description(
-                "Boxes, gables and roof tiles every book has. Drag \
-                 one from the ASSETS panel onto the canvas to put \
-                 it down.",
-            ),
-            grid(Section::BuiltIn, |_: &mut World, _: &Item| {}),
-        ))
-        .gap(gap)
-    })
-    .boxed()
-}
-
-/// The added assets, each with a colour for each of its material
-/// slots and a way to take it out, and the button that adds one.
-fn added() -> AnyView {
-    with_cx(|cx| {
-        let library = cx.world.resource::<Library>();
-        let gap = cx.theme().space.gap;
-        let mut parts = vec![
-            description(
-                "Meshes added from .glb files. Each material takes \
-                 a palette colour, or keeps its own. Save a file \
-                 again and its mesh changes with it.",
-            )
-            .boxed(),
-        ];
-        parts.extend(
-            library.catalogue.0.iter().map(|(name, asset)| {
-                card(name.clone(), asset.clone())
-            }),
-        );
-        parts.push(command("Add asset", import).boxed());
-        column(parts).gap(gap)
-    })
-    .boxed()
-}
-
-/// One asset's picture and name, a way to take it out, and its
-/// slots' colours.
-fn card(name: String, asset: Asset) -> AnyView {
+/// The mesh `name`'s picture, the file it follows, the colour of each
+/// of its material slots and its sockets. A mesh the library added
+/// takes a colour for each slot; a built-in one is shown as it is.
+fn mesh(name: String) -> AnyView {
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
-        let remove = name.clone();
-        let item = cx
-            .world
-            .resource::<Library>()
-            .items
-            .iter()
-            .find(|item| item.kind == Kind::Mesh && item.name == name)
-            .cloned();
-        // Dragged by its picture and name onto the canvas, it becomes
-        // an object node putting it down.
-        let mut handle = row((
-            picture(&name, PICTURE),
-            column((note(name.replace('_', " ")),))
-                .width(percent(100.0))
-                .min_width(px(0.0)),
-        ))
-        .gap(gap)
-        .grow(1.0)
-        .min_width(px(0.0))
-        .align(AlignItems::Center)
-        .boxed();
-        if let Some(item) = item {
-            handle = handle
-                .tagged(Tile(item))
-                .tagged(EntityCursor(SystemCursorIcon::Grab))
-                .boxed();
-        }
-        let mut rows: Vec<AnyView> = vec![
-            row((
-                handle,
-                button(glyph(Glyph::Cross, ICON))
-                    .rules(icon_button)
-                    .tooltip(|| {
-                        note(
-                            "Move this mesh to the library's trash \
-                             folder",
-                        )
-                    })
-                    .on_activate(move |world| {
-                        let mut library =
-                            world.resource_mut::<Library>();
-                        let item = library
-                            .items
-                            .iter()
-                            .find(|item| {
-                                item.kind == Kind::Mesh
-                                    && item.name == remove
-                            })
-                            .cloned();
-                        if let Some(item) = item
-                            && let Err(error) = library.remove(&item)
-                        {
-                            library.note = format!("{error:#}");
-                        }
-                    }),
-            ))
-            .gap(gap)
-            .align(AlignItems::Center)
-            .boxed(),
-        ];
-        if let Some(from) =
-            cx.world.resource::<Library>().sources.get(&name)
-        {
+        let library = cx.world.resource::<Library>();
+        let added = library.catalogue.0.get(&name).cloned();
+        let asset =
+            added.clone().or_else(|| library.catalogue.get(&name));
+        let mut rows: Vec<AnyView> = vec![picture(&name, PICTURE)];
+        if let Some(from) = library.sources.get(&name) {
             rows.push(labelled(
                 "file",
                 note(from.display().to_string()).boxed(),
             ));
         }
-        for slot in asset.slots.keys() {
-            rows.push(labelled(
-                &slot.replace('_', " "),
-                colour(name.clone(), asset.clone(), slot.clone()),
-            ));
+        if let Some(asset) = asset {
+            for (slot, paint) in &asset.slots {
+                let shown = match &added {
+                    Some(added) => {
+                        colour(name.clone(), added.clone(), slot.clone())
+                    }
+                    None => note(paint_word(paint)).boxed(),
+                };
+                rows.push(labelled(&slot.replace('_', " "), shown));
+            }
+            if !asset.sockets.is_empty() {
+                let names: Vec<&str> =
+                    asset.sockets.keys().map(String::as_str).collect();
+                rows.push(labelled(
+                    "sockets",
+                    note(names.join(", ")).boxed(),
+                ));
+            }
         }
-        if !asset.sockets.is_empty() {
-            let names: Vec<&str> =
-                asset.sockets.keys().map(String::as_str).collect();
-            rows.push(labelled(
-                "sockets",
-                note(names.join(", ")).boxed(),
-            ));
-        }
-        column(rows)
-            .gap(gap / 2.0)
-            .padding(UiRect::all(px(gap)))
-            .border(1.0)
-            .border_color(cx.theme().palette.border)
-            .radius(cx.theme().space.round)
+        column(rows).gap(gap / 2.0)
     })
     .boxed()
+}
+
+/// How a slot's colour is named: the palette colour's name, or "its
+/// own".
+fn paint_word(paint: &Paint) -> String {
+    match paint {
+        Paint::Palette(colour) => colour.replace('_', " "),
+        Paint::Own => "its own".to_owned(),
+    }
 }
 
 /// The colour of the slot `slot` of the asset `name`: one of the
@@ -583,7 +483,7 @@ fn colour(name: String, asset: Asset, slot: String) -> AnyView {
 struct Importer(Option<Entity>);
 
 /// Asks for the `.glb` files to add as assets.
-pub(super) fn import(world: &mut World) {
+pub(crate) fn import(world: &mut World) {
     let asker = match world.resource::<Importer>().0 {
         Some(asker) => asker,
         None => {
@@ -630,7 +530,7 @@ fn chosen(
 /// from then on, and gives the mesh's name. A file added again, or
 /// one named as a mesh added before meshes followed their files,
 /// brings that mesh up to date; any other takes a name no mesh has.
-pub(crate) fn add_mesh(
+fn add_mesh(
     world: &mut World,
     from: &Path,
 ) -> anyhow::Result<String> {

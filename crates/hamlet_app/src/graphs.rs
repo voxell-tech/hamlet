@@ -1,7 +1,7 @@
 //! The graph editors in the window: a blueprint and a shader editor
 //! of `hamlet_graph_editor`, each in a panel of the dock.
 
-mod assets;
+pub(crate) mod assets;
 mod blueprint;
 mod gizmo;
 mod handles;
@@ -18,7 +18,6 @@ use hamlet_graph_editor::canvas::Dragging;
 use hamlet_graph_editor::files;
 use hamlet_graph_editor::library::{Item, Kind};
 
-pub(crate) use self::assets::add_mesh;
 pub(crate) use self::blueprint::Blueprint;
 pub(crate) use self::shader::ShaderGraph;
 use crate::cursor::Faint;

@@ -1,8 +1,9 @@
 //! The ASSETS panel: the library as a grid of tiles, filtered by kind
-//! and searched by name. A click selects a tile and a double click
-//! opens it; a tile dragged onto a canvas adds what it is there. The
-//! selected tile is renamed, opened or removed in the strip under the
-//! grid. Blueprints and shaders are made new here, meshes are added
+//! and searched by name, with the selected asset's details beside it.
+//! A click selects a tile and a double click opens it; a tile dragged
+//! onto a canvas adds what it is there. The details rename, open or
+//! remove the selected asset, and give a mesh's material slots their
+//! colours. Blueprints and shaders are made new here, meshes are added
 //! from `.glb` files and textures from `.png` files.
 
 use std::path::Path;
@@ -55,6 +56,8 @@ use crate::graphs::{Blueprint, ShaderGraph};
 const TILE: f32 = 96.0;
 /// The picture's side within a tile.
 const PICTURE: f32 = 64.0;
+/// The width of the selected asset's details beside the grid.
+const DETAILS: f32 = 300.0;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
@@ -91,10 +94,10 @@ struct Shown {
 #[derive(Component)]
 struct SearchField;
 
-/// What the import dialogs answer to: one for meshes, one for
-/// textures.
+/// What the dialog for adding a texture answers to. Meshes are added
+/// by `graphs::assets::import`, several at a time.
 #[derive(Resource, Default)]
-struct Importer(Option<(Entity, Entity)>);
+struct Importer(Option<Entity>);
 
 fn show(
     library: Res<Library>,
@@ -134,10 +137,17 @@ fn show(
 }
 
 fn view() -> impl View {
-    column((bar(), sections(), grid(), details()))
-        .fills_width()
-        .fills_height()
-        .gap(0.0)
+    column((
+        bar(),
+        sections(),
+        row((grid(), details()))
+            .width(percent(100.0))
+            .grow(1.0)
+            .gap(0.0),
+    ))
+    .fills_width()
+    .fills_height()
+    .gap(0.0)
 }
 
 /// The kinds to show, the search and the import buttons.
@@ -173,7 +183,7 @@ fn bar() -> AnyView {
         );
         let import = |word: &'static str,
                       tip: &'static str,
-                      kind: Kind| {
+                      ask: fn(&mut World)| {
             button(
                 row((glyph(Glyph::Plus, ICON), label(word))).gap(4.0),
             )
@@ -181,7 +191,7 @@ fn bar() -> AnyView {
             .tooltip(move || note(tip))
             .rules(styles::button)
             .tagged(Variant::Default)
-            .on_activate(move |world| import(world, kind))
+            .on_activate(move |world| ask(world))
         };
         let new = |word: &'static str,
                    tip: &'static str,
@@ -218,12 +228,12 @@ fn bar() -> AnyView {
                 files::create::<ShaderGraph>(world);
                 world.resource::<Files<ShaderGraph>>().note.clone()
             }),
-            import("Mesh", "Add a mesh from a .glb file", Kind::Mesh),
             import(
-                "Texture",
-                "Add a texture from a .png file",
-                Kind::Texture,
+                "Mesh",
+                "Add meshes from .glb files",
+                crate::graphs::assets::import,
             ),
+            import("Texture", "Add a texture from a .png file", import_texture),
         ))
         .width(percent(100.0))
         .padding(UiRect::all(px(gap)))
@@ -308,9 +318,22 @@ fn grid() -> AnyView {
             })
         },
     ),))
-    .fills_width()
+    .grow(1.0)
+    .min_width(px(0.0))
     .fills_height()
     .boxed()
+}
+
+/// Where `item` comes from, in words: its kind, or that it is built
+/// in or an example.
+fn origin(item: &Item) -> String {
+    match &item.source {
+        Source::File(_) => item.kind.word().to_owned(),
+        Source::BuiltIn => "Built-in mesh".to_owned(),
+        Source::Example(_) => {
+            format!("Example {}", item.kind.word().to_lowercase())
+        }
+    }
 }
 
 /// One asset: its kind's picture, its name, and where it comes from.
@@ -326,13 +349,7 @@ fn tile(item: Item, selected: bool) -> AnyView {
             Kind::Mesh => palette.agent,
             Kind::Texture => palette.green,
         };
-        let from = match &item.source {
-            Source::File(_) => item.kind.word().to_owned(),
-            Source::BuiltIn => "Built-in mesh".to_owned(),
-            Source::Example(_) => {
-                format!("Example {}", item.kind.word().to_lowercase())
-            }
-        };
+        let from = origin(&item);
         let drawn = match item.kind {
             Kind::Mesh => picture(&item.name, PICTURE),
             _ => column((
@@ -409,34 +426,27 @@ fn pressed(
     });
 }
 
-/// The selected asset: its name to change, and what can be done to
-/// it.
+/// The selected asset beside the grid: its kind, its name to change,
+/// where it comes from, what its kind shows and changes, and the
+/// buttons that open or remove it. Under them, the last thing done or
+/// its Error.
 fn details() -> AnyView {
-    keyed(
+    let pane = keyed(
         resource::<Shown, _>(|shown| shown.selected.clone()),
         |selected: &Option<Item>| {
             let selected = selected.clone();
             AnyView::new(move |cx: &mut Cx| {
-                let theme = cx.theme();
-                let gap = theme.space.gap;
+                let gap = cx.theme().space.gap;
                 let Some(item) = selected.clone() else {
-                    return cx.build(
-                        row((description(resource::<Library, _>(
-                            |library| {
-                                if library.note.is_empty() {
-                                    "Select an asset to rename, open \
-                                     or remove it"
-                                        .to_owned()
-                                } else {
-                                    library.note.clone()
-                                }
-                            },
-                        )),))
-                        .padding(UiRect::all(px(gap)))
-                        .fill(theme.palette.card),
-                    );
+                    return cx.build(column((description(
+                        "Select an asset to see and change it here.",
+                    ),)));
                 };
                 let own = item.is_own();
+                // A graph opens in its editor; a mesh or a texture is
+                // dragged onto a canvas instead.
+                let opens =
+                    matches!(item.kind, Kind::Blueprint | Kind::Shader);
                 let (renamed, opened, removed) =
                     (item.clone(), item.clone(), item.clone());
                 let name: AnyView = if own {
@@ -446,56 +456,85 @@ fn details() -> AnyView {
                             rename(world, &renamed, &name);
                         },
                     )
-                    .width(px(200.0))
+                    .width(percent(100.0))
                     .rules(text_input)
                     .boxed()
                 } else {
                     note(item.name.replace('_', " ")).boxed()
                 };
+                let body: AnyView = match item.kind {
+                    Kind::Mesh => {
+                        crate::graphs::assets::details(item.name.clone())
+                    }
+                    Kind::Blueprint | Kind::Shader => description(
+                        "Open it to change its graph, or drag it onto \
+                         a canvas.",
+                    )
+                    .boxed(),
+                    Kind::Texture => {
+                        description("Drag it onto a canvas to use it.")
+                            .boxed()
+                    }
+                };
+                let shown = |yes: bool| {
+                    if yes { Display::Flex } else { Display::None }
+                };
                 cx.build(
-                    row((
+                    column((
                         section(item.kind.word().to_uppercase()),
                         name,
-                        frame().grow(1.0),
-                        description(resource::<Library, _>(
-                            |library| library.note.clone(),
-                        )),
-                        button(label("Open"))
-                            .padding(UiRect::axes(px(8.0), px(2.0)))
-                            .rules(styles::button)
-                            .tagged(Variant::Default)
-                            .on_activate(move |world| {
-                                open(world, &opened);
-                            }),
-                        button(label("Remove"))
-                            .padding(UiRect::axes(px(8.0), px(2.0)))
-                            .display(if own {
-                                Display::Flex
-                            } else {
-                                Display::None
-                            })
-                            .tooltip(|| {
-                                note(
-                                    "Move it to the library's trash \
-                                     folder",
-                                )
-                            })
-                            .rules(styles::button)
-                            .tagged(Variant::Default)
-                            .on_activate(move |world| {
-                                remove(world, &removed);
-                            }),
+                        description(origin(&item)),
+                        body,
+                        row((
+                            button(label("Open"))
+                                .padding(UiRect::axes(px(8.0), px(2.0)))
+                                .display(shown(opens))
+                                .rules(styles::button)
+                                .tagged(Variant::Default)
+                                .on_activate(move |world| {
+                                    open(world, &opened);
+                                }),
+                            button(label("Remove"))
+                                .padding(UiRect::axes(px(8.0), px(2.0)))
+                                .display(shown(own))
+                                .tooltip(|| {
+                                    note(
+                                        "Move it to the library's \
+                                         trash folder",
+                                    )
+                                })
+                                .rules(styles::button)
+                                .tagged(Variant::Default)
+                                .on_activate(move |world| {
+                                    remove(world, &removed);
+                                }),
+                        ))
+                        .gap(gap),
                     ))
-                    .width(percent(100.0))
-                    .padding(UiRect::all(px(gap)))
-                    .gap(gap)
-                    .align(AlignItems::Center)
-                    .fill(theme.palette.card),
+                    .gap(gap),
                 )
             })
         },
     )
-    .within(column(()).gap(0.0))
+    .within(column(()).gap(0.0));
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let gap = theme.space.gap;
+        scroll((column((
+            pane,
+            description(resource::<Library, _>(|library| {
+                library.note.clone()
+            })),
+        ))
+        .gap(gap)
+        .padding(UiRect::all(px(gap))),))
+        .width(px(DETAILS))
+        .shrink(0.0)
+        .fills_height()
+        .fill(theme.palette.card)
+        .border(1.0)
+        .border_color(theme.palette.border)
+    })
     .boxed()
 }
 
@@ -528,22 +567,21 @@ fn remove(world: &mut World, item: &Item) {
     world.resource_mut::<Browse>().selected = None;
 }
 
-fn import(world: &mut World, kind: Kind) {
-    let (meshes, textures) = match world.resource::<Importer>().0 {
-        Some(askers) => askers,
+/// Asks for the `.png` file to add as a texture.
+fn import_texture(world: &mut World) {
+    let asker = match world.resource::<Importer>().0 {
+        Some(asker) => asker,
         None => {
-            let askers =
-                (world.spawn_empty().id(), world.spawn_empty().id());
-            world.resource_mut::<Importer>().0 = Some(askers);
-            askers
+            let asker = world.spawn_empty().id();
+            world.resource_mut::<Importer>().0 = Some(asker);
+            asker
         }
     };
-    let asker = if kind == Kind::Mesh { meshes } else { textures };
     world.trigger(ChooseFile {
         asker,
         mode: FileMode::Open,
-        title: format!("Add a {}", kind.word().to_lowercase()),
-        extension: kind.extension().to_owned(),
+        title: "Add a texture".to_owned(),
+        extension: Kind::Texture.extension().to_owned(),
         name: String::new(),
     });
 }
@@ -553,26 +591,15 @@ fn chosen(
     importer: Res<Importer>,
     mut commands: Commands,
 ) {
-    let Some((meshes, textures)) = importer.0 else {
+    if importer.0 != Some(chosen.asker) {
         return;
-    };
-    let path = chosen.path.clone();
-    if chosen.asker == meshes {
-        commands.queue(move |world: &mut World| {
-            let note = match crate::graphs::add_mesh(world, &path) {
-                Ok(name) => format!("Added {name}"),
-                Err(error) => format!("{error:#}"),
-            };
-            world.resource_mut::<Library>().note = note;
-        });
-    } else if chosen.asker == textures {
-        commands.queue(move |world: &mut World| {
-            let mut library = world.resource_mut::<Library>();
-            library.note = match library.add_texture(Path::new(&path))
-            {
-                Ok(name) => format!("Added {name}"),
-                Err(error) => format!("{error:#}"),
-            };
-        });
     }
+    let path = chosen.path.clone();
+    commands.queue(move |world: &mut World| {
+        let mut library = world.resource_mut::<Library>();
+        library.note = match library.add_texture(Path::new(&path)) {
+            Ok(name) => format!("Added {name}"),
+            Err(error) => format!("{error:#}"),
+        };
+    });
 }
