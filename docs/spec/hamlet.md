@@ -46,7 +46,7 @@ chief is talking to.
 | `/remove-hamlet <hamlet> <reason>`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
 | `/mayor <address> <reason>` | Give the hamlet's office to another hire (H18) |
-| `/hire <scholar#id>[@<version>] [under <address>] [purpose]` | Hire a scholar into the hamlet (H40) |
+| `/hire <scholar#id>[@<version>] [in <hamlet>] [under <address>] [purpose]` | Hire a scholar into the hamlet (H40) |
 | `/end <address> <reason>`, `/merge <address> into <address> [reason]` | End a hire, or make one of two (H5) |
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended hire back, or split a merged one out again, or erase it for good (H20) |
 | `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | An agent's model, a hire's tools and allowance (H29, H41, H44) |

@@ -55,7 +55,7 @@ of an existing scholar, and of a new scholar named Mayor when none is named;
 with no purpose it is there to run the hamlet. The
 hamlet's id is lowercase letters, digits and hyphens, never reused, even
 after erasure; `hand`, `mayor`, `scholar` and `worker` are not ids.
-`/hire <scholar#id>[@<version>] [under <address>] [purpose]`
+`/hire <scholar#id>[@<version>] [in <hamlet>] [under <address>] [purpose]`
 hires a scholar into the hamlet you are in, up to the hamlet's tier of 50,
 100, 200 or 500 (`/tier`); the same scholar can be hired more than once. A
 hire a chief makes without a purpose takes the first line of the first message

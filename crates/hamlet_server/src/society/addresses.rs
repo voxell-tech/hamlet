@@ -205,7 +205,7 @@ pub(crate) fn address_of(db: &mut Db, id: AgentId) -> Result<String> {
 
 /// How `id` is shown to chiefs and agents: its address, and beside it
 /// the nickname of a hire, or else its scholar's name, as in
-/// `winterfell#3 (Robb)`. An erased hire shows its address only.
+/// `orchard#3 (Mira)`. An erased hire shows its address only.
 pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
     let address = address_of(db, id)?;
     let found = agents::get(db, id)?;
@@ -221,7 +221,7 @@ pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
 }
 
 /// How the scholar `id` is shown to chiefs and agents, as in
-/// `scholar#2 (Robb)`.
+/// `scholar#2 (Mira)`.
 pub(crate) fn scholar_name_of(
     db: &mut Db,
     id: ScholarId,

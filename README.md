@@ -158,7 +158,7 @@ saved there before the harness continues.
 - Settings can select a remote workspace for the agents' tools and
   lodges. It takes effect on restart and never falls back to local
   execution.
-- Windows has no sandbox yet. A Windows server starts only in insecure
+- Windows has no sandbox. A Windows server starts only in insecure
   mode, with `hamlet --insecure`, and agents' commands then reach whatever
   your account can. Agents get `powershell`, and `bash` where Git for
   Windows is installed. Linux and macOS refuse `--insecure`.
