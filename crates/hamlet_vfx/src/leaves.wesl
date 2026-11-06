@@ -50,7 +50,7 @@ fn vertex(vertex_in: Vertex) -> VertexOutput {
         vertex.uv_b.x,
     );
 @else
-    let at = swayed(leaves, wind, vertex.position, world_from_local);
+    let at = swayed(leaves, wind, vertex.position, vertex.uv, world_from_local);
     out.world_position = vec4<f32>(at, 1.0);
     out.position = position_world_to_clip(at);
 @if(VERTEX_NORMALS)
