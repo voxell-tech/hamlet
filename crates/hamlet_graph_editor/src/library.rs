@@ -6,8 +6,9 @@
 //! `blueprints/` and `shaders/`, one graph to a file; materials are
 //! `.ron` files in `materials/`, each a shader by name with values for
 //! some of its inputs; textures are `.png` files in `textures/`. A graph names the meshes it uses and
-//! the other graphs of its kind it runs. A removed asset is moved to
-//! `.trash/`.
+//! the other graphs of its kind it runs. `folders.ron` records the
+//! folders and the folder each asset is in, of every kind, the files
+//! staying in their shelves. A removed asset is moved to `.trash/`.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -26,7 +27,10 @@ use hamlet_graph::material::Material;
 use hamlet_graph::{Asset, Book, Catalogue, Does, Shape, Sheet};
 use hamlet_ui::widgets::icons::Glyph;
 
+use self::folders::Folders;
+
 pub mod carry;
+pub mod folders;
 pub mod picker;
 pub mod thumbnails;
 
@@ -175,6 +179,8 @@ pub struct Library {
     /// mesh's name. Kept apart from the catalogue, which books and
     /// bundles carry to other machines.
     pub sources: BTreeMap<String, PathBuf>,
+    /// The folders, and the folder each asset is in.
+    pub folders: Folders,
     /// Every asset, by kind and then name, the examples and built-in
     /// meshes after the library's own.
     pub items: Vec<Item>,
@@ -222,6 +228,10 @@ impl Library {
         root.join("sources.ron")
     }
 
+    fn folders_at(root: &Path) -> PathBuf {
+        root.join("folders.ron")
+    }
+
     /// Reads the catalogue and lists every file again.
     fn scan(&mut self) {
         let Some(root) = self.root.clone() else {
@@ -238,6 +248,10 @@ impl Library {
             })
             .unwrap_or_default();
         sources.retain(|name, _| catalogue.0.contains_key(name));
+        let folders = fs::read_to_string(Self::folders_at(&root))
+            .ok()
+            .and_then(|text| Folders::from_ron(&text).ok())
+            .unwrap_or_default();
         let mut items = Vec::new();
         for kind in
             [Kind::Blueprint, Kind::Shader, Kind::Material, Kind::Texture] {
@@ -293,12 +307,40 @@ impl Library {
         if items != self.items
             || catalogue != self.catalogue
             || sources != self.sources
+            || folders != self.folders
         {
             self.items = items;
             self.catalogue = catalogue;
             self.sources = sources;
+            self.folders = folders;
             self.revision += 1;
         }
+    }
+
+    fn write_folders(&self) -> anyhow::Result<()> {
+        let root = self.root.as_deref().context("no library yet")?;
+        fs::create_dir_all(root)
+            .with_context(|| format!("making {}", root.display()))?;
+        let text =
+            self.folders.to_ron().context("writing the folders")?;
+        write_atomic(&Self::folders_at(root), &text)
+    }
+
+    /// Changes the folders as `change` says and writes them, and gives
+    /// what `change` gives. Nothing is written when it fails.
+    pub fn change_folders<T>(
+        &mut self,
+        change: impl FnOnce(&mut Folders) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let mut folders = self.folders.clone();
+        let given = change(&mut folders)?;
+        let before = std::mem::replace(&mut self.folders, folders);
+        if let Err(error) = self.write_folders() {
+            self.folders = before;
+            return Err(error);
+        }
+        self.revision += 1;
+        Ok(given)
     }
 
     fn write_catalogue(&self) -> anyhow::Result<()> {
@@ -622,6 +664,10 @@ impl Library {
                 self.write_sources()?;
             }
         }
+        if self.folders.of(item.kind, &item.name).is_some() {
+            self.folders.renamed(item.kind, &item.name, &name);
+            self.write_folders()?;
+        }
         self.scan();
         Ok(name)
     }
@@ -653,6 +699,10 @@ impl Library {
             if self.sources.remove(&item.name).is_some() {
                 self.write_sources()?;
             }
+        }
+        if self.folders.of(item.kind, &item.name).is_some() {
+            self.folders.removed(item.kind, &item.name);
+            self.write_folders()?;
         }
         self.scan();
         Ok(())
@@ -914,5 +964,31 @@ mod tests {
         let again = Library::in_folder(folder.join("library"));
         let found = again.find(Kind::Material, "plaster").unwrap();
         assert_eq!(found.material().unwrap(), material);
+    }
+
+    #[test]
+    fn an_asset_renamed_stays_in_its_folder_and_leaves_it_when_removed() {
+        let folder = Scratch::new("library-folders");
+        let mut library = Library {
+            root: Some(folder.join("library")),
+            ..Library::default()
+        };
+        let item = library.create(Kind::Material, "plaster").unwrap();
+        library
+            .change_folders(|folders| {
+                let path = folders.add("village")?;
+                folders.put(Kind::Material, &item.name, Some(&path))
+            })
+            .unwrap();
+
+        let name = library.rename(&item, "limewash").unwrap();
+        let again = Library::in_folder(folder.join("library"));
+        assert_eq!(again.folders.of(Kind::Material, &name), Some("village"));
+        assert_eq!(again.folders.of(Kind::Material, "plaster"), None);
+
+        let renamed = library.find(Kind::Material, &name).unwrap();
+        library.remove(&renamed).unwrap();
+        assert!(library.folders.placed.is_empty());
+        assert!(library.folders.paths.contains("village"));
     }
 }

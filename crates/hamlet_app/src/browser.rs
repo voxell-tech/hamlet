@@ -1,5 +1,7 @@
 //! The ASSETS panel: the library as a grid of tiles, filtered by kind
-//! and searched by name, with the selected asset's details beside it.
+//! and by folder and searched by name, with the selected asset's
+//! details beside it. Folders are made, renamed and taken away above
+//! the grid, and the details put the asset in one.
 //! A click selects a tile and a double click opens it; a tile dragged
 //! onto a canvas adds what it is there. The details rename, open or
 //! remove the selected asset, give a mesh's material slots their
@@ -35,7 +37,7 @@ use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, TooltipExt, button,
-    column, frame, label, menu_item, row, scroll, text_field,
+    column, dropdown, frame, label, menu_item, row, scroll, text_field,
 };
 use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
@@ -47,7 +49,7 @@ use hamlet_graph_editor::library::{
     Item, Kind, Library, Source, Tile,
 };
 use hamlet_ui::styles::{
-    self, Fills, ICON, description, note, section, text_input,
+    self, Fills, ICON, description, labelled, note, section, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -79,20 +81,25 @@ pub(crate) fn plugin(app: &mut App) {
 }
 
 /// How the library is browsed: the kind shown, none for every kind,
-/// what is searched for, and the tile selected.
+/// the folder shown, none for every folder, what is searched for, and
+/// the tile selected.
 #[derive(Resource, Default)]
 struct Browse {
     kind: Option<Kind>,
+    folder: Option<String>,
     search: String,
     selected: Option<Item>,
 }
 
 /// The tiles shown, worked out from the library and how it is
-/// browsed, so the grid is built again only when they change.
+/// browsed, so the grid is built again only when they change, and the
+/// folders with the one shown.
 #[derive(Resource, Default, Clone, PartialEq)]
 struct Shown {
     items: Vec<Item>,
     selected: Option<Item>,
+    folders: Vec<String>,
+    folder: Option<String>,
 }
 
 /// The search field.
@@ -117,12 +124,22 @@ fn show(
         return;
     }
     let search = browse.search.to_lowercase();
+    // A folder the library no longer has shows every folder.
+    let folder = browse
+        .folder
+        .clone()
+        .filter(|folder| library.folders.paths.contains(folder));
     let items = library
         .items
         .iter()
         .filter(|item| section.holds(item))
         .filter(|item| {
             browse.kind.is_none_or(|kind| item.kind == kind)
+        })
+        .filter(|item| {
+            folder.as_ref().is_none_or(|folder| {
+                library.folders.holds(folder, item.kind, &item.name)
+            })
         })
         .filter(|item| {
             search.is_empty()
@@ -135,7 +152,12 @@ fn show(
         .selected
         .clone()
         .filter(|selected| library.items.contains(selected));
-    let next = Shown { items, selected };
+    let next = Shown {
+        items,
+        selected,
+        folders: library.folders.paths.iter().cloned().collect(),
+        folder,
+    };
     if *shown != next {
         *shown = next;
     }
@@ -144,6 +166,7 @@ fn show(
 fn view() -> impl View {
     column((
         bar(),
+        folders(),
         sections(),
         row((grid(), details()))
             .width(percent(100.0))
@@ -251,6 +274,191 @@ fn bar() -> AnyView {
         .gap(gap)
         .align(AlignItems::Center)
         .fill(theme.palette.card)
+    })
+    .boxed()
+}
+
+/// The folders to show, each a chip, the button that makes a new one
+/// in the folder shown, and while one is shown, a field to rename it
+/// and a button that takes it away.
+fn folders() -> AnyView {
+    keyed(
+        resource::<Shown, _>(|shown| {
+            (shown.folders.clone(), shown.folder.clone())
+        }),
+        |(paths, open): &(Vec<String>, Option<String>)| {
+            let (paths, open) = (paths.clone(), open.clone());
+            AnyView::new(move |cx: &mut Cx| {
+                let gap = cx.theme().space.gap;
+                let fill = cx.theme().palette.card;
+                let chip = |word: String, folder: Option<String>| {
+                    let word = if folder == open {
+                        format!("• {word}")
+                    } else {
+                        word
+                    };
+                    button(label(word))
+                        .padding(UiRect::axes(px(8.0), px(2.0)))
+                        .rules(styles::button)
+                        .tagged(Variant::Default)
+                        .on_activate(move |world| {
+                            world.resource_mut::<Browse>().folder =
+                                folder.clone();
+                        })
+                        .boxed()
+                };
+                let mut row_of = vec![chip("All folders".to_owned(), None)];
+                row_of.extend(paths.iter().map(|path| {
+                    chip(path.replace('/', " / "), Some(path.clone()))
+                }));
+                let parent = open.clone();
+                row_of.push(
+                    button(
+                        row((glyph(Glyph::Plus, ICON), label("Folder")))
+                            .gap(4.0),
+                    )
+                    .padding(UiRect::axes(px(8.0), px(2.0)))
+                    .tooltip(|| note("New folder in the folder shown"))
+                    .rules(styles::button)
+                    .tagged(Variant::Default)
+                    .on_activate(move |world| {
+                        new_folder(world, parent.as_deref());
+                    })
+                    .boxed(),
+                );
+                if let Some(path) = open.clone() {
+                    let removed = path.clone();
+                    row_of.push(frame().grow(1.0).boxed());
+                    row_of.push(
+                        text_field(path.clone(), move |world, to| {
+                            rename_folder(world, &path, &to);
+                        })
+                        .width(px(180.0))
+                        .rules(text_input)
+                        .boxed(),
+                    );
+                    row_of.push(
+                        button(label("Remove folder"))
+                            .padding(UiRect::axes(px(8.0), px(2.0)))
+                            .tooltip(|| {
+                                note(
+                                    "Take the folder away; what is in \
+                                     it goes to the folder above",
+                                )
+                            })
+                            .rules(styles::button)
+                            .tagged(Variant::Default)
+                            .on_activate(move |world| {
+                                remove_folder(world, &removed);
+                            })
+                            .boxed(),
+                    );
+                }
+                cx.build(
+                    row(row_of)
+                        .width(percent(100.0))
+                        .padding(UiRect::axes(px(gap), px(0.0)))
+                        .gap(2.0)
+                        .align(AlignItems::Center)
+                        .fill(fill),
+                )
+            })
+        },
+    )
+    .within(column(()).gap(0.0))
+    .boxed()
+}
+
+/// Makes a new folder in `parent`, or at the top, and shows it.
+fn new_folder(world: &mut World, parent: Option<&str>) {
+    let made = world.resource_mut::<Library>().change_folders(|folders| {
+        let path = folders.free(parent, "folder");
+        folders.add(&path)
+    });
+    let note = match made {
+        Ok(path) => {
+            let note = format!("Made the folder {path}");
+            world.resource_mut::<Browse>().folder = Some(path);
+            note
+        }
+        Err(error) => format!("{error:#}"),
+    };
+    world.resource_mut::<Library>().note = note;
+}
+
+/// Gives the folder `from` the path `to`, and keeps showing it.
+fn rename_folder(world: &mut World, from: &str, to: &str) {
+    if from == to {
+        return;
+    }
+    let renamed = world
+        .resource_mut::<Library>()
+        .change_folders(|folders| folders.rename(from, to));
+    let note = match renamed {
+        Ok(path) => {
+            let note = format!("Renamed the folder to {path}");
+            world.resource_mut::<Browse>().folder = Some(path);
+            note
+        }
+        Err(error) => format!("{error:#}"),
+    };
+    world.resource_mut::<Library>().note = note;
+}
+
+/// Takes the folder `path` away and shows the folder above it.
+fn remove_folder(world: &mut World, path: &str) {
+    let removed = world
+        .resource_mut::<Library>()
+        .change_folders(|folders| folders.remove(path));
+    let note = match removed {
+        Ok(()) => {
+            world.resource_mut::<Browse>().folder = path
+                .rsplit_once('/')
+                .map(|(parent, _)| parent.to_owned());
+            format!("Took the folder {path} away")
+        }
+        Err(error) => format!("{error:#}"),
+    };
+    world.resource_mut::<Library>().note = note;
+}
+
+/// The dropdown of the folder `item` is in, none or one of the
+/// library's, built again whenever the library changes.
+fn folder_of(item: &Item) -> AnyView {
+    let item = item.clone();
+    keyed(
+        resource::<Library, _>(|library| library.revision),
+        move |_: &u64| folder_picker(item.clone()),
+    )
+    .within(column(()).gap(0.0))
+    .boxed()
+}
+
+fn folder_picker(item: Item) -> AnyView {
+    with_cx(move |cx| {
+        let library = cx.world.resource::<Library>();
+        let paths: Vec<String> =
+            library.folders.paths.iter().cloned().collect();
+        let at = library
+            .folders
+            .of(item.kind, &item.name)
+            .and_then(|folder| paths.iter().position(|path| path == folder))
+            .map_or(0, |at| at + 1);
+        let words = std::iter::once("none".to_owned())
+            .chain(paths.iter().map(|path| path.replace('/', " / ")))
+            .collect::<Vec<_>>();
+        dropdown(words, at, Glyph::Chevron.image(ICON), move |world, at| {
+            let folder = at.checked_sub(1).and_then(|at| paths.get(at));
+            let put = world.resource_mut::<Library>().change_folders(
+                |folders| {
+                    folders.put(item.kind, &item.name, folder.map(String::as_str))
+                },
+            );
+            if let Err(error) = put {
+                world.resource_mut::<Library>().note = format!("{error:#}");
+            }
+        })
+        .width(percent(100.0))
     })
     .boxed()
 }
@@ -499,6 +707,7 @@ fn details() -> AnyView {
                         section(item.kind.word().to_uppercase()),
                         name,
                         description(origin(&item)),
+                        labelled("folder", folder_of(&item)),
                         body,
                         row((
                             button(label("Open"))
