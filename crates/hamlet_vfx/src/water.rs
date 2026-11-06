@@ -25,13 +25,14 @@ use bevy::window::RequestRedraw;
 
 use crate::ground::{PagesUniform, blank_pages};
 use crate::wind::WindSettings;
-use crate::{Now, VfxSystems};
+use crate::{Now, NowOffset, VfxSystems};
 
 pub type WaterMaterial = ExtendedMaterial<StandardMaterial, WaterExt>;
 
 pub(crate) fn plugin(app: &mut App) {
     load_shader_library!(app, "patch.wesl");
     load_shader_library!(app, "waves.wesl");
+    load_shader_library!(app, "shore.wesl");
     embedded_asset!(app, "water.wesl");
     app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
         .init_resource::<WaterSettings>()
@@ -141,9 +142,11 @@ pub struct WaterUniform {
     pub deep: Vec4,
     /// The foam's colour, linear, and `clear`.
     pub foam_color: Vec4,
-    /// The foam's `fade`.
+    /// The foam's `fade`, and the share of `MIRROR_STEPS` in
+    /// `water.wesl` a reflection is walked in.
     pub foam: Vec4,
-    /// The time, `scale` and `bend`.
+    /// [`NowOffset`], from which the shaders find the time, `scale`
+    /// and `bend`.
     pub time: Vec4,
     /// `calm`, `soft` and `normals`.
     pub calm: Vec4,
@@ -171,7 +174,7 @@ impl WaterUniform {
             foam: Vec4::new(
                 set.foam.fade.0,
                 set.foam.fade.1,
-                0.0,
+                1.0,
                 0.0,
             ),
             time: Vec4::new(0.0, set.scale, set.bend, 0.0),
@@ -508,20 +511,25 @@ const TURN: f32 = 2.0;
 /// in view.
 pub(crate) fn flow(
     now: Res<Now>,
+    offset: Res<NowOffset>,
     set: Res<WaterSettings>,
     wind: Res<WindSettings>,
     waves: Query<&ViewVisibility, With<Waves>>,
     mut materials: ResMut<Assets<WaterMaterial>>,
     mut redraw: MessageWriter<RequestRedraw>,
-    mut told: Local<Option<f32>>,
+    mut told: Local<Option<(f32, NowOffset)>>,
     mut heading: Local<Option<f32>>,
 ) {
-    let then = told.replace(now.0);
-    if then == Some(now.0) && !set.is_changed() && !wind.is_changed()
+    // A frozen clock holds `Now` while the offset moves.
+    let was = told.replace((now.0, *offset));
+    if was == Some((now.0, *offset))
+        && !set.is_changed()
+        && !wind.is_changed()
     {
         return;
     }
-    let time = Vec4::new(now.0, set.scale, set.bend, 0.0);
+    let then = was.map(|(then, _)| then);
+    let time = Vec4::new(offset.0, set.scale, set.bend, 0.0);
     // The waves run the way the wind settles on, not as it veers: the
     // whole sea turning with it would sweep its far waves round. When
     // that way changes, they turn to it slowly.
@@ -534,10 +542,15 @@ pub(crate) fn flow(
     *heading = Some(turned);
     let (x, z) = turned.to_radians().sin_cos();
     let way = Vec4::new(x, z, 0.0, 0.0);
-    for (_, water) in materials.iter_mut() {
-        if water.extension.water.time != time
-            || water.extension.water.wind != way
-        {
+    // `get_mut` alone marks a material changed, so only one that
+    // differs is taken.
+    let ids = materials.ids().collect::<Vec<_>>();
+    for id in ids {
+        let changed = materials.get(id).is_some_and(|water| {
+            water.extension.water.time != time
+                || water.extension.water.wind != way
+        });
+        if changed && let Some(mut water) = materials.get_mut(id) {
             water.extension.water.time = time;
             water.extension.water.wind = way;
         }

@@ -49,7 +49,6 @@ gap = [0.5, 1.6]
 heading = 70.0
 veer = 18.0
 band = [30.0, 6.0]
-shiver = [4.0, 9.0]
 calm = 0.45
 length = 17.0
 width = 0.42
@@ -68,26 +67,25 @@ stripes = 4
 taper = 0.35
 
 [ground]
-repeat = 40.0
-strength = 0.55
-cavity = 0.15
+repeat = 3.0
+strength = 0.6
+cavity = 0.3
 patches = 140.0
-calm = 0.35
+calm = 0.45
 turn = 1.0
-dark = [0.86, 0.9, 0.84]
-light = [1.08, 1.07, 0.94]
-bare = 0.35
+dark = [0.72, 0.78, 0.7]
+light = [1.12, 1.1, 0.96]
+bare = 0.2
 
-[ground.strokes]
+[ground.blades]
 side = 512
-count = 100
-length = [0.35, 0.7]
-width = [0.11, 0.22]
-scatter = 1.0
-bristles = 40.0
-dry = 0.35
-streaks = 0.15
-grain = 0.08
+clumps = 420
+blades = 22
+spread = 0.035
+length = [0.035, 0.07]
+width = [0.007, 0.012]
+together = 0.6
+grain = 0.05
 
 [water]
 shallow = [0.53, 0.84, 0.76]
@@ -108,3 +106,40 @@ fade = [60.0, 120.0]
 decay = 0.2
 erosion = 3.0
 streak = [0.06, -0.06]
+
+[leaves]
+bend = 0.5
+rock = 1.1
+flutter = 0.03
+shiver = 4.5
+shade = [0.36, 0.38, 0.8]
+cool = 0.55
+glow = 0.6
+sky = 1.6
+rim = [0.3, 0.85, 0.8]
+rim_light = 0.35
+
+[grass]
+tall = 0.42
+spread = 1.45
+wide = 0.022
+blades = [80, 40, 14]
+kept = [1.0, 0.4, 0.16]
+spacing = 0.6
+coarse_spacing = 0.7
+bare = 0.0
+across = [0.75, 1.35]
+up = [0.7, 1.25]
+bend = 0.35
+root = 0.55
+tip = 1.2
+sun = 0.3
+sheen = 1.5
+flowers = 0.35
+glow = 3.0
+pulse = [7.0, 0.6]
+halo = 0.18
+rings = [24.0, 60.0, 98.0]
+
+[pads]
+glow = 2.0

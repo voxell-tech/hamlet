@@ -17,8 +17,8 @@ use bevy::ui::{
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, frame, label,
-    number_field, row, scroll, slider,
+    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
+    label, number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::messages::{ChiefMessage, Reconnected, Response};
@@ -28,7 +28,7 @@ use hamlet_client::realm::{
 };
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
-use hamlet_protocol::client as protocol;
+use hamlet_protocol::{Effort, client as protocol};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
@@ -38,7 +38,7 @@ use hamlet_ui::styles::{
 use hamlet_ui::widgets::fade::ScrollFade;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch;
-use hamlet_ui::{AnyView, Cx, View, with_cx};
+use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use crate::dock::{PanelAppExt, panel};
 use crate::world_menu::{self, Deed};
@@ -189,6 +189,9 @@ fn not_enforced() -> AnyView {
     .boxed()
 }
 
+const EFFORTS: [(Option<Effort>, &str); 6] =
+    crate::models::efforts("Model's own");
+
 /// The settings of agents. Each applies when changed.
 fn agents() -> impl View {
     parts((
@@ -207,6 +210,37 @@ fn agents() -> impl View {
                 .width(px(90.0))
                 .rules(text_input),
                 note("0 means never."),
+            ),
+        ),
+        field(
+            "Thinking effort",
+            told(
+                built(|cx| {
+                    cx.build(
+                        dropdown(
+                            EFFORTS.map(|(_, name)| name),
+                            resource::<Settings, _>(|s| {
+                                EFFORTS
+                                    .iter()
+                                    .position(|(effort, _)| {
+                                        *effort == s.0.effort
+                                    })
+                                    .unwrap_or_default()
+                            }),
+                            Glyph::Chevron.image(ICON),
+                            |world, at| {
+                                save(world, |set| {
+                                    set.effort = Some(EFFORTS[at].0);
+                                });
+                            },
+                        )
+                        .width(px(160.0)),
+                    )
+                }),
+                note(
+                    "How hard models think by default; an agent's \
+                     own choice wins.",
+                ),
             ),
         ),
         field(
@@ -506,6 +540,7 @@ fn save(
     let mut set = protocol::EditSettingsSet {
         model: None,
         endpoints: None,
+        effort: None,
         reflect_every: None,
         allow_net: None,
         workspace: None,

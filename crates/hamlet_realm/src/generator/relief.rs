@@ -35,6 +35,7 @@ use bevy::render::renderer::{
 use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
 use bevy::render::texture::GpuImage;
 use bevy::render::{RenderApp, RenderStartup};
+use hamlet_vfx::grass::GrassPlaceSystems;
 use hamlet_vfx::ground::{GroundMaterial, LEVELS, PagesUniform};
 use hamlet_vfx::patch;
 use hamlet_vfx::water::WaterMaterial;
@@ -56,17 +57,18 @@ const STEP: f32 = 32.0;
 pub(super) fn plugin(app: &mut App) {
     embedded_asset!(app, "relief.wesl");
     app.add_plugins(ExtractResourcePlugin::<Job>::default())
-        .add_systems(Update, follow);
+        .add_systems(Update, follow.in_set(PagesLaid));
     let Some(render) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
     render
         .add_systems(RenderStartup, prepare)
-        // Before the cameras draw, so the ground reads this frame's
-        // pages.
+        // Before the cameras draw and the grass is placed, so both
+        // read this frame's pages.
         .add_systems(
             RenderGraph,
-            run.in_set(RenderGraphSystems::Begin),
+            run.in_set(RenderGraphSystems::Begin)
+                .before(GrassPlaceSystems),
         );
 }
 
@@ -88,8 +90,6 @@ struct ReliefInput {
     sea: Vec4,
     /// `shelf` and `rim`.
     rim: Vec4,
-    /// `stacks`.
-    stacks: Vec4,
     /// `site_y`, the towns' radius, and the way the rivers run.
     town: Vec4,
     /// `river_gap`, `bends` and the scale of the `kinks`.
@@ -162,12 +162,6 @@ impl ReliefInput {
                 set.water_y,
             ),
             rim: Vec4::new(set.shelf, set.rim.0, set.rim.1, 0.0),
-            stacks: Vec4::new(
-                set.stacks.0,
-                set.stacks.1,
-                set.stacks.2,
-                0.0,
-            ),
             town: Vec4::new(
                 set.site_y,
                 land.set.town.radius,
@@ -226,6 +220,11 @@ struct Pages {
 fn texel(cell: f32, level: usize) -> f32 {
     cell * (1u32 << level) as f32
 }
+
+/// Laying the pages and telling the ground and the water where they
+/// lie. What reads where they lie from either runs after it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct PagesLaid;
 
 /// Lays the pages about the eye, makes anew those it has moved far
 /// enough over and all of them when the land changes, and tells the

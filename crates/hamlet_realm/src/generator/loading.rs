@@ -10,7 +10,9 @@ mod stream;
 #[cfg(test)]
 mod tests;
 
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use hamlet_vfx::leaves::LeafMaterial;
 
 pub(super) use self::builds::finish_loading;
 pub(super) use self::lanes::{Lanes, clear_lanes};
@@ -20,6 +22,7 @@ pub(super) use self::stream::stream;
 use super::building::Builds;
 use super::flora;
 use super::ground::Sight;
+use crate::sky::Quality;
 
 /// Everything being built in the background, and what of the
 /// trees is in the world.
@@ -94,3 +97,31 @@ pub(super) struct Bed;
 /// A patch of the water over everything that lies under its height.
 #[derive(Component)]
 pub(super) struct Sea;
+
+/// Keeps [`NotShadowCaster`] on everything with leaves when the
+/// [`Quality`] draws no tree shadows, and off it when it does.
+pub(super) fn shade_trees(
+    mut commands: Commands,
+    quality: Res<Quality>,
+    casting: Query<
+        Entity,
+        (
+            With<MeshMaterial3d<LeafMaterial>>,
+            Without<NotShadowCaster>,
+        ),
+    >,
+    shadowless: Query<
+        Entity,
+        (With<MeshMaterial3d<LeafMaterial>>, With<NotShadowCaster>),
+    >,
+) {
+    if quality.has_tree_shadows() {
+        for tree in &shadowless {
+            commands.entity(tree).remove::<NotShadowCaster>();
+        }
+    } else {
+        for tree in &casting {
+            commands.entity(tree).try_insert(NotShadowCaster);
+        }
+    }
+}

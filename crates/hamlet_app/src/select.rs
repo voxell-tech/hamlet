@@ -9,10 +9,13 @@
 //! presses.
 
 use std::ops::Range;
+use std::time::Duration;
 
 use bevy::app::{App, PostUpdate, Startup, Update};
 use bevy::camera::visibility::InheritedVisibility;
 use bevy::clipboard::Clipboard;
+use bevy::diagnostic::FrameCount;
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -31,9 +34,10 @@ use bevy::input_focus::InputFocus;
 use bevy::math::{Rect, Vec2};
 use bevy::picking::Pickable;
 use bevy::picking::events::{
-    PointerDrag, PointerDragEnd, PointerPress,
+    PointerDrag, PointerDragEnd, PointerPress, PointerRelease,
 };
 use bevy::picking::pointer::PointerButton;
+use bevy::platform::time::Instant;
 use bevy::text::{
     ComputedTextBlock, EditableText, LineBreak, TextBrush,
     TextLayout, TextSpan,
@@ -76,7 +80,9 @@ const RESERVE: char = '\u{a0}';
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Selecting>()
+        .init_resource::<LastClick>()
         .add_observer(press)
+        .add_observer(release)
         .add_observer(drag)
         .add_observer(drag_end)
         .add_systems(Startup, layer)
@@ -94,6 +100,71 @@ enum Grain {
     Letter,
     Word,
     Line,
+}
+
+/// How long after a press the next one still counts as part of the
+/// same run of clicks, and how far from it, in logical pixels.
+const MULTI: Duration = Duration::from_millis(500);
+const NEAR: f32 = 4.0;
+
+/// The latest press of the primary button: the frame it came in,
+/// when it was let go of (or pressed, until it is), where it was, the
+/// entities it was seen on, and how many in a row it makes.
+#[derive(Clone, PartialEq, Debug)]
+struct Click {
+    frame: u32,
+    at: Instant,
+    on: Vec2,
+    seen: Vec<Entity>,
+    count: u8,
+}
+
+/// The latest press of the primary button, if any.
+#[derive(Resource, Default)]
+struct LastClick(Option<Click>);
+
+/// How many presses in a row the press on `entity` makes, given
+/// `last`. The picking backend sends one press to each entity under
+/// the pointer, each with a count of its own, so the run is counted
+/// here, once per press. The same press seen on another entity is in
+/// the same frame and place and on an entity it was not yet seen on;
+/// a press on an entity already seen is a new one, even in the same
+/// frame, as when a slow frame takes in both of a double click.
+fn pressed(
+    last: &mut Option<Click>,
+    frame: u32,
+    at: Instant,
+    on: Vec2,
+    entity: Entity,
+) -> u8 {
+    if let Some(last) = last.as_mut()
+        && last.frame == frame
+        && last.on == on
+        && !last.seen.contains(&entity)
+    {
+        last.seen.push(entity);
+        return last.count;
+    }
+    let count = match last {
+        Some(last)
+            // From the release before, as Bevy counts, so that a slow
+            // frame between a press and its release does not end the
+            // run.
+            if at.saturating_duration_since(last.at) <= MULTI
+                && last.on.distance(on) <= NEAR =>
+        {
+            last.count.saturating_add(1)
+        }
+        _ => 1,
+    };
+    *last = Some(Click {
+        frame,
+        at,
+        on,
+        seen: vec![entity],
+        count,
+    });
+    count
 }
 
 /// A place in selectable words: a text node and the bytes of it that
@@ -530,6 +601,8 @@ fn press(
     rows: Query<&Quotable>,
     keeps: Query<(), With<Keeps>>,
     texts: Texts,
+    frame: Res<FrameCount>,
+    mut last: ResMut<LastClick>,
     mut focus: ResMut<InputFocus>,
     mut selecting: ResMut<Selecting>,
 ) {
@@ -565,7 +638,18 @@ fn press(
         }
         return;
     };
-    let grain = match press.count {
+    // Only a press that can select is counted, so one on empty space
+    // does not make the next press a second. Taken as the press is
+    // read, not from the frame's clock, which can lag the input when
+    // frames are slow.
+    let count = pressed(
+        &mut last.0,
+        frame.0,
+        Instant::now(),
+        press.pointer.position,
+        press.entity,
+    );
+    let grain = match count {
         0 | 1 => Grain::Letter,
         2 => Grain::Word,
         _ => Grain::Line,
@@ -587,6 +671,27 @@ fn press(
     // Keys go to the selection, not to a field.
     if focus.get().is_some() {
         focus.clear();
+    }
+}
+
+/// Times the next press of a run from the release of this one.
+fn release(release: On<PointerRelease>, mut last: ResMut<LastClick>) {
+    if release.entity != release.original_event_target()
+        || release.button != PointerButton::Primary
+    {
+        return;
+    }
+    released(&mut last.0, Instant::now(), release.entity);
+}
+
+/// Times the run from the release of a press that was counted, which
+/// is on an entity it was seen on. A release of any other press, such
+/// as one on empty space, does not extend the run.
+fn released(last: &mut Option<Click>, at: Instant, entity: Entity) {
+    if let Some(click) = last
+        && click.seen.contains(&entity)
+    {
+        click.at = at;
     }
 }
 
@@ -702,6 +807,7 @@ fn light(
     sizes: Query<(&ComputedNode, &UiGlobalTransform)>,
     layer: Option<Single<(Entity, Option<&Children>), With<Lit>>>,
     glows: Query<(), With<Glow>>,
+    mut placed: Query<&mut Node, With<Glow>>,
     theme: Themed,
     mut shown: Local<Vec<Rect>>,
     mut selecting: ResMut<Selecting>,
@@ -754,27 +860,43 @@ fn light(
         && *shown != boxes
     {
         let (layer, lit) = *layer;
-        for glow in lit.into_iter().flatten() {
-            if glows.contains(*glow) {
-                commands.entity(*glow).despawn();
-            }
-        }
+        // The boxes already there are moved rather than made anew: a
+        // node made after the layout of this frame is not drawn until
+        // the next, which showed as a flicker at each change.
+        let mut old = lit
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|glow| glows.contains(*glow));
         let fill = theme.palette.text_selection;
         for b in &boxes {
-            commands.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: px(b.min.x),
-                    top: px(b.min.y),
-                    width: px(b.width()),
-                    height: px(b.height()),
-                    ..Node::default()
-                },
-                BackgroundColor(fill),
-                Pickable::IGNORE,
-                Glow,
-                ChildOf(layer),
-            ));
+            let node = Node {
+                position_type: PositionType::Absolute,
+                left: px(b.min.x),
+                top: px(b.min.y),
+                width: px(b.width()),
+                height: px(b.height()),
+                ..Node::default()
+            };
+            match old.next().and_then(|glow| {
+                placed.get_mut(glow).ok().map(|p| (glow, p))
+            }) {
+                Some((_, mut at)) => {
+                    at.set_if_neq(node);
+                }
+                None => {
+                    commands.spawn((
+                        node,
+                        BackgroundColor(fill),
+                        Pickable::IGNORE,
+                        Glow,
+                        ChildOf(layer),
+                    ));
+                }
+            }
+        }
+        for spare in old {
+            commands.entity(spare).despawn();
         }
         // The button stands under the end of what is lit, in its
         // area.
@@ -892,6 +1014,46 @@ mod tests {
             covered(&order, spot(b, 8, 8), spot(c, 9, 9), short),
             vec![(b, 8..10), (c, 0..3)]
         );
+    }
+
+    #[test]
+    fn a_press_counts_with_the_ones_close_to_it_in_time_and_place() {
+        let mut world = World::new();
+        let [text, other] = [(); 2].map(|_| world.spawn_empty().id());
+        let start = Instant::now();
+        let ms = |n| start + Duration::from_millis(n);
+        let at = Vec2::new(10.0, 10.0);
+        let mut last = None;
+        assert_eq!(pressed(&mut last, 1, ms(0), at, text), 1);
+        // The same press, seen on another entity under the pointer.
+        assert_eq!(pressed(&mut last, 1, ms(0), at, other), 1);
+        assert_eq!(pressed(&mut last, 5, ms(300), at, text), 2);
+        assert_eq!(pressed(&mut last, 5, ms(300), at, other), 2);
+        // Another press in the same frame, as a slow one takes in
+        // both of a double click.
+        assert_eq!(pressed(&mut last, 5, ms(301), at, text), 3);
+        // Too late, or too far, starts over.
+        let mut late = last.clone();
+        assert_eq!(pressed(&mut late, 9, ms(900), at, text), 1);
+        let away = Vec2::new(40.0, 10.0);
+        assert_eq!(pressed(&mut last, 9, ms(400), away, text), 1);
+    }
+
+    #[test]
+    fn only_the_release_of_a_counted_press_extends_the_run() {
+        let mut world = World::new();
+        let [text, empty] = [(); 2].map(|_| world.spawn_empty().id());
+        let start = Instant::now();
+        let ms = |n| start + Duration::from_millis(n);
+        let at = Vec2::new(10.0, 10.0);
+        let mut last = None;
+        pressed(&mut last, 1, ms(0), at, text);
+        // A release on empty space leaves the run as it was.
+        released(&mut last, ms(400), empty);
+        assert_eq!(pressed(&mut last, 2, ms(600), at, text), 1);
+        // The release of the press itself times the next from it.
+        released(&mut last, ms(900), text);
+        assert_eq!(pressed(&mut last, 3, ms(1300), at, text), 2);
     }
 
     #[test]

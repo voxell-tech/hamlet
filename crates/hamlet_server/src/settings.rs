@@ -22,6 +22,10 @@ pub(crate) struct Settings {
     /// The answered turns after which an agent reflects; none for 0.
     pub reflect_every: u64,
     pub allow_net: bool,
+    /// How hard agents' models think unless their own effort says
+    /// otherwise; the model's own default when absent.
+    #[serde(default)]
+    pub effort: Option<hamlet_protocol::Effort>,
     pub endpoints: Vec<Endpoint>,
     /// How the last check of the model went.
     pub link: Link,
@@ -36,6 +40,7 @@ impl Default for Settings {
             model: "local::qwen3.6:35b-a3b".into(),
             reflect_every: 10,
             allow_net: false,
+            effort: None,
             endpoints: vec![Endpoint {
                 name: "local".into(),
                 base_url: "http://localhost:11434/v1".into(),

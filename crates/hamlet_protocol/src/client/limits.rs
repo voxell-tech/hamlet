@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 pub struct Limits {
     pub asking: LimitsAsking,
     pub budget: LimitsBudget,
+    pub efforts: std::collections::BTreeMap<String, crate::Effort>,
     pub hamlets: HamletLimits,
     pub leaving: LimitsLeaving,
     pub mayor: LimitsMayor,

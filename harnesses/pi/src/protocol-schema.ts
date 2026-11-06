@@ -224,6 +224,17 @@ export const schema = {
             ],
             "type": "string"
         },
+        "Effort": {
+            "description": "How hard a model thinks before it answers, where its provider\nlets it be asked.",
+            "enum": [
+                "off",
+                "minimal",
+                "low",
+                "medium",
+                "high"
+            ],
+            "type": "string"
+        },
         "ErrorCode": {
             "description": "The reason a message could not be handled.",
             "enum": [
@@ -1363,6 +1374,10 @@ export const schema = {
                     "format": "uint64",
                     "minimum": 1,
                     "type": "integer"
+                },
+                "effort": {
+                    "$ref": "#/$defs/Effort",
+                    "description": "How hard the model thinks; its own default when absent."
                 },
                 "maxTokens": {
                     "format": "uint64",

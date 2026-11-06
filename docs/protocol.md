@@ -160,7 +160,7 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 | `notes` | `agent: Address`, `text: string` | Replace the agent's notes. |
 | `limits` | `hamlet: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
 | `limits` | `hamlet: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
-| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
+| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| null, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; the `efforts` limit sets it for one agent. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
 | `catalogue` | `model: string`, `set: {allowed?: boolean, price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. |
 
 ### Read documents
