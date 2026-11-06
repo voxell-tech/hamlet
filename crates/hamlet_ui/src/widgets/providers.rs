@@ -1,6 +1,6 @@
-//! The marks of the model providers, from lobe-icons
-//! (`providers/LICENSE`): drawn from their SVGs in white at the
-//! icons' sizes, to be tinted by a text tone like the icons are.
+//! The marks of the model providers (`providers/LICENSE`): drawn from
+//! their SVGs in white at the icons' sizes, to be tinted by a text
+//! tone like the icons are.
 
 use bevy::app::{App, Startup};
 use bevy::asset::uuid::Uuid;
