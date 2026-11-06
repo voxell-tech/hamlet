@@ -95,7 +95,7 @@ pub(super) fn start_ambience(
     }
 }
 
-/// Birds by day, crickets after dark and wind always, each louder or
+/// Birds by day, an owl after dark and wind always, each louder or
 /// softer with the camera's height.
 pub(super) fn mix_ambience(
     time: Res<Time>,
@@ -110,7 +110,7 @@ pub(super) fn mix_ambience(
     for (mut bed, mut sink) in &mut beds {
         let (want, heard) = match bed.sound {
             Sound::Birds => (f32::from(!dark), near * set.birds),
-            Sound::Crickets => (f32::from(dark), near),
+            Sound::Owl => (f32::from(dark), near),
             // The higher the camera, the more of the world is wind.
             _ => (1.0, 1.0 - 0.6 * near),
         };

@@ -1,4 +1,4 @@
-//! The loops of the ambience: birds, crickets and wind.
+//! The loops of the ambience: birds, an owl and wind.
 
 use std::f32::consts::TAU;
 
@@ -62,37 +62,32 @@ fn birds() -> Vec<f32> {
                     * (TAU * 2900.0 * high * t).sin()
             }),
         }
-        at += 0.5 + 1.4 * hiss.unit();
+        at += 1.8 + 3.2 * hiss.unit();
     }
     finish(out, 0.3, true)
 }
 
-/// Crickets. A loop.
-fn crickets() -> Vec<f32> {
-    let long = 8.0;
+/// A far owl, a few soft hoots with long quiet between. A loop.
+fn owl() -> Vec<f32> {
+    let long = 24.0;
     let mut out = empty(long);
     let mut hiss = Hiss(127);
-    // Each chirps a whole number of times in the loop.
-    for chirps in [19, 16, 14, 11] {
-        let pitch = 3700.0 + 600.0 * hiss.unit();
-        let loud = 0.25 + 0.75 * hiss.unit();
-        let late = hiss.unit();
-        for n in 0..chirps {
-            let at = (n as f32 + late) * long / chirps as f32;
-            for pulse in 0..3 {
-                sing(
-                    &mut out,
-                    at + pulse as f32 * 0.024,
-                    0.018,
-                    |t| {
-                        loud * hump(t, 0.0, 0.018)
-                            * (TAU * pitch * t).sin()
-                    },
-                );
-            }
+    for at in [3.0, 11.5, 18.0] {
+        let at = at + 2.0 * hiss.unit();
+        let loud = 0.5 + 0.5 * hiss.unit();
+        // A short hoot, a pause, then a longer one that sinks.
+        for (k, (start, hold)) in
+            [(0.0, 0.22), (0.45, 0.5)].into_iter().enumerate()
+        {
+            sing(&mut out, at + start, hold, |t| {
+                let pitch = 420.0 - 40.0 * k as f32 * t / hold;
+                loud * hump(t, 0.0, hold)
+                    * ((TAU * pitch * t).sin()
+                        + 0.3 * (TAU * 2.0 * pitch * t).sin())
+            });
         }
     }
-    finish(out, 0.22, true)
+    finish(out, 0.2, true)
 }
 
 /// Wind in the trees. A loop.
@@ -129,7 +124,7 @@ fn wind() -> Vec<f32> {
 pub(super) fn make(sound: Sound) -> Option<Vec<f32>> {
     Some(match sound {
         Sound::Birds => birds(),
-        Sound::Crickets => crickets(),
+        Sound::Owl => owl(),
         Sound::Wind => wind(),
         _ => return None,
     })
