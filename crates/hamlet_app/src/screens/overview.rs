@@ -1,5 +1,4 @@
-//! The Inspector with no agent selected: every hamlet, to search and
-//! to open, and one hamlet with everyone in it.
+//! The Hub's pages of the realm and of one hamlet.
 
 mod hamlet;
 mod record;
