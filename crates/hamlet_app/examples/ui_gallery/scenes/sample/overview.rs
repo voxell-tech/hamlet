@@ -213,8 +213,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
          chief restored smith, whose house and notes returned."
             .into(),
     ));
-    if scene == Scene::Hamlet {
-        world.insert_resource(hamlet_app::overview::Page::Record);
+    if matches!(scene, Scene::Hamlet | Scene::Bylaws) {
+        world
+            .insert_resource(hamlet_app::hub::Showing::Hamlet(first));
     }
     if scene == Scene::Bylaws {
         world.insert_resource(hamlet_app::overview::Page::Bylaws);

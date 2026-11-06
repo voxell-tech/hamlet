@@ -649,10 +649,10 @@ fn agent_line(
     }
 }
 
-/// Lets each lead in `lines` stand for the rows under it: its mark
-/// becomes the most pressing of theirs, and while folded they are
-/// left out and it says how many there are. A lead with something
-/// waiting under it stays open.
+/// Lets each lead in `lines`, a mayor too, stand for the rows under
+/// it: while folded they are left out, it says how many there are and
+/// its mark becomes the most pressing of theirs. What waits under it
+/// is still in the rows of what needs the chief.
 fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
     let mut lines = lines;
     for at in 0..lines.len() {
@@ -664,11 +664,8 @@ fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
         let Target::Agent(agent) = lines[at].target else {
             continue;
         };
-        // A mayor's rows fold with its hamlet's header, and a lead
-        // with something waiting under it stays open.
         let range = &lines[at + 1..at + 1 + under];
-        let waits = range.iter().any(|line| line.mark == Mark::Waits);
-        if under == 0 || depth == 0 || waits {
+        if under == 0 {
             continue;
         }
         let group = Group::Lead(agent);
