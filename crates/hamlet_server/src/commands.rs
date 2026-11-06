@@ -27,8 +27,7 @@ struct Command {
     does: &'static str,
 }
 
-/// The name of the new scholar a hamlet founded without a scholar is
-/// run by.
+/// The name of the scholar made for a mayor when `/found` names none.
 const MAYOR: &str = "Mayor";
 
 /// Whether `word` is a scholar's address, with or without a version.
@@ -203,7 +202,7 @@ const TABLE: &[Command] = &[
     Command {
         name: "move-hamlet",
         usage: "/move-hamlet <hamlet> <x> <z>",
-        does: "Set a hamlet's town down elsewhere",
+        does: "Set a hamlet down elsewhere on the hamlet island",
     },
     Command {
         name: "remove-hamlet",
@@ -653,7 +652,7 @@ impl Core {
                     .await?;
                 Ok(done.map(|()| {
                     format!(
-                        "The town of `{id}` is set down at {x}, {z}."
+                        "The hamlet `{id}` is set down at {x}, {z}."
                     )
                 }))
             }
@@ -742,9 +741,7 @@ impl Core {
                     format!("`{text}` holds the office of `{id}`.")
                 }))
             }
-            "hire" => {
-                self.hire_command(agent, here.as_ref(), &words).await
-            }
+            "hire" => self.hire_command(here.as_ref(), &words).await,
             "end" | "restore" | "erase" => {
                 let Some(text) = words.first() else {
                     return Ok(Err(usage(name)));
@@ -1363,8 +1360,8 @@ impl Core {
             }
             _ => Ok(Err(Refusal::Usage {
                 words: format!(
-                    "There is no command /{name}. Type /help... or \
-                     see the command list."
+                    "There is no command /{name}; the client lists \
+                     the commands."
                 ),
             })),
         }
@@ -1372,7 +1369,6 @@ impl Core {
 
     async fn hire_command(
         &mut self,
-        agent: AgentId,
         here: Option<&HamletId>,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
@@ -1421,7 +1417,6 @@ impl Core {
             Ok(hiring) => hiring,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        let _ = agent;
         let done = self
             .attempt(Actor::Chief(chief), |cx, _| {
                 hires::hire(

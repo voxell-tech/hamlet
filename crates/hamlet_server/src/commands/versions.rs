@@ -308,9 +308,12 @@ impl Core {
             self.realm.store().connection(),
             id,
         )?;
-        Ok(done.map(|_| match at == MAIN {
-            true => format!("Forked {label} as {name}."),
-            false => format!("Forked {label} at {at} as {name}."),
+        Ok(done.map(|_| {
+            if at == MAIN {
+                format!("Forked {label} as {name}.")
+            } else {
+                format!("Forked {label} at {at} as {name}.")
+            }
         }))
     }
 
