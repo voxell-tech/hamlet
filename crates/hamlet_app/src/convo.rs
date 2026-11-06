@@ -154,6 +154,16 @@ fn seat_as(
 
 /// Points the chat at one of the realm's agents, and selects it in
 /// the world.
+/// The house of `agent` in the world: the hall for the first mayor,
+/// else its own.
+pub(crate) fn home_of(world: &World, agent: Entity) -> Thing {
+    if agents::first_mayor(world) == Some(agent) {
+        Thing::Cottage
+    } else {
+        Thing::House(agent)
+    }
+}
+
 pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     if seat(world, agent) == Seating::Unaddressed {
         return;
@@ -170,13 +180,10 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
         // Nothing can be selected where there is no world.
         None => true,
     };
+    // From a panel its house is chosen, which is easy to see, not the
+    // small robot.
     if !same {
-        let thing = if hall {
-            Thing::Keeper
-        } else {
-            Thing::Agent(agent)
-        };
-        select(world, Some(thing));
+        select(world, Some(home_of(world, agent)));
     }
     hub::show(world, Showing::Thread);
     show_tab(world, HUB);

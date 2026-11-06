@@ -25,8 +25,8 @@ use bevy::ui::{
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    self, Axis, BehaviorExt, FrameProps, TooltipExt, button, column,
-    frame, label, row, text_field,
+    self, Axis, BehaviorExt, FrameProps, TooltipExt, button,
+    checkbox, column, frame, label, row, segmented, text_field,
 };
 use bevy_fynix::{
     Dragging, OverrideCursor, ScopedExt, ViewExt, derived,
@@ -98,15 +98,36 @@ pub struct Rail {
     folded: Vec<Group>,
     /// How wide the chief dragged it.
     width: f32,
+    /// Which of the realm's two parts it lists under the realm's own
+    /// rows and what waits.
+    tab: Tab,
+    /// The hamlets left out of it; one with something waiting is
+    /// shown whatever this says.
+    hidden: Vec<Entity>,
+    /// Whether the list of hamlets to show is open.
+    filtering: bool,
+}
+
+/// The parts of the realm the rail lists, one at a time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(super) enum Tab {
+    /// The hamlets, each the tree under its mayor, and the hires
+    /// that left.
+    #[default]
+    Hamlets,
+    /// The scholars, those at the harbor and those that left.
+    City,
 }
 
 impl Default for Rail {
     fn default() -> Self {
         Self {
             search: String::new(),
-            // The city is a long list the chief seldom needs.
-            folded: vec![Group::City],
+            folded: Vec::new(),
             width: WIDE,
+            tab: Tab::Hamlets,
+            hidden: Vec::new(),
+            filtering: false,
         }
     }
 }
@@ -951,12 +972,18 @@ fn society(world: &World, sections: &mut Vec<Section>) {
 /// The rail's rows in their groups. A group with no row is left out;
 /// while searching every group is open and keeps only what matches.
 pub(super) fn sections(world: &World) -> Vec<Section> {
-    let (search, folded) = world.get_resource::<Rail>().map_or_else(
-        || (String::new(), Vec::new()),
-        |rail| {
-            (rail.search.trim().to_lowercase(), rail.folded.clone())
-        },
-    );
+    let (search, folded, tab, hidden) =
+        world.get_resource::<Rail>().map_or_else(
+            || (String::new(), Vec::new(), Tab::Hamlets, Vec::new()),
+            |rail| {
+                (
+                    rail.search.trim().to_lowercase(),
+                    rail.folded.clone(),
+                    rail.tab,
+                    rail.hidden.clone(),
+                )
+            },
+        );
     let all = agents(world);
     let mut sections = Vec::new();
 
@@ -1084,9 +1111,136 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             section.folded = false;
             section.lines.retain(|line| matches(line, &search));
         }
+        // Of those that left, the tab's own: hires on the hamlets',
+        // scholars on the city's.
+        if section.group == Group::Left {
+            section.lines.retain(|line| {
+                matches!(line.target, Target::Scholar(_))
+                    == (tab == Tab::City)
+            });
+            section.count = section.lines.len();
+        }
     }
-    sections.retain(|section| !section.lines.is_empty());
+    sections.retain(|section| {
+        let shown = match section.group {
+            Group::Top
+            | Group::Needs
+            | Group::Left
+            | Group::Lead(_) => true,
+            Group::Hamlet(hamlet) => {
+                tab == Tab::Hamlets
+                    && (!hidden.contains(&hamlet)
+                        || section.mark == Mark::Waits)
+            }
+            Group::City | Group::Harbor => tab == Tab::City,
+        };
+        shown && !section.lines.is_empty()
+    });
     sections
+}
+
+/// The hamlets the chief can choose to show, by name.
+fn hamlet_names(world: &World) -> Vec<(Entity, String)> {
+    let mut found = world
+        .try_query::<(Entity, &HamletId)>()
+        .map(|mut query| {
+            query
+                .iter(world)
+                .map(|(hamlet, _)| (hamlet, name_of(world, hamlet)))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    found.sort_by_key(|(_, name)| name.to_lowercase());
+    found
+}
+
+/// The tabs between the hamlets and the city, and on the hamlets'
+/// a list with a box for each hamlet that shows or hides it.
+fn tabs_and_filter() -> impl View {
+    let tabs = segmented(
+        ["HAMLETS", "CITY"],
+        resource::<Rail, _>(|rail| match rail.tab {
+            Tab::Hamlets => 0,
+            Tab::City => 1,
+        }),
+        |world, at| {
+            world.resource_mut::<Rail>().tab =
+                if at == 0 { Tab::Hamlets } else { Tab::City };
+        },
+    );
+    let filter = keyed(
+        derived(|world: &World| {
+            let rail = world.resource::<Rail>();
+            let on_hamlets = rail.tab == Tab::Hamlets;
+            let (open, hidden) =
+                (rail.filtering, rail.hidden.clone());
+            (on_hamlets, open, hidden, hamlet_names(world))
+        })
+        .when(every_frame()),
+        |(on_hamlets, open, hidden, names)| {
+            if !*on_hamlets || names.is_empty() {
+                return frame().boxed();
+            }
+            let shown = names.len()
+                - names
+                    .iter()
+                    .filter(|(h, _)| hidden.contains(h))
+                    .count();
+            let open = *open;
+            let toggle = button(
+                row((
+                    glyph(Glyph::Sliders, ICON).tone(Tone::Faint),
+                    label(format!(
+                        "Showing {shown} of {}",
+                        names.len()
+                    ))
+                    .tone(Tone::Dim)
+                    .wrap(false),
+                    glyph(Glyph::Chevron, 10.0)
+                        .tone(Tone::Faint)
+                        .rotation(if open { 180.0 } else { 90.0 }),
+                ))
+                .gap(6.0)
+                .align(AlignItems::Center),
+            )
+            .padding(UiRect::all(px(2.0)))
+            .rules(views::tint)
+            .tooltip(|| note("Choose which hamlets the rail shows"))
+            .on_activate(|world| {
+                let mut rail = world.resource_mut::<Rail>();
+                rail.filtering = !rail.filtering;
+            });
+            let mut parts = vec![toggle.boxed()];
+            if open {
+                for (hamlet, name) in names.iter().cloned() {
+                    let on = !hidden.contains(&hamlet);
+                    parts.push(
+                        row((
+                            checkbox(on).on_change(
+                                move |world, show| {
+                                    let hidden = &mut world
+                                        .resource_mut::<Rail>()
+                                        .hidden;
+                                    hidden.retain(|h| *h != hamlet);
+                                    if !show {
+                                        hidden.push(hamlet);
+                                    }
+                                },
+                            ),
+                            label(name).wrap(false),
+                        ))
+                        .gap(8.0)
+                        .align(AlignItems::Center)
+                        .padding(UiRect::left(px(CHEVRON)))
+                        .boxed(),
+                    );
+                }
+            }
+            column(parts).gap(4.0).boxed()
+        },
+    )
+    .within(hamlet_ui::styles::bare());
+    column((tabs, filter)).gap(6.0)
 }
 
 /// What pressing a row does.
@@ -1094,7 +1248,14 @@ fn go(world: &mut World, target: Target) {
     match target {
         Target::Home => show(world, Showing::Home),
         Target::Hand => talk_to_hand(world),
-        Target::Agent(agent) => talk_to(world, agent),
+        // Its thread, and its house brought into view.
+        Target::Agent(agent) => {
+            talk_to(world, agent);
+            if world.contains_resource::<Selected>() {
+                let home = crate::convo::home_of(world, agent);
+                bring_into_view(world, home);
+            }
+        }
         Target::Hamlet(hamlet) => {
             show(world, Showing::Hamlet(hamlet));
             look_at(world, Thing::Common(hamlet));
@@ -1349,7 +1510,25 @@ fn header(section: &Section) -> AnyView {
 
 fn sections_view(sections: &[Section]) -> AnyView {
     let mut parts = Vec::new();
+    let mut tabbed = false;
     for section in sections {
+        // The tabs come after the realm's own rows and what waits,
+        // over the part of the realm they choose.
+        if !tabbed
+            && !matches!(section.group, Group::Top | Group::Needs)
+        {
+            parts.push(
+                column((tabs_and_filter(),))
+                    .padding(UiRect::new(
+                        px(0.0),
+                        px(0.0),
+                        px(10.0),
+                        px(4.0),
+                    ))
+                    .boxed(),
+            );
+            tabbed = true;
+        }
         if !section.title.is_empty() {
             parts.push(header(section));
         }
@@ -1357,6 +1536,9 @@ fn sections_view(sections: &[Section]) -> AnyView {
             continue;
         }
         parts.extend(section.lines.iter().map(expanded));
+    }
+    if !tabbed {
+        parts.push(tabs_and_filter().boxed());
     }
     // No gap, so the guides of a tree run unbroken from row to row.
     column(parts).gap(0.0).boxed()
