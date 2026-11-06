@@ -24,8 +24,9 @@ use crate::knowledge::{self, CHARACTER};
 use crate::layout::Layout;
 use crate::settings::Settings;
 use crate::society::agents::{self, AgentKind};
-use crate::society::{hamlets, hires, limits, workers};
+use crate::society::{hamlets, hires, limits};
 use crate::spend::{self, money};
+use crate::work::hamlet_of;
 
 /// The charter every agent is given unless a chief wrote its own
 /// (C12).
@@ -135,21 +136,7 @@ fn folder_of(
     db: &mut Db,
     agent: hamlet_store::ids::AgentId,
 ) -> Result<Option<(String, bool)>> {
-    let hamlet = match agents::get(db, agent)?.kind {
-        AgentKind::Hand => None,
-        AgentKind::Hire => Some(hires::get(db, agent)?.hamlet),
-        AgentKind::Worker => {
-            let worker = workers::get(db, agent)?;
-            match (worker.hamlet, worker.starter) {
-                (Some(hamlet), _) => Some(hamlet),
-                (None, Some(starter)) => {
-                    hires::find(db, starter)?.map(|h| h.hamlet)
-                }
-                (None, None) => None,
-            }
-        }
-    };
-    let Some(hamlet) = hamlet else {
+    let Some(hamlet) = hamlet_of(db, agent)? else {
         return Ok(None);
     };
     let kept = hamlets::get(db, &hamlet)?;

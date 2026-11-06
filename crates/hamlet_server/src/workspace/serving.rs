@@ -17,9 +17,9 @@ use crate::core::Core;
 use crate::diagnostic::{Secrets, tell};
 use crate::jobs::Job;
 use crate::knowledge;
-use crate::society::agents::{self, AgentKind};
 use crate::society::refusal::Refusal;
-use crate::society::{hamlets, hires, merges, workers};
+use crate::society::{agents, hamlets, hires, merges};
+use crate::work::hamlet_of;
 
 impl Core {
     /// The session of `agent`'s tools in the remote workspace, when
@@ -34,20 +34,7 @@ impl Core {
             return Ok(None);
         };
         let db = self.realm.store().connection();
-        let hamlet = match agents::get(db, agent)?.kind {
-            AgentKind::Hand => None,
-            AgentKind::Hire => Some(hires::get(db, agent)?.hamlet),
-            AgentKind::Worker => {
-                let worker = workers::get(db, agent)?;
-                match (worker.hamlet, worker.starter) {
-                    (Some(hamlet), _) => Some(hamlet),
-                    (None, Some(starter)) => {
-                        hires::find(db, starter)?.map(|h| h.hamlet)
-                    }
-                    (None, None) => None,
-                }
-            }
-        };
+        let hamlet = hamlet_of(db, agent)?;
         let project = match &hamlet {
             Some(id) => hamlets::get(db, id)?.folder.is_some(),
             None => false,
