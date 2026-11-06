@@ -20,6 +20,7 @@ use hamlet_protocol::runtime::{
 };
 use hamlet_store::Db;
 use hamlet_store::schema::document;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::clients::check::reply;
@@ -27,6 +28,7 @@ use crate::core::Core;
 use crate::credentials::write_whole;
 use crate::layout::Layout;
 use crate::settings::Settings;
+use crate::society::agents::Effort;
 use crate::society::refusal::Refusal;
 use crate::talk::runtimes::Phase;
 
@@ -165,7 +167,8 @@ impl Providers {
         db: &mut Db,
         settings: &Settings,
         model: ModelRef,
-        effort: Option<crate::society::hires::Effort>,
+        effort: Option<Effort>,
+        fast: bool,
     ) -> Result<Selection> {
         let listed = self.listed(&model.provider, &model.id);
         let base_url = model.base_url.clone().or_else(|| {
@@ -217,10 +220,21 @@ impl Providers {
                 }
             }
         };
+        // A model asked for an effort or tier it lacks gets the
+        // nearest effort it has, and the standard tier.
+        let card =
+            cards.get(&name).filter(|_| model.provider != FAUX);
+        let effort = effort.map(|effort| match card {
+            Some(card) if !card.efforts.is_empty() => {
+                effort.clamped(&card.efforts)
+            }
+            _ => effort,
+        });
         Ok(Selection {
             context_window: size("contextWindow"),
             max_tokens: size("maxTokens"),
-            effort: effort.map(crate::society::hires::Effort::wire),
+            effort: effort.map(Effort::wire),
+            fast: fast && card.is_some_and(|card| card.fast),
             model: ModelRef { base_url, ..model },
             price,
         })
@@ -900,14 +914,17 @@ impl Core {
                 "{provider}::{}",
                 model["id"].as_str().unwrap_or_default()
             );
-            let card = cards.entry(name.clone()).or_insert(Listed {
-                allowed: false,
+            let card = cards.entry(name.clone()).or_insert(Card {
                 context: None,
+                default_effort: None,
+                efforts: Vec::new(),
+                fast: false,
                 name,
                 note: String::new(),
                 price: None,
                 priced: ListedPriced::Unknown,
             });
+            card.learn(model);
             let context = model
                 .get("listedContext")
                 .unwrap_or(&model["contextWindow"]);
@@ -984,6 +1001,7 @@ impl Core {
                         |(provider, _)| reached(provider),
                     )
             })
+            .map(Card::listed)
             .collect();
         Ok(ServerMessage::Read(ReadResult::Models {
             to: id.clone(),
@@ -1015,9 +1033,6 @@ impl Core {
         let Some(card) = cards.get_mut(name) else {
             return Ok(Err(Refusal::NoModel { model: name.into() }));
         };
-        if let Some(allowed) = set.allowed {
-            card.allowed = allowed;
-        }
         if let Some(note) = set.note {
             card.note = self.credentials.scrub_text(&note);
         }
@@ -1061,8 +1076,75 @@ fn login_step(
     })
 }
 
+/// What the catalogue keeps of a model.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Card {
+    context: Option<i64>,
+    #[serde(default)]
+    default_effort: Option<Effort>,
+    #[serde(default)]
+    efforts: Vec<Effort>,
+    #[serde(default)]
+    fast: bool,
+    name: String,
+    note: String,
+    price: Option<ListedPrice>,
+    priced: ListedPriced,
+}
+
+impl Card {
+    /// Takes in what pi says of `model`: the efforts it can be asked
+    /// for, its default among them, and whether its API has a fast
+    /// tier.
+    fn learn(&mut self, model: &Value) {
+        self.efforts =
+            if model["reasoning"].as_bool().unwrap_or(false) {
+                Effort::ALL
+                    .into_iter()
+                    .filter(|effort| {
+                        match model["thinkingLevelMap"]
+                            .get(effort.as_str())
+                        {
+                            Some(Value::Null) => false,
+                            Some(_) => true,
+                            None => !matches!(
+                                effort,
+                                Effort::XHigh | Effort::Max
+                            ),
+                        }
+                    })
+                    .collect()
+            } else {
+                vec![Effort::Off]
+            };
+        self.default_effort =
+            Some(Effort::Medium.clamped(&self.efforts));
+        self.fast = matches!(
+            model["api"].as_str(),
+            Some("openai-responses" | "openai-codex-responses")
+        );
+    }
+
+    fn listed(self) -> Listed {
+        Listed {
+            context: self.context,
+            default_effort: self.default_effort.map(Effort::wire),
+            efforts: self
+                .efforts
+                .into_iter()
+                .map(Effort::wire)
+                .collect(),
+            fast: self.fast,
+            name: self.name,
+            note: self.note,
+            price: self.price,
+            priced: self.priced,
+        }
+    }
+}
+
 /// The model catalogue: each model's card, by its name.
-type Catalogue = BTreeMap<String, Listed>;
+type Catalogue = BTreeMap<String, Card>;
 
 fn catalogue(db: &mut Db) -> Result<Catalogue> {
     let text = document::table

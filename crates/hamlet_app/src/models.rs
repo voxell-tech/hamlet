@@ -232,7 +232,7 @@ mod tests {
         incoming(
             &mut app,
             json!({"type":"read", "to":requests[0]["id"], "models":[
-                {"name":"far::large", "price":{"input":3.0,"output":15.0}, "priced":"listed", "context":200000, "allowed":true, "note":"For hard questions."}
+                {"name":"far::large", "price":{"input":3.0,"output":15.0}, "priced":"listed", "context":200000, "defaultEffort":null, "efforts":[], "fast":false, "note":"For hard questions."}
             ]}),
         );
         mount::<HamletTheme>(app.world_mut(), shelf());
@@ -250,7 +250,7 @@ mod tests {
         incoming(
             &mut app,
             json!({"type":"read", "to":read["id"], "models":[
-                {"name":"far::small", "price":null, "priced":"unknown", "context":null, "allowed":true, "note":""}
+                {"name":"far::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":""}
             ]}),
         );
         app
@@ -281,26 +281,12 @@ mod tests {
     #[test]
     fn allowance_refresh_and_a_refused_catalogue_edit_go_through_the_server()
      {
-        use bevy::ecs::query::With;
-        use bevy::ui_widgets::{Checkbox, ValueChange};
-
         let mut app = with_catalogue();
         mount::<HamletTheme>(app.world_mut(), shelf());
-        let toggle = app
-            .world_mut()
-            .query_filtered::<Entity, With<Checkbox>>()
-            .single(app.world())
-            .unwrap();
-        app.world_mut().trigger(ValueChange {
-            source: toggle,
-            value: false,
-            is_final: true,
-        });
-        app.update();
+        type_field(&mut app, "0.00", "0.25");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["doc"], "catalogue");
         assert_eq!(edit["model"], "far::small");
-        assert_eq!(edit["set"], json!({"allowed":false}));
         incoming(
             &mut app,
             json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"The catalogue could not be saved."}),
@@ -318,9 +304,6 @@ mod tests {
     #[test]
     fn a_hamlets_list_and_default_keep_the_rest_of_its_received_limits()
      {
-        use bevy::ecs::query::With;
-        use bevy::ui_widgets::{Checkbox, ValueChange};
-
         let mut app = with_catalogue();
         let mayor =
             hamlet_client::realm::first_mayor(app.world()).unwrap();
@@ -330,34 +313,19 @@ mod tests {
             .unwrap()
             .0;
         mount::<HamletTheme>(app.world_mut(), of_hamlet(hamlet));
-        let toggle = app
-            .world_mut()
-            .query_filtered::<Entity, With<Checkbox>>()
-            .single(app.world())
-            .unwrap();
-        app.world_mut().trigger(ValueChange {
-            source: toggle,
-            value: true,
-            is_final: true,
-        });
-        app.update();
-        let edit = sent(&mut app).remove(0);
-        assert_eq!(edit["whole"]["models"], json!(["far::small"]));
-        assert_eq!(edit["whole"]["road"]["most"], 24);
-        assert_eq!(edit["whole"]["budget"]["cost"], 5.0);
-        incoming(
-            &mut app,
-            json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This model list was refused."}),
-        );
-        assert!(
-            all_words(&mut app)
-                .contains("This model list was refused.")
-        );
         press_and_update(&mut app, "faux::faux-1");
         press_and_update(&mut app, "far::small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["whole"]["model"], "far::small");
         assert_eq!(edit["whole"]["road"]["most"], 24);
+        assert_eq!(edit["whole"]["budget"]["cost"], 5.0);
+        incoming(
+            &mut app,
+            json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This model was refused."}),
+        );
+        assert!(
+            all_words(&mut app).contains("This model was refused.")
+        );
     }
     #[test]
     fn prices_are_catalogue_edits_and_success_reads_the_server_again()

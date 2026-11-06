@@ -18,8 +18,6 @@ pub(crate) struct Limits {
     pub task: TaskCaps,
     pub road: RoadRules,
     pub reserved: Reserved,
-    /// The models its leads may choose for its hires; empty is any.
-    pub models: Vec<String>,
     /// The hamlet's own model, else the realm's.
     pub model: Option<String>,
     /// How deep its tree may be under its mayor.
@@ -39,7 +37,6 @@ impl Default for Limits {
             task: TaskCaps::default(),
             road: RoadRules::default(),
             reserved: Reserved::default(),
-            models: Vec::new(),
             model: None,
             depth: 3,
             told_days: 7,

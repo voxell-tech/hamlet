@@ -15,7 +15,6 @@ use hamlet_ui::styles::{
     good_action, group, list, note, section, text_input,
 };
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::choice::{chooser, home_default};
@@ -168,7 +167,6 @@ fn price(name: &str, output: bool) -> AnyView {
                     &name,
                     protocol::EditCatalogueSet {
                         price: Some(Some(price)),
-                        allowed: None,
                         note: None,
                     },
                 );
@@ -187,7 +185,6 @@ fn price(name: &str, output: bool) -> AnyView {
 
 fn entry(model: &protocol::Listed) -> AnyView {
     let name = model.name.clone();
-    let allow = name.clone();
     let source = match model.priced {
         protocol::ListedPriced::Unknown => "no price",
         protocol::ListedPriced::Listed => "listed",
@@ -208,25 +205,7 @@ fn entry(model: &protocol::Listed) -> AnyView {
         .gap(cx.theme().space.gap)
         .align(AlignItems::Center)
     });
-    close((
-        labelled_switch(
-            model.name.clone(),
-            model.allowed,
-            move |world, allowed| {
-                catalogue(
-                    world,
-                    &allow,
-                    protocol::EditCatalogueSet {
-                        allowed: Some(allowed),
-                        price: None,
-                        note: None,
-                    },
-                );
-            },
-        ),
-        prices,
-    ))
-    .boxed()
+    close((section(model.name.clone()), prices)).boxed()
 }
 
 /// The names holding every word of `narrow`, as the `page`th page of
@@ -333,15 +312,11 @@ pub fn shelf() -> AnyView {
         close((
             section("DEFAULT MODEL"),
             chooser(home_default, save_default),
-            description(
-                "Used wherever nobody chose a model. It is always \
-                 allowed.",
-            ),
+            description("Used wherever nobody chose a model."),
         )),
         description(
-            "Switch a model on to allow it. Prices are dollars per \
-             million tokens in and out, used when the endpoint does \
-             not bill a call.",
+            "Prices are dollars per million tokens in and out, used \
+             when the endpoint does not bill a call.",
         ),
         beside((
             action(Glyph::Restore, "LIST MODELS", |world| {

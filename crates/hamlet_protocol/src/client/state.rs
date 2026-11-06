@@ -205,7 +205,13 @@ pub struct Agent {
     pub busy: bool,
     pub consulting: bool,
     pub conversations: Vec<ConversationView>,
+    /// How hard it thinks when chosen for it; none while it follows
+    /// the realm's `effort` setting.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub effort: Option<crate::Effort>,
     pub faulted: bool,
+    /// Whether its calls ask for the provider's fast tier.
+    pub fast: bool,
     /// A hire's hamlet, or a worker's when it has one.
     #[serde(deserialize_with = "Option::deserialize")]
     pub hamlet: Option<String>,
@@ -216,6 +222,7 @@ pub struct Agent {
     #[schemars(with = "Left")]
     pub left: Option<Left>,
     pub mayor: bool,
+    /// The model it runs now.
     pub model: String,
     /// How it is named: `hand`, `name@hamlet`, `name#number@hamlet`
     /// or `worker#id`.
@@ -227,6 +234,11 @@ pub struct Agent {
     /// A hire's number in its hamlet.
     #[serde(deserialize_with = "Option::deserialize")]
     pub number: Option<u64>,
+    /// The model chosen for it; none while it follows its hamlet's,
+    /// or the realm's default.
+    #[serde(rename = "ownModel")]
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub own_model: Option<String>,
     /// The agent it answers to: a hire's lead, the Hand for a mayor,
     /// a worker's starter. None for the Hand, or a chief's worker.
     #[serde(deserialize_with = "Option::deserialize")]

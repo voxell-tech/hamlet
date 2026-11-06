@@ -1,15 +1,15 @@
 use hamlet_store::ids::{Actor, AgentId, HamletId};
 
 use super::addresses::{self, Address, Reach};
-use super::agents::{self, EndHow};
+use super::agents::{self, Effort, EndHow};
 use super::hamlets::{self, Founding};
 use super::hires::{self, Hired, Hiring, Spec};
 use super::refusal::Refusal;
 use super::roads::{self, Agreed, Way};
 use super::workers::{self, Start, Starter};
-use super::{city, merges, tree};
+use super::{authority, chiefs, city, merges, tree};
 use crate::settings::{Overrides, Settings};
-use crate::talk::{Env, chats};
+use crate::talk::{Env, chats, models};
 use crate::testing::Realm;
 
 fn docs() -> HamletId {
@@ -484,4 +484,69 @@ fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
     realm
         .chief(|cx| hires::end(cx, bo, EndHow::Ended, "done"))
         .unwrap();
+}
+
+#[test]
+fn an_agents_own_effort_wins_and_the_realms_fills_in() {
+    let mut realm = Realm::new();
+    let mayor = realm.found("docs", "ada").agent;
+    let bo =
+        hire(&mut realm, &docs(), mayor, new("bo")).unwrap().agent;
+    let settings = Settings {
+        effort: Some(Effort::Low),
+        ..Settings::default()
+    };
+    let effort = |realm: &mut Realm, agent| {
+        models::effort_of(realm.db(), &settings, agent).unwrap()
+    };
+    assert_eq!(effort(&mut realm, bo), Some(Effort::Low));
+    realm
+        .chief(|cx| agents::set_effort(cx, bo, Some(Effort::Max)))
+        .unwrap();
+    assert_eq!(effort(&mut realm, bo), Some(Effort::Max));
+    assert_eq!(effort(&mut realm, mayor), Some(Effort::Low));
+    // A worker thinks as hard as its starter unless it was told.
+    let worker = realm
+        .by(Actor::Agent(bo), |cx| {
+            workers::start(
+                cx,
+                Start {
+                    starter: Starter::Agent(bo),
+                    hamlet: None,
+                    brief: "Count the files".into(),
+                    tools: vec![],
+                    model: None,
+                    waits: true,
+                    call: None,
+                },
+            )
+        })
+        .unwrap();
+    assert_eq!(effort(&mut realm, worker), Some(Effort::Max));
+    realm.chief(|cx| agents::set_effort(cx, bo, None)).unwrap();
+    assert_eq!(effort(&mut realm, worker), Some(Effort::Low));
+}
+
+#[test]
+fn an_effort_a_model_lacks_gives_way_to_the_nearest_it_has() {
+    let has = [Effort::Off, Effort::Low, Effort::High];
+    assert_eq!(Effort::Max.clamped(&has), Effort::High);
+    assert_eq!(Effort::Minimal.clamped(&has), Effort::Low);
+    assert_eq!(Effort::Low.clamped(&has), Effort::Low);
+    assert_eq!(Effort::High.clamped(&[Effort::Off]), Effort::Off);
+}
+
+#[test]
+fn only_a_chief_of_the_hamlet_steers_its_agents() {
+    let mut realm = Realm::new();
+    let mayor = realm.found("docs", "ada").agent;
+    let other = chiefs::ensure(realm.db(), "sam", 2).unwrap();
+    let hand = realm.hand;
+    let (own, other) =
+        (Actor::Chief(realm.chief), Actor::Chief(other));
+    let db = realm.db();
+    assert!(authority::may_steer(db, own, mayor).unwrap());
+    assert!(!authority::may_steer(db, other, mayor).unwrap());
+    // The Hand serves every chief of the realm.
+    assert!(authority::may_steer(db, other, hand).unwrap());
 }

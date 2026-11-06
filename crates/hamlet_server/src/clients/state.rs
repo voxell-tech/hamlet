@@ -12,7 +12,7 @@ use hamlet_store::ids::{AgentId, HamletId, ScholarId};
 use hamlet_store::schema::{agent, message, permission_grant};
 
 use crate::layout::Layout;
-use crate::society::agents::{Agent, AgentKind, EndHow};
+use crate::society::agents::{Agent, AgentKind, Effort, EndHow};
 use crate::society::city::{self, Arrival, Scholar};
 use crate::society::hamlets::{self, Hamlet, Mode};
 use crate::society::limits::{
@@ -201,6 +201,11 @@ fn agent_view(
         }),
         _ => None,
     };
+    let own_model = match found.kind {
+        AgentKind::Hand => hand::model(db)?,
+        AgentKind::Hire => hires::get(db, id)?.model,
+        AgentKind::Worker => workers::get(db, id)?.model,
+    };
     let (pin, nickname) = match found.kind {
         AgentKind::Hire => {
             let hire = hires::get(db, id)?;
@@ -232,7 +237,9 @@ fn agent_view(
                 crate::calls::LIBRARIAN,
             )?,
         conversations: peers(db, id)?,
+        effort: found.effort.map(Effort::wire),
         faulted: shown.is_some_and(|a| a.faulted),
+        fast: found.fast,
         hamlet,
         id: wire_agent(id),
         kind: match found.kind {
@@ -246,6 +253,7 @@ fn agent_view(
         name,
         nickname,
         number: number.and_then(|n| u64::try_from(n).ok()),
+        own_model,
         parent: parent.map(wire_agent),
         pin,
         purpose,
@@ -600,7 +608,6 @@ pub(crate) fn hamlet_limits(own: &Limits) -> protocol::Limits {
         budget: budget_view(&own.budget),
         depth: own.depth,
         model: own.model.clone(),
-        models: own.models.clone(),
         protected_minutes: own.protected_minutes,
         reserved: protocol::LimitsReserved {
             end: own.reserved.end,

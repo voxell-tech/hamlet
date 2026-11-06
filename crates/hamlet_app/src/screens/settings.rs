@@ -140,8 +140,7 @@ impl Pane {
                 "Where models come from, and their keys."
             }
             Pane::Models => {
-                "The default model, which models are allowed and \
-                 their prices."
+                "The default model and the models' prices."
             }
             Pane::Agents => {
                 "Reflection, network access and keeping awake."

@@ -94,6 +94,7 @@ pub(crate) fn allow(
         &env.settings,
         choice.model,
         choice.effort,
+        choice.fast,
     )?;
     let model = &selection.model;
     let price = &selection.price;

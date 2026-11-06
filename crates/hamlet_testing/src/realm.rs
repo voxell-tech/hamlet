@@ -52,7 +52,7 @@ pub fn hamlet(id: &str, mayor: u64) -> protocol::Hamlet {
             "task": {"messages": 12, "cost": 1, "minutes": null},
             "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
             "reserved": {"hire": false, "roads": false, "end": false, "merge": false},
-            "models": [], "model": null, "depth": 3, "toldDays": 7, "protectedMinutes": 0,
+            "model": null, "depth": 3, "toldDays": 7, "protectedMinutes": 0,
             "asking": {"review": "remote", "questions": 3, "refusals": 3}
         }
     })).unwrap()
@@ -63,7 +63,8 @@ pub fn hand(id: u64) -> protocol::Agent {
     serde_json::from_value(json!({
         "id": id, "kind": "hand", "name": "hand", "nickname": null, "hamlet": null, "number": null,
         "scholar": null, "parent": null, "pin": null, "purpose": "", "since": 0, "mayor": false,
-        "model": "faux::faux-1", "busy": false, "faulted": false,
+        "model": "faux::faux-1", "ownModel": null, "effort": null, "fast": false,
+        "busy": false, "faulted": false,
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
         "saying": {"text": "", "thought": false},
         "spent": {"tokens": 0, "micros": 0, "ms": 0, "cost": "$0.00"},
@@ -83,7 +84,8 @@ pub fn agent(
         "hamlet": hamlet, "number": number, "scholar": id,
         "parent": if number == 0 { json!(1) } else { json!(2) },
         "pin": null, "purpose": "", "since": 0, "mayor": number == 0,
-        "model": "faux::faux-1", "busy": false, "faulted": false,
+        "model": "faux::faux-1", "ownModel": null, "effort": null, "fast": false,
+        "busy": false, "faulted": false,
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
         "saying": {"text": "", "thought": false},
         "spent": {"tokens": 0, "micros": 0, "ms": 0, "cost": "$0.00"},

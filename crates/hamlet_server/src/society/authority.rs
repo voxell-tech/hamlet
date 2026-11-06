@@ -9,7 +9,7 @@ use hamlet_store::ids::{
 use hamlet_store::schema::hamlet_chief;
 
 use super::agents::{self, AgentKind};
-use super::{chiefs, city, hamlets, hires, tree};
+use super::{chiefs, city, hamlets, hires, tree, workers};
 
 /// Whether `chief` is a chief of `hamlet` (C7).
 pub(crate) fn is_chief_of(
@@ -48,6 +48,38 @@ pub(crate) fn may_lead(
             is_hand(db, actor)? || tree::is_above(db, agent, id)?
         }
         Actor::Realm => true,
+    })
+}
+
+/// Whether `actor` may choose the model, effort and fast tier of the
+/// agent `id`: whoever may lead a hire; a chief for the Hand; for a
+/// worker, its starter, a chief of its hamlet, or the chief who
+/// started it, any chief when it belongs to none.
+pub(crate) fn may_steer(
+    db: &mut Db,
+    actor: Actor,
+    id: AgentId,
+) -> Result<bool> {
+    Ok(match agents::get(db, id)?.kind {
+        AgentKind::Hire => may_lead(db, actor, id)?,
+        AgentKind::Hand => {
+            matches!(actor, Actor::Chief(_) | Actor::Realm)
+        }
+        AgentKind::Worker => {
+            let worker = workers::get(db, id)?;
+            match actor {
+                Actor::Chief(chief) => match &worker.hamlet {
+                    _ if worker.chief == Some(chief) => true,
+                    Some(hamlet) => is_chief_of(db, chief, hamlet)?,
+                    None => worker.chief.is_none(),
+                },
+                Actor::Agent(agent) => {
+                    worker.starter == Some(agent)
+                        || is_hand(db, actor)?
+                }
+                Actor::Realm => true,
+            }
+        }
     })
 }
 

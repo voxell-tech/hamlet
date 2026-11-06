@@ -303,7 +303,7 @@ async fn edits_settings_and_refuses_bad_ones() {
 }
 
 #[tokio::test]
-async fn prices_allows_and_notes_a_model_in_the_catalogue() {
+async fn prices_and_notes_a_model_in_the_catalogue() {
     let mut s = Session::start(Faux::new()).await;
     s.chief
         .until("the faux provider", |c| {
@@ -314,7 +314,6 @@ async fn prices_allows_and_notes_a_model_in_the_catalogue() {
         id,
         model: "faux::faux-1".into(),
         set: EditCatalogueSet {
-            allowed: Some(true),
             price: Some(Some(Price {
                 input: 0.12,
                 output: 0.34,
@@ -339,13 +338,11 @@ async fn prices_allows_and_notes_a_model_in_the_catalogue() {
         })
     );
     assert_eq!(faux.priced, ListedPriced::Yours);
-    assert!(faux.allowed);
     assert_eq!(faux.note, "Preferred.");
     let reply = edit(&mut s.chief, |id| Edit::Catalogue {
         id,
         model: "missing::model".into(),
         set: EditCatalogueSet {
-            allowed: Some(true),
             price: None,
             note: None,
         },

@@ -497,7 +497,6 @@ fn model_choices(world: &World, agent: Entity) -> Vec<String> {
             .get_resource::<Shelf>()
             .into_iter()
             .flat_map(|shelf| &shelf.models)
-            .filter(|model| model.allowed)
             .map(|model| model.name.clone()),
     );
     if let Some(now) = world
@@ -516,7 +515,6 @@ fn default_choices(world: &World, agent: Entity) -> Vec<String> {
         .get_resource::<Shelf>()
         .into_iter()
         .flat_map(|shelf| &shelf.models)
-        .filter(|model| model.allowed)
         .map(|model| model.name.clone())
         .collect::<Vec<_>>();
     if let Some(now) = world

@@ -30,6 +30,11 @@ pub(crate) fn id(db: &mut Db) -> Result<AgentId> {
     Ok(hand::table.select(hand::agent).first(db)?)
 }
 
+/// The model chosen for the Hand, if any.
+pub(crate) fn model(db: &mut Db) -> Result<Option<String>> {
+    Ok(hand::table.select(hand::model).first(db)?)
+}
+
 /// The Hand's own knowledge.
 pub(crate) fn scholar(db: &mut Db) -> Result<ScholarId> {
     Ok(hand::table.select(hand::scholar).first(db)?)

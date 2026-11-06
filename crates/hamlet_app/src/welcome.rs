@@ -636,8 +636,8 @@ mod server_tests {
         incoming(
             &mut app,
             serde_json::json!({"type":"read", "to":requests[1]["id"], "models":[
-                {"name":"local::small", "price":null, "priced":"unknown", "context":null, "allowed":false, "note":""},
-                {"name":"unconfigured::far", "price":null, "priced":"unknown", "context":null, "allowed":false, "note":""}
+                {"name":"local::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":""},
+                {"name":"unconfigured::far", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":""}
             ]}),
         );
         assert!(!all_words(&mut app).contains("unconfigured::far"));
@@ -686,8 +686,8 @@ mod server_tests {
         incoming(
             &mut app,
             serde_json::json!({"type":"read", "to":read["id"], "models":[
-                {"name":"openrouter::small", "price":null, "priced":"unknown", "context":null, "allowed":false, "note":""},
-                {"name":"other::large", "price":null, "priced":"unknown", "context":null, "allowed":false, "note":""}
+                {"name":"openrouter::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":""},
+                {"name":"other::large", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":""}
             ]}),
         );
         assert!(!all_words(&mut app).contains("other::large"));
