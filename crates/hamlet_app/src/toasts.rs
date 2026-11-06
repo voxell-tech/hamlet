@@ -26,11 +26,11 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource, style};
 use hamlet_client::messages::{Answer, ServerFault};
 use hamlet_client::realm::{
-    Departure, Faulted, Kind, Left, Scholar, Seen, Settings,
+    Departure, Faulted, Kind, Left, Scholar, Seen,
 };
 use hamlet_client::waits::{RaisedBy, Waiting};
 use hamlet_protocol::client::{
-    AgentKind, Arrival, LeftHow, Newcomers, ScholarId, WaitDetail,
+    AgentKind, Arrival, LeftHow, ScholarId, WaitDetail,
 };
 use hamlet_ui::styles::{action, buttons, caption, close_button};
 use hamlet_ui::theme::HamletTheme;
@@ -170,14 +170,15 @@ fn raise(
     }
 }
 
-/// Raises a toast when the Hand lets a scholar in or turns it away.
-/// A scholar that went from waiting to housed or turned while the
-/// Hand holds the door was decided by the Hand. What was there at
-/// the first state is not new.
+/// How the server names the Hand as the one who decided an arrival.
+const HAND: &str = "hand";
+
+/// Raises a toast when the Hand lets a scholar in or turns it away:
+/// a scholar that went from waiting to housed or turned, by the Hand.
+/// What was there at the first state is not new.
 fn judged(
     time: Res<Time>,
     seen: Option<Res<Seen>>,
-    settings: Res<Settings>,
     scholars: Query<&Scholar>,
     mut toasts: ResMut<Toasts>,
     mut before: Local<HashMap<ScholarId, Arrival>>,
@@ -187,10 +188,10 @@ fn judged(
         return;
     }
     let now = time.elapsed_secs();
-    let by_hand = settings.0.newcomers == Newcomers::Hand;
     for scholar in &scholars {
         let scholar = &scholar.0;
         let was = before.insert(scholar.id, scholar.arrival);
+        let by_hand = scholar.arrival_by.as_deref() == Some(HAND);
         if !*primed || !by_hand || was != Some(Arrival::Waiting) {
             continue;
         }
@@ -519,7 +520,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
-        state.settings.newcomers = Newcomers::Hand;
+        state.settings.newcomers = protocol::Newcomers::Hand;
         let mut moss = hamlet_testing::realm::scholar(3, "moss", &[]);
         moss.arrival = Arrival::Waiting;
         moss.house = None;
@@ -532,6 +533,7 @@ mod tests {
         state.revision += 1;
         let moss = state.scholars.last_mut().unwrap();
         moss.arrival = Arrival::Housed;
+        moss.arrival_by = Some(HAND.into());
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),

@@ -563,7 +563,9 @@ fn new_and_resumed_conversations_keep_their_received_number() {
             );
         }
     }
-    assert_eq!(numbers, [1, 2, 1]);
+    // `/new` and `/resume` turn the open watch over, which sends the
+    // session it turned to, as the chief's opening it again does.
+    assert_eq!(numbers, [1, 2, 2, 1, 1]);
     let said = app.world().get::<Transcript>(chat).unwrap();
     assert_eq!(said.items().len(), 5);
     assert!(

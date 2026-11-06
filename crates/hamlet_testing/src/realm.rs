@@ -62,7 +62,7 @@ pub fn hamlet(id: &str, mayor: u64) -> protocol::Hamlet {
 pub fn hand(id: u64) -> protocol::Agent {
     serde_json::from_value(json!({
         "id": id, "kind": "hand", "name": "hand", "hamlet": null, "number": null,
-        "scholar": null, "parent": null, "purpose": "", "since": 0, "mayor": false,
+        "scholar": null, "parent": null, "pin": null, "purpose": "", "since": 0, "mayor": false,
         "model": "faux::faux-1", "busy": false, "faulted": false,
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
         "saying": {"text": "", "thought": false},
@@ -82,7 +82,7 @@ pub fn agent(
         "id": id, "kind": "hire", "name": format!("{name}@{hamlet}"),
         "hamlet": hamlet, "number": number, "scholar": id,
         "parent": if number == 0 { json!(1) } else { json!(2) },
-        "purpose": "", "since": 0, "mayor": number == 0,
+        "pin": null, "purpose": "", "since": 0, "mayor": number == 0,
         "model": "faux::faux-1", "busy": false, "faulted": false,
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
         "saying": {"text": "", "thought": false},
@@ -99,9 +99,11 @@ pub fn scholar(
 ) -> protocol::Scholar {
     serde_json::from_value(json!({
         "id": id, "name": name, "chief": "chief", "since": 0,
-        "arrival": "housed", "house": {"x": 40.0, "z": 0.0, "turn": 0.0},
+        "arrival": "housed", "arrivalBy": null,
+        "house": {"x": 40.0, "z": 0.0, "turn": 0.0},
         "skills": [], "versions": [], "hires": hires
-    })).unwrap()
+    }))
+    .unwrap()
 }
 
 /// An approval raised by the first hamlet's mayor.

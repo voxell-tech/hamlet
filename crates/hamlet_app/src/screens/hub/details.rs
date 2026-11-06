@@ -36,6 +36,8 @@ struct Facts {
     kind: &'static str,
     purpose: String,
     scholar: Option<(Entity, String)>,
+    /// The version it is pinned to, none for its scholar's `main`.
+    pin: Option<String>,
     lead: Option<(Entity, String)>,
     hires: Vec<(Entity, String)>,
     roads: Vec<(Entity, String)>,
@@ -112,6 +114,9 @@ fn facts(world: &World, agent: Entity) -> Facts {
             .map(|purpose| purpose.0.clone())
             .unwrap_or_default(),
         scholar,
+        pin: world
+            .get::<hamlet_client::realm::Pin>(agent)
+            .map(|pin| pin.0.clone()),
         lead: lead(agent).map(named),
         hires,
         roads,
@@ -177,6 +182,15 @@ fn agent_section(agent: Entity) -> impl View {
                             show(world, Showing::Scholar(scholar));
                         }),
                 ));
+                if facts.kind != "The Hand" {
+                    parts.push(fact(
+                        "Version",
+                        label(match &facts.pin {
+                            Some(pin) => format!("pinned to {pin}"),
+                            None => "main".to_string(),
+                        }),
+                    ));
+                }
             }
             if let Some((lead, name)) = &facts.lead {
                 parts.push(fact("Lead", link(*lead, name.clone())));

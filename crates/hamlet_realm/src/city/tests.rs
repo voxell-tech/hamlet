@@ -27,6 +27,7 @@ fn scholar(
         } else {
             protocol::Arrival::Waiting
         },
+        arrival_by: None,
         chief: String::new(),
         hires: hires.into_iter().map(protocol::AgentId).collect(),
         house: house.map(|(x, z)| protocol::HouseAt {

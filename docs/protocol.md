@@ -219,7 +219,7 @@ the machine. It is discriminated by `kind`: `sandbox` with the sandbox's
 full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
-`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, the formatted name (`hand`, `name@hamlet`, `name#number@hamlet`, `worker#id`), purpose, model, mayor flag, busy and
+`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the formatted name (`hand`, `name@hamlet`, `name#number@hamlet`, `worker#id`), purpose, model, mayor flag, busy and
 fault flags, activity, short saying, spend, skills, consultation and peer
 conversation summaries, and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
@@ -320,7 +320,8 @@ Every state and change carries the society and realm in full:
   `Hamlet.mayor` is the hire at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
   for a hamlet never set down, which stands on the first free site.
 - `Scholar.arrival` is `housed`, `waiting` at the harbor, or `turned`
-  away. `Scholar.house` is a housed scholar's spot from the city's
+  away. `Scholar.arrivalBy` names who last changed it, a chief or
+  `hand`, and is `null` while it is as it was made. `Scholar.house` is a housed scholar's spot from the city's
   middle, `{x, z, turn}`, its door facing `turn` radians about the
   vertical, and `null` for one at the harbor. The server chooses the spot
   of a scholar let in; `/move-house` sets it elsewhere.

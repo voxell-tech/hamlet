@@ -448,6 +448,7 @@ diesel::table! {
         made_by -> Text,
         planted -> Bool,
         arrival -> Text,
+        arrival_by -> Nullable<Text>,
         house_x -> Nullable<Double>,
         house_z -> Nullable<Double>,
         house_turn -> Nullable<Double>,

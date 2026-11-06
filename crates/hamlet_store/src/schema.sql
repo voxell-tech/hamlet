@@ -45,6 +45,9 @@ CREATE TABLE scholar (
     -- Whether it lives in the city or waits at its harbor.
     arrival TEXT NOT NULL DEFAULT 'housed'
         CHECK (arrival IN ('housed', 'waiting', 'turned')),
+    -- Who last let it in, kept it waiting or turned it away; none
+    -- while it is as it was made.
+    arrival_by TEXT,
     -- Its house's spot from the city's middle and the way its door
     -- faces, while it lives in the city.
     house_x REAL,

@@ -548,6 +548,7 @@ fn run(
                     Name::new(format!("Scholar {k}")),
                     Scholar(protocol::Scholar {
                         arrival: protocol::Arrival::Housed,
+                        arrival_by: None,
                         chief: String::new(),
                         hires: hired,
                         house: Some(protocol::HouseAt {
@@ -580,6 +581,7 @@ fn run(
                         } else {
                             protocol::Arrival::Turned
                         },
+                        arrival_by: None,
                         chief: String::new(),
                         hires: Vec::new(),
                         house: None,

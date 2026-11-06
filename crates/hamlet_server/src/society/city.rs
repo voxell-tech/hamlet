@@ -64,6 +64,7 @@ pub(crate) struct Scholar {
     pub made_by: Actor,
     pub planted: bool,
     pub arrival: Arrival,
+    pub arrival_by: Option<Actor>,
     pub house_x: Option<f64>,
     pub house_z: Option<f64>,
     pub house_turn: Option<f64>,
@@ -130,7 +131,10 @@ pub(crate) fn make(
     match newcomer(cx)? {
         Some((maker, policy)) => {
             diesel::update(scholar::table.find(id))
-                .set(scholar::arrival.eq(Arrival::Waiting))
+                .set((
+                    scholar::arrival.eq(Arrival::Waiting),
+                    scholar::arrival_by.eq(cx.actor),
+                ))
                 .execute(cx.db)?;
             // Under the Hand, its errand is begun where the settings
             // and the models are at hand.
@@ -193,6 +197,7 @@ fn house(cx: &mut Change<'_>, id: ScholarId) -> Result<()> {
     diesel::update(scholar::table.find(id))
         .set((
             scholar::arrival.eq(Arrival::Housed),
+            scholar::arrival_by.eq(cx.actor),
             scholar::house_x.eq(x),
             scholar::house_z.eq(z),
             scholar::house_turn.eq(facing_middle(x, z)),
@@ -297,6 +302,7 @@ pub(crate) fn turn_away(
     diesel::update(scholar::table.find(id))
         .set((
             scholar::arrival.eq(Arrival::Turned),
+            scholar::arrival_by.eq(cx.actor),
             scholar::house_x.eq(None::<f64>),
             scholar::house_z.eq(None::<f64>),
             scholar::house_turn.eq(None::<f64>),

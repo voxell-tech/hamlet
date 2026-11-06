@@ -228,6 +228,10 @@ pub struct Agent {
     /// a worker's starter. None for the Hand, or a chief's worker.
     #[serde(deserialize_with = "Option::deserialize")]
     pub parent: Option<AgentId>,
+    /// The version of its scholar a hire is pinned to; none while it
+    /// follows `main`.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub pin: Option<String>,
     pub purpose: String,
     pub saying: AgentSaying,
     /// The scholar a hire is of, or the Hand's own knowledge.
@@ -266,6 +270,11 @@ pub enum AgentKind {
 pub struct Scholar {
     /// Whether it lives in the city or waits at its harbor.
     pub arrival: Arrival,
+    /// Who last let it in, kept it waiting or turned it away: a
+    /// chief's name or `hand`. None while it is as it was made.
+    #[serde(rename = "arrivalBy")]
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub arrival_by: Option<String>,
     /// The chief it belongs to.
     pub chief: String,
     /// Its living hires and those that may come back.

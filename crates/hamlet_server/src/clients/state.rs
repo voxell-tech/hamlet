@@ -203,6 +203,10 @@ fn agent_view(
         }),
         _ => None,
     };
+    let pin = match found.kind {
+        AgentKind::Hire => hires::get(db, id)?.pin,
+        _ => None,
+    };
     let skills = match found.kind {
         AgentKind::Worker => Vec::new(),
         _ => knowledge::lodging(db, sources.layout, id)
@@ -241,6 +245,7 @@ fn agent_view(
         name,
         number: number.and_then(|n| u64::try_from(n).ok()),
         parent: parent.map(wire_agent),
+        pin,
         purpose,
         saying: protocol::AgentSaying {
             text: shown.map(|a| a.saying.clone()).unwrap_or_default(),
@@ -494,6 +499,10 @@ fn scholar_view(
             Arrival::Housed => protocol::Arrival::Housed,
             Arrival::Waiting => protocol::Arrival::Waiting,
             Arrival::Turned => protocol::Arrival::Turned,
+        },
+        arrival_by: match scholar.arrival_by {
+            Some(by) => Some(addresses::actor_name(db, Some(by))?),
+            None => None,
         },
         chief,
         hires: hires_shown,
