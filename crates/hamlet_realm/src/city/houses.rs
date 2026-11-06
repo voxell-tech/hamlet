@@ -6,6 +6,7 @@
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use hamlet_client::realm::{Identity, Left, Scholar};
+use hamlet_protocol::client::HouseAt;
 
 use super::{Glass, Level};
 use crate::generator::house::{self, Banner, TownStyle};
@@ -84,10 +85,7 @@ pub(super) fn wanted(
 }
 
 /// The ground before the door of a scholar's house.
-pub(crate) fn door(
-    land: &Land,
-    house: &hamlet_protocol::client::HouseAt,
-) -> Vec2 {
+pub(crate) fn door(land: &Land, house: &HouseAt) -> Vec2 {
     let city = land.island(IslandId::City).centre;
     let turn = house.turn as f32;
     city + Vec2::new(house.x as f32, house.z as f32)
@@ -107,7 +105,7 @@ pub(super) fn spots(
 }
 
 /// Half the distance the server keeps between two houses.
-const ROOM: f32 = 6.0;
+const ROOM: f32 = (HouseAt::APART * 0.5) as f32;
 
 /// Gives the house of every scholar that has not left a claim on
 /// its ground, and takes the claims of houses that are gone.

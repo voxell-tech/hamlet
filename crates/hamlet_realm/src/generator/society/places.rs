@@ -2,7 +2,7 @@
 //! founding and moving a town.
 
 use bevy::prelude::*;
-use hamlet_protocol::client::ScholarId;
+use hamlet_protocol::client::{HouseAt, ScholarId};
 
 use super::{Society, Town, TownId};
 use crate::generator::land::{IslandId, Land, Unfit};
@@ -130,6 +130,18 @@ impl Society {
         }
         if self.is_crowded(land, place, to, radius, home) {
             return Err(Unfit::Crowded);
+        }
+        // A house keeps clear of the city's middle, as the server
+        // holds it to.
+        if let Ground::House(_) = place {
+            let from = to - land.island(IslandId::City).centre;
+            if !HouseAt::is_clear(
+                [],
+                f64::from(from.x),
+                f64::from(from.y),
+            ) {
+                return Err(Unfit::Crowded);
+            }
         }
         let Ground::Town(id) = place else {
             return Ok(());

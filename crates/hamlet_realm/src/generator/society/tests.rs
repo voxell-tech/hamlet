@@ -350,3 +350,21 @@ fn a_town_is_founded_clear_of_one_that_was_moved() {
     let site = s.town(again).unwrap().site;
     assert_eq!(land.sites[site].at, land.sites[site].home);
 }
+
+#[test]
+fn a_house_keeps_clear_of_the_citys_middle() {
+    use crate::generator::land::IslandId;
+    let land = land();
+    let mut s = Society::default();
+    let city = land.island(IslandId::City).centre;
+    let house = Ground::House(hamlet_protocol::client::ScholarId(1));
+    s.claims.push(Claim {
+        place: house,
+        at: city + Vec2::new(80.0, 0.0),
+        radius: 6.0,
+    });
+    assert_eq!(
+        s.fits(&land, house, city + Vec2::new(30.0, 0.0)),
+        Err(Unfit::Crowded)
+    );
+}

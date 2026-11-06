@@ -345,6 +345,30 @@ pub struct HouseAt {
     pub z: f64,
 }
 
+impl HouseAt {
+    /// The round at the city's middle that its landmarks keep: the
+    /// Hand's tower, and the Hearth and the Library on the ring about
+    /// it, which the world sets 44 m out with gardens 8.5 m about
+    /// them (`city_ring` and `grounds` in `assets/world.toml`).
+    pub const MIDDLE: f64 = 58.0;
+
+    /// The least distance between the middles of two houses.
+    pub const APART: f64 = 12.0;
+
+    /// Whether a house at `x, z` from the city's middle keeps clear
+    /// of the middle and of every house at `taken`.
+    pub fn is_clear(
+        taken: impl IntoIterator<Item = (f64, f64)>,
+        x: f64,
+        z: f64,
+    ) -> bool {
+        x.hypot(z) >= Self::MIDDLE + Self::APART * 0.5
+            && taken
+                .into_iter()
+                .all(|(tx, tz)| (x - tx).hypot(z - tz) >= Self::APART)
+    }
+}
+
 /// A tag of a scholar's history.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,

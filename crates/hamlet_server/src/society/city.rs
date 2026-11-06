@@ -7,7 +7,7 @@ use std::f64::consts::PI;
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
-use hamlet_protocol::client::{Choice, Newcomers};
+use hamlet_protocol::client::{Choice, HouseAt, Newcomers};
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, ChiefId, ScholarId};
 use hamlet_store::schema::{agent, hamlet, hire, scholar, wait};
@@ -25,14 +25,11 @@ use crate::text::text_enum;
 /// The most characters a character may have (C11, C13).
 pub(crate) const CHARACTER_MOST: usize = 4000;
 
-/// The round at the city's middle that its landmarks keep: the Hand's
-/// tower, and the Hearth and the Library on the ring about it, which
-/// the world sets 44 m out with gardens 8.5 m about them
-/// (`city_ring` and `grounds` in `assets/world.toml`).
-pub(crate) const MIDDLE: f64 = 58.0;
+/// The round at the city's middle that its landmarks keep.
+pub(crate) const MIDDLE: f64 = HouseAt::MIDDLE;
 
 /// The least distance between the middles of two houses.
-pub(crate) const APART: f64 = 12.0;
+pub(crate) const APART: f64 = HouseAt::APART;
 
 text_enum! {
     pub(crate) enum ScholarKind {
@@ -236,10 +233,7 @@ fn houses(
 /// Whether a house at `x, z` keeps clear of the middle and of every
 /// house in `taken`.
 fn is_clear(taken: &[(f64, f64)], x: f64, z: f64) -> bool {
-    x.hypot(z) >= MIDDLE + APART * 0.5
-        && taken
-            .iter()
-            .all(|(tx, tz)| (x - tx).hypot(z - tz) >= APART)
+    HouseAt::is_clear(taken.iter().copied(), x, z)
 }
 
 /// The first spot on a golden-angle spiral out from the middle that
