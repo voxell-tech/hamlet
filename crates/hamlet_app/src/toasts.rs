@@ -26,7 +26,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource, style};
 use hamlet_client::messages::{Answer, ServerFault};
 use hamlet_client::realm::{
-    Departure, Faulted, Kind, Left, Scholar, Seen,
+    Departure, Faulted, Kind, Left, Scholar, Seen, Shown,
 };
 use hamlet_client::waits::{RaisedBy, Waiting};
 use hamlet_protocol::client::{
@@ -91,7 +91,11 @@ enum What {
     },
     /// The Hand let a scholar in or turned it away, which a chief
     /// can undo.
-    Verdict { scholar: String, housed: bool },
+    Verdict {
+        scholar: ScholarId,
+        name: String,
+        housed: bool,
+    },
 }
 
 /// The node of a toast, whose hover keeps it.
@@ -119,8 +123,11 @@ fn raise(
     time: Res<Time>,
     seen: Option<Res<Seen>>,
     waits: Query<Entity, Added<Waiting>>,
-    answered: Query<(&Name, &Kind, &Departure), Added<Left>>,
-    failing: Query<(Entity, &Name), Added<Faulted>>,
+    answered: Query<
+        (&Name, Option<&Shown>, &Kind, &Departure),
+        Added<Left>,
+    >,
+    failing: Query<(Entity, &Name, Option<&Shown>), Added<Faulted>>,
     waiting: Query<(&Waiting, Option<&RaisedBy>)>,
     mut toasts: ResMut<Toasts>,
     mut primed: Local<bool>,
@@ -136,7 +143,8 @@ fn raise(
     for entity in &waits {
         toasts.push(What::Petition(entity), now);
     }
-    for (name, kind, departure) in &answered {
+    for (name, shown, kind, departure) in &answered {
+        let name = shown.map_or(name.as_str(), |shown| &shown.0);
         if kind.0 == AgentKind::Worker
             && departure.0.how == LeftHow::Answered
         {
@@ -150,7 +158,8 @@ fn raise(
             );
         }
     }
-    for (agent, name) in &failing {
+    for (agent, name, shown) in &failing {
+        let name = shown.map_or(name.as_str(), |shown| &shown.0);
         // A fault the chief is asked about is a petition already.
         let asked = waiting.iter().any(|(wait, by)| {
             by.is_some_and(|by| by.0 == agent)
@@ -201,7 +210,8 @@ fn judged(
         };
         toasts.push(
             What::Verdict {
-                scholar: scholar.name.clone(),
+                scholar: scholar.id,
+                name: scholar.name.clone(),
                 housed,
             },
             now,
@@ -211,10 +221,11 @@ fn judged(
 }
 
 /// The command that takes back the Hand's verdict on `scholar`.
-fn undo_of(scholar: &str, housed: bool) -> String {
+fn undo_of(scholar: ScholarId, housed: bool) -> String {
+    let address = hamlet_client::realm::scholar_address(scholar);
     match housed {
-        true => format!("/turn-away {scholar}"),
-        false => format!("/welcome {scholar}"),
+        true => format!("/turn-away {address}"),
+        false => format!("/welcome {address}"),
     }
 }
 
@@ -303,7 +314,7 @@ pub fn stack() -> impl View {
 /// with.
 fn said(need: &Need) -> &str {
     need.line
-        .strip_prefix(need.by.as_str())
+        .strip_prefix(need.shown.as_str())
         .unwrap_or(&need.line)
         .trim_start()
 }
@@ -329,7 +340,7 @@ fn card(toast: &Toast) -> AnyView {
                 ])
                 .boxed();
                 (
-                    need.by.to_uppercase(),
+                    need.shown.to_uppercase(),
                     tone,
                     said(&need).to_string(),
                     answers,
@@ -341,17 +352,21 @@ fn card(toast: &Toast) -> AnyView {
                 line.clone(),
                 column(()).boxed(),
             ),
-            What::Verdict { scholar, housed } => {
-                let undo = undo_of(scholar, *housed);
+            What::Verdict {
+                scholar,
+                name,
+                housed,
+            } => {
+                let undo = undo_of(*scholar, *housed);
                 let (head, line) = if *housed {
                     (
                         "THE HAND LET A SCHOLAR IN",
-                        format!("{scholar} has a house in the city."),
+                        format!("{name} has a house in the city."),
                     )
                 } else {
                     (
                         "THE HAND TURNED A SCHOLAR AWAY",
-                        format!("{scholar} waits at the harbor."),
+                        format!("{name} waits at the harbor."),
                     )
                 };
                 (
@@ -496,10 +511,7 @@ mod tests {
         let mut app = app_with_a_petition();
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
         let shown = words(&mut app);
-        assert!(
-            shown.iter().any(|text| text == "ADA@HOME"),
-            "{shown:?}"
-        );
+        assert!(shown.iter().any(|text| text == "ADA"), "{shown:?}");
         assert!(
             shown.iter().any(|text| text == "wants to run `pwd`")
         );
@@ -550,7 +562,7 @@ mod tests {
         let undone =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, protocol::ClientMessage::Say(say)
-                    if say.text == "/turn-away moss")
+                    if say.text == "/turn-away scholar#3")
             });
         assert!(undone);
     }

@@ -71,7 +71,8 @@ impl Queue {
 pub(crate) struct Need {
     pub(crate) entity: Entity,
     pub(crate) detail: WaitDetail,
-    pub(crate) by: String,
+    /// What who raised it is shown by.
+    pub(crate) shown: String,
     about: String,
     pub(crate) line: String,
     waited: String,
@@ -97,7 +98,7 @@ impl Need {
         Self {
             entity,
             detail: waiting.detail.clone(),
-            by: waiting.by.clone(),
+            shown: waiting.shown.clone(),
             about: waiting.about.clone(),
             line: waiting.line(80),
             waited,
@@ -362,7 +363,7 @@ pub(crate) fn strip(need: &Need) -> AnyView {
         };
         let head = format!(
             "{what} FROM {}  (waited {}{asked})",
-            need.by.to_uppercase(),
+            need.shown.to_uppercase(),
             need.waited
         );
         let tone = match need.detail {
@@ -461,9 +462,9 @@ mod tests {
         app.update();
         let shown = words(&mut app);
         assert!(
-            shown.iter().any(
-                |text| text.starts_with("APPROVAL FROM ADA@HOME")
-            ),
+            shown
+                .iter()
+                .any(|text| text.starts_with("APPROVAL FROM ADA")),
             "{shown:?}"
         );
         for text in ["ALLOW ONCE", "FOR THIS SESSION", "DENY"] {

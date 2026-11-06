@@ -1,50 +1,62 @@
 //! The form a hamlet is founded with.
 
 use bevy::ecs::resource::Resource;
+use bevy::ecs::world::World;
 use bevy::math::{Rect, Vec2};
 use bevy::ui::px;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, popup, row,
-    text_field,
+    BehaviorExt, FrameProps, column, dropdown, frame, label, popup,
+    row, text_field,
 };
-use bevy_fynix::{ScopedExt, resource};
-use hamlet_client::realm::Deeds;
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+};
+use hamlet_client::realm::{Deeds, Scholar, scholar_address};
+use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    button, description, lettered, primary_button, section,
+    ICON, button, description, lettered, primary_button, section,
     text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{View, built};
 
 use super::close;
 use crate::chat;
 
-/// The name of a hamlet being founded, the name of its mayor, and its
-/// purpose.
+/// The name of a hamlet being founded, the scholar that is its mayor,
+/// and its purpose.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Founding {
     name: String,
-    mayor: String,
+    /// A new scholar named Mayor while None.
+    mayor: Option<protocol::ScholarId>,
     purpose: String,
 }
 
 impl Founding {
-    /// The chief's command that founds it. None until all three
-    /// are given.
+    /// The chief's command that founds it. None until its name and
+    /// purpose are given.
     fn command(&self) -> Option<String> {
-        // A name is lowercase letters and hyphens.
-        let named = |text: &str| {
-            text.trim()
-                .to_lowercase()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join("-")
-        };
-        let (name, mayor) = (named(&self.name), named(&self.mayor));
+        // A hamlet's name is lowercase letters and hyphens.
+        let name = self
+            .name
+            .trim()
+            .to_lowercase()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join("-");
         let purpose = self.purpose.trim();
-        (!name.is_empty() && !mayor.is_empty() && !purpose.is_empty())
-            .then(|| format!("/found {name} {mayor} {purpose}"))
+        (!name.is_empty() && !purpose.is_empty()).then(|| match self
+            .mayor
+        {
+            Some(mayor) => format!(
+                "/found {name} {} {purpose}",
+                scholar_address(mayor)
+            ),
+            None => format!("/found {name} {purpose}"),
+        })
     }
 }
 
@@ -64,6 +76,60 @@ fn asks(
         )
         .rules(text_input),
     ))
+}
+
+/// The scholars that can be the mayor: living ones, by name.
+fn candidates(world: &World) -> Vec<(protocol::ScholarId, String)> {
+    let Some(mut scholars) = world.try_query::<&Scholar>() else {
+        return Vec::new();
+    };
+    let mut found = scholars
+        .iter(world)
+        .filter(|scholar| scholar.0.left.is_none())
+        .map(|scholar| (scholar.0.id, scholar.0.name.clone()))
+        .collect::<Vec<_>>();
+    found.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.0.cmp(&b.0.0)));
+    found
+}
+
+/// Who is to be the mayor: a new scholar, or one of the living.
+fn mayor() -> impl View {
+    keyed(
+        derived(|world: &World| {
+            (candidates(world), world.resource::<Founding>().mayor)
+        })
+        .when(every_frame()),
+        |(found, chosen)| {
+            let shown = std::iter::once(
+                "A new scholar named Mayor".to_string(),
+            )
+            .chain(found.iter().map(|(_, name)| name.clone()))
+            .collect::<Vec<_>>();
+            let at = chosen
+                .and_then(|chosen| {
+                    found.iter().position(|(id, _)| *id == chosen)
+                })
+                .map_or(0, |at| at + 1);
+            let found = found.clone();
+            hamlet_ui::styles::close((
+                section("Its mayor"),
+                dropdown(
+                    shown,
+                    at,
+                    Glyph::Chevron.image(ICON),
+                    move |world, picked| {
+                        world.resource_mut::<Founding>().mayor =
+                            picked
+                                .checked_sub(1)
+                                .and_then(|at| found.get(at))
+                                .map(|(id, _)| *id);
+                    },
+                ),
+            ))
+            .boxed()
+        },
+    )
+    .within(column(()))
 }
 
 /// The form a hamlet is founded with.
@@ -91,11 +157,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
                  own mayor.",
             ),
             asks("Its name", |f| &f.name, |f, text| f.name = text),
-            asks(
-                "Its mayor's name",
-                |f| &f.mayor,
-                |f, text| f.mayor = text,
-            ),
+            mayor(),
             asks(
                 "What it is for",
                 |f| &f.purpose,
@@ -103,10 +165,11 @@ pub(super) fn founding(at: Vec2) -> impl View {
             ),
             description(resource::<Founding, _>(|f| {
                 match f.command() {
-                    Some(_) => "Names are kept as lowercase letters \
+                    Some(_) => "A name is kept as lowercase letters \
                                 and hyphens."
                         .to_string(),
-                    None => "All three are needed.".to_string(),
+                    None => "Its name and what it is for are needed."
+                        .to_string(),
                 }
             })),
             row((
@@ -158,20 +221,18 @@ mod tests {
             .init_resource::<hamlet_realm::pick::AskedGround>();
         let mut state = realm::state();
         state.deeds = realm::deeds(&["found"]);
-        state.agents.push(realm::agent(3, "home", 1, "scout"));
+        state.agents.push(realm::agent(3, "home", 1));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        let scout = hamlet_client::realm::named(
-            app.world_mut(),
-            "scout@home",
-        )
-        .unwrap();
+        let scout =
+            hamlet_client::realm::named(app.world_mut(), "home#1")
+                .unwrap();
         crate::convo::talk_to(app.world_mut(), scout);
         app.insert_resource(Founding {
             name: "mill".into(),
-            mayor: "miller".into(),
+            mayor: Some(protocol::ScholarId(2)),
             purpose: "Grinds flour".into(),
         });
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
@@ -192,7 +253,7 @@ mod tests {
         let [protocol::ClientMessage::Say(say)] = &sent[..] else {
             panic!("one founding: {sent:?}");
         };
-        assert_eq!(say.text, "/found mill miller Grinds flour");
+        assert_eq!(say.text, "/found mill scholar#2 Grinds flour");
         assert_eq!(say.to, protocol::AgentId(1));
     }
 }

@@ -420,6 +420,11 @@ pub fn shown_of(world: &World, entity: Entity) -> String {
     )
 }
 
+/// The address commands name a scholar by: `scholar#<id>`.
+pub fn scholar_address(id: protocol::ScholarId) -> String {
+    format!("scholar#{}", id.0)
+}
+
 /// Lookups of living agents and mayors for systems.
 #[derive(SystemParam)]
 pub struct Roster<'w, 's> {

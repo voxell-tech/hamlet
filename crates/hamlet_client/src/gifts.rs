@@ -146,15 +146,15 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
                 .iter(world)
                 .filter_map(|(entity, skills)| {
                     let id = realm::id_of(world, entity)?;
-                    (entity != agent).then_some((
-                        id,
-                        format!(
-                            "{} ({})",
-                            realm::shown_of(world, entity),
-                            realm::name_of(world, entity)
-                        ),
-                        skills,
-                    ))
+                    let (shown, address) = (
+                        realm::shown_of(world, entity),
+                        realm::name_of(world, entity),
+                    );
+                    let from = match shown == address {
+                        true => address,
+                        false => format!("{shown} ({address})"),
+                    };
+                    (entity != agent).then_some((id, from, skills))
                 })
                 .collect::<Vec<_>>()
         })

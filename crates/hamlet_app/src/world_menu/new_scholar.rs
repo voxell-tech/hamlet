@@ -31,19 +31,13 @@ pub(crate) struct Making {
 impl Making {
     /// The chief's command that makes it. None until it is named.
     fn command(&self) -> Option<String> {
-        // A name is lowercase letters and hyphens.
-        let name = self
-            .name
-            .trim()
-            .to_lowercase()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join("-");
+        // A name is free text, so a character after it is set off
+        // by a colon.
+        let name = self.name.trim();
         let character = self.character.trim();
-        (!name.is_empty()).then(|| {
-            format!("/scholar new {name} {character}")
-                .trim_end()
-                .to_string()
+        (!name.is_empty()).then(|| match character.is_empty() {
+            true => format!("/scholar new {name}"),
+            false => format!("/scholar new {name}: {character}"),
         })
     }
 }

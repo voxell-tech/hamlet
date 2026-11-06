@@ -2,7 +2,6 @@
 //! and the question asked before each.
 
 use bevy::ecs::entity::Entity;
-use bevy::ecs::name::Name;
 use bevy::ecs::query::{With, Without};
 use bevy::ecs::world::World;
 use bevy::math::{Rect, Vec2};
@@ -133,7 +132,7 @@ impl Deed {
 
     fn question(&self, world: &World) -> String {
         let name = |agent: &Entity| {
-            agents::name_of(world, *agent).to_uppercase()
+            agents::shown_of(world, *agent).to_uppercase()
         };
         match self {
             Deed::End(agent) => format!("END {}?", name(agent)),
@@ -164,7 +163,7 @@ impl Deed {
     }
 
     fn outcome(&self, world: &World) -> String {
-        let name = |agent: &Entity| agents::name_of(world, *agent);
+        let name = |agent: &Entity| agents::shown_of(world, *agent);
         match self {
             Deed::End(agent) => format!(
                 "The hire {} goes to the archive, with its memory, \
@@ -238,7 +237,7 @@ impl Deed {
             agents
                 .iter()
                 .filter(|agent| world.get::<Busy>(**agent).is_some())
-                .map(|agent| agents::name_of(world, *agent))
+                .map(|agent| agents::shown_of(world, *agent))
                 .collect()
         };
         match self {
@@ -254,7 +253,7 @@ impl Deed {
             | Deed::DefaultCharter => Vec::new(),
             Deed::Close(hamlet) => {
                 let mut living =
-                    world.query_filtered::<(&Name, &LivesIn), (
+                    world.query_filtered::<(Entity, &LivesIn), (
                         With<AgentNumber>,
                         With<Busy>,
                         Without<Left>,
@@ -266,7 +265,7 @@ impl Deed {
                             .get::<HamletId>(lives.0)
                             .is_some_and(|id| id.0 == *hamlet)
                     })
-                    .map(|(name, _)| name.as_str().to_string())
+                    .map(|(agent, _)| agents::shown_of(world, agent))
                     .collect()
             }
         }
@@ -345,12 +344,12 @@ mod tests {
         let mut state = hamlet_testing::realm::state();
         state.deeds = hamlet_testing::realm::deeds(&["end"]);
         state.hamlets.push(hamlet_testing::realm::hamlet("mill", 4));
-        state.agents.push(hamlet_testing::realm::agent(
-            4, "mill", 0, "miller",
-        ));
-        state.agents.push(hamlet_testing::realm::agent(
-            5, "mill", 1, "carder",
-        ));
+        state
+            .agents
+            .push(hamlet_testing::realm::agent(4, "mill", 0));
+        state
+            .agents
+            .push(hamlet_testing::realm::agent(5, "mill", 1));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -361,7 +360,7 @@ mod tests {
             .drain()
             .for_each(drop);
         let carder =
-            agents::named(app.world_mut(), "carder@mill").unwrap();
+            agents::named(app.world_mut(), "mill#1").unwrap();
         Deed::End(carder).run(app.world_mut());
         app.world_mut().flush();
         let sent = app
@@ -373,6 +372,6 @@ mod tests {
             panic!("one command: {sent:?}");
         };
         assert_eq!(say.to, protocol::AgentId(4));
-        assert_eq!(say.text, "/end carder@mill ended by the chief");
+        assert_eq!(say.text, "/end mill#1 ended by the chief");
     }
 }

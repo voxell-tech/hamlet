@@ -54,7 +54,7 @@ fn choices(
         })
         .map(|(other, ..)| other)
         .filter(|other| road_between(world, agent, *other).is_none())
-        .map(|other| (other, agents::name_of(world, other)))
+        .map(|other| (other, agents::shown_of(world, other)))
         .filter(|(_, name)| name.to_lowercase().contains(&search))
         .collect::<Vec<_>>();
     found.sort_by(|a, b| a.1.cmp(&b.1));
@@ -109,7 +109,7 @@ pub(super) fn road(agent: Entity, at: Vec2) -> impl View {
         {
             return cx.build(frame());
         }
-        let from = agents::name_of(cx.world, agent);
+        let from = agents::shown_of(cx.world, agent);
         let (gap, padding, heading) = {
             let theme = cx.theme();
             (

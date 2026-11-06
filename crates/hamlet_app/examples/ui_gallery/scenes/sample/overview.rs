@@ -37,6 +37,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         "purge",
         "dream",
         "remove-scholar",
+        "name-scholar",
         "restore-scholar",
         "welcome",
         "turn-away",
@@ -50,6 +51,8 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             .into(),
     }];
     let mut next = 10;
+    // The scholar of each hire has the hire's id.
+    let mut scholars = vec![(2, "ada")];
     for (id, title, mayor, others) in [
         (
             "home",
@@ -83,9 +86,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             state.hamlets.push(hamlet);
         }
         if id != "home" {
-            state.agents.push(hamlet_testing::realm::agent(
-                first, id, 0, mayor,
-            ));
+            state
+                .agents
+                .push(hamlet_testing::realm::agent(first, id, 0));
+            scholars.push((first, mayor));
             next += 1;
         }
         // In the hollow scout is a lead, with pip and wren under it;
@@ -93,7 +97,8 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         let lead = next;
         for (number, name) in (1..).zip(others) {
             let mut agent =
-                hamlet_testing::realm::agent(next, id, number, name);
+                hamlet_testing::realm::agent(next, id, number);
+            scholars.push((next, name));
             agent.parent = Some(protocol::AgentId(
                 if id == "home" && number > 1 {
                     lead
@@ -121,13 +126,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         }
     }
     busy_realm(&mut state);
-    state.scholars = state
-        .agents
-        .iter()
-        .filter_map(|agent| agent.scholar.map(|id| (id, agent)))
-        .map(|(id, agent)| {
-            let name = agent.name.split('@').next().unwrap_or("");
-            hamlet_testing::realm::scholar(id.0, name, &[agent.id.0])
+    state.scholars = scholars
+        .into_iter()
+        .map(|(id, name)| {
+            hamlet_testing::realm::scholar(id, name, &[id])
         })
         .collect();
     let mut moss = hamlet_testing::realm::scholar(90, "moss", &[]);
@@ -141,7 +143,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         // The chief holds the door, so moss waits on a petition.
         let mut wait = hamlet_testing::realm::wait("moss");
         wait.agent = None;
-        wait.by = "scout@home".into();
+        wait.by = "home#1".into();
         wait.about =
             "scout made moss, who waits to be let in.".into();
         // It came in a few minutes ago.
@@ -263,10 +265,8 @@ fn busy_realm(state: &mut protocol::State) {
         hand.activity.doing_words = "Founding a hamlet".into();
         hand.busy = true;
     }
-    let Some(lead) = state
-        .agents
-        .iter_mut()
-        .find(|agent| agent.name == "pip@home")
+    let Some(lead) =
+        state.agents.iter_mut().find(|agent| agent.name == "home#2")
     else {
         return;
     };
@@ -274,7 +274,7 @@ fn busy_realm(state: &mut protocol::State) {
     lead.activity.doing = protocol::Doing::Await;
     lead.activity.doing_words = "Waiting for a worker".into();
     let lead = lead.id;
-    let mut worker = hamlet_testing::realm::agent(40, "home", 9, "x");
+    let mut worker = hamlet_testing::realm::agent(40, "home", 9);
     worker.kind = protocol::AgentKind::Worker;
     worker.name = "worker#40".into();
     worker.number = None;
@@ -285,10 +285,8 @@ fn busy_realm(state: &mut protocol::State) {
     worker.activity.doing_words =
         "Reading the orchard's notes".into();
     state.agents.push(worker);
-    if let Some(waiting) = state
-        .agents
-        .iter()
-        .find(|agent| agent.name == "sorrel@mill")
+    if let Some(waiting) =
+        state.agents.iter().find(|agent| agent.name == "mill#1")
     {
         let mut wait = hamlet_testing::realm::wait("ask");
         wait.agent = Some(waiting.id);

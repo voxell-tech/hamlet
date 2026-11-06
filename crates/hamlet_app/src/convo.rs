@@ -76,7 +76,8 @@ impl Convo {
     }
 }
 
-/// The id and name of a living agent, the name `None` for the Hand.
+/// The id and shown name of a living agent, the name `None` for the
+/// Hand.
 pub(crate) fn address(
     world: &World,
     agent: Entity,
@@ -84,7 +85,7 @@ pub(crate) fn address(
     let id = agents::id_of(world, agent)?;
     let with = match world.get::<Kind>(agent) {
         Some(Kind(protocol::AgentKind::Hand)) => None,
-        _ => Some(agents::name_of(world, agent)),
+        _ => Some(agents::shown_of(world, agent)),
     };
     Some((id, with))
 }
@@ -313,14 +314,14 @@ mod tests {
     #[test]
     fn talking_seats_the_agents_chat_and_the_hand_takes_it_back() {
         let mut app = panel_app();
-        let ada = agents::named(app.world_mut(), "ada@home").unwrap();
+        let ada = agents::named(app.world_mut(), "home#0").unwrap();
         let hand = agents::hand(app.world()).unwrap();
         let first = app.world().resource::<Convo>().session;
         assert_eq!(app.world().resource::<Convo>().agent, hand);
         talk_to(app.world_mut(), ada);
         let convo = app.world().resource::<Convo>();
         assert_eq!(convo.agent, ada);
-        assert_eq!(convo.with.as_deref(), Some("ada@home"));
+        assert_eq!(convo.with.as_deref(), Some("ada"));
         assert_ne!(convo.session, first);
         assert_eq!(
             app.world().get::<Chat>(convo.session).unwrap().0.with,
@@ -339,7 +340,7 @@ mod tests {
 
         let mut app = panel_app();
         app.insert_resource(Showing::Home);
-        let ada = agents::named(app.world_mut(), "ada@home").unwrap();
+        let ada = agents::named(app.world_mut(), "home#0").unwrap();
         seat(app.world_mut(), ada);
         let mut tree = app.world_mut().resource_mut::<DockTree>();
         designed(&mut tree);
@@ -373,18 +374,17 @@ mod tests {
             reseat.run_if(roster_moved).in_set(PanelSystems::Follow),
         );
         let mut state = realm::state();
-        state.agents.push(realm::agent(3, "home", 1, "scout"));
+        state.agents.push(realm::agent(3, "home", 1));
         receive(
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),
         );
         app.update();
-        let scout =
-            agents::named(app.world_mut(), "scout@home").unwrap();
+        let scout = agents::named(app.world_mut(), "home#1").unwrap();
         talk_to(app.world_mut(), scout);
         assert_eq!(
             app.world().resource::<Convo>().with.as_deref(),
-            Some("scout@home")
+            Some("home#1")
         );
         let revision = app.world().resource::<Seen>().revision + 1;
         receive(
@@ -410,12 +410,12 @@ mod tests {
         let mut app = panel_app();
         let mut state = hamlet_testing::realm::state();
         state.hamlets.push(hamlet_testing::realm::hamlet("mill", 4));
-        state.agents.push(hamlet_testing::realm::agent(
-            4, "mill", 0, "miller",
-        ));
-        state.agents.push(hamlet_testing::realm::agent(
-            5, "mill", 1, "carder",
-        ));
+        state
+            .agents
+            .push(hamlet_testing::realm::agent(4, "mill", 0));
+        state
+            .agents
+            .push(hamlet_testing::realm::agent(5, "mill", 1));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -426,7 +426,7 @@ mod tests {
             .drain()
             .for_each(drop);
         let carder =
-            agents::named(app.world_mut(), "carder@mill").unwrap();
+            agents::named(app.world_mut(), "mill#1").unwrap();
         talk_to(app.world_mut(), carder);
         app.update();
         let opens = app

@@ -738,7 +738,7 @@ mod tests {
     fn state() -> State {
         let mut state = ours::<State>(realm::state());
         state.hamlets.push(ours(realm::hamlet("orchard", 3)));
-        state.agents.push(ours(realm::agent(3, "home", 1, "scout")));
+        state.agents.push(ours(realm::agent(3, "home", 1)));
         state.waits =
             vec![ours(realm::wait("a")), ours(realm::wait("b"))];
         state
@@ -753,25 +753,25 @@ mod tests {
             agent: hand.clone(),
         });
         let guest =
-            ours::<Agent>(realm::agent(9, "orchard", 0, "guest"));
+            ours::<Agent>(realm::agent(9, "orchard", 0));
         state.apply(&Update::Agent {
             agent: guest.clone(),
         });
         let mayor = state.agents[1].clone();
-        let scout = ours(realm::agent(3, "home", 1, "scout"));
+        let scout = ours(realm::agent(3, "home", 1));
         assert_eq!(state.agents, [hand, mayor, scout, guest]);
     }
 
     #[test]
     fn a_gone_agent_leaves_the_others_in_order() {
         let mut state = state();
-        state.agents.push(ours(realm::agent(4, "home", 2, "smith")));
+        state.agents.push(ours(realm::agent(4, "home", 2)));
         state.apply(&Update::AgentGone { id: AgentId(3) });
         let names = state
             .agents
             .iter()
             .map(|a| a.name.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(names, ["hand", "ada@home", "smith@home"]);
+        assert_eq!(names, ["hand", "home#0", "home#2"]);
     }
 }

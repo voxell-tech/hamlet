@@ -207,9 +207,9 @@ mod tests {
         app.add_plugins(crate::overview::plugin);
         let mut state = hamlet_testing::realm::state();
         state.deeds = hamlet_testing::realm::deeds(&["record"]);
-        state.agents.push(hamlet_testing::realm::agent(
-            3, "home", 1, "scout",
-        ));
+        state
+            .agents
+            .push(hamlet_testing::realm::agent(3, "home", 1));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),

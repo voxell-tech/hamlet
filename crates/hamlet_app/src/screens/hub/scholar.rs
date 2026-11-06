@@ -15,7 +15,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::realm::{
-    Deeds, LivesIn, Nickname, Pin, Scholar, name_of,
+    Deeds, LivesIn, Pin, Scholar, name_of, scholar_address,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
@@ -36,7 +36,8 @@ use crate::overview::{heading, typed};
 
 /// The deeds a scholar's page offers, in the names the server
 /// advertises them by.
-const DEEDS: [&str; 12] = [
+const DEEDS: [&str; 13] = [
+    "name-scholar",
     "welcome",
     "turn-away",
     "move-house",
@@ -91,11 +92,7 @@ fn place_of(world: &World, hire: Entity) -> String {
         .and_then(|parent| {
             hamlet_client::realm::agent(world, parent.0)
         })
-        .map(|lead| match world.get::<Nickname>(lead) {
-            Some(nickname) => nickname.0.clone(),
-            None => hamlet_realm::pick::short(&name_of(world, lead))
-                .into(),
-        });
+        .map(|lead| hamlet_client::realm::shown_of(world, lead));
     match lead {
         Some(lead) => format!("in {hamlet}, under {lead}"),
         None => format!("in {hamlet}"),
@@ -136,12 +133,7 @@ fn shown(world: &World, entity: Entity) -> Option<Shown> {
             let address = name_of(world, hire);
             HireShown {
                 entity: hire,
-                called: match world.get::<Nickname>(hire) {
-                    Some(nickname) => nickname.0.clone(),
-                    None => {
-                        hamlet_realm::pick::short(&address).into()
-                    }
-                },
+                called: hamlet_client::realm::shown_of(world, hire),
                 place: place_of(world, hire),
                 pin: world.get::<Pin>(hire).map(|pin| pin.0.clone()),
                 address,
@@ -169,8 +161,10 @@ fn ask(world: &mut World, act: Act) {
     world.resource_mut::<Form>().act = Some(act);
 }
 
-/// The command `act` makes of `name` and the words typed.
+/// The command `act` makes of the scholar at `address`, called
+/// `name`, and the words typed.
 fn command(
+    address: &str,
     name: &str,
     act: &Act,
     first: &str,
@@ -181,26 +175,26 @@ fn command(
         return None;
     }
     Some(match act {
-        Act::Tag => format!("/tag {name} {first} {second}"),
+        Act::Tag => format!("/tag {address} {first} {second}"),
         Act::Fork(Some(from)) => {
-            format!("/fork {name}@{from} {first}")
+            format!("/fork {address}@{from} {first}")
         }
-        Act::Fork(None) => format!("/fork {name} {first}"),
-        Act::Purge => format!("/purge {name} {first}"),
-        Act::Remove => format!("/remove-scholar {name} {first}"),
+        Act::Fork(None) => format!("/fork {address} {first}"),
+        Act::Purge => format!("/purge {address} {first}"),
+        Act::Remove => format!("/remove-scholar {address} {first}"),
         // Only when its name is typed, as nothing brings it back.
         Act::Erase if first == name => {
-            format!("/erase-scholar {name}")
+            format!("/erase-scholar {address}")
         }
         Act::Erase => return None,
-        Act::Revert(to) => format!("/revert {name} {to} {first}"),
+        Act::Revert(to) => format!("/revert {address} {to} {first}"),
     })
 }
 
-fn run(world: &mut World, name: &str, act: &Act) {
+fn run(world: &mut World, address: &str, name: &str, act: &Act) {
     let first = typed::<First>(world);
     let second = typed::<Second>(world);
-    if let Some(text) = command(name, act, &first, &second) {
+    if let Some(text) = command(address, name, act, &first, &second) {
         tell_hand(world, text);
         world.resource_mut::<Form>().act = None;
     }
@@ -215,7 +209,7 @@ fn field<M: Component>(marker: M) -> impl View {
 }
 
 /// The fields and buttons of the deed being asked for.
-fn form(name: String, act: Act) -> AnyView {
+fn form(address: String, name: String, act: Act) -> AnyView {
     let (words, first, second) = match &act {
         Act::Tag => (
             "Name this version of its main, with a note.".to_string(),
@@ -256,7 +250,7 @@ fn form(name: String, act: Act) -> AnyView {
     let remove = matches!(act, Act::Remove | Act::Purge | Act::Erase);
     let go = {
         let act = act.clone();
-        move |world: &mut World| run(world, &name, &act)
+        move |world: &mut World| run(world, &address, &name, &act)
     };
     let ready = if remove {
         bad_action(Glyph::Check, "DO IT", go)
@@ -300,10 +294,12 @@ fn form(name: String, act: Act) -> AnyView {
     .boxed()
 }
 
-fn form_view(name: String) -> impl View {
+fn form_view(address: String, name: String) -> impl View {
     keyed(resource::<Form, _>(|form| form.act.clone()), move |act| {
         match act {
-            Some(act) => form(name.clone(), act.clone()),
+            Some(act) => {
+                form(address.clone(), name.clone(), act.clone())
+            }
             None => column(()).boxed(),
         }
     })
@@ -312,7 +308,7 @@ fn form_view(name: String) -> impl View {
 
 /// What its arrival says, and the deeds that change it.
 fn arrival(shown: &Shown) -> AnyView {
-    let name = shown.scholar.name.clone();
+    let address = scholar_address(shown.scholar.id);
     let can = |deed| shown.allowed.contains(&deed);
     // Living in the city is what a scholar does, so only the rest
     // is said.
@@ -334,14 +330,14 @@ fn arrival(shown: &Shown) -> AnyView {
     match (&shown.scholar.left, shown.scholar.arrival) {
         (Some(_), _) => {
             if can("restore-scholar") {
-                let name = name.clone();
+                let address = address.clone();
                 buttons_row.push(good_action(
                     Glyph::Restore,
                     "RESTORE",
                     move |world| {
                         tell_hand(
                             world,
-                            format!("/restore-scholar {name}"),
+                            format!("/restore-scholar {address}"),
                         );
                     },
                 ));
@@ -370,12 +366,15 @@ fn arrival(shown: &Shown) -> AnyView {
         }
         (None, _) => {
             if can("welcome") {
-                let name = name.clone();
+                let address = address.clone();
                 buttons_row.push(good_action(
                     Glyph::Check,
                     "WELCOME INTO THE CITY",
                     move |world| {
-                        tell_hand(world, format!("/welcome {name}"));
+                        tell_hand(
+                            world,
+                            format!("/welcome {address}"),
+                        );
                     },
                 ));
             }
@@ -609,16 +608,49 @@ fn knowledge() -> impl View {
     .gap(6.0)
 }
 
+/// What the scholar is called, typed over: Enter gives it the name.
+/// Names are labels that may change and repeat, so the scholar stays
+/// the one at its address.
+fn renaming(shown: &Shown) -> AnyView {
+    if shown.scholar.left.is_some()
+        || !shown.allowed.contains(&"name-scholar")
+    {
+        return frame().boxed();
+    }
+    let address = scholar_address(shown.scholar.id);
+    let had = shown.scholar.name.clone();
+    let field = text_field(had.clone(), move |world, typed| {
+        let typed = typed.trim().to_string();
+        if !typed.is_empty() && typed != had {
+            tell_hand(
+                world,
+                format!("/name-scholar {address} {typed}"),
+            );
+        }
+    })
+    .grow(1.0)
+    .min_width(px(0.0))
+    .rules(text_input);
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        row((label("Called").tone(Tone::Faint).wrap(false), field))
+            .gap(gap)
+            .align(AlignItems::Center)
+            .boxed()
+    })
+    .boxed()
+}
+
 /// What it is good to do to the scholar now and then.
 fn deeds(shown: &Shown) -> AnyView {
-    let name = shown.scholar.name.clone();
+    let address = scholar_address(shown.scholar.id);
     if shown.scholar.left.is_some()
         || !shown.allowed.contains(&"dream")
     {
         return frame().boxed();
     }
     action(Glyph::Moon, "DREAM", move |world| {
-        tell_hand(world, format!("/dream {name}"));
+        tell_hand(world, format!("/dream {address}"));
     })
     .tooltip(|| {
         note("Bring home what its hires learned, and tidy its memory")
@@ -629,7 +661,7 @@ fn deeds(shown: &Shown) -> AnyView {
 /// What changes the scholar for good or sends it away, kept at the
 /// foot of its page under its own heading.
 fn careful(shown: &Shown) -> AnyView {
-    let name = shown.scholar.name.clone();
+    let address = scholar_address(shown.scholar.id);
     let can = |deed| shown.allowed.contains(&deed);
     let living = shown.scholar.left.is_none();
     let mut acts = Vec::new();
@@ -641,7 +673,7 @@ fn careful(shown: &Shown) -> AnyView {
             Glyph::Back,
             "SEND TO THE HARBOR",
             move |world| {
-                tell_hand(world, format!("/turn-away {name}"));
+                tell_hand(world, format!("/turn-away {address}"));
             },
         ));
     }
@@ -689,6 +721,8 @@ fn careful(shown: &Shown) -> AnyView {
 /// versions, then what changes it for good.
 fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
+    let address = scholar_address(shown.scholar.id);
+    let rename = renaming(shown);
     let (head, versions_part, hires_part, deeds_part, careful_part) = (
         arrival(shown),
         versions(shown),
@@ -707,8 +741,9 @@ fn body(shown: &Shown) -> AnyView {
             ),
             title(name.to_uppercase()),
             head,
+            rename,
             deeds_part,
-            form_view(name),
+            form_view(address, name),
             hairline(line),
             hires_part,
             hairline(line),

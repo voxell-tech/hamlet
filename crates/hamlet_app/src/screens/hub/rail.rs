@@ -36,8 +36,8 @@ use bevy_fynix::{
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
     Activity, Busy, Faulted, HamletId, Identity, Kind, Left, Lived,
-    LivesIn, Mayor, MergedInto, Nickname, Parent, Purpose, Scholar,
-    Skills, name_of,
+    LivesIn, Mayor, MergedInto, Parent, Purpose, Scholar, Shown,
+    Skills, name_of, shown_of,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
@@ -373,7 +373,7 @@ struct Agent {
     mayor: bool,
     mark: Mark,
     /// Its address, and what it goes by: its nickname, or its
-    /// address without its hamlet.
+    /// scholar's name.
     address: String,
     called: String,
     title: String,
@@ -436,13 +436,10 @@ fn thread(
     (said, items.last().map_or(0, |item| item.at))
 }
 
-/// What an agent with `address` is called in the rail: `nickname`,
-/// else its address without its hamlet.
-fn called(address: &str, nickname: Option<&Nickname>) -> String {
-    match nickname {
-        Some(nickname) => nickname.0.clone(),
-        None => hamlet_realm::pick::short(address).to_string(),
-    }
+/// What an agent with `address` is called in the rail: what it is
+/// shown by, else its address.
+fn called(address: &str, shown: Option<&Shown>) -> String {
+    shown.map_or_else(|| address.to_string(), |shown| shown.0.clone())
 }
 
 fn agents(world: &World) -> Vec<Agent> {
@@ -455,7 +452,7 @@ fn agents(world: &World) -> Vec<Agent> {
         &Activity,
         &Lived,
         Option<&Purpose>,
-        Option<&Nickname>,
+        Option<&Shown>,
         (Has<Busy>, Has<Faulted>, Has<Mayor>, Has<Left>),
     )>() else {
         return Vec::new();
@@ -490,7 +487,7 @@ fn agents(world: &World) -> Vec<Agent> {
                 activity,
                 lived,
                 purpose,
-                nickname,
+                shown,
                 (busy, faulted, mayor, _),
             )| {
                 let address = name_of(world, entity);
@@ -525,7 +522,7 @@ fn agents(world: &World) -> Vec<Agent> {
                     hamlet: lives.map(|lives| lives.0),
                     mayor,
                     mark,
-                    called: called(&address, nickname),
+                    called: called(&address, shown),
                     address,
                     title,
                     age: age(now, last.max(lived.since)),
@@ -801,7 +798,7 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
         }
         let line = wait.line(LINE_SHOWN);
         let said = line
-            .strip_prefix(wait.by.as_str())
+            .strip_prefix(wait.shown.as_str())
             .unwrap_or(&line)
             .trim_start();
         let asker = all.iter().find(|agent| agent.address == wait.by);
@@ -825,7 +822,7 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
                 },
             ),
             // The realm's page has every wait in full.
-            None => (Target::Home, Glyph::Bell, wait.by.clone()),
+            None => (Target::Home, Glyph::Bell, wait.shown.clone()),
         };
         lines.push(Line {
             target,
@@ -959,12 +956,12 @@ fn society(world: &World, sections: &mut Vec<Section>) {
                 world,
                 Target::Gone(entity),
                 Glyph::Robot,
-                &address,
+                &shown_of(world, entity),
                 match into {
                     Some(host) => {
                         format!(
                             "Merged into {}",
-                            name_of(world, host.0)
+                            shown_of(world, host.0)
                         )
                     }
                     None => "Ended".into(),
@@ -1689,7 +1686,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         app.update();
-        let ada = named(app.world_mut(), "ada@home").unwrap();
+        let ada = named(app.world_mut(), "home#0").unwrap();
         let in_hamlet = |g: &Group| matches!(g, Group::Hamlet(_));
         assert_eq!(names(&app, in_hamlet), ["ada"]);
         assert!(

@@ -41,7 +41,9 @@ pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
         .agents
         .iter()
         .find(|a| {
-            a.left.is_none() && a.kind != AgentKind::Hand && a.name == to
+            a.left.is_none()
+                && a.kind != AgentKind::Hand
+                && a.name == to
         })
         .map(|agent| agent.id)
         .with_context(|| {

@@ -274,7 +274,7 @@ mod tests {
         assert_ne!(*app.world().resource::<Roll>(), before);
         let shown = testing::words(&mut app);
         assert!(
-            shown.iter().any(|text| text == "ada@home"),
+            shown.iter().any(|text| text == "home#0"),
             "{shown:?}"
         );
     }
