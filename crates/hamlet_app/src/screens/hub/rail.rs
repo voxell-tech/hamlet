@@ -72,14 +72,18 @@ const LEFT_SHOWN: usize = 6;
 /// shorter.
 const LINE_SHOWN: usize = 90;
 
+/// How tall a cell is while the rail shows only icons.
+const ICON_ROW: f32 = 38.0;
+
 /// How tall a row is, so that the lines of a branch meet.
 const ROW: f32 = 40.0;
 
 /// The room before a row for a lead's chevron.
 const CHEVRON: f32 = 14.0;
 
-/// How far each step down a tree is set in.
-const STEP_IN: f32 = 12.0;
+/// How far each step down a tree is set in: a chevron's room and a
+/// little more, so a guide under a chevron leads to the next one.
+const STEP_IN: f32 = 18.0;
 /// The deepest a row is set in; deeper rows line up with it.
 const DEEPEST: u8 = 6;
 
@@ -121,6 +125,11 @@ impl Rail {
     /// Shows the rail's rows at its first width.
     pub fn show_rows(&mut self) {
         self.width = WIDE;
+    }
+
+    /// Folds the rail to its icons.
+    pub fn show_icons(&mut self) {
+        self.width = ICONS;
     }
 
     fn is_icons(&self) -> bool {
@@ -331,6 +340,9 @@ pub(super) struct Line {
     /// For a lead: the fold of the rows under it, and whether it is
     /// folded.
     pub fold: Option<(Group, bool)>,
+    /// For each level between the top and its own, whether the guide
+    /// of the agent there carries on past this row.
+    pub rails: Vec<bool>,
 }
 
 /// A group, its header and its rows.
@@ -558,12 +570,14 @@ fn tree<'a>(
 }
 
 /// The rows of `family`, each knowing whether it is the last under
-/// the agent above it.
+/// the agent above it, and which guides above it carry on past it.
 fn family_lines(
     world: &World,
     family: &[(&Agent, u8)],
     shift: u8,
 ) -> Vec<Line> {
+    // Whether the agent last seen at each depth has more after it.
+    let mut more = Vec::<bool>::new();
     family
         .iter()
         .enumerate()
@@ -574,7 +588,15 @@ fn family_lines(
                     .take_while(|(_, d)| d >= depth)
                     .all(|(_, d)| d > depth)
             });
-            agent_line(world, member, depth + shift, last)
+            let depth = (depth + shift).min(DEEPEST);
+            let level = usize::from(depth);
+            let mut line = agent_line(world, member, depth, last);
+            // The guides of the levels between the top and its own.
+            line.rails =
+                more.get(1..level).unwrap_or_default().to_vec();
+            more.resize(level + 1, false);
+            more[level] = !last;
+            line
         })
         .collect()
 }
@@ -639,6 +661,7 @@ fn agent_line(
         last,
         current: is_current(world, target),
         fold: None,
+        rails: Vec::new(),
     }
 }
 
@@ -718,6 +741,7 @@ fn page_line(
         last: true,
         current: is_current(world, target),
         fold: None,
+        rails: Vec::new(),
     }
 }
 
@@ -764,6 +788,7 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
                 last: true,
                 current: false,
                 fold: None,
+                rails: Vec::new(),
             });
             counts.push(1);
             continue;
@@ -813,6 +838,7 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
             last: true,
             current: false,
             fold: None,
+            rails: Vec::new(),
         });
         counts.push(1);
     }
@@ -1164,31 +1190,50 @@ fn current_rules(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The lines that join a nested row to the agent above it.
-fn branch(last: bool, depth: u8) -> impl View {
+/// The lines in front of a nested row, on a grid of [`STEP_IN`]: one
+/// column for each level above it, each with the guide of an agent
+/// that has more under it after this row, then the elbow from its
+/// parent. Every guide runs under the middle of its agent's chevron,
+/// so the tree lines up however deep it goes.
+fn branch(line: &Line) -> impl View {
+    let rails = line.rails.clone();
+    let last = line.last;
     with_cx(move |cx| {
-        let line = cx.theme().palette.gold_6;
+        let colour = cx.theme().palette.gold_6;
         let half = ROW / 2.0;
-        let bar = |on: bool| {
-            frame().width(px(1.0)).height(px(half)).fill(if on {
-                line
-            } else {
-                Color::NONE
-            })
-        };
-        let elbow = row((
-            column((bar(true), bar(!last))).gap(0.0),
-            column((frame()
-                .width(px(7.0))
-                .height(px(1.0))
-                .fill(line),))
-            .height(px(ROW))
-            .justify(JustifyContent::Center),
-        ))
-        .gap(0.0);
-        let steps = depth.min(DEEPEST).saturating_sub(1);
-        row((frame().width(px(f32::from(steps) * STEP_IN)), elbow))
+        // A column of the grid, with a guide down its middle where
+        // `on` says, over its top and bottom halves.
+        let column_of = |top: bool, bottom: bool, across: bool| {
+            let bar = |on: bool| {
+                frame().width(px(1.0)).height(px(half)).fill(if on {
+                    colour
+                } else {
+                    Color::NONE
+                })
+            };
+            row((
+                frame().width(px(CHEVRON / 2.0)),
+                column((bar(top), bar(bottom))).gap(0.0),
+                column((frame()
+                    .width(px(STEP_IN - CHEVRON / 2.0 - 1.0))
+                    .height(px(1.0))
+                    .fill(if across {
+                        colour
+                    } else {
+                        Color::NONE
+                    }),))
+                .height(px(ROW))
+                .justify(JustifyContent::Center),
+            ))
             .gap(0.0)
+            .boxed()
+        };
+        let mut parts = rails
+            .iter()
+            .map(|on| column_of(*on, *on, false))
+            .collect::<Vec<_>>();
+        parts.push(column_of(true, !last, true));
+        row(parts).gap(0.0)
     })
 }
 
@@ -1252,7 +1297,7 @@ fn expanded(line: &Line) -> AnyView {
     // press so that folding does not open the thread.
     let mut around = Vec::new();
     if line.depth > 0 {
-        around.push(branch(line.last, line.depth).boxed());
+        around.push(branch(line).boxed());
     }
     around.push(match line.fold {
         Some((group, shut)) => button(
@@ -1296,6 +1341,8 @@ fn icon_only(line: &Line) -> AnyView {
         None => frame().height(px(10.0)).boxed(),
     };
     let name = line.name.clone();
+    // Each icon in a cell of its own height, its mark centred under
+    // it, so no mark touches the icon below.
     button(
         column((
             glyph(line.glyph, ICON + 2.0).tone(if line.current {
@@ -1305,10 +1352,14 @@ fn icon_only(line: &Line) -> AnyView {
             }),
             mark,
         ))
-        .gap(2.0)
+        .gap(3.0)
+        .width(percent(100.0))
+        .height(px(ICON_ROW))
+        .justify(JustifyContent::Center)
         .align(AlignItems::Center),
     )
     .width(percent(100.0))
+    .height(px(ICON_ROW))
     .tooltip(move || note(name.clone()))
     .rules(rules)
     .tagged(Variant::Default)
@@ -1334,7 +1385,8 @@ fn header(section: &Section) -> AnyView {
                         180.0
                     }),
             )
-            .padding(UiRect::all(px(2.0)))
+            .width(px(CHEVRON))
+            .padding(UiRect::all(px(0.0)))
             .rules(views::tint)
             .tooltip(|| note("Fold or open"))
             .on_activate(move |world| {
@@ -1342,6 +1394,9 @@ fn header(section: &Section) -> AnyView {
             })
             .boxed(),
         );
+    } else {
+        // Its title lines up with those that fold.
+        parts.push(frame().width(px(CHEVRON)).boxed());
     }
     let title = caption(section.title.clone(), Tone::Faint);
     parts.push(match section.opens {
@@ -1359,10 +1414,12 @@ fn header(section: &Section) -> AnyView {
     if matches!(group, Group::Hamlet(_)) {
         parts.push(mark_icon(section.mark));
     }
+    // From the rail's edge, so its chevron stands in the same column
+    // as the chevrons of the rows under it.
     row(parts)
         .gap(6.0)
         .align(AlignItems::Center)
-        .padding(UiRect::new(px(2.0), px(8.0), px(10.0), px(2.0)))
+        .padding(UiRect::new(px(0.0), px(8.0), px(10.0), px(2.0)))
         .boxed()
 }
 
@@ -1393,6 +1450,7 @@ fn sections_view(icons: bool, sections: &[Section]) -> AnyView {
                     last: true,
                     current: false,
                     fold: None,
+                    rails: Vec::new(),
                 }));
                 continue;
             }
@@ -1410,7 +1468,8 @@ fn sections_view(icons: bool, sections: &[Section]) -> AnyView {
             });
         }
     }
-    column(parts).gap(1.0).boxed()
+    // No gap, so the guides of a tree run unbroken from row to row.
+    column(parts).gap(0.0).boxed()
 }
 
 /// A button that turns the rail between its rows and its icons.
