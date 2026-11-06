@@ -47,7 +47,6 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::fade::ClipFade;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::widgets::tabs;
@@ -1473,9 +1472,7 @@ fn expanded(line: &Line) -> AnyView {
         .gap(0.0)
         .grow(1.0)
         .min_width(px(0.0))
-        .overflow(Overflow::clip())
-        // A line too long fades out where it is cut.
-        .tagged(ClipFade),
+        .overflow(Overflow::clip()),
         // How long ago, beside its state.
         row((
             label(line.age.clone()).tone(Tone::Faint).wrap(false),

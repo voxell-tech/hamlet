@@ -1,5 +1,6 @@
 //! What every panel is built from.
 
+pub mod cut;
 pub mod dial;
 pub mod disclosure;
 pub mod effects;
@@ -20,5 +21,6 @@ pub fn plugin(app: &mut App) {
         effects::plugin,
         switch::plugin,
         fade::plugin,
+        cut::CutTextPlugin,
     ));
 }

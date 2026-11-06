@@ -16,10 +16,10 @@ use bevy::math::{BVec2, Vec2};
 use bevy::picking::Pickable;
 use bevy::time::Time;
 use bevy::ui::{
-    BackgroundColor, BackgroundGradient, ColorStop, ComputedNode,
-    IgnoreScroll, LinearGradient, Node, Overflow, OverflowAxis,
-    PositionType, ScrollPosition, UiGlobalTransform, UiSystems,
-    ZIndex, percent, px,
+    BackgroundGradient, ColorStop, ComputedNode, IgnoreScroll,
+    LinearGradient, Node, Overflow, OverflowAxis, PositionType,
+    ScrollPosition, UiGlobalTransform, UiSystems, ZIndex, percent,
+    px,
 };
 use bevy_fynix::Theme;
 use bevy_fynix::scroll::ScrollGoal;
@@ -29,130 +29,11 @@ use crate::theme::HamletTheme;
 
 pub fn plugin(app: &mut App) {
     app.add_observer(add_fades)
-        .add_observer(add_clip_fade)
-        .add_systems(
-            Update,
-            ((default_fade, fade).chain(), clip_fade),
-        )
+        .add_systems(Update, (default_fade, fade).chain())
         .add_systems(
             PostUpdate,
-            (keep_fades, keep_clip_fades).before(UiSystems::Prepare),
+            keep_fades.before(UiSystems::Prepare),
         );
-}
-
-/// On a node that clips what it holds, as a row cuts a long line: a
-/// fade over its right edge into what is under it, while what it
-/// holds runs past that edge.
-#[derive(Component, Clone, Copy, Debug, Default)]
-pub struct ClipFade;
-
-/// The fade over the right edge of the [`ClipFade`] node `area`, and
-/// the colour last drawn at its edge.
-#[derive(Component, Clone, Copy, Debug)]
-struct ClipEdge {
-    area: Entity,
-    drawn: Color,
-}
-
-/// How wide the fade over a cut line is, in logical pixels.
-const CLIP_FADE: f32 = 24.0;
-
-/// Puts the fade over the right edge of each new [`ClipFade`] node.
-fn add_clip_fade(added: On<Add<ClipFade>>, mut commands: Commands) {
-    let area = added.entity;
-    let edge = commands
-        .spawn((
-            ClipEdge {
-                area,
-                drawn: Color::NONE,
-            },
-            Edge::Right.node(CLIP_FADE),
-            Pickable::IGNORE,
-            ZIndex(1),
-        ))
-        .id();
-    commands.entity(area).add_child(edge);
-}
-
-/// Shows each cut line's fade while what its node holds is wider than
-/// it, in the colour of what is under it: the panel, then the fill of
-/// each node above it, as a row's while hovered or chosen.
-fn clip_fade(
-    theme: Option<Res<Theme<HamletTheme>>>,
-    areas: Query<(&ComputedNode, &UiGlobalTransform), With<ClipFade>>,
-    shaded: Query<(&ComputedNode, &UiGlobalTransform), With<Glow>>,
-    fills: Query<&BackgroundColor>,
-    parents: Query<&ChildOf>,
-    mut edges: Query<(Entity, &mut ClipEdge)>,
-    mut commands: Commands,
-) {
-    let Some(theme) = theme else {
-        return;
-    };
-    let theme = &theme.0;
-    for (entity, mut edge) in &mut edges {
-        let Ok((computed, place)) = areas.get(edge.area) else {
-            continue;
-        };
-        let cut = computed.content_size().x > computed.size().x + 0.5;
-        if !cut {
-            if edge.drawn != Color::NONE {
-                edge.drawn = Color::NONE;
-                commands
-                    .entity(entity)
-                    .try_remove::<BackgroundGradient>();
-            }
-            continue;
-        }
-        // From the panel down to the node, each fill over the last.
-        let above = std::iter::once(edge.area)
-            .chain(parents.iter_ancestors(edge.area))
-            .collect::<Vec<_>>();
-        let panel = above.iter().position(|e| shaded.contains(*e));
-        let mut ground = panel
-            .and_then(|at| shaded.get(above[at]).ok())
-            .map_or(theme.palette.surface, |(panel, at)| {
-                shade(theme, panel, at, place.translation.y)
-            });
-        let below_panel = &above[..panel.unwrap_or(above.len())];
-        for node in below_panel.iter().rev() {
-            if let Ok(fill) = fills.get(*node) {
-                let alpha = fill.0.alpha();
-                if alpha > 0.0 {
-                    ground = Oklaba::from(ground)
-                        .mix(
-                            &Oklaba::from(fill.0.with_alpha(1.0)),
-                            alpha,
-                        )
-                        .into();
-                }
-            }
-        }
-        if ground != edge.drawn {
-            edge.drawn = ground;
-            commands
-                .entity(entity)
-                .try_insert(Edge::Right.gradient(ground));
-        }
-    }
-}
-
-/// Keeps each cut line's fade over its node, or drops it with it.
-fn keep_clip_fades(
-    edges: Query<(Entity, &ClipEdge, Option<&ChildOf>)>,
-    areas: Query<(), With<ClipFade>>,
-    mut commands: Commands,
-) {
-    for (entity, edge, parent) in &edges {
-        if parent.is_some_and(|parent| parent.parent() == edge.area) {
-            continue;
-        }
-        if areas.contains(edge.area) {
-            commands.entity(edge.area).add_child(entity);
-        } else {
-            commands.entity(entity).despawn();
-        }
-    }
 }
 
 /// On a scroll area: a fade over each edge into `surface` while more

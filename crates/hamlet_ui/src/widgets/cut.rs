@@ -1,0 +1,139 @@
+//! Text cut by the edge of what clips it fades out toward that edge,
+//! letter by letter, instead of ending in a hard edge: a line too
+//! long for its row, a field scrolled past its start, a paragraph at
+//! the foot of a scroll area. The letters themselves fade, so the
+//! fade is right over any fill, glow or hover under them.
+
+use bevy::app::{App, Plugin};
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::ResMut;
+use bevy::math::{Rect, Vec2};
+use bevy::render::{ExtractSchedule, RenderApp};
+use bevy::ui::CalculatedClip;
+use bevy::ui_render::{
+    ExtractedGlyph, ExtractedUiItem, ExtractedUiNodes,
+    RenderUiSystems,
+};
+
+/// How far in from a cutting edge the letters fade, in the heights of
+/// their glyphs.
+const FADE: f32 = 1.6;
+
+/// Fades the letters of cut text where it is drawn.
+pub struct CutTextPlugin;
+
+impl Plugin for CutTextPlugin {
+    fn build(&self, _: &mut App) {}
+
+    // Once every plugin is built, so the render world is there; only
+    // a window that draws has one.
+    fn finish(&self, app: &mut App) {
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render.add_systems(
+                ExtractSchedule,
+                fade_cut_text.after(RenderUiSystems::ExtractText),
+            );
+        }
+    }
+}
+
+/// The edges of `clip` that some of `glyphs` run past, at `place` in
+/// the clip's own space.
+#[derive(Clone, Copy, Default)]
+struct Cut {
+    left: bool,
+    right: bool,
+    top: bool,
+    bottom: bool,
+}
+
+impl Cut {
+    fn of(
+        glyphs: &[ExtractedGlyph],
+        clip: Rect,
+        place: impl Fn(&ExtractedGlyph) -> Vec2,
+    ) -> Self {
+        let mut cut = Self::default();
+        for glyph in glyphs {
+            let (at, half) = (place(glyph), glyph.rect.size() / 2.0);
+            cut.left |= at.x - half.x < clip.min.x - 0.5;
+            cut.right |= at.x + half.x > clip.max.x + 0.5;
+            cut.top |= at.y - half.y < clip.min.y - 0.5;
+            cut.bottom |= at.y + half.y > clip.max.y + 0.5;
+        }
+        cut
+    }
+
+    fn any(self) -> bool {
+        self.left || self.right || self.top || self.bottom
+    }
+
+    /// How much of a glyph at `at` is shown, `fade` from each edge
+    /// that cuts.
+    fn shown(self, clip: Rect, at: Vec2, fade: f32) -> f32 {
+        let within = |gap: f32| (gap / fade).clamp(0.0, 1.0);
+        let mut shown = 1.0;
+        if self.left {
+            shown *= within(at.x - clip.min.x);
+        }
+        if self.right {
+            shown *= within(clip.max.x - at.x);
+        }
+        if self.top {
+            shown *= within(at.y - clip.min.y);
+        }
+        if self.bottom {
+            shown *= within(clip.max.y - at.y);
+        }
+        shown
+    }
+}
+
+/// Lowers the alpha of each letter of a text that runs past an edge
+/// of what clips it, the nearer that edge the lower. Only text
+/// extracted anew this frame is faded, as the rest keeps its fade.
+fn fade_cut_text(mut extracted: ResMut<ExtractedUiNodes>) {
+    let ExtractedUiNodes { uinodes, changed } = &mut *extracted;
+    for main in changed.iter() {
+        let Some((_, items)) = uinodes.get_mut(main) else {
+            continue;
+        };
+        for node in items.values_mut() {
+            let Some(CalculatedClip::Rects(clips)) = &node.clip
+            else {
+                continue;
+            };
+            let transform = node.transform;
+            let ExtractedUiItem::Glyphs { glyphs } = &mut node.item
+            else {
+                continue;
+            };
+            let tall = glyphs
+                .iter()
+                .map(|glyph| glyph.rect.height())
+                .fold(0.0, f32::max);
+            if tall <= 0.0 {
+                continue;
+            }
+            for clip in clips {
+                let place = |glyph: &ExtractedGlyph| {
+                    clip.world_to_clip_local.transform_point2(
+                        transform.transform_point2(glyph.translation),
+                    )
+                };
+                let cut = Cut::of(glyphs, clip.rect, place);
+                if !cut.any() {
+                    continue;
+                }
+                for glyph in glyphs.iter_mut() {
+                    let shown = cut.shown(
+                        clip.rect,
+                        place(glyph),
+                        tall * FADE,
+                    );
+                    glyph.color.alpha *= shown;
+                }
+            }
+        }
+    }
+}

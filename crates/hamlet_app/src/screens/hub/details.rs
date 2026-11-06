@@ -200,7 +200,7 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
             .rules(bevy_fynix::views::tint)
             .tooltip(|| note("Take up the road"))
             .on_activate(move |world| {
-                orders::part(world, agent, other)
+                orders::part(world, agent, other);
             });
         parts.push(
             row((link(other, name), cut))
