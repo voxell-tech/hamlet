@@ -98,8 +98,6 @@ pub enum Glyph {
     Coins,
     /// A dial with a needle: the budget.
     Meter,
-    /// A ticked ballot.
-    Ballot,
     Signpost,
     /// A robot's head: an agent.
     Robot,
@@ -176,7 +174,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 55] = [
+    pub const ALL: [Glyph; 54] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -202,7 +200,6 @@ impl Glyph {
         Glyph::Signal,
         Glyph::Coins,
         Glyph::Meter,
-        Glyph::Ballot,
         Glyph::Signpost,
         Glyph::Robot,
         Glyph::Sliders,
@@ -429,10 +426,6 @@ impl Glyph {
                 Arc(8.0, 10.5, 6.0, 180.0, 360.0),
                 Line(8.0, 10.5, 11.25, 6.25),
                 Dot(8.0, 10.5, 1.2),
-            ],
-            Glyph::Ballot => &[
-                Round(2.5, 2.5, 13.5, 13.5, 2.0),
-                Path(&[[5.25, 8.25], [7.25, 10.25], [10.75, 5.75]]),
             ],
             Glyph::Signpost => &[
                 Line(8.0, 7.5, 8.0, 14.25),
