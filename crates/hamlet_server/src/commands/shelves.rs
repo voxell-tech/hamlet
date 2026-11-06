@@ -28,7 +28,6 @@ impl Core {
         }))
     }
 
-    /// `/unshelve <skill> [reason]`
     fn unshelve(
         &mut self,
         words: &[&str],

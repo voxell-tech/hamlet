@@ -63,7 +63,6 @@ impl Core {
         Actor::Chief(self.realm.chief()).to_string()
     }
 
-    /// `/tag <scholar>[@<commit>] <version> [note]`
     fn tag(
         &mut self,
         words: &[&str],
@@ -111,7 +110,8 @@ impl Core {
         Ok(Ok(format!("Tagged {label} as {version}.")))
     }
 
-    /// `/versions <scholar>`: its versions and its latest commits.
+    /// Lists the versions of a scholar and the latest commits of its
+    /// `main`.
     fn list_versions(
         &mut self,
         words: &[&str],
@@ -158,7 +158,6 @@ impl Core {
         Ok(Ok(lines.join("\n")))
     }
 
-    /// `/pin <address> <version|main> [reason]`
     async fn pin(
         &mut self,
         here: Option<&HamletId>,
@@ -217,7 +216,6 @@ impl Core {
         }))
     }
 
-    /// `/revert <scholar> <commit|version> [reason]`
     async fn revert(
         &mut self,
         words: &[&str],
@@ -269,7 +267,6 @@ impl Core {
         }))
     }
 
-    /// `/fork <scholar>[@<version>] <new-name>`
     async fn fork(
         &mut self,
         words: &[&str],
@@ -317,8 +314,8 @@ impl Core {
         }))
     }
 
-    /// `/purge <scholar> <path>`: the path leaves every commit, every
-    /// branch and every lodge of the scholar's hires.
+    /// Takes the path out of every commit, every branch and every
+    /// lodge of the scholar's hires.
     async fn purge(
         &mut self,
         words: &[&str],
