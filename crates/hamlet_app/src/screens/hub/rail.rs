@@ -262,7 +262,6 @@ pub(super) enum Group {
     City,
     /// Newcomers waiting to be let in, and those turned away.
     Harbor,
-    Library,
     Left,
 }
 
@@ -651,21 +650,25 @@ fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
         let Target::Agent(agent) = lines[at].target else {
             continue;
         };
-        if under == 0 {
-            continue;
-        }
+        // A mayor's rows fold with its hamlet's header, and a lead
+        // with something waiting under it stays open.
         let range = &lines[at + 1..at + 1 + under];
         let waits = range.iter().any(|line| line.mark == Mark::Waits);
+        if under == 0 || depth == 0 || waits {
+            continue;
+        }
+        let group = Group::Lead(agent);
+        let shut = folded.contains(&group);
+        // Open, each row shows its own state; folded, the lead
+        // stands for all of them.
         let mark = Mark::of_all(
             std::iter::once(lines[at].mark)
                 .chain(range.iter().map(|line| line.mark)),
         );
-        let group = Group::Lead(agent);
-        let shut = folded.contains(&group) && !waits;
         let line = &mut lines[at];
-        line.mark = mark;
         line.fold = Some((group, shut));
         if shut {
+            line.mark = mark;
             line.title = format!("{under} under · {}", line.title);
         }
     }
@@ -731,6 +734,33 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
     let mut lines = Vec::<Line>::new();
     let mut counts = Vec::<usize>::new();
     for wait in waits {
+        // A newcomer is about the scholar at the harbor, not about
+        // whoever made it, and leads to its page.
+        if let protocol::WaitDetail::Newcomer { scholar } =
+            &wait.detail
+            && let Some(entity) =
+                hamlet_client::realm::scholar(world, *scholar)
+        {
+            let name = world
+                .get::<Scholar>(entity)
+                .map(|s| s.0.name.clone())
+                .unwrap_or_default();
+            lines.push(Line {
+                target: Target::Scholar(entity),
+                glyph: Glyph::Notes,
+                name: format!("{name} · harbor"),
+                title: "Wants to be let into the city".into(),
+                age: age(now, wait.since),
+                mark: Mark::Waits,
+                address: name,
+                depth: 0,
+                last: true,
+                current: false,
+                fold: None,
+            });
+            counts.push(1);
+            continue;
+        }
         if let Some(at) =
             lines.iter().position(|line| line.address == wait.by)
         {
@@ -870,27 +900,6 @@ fn society(world: &World, sections: &mut Vec<Section>) {
             lines,
         });
     }
-    let shelf =
-        world.get_resource::<Skills>().map_or(0, |s| s.0.len());
-    sections.push(Section {
-        group: Group::Library,
-        title: String::new(),
-        opens: None,
-        mark: Mark::None,
-        count: 0,
-        folded: false,
-        lines: vec![page_line(
-            world,
-            Target::Library,
-            Glyph::Book,
-            "Library",
-            match shelf {
-                1 => "1 skill".into(),
-                n => format!("{n} skills"),
-            },
-            Mark::None,
-        )],
-    });
     if let Some(mut query) = world.try_query::<(
         Entity,
         &Lived,
@@ -975,6 +984,20 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             .collect::<Vec<_>>();
         top.extend(family_lines(world, &tree(hand, &outside), 0));
     }
+    // The library is the realm's, beside the Hand.
+    let shelf =
+        world.get_resource::<Skills>().map_or(0, |s| s.0.len());
+    top.push(page_line(
+        world,
+        Target::Library,
+        Glyph::Book,
+        "Library",
+        match shelf {
+            1 => "1 skill on its shelves".into(),
+            n => format!("{n} skills on its shelves"),
+        },
+        Mark::None,
+    ));
     sections.push(Section {
         group: Group::Top,
         title: String::new(),
@@ -1051,8 +1074,12 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
 
     society(world, &mut sections);
     for section in &mut sections {
-        if section.group == Group::City {
-            section.folded = folded.contains(&Group::City)
+        // Every part with a header folds, but never over a wait.
+        if matches!(
+            section.group,
+            Group::City | Group::Harbor | Group::Left
+        ) {
+            section.folded = folded.contains(&section.group)
                 && !section
                     .lines
                     .iter()

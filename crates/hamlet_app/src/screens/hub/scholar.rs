@@ -73,14 +73,39 @@ struct First;
 #[derive(Component)]
 struct Second;
 
+/// Where `hire` stands: mayor of its hamlet, or in it under its lead.
+fn place_of(world: &World, hire: Entity) -> String {
+    let hamlet = world
+        .get::<LivesIn>(hire)
+        .map(|lives| name_of(world, lives.0))
+        .unwrap_or_default();
+    if world.get::<hamlet_client::realm::Mayor>(hire).is_some() {
+        return format!("mayor of {hamlet}");
+    }
+    let lead = world
+        .get::<hamlet_client::realm::Parent>(hire)
+        .and_then(|parent| {
+            hamlet_client::realm::agent(world, parent.0)
+        })
+        .map(|lead| match world.get::<Nickname>(lead) {
+            Some(nickname) => nickname.0.clone(),
+            None => hamlet_realm::pick::short(&name_of(world, lead))
+                .into(),
+        });
+    match lead {
+        Some(lead) => format!("in {hamlet}, under {lead}"),
+        None => format!("in {hamlet}"),
+    }
+}
+
 /// A hire of the scholar as the page shows it.
 #[derive(Clone, PartialEq)]
 struct HireShown {
     entity: Entity,
     address: String,
-    /// What it goes by, and the name of the hamlet it is in.
+    /// What it goes by, and where it stands in its hamlet.
     called: String,
-    hamlet: String,
+    place: String,
     pin: Option<String>,
 }
 
@@ -111,10 +136,7 @@ fn shown(world: &World, entity: Entity) -> Option<Shown> {
                         hamlet_realm::pick::short(&address).into()
                     }
                 },
-                hamlet: world
-                    .get::<LivesIn>(hire)
-                    .map(|lives| name_of(world, lives.0))
-                    .unwrap_or_default(),
+                place: place_of(world, hire),
                 pin: world.get::<Pin>(hire).map(|pin| pin.0.clone()),
                 address,
             }
@@ -420,9 +442,7 @@ fn hires(shown: &Shown) -> AnyView {
                 })
                 .on_activate(move |world| talk_to(world, hire))
                 .boxed(),
-            label(format!("in {}", shown_hire.hamlet))
-                .tone(Tone::Dim)
-                .boxed(),
+            label(shown_hire.place.clone()).tone(Tone::Dim).boxed(),
             frame().grow(1.0).boxed(),
         ];
         if pins {
@@ -577,7 +597,7 @@ fn body(shown: &Shown) -> AnyView {
         let section = cx.theme().space.section;
         column((
             breadcrumb(
-                vec!["Realm".into(), "City".into()],
+                vec!["Realm".into()],
                 name.clone(),
                 |world, _| show(world, Showing::Home),
             ),

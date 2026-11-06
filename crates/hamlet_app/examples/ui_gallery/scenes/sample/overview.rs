@@ -137,6 +137,18 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     burr.arrival = protocol::Arrival::Turned;
     burr.house = None;
     state.scholars.extend([moss, burr]);
+    if scene != Scene::Toasts {
+        // The chief holds the door, so moss waits on a petition.
+        let mut wait = hamlet_testing::realm::wait("moss");
+        wait.agent = None;
+        wait.by = "scout@home".into();
+        wait.about =
+            "scout made moss, who waits to be let in.".into();
+        wait.detail = protocol::WaitDetail::Newcomer {
+            scholar: protocol::ScholarId(90),
+        };
+        state.waits.push(wait);
+    }
     if scene == Scene::Toasts {
         // The Hand holds the door. Once the realm is on show it
         // lets moss in and a hire raises a petition.

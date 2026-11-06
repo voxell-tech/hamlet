@@ -7,7 +7,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Display, UiRect, px};
+use bevy::ui::{AlignItems, Display, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
@@ -356,7 +356,114 @@ fn waits(agent: Entity) -> impl View {
                     })
                 })
                 .collect::<Vec<_>>();
-            column(cards).gap(8.0).boxed()
+            if cards.is_empty() {
+                return frame().boxed();
+            }
+            // Never more than part of the page, so the chat stays in
+            // view; the rest scrolls.
+            column((scroll_area((column(cards).gap(8.0),)),))
+                .max_height(percent(40.0))
+                .min_height(px(0.0))
+                .boxed()
+        },
+    )
+    .within(bare())
+}
+
+/// Where `agent` stands, in words: its role and how many are under
+/// it, and for a hire the scholar it is of and the version it
+/// follows.
+fn standing_words(
+    world: &World,
+    agent: Entity,
+) -> (String, Option<Entity>) {
+    let kind = world.get::<Kind>(agent).map(|kind| kind.0);
+    let id = id_of(world, agent);
+    let under = id.map_or(0, |id| {
+        world
+            .try_query::<(&Parent, &Kind)>()
+            .map(|mut query| {
+                query
+                    .iter(world)
+                    .filter(|(parent, kind)| {
+                        parent.0 == id
+                            && kind.0 != protocol::AgentKind::Worker
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    });
+    let lead = world.get::<Parent>(agent).and_then(|parent| {
+        hamlet_client::realm::agent(world, parent.0)
+    });
+    let mut parts = vec![match kind {
+        Some(protocol::AgentKind::Hand) => {
+            "The realm's own agent".into()
+        }
+        Some(protocol::AgentKind::Worker) => match lead {
+            Some(lead) => {
+                format!("Worker for {}", called(world, lead))
+            }
+            None => "Worker".into(),
+        },
+        _ if world
+            .get::<hamlet_client::realm::Mayor>(agent)
+            .is_some() =>
+        {
+            "Mayor".into()
+        }
+        _ => match lead {
+            Some(lead) => {
+                format!("Hire under {}", called(world, lead))
+            }
+            None => "Hire".into(),
+        },
+    }];
+    if under > 0 {
+        parts.push(format!("{under} under it"));
+    }
+    let scholar = world
+        .get::<hamlet_client::realm::OfScholar>(agent)
+        .filter(|_| kind == Some(protocol::AgentKind::Hire))
+        .and_then(|of| hamlet_client::realm::scholar(world, of.0));
+    if scholar.is_some() {
+        let pin = world
+            .get::<hamlet_client::realm::Pin>(agent)
+            .map_or("main", |pin| pin.0.as_str());
+        parts.push(format!("follows {pin} of"));
+    }
+    (parts.join(" · "), scholar)
+}
+
+/// Its role over the thread, the scholar it is of leading to its
+/// page.
+fn role(agent: Entity) -> impl View {
+    keyed(
+        derived(move |world: &World| {
+            let (words, scholar) = standing_words(world, agent);
+            let name = scholar.and_then(|scholar| {
+                world
+                    .get::<hamlet_client::realm::Scholar>(scholar)
+                    .map(|s| (scholar, s.0.name.clone()))
+            });
+            (words, name)
+        })
+        .when(every_frame()),
+        |(words, scholar)| {
+            let mut parts = vec![dim(words.clone()).boxed()];
+            if let Some((scholar, name)) = scholar.clone() {
+                parts.push(
+                    step(name, move |world| {
+                        show(world, Showing::Scholar(scholar));
+                    })
+                    .boxed(),
+                );
+            }
+            row(parts)
+                .gap(4.0)
+                .align(AlignItems::Center)
+                .tagged(Wraps)
+                .boxed()
         },
     )
     .within(bare())
@@ -427,6 +534,7 @@ fn header(agent: Entity) -> impl View {
             // done, on the next.
             column((
                 path(agent),
+                role(agent),
                 row((
                     state(agent),
                     frame().grow(1.0),
@@ -435,7 +543,8 @@ fn header(agent: Entity) -> impl View {
                     more,
                 ))
                 .gap(section)
-                .align(AlignItems::Center),
+                .align(AlignItems::Center)
+                .tagged(Wraps),
                 note(resource::<Bar, _>(|b| {
                     format!("{}  This chat: {}", b.model, b.usage)
                 })),
