@@ -159,13 +159,13 @@ the pointer and the boxes they fill. Bevy also breaks that layout at
 other widths while it measures, so it is broken again at the width the
 node is drawn at before it is read.
 
-What is selected is lit, in `chosen` of the palette, on one layer over
+What is selected is highlighted, in `chosen` of the palette, on one layer over
 the panels, under a dragged tab, the menus and the tooltips, and cut to
 what clips the text. Selectable text shows the text cursor. Cmd+C copies
 it, Cmd+A selects the whole area and Esc lets it go. The parts of nodes
 on one line, such as a bullet and its item, are joined with a space, and
 those on different lines with a line. The room a bubble keeps for its
-hour is never selected. In the chat, QUOTE, at the end of what is lit,
+hour is never selected. In the chat, QUOTE, at the end of what is highlighted,
 puts the words in the field as `> ` lines with a line after them for the
 chief's own words. A press anywhere else, or another chat, lets the
 selection go. A plain click on a link still follows it.
@@ -248,7 +248,7 @@ on the realm's page and over the field of the chat with the agent that asked,
 and both read the same answers, so what is begun in one stands in the
 other. The card shows one question at a time, with "1 of 3" and the way
 between them at its head. The options are a list of rows, each with its
-letter, its title and its description, and the one picked is lit. A
+letter, its title and its description, and the one picked is highlighted. A
 line under them, Other, takes words. Each question takes one option or
 words, not both, and picking an option moves on to the next question.
 SUBMIT, on the last question, sends the answers when each question has

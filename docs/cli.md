@@ -92,7 +92,7 @@ On macOS, Finder may not inherit the shell's Node PATH: run the bundle's
 
 The window has no realm claim and runs no agent. It finds a local server
 through the realm's `server.json` and connection token, or uses
-`HAMLET_SERVER` and `HAMLET_TOKEN`. Its own size, layout, chief's look and
+`HAMLET_SERVER` and `HAMLET_TOKEN`. Its own size, layout, chief's appearance and
 places live on its machine under `HAMLET_VIEW`, else the OS's config folder
 for Hamlet. It reads them once at launch: a missing file is the default,
 and one that does not parse stops it with an error naming the file, which
