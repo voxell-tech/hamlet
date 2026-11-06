@@ -9,6 +9,7 @@ mod papers;
 mod rail;
 mod scholar;
 mod thread;
+mod visits;
 
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChanges;
@@ -58,7 +59,7 @@ pub fn plugin(app: &mut App) {
         DockWindowKind::new("SKILLS", || panel(skills_screen()))
             .icon(Glyph::Book.image(ICON)),
     )
-    .add_plugins(rail::plugin)
+    .add_plugins((rail::plugin, visits::plugin))
     .init_resource::<Showing>()
     .init_resource::<crate::forms::OpenForm>()
     .init_resource::<scholar::Form>()
