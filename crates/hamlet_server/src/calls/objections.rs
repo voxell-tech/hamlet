@@ -10,7 +10,7 @@ use hamlet_store::schema::{objection, wait};
 
 use super::{Answer, Call, held, said};
 use crate::core::Core;
-use crate::oversight::{self, Raise, WaitKind};
+use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::talk::marks::Mark;
 use crate::talk::{inputs, tasks};
 use crate::work::tools::Outcome;
@@ -74,7 +74,9 @@ impl Core {
         let db = self.realm.store().connection();
         Ok(kept(db, task)?
             .and_then(|found| found.ruling)
-            .is_some_and(|ruling| ruling == "withdraw"))
+            .is_some_and(|ruling| {
+                ruling == Ruling::Withdraw.as_str()
+            }))
     }
 
     /// Whether a chief considers an objection to the instruction of
@@ -138,23 +140,26 @@ impl Core {
             } else {
                 format!(" The chief says: {text}")
             };
-            return Ok(match found.ruling.as_deref() {
-                Some("go") => Ok(said(
-                    format!(
-                        "The chief rules: go on with the \
-                         instruction.{said_too}"
-                    ),
-                    false,
-                )),
-                Some(_) => Ok(said(
-                    format!(
-                        "The chief withdrew the instruction. Stop \
-                         working on it.{said_too}"
-                    ),
-                    false,
-                )),
-                None => Err(Answer::Waiting(OBJECTING.into())),
-            });
+            return Ok(
+                match found.ruling.as_deref().and_then(Ruling::named)
+                {
+                    Some(Ruling::Go) => Ok(said(
+                        format!(
+                            "The chief rules: go on with the \
+                             instruction.{said_too}"
+                        ),
+                        false,
+                    )),
+                    Some(_) => Ok(said(
+                        format!(
+                            "The chief withdrew the instruction. \
+                             Stop working on it.{said_too}"
+                        ),
+                        false,
+                    )),
+                    None => Err(Answer::Waiting(OBJECTING.into())),
+                },
+            );
         }
         let reason = call
             .arguments
@@ -211,16 +216,17 @@ impl Core {
     }
 }
 
-/// Keeps a chief's ruling on the objection `on` waited on.
+/// Keeps a chief's ruling, `Go` or `Withdraw`, on the objection `on`
+/// waited on.
 pub(super) fn rule(
     db: &mut hamlet_store::Db,
     on: WaitId,
-    go: bool,
+    ruling: Ruling,
     at: i64,
 ) -> Result<()> {
     diesel::update(objection::table.filter(objection::wait.eq(on)))
         .set((
-            objection::ruling.eq(if go { "go" } else { "withdraw" }),
+            objection::ruling.eq(ruling.as_str()),
             objection::ruled_at.eq(at),
         ))
         .execute(db)?;
