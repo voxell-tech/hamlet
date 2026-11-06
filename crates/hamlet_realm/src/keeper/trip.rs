@@ -7,6 +7,9 @@ use bevy::prelude::*;
 
 use super::Motion;
 
+/// About how long a journey takes however far it goes, in seconds.
+const JOURNEY_SECONDS: f32 = 10.0;
+
 /// The ground a robot that is moved has covered, and its speed.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct Stride {
@@ -65,6 +68,19 @@ impl Trip {
             get_going: motion.get_going,
             corner: motion.corner,
         }
+    }
+
+    /// A walk across the city or from a pier: never slower than a
+    /// walk, and a long one hurried so it takes about
+    /// [`JOURNEY_SECONDS`] rather than minutes.
+    pub fn journey(
+        way: Vec<Vec3>,
+        depart: f32,
+        motion: &Motion,
+    ) -> Self {
+        let mut trip = Self::new(way, depart, motion);
+        trip.speed = trip.speed.max(trip.length() / JOURNEY_SECONDS);
+        trip
     }
 
     pub fn length(&self) -> f32 {

@@ -70,10 +70,10 @@ pub(super) fn wait(
                 .into_iter()
                 .skip(1),
         );
-        commands
-            .entity(entity)
-            .remove::<Newcomer>()
-            .insert((Homebound, Trip::new(way, clock.t, &motion)));
+        commands.entity(entity).remove::<Newcomer>().insert((
+            Homebound,
+            Trip::journey(way, clock.t, &motion),
+        ));
     }
     let deck = land.set.land.water_y + Harbor::DECK;
     for (slot, (number, scholar)) in waiting.into_iter().enumerate() {

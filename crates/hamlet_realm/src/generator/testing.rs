@@ -22,10 +22,15 @@ pub(crate) fn designed_land(seed: u32) -> Land {
 }
 
 /// The settings with islands whose radii round up to a step too wide
-/// to cross, so that founding towns never moves the hamlet island.
+/// to cross, so that founding towns never moves the hamlet island,
+/// and wide enough that every site of the first rings is on dry land
+/// before any town is founded, as the tests of sites and woods want.
 pub(crate) fn still() -> GeneratorSettings {
     let mut set = GeneratorSettings::default();
     set.land.island_step = 3000.0;
+    set.land.island = 190.0;
+    set.land.coast.1 = 30.0;
+    set.land.channel = 220.0;
     set
 }
 

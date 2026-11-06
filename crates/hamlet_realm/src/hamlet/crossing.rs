@@ -105,7 +105,7 @@ pub(super) fn board(
             None,
         );
         commands.entity(traveler).insert((
-            Trip::new(way, clock.t, &motion),
+            Trip::journey(way, clock.t, &motion),
             Voyage {
                 hire,
                 home: housed.0,
@@ -231,7 +231,7 @@ pub(super) fn cross(
                 );
                 commands.entity(entity).remove::<ChildOf>().insert((
                     Transform::from_translation(way[0]),
-                    Trip::new(way, now, &motion),
+                    Trip::journey(way, now, &motion),
                 ));
                 ferry::send_home(
                     &mut commands,

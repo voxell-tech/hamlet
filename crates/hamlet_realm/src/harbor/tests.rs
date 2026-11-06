@@ -63,7 +63,8 @@ fn the_pier_moves_when_its_island_grows() {
     app.update();
     let before = stands(&mut app, IslandId::City);
     let toward = app.world().resource::<Land>().bearing();
-    let out = toward * 330.0;
+    // Something set down well past the coast toward the other island.
+    let out = toward * (before.xz().length() + 150.0);
     app.world_mut().resource_mut::<Land>().fill_city(&[out]);
     app.update();
     let after = stands(&mut app, IslandId::City);
