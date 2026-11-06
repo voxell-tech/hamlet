@@ -8,7 +8,7 @@ use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::{agent, hand, permission_grant, worker};
 
 use super::hires;
-use crate::change::{Change, Done, refuse};
+use crate::change::{Change, Done, done};
 use crate::text::text_enum;
 
 /// The harness an agent's conversations run in unless it is given
@@ -182,9 +182,7 @@ pub(crate) fn set_effort(
     id: AgentId,
     effort: Option<Effort>,
 ) -> Done<()> {
-    if !get(cx.db, id)?.is_living() {
-        refuse!(hires::left(cx.db, id)?);
-    }
+    done!(hires::require_living(cx.db, id));
     diesel::update(agent::table.find(id))
         .set(agent::effort.eq(effort))
         .execute(cx.db)?;
@@ -199,9 +197,7 @@ pub(crate) fn set_fast(
     id: AgentId,
     fast: bool,
 ) -> Done<()> {
-    if !get(cx.db, id)?.is_living() {
-        refuse!(hires::left(cx.db, id)?);
-    }
+    done!(hires::require_living(cx.db, id));
     diesel::update(agent::table.find(id))
         .set(agent::fast.eq(fast))
         .execute(cx.db)?;
@@ -229,9 +225,7 @@ pub(crate) fn set_model(
             Ok(Ok(()))
         }
         AgentKind::Worker => {
-            if !found.is_living() {
-                refuse!(hires::left(cx.db, id)?);
-            }
+            done!(hires::require_living(cx.db, id));
             diesel::update(worker::table.find(id))
                 .set(worker::model.eq(model))
                 .execute(cx.db)?;

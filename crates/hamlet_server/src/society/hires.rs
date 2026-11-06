@@ -94,9 +94,7 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
                 name: super::addresses::name_of(cx.db, parent)?
             });
         }
-        if !agents::get(cx.db, parent)?.is_living() {
-            refuse!(left(cx.db, parent)?);
-        }
+        done!(require_living(cx.db, parent));
         let most = limits::of(cx.db, &spec.hamlet)?.depth;
         if tree::depth(cx.db, parent)? + 1 > most {
             refuse!(Refusal::TooDeep { most });
@@ -261,6 +259,14 @@ pub(crate) fn left(db: &mut Db, id: AgentId) -> Result<Refusal> {
     })
 }
 
+/// Refuses the agent `id` unless it is living, saying how it left.
+pub(crate) fn require_living(db: &mut Db, id: AgentId) -> Done<()> {
+    if !agents::get(db, id)?.is_living() {
+        refuse!(left(db, id)?);
+    }
+    Ok(Ok(()))
+}
+
 /// Ends the living hire `id`. Its children go to its parent, but when
 /// its whole hamlet is removed and the tree is kept to come back.
 pub(crate) fn end(
@@ -270,9 +276,7 @@ pub(crate) fn end(
     reason: &str,
 ) -> Done<()> {
     let hire = get(cx.db, id)?;
-    if !agents::get(cx.db, id)?.is_living() {
-        refuse!(left(cx.db, id)?);
-    }
+    done!(require_living(cx.db, id));
     if how != EndHow::Hamlet {
         if reason.trim().is_empty() {
             refuse!(Refusal::NoReason);
@@ -419,9 +423,7 @@ pub(crate) fn seat(
             name: super::addresses::name_of(cx.db, id)?
         });
     }
-    if !agents::get(cx.db, id)?.is_living() {
-        refuse!(left(cx.db, id)?);
-    }
+    done!(require_living(cx.db, id));
     let old = tree::mayor(cx.db, hamlet_id)?;
     if old == id {
         refuse!(Refusal::AlreadyMayor {
@@ -469,9 +471,7 @@ pub(crate) fn set_model(
     reason: &str,
 ) -> Done<()> {
     let hire = get(cx.db, id)?;
-    if !agents::get(cx.db, id)?.is_living() {
-        refuse!(left(cx.db, id)?);
-    }
+    done!(require_living(cx.db, id));
     if matches!(hire.model_by, Some(Actor::Chief(_)))
         && !matches!(cx.actor, Actor::Chief(_))
     {
@@ -506,9 +506,7 @@ pub(crate) fn set_tools(
     reason: &str,
 ) -> Done<()> {
     let hire = get(cx.db, id)?;
-    if !agents::get(cx.db, id)?.is_living() {
-        refuse!(left(cx.db, id)?);
-    }
+    done!(require_living(cx.db, id));
     for tool in off {
         diesel::insert_into(hire_tool_off::table)
             .values((
@@ -558,9 +556,7 @@ pub(crate) fn set_allowance(
     reason: &str,
 ) -> Done<()> {
     let hire = get(cx.db, id)?;
-    if !agents::get(cx.db, id)?.is_living() {
-        refuse!(left(cx.db, id)?);
-    }
+    done!(require_living(cx.db, id));
     diesel::update(hire::table.find(id))
         .set((
             hire::allowance.eq(allowance),
@@ -587,9 +583,7 @@ pub(crate) fn set_pin(
     reason: &str,
 ) -> Done<()> {
     let hire = get(cx.db, id)?;
-    if !agents::get(cx.db, id)?.is_living() {
-        refuse!(left(cx.db, id)?);
-    }
+    done!(require_living(cx.db, id));
     diesel::update(hire::table.find(id))
         .set(hire::pin.eq(version))
         .execute(cx.db)?;
@@ -618,9 +612,7 @@ pub(crate) fn set_nickname(
     reason: &str,
 ) -> Done<()> {
     let hire = get(cx.db, id)?;
-    if !agents::get(cx.db, id)?.is_living() {
-        refuse!(left(cx.db, id)?);
-    }
+    done!(require_living(cx.db, id));
     let nickname = nickname.map(str::trim).filter(|n| !n.is_empty());
     if let Some(nickname) = nickname
         && (nickname.chars().count() > NICKNAME
