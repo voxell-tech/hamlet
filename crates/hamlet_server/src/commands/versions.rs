@@ -37,26 +37,26 @@ impl Core {
         }))
     }
 
-    /// The scholar `text` names, living or archived, which this chief
-    /// keeps, with its repository.
+    /// The living scholar `text` addresses, which this chief keeps,
+    /// with its repository.
     fn chiefs_scholar(
         &mut self,
         text: &str,
     ) -> Result<Result<(ScholarId, Repository), Refusal>> {
         let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        let Some(found) = city::named(db, text)? else {
-            return Ok(Err(Refusal::NoScholar { name: text.into() }));
+        let id = match self.scholar_at(text, false)? {
+            Ok(id) => id,
+            Err(refusal) => return Ok(Err(refusal)),
         };
-        if !authority::may_keep(db, Actor::Chief(chief), found.id)? {
+        let db = self.realm.store().connection();
+        if !authority::may_keep(db, Actor::Chief(chief), id)? {
             return Ok(Err(Refusal::ScholarNotOwn {
-                name: text.into(),
+                name: addresses::scholar_name_of(db, id)?,
             }));
         }
-        let repo = Repository::open(
-            &self.realm.layout().repository(found.id),
-        )?;
-        Ok(Ok((found.id, repo)))
+        let repo =
+            Repository::open(&self.realm.layout().repository(id))?;
+        Ok(Ok((id, repo)))
     }
 
     fn author(&self) -> String {
@@ -189,9 +189,8 @@ impl Core {
         if let Some(version) = target
             && repo.resolve(version)?.is_none()
         {
-            let name = city::get(db, found.scholar)?.name;
             return Ok(Err(Refusal::NoVersion {
-                name,
+                name: addresses::scholar_name_of(db, found.scholar)?,
                 version: version.into(),
             }));
         }
@@ -267,7 +266,7 @@ impl Core {
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
-        let [from, name] = words else {
+        let [from, name @ ..] = words else {
             return Ok(Err(super::usage("fork")));
         };
         let (scholar, at) = from
@@ -282,7 +281,7 @@ impl Core {
             Err(refusal) => return Ok(Err(refusal)),
         };
         let chief = self.realm.chief();
-        let name = (*name).to_owned();
+        let name = name.join(" ");
         let done = self
             .attempt(Actor::Chief(chief), |cx, _| {
                 city::make(

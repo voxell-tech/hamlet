@@ -16,14 +16,10 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "reason", rename_all = "kebab-case")]
 pub(crate) enum Refusal {
     #[error(
-        "`{name}` is not a name: use at most 24 lowercase letters \
-         and hyphens"
+        "`{name}` is not a name: use one line of 1 to 40 characters \
+         with no colon"
     )]
     BadName { name: String },
-    #[error("the name `{name}` is reserved")]
-    ReservedName { name: String },
-    #[error("the name `{name}` belongs to a living scholar")]
-    NameTaken { name: String },
     #[error(
         "`{id}` is not a hamlet's name: use at most 32 lowercase \
          letters, digits and hyphens"
@@ -45,8 +41,8 @@ pub(crate) enum Refusal {
     BadTier,
     #[error("a hamlet's shown name may have at most 32 letters")]
     LongTitle,
-    #[error("no scholar is named `{name}`")]
-    NoScholar { name: String },
+    #[error("no scholar has the address `{address}`")]
+    NoScholar { address: String },
     #[error("`{name}` is another chief's scholar")]
     ScholarNotOwn { name: String },
     #[error("the scholar `{name}` no longer lives in the city")]
@@ -115,8 +111,6 @@ pub(crate) enum Refusal {
     OtherHamlet { name: String },
     #[error("nothing is named `{address}`")]
     NoOne { address: String },
-    #[error("`{address}` could be any of {hires}; name one")]
-    Ambiguous { address: String, hires: String },
     #[error("`{address}` is not an address")]
     BadAddress { address: String },
     #[error("a road needs two different hires")]

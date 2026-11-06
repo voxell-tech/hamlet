@@ -224,11 +224,10 @@ pub struct Agent {
     pub mayor: bool,
     /// The model it runs now.
     pub model: String,
-    /// How it is named: `hand`, `name@hamlet`, `name#number@hamlet`
-    /// or `worker#id`.
+    /// Its address: `hand`, `hamlet#number` or `worker#id`.
     pub name: String,
     /// What a hire is called in the world, given by a chief or an
-    /// agent above it; none while it goes by its name.
+    /// agent above it; none while it goes by its scholar's name.
     #[serde(deserialize_with = "Option::deserialize")]
     pub nickname: Option<String>,
     /// A hire's number in its hamlet.
@@ -303,6 +302,8 @@ pub struct Scholar {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "ScholarLeft")]
     pub left: Option<ScholarLeft>,
+    /// A label that may change and repeat; the scholar's address is
+    /// `scholar#<id>`.
     pub name: String,
     pub since: u64,
     pub skills: Vec<String>,

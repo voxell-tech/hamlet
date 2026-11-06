@@ -162,7 +162,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         |path: &str| std::fs::read_to_string(kept.join(path)).ok();
     assert_eq!(read("memory/notes.md").as_deref(), Some("ada's"));
     assert_eq!(
-        read("memory/notes.md.from-scout-1").as_deref(),
+        read("memory/notes.md.from-docs-1").as_deref(),
         Some("scout's"),
         "a clash is kept aside"
     );
@@ -171,7 +171,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         Some("Scan.")
     );
     assert_eq!(
-        read("inbox/from-scout-1/map.txt").as_deref(),
+        read("inbox/from-docs-1/map.txt").as_deref(),
         Some("a map")
     );
 
@@ -190,7 +190,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         .unwrap();
     realm.work();
     assert_eq!(read("memory/notes.md").as_deref(), Some("ada's"));
-    assert_eq!(read("memory/notes.md.from-scout-1"), None);
+    assert_eq!(read("memory/notes.md.from-docs-1"), None);
     assert_eq!(read("skills/scan/SKILL.md"), None);
     assert!(absorbed.join("skills/scan/SKILL.md").exists());
 }

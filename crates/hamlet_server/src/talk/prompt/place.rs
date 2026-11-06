@@ -4,12 +4,13 @@
 
 use anyhow::Result;
 use hamlet_store::Db;
-use hamlet_store::ids::AgentId;
+use hamlet_store::ids::{Actor, AgentId};
 
 use crate::society::agents::{self, AgentKind};
 use crate::society::roads::{self, Way};
 use crate::society::{
-    addresses, hamlets, hires, limits, record, tree, workers,
+    addresses, authority, city, hamlets, hires, limits, record, tree,
+    workers,
 };
 use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::tasks;
@@ -53,6 +54,9 @@ const TOLD: &str = "A chief can instruct the hires under you \
 
 /// The most decisions and instructions a place tells.
 const MOST_TOLD: usize = 12;
+
+/// The most scholars the prompt lists.
+const MOST_SCHOLARS: usize = 60;
 
 /// The place of `conversation`'s agent.
 pub(super) fn place(
@@ -257,4 +261,59 @@ pub(super) fn realm(
         }
     };
     Ok(Some(format!("{head}\n{}", lines.join("\n"))))
+}
+
+/// The scholars of the city that `id` may hire, for the Hand and for
+/// hires that lead: what `hire` takes as `scholar`.
+pub(super) fn scholars(
+    db: &mut Db,
+    id: AgentId,
+) -> Result<Option<String>> {
+    let found = agents::get(db, id)?;
+    let hamlet = match found.kind {
+        AgentKind::Hand => None,
+        AgentKind::Hire => {
+            let hire = hires::get(db, id)?;
+            let own = limits::of(db, &hire.hamlet)?;
+            if tree::depth(db, id)? >= own.depth {
+                return Ok(None);
+            }
+            Some(hire.hamlet)
+        }
+        AgentKind::Worker => return Ok(None),
+    };
+    let mut lines = Vec::new();
+    for scholar in city::all(db)? {
+        if !scholar.is_living()
+            || scholar.arrival != city::Arrival::Housed
+        {
+            continue;
+        }
+        let may = match &hamlet {
+            Some(hamlet) => authority::may_hire(
+                db,
+                Actor::Agent(id),
+                scholar.id,
+                hamlet,
+            )?,
+            None => true,
+        };
+        if may {
+            lines.push(format!("- {}", scholar.label()));
+        }
+    }
+    if lines.is_empty() {
+        return Ok(None);
+    }
+    let more = lines.len().saturating_sub(MOST_SCHOLARS);
+    lines.truncate(MOST_SCHOLARS);
+    if more > 0 {
+        lines.push(format!("- and {more} more"));
+    }
+    Ok(Some(format!(
+        "# The city's scholars\nWhat `hire` takes as `scholar`; a \
+         name is a label that may repeat, the address is the \
+         scholar:\n{}",
+        lines.join("\n")
+    )))
 }

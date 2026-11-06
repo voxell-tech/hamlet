@@ -11,6 +11,7 @@ use hamlet_protocol::client::{Choice, Newcomers};
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, ChiefId, ScholarId};
 use hamlet_store::schema::{agent, hamlet, hire, scholar, wait};
+use serde_json::json;
 
 use super::agents::EndHow;
 use super::names::check_name;
@@ -82,6 +83,11 @@ impl Scholar {
     pub fn is_living(&self) -> bool {
         self.left_at.is_none()
     }
+
+    /// The scholar's address with its name beside it.
+    pub fn label(&self) -> String {
+        format!("scholar#{} ({})", self.id, self.name)
+    }
 }
 
 /// Makes a scholar named `name` for `chief`, starting from
@@ -94,12 +100,10 @@ pub(crate) fn make(
     character: &str,
     fork: Option<Fork>,
 ) -> Done<ScholarId> {
-    if let Err(refusal) = check_name(name) {
-        refuse!(refusal);
-    }
-    if named(cx.db, name)?.is_some() {
-        refuse!(Refusal::NameTaken { name: name.into() });
-    }
+    let name = match check_name(name) {
+        Ok(name) => name,
+        Err(refusal) => refuse!(refusal),
+    };
     if character.chars().count() > CHARACTER_MOST {
         refuse!(Refusal::LongCharacter);
     }
@@ -150,7 +154,7 @@ pub(crate) fn make(
                         scholar: Some(id),
                         conversation: None,
                         task: None,
-                        about: name.into(),
+                        about: format!("scholar#{id} ({name})"),
                         change: None,
                         answers: vec![
                             Choice::Welcome,
@@ -273,10 +277,14 @@ pub(crate) fn welcome(
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
     if !scholar.is_living() || scholar.kind != ScholarKind::Scholar {
-        refuse!(Refusal::ScholarGone { name: scholar.name });
+        refuse!(Refusal::ScholarGone {
+            name: scholar.label()
+        });
     }
     if scholar.arrival == Arrival::Housed {
-        refuse!(Refusal::Housed { name: scholar.name });
+        refuse!(Refusal::Housed {
+            name: scholar.label()
+        });
     }
     house(cx, id)?;
     settle_newcomer(cx, id, Ruling::Welcome)?;
@@ -296,10 +304,14 @@ pub(crate) fn turn_away(
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
     if !scholar.is_living() || scholar.kind != ScholarKind::Scholar {
-        refuse!(Refusal::ScholarGone { name: scholar.name });
+        refuse!(Refusal::ScholarGone {
+            name: scholar.label()
+        });
     }
     if scholar.arrival == Arrival::Turned {
-        refuse!(Refusal::TurnedAway { name: scholar.name });
+        refuse!(Refusal::TurnedAway {
+            name: scholar.label()
+        });
     }
     diesel::update(scholar::table.find(id))
         .set((
@@ -382,18 +394,46 @@ pub(crate) fn get(db: &mut Db, id: ScholarId) -> Result<Scholar> {
     find(db, id)?.with_context(|| format!("no scholar {id}"))
 }
 
-/// The living scholar named `name`.
-pub(crate) fn named(
+/// The living scholar `id`, if it is one and not the Hand's.
+pub(crate) fn living(
     db: &mut Db,
-    name: &str,
+    id: ScholarId,
 ) -> Result<Option<Scholar>> {
-    Ok(scholar::table
-        .filter(scholar::name.eq(name))
-        .filter(scholar::left_at.is_null())
-        .filter(scholar::kind.eq(ScholarKind::Scholar))
-        .select(Scholar::as_select())
-        .first(db)
-        .optional()?)
+    Ok(find(db, id)?.filter(|found| {
+        found.is_living() && found.kind == ScholarKind::Scholar
+    }))
+}
+
+/// Gives the living scholar `id` a new name (C10).
+pub(crate) fn rename(
+    cx: &mut Change<'_>,
+    id: ScholarId,
+    name: &str,
+) -> Done<()> {
+    let scholar = get(cx.db, id)?;
+    if !scholar.is_living() || scholar.kind != ScholarKind::Scholar {
+        refuse!(Refusal::ScholarGone {
+            name: scholar.label()
+        });
+    }
+    let name = match check_name(name) {
+        Ok(name) => name,
+        Err(refusal) => refuse!(refusal),
+    };
+    diesel::update(scholar::table.find(id))
+        .set(scholar::name.eq(name))
+        .execute(cx.db)?;
+    record::keep(
+        cx,
+        Decision::new(DecisionKind::ScholarNamed, "")
+            .scholar(id)
+            .detail(json!({ "name": name })),
+    )?;
+    cx.touched.scholars.insert(id);
+    for hire in hires::living_of(cx.db, id)? {
+        cx.touched.agents.insert(hire.agent);
+    }
+    Ok(Ok(()))
 }
 
 /// Every scholar of the city, living and archived, but none erased.
@@ -417,10 +457,14 @@ pub(crate) fn place(
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
     if !scholar.is_living() {
-        refuse!(Refusal::ScholarGone { name: scholar.name });
+        refuse!(Refusal::ScholarGone {
+            name: scholar.label()
+        });
     }
     if scholar.arrival != Arrival::Housed {
-        refuse!(Refusal::AtHarbor { name: scholar.name });
+        refuse!(Refusal::AtHarbor {
+            name: scholar.label()
+        });
     }
     if !(x.is_finite()
         && z.is_finite()
@@ -432,7 +476,9 @@ pub(crate) fn place(
     }
     let taken = houses(cx.db, Some(id))?;
     if !is_clear(&taken, x, z) {
-        refuse!(Refusal::Crowded { name: scholar.name });
+        refuse!(Refusal::Crowded {
+            name: scholar.label()
+        });
     }
     diesel::update(scholar::table.find(id))
         .set((
@@ -450,9 +496,8 @@ pub(crate) fn place(
     Ok(Ok(()))
 }
 
-/// Archives the scholar `id`, ending its living hires first. Its name
-/// is free again. Refused while one of its hires holds a hamlet's
-/// office.
+/// Archives the scholar `id`, ending its living hires first. Refused
+/// while one of its hires holds a hamlet's office.
 pub(crate) fn archive(
     cx: &mut Change<'_>,
     id: ScholarId,
@@ -460,7 +505,9 @@ pub(crate) fn archive(
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
     if !scholar.is_living() || scholar.kind == ScholarKind::Hand {
-        refuse!(Refusal::ScholarGone { name: scholar.name });
+        refuse!(Refusal::ScholarGone {
+            name: scholar.label()
+        });
     }
     if reason.trim().is_empty() {
         refuse!(Refusal::NoReason);
@@ -484,8 +531,8 @@ pub(crate) fn archive(
     Ok(Ok(()))
 }
 
-/// Brings back the archived scholar `id` under its name, with the
-/// hires its archiving ended in hamlets that still live.
+/// Brings back the archived scholar `id`, with the hires its
+/// archiving ended in hamlets that still live.
 pub(crate) fn restore(
     cx: &mut Change<'_>,
     id: ScholarId,
@@ -493,13 +540,14 @@ pub(crate) fn restore(
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
     if scholar.erased {
-        refuse!(Refusal::ScholarErased { name: scholar.name });
+        refuse!(Refusal::ScholarErased {
+            name: scholar.label()
+        });
     }
     if scholar.is_living() {
-        refuse!(Refusal::ScholarLiving { name: scholar.name });
-    }
-    if named(cx.db, &scholar.name)?.is_some() {
-        refuse!(Refusal::NameTaken { name: scholar.name });
+        refuse!(Refusal::ScholarLiving {
+            name: scholar.label()
+        });
     }
     diesel::update(scholar::table.find(id))
         .set((
@@ -534,10 +582,14 @@ pub(crate) fn restore(
 pub(crate) fn erase(cx: &mut Change<'_>, id: ScholarId) -> Done<()> {
     let scholar = get(cx.db, id)?;
     if scholar.erased {
-        refuse!(Refusal::ScholarErased { name: scholar.name });
+        refuse!(Refusal::ScholarErased {
+            name: scholar.label()
+        });
     }
     if scholar.is_living() {
-        refuse!(Refusal::ScholarLiving { name: scholar.name });
+        refuse!(Refusal::ScholarLiving {
+            name: scholar.label()
+        });
     }
     let kept = hire::table
         .inner_join(agent::table)

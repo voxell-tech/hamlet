@@ -13,9 +13,9 @@ use hamlet_store::ids::{Actor, ScholarId};
 use super::{Call, text};
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
-use crate::society::authority;
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::refusal::Refusal;
+use crate::society::{addresses, authority};
 
 /// The most of a file `read_scholar` gives.
 const MOST_READ: usize = 50 * 1024;
@@ -27,17 +27,23 @@ impl Core {
         &mut self,
         call: &Call<'_>,
     ) -> Result<Result<ScholarId, Refusal>> {
-        let name = text(call, "scholar");
+        let address = text(call, "scholar");
+        let id = match addresses::parse_scholar(&address) {
+            Ok(id) => id,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
         let db = self.realm.store().connection();
-        let Some(found) = city::named(db, &name)? else {
-            return Ok(Err(Refusal::NoScholar { name }));
+        let Some(found) = city::living(db, id)? else {
+            return Ok(Err(Refusal::NoScholar { address }));
         };
         if !authority::may_keep(
             db,
             Actor::Agent(call.conversation.agent),
             found.id,
         )? {
-            return Ok(Err(Refusal::ScholarNotOwn { name }));
+            return Ok(Err(Refusal::ScholarNotOwn {
+                name: found.label(),
+            }));
         }
         Ok(Ok(found.id))
     }

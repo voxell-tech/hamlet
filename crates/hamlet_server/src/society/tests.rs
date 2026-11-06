@@ -62,7 +62,7 @@ fn find(
 }
 
 #[test]
-fn a_scholar_hired_twice_in_one_hamlet_is_named_by_number() {
+fn a_hire_is_addressed_by_its_hamlet_and_number_never_by_name() {
     let mut realm = Realm::new();
     let mayor = realm.found("docs", "ada");
     let scout =
@@ -78,23 +78,48 @@ fn a_scholar_hired_twice_in_one_hamlet_is_named_by_number() {
     )
     .unwrap();
     assert_eq!(scout.scholar, again.scholar);
-    assert_eq!(name(&mut realm, mayor.agent), "ada@docs");
-    assert_eq!(name(&mut realm, scout.agent), "scout#1@docs");
-    assert_eq!(name(&mut realm, again.agent), "scout#2@docs");
+    assert_eq!(name(&mut realm, mayor.agent), "docs#0 (ada)");
+    assert_eq!(name(&mut realm, scout.agent), "docs#1 (scout)");
+    assert_eq!(name(&mut realm, again.agent), "docs#2 (scout)");
+    assert_eq!(find(&mut realm, "docs#2", None), Ok(again.agent));
     assert!(matches!(
         find(&mut realm, "scout", Some(&docs())),
-        Err(Refusal::Ambiguous { .. })
+        Err(Refusal::BadAddress { .. })
     ));
-    assert_eq!(
-        find(&mut realm, "scout#2@docs", None),
-        Ok(again.agent)
-    );
+    assert!(matches!(
+        find(&mut realm, "docs#9", None),
+        Err(Refusal::NoOne { .. })
+    ));
     assert_eq!(find(&mut realm, "mayor@docs", None), Ok(mayor.agent));
     assert_eq!(find(&mut realm, "hand", None), Ok(realm.hand));
-    // A name a living scholar holds is not made again.
+    // A name is a label: it may repeat, and a scholar's is its id.
+    let twin =
+        hire(&mut realm, &docs(), mayor.agent, new("scout")).unwrap();
+    assert_ne!(twin.scholar, scout.scholar);
+    assert_eq!(
+        addresses::parse_scholar(&format!(
+            "scholar#{}",
+            twin.scholar
+        )),
+        Ok(twin.scholar)
+    );
+    assert!(addresses::parse_scholar("scout").is_err());
+}
+
+#[test]
+fn a_scholar_is_renamed_without_changing_its_address() {
+    let mut realm = Realm::new();
+    let mayor = realm.found("docs", "ada");
+    realm
+        .chief(|cx| city::rename(cx, mayor.scholar, "Ada Lovelace"))
+        .unwrap();
+    assert_eq!(
+        name(&mut realm, mayor.agent),
+        "docs#0 (Ada Lovelace)"
+    );
     assert!(matches!(
-        hire(&mut realm, &docs(), mayor.agent, new("scout")),
-        Err(Refusal::NameTaken { .. })
+        realm.chief(|cx| city::rename(cx, mayor.scholar, "a: b")),
+        Err(Refusal::BadName { .. })
     ));
 }
 
@@ -170,7 +195,7 @@ fn a_removed_hamlet_comes_back_whole_only_while_its_scholars_live() {
         assert_eq!(ended.ended_how, Some(EndHow::Hamlet));
     }
     assert!(matches!(
-        find(&mut realm, "scout", None),
+        find(&mut realm, "docs#1", None),
         Err(Refusal::NoOne { .. })
     ));
     realm
@@ -246,18 +271,6 @@ fn a_scholar_leaves_with_its_hires_and_comes_back_with_them() {
     assert!(
         !agents::get(realm.db(), there.agent).unwrap().is_living()
     );
-    // Its name is free again, so it cannot come back under it.
-    let taken =
-        hire(&mut realm, &docs(), mayor, new("scout")).unwrap();
-    assert!(matches!(
-        realm.chief(|cx| city::restore(cx, scout.scholar, "back")),
-        Err(Refusal::NameTaken { .. })
-    ));
-    let taker = hires::get(realm.db(), taken.agent).unwrap().scholar;
-    realm
-        .chief(|cx| hires::end(cx, taken.agent, EndHow::Ended, "x"))
-        .unwrap();
-    realm.chief(|cx| city::archive(cx, taker, "x")).unwrap();
     realm
         .chief(|cx| city::restore(cx, scout.scholar, "back"))
         .unwrap();
@@ -470,7 +483,7 @@ fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
         .unwrap();
     // Unanswered, the chief's line keeps it from its lead.
     let protected = Err(Refusal::OnChiefsTask {
-        name: "bo@docs".into(),
+        name: "docs#1 (bo)".into(),
     });
     let ended = realm.by(Actor::Agent(mayor), |cx| {
         hires::end(cx, bo, EndHow::Ended, "done")

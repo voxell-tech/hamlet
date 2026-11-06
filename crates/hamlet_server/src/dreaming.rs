@@ -124,7 +124,7 @@ impl Core {
         Ok(None)
     }
 
-    /// `/dream <scholar|address>`: dreams now, outside the hours.
+    /// `/dream <scholar#id|address>`: dreams now, outside the hours.
     pub(crate) async fn dream_command(
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
@@ -132,7 +132,7 @@ impl Core {
     ) -> Result<Result<String, Refusal>> {
         let [target] = words else {
             return Ok(Err(Refusal::Usage {
-                words: "Use /dream <scholar|address>".into(),
+                words: "Use /dream <scholar#id|address>".into(),
             }));
         };
         let db = self.realm.store().connection();
@@ -142,31 +142,41 @@ impl Core {
                     .into(),
             }));
         }
-        let dreamer = match city::named(db, target)? {
-            Some(found) => Dreamer::Scholar(found.id),
-            None => {
-                let address = match addresses::parse(target) {
-                    Ok(address) => address,
-                    Err(refusal) => return Ok(Err(refusal)),
-                };
-                let agent = match addresses::resolve(
-                    db,
-                    &address,
-                    here,
-                    addresses::Reach::Kept,
-                )? {
-                    Ok(agent) => agent,
-                    Err(refusal) => return Ok(Err(refusal)),
-                };
-                if let Err(refusal) = self.leads(agent)? {
-                    return Ok(Err(refusal));
+        let dreamer = if target.starts_with("scholar#") {
+            let found = match addresses::parse_scholar(target) {
+                Ok(id) => city::living(db, id)?,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            match found {
+                Some(found) => Dreamer::Scholar(found.id),
+                None => {
+                    return Ok(Err(Refusal::NoScholar {
+                        address: (*target).into(),
+                    }));
                 }
-                let db = self.realm.store().connection();
-                let ending = !agents::get(db, agent)?.is_living();
-                Dreamer::Hire {
-                    hire: agent,
-                    ending,
-                }
+            }
+        } else {
+            let address = match addresses::parse(target) {
+                Ok(address) => address,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            let agent = match addresses::resolve(
+                db,
+                &address,
+                here,
+                addresses::Reach::Kept,
+            )? {
+                Ok(agent) => agent,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            if let Err(refusal) = self.leads(agent)? {
+                return Ok(Err(refusal));
+            }
+            let db = self.realm.store().connection();
+            let ending = !agents::get(db, agent)?.is_living();
+            Dreamer::Hire {
+                hire: agent,
+                ending,
             }
         };
         Ok(Ok(match self.dream(dreamer).await? {
@@ -228,7 +238,7 @@ impl Core {
             return Ok(None);
         }
         let checkout = dreaming::checkout(&layout, id);
-        let name = city::get(db, scholar)?.name;
+        let name = city::get(db, scholar)?.label();
         let instructions = match hire {
             Some(hire) => {
                 let lodge =

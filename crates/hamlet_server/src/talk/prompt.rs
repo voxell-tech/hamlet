@@ -1,8 +1,8 @@
 //! The prompt, built before every model call (C11): the charter, the
 //! machine, the project, the character, the memory, the skills, the
-//! agent's place, the realm and the budget. An errand's and a dream's
-//! are their own instructions; a worker's are the charter, the
-//! machine, the project and its place.
+//! agent's place, the realm, the scholars it may hire and the budget.
+//! An errand's and a dream's are their own instructions; a worker's
+//! are the charter, the machine, the project and its place.
 
 mod place;
 
@@ -98,6 +98,9 @@ pub(crate) fn sections(
     sections.push(section("place", place::place(db, conversation)?));
     if let Some(text) = place::realm(db, agent.id)? {
         sections.push(section("realm", text));
+    }
+    if let Some(text) = place::scholars(db, agent.id)? {
+        sections.push(section("scholars", text));
     }
     if agent.kind != AgentKind::Worker {
         sections.push(section(

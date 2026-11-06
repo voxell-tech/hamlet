@@ -55,8 +55,8 @@ fn object(properties: Value, required: &[&str]) -> Value {
 /// The society's tools as a model is offered them.
 pub(super) fn specs() -> Vec<ToolSpec> {
     let address = "An agent's address: `hand`, `mayor`, \
-                   `mayor@<hamlet>`, `<name>`, `<name>@<hamlet>` or \
-                   `<name>#<n>@<hamlet>`.";
+                   `mayor@<hamlet>`, `<hamlet>#<n>` or \
+                   `worker#<id>`.";
     let reason = "Why, in a sentence; the record keeps it.";
     // A call cut off by a crash may be asked again: its change is
     // kept with its answer, or what it began is found by its call.
@@ -150,7 +150,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              you make may wait at the harbor until it is let into \
              the city; its hires work all the same.",
             object(
-                json!({"name": string("A short lowercase name."), "character": string("Who the scholar is and how it works.")}),
+                json!({"name": string("A short name, one line with no colon. It is a label and may repeat."), "character": string("Who the scholar is and how it works.")}),
                 &["name"],
             ),
             safe.clone(),
@@ -163,7 +163,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              realm's character and the library's skills.",
             object(
                 json!({
-                    "scholar": string("The scholar's name, with `@<version>` to pin a version."),
+                    "scholar": string("The scholar's address, `scholar#<id>`, with `@<version>` to pin a version."),
                     "name": string("A new blank scholar's name, in place of `scholar`."),
                     "purpose": string("What the hire is for."),
                     "under": string("The hire it answers to; you when left out."),
@@ -272,7 +272,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             object(
                 json!({
                     "hamlet": string("Its id: lowercase letters, digits and hyphens."),
-                    "scholar": string("The scholar its mayor is a hire of."),
+                    "scholar": string("The address, `scholar#<id>`, of the scholar its mayor is a hire of."),
                     "purpose": string("What the hamlet is for.")
                 }),
                 &["hamlet", "scholar", "purpose"],
@@ -311,7 +311,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             "List a scholar's files, or read one, at its `main` or \
              a version.",
             object(
-                json!({"scholar": string("The scholar's name."), "path": string("A file to read."), "version": string("A version or commit.")}),
+                json!({"scholar": string("The scholar's address, `scholar#<id>`."), "path": string("A file to read."), "version": string("A version or commit.")}),
                 &["scholar"],
             ),
             safe,
@@ -322,7 +322,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              it first.",
             object(
                 json!({
-                    "scholar": string("The scholar's name."),
+                    "scholar": string("The scholar's address, `scholar#<id>`."),
                     "path": string("The file."),
                     "content": string("Its new text; empty removes it."),
                     "message": string("What the change does.")
@@ -336,7 +336,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             "Name the scholar's `main` as a version; a chief \
              approves it first.",
             object(
-                json!({"scholar": string("The scholar's name."), "tag": string("The version's name."), "note": string("What it holds.")}),
+                json!({"scholar": string("The scholar's address, `scholar#<id>`."), "tag": string("The version's name."), "note": string("What it holds.")}),
                 &["scholar", "tag"],
             ),
             unsafe_.clone(),
@@ -346,7 +346,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             "Undo a commit of a scholar's `main`; a chief approves \
              it first.",
             object(
-                json!({"scholar": string("The scholar's name."), "commit": string("The commit or version to undo."), "reason": string(reason)}),
+                json!({"scholar": string("The scholar's address, `scholar#<id>`."), "commit": string("The commit or version to undo."), "reason": string(reason)}),
                 &["scholar", "commit", "reason"],
             ),
             unsafe_,
@@ -419,7 +419,7 @@ impl Core {
                         Ok(made) => made,
                         Err(refusal) => return Ok(Err(refusal)),
                     };
-                    Ok(Ok(arrived(cx, env, made, &name, &character)?))
+                    Ok(Ok(arrived(cx, env, made, &character)?))
                 })
                 .await?
             }
@@ -799,20 +799,28 @@ impl Core {
         Ok(Ok(hire))
     }
 
-    /// The scholar `text` names, as a hire takes it: at `main`, or
-    /// pinned to `@<version>`.
+    /// The scholar `text` addresses, as a hire takes it: at `main`,
+    /// or pinned to `@<version>`.
     fn scholar_hiring(
         &mut self,
         text: &str,
     ) -> Result<Result<Hiring, Refusal>> {
-        let (name, version) = match text.split_once('@') {
-            Some((name, version)) => (name, Some(version.to_owned())),
+        let (address, version) = match text.split_once('@') {
+            Some((address, version)) => {
+                (address, Some(version.to_owned()))
+            }
             None => (text, None),
+        };
+        let id = match addresses::parse_scholar(address) {
+            Ok(id) => id,
+            Err(refusal) => return Ok(Err(refusal)),
         };
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        let Some(scholar) = city::named(db, name)? else {
-            return Ok(Err(Refusal::NoScholar { name: name.into() }));
+        let Some(scholar) = city::living(db, id)? else {
+            return Ok(Err(Refusal::NoScholar {
+                address: address.into(),
+            }));
         };
         if let Some(version) = &version {
             let found = hamlet_git::Repository::open(
@@ -822,7 +830,7 @@ impl Core {
             .and_then(|repo| repo.resolve(version).ok().flatten());
             if found.is_none() || version == hamlet_git::MAIN {
                 return Ok(Err(Refusal::NoVersion {
-                    name: name.into(),
+                    name: scholar.label(),
                     version: version.clone(),
                 }));
             }
@@ -911,13 +919,11 @@ impl Core {
                 &hamlet,
             )?
         {
-            let name = city::get(db, *scholar)?.name;
+            let name = city::get(db, *scholar)?.label();
             return Ok(Err(Refusal::ScholarNotOwn { name }));
         }
         let made = match &hiring {
-            Hiring::New { name, character } => {
-                Some((name.clone(), character.clone()))
-            }
+            Hiring::New { character, .. } => Some(character.clone()),
             Hiring::Existing { .. } => None,
         };
         let overseer = task_chief(db, task)?;
@@ -944,16 +950,11 @@ impl Core {
                 Err(refusal) => return Ok(Err(refusal)),
             };
             let name = addresses::name_of(cx.db, hired.agent)?;
-            let Some((scholar, character)) = made else {
+            let Some(character) = made else {
                 return Ok(Ok(format!("Hired {name}.")));
             };
-            let arrival = arrived(
-                cx,
-                env,
-                hired.scholar,
-                &scholar,
-                &character,
-            )?;
+            let arrival =
+                arrived(cx, env, hired.scholar, &character)?;
             Ok(Ok(format!("Hired {name}. {arrival}")))
         })
         .await
@@ -1004,10 +1005,11 @@ fn arrived(
     cx: &mut Change<'_>,
     env: &Env,
     id: ScholarId,
-    name: &str,
     character: &str,
 ) -> Result<String> {
-    if city::get(cx.db, id)?.arrival == city::Arrival::Housed {
+    let made = city::get(cx.db, id)?;
+    let name = made.label();
+    if made.arrival == city::Arrival::Housed {
         return Ok(format!(
             "The scholar {name} lives in the city; hire it next."
         ));

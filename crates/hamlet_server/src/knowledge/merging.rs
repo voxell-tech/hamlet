@@ -14,7 +14,7 @@ use super::folder::Folder;
 use super::run::{check_out, commit};
 use super::{CHARACTER, branch, lodging};
 use crate::layout::Layout;
-use crate::society::{city, hires, merges};
+use crate::society::{hires, merges};
 
 /// The mark of a merge that only moved the kept branch forward, kept
 /// as `moved:<from>..<to>`.
@@ -37,11 +37,8 @@ pub(super) fn merge(
     let kept = lodging(db, layout, found.kept)?;
     let absorbed = lodging(db, layout, found.absorbed)?;
     let absorbed_hire = hires::get(db, found.absorbed)?;
-    let from = format!(
-        "{}-{}",
-        city::get(db, absorbed.scholar)?.name,
-        absorbed_hire.number
-    );
+    let from =
+        format!("{}-{}", absorbed_hire.hamlet, absorbed_hire.number);
     let name = Actor::Realm.to_string();
     let author = Author { name: &name, at };
     let message =

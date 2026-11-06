@@ -63,7 +63,7 @@ pub(crate) fn compose(
         } else {
             closed.push(protocol::ClosedHamlet {
                 at: place.removed_at.unwrap_or_default(),
-                by: addresses::actor_name(db, place.removed_by)?,
+                by: addresses::actor_address(db, place.removed_by)?,
                 id: place.id.to_string(),
                 name: place
                     .title
@@ -124,7 +124,7 @@ fn agent_view(
     at: i64,
 ) -> Result<protocol::Agent> {
     let id = found.id;
-    let name = addresses::name_of(db, id)?;
+    let name = addresses::address_of(db, id)?;
     let (hamlet, number, scholar, parent, purpose, mayor) =
         match found.kind {
             AgentKind::Hand => {
@@ -183,7 +183,7 @@ fn agent_view(
     let left = match (found.ended_at, found.ended_how) {
         (Some(ended), Some(how)) => Some(protocol::Left {
             at: wire_time(ended),
-            by: addresses::actor_name(db, found.ended_by)?,
+            by: addresses::actor_address(db, found.ended_by)?,
             how: match how {
                 EndHow::Ended => protocol::LeftHow::Ended,
                 EndHow::Merged => protocol::LeftHow::Merged,
@@ -511,7 +511,7 @@ fn scholar_view(
             Arrival::Turned => protocol::Arrival::Turned,
         },
         arrival_by: match scholar.arrival_by {
-            Some(by) => Some(addresses::actor_name(db, Some(by))?),
+            Some(by) => Some(addresses::actor_address(db, Some(by))?),
             None => None,
         },
         chief,
@@ -528,7 +528,7 @@ fn scholar_view(
         left: match scholar.left_at {
             Some(left) => Some(protocol::ScholarLeft {
                 at: wire_time(left),
-                by: addresses::actor_name(db, scholar.left_by)?,
+                by: addresses::actor_address(db, scholar.left_by)?,
                 reason: scholar
                     .left_reason
                     .clone()
@@ -571,7 +571,7 @@ fn grants(db: &mut Db) -> Result<Vec<protocol::Grant>> {
         out.push(protocol::Grant {
             agent: Some(wire_agent(agent)),
             by: chiefs::find(db, chief)?.map(|c| c.name),
-            name: addresses::name_of(db, agent)?,
+            name: addresses::address_of(db, agent)?,
             permission: if permission == "network" {
                 protocol::Permission::Network
             } else {
