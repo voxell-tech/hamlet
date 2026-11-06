@@ -390,10 +390,8 @@ pub(crate) fn restore(
         .load::<(AgentId, ScholarId)>(cx.db)?;
     for (_, scholar) in &ended {
         let scholar = city::get(cx.db, *scholar)?;
-        if !scholar.is_living() {
-            refuse!(Refusal::ScholarGone {
-                name: scholar.label()
-            });
+        if let Some(refusal) = scholar.gone() {
+            refuse!(refusal);
         }
     }
     diesel::update(hamlet::table.find(id))

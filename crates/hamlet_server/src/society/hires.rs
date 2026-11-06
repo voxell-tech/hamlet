@@ -11,11 +11,10 @@ use hamlet_store::schema::{agent, hamlet, hire, hire_tool_off};
 use serde_json::json;
 
 use super::agents::{self, AgentKind, EndHow};
-use super::city::{self, ScholarKind};
 use super::limits::{self, Micros};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
-use super::{hamlets, tree};
+use super::{city, hamlets, tree};
 use crate::change::{Change, Done, done, refuse};
 use crate::jobs::{self, Job};
 
@@ -109,12 +108,8 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
         }
         Hiring::Existing { scholar, pin } => {
             let found = city::get(cx.db, scholar)?;
-            if !found.is_living()
-                || found.kind != ScholarKind::Scholar
-            {
-                refuse!(Refusal::ScholarGone {
-                    name: found.label()
-                });
+            if let Some(refusal) = found.gone() {
+                refuse!(refusal);
             }
             (scholar, pin, false)
         }
@@ -346,10 +341,8 @@ pub(crate) fn come_back(
         });
     }
     let scholar = city::get(cx.db, hire.scholar)?;
-    if !scholar.is_living() {
-        refuse!(Refusal::ScholarGone {
-            name: scholar.label()
-        });
+    if let Some(refusal) = scholar.gone() {
+        refuse!(refusal);
     }
     if count_living(cx.db, &hire.hamlet)? >= place.tier {
         refuse!(Refusal::HamletFull {
