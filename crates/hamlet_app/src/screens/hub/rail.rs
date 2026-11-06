@@ -47,6 +47,7 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::fade::ClipFade;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::widgets::tabs;
@@ -670,9 +671,9 @@ fn agent_line(
 }
 
 /// Lets each lead in `lines`, a mayor too, stand for the rows under
-/// it: while folded they are left out, it says how many there are and
-/// its mark becomes the most pressing of theirs. What waits under it
-/// is still in the rows of what needs the chief.
+/// it: while folded they are left out and its mark becomes the most
+/// pressing of theirs. What waits under it is still in the rows of
+/// what needs the chief.
 fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
     let mut lines = lines;
     for at in 0..lines.len() {
@@ -700,7 +701,6 @@ fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
         line.fold = Some((group, shut));
         if shut {
             line.mark = mark;
-            line.title = format!("{under} under · {}", line.title);
         }
     }
     // Leave out what folded leads hold.
@@ -1473,7 +1473,9 @@ fn expanded(line: &Line) -> AnyView {
         .gap(0.0)
         .grow(1.0)
         .min_width(px(0.0))
-        .overflow(Overflow::clip()),
+        .overflow(Overflow::clip())
+        // A line too long fades out where it is cut.
+        .tagged(ClipFade),
         // How long ago, beside its state.
         row((
             label(line.age.clone()).tone(Tone::Faint).wrap(false),
