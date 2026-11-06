@@ -41,7 +41,7 @@ async fn a_hire_dreams_what_it_learned_onto_its_scholars_main() {
 
     // A hire that has learned nothing has nothing to dream about.
     assert_eq!(
-        s.chief.command(hand, "/dream ada@docs").await,
+        s.chief.command(hand, "/dream docs#0").await,
         "There is nothing to dream about."
     );
 
@@ -66,7 +66,7 @@ async fn a_hire_dreams_what_it_learned_onto_its_scholars_main() {
     );
 
     assert_eq!(
-        s.chief.command(hand, "/dream ada@docs").await,
+        s.chief.command(hand, "/dream docs#0").await,
         "The dream began."
     );
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
@@ -102,7 +102,7 @@ async fn refuses_a_dream_of_someone_unknown() {
     let mut s = Session::start(Faux::new()).await;
     let hand = s.hand();
     s.chief.refused(hand, "/dream").await;
-    s.chief.refused(hand, "/dream nobody").await;
+    s.chief.refused(hand, "/dream scholar#999").await;
 }
 
 #[tokio::test]
@@ -125,7 +125,9 @@ async fn a_scholars_dream_tidies_its_main_from_its_checkout() {
     s.found("docs", "ada", "keep the docs").await;
     let scholar = s.chief.scholar("ada").unwrap().id;
     assert_eq!(
-        s.chief.command(hand, "/dream ada").await,
+        s.chief
+            .command(hand, &format!("/dream scholar#{}", scholar.0))
+            .await,
         "The dream began."
     );
     tokio::time::timeout(std::time::Duration::from_secs(20), async {

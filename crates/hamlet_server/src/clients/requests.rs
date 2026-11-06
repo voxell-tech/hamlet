@@ -736,7 +736,9 @@ impl Core {
                 match crate::society::library::shelved_by(db, &name)?
                 {
                     Some((Some(agent), _)) => {
-                        crate::society::addresses::name_of(db, agent)?
+                        crate::society::addresses::address_of(
+                            db, agent,
+                        )?
                     }
                     Some((None, Some(chief))) => {
                         crate::society::addresses::actor_name(

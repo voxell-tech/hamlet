@@ -139,13 +139,19 @@ async fn models(
     Ok(())
 }
 
-/// The scholar or agent `whom` names, for its character or memory.
+/// The scholar or agent `whom` addresses, for its character or
+/// memory: `scholar#<id>` or an agent's address.
 fn keeper(state: &State, whom: &str) -> Result<Keeper> {
-    if let Some(scholar) = state
-        .scholars
-        .iter()
-        .find(|s| s.name == whom && s.left.is_none())
-    {
+    if let Some(id) = whom.strip_prefix("scholar#") {
+        let scholar = id
+            .parse::<u64>()
+            .ok()
+            .and_then(|id| {
+                state.scholars.iter().find(|s| {
+                    s.id == ScholarId(id) && s.left.is_none()
+                })
+            })
+            .with_context(|| format!("no scholar at `{whom}`"))?;
         return Ok(Keeper::Scholar(scholar.id));
     }
     Ok(Keeper::Agent(crate::chat::resolve(state, whom)?))
@@ -175,7 +181,7 @@ async fn edit(
 ) -> Result<()> {
     let whom = || {
         whom.with_context(|| {
-            format!("edit {doc} needs a scholar or agent name")
+            format!("edit {doc} needs a scholar or agent address")
         })
     };
     let path = path.unwrap_or("notes.md");

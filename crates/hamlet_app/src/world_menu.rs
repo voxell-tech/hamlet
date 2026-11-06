@@ -429,13 +429,12 @@ mod tests {
     fn roads_are_offered_only_when_supported_and_sent_to_the_mayor() {
         let mut state = realm::state();
         state.agents.extend([
-            realm::agent(3, "home", 1, "scout"),
-            realm::agent(4, "home", 2, "scribe"),
+            realm::agent(3, "home", 1),
+            realm::agent(4, "home", 2),
         ]);
         let mut app = app(state.clone());
-        let a = agents::named(app.world_mut(), "scout@home").unwrap();
-        let b =
-            agents::named(app.world_mut(), "scribe@home").unwrap();
+        let a = agents::named(app.world_mut(), "home#1").unwrap();
+        let b = agents::named(app.world_mut(), "home#2").unwrap();
         app.world_mut().resource_mut::<Selected>().0 =
             Some(Thing::Agent(a));
         app.world_mut().resource_mut::<Also>().0 =
@@ -443,9 +442,9 @@ mod tests {
         open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
         let shown = words(&mut app);
         for absent in [
-            "End scout@home...",
-            "Make scout@home Mayor...",
-            "Merge scout@home into scribe@home...",
+            "End home#1...",
+            "Make home#1 Mayor...",
+            "Merge home#1 into home#2...",
         ] {
             assert!(
                 !shown.iter().any(|text| text == absent),
@@ -459,14 +458,14 @@ mod tests {
         );
         open(&mut app, Open::Nothing);
         open(&mut app, Open::Road(a, Vec2::ZERO));
-        press(&mut app, "scribe@home");
+        press(&mut app, "home#2");
         let messages = sent(&mut app);
         let [protocol::ClientMessage::Say(say)] = &messages[..]
         else {
             panic!("one road: {messages:?}");
         };
         assert_eq!(say.to, protocol::AgentId(2));
-        assert_eq!(say.text, "/road scout@home scribe@home");
+        assert_eq!(say.text, "/road home#1 home#2");
     }
 
     #[test]
@@ -500,14 +499,14 @@ mod tests {
     fn the_first_mayors_skill_menu_sends_another_agents_skill() {
         let mut state = realm::state();
         state.deeds = realm::deeds(&["give"]);
-        let mut scout = realm::agent(3, "home", 1, "scout");
+        let mut scout = realm::agent(3, "home", 1);
         scout.skills = vec!["maps".into()];
         state.agents.push(scout);
         let mut app = app(state);
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
         press(&mut app, "Give a skill...");
         app.update();
-        press(&mut app, "maps (of scout)");
+        press(&mut app, "maps (of home#1)");
         let messages = sent(&mut app);
         let [
             protocol::ClientMessage::Give(protocol::Give::Skill {

@@ -27,8 +27,14 @@ struct Command {
     does: &'static str,
 }
 
-/// The scholar a hamlet founded without naming one is run by.
-const MAYOR: &str = "mayor";
+/// The name of the new scholar a hamlet founded without a scholar is
+/// run by.
+const MAYOR: &str = "Mayor";
+
+/// Whether `word` is a scholar's address, with or without a version.
+fn is_scholar(word: &str) -> bool {
+    word.starts_with("scholar#")
+}
 
 const TABLE: &[Command] = &[
     Command {
@@ -133,12 +139,12 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "tag",
-        usage: "/tag <scholar>[@<commit>] <version> [note]",
+        usage: "/tag <scholar#id>[@<commit>] <version> [note]",
         does: "Name a version of a scholar",
     },
     Command {
         name: "versions",
-        usage: "/versions <scholar>",
+        usage: "/versions <scholar#id>",
         does: "List a scholar's versions and latest commits",
     },
     Command {
@@ -148,23 +154,23 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "revert",
-        usage: "/revert <scholar> <commit|version> [reason]",
+        usage: "/revert <scholar#id> <commit|version> [reason]",
         does: "Undo a commit of a scholar's main",
     },
     Command {
         name: "fork",
-        usage: "/fork <scholar>[@<version>] <new-name>",
+        usage: "/fork <scholar#id>[@<version>] <new name>",
         does: "Make a new scholar from a version of another",
     },
     Command {
         name: "purge",
-        usage: "/purge <scholar> <path>",
+        usage: "/purge <scholar#id> <path>",
         does: "Take a file out of a scholar's whole history",
     },
     Command {
         name: "give",
-        usage: "/give <scholar|address> <skill> from \
-                <scholar|address>",
+        usage: "/give <scholar#id|address> <skill> from \
+                <scholar#id|address>",
         does: "Copy a skill from one scholar to another",
     },
     Command {
@@ -174,7 +180,7 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "dream",
-        usage: "/dream <scholar|address>",
+        usage: "/dream <scholar#id|address>",
         does: "Have a hire bring its learning home, or a scholar \
                tidy",
     },
@@ -185,9 +191,9 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "found",
-        usage: "/found <hamlet> [scholar] [purpose]",
-        does: "Found a hamlet under a scholar as its mayor, mayor \
-               if none is named",
+        usage: "/found <hamlet> [scholar#id] [purpose]",
+        does: "Found a hamlet under a scholar as its mayor, a new \
+               scholar named Mayor if none is given",
     },
     Command {
         name: "name-hamlet",
@@ -226,7 +232,7 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "hire",
-        usage: "/hire <scholar>[@<version>] [under <address>] \
+        usage: "/hire <scholar#id>[@<version>] [under <address>] \
                 [purpose]",
         does: "Hire a scholar into this hamlet",
     },
@@ -324,37 +330,43 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "scholar",
-        usage: "/scholar new <name> [character]",
-        does: "Make a scholar in the city",
+        usage: "/scholar new <name>[: <character>]",
+        does: "Make a scholar in the city; a name is a label with \
+               no colon, and the character follows the colon",
+    },
+    Command {
+        name: "name-scholar",
+        usage: "/name-scholar <scholar#id> <name>",
+        does: "Give a scholar a new name",
     },
     Command {
         name: "remove-scholar",
-        usage: "/remove-scholar <name> <reason>",
+        usage: "/remove-scholar <scholar#id> <reason>",
         does: "Archive a scholar and end its hires",
     },
     Command {
         name: "restore-scholar",
-        usage: "/restore-scholar <name> [reason]",
+        usage: "/restore-scholar <scholar#id> [reason]",
         does: "Bring an archived scholar back with its hires",
     },
     Command {
         name: "erase-scholar",
-        usage: "/erase-scholar <name>",
+        usage: "/erase-scholar <scholar#id>",
         does: "Erase an archived scholar for good",
     },
     Command {
         name: "move-house",
-        usage: "/move-house <scholar> <x> <z> [degrees]",
+        usage: "/move-house <scholar#id> <x> <z> [degrees]",
         does: "Set a scholar's house down elsewhere in the city",
     },
     Command {
         name: "welcome",
-        usage: "/welcome <scholar> [reason]",
+        usage: "/welcome <scholar#id> [reason]",
         does: "Let a scholar waiting at the harbor into the city",
     },
     Command {
         name: "turn-away",
-        usage: "/turn-away <scholar> [reason]",
+        usage: "/turn-away <scholar#id> [reason]",
         does: "Keep a scholar at the harbor, or send it back there",
     },
 ];
@@ -545,14 +557,27 @@ impl Core {
                     return Ok(Err(usage(name)));
                 };
                 let id = HamletId((*id).to_owned());
-                // A mayor not named is the scholar called mayor, and
+                // A mayor not given is a new scholar named Mayor, and
                 // one given no purpose is there to run the hamlet.
-                let scholar = words.get(1).copied().unwrap_or(MAYOR);
-                let mayor = match self.hiring(scholar, chief)? {
-                    Ok(hiring) => hiring,
-                    Err(refusal) => return Ok(Err(refusal)),
-                };
-                let purpose = match tail(2) {
+                let (mayor, purpose_at) =
+                    match words.get(1).filter(|w| is_scholar(w)) {
+                        Some(scholar) => {
+                            match self.hiring(scholar, chief)? {
+                                Ok(hiring) => (hiring, 2),
+                                Err(refusal) => {
+                                    return Ok(Err(refusal));
+                                }
+                            }
+                        }
+                        None => (
+                            Hiring::New {
+                                name: MAYOR.into(),
+                                character: String::new(),
+                            },
+                            1,
+                        ),
+                    };
+                let purpose = match tail(purpose_at) {
                     given if !given.trim().is_empty() => given,
                     _ => format!("Mayor of {id}."),
                 };
@@ -569,13 +594,15 @@ impl Core {
                         )
                     })
                     .await?;
-                Ok(done.map(|_| {
-                    format!(
+                let db = self.realm.store().connection();
+                Ok(match done {
+                    Ok(hired) => Ok(format!(
                         "The hamlet `{id}` is founded under its \
-                         mayor `{}@{id}`. /hamlet {id} talks to it.",
-                        scholar.split('@').next().unwrap_or_default()
-                    )
-                }))
+                         mayor `{}`. /hamlet {id} talks to it.",
+                        addresses::name_of(db, hired.agent)?
+                    )),
+                    Err(refusal) => Err(refusal),
+                })
             }
             "name-hamlet" => {
                 let Some(id) = words.first() else {
@@ -1166,7 +1193,7 @@ impl Core {
                     .map(|s| {
                         format!(
                             "- {}{}",
-                            s.name,
+                            s.label(),
                             if s.is_living() {
                                 ""
                             } else {
@@ -1183,24 +1210,69 @@ impl Core {
                 }))
             }
             "scholar" => {
-                let (Some(&"new"), Some(scholar)) =
-                    (words.first(), words.get(1))
-                else {
+                let Some(&"new") = words.first() else {
                     return Ok(Err(usage(name)));
                 };
-                let character = tail(2);
+                // The name runs to the first colon, the character
+                // follows it.
+                let (scholar, character) =
+                    tail(1).split_once(':').map_or_else(
+                        || (tail(1), String::new()),
+                        |(scholar, character)| {
+                            (
+                                scholar.to_owned(),
+                                character.trim().to_owned(),
+                            )
+                        },
+                    );
                 let done = self
                     .attempt(by, |cx, _| {
                         city::make(
-                            cx, scholar, chief, &character, None,
+                            cx, &scholar, chief, &character, None,
                         )
                     })
                     .await?;
-                Ok(done.map(|_| {
-                    format!(
-                        "The scholar `{scholar}` lives in the city."
-                    )
-                }))
+                let db = self.realm.store().connection();
+                Ok(match done {
+                    Ok(id) => Ok(format!(
+                        "The scholar `{}` lives in the city.",
+                        addresses::scholar_name_of(db, id)?
+                    )),
+                    Err(refusal) => Err(refusal),
+                })
+            }
+            "name-scholar" => {
+                let Some(text) = words.first() else {
+                    return Ok(Err(usage(name)));
+                };
+                let scholar = match self.scholar_at(text, false)? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                {
+                    let db = self.realm.store().connection();
+                    if !authority::may_keep(db, by, scholar)? {
+                        return Ok(Err(Refusal::NotOwner {
+                            owner: addresses::scholar_name_of(
+                                db, scholar,
+                            )?,
+                        }));
+                    }
+                }
+                let new = tail(1);
+                let done = self
+                    .attempt(by, |cx, _| {
+                        city::rename(cx, scholar, &new)
+                    })
+                    .await?;
+                let db = self.realm.store().connection();
+                Ok(match done {
+                    Ok(()) => Ok(format!(
+                        "The scholar is now named `{}`.",
+                        addresses::scholar_name_of(db, scholar)?
+                    )),
+                    Err(refusal) => Err(refusal),
+                })
             }
             "remove-scholar" | "restore-scholar"
             | "erase-scholar" | "move-house" | "welcome"
@@ -1212,19 +1284,21 @@ impl Core {
                     name,
                     "restore-scholar" | "erase-scholar"
                 );
-                let scholar =
-                    match self.scholar_named(text, archived)? {
-                        Ok(found) => found,
-                        Err(refusal) => return Ok(Err(refusal)),
-                    };
-                {
+                let scholar = match self.scholar_at(text, archived)? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                let text = {
                     let db = self.realm.store().connection();
+                    let shown =
+                        addresses::scholar_name_of(db, scholar)?;
                     if !authority::may_keep(db, by, scholar)? {
                         return Ok(Err(Refusal::NotOwner {
-                            owner: (*text).to_owned(),
+                            owner: shown,
                         }));
                     }
-                }
+                    shown
+                };
                 let reason = tail(1);
                 if name == "move-house" {
                     let number = |at: usize| {
@@ -1373,59 +1447,46 @@ impl Core {
         })
     }
 
-    /// The scholar `text` names: a living one of the chief's, at its
-    /// `main` or pinned to `@version`, or a new one by that name.
+    /// The scholar `text` addresses: a living one of the chief's, at
+    /// its `main` or pinned to `@version`.
     fn hiring(
         &mut self,
         text: &str,
         chief: hamlet_store::ids::ChiefId,
     ) -> Result<Result<Hiring, Refusal>> {
-        let (name, version) = match text.split_once('@') {
-            Some((name, version)) => (name, Some(version.to_owned())),
+        let (address, version) = match text.split_once('@') {
+            Some((address, version)) => {
+                (address, Some(version.to_owned()))
+            }
             None => (text, None),
+        };
+        let scholar = match self.scholar_at(address, false)? {
+            Ok(scholar) => scholar,
+            Err(refusal) => return Ok(Err(refusal)),
         };
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        match city::named(db, name)? {
-            Some(scholar) => {
-                if scholar.chief != Some(chief) {
-                    return Ok(Err(Refusal::ScholarNotOwn {
-                        name: name.into(),
-                    }));
-                }
-                if let Some(version) = &version {
-                    let found = Repository::open(
-                        &layout.repository(scholar.id),
-                    )
-                    .ok()
-                    .and_then(|repo| {
-                        repo.resolve(version).ok().flatten()
-                    });
-                    if found.is_none() || version == hamlet_git::MAIN
-                    {
-                        return Ok(Err(Refusal::NoVersion {
-                            name: name.into(),
-                            version: version.clone(),
-                        }));
-                    }
-                }
-                Ok(Ok(Hiring::Existing {
-                    scholar: scholar.id,
-                    pin: version,
-                }))
-            }
-            None => {
-                if version.is_some() {
-                    return Ok(Err(Refusal::NoScholar {
-                        name: name.into(),
-                    }));
-                }
-                Ok(Ok(Hiring::New {
-                    name: crate::society::names::tidy_name(name),
-                    character: String::new(),
-                }))
+        let shown = addresses::scholar_name_of(db, scholar)?;
+        if city::get(db, scholar)?.chief != Some(chief) {
+            return Ok(Err(Refusal::ScholarNotOwn { name: shown }));
+        }
+        if let Some(version) = &version {
+            let found = Repository::open(&layout.repository(scholar))
+                .ok()
+                .and_then(|repo| {
+                    repo.resolve(version).ok().flatten()
+                });
+            if found.is_none() || version == hamlet_git::MAIN {
+                return Ok(Err(Refusal::NoVersion {
+                    name: shown,
+                    version: version.clone(),
+                }));
             }
         }
+        Ok(Ok(Hiring::Existing {
+            scholar,
+            pin: version,
+        }))
     }
 
     /// The agent `text` addresses, said in `here`.
@@ -1443,26 +1504,28 @@ impl Core {
         addresses::resolve(db, &address, here, reach)
     }
 
-    /// The scholar named `text`, among the living, or the archived
-    /// when `archived`.
-    fn scholar_named(
+    /// The scholar `text` addresses, among the living, or the
+    /// archived too when `archived`.
+    pub(crate) fn scholar_at(
         &mut self,
         text: &str,
         archived: bool,
     ) -> Result<Result<ScholarId, Refusal>> {
+        let id = match addresses::parse_scholar(text) {
+            Ok(id) => id,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
         let db = self.realm.store().connection();
-        if let Some(found) = city::named(db, text)? {
-            return Ok(Ok(found.id));
-        }
-        if archived
-            && let Some(found) = city::all(db)?
-                .into_iter()
-                .rev()
-                .find(|s| s.name == text && !s.is_living())
-        {
-            return Ok(Ok(found.id));
-        }
-        Ok(Err(Refusal::NoScholar { name: text.into() }))
+        let found = city::find(db, id)?.filter(|found| {
+            found.kind == city::ScholarKind::Scholar
+                && (archived || found.is_living())
+        });
+        Ok(match found {
+            Some(found) => Ok(found.id),
+            None => Err(Refusal::NoScholar {
+                address: text.into(),
+            }),
+        })
     }
 
     /// Refuses unless this server's chief is a chief of `hamlet`.

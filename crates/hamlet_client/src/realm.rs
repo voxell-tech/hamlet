@@ -116,6 +116,11 @@ pub struct OfScholar(pub protocol::ScholarId);
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Nickname(pub String);
 
+/// What an agent is shown by: a hire's nickname, else its scholar's
+/// name, else its address.
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct Shown(pub String);
+
 /// The version of its scholar a hire is pinned to.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Pin(pub String);
@@ -373,6 +378,7 @@ pub fn register(world: &mut World) {
     world.register_component::<OfScholar>();
     world.register_component::<Pin>();
     world.register_component::<Nickname>();
+    world.register_component::<Shown>();
     world.register_component::<OwnModel>();
     world.register_component::<OwnEffort>();
     world.register_component::<Fast>();
@@ -397,12 +403,26 @@ pub fn register(world: &mut World) {
     world.register_component::<PeerChats>();
 }
 
-/// The shown name of an entity, or an empty string.
+/// The `Name` of an entity, or an empty string. An agent's is its
+/// address, which commands name it by.
 pub fn name_of(world: &World, entity: Entity) -> String {
     world
         .get::<Name>(entity)
         .map(|name| name.as_str().to_string())
         .unwrap_or_default()
+}
+
+/// What an entity is shown by: an agent's `Shown`, else its `Name`.
+pub fn shown_of(world: &World, entity: Entity) -> String {
+    world.get::<Shown>(entity).map_or_else(
+        || name_of(world, entity),
+        |shown| shown.0.clone(),
+    )
+}
+
+/// The address commands name a scholar by: `scholar#<id>`.
+pub fn scholar_address(id: protocol::ScholarId) -> String {
+    format!("scholar#{}", id.0)
 }
 
 /// Lookups of living agents and mayors for systems.
@@ -655,10 +675,40 @@ fn upsert_scholar(
 ) -> Entity {
     let entity = scholar(world, value.id)
         .unwrap_or_else(|| world.spawn_empty().id());
+    let id = value.id;
     let mut entity_mut = world.entity_mut(entity);
     put(&mut entity_mut, Name::new(value.name.clone()));
     put(&mut entity_mut, Scholar(value));
+    // A rename changes what its hires are shown by.
+    let hires = world
+        .query::<(Entity, &OfScholar)>()
+        .iter(world)
+        .filter(|(_, of)| of.0 == id)
+        .map(|(hire, _)| hire)
+        .collect::<Vec<_>>();
+    for hire in hires {
+        refresh_shown(world, hire);
+    }
     entity
+}
+
+/// Sets what the agent is shown by from its nickname, its scholar's
+/// name and its address.
+fn refresh_shown(world: &mut World, agent: Entity) {
+    let Some(address) = world.get::<Name>(agent) else {
+        return;
+    };
+    let shown = world
+        .get::<Nickname>(agent)
+        .map(|nickname| nickname.0.clone())
+        .or_else(|| {
+            let of = world.get::<OfScholar>(agent)?;
+            let scholar =
+                world.get::<Scholar>(scholar(world, of.0)?)?;
+            Some(scholar.0.name.clone())
+        })
+        .unwrap_or_else(|| address.as_str().to_owned());
+    put(&mut world.entity_mut(agent), Shown(shown));
 }
 
 fn upsert_agent(
@@ -736,6 +786,7 @@ fn upsert_agent(
     } else {
         agent.remove::<(Left, Departure, MergedInto)>();
     }
+    refresh_shown(world, entity);
     if consulted {
         world.trigger(Consulted {
             agent: Some(entity),
@@ -1057,8 +1108,28 @@ mod tests {
     use hamlet_protocol::client as protocol;
     use hamlet_testing::realm::{agent, road, state};
 
-    use super::{named, road_between, roads_of};
+    use super::{named, road_between, roads_of, shown_of};
     use crate::{ClientPlugin, receive};
+
+    #[test]
+    fn a_hire_is_shown_by_its_nickname_else_its_scholars_name() {
+        let mut app = App::new();
+        app.add_plugins(ClientPlugin { server: None });
+        let mut realm = state();
+        let world = app.world_mut();
+        receive(world, protocol::ServerMessage::State(realm.clone()));
+        let ada = named(world, "home#0").unwrap();
+        assert_eq!(shown_of(world, ada), "ada");
+        realm.revision = 1;
+        realm.scholars[0].name = "Ada Lovelace".into();
+        receive(world, protocol::ServerMessage::State(realm.clone()));
+        assert_eq!(shown_of(world, ada), "Ada Lovelace");
+        realm.revision = 2;
+        realm.agents[1].nickname = Some("Countess".into());
+        receive(world, protocol::ServerMessage::State(realm));
+        assert_eq!(shown_of(world, ada), "Countess");
+        assert_eq!(named(world, "home#0"), Some(ada));
+    }
 
     #[test]
     fn a_road_goes_with_an_end_that_left_or_is_gone_and_is_not_laid_again()
@@ -1066,8 +1137,8 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(ClientPlugin { server: None });
         let mut realm = state();
-        realm.agents.push(agent(3, "home", 1, "scout"));
-        realm.agents.push(agent(4, "home", 2, "miner"));
+        realm.agents.push(agent(3, "home", 1));
+        realm.agents.push(agent(4, "home", 2));
         let ada = protocol::AgentId(2);
         realm.hamlets[0].roads = vec![
             road(ada, protocol::AgentId(3), 0),
@@ -1075,9 +1146,8 @@ mod tests {
         ];
         let world = app.world_mut();
         receive(world, protocol::ServerMessage::State(realm.clone()));
-        let [ada, scout, miner] =
-            ["ada@home", "scout@home", "miner@home"]
-                .map(|name| named(world, name).unwrap());
+        let [ada, scout, miner] = ["home#0", "home#1", "home#2"]
+            .map(|name| named(world, name).unwrap());
         assert_eq!(roads_of(world, ada).count(), 2);
         realm.agents[2].left = Some(protocol::Left {
             at: 1,

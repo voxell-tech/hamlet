@@ -48,7 +48,7 @@ pub(crate) fn judge(
                 && scholar.id != id
                 && scholar.arrival == city::Arrival::Housed
         })
-        .map(|scholar| format!("- {}", scholar.name))
+        .map(|scholar| format!("- {}", scholar.label()))
         .collect::<Vec<_>>();
     let city = if living.is_empty() {
         "(nobody yet)".to_owned()
@@ -60,7 +60,7 @@ pub(crate) fn judge(
         "{maker} made the scholar `{}`, whose character \
          is:\n\n{}\n\nShould it move into the city? Answer ACCEPT \
          or TURN AWAY on the first line, then say why in one line.",
-        newcomer.name,
+        newcomer.label(),
         character.trim()
     );
     let the_hand = hand::id(cx.db)?;
@@ -69,7 +69,7 @@ pub(crate) fn judge(
         Origin::Errand,
         the_hand,
         None,
-        Some(&format!("judge the newcomer {}", newcomer.name)),
+        Some(&format!("judge the newcomer {}", newcomer.label())),
     )?;
     errands::run(
         cx,

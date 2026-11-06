@@ -86,7 +86,7 @@ fn recorded_society_carries_letters_and_questions_with_their_authors()
                 == protocol::ConversationViewKind::Questions
                 && chat.count == 1)
     );
-    assert!(world.query::<&Transcript>().iter(world).flat_map(Transcript::items).any(|item| matches!(&item.entry, Entry::Agent {name, text} if name == "ada@docs" && text.contains("Hello cy"))));
+    assert!(world.query::<&Transcript>().iter(world).flat_map(Transcript::items).any(|item| matches!(&item.entry, Entry::Agent {name, text} if name == "docs#0 (ada)" && text.contains("Hello cy"))));
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn recorded_realm_places_a_second_town_builds_a_road_and_closes_then_erases_it()
         !world
             .query::<&Name>()
             .iter(world)
-            .any(|name| name.as_str() == "miller@mill")
+            .any(|name| name.as_str() == "mill#0")
     );
 }
 

@@ -77,9 +77,8 @@ impl Client {
         self.realm().hand
     }
 
-    /// The agent named `name` as the realm stands (`hand`,
-    /// `ada@docs`, `ada#2@docs`, `worker#7`); the living one when
-    /// the name was used twice.
+    /// The agent at `address` as the realm stands (`hand`, `docs#0`,
+    /// `docs#2`, `worker#7`); the living one when it was used twice.
     pub fn agent(&self, name: &str) -> Option<Agent> {
         let mut found = self
             .realm()

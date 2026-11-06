@@ -35,7 +35,7 @@ async fn founds_a_hamlet_under_a_new_scholar_then_an_existing_one() {
     assert_eq!(hamlet.mayor, ada);
     assert_eq!(hamlet.chiefs, ["nixon"]);
     assert_eq!(hamlet.mode, HamletMode::Manual);
-    let mayor = s.chief.agent("ada@docs").unwrap();
+    let mayor = s.chief.agent("docs#0").unwrap();
     assert!(mayor.mayor);
     assert_eq!(mayor.kind, AgentKind::Hire);
     assert_eq!(mayor.parent, Some(hand));
@@ -58,9 +58,16 @@ async fn founds_a_hamlet_under_a_new_scholar_then_an_existing_one() {
     );
 
     // Ids are never used twice, and names are tidy.
-    let reply = s.chief.refused(hand, "/found docs ada again").await;
+    let scholar = format!("scholar#{}", scholar.id.0);
+    let reply = s
+        .chief
+        .refused(hand, &format!("/found docs {scholar} again"))
+        .await;
     assert!(reply.contains("was used before"), "{reply}");
-    let reply = s.chief.refused(hand, "/found Mill ada x").await;
+    let reply = s
+        .chief
+        .refused(hand, &format!("/found Mill {scholar} x"))
+        .await;
     assert!(reply.contains("is not a hamlet's name"), "{reply}");
 }
 
@@ -68,51 +75,47 @@ async fn founds_a_hamlet_under_a_new_scholar_then_an_existing_one() {
 async fn hires_form_a_tree_and_ending_one_can_be_undone() {
     let mut s = Session::start(Faux::new()).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    s.chief.command(ada, "/hire bob write tests").await;
-    let bob = s.chief.id("bob@docs");
-    assert_eq!(s.chief.agent("bob@docs").unwrap().parent, Some(ada));
+    let bob = s.hire(ada, "bob", "write tests").await;
+    assert_eq!(s.chief.agent("docs#1").unwrap().parent, Some(ada));
 
-    // The same scholar twice needs numbers to tell them apart.
-    let reply = s.chief.command(ada, "/hire ada more words").await;
-    assert_eq!(reply, "`ada#2@docs` is hired.");
+    // The same scholar twice is two hires, told apart by number.
+    let deep = s.hire(ada, "ada", "more words").await;
+    assert_eq!(s.chief.agent("docs#2").unwrap().id, deep);
     let reply = s.chief.refused(ada, "/end ada gone").await;
-    assert!(reply.contains("`ada#0@docs`, `ada#2@docs`"), "{reply}");
-    let deep = s.chief.id("ada#2@docs");
+    assert!(reply.contains("is not an address"), "{reply}");
 
-    s.chief
-        .command(ada, "/hire eve under ada#2 deep work")
-        .await;
-    let eve = s.chief.id("eve@docs");
-    assert_eq!(s.chief.agent("eve@docs").unwrap().parent, Some(deep));
+    let eve = s.hire_under(ada, "eve", "docs#2", "deep work").await;
+    assert_eq!(s.chief.agent("docs#3").unwrap().id, eve);
+    assert_eq!(s.chief.agent("docs#3").unwrap().parent, Some(deep));
 
     // A mayor cannot be ended, and a lead's hires move up.
-    let reply = s.chief.refused(ada, "/end ada#0 no").await;
+    let reply = s.chief.refused(ada, "/end docs#0 no").await;
     assert!(reply.contains("seat another mayor first"), "{reply}");
-    s.chief.command(ada, "/end ada#2 restructure").await;
-    let ended = s.chief.agent("ada#2@docs").unwrap();
+    s.chief.command(ada, "/end docs#2 restructure").await;
+    let ended = s.chief.agent("docs#2").unwrap();
     let left = ended.left.unwrap();
     assert_eq!(left.how, LeftHow::Ended);
     assert_eq!(left.by, "nixon");
     assert_eq!(left.reason, "restructure");
-    assert_eq!(s.chief.agent("eve@docs").unwrap().parent, Some(ada));
+    assert_eq!(s.chief.agent("docs#3").unwrap().parent, Some(ada));
     assert_eq!(s.chief.scholar("bob").unwrap().hires, [bob]);
 
     // /restore brings back an ended hire, under the same id.
-    s.chief.command(ada, "/end bob done").await;
-    s.chief.command(ada, "/restore bob").await;
+    s.chief.command(ada, "/end docs#1 done").await;
+    s.chief.command(ada, "/restore docs#1").await;
     s.chief
         .until("bob back", |c| {
-            c.agent("bob@docs").is_some_and(|a| a.left.is_none())
+            c.agent("docs#1").is_some_and(|a| a.left.is_none())
         })
         .await;
-    assert_eq!(s.chief.id("bob@docs"), bob);
+    assert_eq!(s.chief.id("docs#1"), bob);
 
     // Only an ended hire is erased.
-    s.chief.refused(ada, "/erase eve").await;
-    s.chief.command(ada, "/restore ada#2").await;
-    assert!(s.chief.agent("ada#2@docs").unwrap().left.is_none());
-    s.chief.command(ada, "/end eve x").await;
-    s.chief.command(ada, "/erase eve").await;
+    s.chief.refused(ada, "/erase docs#3").await;
+    s.chief.command(ada, "/restore docs#2").await;
+    assert!(s.chief.agent("docs#2").unwrap().left.is_none());
+    s.chief.command(ada, "/end docs#3 x").await;
+    s.chief.command(ada, "/erase docs#3").await;
     s.chief
         .until("eve erased", |c| {
             c.realm().agents.iter().all(|a| a.id != eve)
@@ -126,50 +129,65 @@ async fn the_city_keeps_scholars_until_they_are_erased() {
     let hand = s.hand();
     let ada = s.found("docs", "ada", "keep the docs").await;
     s.chief
-        .command(hand, "/scholar new sam A careful reader.")
+        .command(hand, "/scholar new sam: A careful reader.")
         .await;
     let sam = s.chief.scholar("sam").unwrap();
     assert!(sam.left.is_none() && sam.hires.is_empty());
-    let reply = s.chief.refused(hand, "/scholar new sam").await;
-    assert!(reply.contains("belongs to a living scholar"), "{reply}");
-    let reply = s.chief.refused(hand, "/scholar new hand").await;
-    assert!(reply.contains("is reserved"), "{reply}");
+    // A name is a label: it repeats, and may hold spaces.
+    s.chief.command(hand, "/scholar new ada").await;
+    s.chief
+        .command(hand, "/scholar new Sam the Elder: Slow and sure.")
+        .await;
+    let realm = s.chief.realm();
+    let named = |name: &str| {
+        realm.scholars.iter().filter(|s| s.name == name).count()
+    };
+    assert_eq!((named("ada"), named("Sam the Elder")), (2, 1));
+    let reply = s.chief.refused(hand, "/scholar new : no name").await;
+    assert!(reply.contains("1 to 40 characters"), "{reply}");
 
     // Hiring a scholar of the city, then removing it ends its hires.
-    s.chief.command(ada, "/hire sam read the docs").await;
-    let hire = s.chief.id("sam@docs");
+    let hire = s.hire(ada, "sam", "read the docs").await;
+    let sam = format!("scholar#{}", sam.id.0);
     s.chief
-        .command(hand, "/remove-scholar sam moved away")
+        .command(hand, &format!("/remove-scholar {sam} moved away"))
         .await;
     s.chief
         .until("sam archived", |c| {
             c.scholar("sam").is_some_and(|s| s.left.is_some())
         })
         .await;
-    let left = s.chief.agent("sam@docs").unwrap().left.unwrap();
+    let left = s.chief.agent("docs#1").unwrap().left.unwrap();
     assert_eq!(left.how, LeftHow::Scholar);
     assert!(
         s.chief
             .command(hand, "/scholars")
             .await
-            .contains("sam (archived)")
+            .contains("(sam) (archived)")
     );
 
     // Restoring brings the scholar and the hires its removal ended.
-    s.chief.command(hand, "/restore-scholar sam").await;
+    s.chief
+        .command(hand, &format!("/restore-scholar {sam}"))
+        .await;
     s.chief
         .until("sam back", |c| {
             c.scholar("sam").is_some_and(|s| s.left.is_none())
-                && c.agent("sam@docs")
-                    .is_some_and(|a| a.left.is_none())
+                && c.agent("docs#1").is_some_and(|a| a.left.is_none())
         })
         .await;
-    assert_eq!(s.chief.id("sam@docs"), hire);
+    assert_eq!(s.chief.id("docs#1"), hire);
 
     // A scholar must be removed before it is erased.
-    s.chief.refused(hand, "/erase-scholar sam").await;
-    s.chief.command(hand, "/remove-scholar sam again").await;
-    s.chief.command(hand, "/erase-scholar sam").await;
+    s.chief
+        .refused(hand, &format!("/erase-scholar {sam}"))
+        .await;
+    s.chief
+        .command(hand, &format!("/remove-scholar {sam} again"))
+        .await;
+    s.chief
+        .command(hand, &format!("/erase-scholar {sam}"))
+        .await;
     s.chief
         .until("sam gone", |c| c.scholar("sam").is_none())
         .await;
@@ -180,8 +198,7 @@ async fn a_chief_runs_a_hamlet_by_commands() {
     let mut s = Session::start(Faux::new()).await;
     let hand = s.hand();
     let ada = s.found("docs", "ada", "keep the docs").await;
-    s.chief.command(ada, "/hire bob write").await;
-    let bob = s.chief.id("bob@docs");
+    let bob = s.hire(ada, "bob", "write").await;
     let folder = s.home.side().display().to_string();
 
     s.chief.command(ada, "/name-hamlet docs The Docs").await;
@@ -206,10 +223,9 @@ async fn a_chief_runs_a_hamlet_by_commands() {
     s.chief.command(ada, "/folder none").await;
 
     // A road is laid between two hires and taken up again.
-    s.chief.command(ada, "/hire eve write").await;
-    let eve = s.chief.id("eve@docs");
+    let eve = s.hire(ada, "eve", "write").await;
     s.chief
-        .command(ada, "/road eve bob they share a file")
+        .command(ada, "/road docs#2 docs#1 they share a file")
         .await;
     s.chief
         .until("the laid road", |c| {
@@ -218,7 +234,7 @@ async fn a_chief_runs_a_hamlet_by_commands() {
             })
         })
         .await;
-    s.chief.command(ada, "/unroad eve bob done").await;
+    s.chief.command(ada, "/unroad docs#2 docs#1 done").await;
     s.chief
         .until("the road gone", |c| {
             c.hamlet("docs")
@@ -229,15 +245,15 @@ async fn a_chief_runs_a_hamlet_by_commands() {
         })
         .await;
     // The mayor's office passes to another hire.
-    s.chief.command(ada, "/mayor bob handing over").await;
+    s.chief.command(ada, "/mayor docs#1 handing over").await;
     s.chief
         .until("bob mayor", |c| {
             c.hamlet("docs").unwrap().mayor == bob
         })
         .await;
-    assert!(s.chief.agent("bob@docs").unwrap().mayor);
-    assert!(!s.chief.agent("ada@docs").unwrap().mayor);
-    assert_eq!(s.chief.agent("ada@docs").unwrap().parent, Some(bob));
+    assert!(s.chief.agent("docs#1").unwrap().mayor);
+    assert!(!s.chief.agent("docs#0").unwrap().mayor);
+    assert_eq!(s.chief.agent("docs#0").unwrap().parent, Some(bob));
 
     // Removing a hamlet ends its hires; restoring brings them back.
     s.chief.command(hand, "/remove-hamlet docs finished").await;
@@ -248,15 +264,14 @@ async fn a_chief_runs_a_hamlet_by_commands() {
         })
         .await;
     assert_eq!(
-        s.chief.agent("bob@docs").unwrap().left.unwrap().how,
+        s.chief.agent("docs#1").unwrap().left.unwrap().how,
         LeftHow::Hamlet
     );
     s.chief.command(hand, "/restore-hamlet docs").await;
     s.chief
         .until("hamlet back", |c| {
             c.hamlet("docs").is_some()
-                && c.agent("bob@docs")
-                    .is_some_and(|a| a.left.is_none())
+                && c.agent("docs#1").is_some_and(|a| a.left.is_none())
         })
         .await;
     s.chief.command(hand, "/remove-hamlet docs again").await;

@@ -109,7 +109,7 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
         "../../hamlet_protocol/frames/approval.jsonl"
     )) {
         receive(world, message);
-        let Some(founder) = named(world, "ada@docs") else {
+        let Some(founder) = named(world, "docs#0") else {
             continue;
         };
         let open = world
@@ -137,15 +137,13 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
                     assert_eq!(says, "wants to run");
                     let line = wait.line(80);
                     assert!(
-                        line.starts_with(
-                            "ada@docs wants to run `printf"
-                        ),
+                        line.starts_with("ada wants to run `printf"),
                         "{line}"
                     );
                 } else {
                     let line = wait.line(80);
                     assert!(
-                        line.starts_with("ada@docs wants to edit `"),
+                        line.starts_with("ada wants to edit `"),
                         "{line}"
                     );
                     assert_eq!(
@@ -192,11 +190,11 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     let world = app.world_mut();
     let mut first = state();
     first.hamlets.push(hamlet("other", 3));
-    first.agents.push(agent(3, "other", 0, "scout"));
+    first.agents.push(agent(3, "other", 0));
     first.waits = vec![wait("kept"), wait("gone")];
     receive(world, protocol::ServerMessage::State(first.clone()));
-    let founder = named(world, "ada@home").unwrap();
-    let scout = named(world, "scout@other").unwrap();
+    let founder = named(world, "home#0").unwrap();
+    let scout = named(world, "other#0").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
     let other = world.get::<LivesIn>(scout).unwrap().0;
     let wait_ids = world
@@ -302,7 +300,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
     let mut state = state();
     state
         .agents
-        .push(hamlet_testing::realm::agent(3, "home", 1, "scout"));
+        .push(hamlet_testing::realm::agent(3, "home", 1));
     receive(world, protocol::ServerMessage::State(state.clone()));
     let founder = mayor_of(world, "home").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;

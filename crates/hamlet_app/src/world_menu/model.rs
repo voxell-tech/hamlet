@@ -687,7 +687,7 @@ mod tests {
                 price: None,
                 priced: protocol::ListedPriced::Unknown,
             }];
-        let ada = realm::named(app.world_mut(), "ada@home").unwrap();
+        let ada = realm::named(app.world_mut(), "home#0").unwrap();
         open(app.world_mut(), ada, Vec2::ZERO);
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
@@ -712,8 +712,8 @@ mod tests {
         assert_eq!(
             said,
             [
-                "/model ada@home lantern::wren-large",
-                "/effort ada@home high"
+                "/model home#0 lantern::wren-large",
+                "/effort home#0 high"
             ]
         );
     }

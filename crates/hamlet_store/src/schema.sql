@@ -33,7 +33,7 @@ CREATE TABLE document (
 -- The city
 
 -- A scholar, or the Hand's own knowledge. Its repository is
--- scholars/<id>.git. Only living scholars' names are unique.
+-- scholars/<id>.git. Its name is a label that may repeat.
 CREATE TABLE scholar (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('scholar', 'hand')),
@@ -62,7 +62,6 @@ CREATE TABLE scholar (
     CHECK ((kind = 'hand') = (chief IS NULL)),
     CHECK (erased = 0 OR left_at IS NOT NULL)
 ) STRICT;
-CREATE UNIQUE INDEX scholar_name ON scholar(name) WHERE left_at IS NULL;
 CREATE INDEX scholar_chief ON scholar(chief);
 
 -- Hamlets

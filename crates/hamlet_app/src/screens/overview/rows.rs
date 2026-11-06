@@ -100,6 +100,7 @@ impl HamletRow {
 pub(super) struct AgentRow {
     pub agent: Entity,
     pub number: u64,
+    /// What it is shown by.
     pub name: String,
     pub mayor: bool,
     pub purpose: String,
@@ -207,7 +208,7 @@ pub(super) fn agent_rows(
         })
         .unwrap_or_default();
     let named =
-        |agent: Entity| hamlet_client::realm::name_of(world, agent);
+        |agent: Entity| hamlet_client::realm::shown_of(world, agent);
     let mut ids = Vec::new();
     let mut parents = Vec::new();
     let mut rows = agents
@@ -229,7 +230,8 @@ pub(super) fn agent_rows(
             )| {
                 ids.push((agent, id.0));
                 parents.push((id.0, parent.map(|parent| parent.0)));
-                let name = name.as_str().to_string();
+                let address = name.as_str().to_string();
+                let name = named(agent);
                 let state = match (gone, into) {
                     (true, Some(host)) => {
                         format!("Merged into {}", named(host.0))
@@ -242,7 +244,7 @@ pub(super) fn agent_rows(
                     number: number.0,
                     waiting: waits
                         .iter()
-                        .filter(|by| **by == name)
+                        .filter(|by| **by == address)
                         .count(),
                     name,
                     mayor,

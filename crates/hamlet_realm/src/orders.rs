@@ -151,17 +151,17 @@ fn set_down(world: &mut World, set: SetDown) {
             if !Deeds::is_allowed(world, "move-house") {
                 return;
             }
-            let found = world
+            let turn = world
                 .query::<&Scholar>()
                 .iter(world)
                 .find(|scholar| scholar.0.id == id)
                 .and_then(|scholar| {
-                    let house = scholar.0.house.as_ref()?;
-                    Some((scholar.0.name.clone(), house.turn))
+                    Some(scholar.0.house.as_ref()?.turn)
                 });
-            let Some((name, turn)) = found else {
+            let Some(turn) = turn else {
                 return;
             };
+            let name = hamlet_client::realm::scholar_address(id);
             let city = world
                 .resource::<Land>()
                 .island(IslandId::City)

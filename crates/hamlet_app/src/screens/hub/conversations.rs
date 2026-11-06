@@ -3,7 +3,7 @@
 
 use bevy::ecs::world::World;
 use hamlet_client::chats::Chat;
-use hamlet_client::realm::{PeerChats, id_of, name_of};
+use hamlet_client::realm::{PeerChats, id_of, shown_of};
 use hamlet_protocol::client as protocol;
 
 use super::{Showing, show};
@@ -91,6 +91,6 @@ pub(super) fn name_of_peer(
 ) -> String {
     hamlet_client::realm::agent(world, with)
         .filter(|agent| id_of(world, *agent).is_some())
-        .map(|agent| name_of(world, agent))
+        .map(|agent| shown_of(world, agent))
         .unwrap_or_else(|| format!("agent#{}", with.0))
 }

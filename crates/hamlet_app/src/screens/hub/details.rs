@@ -15,7 +15,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::realm::{
-    Account, Deeds, Kind, Road, name_of, roads_of,
+    Account, Deeds, Kind, Road, name_of, roads_of, shown_of,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
@@ -60,7 +60,7 @@ fn facts(world: &World, agent: Entity) -> Facts {
                 road.ends.0
             }
         })
-        .map(|other| (other, name_of(world, other)))
+        .map(|other| (other, shown_of(world, other)))
         .collect::<Vec<_>>();
     roads.sort_by(|a, b| a.1.cmp(&b.1));
     Facts {

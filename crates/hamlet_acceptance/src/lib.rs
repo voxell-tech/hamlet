@@ -10,7 +10,7 @@ pub mod realm;
 pub use cli::{Cli, Ended};
 pub use client::{Client, Ending, Wire, chat};
 pub use faux::Faux;
-pub use hamlet_protocol::client::AgentId;
+pub use hamlet_protocol::client::{AgentId, ScholarId};
 use hamlet_testing::openai;
 pub use hamlet_testing::{Server, call, calls, failure, words};
 pub use home::Home;
@@ -85,30 +85,122 @@ impl Session {
         self.chief.hand()
     }
 
-    /// Founds the hamlet `hamlet` under the scholar `scholar`, new
-    /// or the city's, and gives the mayor's id.
+    /// The id of the city's living scholar `name`, made first when
+    /// there is none.
+    pub async fn scholar(&mut self, name: &str) -> ScholarId {
+        let living = |c: &Client| {
+            c.scholar(name).filter(|scholar| scholar.left.is_none())
+        };
+        if let Some(scholar) = living(&self.chief) {
+            return scholar.id;
+        }
+        let hand = self.hand();
+        self.chief
+            .command(hand, &format!("/scholar new {name}"))
+            .await;
+        self.chief
+            .until(&format!("scholar {name}"), |c| {
+                living(c).is_some()
+            })
+            .await;
+        living(&self.chief).expect("the scholar is made").id
+    }
+
+    /// Founds the hamlet `hamlet` under the scholar called `scholar`,
+    /// made if the city has none, and gives the mayor's id.
     pub async fn found(
         &mut self,
         hamlet: &str,
         scholar: &str,
         purpose: &str,
     ) -> AgentId {
+        let scholar = self.scholar(scholar).await;
         let hand = self.hand();
         self.chief
             .command(
                 hand,
-                &format!("/found {hamlet} {scholar} {purpose}"),
+                &format!(
+                    "/found {hamlet} scholar#{} {purpose}",
+                    scholar.0
+                ),
             )
             .await;
-        let name = format!(
-            "{}@{hamlet}",
-            scholar.split('@').next().unwrap_or(scholar)
-        );
+        let mayor = format!("{hamlet}#0");
         self.chief
-            .until(&format!("{name} in the realm"), |c| {
-                c.agent(&name).is_some()
+            .until(&format!("{mayor} in the realm"), |c| {
+                c.agent(&mayor).is_some()
             })
             .await;
-        self.chief.id(&name)
+        self.chief.id(&mayor)
+    }
+
+    /// Has `lead` hire the scholar called `scholar`, made if the
+    /// city has none, and gives the new hire's id.
+    pub async fn hire(
+        &mut self,
+        lead: AgentId,
+        scholar: &str,
+        purpose: &str,
+    ) -> AgentId {
+        self.hired(lead, scholar, "", purpose).await
+    }
+
+    /// Has `lead` hire the scholar called `scholar` under the agent
+    /// at `under`, and gives the new hire's id.
+    pub async fn hire_under(
+        &mut self,
+        lead: AgentId,
+        scholar: &str,
+        under: &str,
+        purpose: &str,
+    ) -> AgentId {
+        self.hired(lead, scholar, &format!("under {under} "), purpose)
+            .await
+    }
+
+    async fn hired(
+        &mut self,
+        lead: AgentId,
+        scholar: &str,
+        under: &str,
+        purpose: &str,
+    ) -> AgentId {
+        let scholar = self.scholar(scholar).await;
+        let hamlet = self
+            .chief
+            .realm()
+            .agents
+            .into_iter()
+            .find(|a| a.id == lead)
+            .and_then(|a| a.hamlet);
+        let hires = move |c: &Client| {
+            c.realm()
+                .agents
+                .into_iter()
+                .filter(|a| {
+                    a.scholar == Some(scholar)
+                        && a.hamlet == hamlet
+                        && a.left.is_none()
+                })
+                .collect::<Vec<_>>()
+        };
+        let before = hires(&self.chief).len();
+        self.chief
+            .command(
+                lead,
+                &format!(
+                    "/hire scholar#{} {under}{purpose}",
+                    scholar.0
+                ),
+            )
+            .await;
+        self.chief
+            .until("the new hire", |c| hires(c).len() > before)
+            .await;
+        hires(&self.chief)
+            .into_iter()
+            .max_by_key(|a| a.number)
+            .expect("the hire came")
+            .id
     }
 }

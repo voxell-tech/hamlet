@@ -125,10 +125,7 @@ pub fn overview() -> impl View {
             .map(|row| {
                 let hamlet = row.hamlet;
                 let mut lines = vec![
-                    format!(
-                        "Mayor: {}",
-                        hamlet_realm::pick::short(&row.mayor)
-                    ),
+                    format!("Mayor: {}", row.mayor),
                     row.account.clone(),
                 ];
                 if row.gone > 0 {

@@ -1,7 +1,6 @@
 //! The menu of each kind of thing in the world.
 
 use bevy::ecs::entity::Entity;
-use bevy::ecs::name::Name;
 use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use bevy_fynix::ViewExt;
@@ -31,7 +30,7 @@ fn plain_agent(
     };
     let plain = world.get::<Mayor>(agent).is_none()
         && world.get::<Left>(agent).is_none();
-    let name = world.get::<Name>(agent)?.as_str().to_string();
+    let name = agents::shown_of(world, agent);
     plain.then_some((agent, name))
 }
 
@@ -119,7 +118,7 @@ fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
 fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
     if Deeds::is_allowed(world, "restore") {
         vec![item(
-            format!("Restore {}", agents::name_of(world, agent)),
+            format!("Restore {}", agents::shown_of(world, agent)),
             move |world| restore(world, agent),
         )]
     } else {
@@ -133,7 +132,7 @@ fn for_agent(
     agent: Entity,
     at: Vec2,
 ) -> Vec<AnyView> {
-    let name = |agent: Entity| agents::name_of(world, agent);
+    let name = |agent: Entity| agents::shown_of(world, agent);
     // Selecting it already talks to it, and its prompt is among its
     // details.
     let mut items = vec![new_conversation(agent)];
@@ -202,7 +201,7 @@ fn for_common(
     hamlet: Entity,
     at: Vec2,
 ) -> Vec<AnyView> {
-    let name = agents::name_of(world, hamlet);
+    let name = agents::shown_of(world, hamlet);
     let mut items = vec![focus(thing)];
     // It is closed by the name commands know it by.
     let id = world

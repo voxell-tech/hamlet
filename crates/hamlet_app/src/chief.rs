@@ -194,8 +194,7 @@ fn facts(world: &World, chief: Entity) -> Option<Facts> {
     let with = world
         .get::<Beside>(chief)
         .and_then(|beside| beside.0)
-        .and_then(|agent| world.get::<Name>(agent))
-        .map(|name| name.as_str().to_string());
+        .map(|agent| hamlet_client::realm::shown_of(world, agent));
     let own;
     let pal = match world.get_resource::<Palette>() {
         Some(pal) => pal,

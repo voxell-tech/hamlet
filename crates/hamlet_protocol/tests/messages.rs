@@ -478,7 +478,7 @@ fn hand_wire() -> Value {
 
 fn agent_wire() -> Value {
     json!({
-        "id": 2, "kind": "hire", "name": "founder@home", "nickname": "Fen", "hamlet": "home", "number": 0, "scholar": 1,
+        "id": 2, "kind": "hire", "name": "home#0", "nickname": "Fen", "hamlet": "home", "number": 0, "scholar": 1,
         "parent": 1, "pin": "v1", "purpose": "Help the chief",
         "since": 1700000000000_i64, "mayor": true, "model": "faux/test",
         "ownModel": "faux/test", "effort": "xhigh", "fast": true,
@@ -508,7 +508,7 @@ fn change_wire() -> Value {
 
 fn wait_wire() -> Value {
     json!({
-        "id": "wait-1", "by": "founder", "agent": 2,
+        "id": "wait-1", "by": "home#0", "agent": 2,
         "about": "NOTES.md", "subject": "NOTES.md", "change": change_wire(),
         "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
         "since": 1700000000000_u64, "asked": 1, "chat": {"with": 2},
@@ -518,7 +518,7 @@ fn wait_wire() -> Value {
 
 fn grants_wire() -> Value {
     json!([
-        {"agent": 2, "name": "founder", "permission": "network", "by": "chief", "source": "grant"},
+        {"agent": 2, "name": "home#0", "permission": "network", "by": "chief", "source": "grant"},
         {"agent": null, "name": "all", "permission": "unconfined", "by": null, "source": "limits"}
     ])
 }

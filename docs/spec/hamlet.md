@@ -41,29 +41,29 @@ chief is talking to.
 | `/stop [address\|all]` | Stop an agent's work, or all agents' (H23) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
-| `/hamlets`, `/found <hamlet> [scholar] [purpose]` | List hamlets, or found one with a scholar as its mayor, `mayor` by default (H6) |
+| `/hamlets`, `/found <hamlet> [scholar#id] [purpose]` | List hamlets, or found one with a scholar as its mayor, a new scholar named Mayor by default (H6) |
 | `/name-hamlet <hamlet> [name]`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet a display name, or set its town down elsewhere (H32) |
 | `/remove-hamlet <hamlet> <reason>`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
 | `/mayor <address> <reason>` | Give the hamlet's office to another hire (H18) |
-| `/hire <scholar>[@<version>] [under <address>] [purpose]` | Hire a scholar into the hamlet (H40) |
+| `/hire <scholar#id>[@<version>] [under <address>] [purpose]` | Hire a scholar into the hamlet (H40) |
 | `/end <address> <reason>`, `/merge <address> into <address> [reason]` | End a hire, or make one of two (H5) |
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended hire back, or split a merged one out again, or erase it for good (H20) |
 | `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | An agent's model, a hire's tools and allowance (H29, H41, H44) |
 | `/effort <address> <off\|minimal\|low\|medium\|high\|xhigh\|max\|none>`, `/fast <address> <on\|off>` | How hard an agent's model thinks, and whether it asks for the provider's fast tier (H29a) |
-| `/nickname <address> [nickname]` | What a hire is called in the world, or its name again (H46) |
+| `/nickname <address> [nickname]` | What a hire is called in the world, or its scholar's name again (H46) |
 | `/road <address> <address> <reason>`, `/unroad <address> <address> <reason>` | Lay or take up a road between two hires (H3) |
 | `/worker <task>` | Start a worker on a task in the hamlet (H42) |
-| `/give <scholar\|address> <skill> from <scholar\|address>` | Copy a skill from one scholar to another (H25) |
+| `/give <scholar#id\|address> <skill> from <scholar#id\|address>` | Copy a skill from one scholar to another (H25) |
 | `/folder <folder\|none>`, `/mode <manual\|auto>` | The hamlet's folder and its mode (C20, C21) |
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
 | `/record` | Who was hired, ended, merged and restored, and the other decisions (H17) |
-| `/scholars`, `/scholar new <name> [character]` | List the city's scholars, or make one (H38) |
-| `/welcome <scholar> [reason]`, `/turn-away <scholar> [reason]` | Let a scholar at the harbor into the city, or send one back there (H45) |
-| `/remove-scholar <name> <reason>`, `/restore-scholar <name> [reason]`, `/erase-scholar <name>` | Archive a scholar and end its hires, bring it back, or erase it for good (H38) |
-| `/move-house <scholar> <x> <z>` | Set a scholar's house down elsewhere in the city |
+| `/scholars`, `/scholar new <name>[: <character>]`, `/name-scholar <scholar#id> <name>` | List the city's scholars, make one, or give one a new name (H38) |
+| `/welcome <scholar#id> [reason]`, `/turn-away <scholar#id> [reason]` | Let a scholar at the harbor into the city, or send one back there (H45) |
+| `/remove-scholar <scholar#id> <reason>`, `/restore-scholar <scholar#id> [reason]`, `/erase-scholar <scholar#id>` | Archive a scholar and end its hires, bring it back, or erase it for good (H38) |
+| `/move-house <scholar#id> <x> <z>` | Set a scholar's house down elsewhere in the city |
 | `/tag`, `/versions`, `/pin`, `/revert`, `/fork`, `/purge` | A scholar's versions and history (H39) |
-| `/dream <scholar\|address>` | Have a hire bring its learning home, or a scholar tidy, now (H43) |
+| `/dream <scholar#id\|address>` | Have a hire bring its learning home, or a scholar tidy, now (H43) |
 | `/unshelve <skill> [reason]` | Take a skill out of the library (H33) |
 
 The server advertises its supported command names. The window offers only
@@ -111,7 +111,10 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   belongs to the chief whose task the turn works on, else the chief who
   founded that hamlet, else the realm's first chief. Only its chief edits it,
   tags, reverts, forks, purges, archives, restores, erases or hires it.
-- A chief makes one (`/scholar new`), or the Hand or a lead does
+- A scholar is its id, addressed as `scholar#<id>`; its name is a label of
+  one line, 1 to 40 characters with no colon, that may repeat and that a
+  chief changes with `/name-scholar`, which the record keeps.
+- A chief makes one (`/scholar new <name>[: <character>]`), or the Hand or a lead does
   (`create_scholar`, or `hire` with a new name, which makes a blank scholar
   from the realm's default character). It starts with one commit holding its
   character and an empty `memory/`. One a chief or the Hand makes has a
@@ -125,8 +128,8 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   given to the scholar (H25), a dream (H43), or a revert (H39). Never by a
   hire's tool.
 - Archiving a scholar ends its living hires first, each with a final commit
-  of its lodge, and frees its name; it is refused while one of its hires
-  holds a hamlet's office. Restoring needs its name free, and brings back the
+  of its lodge; it is refused while one of its hires
+  holds a hamlet's office. Restoring brings back the
   hires its archiving ended in hamlets that still live. Erasing deletes its
   repository, its archived hires and their lodges, and cannot be undone.
 
@@ -147,20 +150,20 @@ scholar at the harbor in (`/welcome`), and send one back to it
 **H39.** A chief can name, hold to, undo, copy and cut out parts of a
 scholar's history:
 
-- **Tag.** `/tag <scholar>[@<commit>] <version> [note]` names `main`, or a
+- **Tag.** `/tag <scholar#id>[@<commit>] <version> [note]` names `main`, or a
   commit, as a version.
-- **Pin.** Hiring `name@version` starts the hire's branch at that version and
+- **Pin.** Hiring `scholar#id@version` starts the hire's branch at that version and
   records the pin; a pinned hire takes in no later learning. `/pin <address>
   <version|main>` changes the pin, merging the new target into the hire's
   branch and keeping the hire's side where both changed.
-- **Revert.** `/revert <scholar> <commit|version>` makes a commit on `main`
+- **Revert.** `/revert <scholar#id> <commit|version>` makes a commit on `main`
   that undoes that one. A path changed again since keeps its newer lines and
   is named as a clash.
 - **History.** A chief can read a scholar's commits and the diff between any
   two.
-- **Fork.** `/fork <scholar>[@<version>] <new-name>` makes a new scholar
+- **Fork.** `/fork <scholar#id>[@<version>] <new name>` makes a new scholar
   whose first commit is that version's files.
-- **Purge.** `/purge <scholar> <path>` rewrites every commit of every branch
+- **Purge.** `/purge <scholar#id> <path>` rewrites every commit of every branch
   without that path and replaces the repository, so nothing of the path
   remains.
 
@@ -366,7 +369,7 @@ starter.
 
 **H46.** A chief of its hamlet, the Hand or a lead above it can give a hire
 a nickname of at most 24 letters, kept in the record. The world shows a hire
-by its nickname, else by its name without its hamlet; the window keeps its
+by its nickname, else by its scholar's name; the window keeps its
 address.
 
 **H16.** An agent that does nothing costs nothing.
@@ -397,12 +400,12 @@ costing at most a cap [$0.20].
 - There is a road between each two mayors from the start.
 - Hires of different hamlets have a road once both mayors agree to it
   (`agree_road`), and only while the realm allows such roads [yes].
-- A scholar's name is unique across the realm (C10), and its hires are not.
-  An agent is reached by an address: `hand`; `mayor`, which is the local
-  office, and `mayor@<hamlet>`; `<name>` and `<name>@<hamlet>`, a scholar's
-  one hire in the speaker's hamlet or in that one; `<name>#<n>@<hamlet>`,
-  hire number `n` of that hamlet; and `worker#<id>`. A name that could mean
-  several hires is refused, listing each as `name#n@hamlet`.
+- A scholar's name is a label and need not be unique (C10). An agent is
+  reached by an address: `hand`; `mayor`, which is the local office, and
+  `mayor@<hamlet>`; `<hamlet>#<n>`, hire number `n` of that hamlet, the
+  mayor being 0; and `worker#<id>`. A scholar is `scholar#<id>`. No name
+  finds an agent or a scholar. Wherever an agent is shown, its address comes
+  first and its name beside it, as `docs#3 (Robb)`.
 - A message between hamlets is paid for by the sender's hamlet.
 
 The chiefs of each hamlet concerned are told, in their conversation with its

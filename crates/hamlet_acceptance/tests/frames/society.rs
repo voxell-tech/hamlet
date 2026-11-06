@@ -9,14 +9,15 @@ use serde_json::json;
 use super::capture::{Capture, HAND};
 
 /// A realm with the hamlet `docs` under `ada` (2), and its hires
-/// `cy` (3) and `dee` (4), once all are there and at rest.
+/// `cy` (3, `docs#1`) and `dee` (4, `docs#2`), once all are there
+/// and at rest.
 async fn docs(faux: Faux) -> Capture {
     let mut c = Capture::start(faux).await;
-    c.say(HAND, "/found docs ada keep the docs").await;
+    c.found("docs", "ada", "keep the docs").await;
     c.until(|c| c.state().agents.iter().any(|a| a.id.0 == 2))
         .await;
-    c.say(2, "/hire cy dig").await;
-    c.say(2, "/hire dee haul").await;
+    c.hire(2, "cy", "dig").await;
+    c.hire(2, "dee", "haul").await;
     c.until(|c| c.state().agents.len() == 4).await;
     c.idle().await;
     c
@@ -32,12 +33,12 @@ async fn society() {
                 [
                     call(
                         "tell",
-                        json!({"to":"cy","text":"Hello cy"}),
+                        json!({"to":"docs#1","text":"Hello cy"}),
                     ),
                     words("Told."),
                     call(
                         "ask",
-                        json!({"to":"cy","question":"Which colour?"}),
+                        json!({"to":"docs#1","question":"Which colour?"}),
                     ),
                     words("cy said blue."),
                 ],
@@ -50,7 +51,7 @@ async fn society() {
     c.shows(2, "Told.").await;
     c.until(|c| {
         c.state().agents.iter().any(|a| {
-            a.name == "cy@docs"
+            a.name == "docs#1"
                 && !a.busy
                 && !a.conversations.is_empty()
         })
@@ -82,28 +83,28 @@ async fn society() {
 #[ignore = "records real sessions; see the acceptance README"]
 async fn leaving() {
     let mut c = docs(Faux::new()).await;
-    c.say(2, "/end cy Finished").await;
+    c.say(2, "/end docs#1 Finished").await;
     c.until(|c| {
         c.state()
             .agents
             .iter()
-            .any(|a| a.name == "cy@docs" && a.left.is_some())
+            .any(|a| a.name == "docs#1" && a.left.is_some())
     })
     .await;
-    c.say(2, "/restore cy").await;
-    c.say(2, "/merge cy into dee Together").await;
+    c.say(2, "/restore docs#1").await;
+    c.say(2, "/merge docs#1 into docs#2 Together").await;
     c.until(|c| {
         c.has(|m| {
             m["changes"].as_array().is_some_and(|updates| {
                 updates.iter().any(|u| {
-                    u["agent"]["name"] == "cy@docs"
+                    u["agent"]["name"] == "docs#1"
                         && u["agent"]["left"]["how"] == "merged"
                 })
             })
         })
     })
     .await;
-    c.say(2, "/restore cy").await;
+    c.say(2, "/restore docs#1").await;
     c.open(2).await;
     c.finish("leaving").await;
 }
@@ -118,7 +119,7 @@ async fn realm() {
                 [
                     call(
                         "agree_road",
-                        json!({"mine":"cy","theirs":"dee@mill","reason":"Trade"}),
+                        json!({"mine":"docs#1","theirs":"mill#1","reason":"Trade"}),
                     ),
                     words("Road proposed."),
                 ],
@@ -128,17 +129,17 @@ async fn realm() {
                 [
                     call(
                         "agree_road",
-                        json!({"mine":"dee","theirs":"cy@docs","reason":"Trade"}),
+                        json!({"mine":"mill#1","theirs":"docs#1","reason":"Trade"}),
                     ),
                     words("Road agreed."),
                 ],
             ),
     )
     .await;
-    c.say(HAND, "/found mill bo grind flour").await;
+    c.found("mill", "bo", "grind flour").await;
     c.until(|c| c.state().agents.iter().any(|a| a.id.0 == 5))
         .await;
-    c.say(5, "/hire dee haul").await;
+    c.hire(5, "dee", "haul").await;
     c.say(HAND, "/move-hamlet mill 60 80").await;
     c.say(2, "Propose a road.").await;
     c.idle().await;

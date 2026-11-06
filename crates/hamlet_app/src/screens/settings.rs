@@ -409,7 +409,21 @@ fn permissions() -> AnyView {
                     .filter(|grant| {
                         grant.source == protocol::GrantSource::Grant
                     })
-                    .cloned()
+                    .map(|grant| {
+                        let shown = hamlet_client::realm::named(
+                            world,
+                            &grant.name,
+                        )
+                        .map_or_else(
+                            || grant.name.clone(),
+                            |agent| {
+                                hamlet_client::realm::shown_of(
+                                    world, agent,
+                                )
+                            },
+                        );
+                        (grant.clone(), shown)
+                    })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default()
@@ -425,7 +439,7 @@ fn permissions() -> AnyView {
         }
         let rows = held
             .iter()
-            .map(|grant| {
+            .map(|(grant, shown)| {
                 let agent = grant.name.clone();
                 let permission = match grant.permission {
                     protocol::Permission::Network => "network",
@@ -433,7 +447,7 @@ fn permissions() -> AnyView {
                 };
                 let by = grant.by.as_deref().unwrap_or("limits");
                 let says = format!(
-                    "{agent} may use: {permission} (given by {by})"
+                    "{shown} may use: {permission} (given by {by})"
                 );
                 with_cx(move |cx| {
                     row((
@@ -918,7 +932,7 @@ mod tests {
                 adds one."));
         let grant = protocol::Grant {
             agent: Some(protocol::AgentId(2)),
-            name: "ada@home".into(),
+            name: "home#0".into(),
             permission: protocol::Permission::Network,
             by: Some("chief".into()),
             source: protocol::GrantSource::Grant,
@@ -934,13 +948,15 @@ mod tests {
             }),
         );
         settle(&mut app);
-        assert!(words_and_spans(&mut app).iter().any(|text| text
-            == "ada@home may use: network (given by chief)"));
+        assert!(
+            words_and_spans(&mut app).iter().any(|text| text
+                == "ada may use: network (given by chief)")
+        );
         crate::testing::press(&mut app, "REVOKE");
         assert_eq!(
             requests(&mut app),
             [serde_json::json!({
-                "type": "say", "to": 1, "text": "/revoke ada@home network"
+                "type": "say", "to": 1, "text": "/revoke home#0 network"
             })]
         );
     }
@@ -957,7 +973,7 @@ mod tests {
                 changes: vec![protocol::Update::Grants {
                     grants: vec![protocol::Grant {
                         agent: None,
-                        name: "ada@home".into(),
+                        name: "home#0".into(),
                         permission: protocol::Permission::Network,
                         by: None,
                         source: protocol::GrantSource::Limits,

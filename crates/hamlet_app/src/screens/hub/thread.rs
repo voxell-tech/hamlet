@@ -17,8 +17,8 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::realm::{
-    Activity, Busy, Kind, Left, LivesIn, Nickname, Parent, PeerChats,
-    Works, id_of, name_of,
+    Activity, Busy, Kind, Left, LivesIn, Parent, PeerChats, Works,
+    id_of, name_of, shown_of,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
@@ -138,7 +138,7 @@ fn entries(world: &World) -> (Vec<(String, Go)>, usize) {
         ));
     }
     for worker in workers(world, agent) {
-        items.push((name_of(world, worker), Go::Worker(worker)));
+        items.push((shown_of(world, worker), Go::Worker(worker)));
     }
     let now = conversations::peer_shown(world)
         .and_then(|shown| {
@@ -252,11 +252,7 @@ fn called(world: &World, agent: Entity) -> String {
     {
         return "The Hand".into();
     }
-    match world.get::<Nickname>(agent) {
-        Some(nickname) => nickname.0.clone(),
-        None => hamlet_realm::pick::short(&name_of(world, agent))
-            .to_string(),
-    }
+    shown_of(world, agent)
 }
 
 /// The chain of command down to the thread: `Home / hamlet / mayor /
@@ -802,7 +798,7 @@ mod tests {
         );
     }
 
-    /// The Hub on `ada@home`, with her details open.
+    /// The Hub on `home#0`, with her details open.
     fn ada_app() -> App {
         let mut app = hub_app();
         let ada = crate::testing::seat_ada(&mut app);
@@ -1057,18 +1053,16 @@ mod tests {
     fn select_scout(app: &mut App) {
         use hamlet_client::chats::Chat;
         let mut state = hamlet_testing::realm::state();
-        state.agents.push(hamlet_testing::realm::agent(
-            3, "home", 1, "scout",
-        ));
+        state
+            .agents
+            .push(hamlet_testing::realm::agent(3, "home", 1));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        let agent = hamlet_client::realm::named(
-            app.world_mut(),
-            "scout@home",
-        )
-        .unwrap();
+        let agent =
+            hamlet_client::realm::named(app.world_mut(), "home#1")
+                .unwrap();
         let to = protocol::AgentId(3);
         let session = app
             .world_mut()
@@ -1082,7 +1076,7 @@ mod tests {
         let mut convo = app.world_mut().resource_mut::<Convo>();
         convo.agent = agent;
         convo.session = session;
-        convo.with = Some("scout@home".into());
+        convo.with = Some("home#1".into());
         app.update();
     }
 
@@ -1134,9 +1128,9 @@ mod tests {
         // The chat is under the details, so they are shut.
         app.insert_resource(Sheet::Chat);
         let mut state = hamlet_testing::realm::state();
-        state.agents.push(hamlet_testing::realm::agent(
-            3, "home", 1, "scout",
-        ));
+        state
+            .agents
+            .push(hamlet_testing::realm::agent(3, "home", 1));
         state.agents[1].conversations =
             serde_json::from_value(json!([
                 {"with":3,"kind":"letters","count":2,"last":1000},
@@ -1160,8 +1154,8 @@ mod tests {
             names,
             [
                 "Session",
-                "Letters with scout@home",
-                "Questions with scout@home"
+                "Letters with home#1",
+                "Questions with home#1"
             ]
         );
         assert_eq!(now, 0);
@@ -1180,7 +1174,7 @@ mod tests {
             receive(
                 &mut app,
                 json!({"type":"transcript","chat":chat,"items":[
-                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"scout@home"},
+                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"home#1"},
                     {"id":"2:0","at":2,"kind":"assistant","text":"Answer"}
                 ], "earlier":"1:0","last":null,"working":true,"pending":0,"usage":{
                     "input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"","micros":0,"ms":0

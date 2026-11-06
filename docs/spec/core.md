@@ -18,14 +18,15 @@ that ends with it (H42).
 
 **C9.** An agent is identified by an id that is the same everywhere in the
 realm and is never given twice. A hire also has a number in its hamlet, never
-reused there, which names it as `name#number@hamlet` when its scholar has
-several hires in it. Ending, merging, restoring and seating a mayor keep both.
+reused there, which addresses it as `hamlet#number`, the mayor being 0. No
+address, lookup or command finds an agent or a scholar by a name. Ending,
+merging, restoring and seating a mayor keep both.
 A later hire of the same scholar inherits nothing of the earlier one.
 
-**C10.** A scholar's name is lowercase letters and hyphens, at most 24 of
-them, and belongs to only one living scholar in the realm. A name a model
-writes in another form is put in that form (`FelineBiologist` becomes
-`feline-biologist`). `mayor`, `hand`, `all` and `founder` are reserved.
+**C10.** A scholar is its id, addressed as `scholar#<id>`. Its name is a
+label of one line, 1 to 40 characters with no colon, which may repeat and
+which a chief changes (`/name-scholar`), a decision recorded like a hamlet's
+naming.
 
 ## What an agent is told
 
@@ -231,9 +232,9 @@ scholar by a dream (H43).
 call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
 line of a failure, and the notices meant only for people. Letters,
-questions and replies show their writer as `name@hamlet`, or `name#number@hamlet`
-where its scholar has several hires in that hamlet, `hand`, or `worker#id`;
-once a hire is erased, as `hamlet#number`. They are shown as agents' words,
+questions and replies show their writer by its address with its name beside
+it (`docs#1 (Robb)`), `hand`, or `worker#id`; once a hire is erased, as its
+address alone. They are shown as agents' words,
 never as a chief's words that can be taken back.
 
 **C31.** Every model call, including each summarising call,

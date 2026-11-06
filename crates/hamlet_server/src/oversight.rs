@@ -383,7 +383,7 @@ pub(crate) fn views(db: &mut Db) -> Result<Vec<protocol::Wait>> {
 
 fn view(db: &mut Db, wait: &Wait) -> Result<protocol::Wait> {
     let by = match wait.agent {
-        Some(agent) => addresses::name_of(db, agent)?,
+        Some(agent) => addresses::address_of(db, agent)?,
         None => "the realm".into(),
     };
     let chat = match wait.conversation {

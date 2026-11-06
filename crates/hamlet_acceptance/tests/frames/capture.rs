@@ -148,6 +148,54 @@ impl Capture {
         assert_eq!(reply["kind"], "notice", "{reply}");
     }
 
+    /// The id of the scholar named `name`, once the state has it.
+    pub fn scholar(&self, name: &str) -> u64 {
+        self.state()
+            .scholars
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap()
+            .id
+            .0
+    }
+
+    /// Makes the scholar `name` in the city and waits for it.
+    pub async fn make(&mut self, name: &str) -> u64 {
+        self.say(HAND, &format!("/scholar new {name}")).await;
+        self.until(|c| {
+            c.state().scholars.iter().any(|s| s.name == name)
+        })
+        .await;
+        self.scholar(name)
+    }
+
+    /// Founds `hamlet` under a new scholar `name`.
+    pub async fn found(
+        &mut self,
+        hamlet: &str,
+        name: &str,
+        purpose: &str,
+    ) {
+        let scholar = self.make(name).await;
+        self.say(
+            HAND,
+            &format!("/found {hamlet} scholar#{scholar} {purpose}"),
+        )
+        .await;
+    }
+
+    /// Has the agent `lead` hire a new scholar `name`.
+    pub async fn hire(
+        &mut self,
+        lead: u64,
+        name: &str,
+        purpose: &str,
+    ) {
+        let scholar = self.make(name).await;
+        self.say(lead, &format!("/hire scholar#{scholar} {purpose}"))
+            .await;
+    }
+
     /// Watches the chief's current chat with `agent`.
     pub async fn open(&mut self, agent: u64) -> Value {
         self.ask(json!({"type":"open","chat":{"with":agent}})).await

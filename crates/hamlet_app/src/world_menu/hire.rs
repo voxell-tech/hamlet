@@ -14,6 +14,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{self as agents, Deeds, Scholar};
+use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
     self, ICON, choice, description, lettered, primary_button,
@@ -33,15 +34,17 @@ const LIST: f32 = 220.0;
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Hiring {
     search: String,
-    chosen: Option<String>,
+    chosen: Option<protocol::ScholarId>,
     /// The version it is pinned to; its newest work when None.
     version: Option<String>,
     purpose: String,
 }
 
-/// A scholar that can be hired: its name and how many hires it has.
+/// A scholar that can be hired: its id, its name and how many hires
+/// it has.
 #[derive(Clone, PartialEq)]
 struct Choice {
+    id: protocol::ScholarId,
     name: String,
     hires: usize,
 }
@@ -60,17 +63,20 @@ fn choices(world: &World, search: &str) -> Vec<Choice> {
             scholar.0.name.to_lowercase().contains(&search)
         })
         .map(|scholar| Choice {
+            id: scholar.0.id,
             name: scholar.0.name.clone(),
             hires: scholar.0.hires.len(),
         })
         .collect::<Vec<_>>();
-    found.sort_by(|a, b| a.name.cmp(&b.name));
+    found.sort_by(|a, b| {
+        a.name.cmp(&b.name).then(a.id.0.cmp(&b.id.0))
+    });
     found
 }
 
 /// One scholar of the list, lit while it is the one chosen.
 fn row_of(choice_of: &Choice, on: bool) -> impl View + use<> {
-    let name = choice_of.name.clone();
+    let (id, name) = (choice_of.id, choice_of.name.clone());
     let hires = match choice_of.hires {
         0 => "No hires".to_string(),
         1 => "1 hire".to_string(),
@@ -90,21 +96,24 @@ fn row_of(choice_of: &Choice, on: bool) -> impl View + use<> {
     .rules(choice(on))
     .on_activate(move |world| {
         let mut hiring = world.resource_mut::<Hiring>();
-        if hiring.chosen.as_ref() != Some(&name) {
-            hiring.chosen = Some(name.clone());
+        if hiring.chosen != Some(id) {
+            hiring.chosen = Some(id);
             hiring.version = None;
         }
     })
 }
 
 /// The versions of `scholar`, newest first.
-fn versions_of(world: &World, scholar: &str) -> Vec<String> {
+fn versions_of(
+    world: &World,
+    scholar: protocol::ScholarId,
+) -> Vec<String> {
     let Some(mut scholars) = world.try_query::<&Scholar>() else {
         return Vec::new();
     };
     scholars
         .iter(world)
-        .find(|s| s.0.name == scholar)
+        .find(|s| s.0.id == scholar)
         .map(|s| {
             s.0.versions
                 .iter()
@@ -123,7 +132,6 @@ fn version() -> impl View {
             let hiring = world.resource::<Hiring>();
             let versions = hiring
                 .chosen
-                .as_deref()
                 .map(|scholar| versions_of(world, scholar))
                 .unwrap_or_default();
             (versions, hiring.version.clone())
@@ -170,7 +178,7 @@ fn list() -> impl View {
     keyed(
         derived(|world: &World| {
             let hiring = world.resource::<Hiring>();
-            (choices(world, &hiring.search), hiring.chosen.clone())
+            (choices(world, &hiring.search), hiring.chosen)
         })
         .when(every_frame()),
         |(found, chosen)| {
@@ -181,10 +189,7 @@ fn list() -> impl View {
             column(
                 found
                     .iter()
-                    .map(|c| {
-                        row_of(c, chosen.as_deref() == Some(&c.name))
-                            .boxed()
-                    })
+                    .map(|c| row_of(c, *chosen == Some(c.id)).boxed())
                     .collect::<Vec<_>>(),
             )
             .gap(2.0)
@@ -198,7 +203,7 @@ fn list() -> impl View {
 /// its purpose if one is given. None until a scholar is chosen.
 fn command(world: &World, lead: Entity) -> Option<String> {
     let hiring = world.resource::<Hiring>();
-    let scholar = hiring.chosen.as_ref()?;
+    let scholar = agents::scholar_address(hiring.chosen?);
     let pinned = hiring
         .version
         .as_ref()
@@ -220,7 +225,7 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
         {
             return cx.build(frame());
         }
-        let under = agents::name_of(cx.world, lead);
+        let under = agents::shown_of(cx.world, lead);
         let (gap, between, padding, heading) = {
             let theme = cx.theme();
             (
@@ -312,13 +317,13 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        let ada = agents::named(app.world_mut(), "ada@home").unwrap();
-        let scholar = app
+        let ada = agents::named(app.world_mut(), "home#0").unwrap();
+        let (id, scholar) = app
             .world_mut()
             .query::<&Scholar>()
             .iter(app.world())
             .find(|s| s.0.left.is_none())
-            .map(|s| s.0.name.clone())
+            .map(|s| (s.0.id, s.0.name.clone()))
             .expect("a living scholar");
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
@@ -326,10 +331,7 @@ mod tests {
         );
         app.update();
         press(&mut app, &scholar);
-        assert_eq!(
-            app.world().resource::<Hiring>().chosen.as_deref(),
-            Some(scholar.as_str())
-        );
+        assert_eq!(app.world().resource::<Hiring>().chosen, Some(id));
         app.world_mut().resource_mut::<Hiring>().purpose =
             "Mend the fences".into();
         app.update();
@@ -348,7 +350,10 @@ mod tests {
         };
         assert_eq!(
             say.text,
-            format!("/hire {scholar} under ada@home Mend the fences")
+            format!(
+                "/hire scholar#{} under home#0 Mend the fences",
+                id.0
+            )
         );
     }
 }

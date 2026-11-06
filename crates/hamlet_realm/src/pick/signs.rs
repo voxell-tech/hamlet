@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 use bevy::ui::UiSystems;
-use hamlet_client::realm::Nickname;
+use hamlet_client::realm::Shown;
 
 use super::{Footprint, Hovered, Names, PickSettings, Thing};
 use crate::label::{self, Lens};
@@ -167,8 +167,8 @@ fn words(
 /// Writes on each sign the name it shows.
 fn write_signs(
     names: Names,
-    renamed: Query<(), Or<(Changed<Name>, Changed<Nickname>)>>,
-    mut unnicknamed: RemovedComponents<Nickname>,
+    renamed: Query<(), Or<(Changed<Name>, Changed<Shown>)>>,
+    mut unnicknamed: RemovedComponents<Shown>,
     named: Query<(Ref<Thing>, &Signed, Option<Ref<Reads>>)>,
     signs: Query<&Children, With<Sign>>,
     mut texts: Query<&mut Text, With<SignText>>,

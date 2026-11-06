@@ -161,7 +161,11 @@ async fn gives_a_scholar_skills_from_an_agent_or_a_scholar() {
         )
         .await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
-    assert!(reply.text.starts_with("Gave greet to ada"));
+    assert!(
+        reply.text.starts_with("Gave greet to scholar#2 (ada)"),
+        "{}",
+        reply.text
+    );
     assert_eq!(
         skills(s.chief.papers(Keeper::Scholar(ada)).await),
         ["greet"]

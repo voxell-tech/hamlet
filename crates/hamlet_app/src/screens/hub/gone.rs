@@ -27,7 +27,7 @@ use crate::{lists, overview};
 pub(super) fn ruin(agent: Entity) -> impl View {
     built(move |cx| {
         let named = |agent: Entity| {
-            hamlet_client::realm::name_of(cx.world, agent)
+            hamlet_client::realm::shown_of(cx.world, agent)
         };
         let name = named(agent);
         let fate = match cx.world.get::<MergedInto>(agent) {

@@ -35,6 +35,7 @@ text_enum! {
         ScholarRestored = "scholar-restored",
         ScholarErased = "scholar-erased",
         ScholarEdited = "scholar-edited",
+        ScholarNamed = "scholar-named",
         Tagged = "tagged",
         Reverted = "reverted",
         Forked = "forked",
@@ -216,6 +217,7 @@ impl DecisionKind {
             Self::RoadRefused => "refused a road for",
             Self::Pinned => "pinned",
             Self::Nicknamed => "nicknamed",
+            Self::ScholarNamed => "renamed",
             _ => "changed",
         }
     }

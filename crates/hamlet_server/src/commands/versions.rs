@@ -37,26 +37,26 @@ impl Core {
         }))
     }
 
-    /// The scholar `text` names, living or archived, which this chief
-    /// keeps, with its repository.
+    /// The living scholar `text` addresses, which this chief keeps,
+    /// with its repository.
     fn chiefs_scholar(
         &mut self,
         text: &str,
     ) -> Result<Result<(ScholarId, Repository), Refusal>> {
         let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        let Some(found) = city::named(db, text)? else {
-            return Ok(Err(Refusal::NoScholar { name: text.into() }));
+        let id = match self.scholar_at(text, false)? {
+            Ok(id) => id,
+            Err(refusal) => return Ok(Err(refusal)),
         };
-        if !authority::may_keep(db, Actor::Chief(chief), found.id)? {
+        let db = self.realm.store().connection();
+        if !authority::may_keep(db, Actor::Chief(chief), id)? {
             return Ok(Err(Refusal::ScholarNotOwn {
-                name: text.into(),
+                name: addresses::scholar_name_of(db, id)?,
             }));
         }
-        let repo = Repository::open(
-            &self.realm.layout().repository(found.id),
-        )?;
-        Ok(Ok((found.id, repo)))
+        let repo =
+            Repository::open(&self.realm.layout().repository(id))?;
+        Ok(Ok((id, repo)))
     }
 
     fn author(&self) -> String {
@@ -77,7 +77,7 @@ impl Core {
         if let Err(refusal) = names::check_version(version) {
             return Ok(Err(refusal));
         }
-        let (_, repo) = match self.chiefs_scholar(scholar)? {
+        let (id, repo) = match self.chiefs_scholar(scholar)? {
             Ok(found) => found,
             Err(refusal) => return Ok(Err(refusal)),
         };
@@ -104,7 +104,11 @@ impl Core {
                 at: crate::clock::now(),
             },
         )?;
-        Ok(Ok(format!("Tagged {scholar} as {version}.")))
+        let label = addresses::scholar_name_of(
+            self.realm.store().connection(),
+            id,
+        )?;
+        Ok(Ok(format!("Tagged {label} as {version}.")))
     }
 
     /// `/versions <scholar>`: its versions and its latest commits.
@@ -189,9 +193,8 @@ impl Core {
         if let Some(version) = target
             && repo.resolve(version)?.is_none()
         {
-            let name = city::get(db, found.scholar)?.name;
             return Ok(Err(Refusal::NoVersion {
-                name,
+                name: addresses::scholar_name_of(db, found.scholar)?,
                 version: version.into(),
             }));
         }
@@ -250,12 +253,16 @@ impl Core {
         )?;
         drop(held);
         self.main_moved(by, id).await?;
+        let label = addresses::scholar_name_of(
+            self.realm.store().connection(),
+            id,
+        )?;
         Ok(Ok(if merged.clashes.is_empty() {
-            format!("Reverted {} on {scholar}'s main.", short(commit))
+            format!("Reverted {} on {label}'s main.", short(commit))
         } else {
             format!(
-                "Reverted {} on {scholar}'s main; these changed \
-                 again since and kept their later lines: {}",
+                "Reverted {} on {label}'s main; these changed again \
+                 since and kept their later lines: {}",
                 short(commit),
                 merged.clashes.join(", ")
             )
@@ -267,7 +274,7 @@ impl Core {
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
-        let [from, name] = words else {
+        let [from, name @ ..] = words else {
             return Ok(Err(super::usage("fork")));
         };
         let (scholar, at) = from
@@ -282,7 +289,7 @@ impl Core {
             Err(refusal) => return Ok(Err(refusal)),
         };
         let chief = self.realm.chief();
-        let name = (*name).to_owned();
+        let name = name.join(" ");
         let done = self
             .attempt(Actor::Chief(chief), |cx, _| {
                 city::make(
@@ -297,7 +304,14 @@ impl Core {
                 )
             })
             .await?;
-        Ok(done.map(|_| format!("Forked {from} as {name}.")))
+        let label = addresses::scholar_name_of(
+            self.realm.store().connection(),
+            id,
+        )?;
+        Ok(done.map(|_| match at == MAIN {
+            true => format!("Forked {label} as {name}."),
+            false => format!("Forked {label} at {at} as {name}."),
+        }))
     }
 
     /// `/purge <scholar> <path>`: the path leaves every commit, every
@@ -344,8 +358,12 @@ impl Core {
         }
         let by = Actor::Chief(self.realm.chief());
         self.main_moved(by, id).await?;
+        let label = addresses::scholar_name_of(
+            self.realm.store().connection(),
+            id,
+        )?;
         Ok(Ok(format!(
-            "Purged {path} from {scholar}: {} branches rewritten.",
+            "Purged {path} from {label}: {} branches rewritten.",
             rewritten.len()
         )))
     }

@@ -276,12 +276,12 @@ impl Core {
         let db = self.realm.store().connection();
         let Some(scholar) = city::find(db, to)? else {
             return Ok(Err(Refusal::NoScholar {
-                name: to.to_string(),
+                address: addresses::scholar_address(to),
             }));
         };
         if !authority::may_keep(db, Actor::Chief(chief), to)? {
             return Ok(Err(Refusal::ScholarNotOwn {
-                name: scholar.name,
+                name: scholar.label(),
             }));
         }
         let GiveSkillSource { from, name } = source;
@@ -293,7 +293,7 @@ impl Core {
                     Actor::Chief(chief),
                     other,
                 )? {
-                    let name = city::get(db, other)?.name;
+                    let name = city::get(db, other)?.label();
                     return Ok(Err(Refusal::ScholarNotOwn { name }));
                 }
                 main_skill(&layout.repository(other), &name)?
@@ -330,14 +330,14 @@ impl Core {
         )
         .await?;
         let db = self.realm.store().connection();
-        let scholar = city::get(db, to)?.name;
+        let scholar = city::get(db, to)?.label();
         Ok(Ok(format!(
             "Gave {name} to {scholar}; its hires take it in once \
              idle."
         )))
     }
 
-    /// `/give <scholar|address> <skill> from <scholar|address>`
+    /// `/give <scholar#id|address> <skill> from <scholar#id|address>`
     pub(crate) async fn give_command(
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
@@ -345,8 +345,8 @@ impl Core {
     ) -> Result<Result<String, Refusal>> {
         let [target, skill, "from", from] = words else {
             return Ok(Err(Refusal::Usage {
-                words: "Use /give <scholar|address> <skill> from \
-                        <scholar|address>"
+                words: "Use /give <scholar#id|address> <skill> from \
+                        <scholar#id|address>"
                     .into(),
             }));
         };
@@ -355,28 +355,34 @@ impl Core {
             Err(refusal) => return Ok(Err(refusal)),
         };
         let db = self.realm.store().connection();
-        let keeper = match city::named(db, from)? {
-            Some(found) => {
-                Keeper::Scholar(hamlet_protocol::client::ScholarId(
-                    u64::try_from(found.id.0)?,
-                ))
-            }
-            None => {
-                let address = match addresses::parse(from) {
-                    Ok(address) => address,
-                    Err(refusal) => return Ok(Err(refusal)),
-                };
-                match addresses::resolve(
-                    db,
-                    &address,
-                    here,
-                    addresses::Reach::Living,
-                )? {
-                    Ok(agent) => Keeper::Agent(
-                        crate::clients::state::wire_agent(agent),
-                    ),
-                    Err(refusal) => return Ok(Err(refusal)),
-                }
+        let keeper = if from.starts_with("scholar#") {
+            let found = match addresses::parse_scholar(from) {
+                Ok(id) => city::living(db, id)?,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            let Some(found) = found else {
+                return Ok(Err(Refusal::NoScholar {
+                    address: (*from).into(),
+                }));
+            };
+            Keeper::Scholar(hamlet_protocol::client::ScholarId(
+                u64::try_from(found.id.0)?,
+            ))
+        } else {
+            let address = match addresses::parse(from) {
+                Ok(address) => address,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            match addresses::resolve(
+                db,
+                &address,
+                here,
+                addresses::Reach::Living,
+            )? {
+                Ok(agent) => Keeper::Agent(
+                    crate::clients::state::wire_agent(agent),
+                ),
+                Err(refusal) => return Ok(Err(refusal)),
             }
         };
         let source = GiveSkillSource {
@@ -386,8 +392,8 @@ impl Core {
         self.give_skill(to, source).await
     }
 
-    /// The scholar `text` names: a scholar's name, else an agent's
-    /// address, whose scholar it is.
+    /// The scholar `text` addresses: a scholar's address, else an
+    /// agent's address, whose scholar it is.
     fn scholar_of(
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
@@ -395,8 +401,16 @@ impl Core {
     ) -> Result<Result<ScholarId, Refusal>> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        if let Some(found) = city::named(db, text)? {
-            return Ok(Ok(found.id));
+        if text.starts_with("scholar#") {
+            return Ok(match addresses::parse_scholar(text) {
+                Ok(id) => match city::living(db, id)? {
+                    Some(found) => Ok(found.id),
+                    None => Err(Refusal::NoScholar {
+                        address: text.into(),
+                    }),
+                },
+                Err(refusal) => Err(refusal),
+            });
         }
         let address = match addresses::parse(text) {
             Ok(address) => address,
@@ -413,7 +427,9 @@ impl Core {
         };
         Ok(match knowledge::lodging(db, &layout, agent) {
             Ok(lodging) => Ok(lodging.scholar),
-            Err(_) => Err(Refusal::NoScholar { name: text.into() }),
+            Err(_) => Err(Refusal::NoScholar {
+                address: text.into(),
+            }),
         })
     }
 }

@@ -445,9 +445,9 @@ mod tests {
     #[test]
     fn a_renamed_agent_is_found_by_its_new_name_only() {
         let mut app = app(state());
-        let ada = realm::named(app.world(), "ada@home").unwrap();
+        let ada = realm::named(app.world(), "home#0").unwrap();
         app.world_mut().entity_mut(ada).insert(Name::new("keeper"));
-        assert_eq!(realm::named(app.world(), "ada@home"), None);
+        assert_eq!(realm::named(app.world(), "home#0"), None);
         assert_eq!(realm::named(app.world(), "keeper"), Some(ada));
     }
 
@@ -456,14 +456,14 @@ mod tests {
         let mut app = app(state());
         let ada = realm::mayor_of(app.world(), "home").unwrap();
         app.world_mut().entity_mut(ada).insert(Left);
-        assert_eq!(realm::named(app.world(), "ada@home"), None);
+        assert_eq!(realm::named(app.world(), "home#0"), None);
         assert_eq!(realm::mayor_of(app.world(), "home"), None);
         assert_eq!(
             realm::agent(app.world(), protocol::AgentId(2)),
             Some(ada)
         );
         app.world_mut().entity_mut(ada).remove::<Left>();
-        assert_eq!(realm::named(app.world(), "ada@home"), Some(ada));
+        assert_eq!(realm::named(app.world(), "home#0"), Some(ada));
         assert_eq!(realm::mayor_of(app.world(), "home"), Some(ada));
     }
 
@@ -489,7 +489,7 @@ mod tests {
     fn a_closed_hamlet_takes_its_agents_out_of_the_index() {
         let mut realm = state();
         realm.hamlets.push(hamlet("mill", 3));
-        realm.agents.push(agent(3, "mill", 0, "miller"));
+        realm.agents.push(agent(3, "mill", 0));
         let mut app = app(realm.clone());
         assert!(realm::mayor_of(app.world(), "mill").is_some());
         realm.hamlets.pop();
@@ -501,7 +501,7 @@ mod tests {
         );
         assert_eq!(realm::hamlet(app.world(), "mill"), None);
         assert_eq!(realm::mayor_of(app.world(), "mill"), None);
-        assert_eq!(realm::named(app.world(), "miller@mill"), None);
+        assert_eq!(realm::named(app.world(), "mill#0"), None);
         assert_eq!(
             realm::agent(app.world(), protocol::AgentId(3)),
             None
@@ -522,14 +522,14 @@ mod tests {
     }
 
     #[test]
-    fn agents_of_one_name_in_two_hamlets_are_told_apart_by_hamlet() {
+    fn hires_of_two_hamlets_are_told_apart_by_address() {
         let mut realm = state();
         realm.hamlets.push(hamlet("mill", 4));
-        realm.agents.push(agent(3, "home", 1, "scout"));
-        realm.agents.push(agent(4, "mill", 0, "scout"));
+        realm.agents.push(agent(3, "home", 1));
+        realm.agents.push(agent(4, "mill", 0));
         let mut app = app(realm);
-        let home = realm::named(app.world(), "scout@home");
-        let mill = realm::named(app.world(), "scout@mill");
+        let home = realm::named(app.world(), "home#1");
+        let mill = realm::named(app.world(), "mill#0");
         assert!(home.is_some() && mill.is_some());
         assert_ne!(home, mill);
         assert_eq!(
@@ -537,7 +537,7 @@ mod tests {
             mill
         );
         app.world_mut().entity_mut(home.unwrap()).insert(Left);
-        assert_eq!(realm::named(app.world(), "scout@home"), None);
-        assert_eq!(realm::named(app.world(), "scout@mill"), mill);
+        assert_eq!(realm::named(app.world(), "home#1"), None);
+        assert_eq!(realm::named(app.world(), "mill#0"), mill);
     }
 }

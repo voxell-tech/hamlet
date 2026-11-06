@@ -27,7 +27,8 @@ _Avoid_: assistant, root agent, admin agent
 **Scholar**:
 Who an agent is when it is not at work: a git repository holding a
 character, memory and skills. Its `main` is what it knows. Many hires can
-be of one scholar.
+be of one scholar. A scholar is its id, `scholar#<id>`; its name is a label
+that a chief changes and that may repeat.
 _Avoid_: persona, profile, template, house
 
 **Hire**:
@@ -37,7 +38,7 @@ _Avoid_: member, employee, citizen
 
 **Nickname**:
 What a hire is called in the world, given by a chief, the Hand or a lead
-above it. Its address stays its name.
+above it. Its address, `hamlet#number`, stays the same.
 _Avoid_: alias, display name
 
 **Mayor**:

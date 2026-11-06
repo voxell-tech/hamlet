@@ -114,7 +114,9 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
             if !found.is_living()
                 || found.kind != ScholarKind::Scholar
             {
-                refuse!(Refusal::ScholarGone { name: found.name });
+                refuse!(Refusal::ScholarGone {
+                    name: found.label()
+                });
             }
             (scholar, pin, false)
         }
@@ -341,7 +343,9 @@ pub(crate) fn come_back(
     }
     let scholar = city::get(cx.db, hire.scholar)?;
     if !scholar.is_living() {
-        refuse!(Refusal::ScholarGone { name: scholar.name });
+        refuse!(Refusal::ScholarGone {
+            name: scholar.label()
+        });
     }
     if count_living(cx.db, &hire.hamlet)? >= place.tier {
         refuse!(Refusal::HamletFull {

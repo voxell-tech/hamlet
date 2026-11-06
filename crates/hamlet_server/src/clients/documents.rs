@@ -474,16 +474,18 @@ impl Core {
         let db = self.realm.store().connection();
         let Some(found) = city::find(db, scholar)? else {
             return Ok(Err(Refusal::NoScholar {
-                name: scholar.to_string(),
+                address: format!("scholar#{scholar}"),
             }));
         };
         if !found.is_living() {
             return Ok(Err(Refusal::ScholarGone {
-                name: found.name,
+                name: found.label(),
             }));
         }
         if !authority::may_keep(db, Actor::Chief(chief), scholar)? {
-            return Ok(Err(Refusal::NotOwner { owner: found.name }));
+            return Ok(Err(Refusal::NotOwner {
+                owner: found.label(),
+            }));
         }
         Ok(Ok(()))
     }
