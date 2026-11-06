@@ -18,20 +18,21 @@ The server answers with a `transcript` page. Live `turn` operations add or
 replace an item, append text, close a tool, change status or usage, or reset
 the transcript. The client applies those operations; it runs no agent and
 reads no conversation files. Each item has a stable string ID, a time and
-a kind: chief input, assistant text, reasoning, tool, notice or error.
+a kind: chief input, assistant text, reasoning, tool, notice, error or
+answered.
 
-The chief's chat with an agent is shared by every client. New Session sends
-`/new` through `say` and moves to a new numbered conversation while the old
-one finishes its queue. History comes from `read history`; Read opens a
-numbered past conversation read-only, and Resume sends `/resume <n>`.
-Every conversation is kept. Search matches its title and who began it.
+The chief's chat with an agent is shared by every client. `/new` moves to a
+new numbered conversation while the old one finishes its queue. History
+comes from `read history`; Read opens a numbered past conversation
+read-only, and Resume sends `/resume <n>`. Every conversation is kept.
 
-SIDE CHATS in the Hub's details sheet lists the agent's conversations with
-other agents, with their counts and last activity. Choosing letters or
-questions opens a reference with `from` and `kind`; without a kind the
-server selects letters. These watches have paging and live updates, but no
-input field, stop control or rewind. CHIEF CHAT returns to the chief's own
-conversation. The server also refuses edits of peer conversations.
+The session menu of the Hub's chat lists the agent's sessions, its
+conversations with other agents and the workers it started. Choosing a
+sender's letters or questions opens a reference with `from` and `kind`;
+without a kind the server selects letters. These watches have paging and
+live updates, but no input field, stop control or rewind. The first entry
+returns to the chief's own conversation. The server also refuses edits of
+peer conversations.
 
 A peer input carries `author`, its sender's address, rather than `chief`.
 The client keeps it as an agent entry, including a letter's reply arriving
@@ -148,7 +149,7 @@ a press and a drag, a double-click for a word, a triple-click for a line.
 `hamlet_app/src/select.rs` holds it. An `Area` is selected as one across
 all its text: the words of a message, and every Markdown document, so a
 drag runs across the paragraphs, lists and code blocks of a reply or of
-the Notes page. Any other text is selected on its own. What a button, a
+a memory file. Any other text is selected on its own. What a button, a
 field, a menu row or anything with a pointer of its own holds is left to
 it, and a field selects its own words as Bevy's text box does.
 
