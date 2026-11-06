@@ -891,11 +891,6 @@ mod tests {
         press(&mut app, "notes.md (learned)");
         app.update();
         assert!(has_span(&mut app, "Received notes"));
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            crate::hub::skills_screen(),
-        );
-        app.update();
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "orchard"));
         assert!(shown.iter().any(|text| text == "Tends trees"));

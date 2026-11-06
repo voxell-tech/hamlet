@@ -30,13 +30,13 @@ use hamlet_ui::widgets::effects::{Highlight, Updated};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, with_cx};
 
-pub(crate) use self::gone::{of_agent, skills_screen};
+pub(crate) use self::gone::of_agent;
 pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
 pub use self::rail::{Rail, Tab as RailTab};
 pub use self::thread::{Briefing, Sheet};
 use crate::convo::{Convo, seat};
-use crate::dock::{HUB, PanelAppExt, highlight_panel, panel};
+use crate::dock::{HUB, PanelAppExt, highlight_panel};
 use crate::overview;
 
 pub fn plugin(app: &mut App) {
@@ -53,12 +53,6 @@ pub fn plugin(app: &mut App) {
             )
         })
         .icon(Glyph::Lens.image(ICON)),
-    )
-    // Closed until asked for from a tab bar's plus.
-    .add_panel(
-        "skills",
-        DockWindowKind::new("SKILLS", || panel(skills_screen()))
-            .icon(Glyph::Book.image(ICON)),
     )
     .add_plugins((rail::plugin, visits::plugin))
     .init_resource::<Showing>()

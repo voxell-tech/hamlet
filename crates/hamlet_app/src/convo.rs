@@ -346,7 +346,7 @@ mod tests {
         designed(&mut tree);
         let side = tree.find_leaf_with_window(HUB).unwrap();
         // Another panel in front of it.
-        tree.add_tab(side, "skills");
+        tree.add_tab(side, "settings");
         talk_to_hand(app.world_mut());
         let hand = agents::hand(app.world()).unwrap();
         assert_eq!(app.world().resource::<Convo>().agent, hand);

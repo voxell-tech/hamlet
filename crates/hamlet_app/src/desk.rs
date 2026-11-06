@@ -572,7 +572,7 @@ mod tests {
         dock::designed(&mut tree);
         let side = tree.find_leaf_with_window("hub").unwrap();
         let hub = tree.active(side).unwrap();
-        tree.add_tab(side, "skills");
+        tree.add_tab(side, "settings");
         tree.set_active(side, hub);
         tree
     }
@@ -602,7 +602,7 @@ mod tests {
             id != "needs" && id != "hub"
         }));
         assert!(tree.find_leaf_with_window("needs").is_none());
-        let side = tree.find_leaf_with_window("skills").unwrap();
+        let side = tree.find_leaf_with_window("settings").unwrap();
         assert_eq!(tree.leaf(side).unwrap().tabs().count(), 1);
         assert!(tree.find_leaf_with_window("world").is_some());
         assert!(!lay_out(&mut tree, &parts, &|_| false));

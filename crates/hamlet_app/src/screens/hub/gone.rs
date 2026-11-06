@@ -8,20 +8,18 @@ use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, action, bad_action, bare, breadcrumb, buttons, filling,
-    good_action, group, note, scroll_area, section,
-    status_label_large, title,
+    Fills, action, bad_action, breadcrumb, buttons, filling,
+    good_action, scroll_area, section, status_label_large, title,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
-use super::papers::Papers;
 use super::thread::dim;
 use super::{Showing, show};
 use crate::convo::Convo;
+use crate::lists;
 use crate::world_menu::{self, Deed};
-use crate::{lists, overview};
 
 /// The page of an agent that is gone, with the way back.
 pub(super) fn ruin(agent: Entity) -> impl View {
@@ -132,45 +130,6 @@ pub(super) fn library() -> impl View {
     })
 }
 
-/// The skills the selected agent wrote and keeps in its own house,
-/// over those of the library, which every agent has.
-fn skills() -> AnyView {
-    let own = keyed(
-        resource::<Papers, _>(|p| p.skills.clone()),
-        |skills| {
-            if skills.is_empty() {
-                return note("None of its own yet.").boxed();
-            }
-            let rows = skills
-                .iter()
-                .map(|(name, does)| {
-                    lists::item(
-                        name.clone(),
-                        does.clone(),
-                        Tone::Body,
-                    )
-                })
-                .collect::<Vec<_>>();
-            group(rows).boxed()
-        },
-    )
-    .within(bare());
-    // One scroll for both lists, so that a long one of its own
-    // does not push the library out of reach.
-    with_cx(move |cx| {
-        scroll_area((column((
-            own,
-            overview::heading(
-                Glyph::Book,
-                "THE LIBRARY, SHARED BY ALL",
-            ),
-            lists::skills(),
-        ))
-        .gap(cx.theme().space.section),))
-    })
-    .boxed()
-}
-
 /// A page of `what` about the selected agent, under whose it is.
 pub(crate) fn of_agent(
     what: &'static str,
@@ -195,10 +154,4 @@ pub(crate) fn of_agent(
         },
     )
     .within(filling())
-}
-
-/// The Skills panel: the selected agent's own skills, and the
-/// library's.
-pub(crate) fn skills_screen() -> AnyView {
-    of_agent("ITS OWN SKILLS", skills).boxed()
 }

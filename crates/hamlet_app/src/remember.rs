@@ -428,7 +428,7 @@ mod tests {
         crate::dock::designed(&mut tree);
         let side = tree.find_leaf_with_window("hub").unwrap();
         let hub = tree.active(side).unwrap();
-        tree.add_tab(side, "skills");
+        tree.add_tab(side, "settings");
         tree.set_active(side, hub);
         tree
     }
@@ -493,7 +493,7 @@ mod tests {
                 .init_resource::<desk::Shown>()
                 .add_systems(Update, desk::capture)
                 .add_plugins(plugin);
-            for name in ["world", "needs", "hub", "skills"] {
+            for name in ["world", "needs", "hub", "settings"] {
                 app.world_mut()
                     .resource_mut::<DockRegistry<HamletTheme>>()
                     .register(
@@ -559,7 +559,7 @@ mod tests {
                 .tabs()
                 .map(|(name, _)| name)
                 .collect::<Vec<_>>(),
-            ["hub", "skills"]
+            ["hub", "settings"]
         );
     }
 
