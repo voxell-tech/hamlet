@@ -11,6 +11,7 @@ use super::{Glass, Level};
 use crate::generator::house::{self, Banner, TownStyle};
 use crate::generator::land::{IslandId, Land};
 use crate::generator::society::{AgentId, Claim, Ground, Society};
+use crate::keeper::{self, Kit, Who};
 use crate::lantern::NightLight;
 use crate::pick::{self, Named, PickSettings, Thing, hit_box};
 use crate::stock::Stock;
@@ -20,6 +21,10 @@ const GROUNDS: f32 = 4.6;
 
 /// How far before a house its door's ground lies.
 const DOOR_OUT: f32 = 4.0;
+
+/// How far to the side of its door a scholar stands, so it is not in
+/// the way of it.
+const FIGURE_ASIDE: f32 = 1.4;
 
 /// The light of the lantern by a house's door after dark, and how
 /// far it reaches.
@@ -149,10 +154,12 @@ pub(super) fn tend(
     glass: Res<Glass>,
     stock: Res<Stock>,
     pick: Res<PickSettings>,
+    kit: Res<Kit>,
     scholars: Query<(Entity, &Scholar)>,
     agents: Query<&Identity, Without<Left>>,
     homes: Query<(Entity, &Home)>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let living = agents.iter().map(|id| id.0.0).collect::<Vec<_>>();
     let wanted = wanted(&land, &scholars, &living);
@@ -252,5 +259,23 @@ pub(super) fn tend(
             },
         ));
         pick::watch(&mut commands, boxed);
+        // The scholar itself, at home before its door and looking
+        // out, in the look it had waiting on the pier. One that left
+        // is not there.
+        if !want.shut {
+            let figure = keeper::spawn_agent(
+                &mut commands,
+                &kit,
+                &mut materials,
+                Who::agent(number as u32 * 5 + 1),
+                Transform::from_xyz(
+                    FIGURE_ASIDE,
+                    0.0,
+                    DOOR_OUT * 0.7,
+                ),
+                None,
+            );
+            commands.entity(figure).insert(ChildOf(house));
+        }
     }
 }

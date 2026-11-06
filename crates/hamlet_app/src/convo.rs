@@ -14,7 +14,7 @@ use hamlet_client::realm::{
     self as agents, Chief, Identity, Kind, Left,
 };
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Selected, Thing, focus_on, select};
+use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 
 use crate::PanelSystems;
 use crate::dock::{HUB, show_tab};
@@ -195,7 +195,7 @@ pub(crate) fn talk_to_hand(world: &mut World) {
     }
     hub::show(world, Showing::Thread);
     show_tab(world, HUB);
-    focus_on(world, Thing::Hand, false);
+    bring_into_view(world, Thing::Hand);
 }
 
 /// Points the chat at the agent `to`.

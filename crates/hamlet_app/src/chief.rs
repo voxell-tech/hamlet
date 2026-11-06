@@ -30,7 +30,7 @@ use hamlet_realm::generator::society::Ground;
 use hamlet_realm::library::{Library, Stood};
 use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
-use hamlet_realm::pick::{Selected, Thing, focus_on, select};
+use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
     Fills, action, breadcrumb, buttons, choice, choices, description,
     filling, group, note, scroll_area, section, title,
@@ -100,7 +100,7 @@ pub(crate) fn go_home(world: &mut World) {
     };
     let thing = Thing::ChiefPlace(chief);
     select(world, Some(thing));
-    focus_on(world, thing, false);
+    bring_into_view(world, thing);
 }
 
 /// The company of the mascot of a chief who has chosen `selected`,

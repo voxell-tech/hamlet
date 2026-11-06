@@ -26,7 +26,7 @@ use hamlet_client::realm::{
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
-use hamlet_realm::pick::{Thing, focus_on, select};
+use hamlet_realm::pick::{Thing, bring_into_view, select};
 use hamlet_ui::styles::{
     Fills, ICON, action, bare, beside, close, description, framed,
     group, note, raised, scroll_area, section, status_label_large,
@@ -138,7 +138,7 @@ pub fn overview() -> impl View {
                     move |world| {
                         let thing = Thing::Common(hamlet);
                         select(world, Some(thing));
-                        focus_on(world, thing, false);
+                        bring_into_view(world, thing);
                     },
                 )
             })

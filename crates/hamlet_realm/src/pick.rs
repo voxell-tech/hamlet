@@ -26,8 +26,8 @@ use bevy::window::PrimaryWindow;
 use hamlet_client::realm::Nickname;
 
 pub use self::camera::{
-    Centre, Following, Glide, Leash, Orbit, Stance, Steer, focus_on,
-    glide_to,
+    Centre, Following, Glide, Leash, Orbit, Stance, Steer,
+    bring_into_view, focus_on, glide_to,
 };
 pub use self::reach::Reach;
 use self::reach::aim;

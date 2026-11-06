@@ -40,7 +40,7 @@ use hamlet_client::realm::{
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Selected, Thing, focus_on, select};
+use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
     Fills, ICON, caption, note, scroll_area, text_input,
 };
@@ -1114,12 +1114,12 @@ fn go(world: &mut World, target: Target) {
     }
 }
 
-/// Chooses `thing` in the world and brings the camera to it, where
-/// there is a world.
+/// Chooses `thing` in the world and brings it into view, where there
+/// is a world.
 fn look_at(world: &mut World, thing: Thing) {
     if world.contains_resource::<Selected>() {
         select(world, Some(thing));
-        focus_on(world, thing, false);
+        bring_into_view(world, thing);
     }
 }
 

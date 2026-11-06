@@ -148,6 +148,46 @@ pub fn focus_on(world: &mut World, thing: Thing, stay: bool) {
     world.resource_mut::<Following>().0 = stay.then_some(thing);
 }
 
+/// The share of the view's width and height kept clear at each edge:
+/// a thing chosen nearer an edge than this is brought in.
+const VIEW_MARGIN: f32 = 0.12;
+
+/// Brings `thing` into view, chosen from a panel: where it is already
+/// well inside the view nothing moves, and otherwise the view slides
+/// to it at the height it is at, without coming in close. F and Focus
+/// come in close with [`focus_on`].
+pub fn bring_into_view(world: &mut World, thing: Thing) {
+    let at = world
+        .query::<(&Thing, &GlobalTransform)>()
+        .iter(world)
+        .find(|(of, _)| **of == thing)
+        .map(|(_, at)| at.translation());
+    let Some(at) = at else {
+        return;
+    };
+    let seen = world
+        .query_filtered::<(&Camera, &GlobalTransform), With<crate::WorldCamera>>()
+        .iter(world)
+        .next()
+        .and_then(|(camera, view)| {
+            let size = camera.logical_viewport_size()?;
+            let point = camera.world_to_viewport(view, at).ok()?;
+            let inset = size * VIEW_MARGIN;
+            Some(point.cmpge(inset).all() && point.cmple(size - inset).all())
+        })
+        .unwrap_or(false);
+    if seen {
+        return;
+    }
+    let centre = world.resource::<Centre>().0;
+    let set = world.resource::<CameraSettings>();
+    let pan =
+        world
+            .resource::<Leash>()
+            .held(set, centre, at.xz() - centre);
+    world.resource_mut::<Orbit>().pan = pan;
+}
+
 /// Brings the place `at` on the ground to the middle of the view and
 /// comes in close.
 pub fn glide_to(world: &mut World, at: Vec2) {
