@@ -187,7 +187,8 @@ fn go(world: &mut World, to: &Go) {
 }
 
 /// The session menu: a button saying which session this is, over a
-/// list of the others.
+/// list of the others. A choice shows the chat, even from the
+/// details.
 fn session_menu() -> impl View {
     keyed(
         derived(|world: &World| {
@@ -212,6 +213,9 @@ fn session_menu() -> impl View {
                 now,
                 Glyph::Chevron.image(ICON),
                 move |world, chosen| {
+                    if *world.resource::<Sheet>() != Sheet::Chat {
+                        *world.resource_mut::<Sheet>() = Sheet::Chat;
+                    }
                     if chosen != now
                         && let Some(to) = goes.get(chosen)
                     {
@@ -431,19 +435,9 @@ fn header(agent: Entity) -> impl View {
             world_menu::open_for(world, thing);
         });
         // Which of its chats the chat tab shows: this session, an
-        // earlier one, its letters and questions, its workers.
-        let sessions = keyed(
-            resource::<Sheet, _>(|sheet| *sheet == Sheet::Chat),
-            |chat| {
-                if *chat {
-                    session_menu().boxed()
-                } else {
-                    frame().boxed()
-                }
-            },
-        )
-        .within(bare())
-        .tooltip(|| {
+        // earlier one, its letters and questions, its workers. It is
+        // there on both tabs, so that the tabs keep their place.
+        let sessions = session_menu().tooltip(|| {
             note(
                 "Switch to an earlier session, its letters or \
                  questions with other agents, or a worker it started",
