@@ -336,8 +336,11 @@ fn live(shot: &Shot) {
         // The stills keep hover off so a held hover stays; a hand at
         // the window needs it to point at anything.
         .insert_resource(bevy::picking::PickingSettings::default())
-        // The menus and questions the app's own root draws over all.
+        // The menus and questions the app's own root draws over all,
+        // and what the world tells them was asked about.
         .add_plugins(hamlet_app::world_menu::plugin)
+        .init_resource::<hamlet_realm::pick::Asked>()
+        .init_resource::<hamlet_realm::pick::AskedGround>()
         .add_systems(PostStartup, |world: &mut World| {
             bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
                 world,
