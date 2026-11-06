@@ -43,7 +43,7 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    Fills, ICON, caption, note, scroll_area, text_input,
+    ICON, caption, note, scroll_area, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -1661,8 +1661,11 @@ pub(super) fn view() -> impl View {
             .gap(cx.theme().space.gap)
             .width(resource::<Rail, _>(|rail| px(rail.width)))
             .min_width(px(NARROWEST))
+            // Its width is its own: it neither grows into the page's
+            // room nor shrinks, and only stretches down.
             .shrink(0.0)
-            .fills_height()
+            .height(percent(100.0))
+            .min_height(px(0.0))
             .tagged(Body)
     })
 }
