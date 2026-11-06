@@ -1335,7 +1335,8 @@ fn go(world: &mut World, target: Target) {
             look_at(world, Thing::Common(hamlet));
         }
         // A scholar's house, or its place on the pier, and the
-        // library are chosen and looked at in the world too.
+        // library are selected and brought into view in the world
+        // too.
         Target::Scholar(scholar) => {
             show(world, Showing::Scholar(scholar));
             look_at(world, Thing::Scholar(scholar));

@@ -228,7 +228,7 @@ pub(crate) fn tell_page(
     };
     let agent = (page == Showing::Thread)
         .then(|| world.resource::<Convo>().agent);
-    // The first look is not a change.
+    // The first page seen is not a change.
     if seen
         .replace((page, agent))
         .is_some_and(|was| was != (page, agent))

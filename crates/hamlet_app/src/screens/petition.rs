@@ -39,7 +39,7 @@ use crate::dock::{HUB, show_tab};
 use crate::hub::Showing;
 use crate::{PanelSystems, asking, chat};
 
-/// Seconds between two looks at the time each has waited.
+/// Seconds between two refreshes of the time each has waited.
 const TICK: f32 = 10.0;
 
 pub fn plugin(app: &mut App) {
