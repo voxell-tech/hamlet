@@ -5,14 +5,15 @@
 //! fade is right over any fill, glow or hover under them.
 
 use bevy::app::{App, Plugin};
+use bevy::ecs::entity::ContainsEntity;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::ResMut;
+use bevy::ecs::system::{Query, ResMut};
 use bevy::math::{Rect, Vec2};
-use bevy::render::{ExtractSchedule, RenderApp};
+use bevy::render::{Extract, ExtractSchedule, RenderApp};
+use bevy::text::TextLayoutInfo;
 use bevy::ui::CalculatedClip;
 use bevy::ui_render::{
-    ExtractedGlyph, ExtractedUiItem, ExtractedUiNodes,
-    RenderUiSystems,
+    ExtractedUiItem, ExtractedUiNodes, RenderUiSystems,
 };
 
 /// How far in from a cutting edge the letters fade, in the heights of
@@ -37,8 +38,7 @@ impl Plugin for CutTextPlugin {
     }
 }
 
-/// The edges of `clip` that some of `glyphs` run past, at `place` in
-/// the clip's own space.
+/// The edges of `clip` that a text's layout runs past.
 #[derive(Clone, Copy, Default)]
 struct Cut {
     left: bool,
@@ -48,18 +48,28 @@ struct Cut {
 }
 
 impl Cut {
+    /// The edges of `clip` that `layout`, at `place` in the clip's
+    /// own space, runs past. The layout, not the letters drawn, so a
+    /// letter whose ink hangs past where the text starts, as a `j`'s
+    /// tail does, cuts nothing.
     fn of(
-        glyphs: &[ExtractedGlyph],
+        layout: Rect,
         clip: Rect,
-        place: impl Fn(&ExtractedGlyph) -> Vec2,
+        place: impl Fn(Vec2) -> Vec2,
     ) -> Self {
+        let corners = [
+            layout.min,
+            layout.max,
+            Vec2::new(layout.min.x, layout.max.y),
+            Vec2::new(layout.max.x, layout.min.y),
+        ]
+        .map(place);
         let mut cut = Self::default();
-        for glyph in glyphs {
-            let (at, half) = (place(glyph), glyph.rect.size() / 2.0);
-            cut.left |= at.x - half.x < clip.min.x - 0.5;
-            cut.right |= at.x + half.x > clip.max.x + 0.5;
-            cut.top |= at.y - half.y < clip.min.y - 0.5;
-            cut.bottom |= at.y + half.y > clip.max.y + 0.5;
+        for at in corners {
+            cut.left |= at.x < clip.min.x - 0.5;
+            cut.right |= at.x > clip.max.x + 0.5;
+            cut.top |= at.y < clip.min.y - 0.5;
+            cut.bottom |= at.y > clip.max.y + 0.5;
         }
         cut
     }
@@ -92,12 +102,20 @@ impl Cut {
 /// Lowers the alpha of each letter of a text that runs past an edge
 /// of what clips it, the nearer that edge the lower. Only text
 /// extracted anew this frame is faded, as the rest keeps its fade.
-fn fade_cut_text(mut extracted: ResMut<ExtractedUiNodes>) {
+fn fade_cut_text(
+    mut extracted: ResMut<ExtractedUiNodes>,
+    texts: Extract<Query<&TextLayoutInfo>>,
+) {
     let ExtractedUiNodes { uinodes, changed } = &mut *extracted;
     for main in changed.iter() {
         let Some((_, items)) = uinodes.get_mut(main) else {
             continue;
         };
+        let Ok(text) = texts.get(main.entity()) else {
+            continue;
+        };
+        // Where the glyphs are placed from, in physical pixels.
+        let layout = Rect::from_corners(Vec2::ZERO, text.size);
         for node in items.values_mut() {
             let Some(CalculatedClip::Rects(clips)) = &node.clip
             else {
@@ -116,19 +134,19 @@ fn fade_cut_text(mut extracted: ResMut<ExtractedUiNodes>) {
                 continue;
             }
             for clip in clips {
-                let place = |glyph: &ExtractedGlyph| {
+                let place = |at: Vec2| {
                     clip.world_to_clip_local.transform_point2(
-                        transform.transform_point2(glyph.translation),
+                        transform.transform_point2(at),
                     )
                 };
-                let cut = Cut::of(glyphs, clip.rect, place);
+                let cut = Cut::of(layout, clip.rect, place);
                 if !cut.any() {
                     continue;
                 }
                 for glyph in glyphs.iter_mut() {
                     let shown = cut.shown(
                         clip.rect,
-                        place(glyph),
+                        place(glyph.translation),
                         tall * FADE,
                     );
                     glyph.color.alpha *= shown;
