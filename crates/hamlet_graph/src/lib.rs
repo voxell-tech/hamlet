@@ -9,6 +9,7 @@ mod fragment;
 mod graph;
 mod grows;
 mod lift;
+pub mod material;
 mod node;
 mod value;
 

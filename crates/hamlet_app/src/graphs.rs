@@ -42,7 +42,8 @@ fn fade(dragging: Res<Dragging>, mut faint: ResMut<Faint>) {
 
 /// Opens the library's `item` in the editor of its kind, to be saved
 /// back to its file. A mesh or a texture is not opened; it is dragged
-/// onto a canvas.
+/// onto a canvas. A material has no graph: the ASSETS panel changes
+/// it.
 pub(crate) fn open_item(
     world: &mut World,
     item: &Item,
@@ -55,6 +56,11 @@ pub(crate) fn open_item(
                 name: item.name.clone(),
             });
         }
+        Kind::Material => {
+            return Err(OpenRefusal::Changed {
+                name: item.name.clone(),
+            });
+        }
     };
     Ok(opened?)
 }
@@ -64,6 +70,8 @@ pub(crate) fn open_item(
 pub(crate) enum OpenRefusal {
     #[error("Drag {name} onto a canvas to use it")]
     Dragged { name: String },
+    #[error("{name} has no graph: change it in the ASSETS panel")]
+    Changed { name: String },
     #[error("{0:#}")]
     Unreadable(#[from] anyhow::Error),
 }

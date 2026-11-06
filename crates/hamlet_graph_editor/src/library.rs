@@ -3,8 +3,9 @@
 //! in `catalogue.ron` with its slots' colours and its sockets, and in
 //! `sources.ron` with the file outside the library it was added from
 //! and follows; blueprint and shader graphs are `.ron` files in
-//! `blueprints/` and `shaders/`, one graph to a file; textures are
-//! `.png` files in `textures/`. A graph names the meshes it uses and
+//! `blueprints/` and `shaders/`, one graph to a file; materials are
+//! `.ron` files in `materials/`, each a shader by name with values for
+//! some of its inputs; textures are `.png` files in `textures/`. A graph names the meshes it uses and
 //! the other graphs of its kind it runs. A removed asset is moved to
 //! `.trash/`.
 
@@ -21,6 +22,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::time::Time;
 use hamlet_client::ViewFolder;
+use hamlet_graph::material::Material;
 use hamlet_graph::{Asset, Book, Catalogue, Does, Shape, Sheet};
 use hamlet_ui::widgets::icons::Glyph;
 
@@ -49,6 +51,8 @@ pub enum Kind {
     Blueprint,
     /// A shader graph.
     Shader,
+    /// A shader by name with values for some of its inputs.
+    Material,
     /// A `.glb` mesh.
     Mesh,
     /// A `.png` texture.
@@ -61,6 +65,7 @@ impl Kind {
         match self {
             Kind::Blueprint => "blueprints",
             Kind::Shader => "shaders",
+            Kind::Material => "materials",
             Kind::Mesh => "meshes",
             Kind::Texture => "textures",
         }
@@ -69,7 +74,7 @@ impl Kind {
     /// Its files' extension.
     pub fn extension(self) -> &'static str {
         match self {
-            Kind::Blueprint | Kind::Shader => "ron",
+            Kind::Blueprint | Kind::Shader | Kind::Material => "ron",
             Kind::Mesh => "glb",
             Kind::Texture => "png",
         }
@@ -80,6 +85,7 @@ impl Kind {
         match self {
             Kind::Blueprint => "Blueprint",
             Kind::Shader => "Shader",
+            Kind::Material => "Material",
             Kind::Mesh => "Mesh",
             Kind::Texture => "Texture",
         }
@@ -90,6 +96,7 @@ impl Kind {
         match self {
             Kind::Blueprint => Glyph::Signpost,
             Kind::Shader => Glyph::Sphere,
+            Kind::Material => Glyph::Drop,
             Kind::Mesh => Glyph::Cube,
             Kind::Texture => Glyph::Mountains,
         }
@@ -141,6 +148,18 @@ impl Item {
                 anyhow::bail!("{} is not a graph", self.name)
             }
         }
+    }
+
+    /// The material its file holds.
+    pub fn material(&self) -> anyhow::Result<Material> {
+        let Source::File(path) = &self.source else {
+            anyhow::bail!("{} is not a material", self.name);
+        };
+        let text = fs::read_to_string(path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        Material::from_ron(&text).with_context(|| {
+            format!("{} is not a material file", path.display())
+        })
     }
 }
 
@@ -220,7 +239,8 @@ impl Library {
             .unwrap_or_default();
         sources.retain(|name, _| catalogue.0.contains_key(name));
         let mut items = Vec::new();
-        for kind in [Kind::Blueprint, Kind::Shader, Kind::Texture] {
+        for kind in
+            [Kind::Blueprint, Kind::Shader, Kind::Material, Kind::Texture] {
             let Ok(entries) = fs::read_dir(root.join(kind.shelf()))
             else {
                 continue;
@@ -403,9 +423,38 @@ impl Library {
         wanted: &str,
     ) -> anyhow::Result<Item> {
         let name = self.free_name(kind, wanted);
-        self.save_sheet(kind, &name, &Sheet::default())?;
+        match kind {
+            Kind::Material => {
+                self.save_material(&name, &Material::default())?;
+            }
+            _ => {
+                self.save_sheet(kind, &name, &Sheet::default())?;
+            }
+        }
         self.find(kind, &name)
-            .context("the new graph is not listed")
+            .context("the new asset is not listed")
+    }
+
+    /// Writes `material` as the material `name`, and gives its path.
+    /// The revision changes only when a new material is listed, so a
+    /// value dragged in a field does not build the field again.
+    pub fn save_material(
+        &mut self,
+        name: &str,
+        material: &Material,
+    ) -> anyhow::Result<PathBuf> {
+        let path = self
+            .path_of(Kind::Material, name)
+            .context("no library yet")?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("making {}", parent.display())
+            })?;
+        }
+        let text = material.to_ron().context("writing the material")?;
+        write_atomic(&path, &text)?;
+        self.scan();
+        Ok(path)
     }
 
     /// The sheet `item` holds, and the names of the assets split off
@@ -842,5 +891,28 @@ mod tests {
         assert_eq!(main, sheet(Some("wall_2")));
         assert_eq!(house.read().unwrap().sheets.len(), 1);
         assert!(library.find(Kind::Blueprint, "wall_2").is_some());
+    }
+
+    #[test]
+    fn a_new_material_is_listed_and_reads_back_as_it_was_saved() {
+        let folder = Scratch::new("library-material");
+        let mut library = Library {
+            root: Some(folder.join("library")),
+            ..Library::default()
+        };
+        let item = library.create(Kind::Material, "plaster").unwrap();
+        assert_eq!(item.material().unwrap(), Material::default());
+
+        let mut material = Material::of("wall");
+        material.values.insert(
+            "roughness".to_owned(),
+            hamlet_graph::Constant::Number(0.8),
+        );
+        library.save_material(&item.name, &material).unwrap();
+
+        assert!(folder.join("library/materials/plaster.ron").exists());
+        let again = Library::in_folder(folder.join("library"));
+        let found = again.find(Kind::Material, "plaster").unwrap();
+        assert_eq!(found.material().unwrap(), material);
     }
 }

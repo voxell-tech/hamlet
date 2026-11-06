@@ -2,9 +2,13 @@
 //! and searched by name, with the selected asset's details beside it.
 //! A click selects a tile and a double click opens it; a tile dragged
 //! onto a canvas adds what it is there. The details rename, open or
-//! remove the selected asset, and give a mesh's material slots their
-//! colours. Blueprints and shaders are made new here, meshes are added
-//! from `.glb` files and textures from `.png` files.
+//! remove the selected asset, give a mesh's material slots their
+//! colours, and give a material its shader and the values of that
+//! shader's inputs. Blueprints, shaders and materials are made new
+//! here, meshes are added from `.glb` files and textures from `.png`
+//! files.
+
+mod material;
 
 use std::path::Path;
 
@@ -65,6 +69,7 @@ pub(crate) fn plugin(app: &mut App) {
         DockWindowKind::new("ASSETS", || flush_panel(view()))
             .icon(Glyph::Folder.image(ICON)),
     )
+    .add_plugins(material::plugin)
     .init_resource::<Browse>()
     .init_resource::<Shown>()
     .init_resource::<Importer>()
@@ -176,6 +181,7 @@ fn bar() -> AnyView {
             [
                 ("Blueprints", Kind::Blueprint),
                 ("Shaders", Kind::Shader),
+                ("Materials", Kind::Material),
                 ("Meshes", Kind::Mesh),
                 ("Textures", Kind::Texture),
             ]
@@ -228,6 +234,11 @@ fn bar() -> AnyView {
                 files::create::<ShaderGraph>(world);
                 world.resource::<Files<ShaderGraph>>().note.clone()
             }),
+            new(
+                "Material",
+                "New material, to give a shader's inputs values",
+                new_material,
+            ),
             import(
                 "Mesh",
                 "Add meshes from .glb files",
@@ -346,6 +357,7 @@ fn tile(item: Item, selected: bool) -> AnyView {
         let tint = match item.kind {
             Kind::Blueprint => palette.gold_3,
             Kind::Shader => palette.red,
+            Kind::Material => palette.glow,
             Kind::Mesh => palette.agent,
             Kind::Texture => palette.green,
         };
@@ -466,6 +478,9 @@ fn details() -> AnyView {
                     Kind::Mesh => {
                         crate::graphs::assets::details(item.name.clone())
                     }
+                    Kind::Material => {
+                        material::details(item.name.clone())
+                    }
                     Kind::Blueprint | Kind::Shader => description(
                         "Open it to change its graph, or drag it onto \
                          a canvas.",
@@ -536,6 +551,22 @@ fn details() -> AnyView {
         .border_color(theme.palette.border)
     })
     .boxed()
+}
+
+/// Makes a new material that uses no shader yet and selects it, and
+/// gives what happened.
+fn new_material(world: &mut World) -> String {
+    let made = world
+        .resource_mut::<Library>()
+        .create(Kind::Material, "new_material");
+    match made {
+        Ok(item) => {
+            let note = format!("Made {}", item.name);
+            world.resource_mut::<Browse>().selected = Some(item);
+            note
+        }
+        Err(error) => format!("{error:#}"),
+    }
 }
 
 fn open(world: &mut World, item: &Item) {

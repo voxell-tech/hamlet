@@ -135,7 +135,7 @@ fn new_tip(kind: Kind) -> &'static str {
     match kind {
         Kind::Blueprint => "New blueprint",
         Kind::Shader => "New shader",
-        Kind::Mesh | Kind::Texture => "New asset",
+        Kind::Material | Kind::Mesh | Kind::Texture => "New asset",
     }
 }
 
