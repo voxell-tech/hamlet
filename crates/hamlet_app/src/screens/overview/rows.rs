@@ -22,26 +22,21 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, with_cx};
 
-use super::{Naming, Search};
+use super::Naming;
 use crate::roll::Roll;
 use crate::world_menu;
 
 /// A check that fires when the agents or the hamlets changed,
-/// something began or ended its wait, or the words typed did.
+/// something began or ended its wait, or a hamlet's naming did.
 pub(crate) fn stale()
 -> impl FnMut(&World) -> bool + Send + Sync + 'static {
-    let mut seen = None::<(Option<Roll>, String, Option<Entity>)>;
+    let mut seen = None::<(Option<Roll>, Option<Entity>)>;
     move |world: &World| {
         let roll = world.get_resource::<Roll>().copied();
         let naming = world.get_resource::<Naming>().and_then(|n| n.0);
-        let search = world.get_resource::<Search>();
-        let typed = search.map_or("", |search| search.0.as_str());
-        let same = seen.as_ref().is_some_and(|(r, s, n)| {
-            (*r, s.as_str(), *n) == (roll, typed, naming)
-        });
-        if !same {
-            seen = Some((roll, typed.to_string(), naming));
-        }
+        let now = (roll, naming);
+        let same = seen == Some(now);
+        seen = Some(now);
         !same
     }
 }
@@ -86,12 +81,6 @@ pub(crate) fn standing(
             format!("{count}, {w} waiting for you"),
             Tone::Critical,
         ),
-    }
-}
-
-impl HamletRow {
-    pub(super) fn state(&self) -> (Glyph, String, Tone) {
-        standing(self.living, self.working, self.waiting)
     }
 }
 

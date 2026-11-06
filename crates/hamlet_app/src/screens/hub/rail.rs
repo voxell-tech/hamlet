@@ -1010,7 +1010,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         Target::Home,
         Glyph::Globe,
         "Realm",
-        "Every hamlet at a glance".into(),
+        String::new(),
         Mark::None,
     )];
     if let Some(hand) =
@@ -1464,7 +1464,15 @@ fn expanded(line: &Line) -> AnyView {
                 .tone(name_tone)
                 .bold(true)
                 .wrap(false),
-            label(line.title.clone()).tone(Tone::Dim).wrap(false),
+            // A row with nothing more to say is one line.
+            column((label(line.title.clone())
+                .tone(Tone::Dim)
+                .wrap(false),))
+            .display(if line.title.is_empty() {
+                Display::None
+            } else {
+                Display::Flex
+            }),
         ))
         .gap(0.0)
         .grow(1.0)

@@ -723,6 +723,14 @@ fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
     let rename = renaming(shown);
+    // The field it is renamed in shows its name, in place of a title.
+    let renamed = shown.scholar.left.is_none()
+        && shown.allowed.contains(&"name-scholar");
+    let heading = if renamed {
+        frame().boxed()
+    } else {
+        title(name.to_uppercase()).boxed()
+    };
     let (head, versions_part, hires_part, deeds_part, careful_part) = (
         arrival(shown),
         versions(shown),
@@ -739,7 +747,7 @@ fn body(shown: &Shown) -> AnyView {
                 name.clone(),
                 |world, _| show(world, Showing::Home),
             ),
-            title(name.to_uppercase()),
+            heading,
             head,
             rename,
             deeds_part,

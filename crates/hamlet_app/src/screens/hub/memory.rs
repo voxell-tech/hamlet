@@ -7,7 +7,8 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, column, label, row,
+    text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_protocol::client as protocol;
@@ -169,7 +170,15 @@ fn add() -> impl View {
     with_cx(|cx| {
         let gap = cx.theme().space.gap;
         row((
-            label("New file").tone(Tone::Faint).wrap(false),
+            column(
+                (label("New file").tone(Tone::Faint).wrap(false),),
+            )
+            .tooltip(|| {
+                note(
+                    "A name like people.md, or a folder and name \
+                     like orchard/rows.md",
+                )
+            }),
             text_field(String::new(), |world, text| {
                 world.resource_mut::<Opened>().name = text;
             })
@@ -229,14 +238,5 @@ pub(super) fn view() -> impl View {
         },
     )
     .within(bare());
-    column((
-        shown,
-        add(),
-        note(
-            "Type a name like people.md, or a folder and name like \
-             orchard/rows.md, then add it.",
-        ),
-        failed,
-    ))
-    .gap(8.0)
+    column((shown, add(), failed)).gap(8.0)
 }

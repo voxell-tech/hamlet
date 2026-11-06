@@ -8,18 +8,16 @@ mod rows;
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Query, ResMut};
+use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
-use bevy::text::EditableText;
 use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, column, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use bevy_fynix::{ViewExt, derived, keyed};
 use hamlet_client::messages::Veto;
 use hamlet_client::realm::{
     Busy, Closed, Deeds, HamletId, Identity, Left, Scholar,
@@ -27,11 +25,10 @@ use hamlet_client::realm::{
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
-use hamlet_realm::pick::{Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, beside, close,
-    description, framed, group, note, raised, scroll_area, section,
-    status_label_large, text_input, title,
+    Fills, ICON, action, bad_action, bare, beside, close, framed,
+    group, note, raised, scroll_area, section, status_label_large,
+    title,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::tabs;
@@ -40,8 +37,7 @@ use hamlet_ui::{AnyView, View, with_cx};
 pub(crate) use self::hamlet::typed;
 pub use self::hamlet::{Naming, Page, hamlet};
 pub use self::record::Annals;
-use self::rows::{hamlet_rows, pressable};
-pub(crate) use self::rows::{stale, standing};
+pub(crate) use self::rows::standing;
 use crate::status::Bar;
 use crate::{chat, world_menu};
 
@@ -52,38 +48,10 @@ pub fn plugin(app: &mut App) {
         .init_resource::<crate::petition::Queue>()
         .add_observer(disarm)
         .add_systems(Update, reconcile_erasing)
-        .init_resource::<Search>()
         .init_resource::<Naming>()
         .init_resource::<crate::forms::OpenForm>()
         .init_resource::<Page>()
-        .add_systems(Update, (read_search, tabs::mark::<Page>));
-}
-
-/// The words typed in the search over the hamlets.
-#[derive(Resource, Default, PartialEq)]
-pub struct Search(String);
-
-/// The search field's root, to find its editable child.
-#[derive(Component)]
-pub struct SearchField;
-
-/// Follows the search as it is typed.
-pub fn read_search(
-    root: Query<&Children, With<SearchField>>,
-    texts: Query<&EditableText>,
-    mut search: ResMut<Search>,
-) {
-    // With no field the search stays as it is.
-    let Some(text) = root
-        .iter()
-        .flat_map(|children| children.iter().copied())
-        .find_map(|child| texts.get(child).ok())
-    else {
-        return;
-    };
-    if text.value() != search.0.as_str() {
-        search.0 = text.value().to_string();
-    }
+        .add_systems(Update, tabs::mark::<Page>);
 }
 
 /// A heading over a part of the panel, behind its icon.
@@ -100,98 +68,28 @@ pub(crate) fn heading(
     .boxed()
 }
 
-/// Every hamlet, with a search over them.
+/// The realm at a glance: how it stands today, what waits for the
+/// chief in full, and the hamlets closed down. The hamlets and the
+/// Hand are in the rail beside it.
 pub fn overview() -> impl View {
-    let shown = derived(|world: &World| {
-        let search =
-            world.resource::<Search>().0.trim().to_lowercase();
-        hamlet_rows(world)
-            .into_iter()
-            .filter(|row| {
-                search.is_empty()
-                    || row.title.to_lowercase().contains(&search)
-                    || row.id.contains(&search)
-                    || row.mayor.contains(&search)
-            })
-            .collect::<Vec<_>>()
-    })
-    .when(stale());
-    let list = keyed(shown, |rows| {
-        if rows.is_empty() {
-            return description("No hamlet by that name.").boxed();
-        }
-        let cards = rows
-            .iter()
-            .map(|row| {
-                let hamlet = row.hamlet;
-                let mut lines = vec![
-                    format!("Mayor: {}", row.mayor),
-                    row.account.clone(),
-                ];
-                if row.gone > 0 {
-                    lines.push(format!("{} gone", row.gone));
-                }
-                pressable(
-                    Thing::Common(hamlet),
-                    row.title.to_uppercase(),
-                    row.state(),
-                    lines,
-                    move |world| {
-                        let thing = Thing::Common(hamlet);
-                        select(world, Some(thing));
-                        bring_into_view(world, thing);
-                    },
-                )
-            })
-            .collect::<Vec<_>>();
-        group(cards).boxed()
-    })
-    .within(bare());
-    let search = with_cx(|cx| {
-        row((
-            text_field(String::new(), |_, _| {})
-                .grow(1.0)
-                .rules(text_input)
-                .tagged(SearchField),
-            keyed(
-                resource::<Deeds, _>(|deeds| {
-                    deeds.is_supported("found")
-                }),
-                |allowed| {
-                    if *allowed {
-                        action(
-                            Glyph::Plus,
-                            "FOUND A HAMLET",
-                            world_menu::ask_found,
-                        )
-                    } else {
-                        column(()).boxed()
-                    }
-                },
-            )
-            .within(bare()),
-        ))
-        .gap(cx.theme().space.gap)
-        .align(AlignItems::Center)
-    });
     with_cx(move |cx| {
         column((
             title("REALM"),
             today(),
-            search,
             // What waits for the chief comes first, in full.
-            scroll_area((
-                crate::petition::waiting(),
-                hand(),
-                list,
-                closed(),
-            )),
+            scroll_area((crate::petition::waiting(), closed())),
             beside((
                 action(
                     Glyph::Hearth,
                     "YOUR HEARTH",
                     crate::chief::go_home,
                 ),
+                action(
+                    Glyph::Signpost,
+                    "HARBOR",
+                    glide_to_other_pier,
+                )
+                .tooltip(|| note("Cross to the other island")),
                 action(
                     Glyph::Notes,
                     "NEW SCHOLAR",
@@ -206,36 +104,6 @@ pub fn overview() -> impl View {
         .fills_height()
         .gap(cx.theme().space.section)
     })
-}
-
-/// The Hand, the one agent of the whole realm, to talk to, and the
-/// harbor to cross between the city and the hamlets.
-fn hand() -> AnyView {
-    with_cx(|cx| {
-        column((
-            beside((
-                action(
-                    Glyph::Mayor,
-                    "THE HAND",
-                    crate::convo::talk_to_hand,
-                ),
-                note(
-                    "Speaks for the realm: hires, founding and its \
-                     limits.",
-                ),
-            )),
-            beside((
-                action(
-                    Glyph::Signpost,
-                    "HARBOR",
-                    glide_to_other_pier,
-                ),
-                note("Crosses to the other island's pier."),
-            )),
-        ))
-        .gap(cx.theme().space.gap)
-    })
-    .boxed()
 }
 
 /// How the realm stands today.

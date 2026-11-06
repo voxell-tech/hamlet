@@ -20,9 +20,9 @@ use hamlet_client::realm::Deeds;
 use hamlet_realm::orders::{self, Decree};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    self, Fills, ICON, action, bad_action, bare, beside, breadcrumb,
-    buttons, group, lettered, note, primary_button, scroll_area,
-    status_label_large, text_input, title,
+    self, Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
+    group, lettered, note, primary_button, scroll_area, text_input,
+    title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -248,15 +248,9 @@ fn list_of(hamlet: Entity) -> impl View {
                 )))
             })
             .collect::<Vec<_>>();
-        let mut parts = vec![
-            heading(
-                Glyph::Robot,
-                format!("AGENTS ({})", living.len()),
-            ),
-            // The rows hold the gap over them, so the lines run on
-            // through it.
-            column(living).gap(0.0).boxed(),
-        ];
+        // Under the tab that names them. The rows hold the gap over
+        // them, so the lines run on through it.
+        let mut parts = vec![column(living).gap(0.0).boxed()];
         if !gone.is_empty() {
             parts.push(heading(
                 Glyph::Gone,
@@ -404,7 +398,6 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         else {
             return column(()).boxed();
         };
-        let (mark, state, tone) = facts.state();
         let id = facts.id.clone();
         let known = if facts.title == facts.id {
             String::new()
@@ -474,10 +467,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                     );
                 },
             ),
-            beside((
-                title(facts.title.to_uppercase()),
-                status_label_large(mark, state, tone),
-            )),
+            title(facts.title.to_uppercase()),
             note(facts.account.clone()),
             note(known),
             buttons(actions),
