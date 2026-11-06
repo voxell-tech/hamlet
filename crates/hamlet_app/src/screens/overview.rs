@@ -37,7 +37,6 @@ pub(crate) use self::hamlet::typed;
 pub use self::hamlet::{Naming, Page, hamlet};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
-use crate::status::Bar;
 use crate::{chat, world_menu};
 
 pub fn plugin(app: &mut App) {
@@ -113,7 +112,6 @@ struct Today {
     resting: usize,
     scholars: usize,
     harbor: usize,
-    budget: String,
 }
 
 fn today_of(world: &World) -> Today {
@@ -151,15 +149,11 @@ fn today_of(world: &World) -> Today {
         resting,
         scholars,
         harbor,
-        budget: world
-            .get_resource::<Bar>()
-            .map(|bar| bar.budget.clone())
-            .unwrap_or_default(),
     }
 }
 
-/// A card of the day's figures: what waits, what works, who lives
-/// in the city and what was spent.
+/// A card of the day's figures: what waits, what works and who lives
+/// in the city.
 fn today() -> AnyView {
     keyed(
         derived(today_of).when(bevy_fynix::every_frame()),
@@ -207,16 +201,6 @@ fn today() -> AnyView {
                     status_label_large(
                         Glyph::Signpost,
                         format!("{} at the harbor", today.harbor),
-                        Tone::Body,
-                    )
-                    .boxed(),
-                );
-            }
-            if !today.budget.is_empty() {
-                lines.push(
-                    status_label_large(
-                        Glyph::Coins,
-                        format!("Spent today: {}", today.budget),
                         Tone::Body,
                     )
                     .boxed(),
@@ -333,7 +317,7 @@ fn closed() -> AnyView {
                                 hamlet.name.to_uppercase()
                             )),
                             note(
-                                "Every archived house is deleted. \
+                                "Every archived lodge is deleted. \
                                  This cannot be undone.",
                             ),
                             hamlet_ui::styles::buttons(vec![
