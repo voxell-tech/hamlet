@@ -35,9 +35,10 @@ const LEAD: &str =
      hires below for one that fits before hiring. `lay_road` lets \
      two hires under you write to each other directly; `end_hire` \
      ends one nobody needs and `merge_hires` makes one hire of two \
-     whose work overlaps, and both keep its work in its scholar. \
-     `set_model`, `set_tools` and `set_allowance` shape a hire \
-     under you, and `nickname` names it in the world.";
+     whose work overlaps: the kept hire takes what the other \
+     learned, its roads and its hires. `set_model`, `set_tools` and \
+     `set_allowance` shape a hire under you, and `nickname` names \
+     it in the world.";
 
 /// How an agent takes a chief's instruction.
 const OBJECT: &str =
