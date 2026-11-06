@@ -37,7 +37,6 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View};
 
-use crate::dock::{PETITIONS, show_tab};
 use crate::screens::petition::{Need, button};
 use crate::{PanelSystems, chat};
 
@@ -370,7 +369,6 @@ fn card(toast: &Toast) -> AnyView {
                 )
             }
         };
-        let opens = matches!(what, What::Petition(_));
         let own = what.clone();
         let words = column((
             caption(head, tone),
@@ -384,8 +382,8 @@ fn card(toast: &Toast) -> AnyView {
             .min_width(px(0.0))
             .rules(opener)
             .on_activate(move |world| {
-                if opens {
-                    show_tab(world, PETITIONS);
+                if let What::Petition(wait) = &own {
+                    crate::petition::open(world, *wait);
                 }
                 dismiss(world, &own);
             });

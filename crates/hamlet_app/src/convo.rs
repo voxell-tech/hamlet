@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn the_hand_button_seats_the_hand_and_brings_the_hub_forward() {
-        use crate::dock::{PETITIONS, designed};
+        use crate::dock::designed;
 
         let mut app = panel_app();
         app.insert_resource(Showing::Home);
@@ -344,14 +344,8 @@ mod tests {
         let mut tree = app.world_mut().resource_mut::<DockTree>();
         designed(&mut tree);
         let side = tree.find_leaf_with_window(HUB).unwrap();
-        let petitions = tree
-            .leaf(side)
-            .unwrap()
-            .tabs()
-            .find(|(window, _)| *window == PETITIONS)
-            .map(|(_, tab)| tab)
-            .unwrap();
-        tree.set_active(side, petitions);
+        // Another panel in front of it.
+        tree.add_tab(side, "skills");
         talk_to_hand(app.world_mut());
         let hand = agents::hand(app.world()).unwrap();
         assert_eq!(app.world().resource::<Convo>().agent, hand);

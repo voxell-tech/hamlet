@@ -31,12 +31,14 @@ const LEAST: f32 = 300.0;
 /// The share of the window's width the realm takes on a new desk.
 pub(crate) const REALM_SHARE: f32 = 0.5;
 
-/// The dock windows of the Hub and of the petitions.
+/// The dock window of the Hub.
 pub(crate) const HUB: &str = "hub";
-pub(crate) const PETITIONS: &str = "needs";
 
 /// What the Hub was called before it was the Hub.
 const OLD_INSPECTOR: &str = "agent";
+
+/// The panel of petitions, which the Hub took in.
+const OLD_PETITIONS: &str = "needs";
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(
@@ -188,20 +190,17 @@ pub(crate) fn seed(world: &mut World) {
 }
 
 /// The dock the window starts with: the realm on the left, and the
-/// Hub with the petitions behind it on the right.
+/// Hub on the right.
 pub(crate) fn designed(tree: &mut DockTree) {
     let centre = tree.set_root_leaf(
         DockLeaf::new("centre", DockAreaStyle::TabBar)
             .with_windows(vec!["world".into()]),
     );
-    if let Some((side, hub)) =
+    if let Some((side, _)) =
         tree.split(centre, Edge::Right, HUB.into())
+        && let Some(parent) = tree.parent_of(side)
     {
-        tree.add_tab(side, PETITIONS);
-        tree.set_active(side, hub);
-        if let Some(parent) = tree.parent_of(side) {
-            tree.set_fraction(parent, REALM_SHARE);
-        }
+        tree.set_fraction(parent, REALM_SHARE);
     }
 }
 
@@ -209,7 +208,8 @@ pub(crate) fn designed(tree: &mut DockTree) {
 pub(crate) fn is_stale(
     tabs: impl IntoIterator<Item = String>,
 ) -> bool {
-    tabs.into_iter().any(|tab| tab == OLD_INSPECTOR)
+    tabs.into_iter()
+        .any(|tab| tab == OLD_INSPECTOR || tab == OLD_PETITIONS)
 }
 
 /// Brings a panel's tab to the front, or opens it in the first area
@@ -240,18 +240,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_default_desk_is_the_realm_at_sixty_and_the_hub_at_forty() {
+    fn the_default_desk_is_the_realm_beside_the_hub() {
         let mut tree = DockTree::new();
         designed(&mut tree);
         let side = tree.find_leaf_with_window(HUB).unwrap();
         let leaf = tree.leaf(side).unwrap();
         assert_eq!(
             leaf.tabs().map(|(window, _)| window).collect::<Vec<_>>(),
-            [HUB, PETITIONS]
-        );
-        assert_eq!(
-            leaf.tab_index(tree.active(side).unwrap()),
-            Some(0)
+            [HUB]
         );
         let split = tree
             .get(tree.parent_of(side).unwrap())
@@ -265,8 +261,9 @@ mod tests {
     }
 
     #[test]
-    fn a_desk_that_names_the_old_inspector_starts_again() {
+    fn a_desk_that_names_an_old_panel_starts_again() {
         assert!(is_stale(["world".into(), OLD_INSPECTOR.into()]));
-        assert!(!is_stale([HUB.into(), PETITIONS.into()]));
+        assert!(is_stale([HUB.into(), OLD_PETITIONS.into()]));
+        assert!(!is_stale(["world".into(), HUB.into()]));
     }
 }

@@ -20,7 +20,7 @@ room stays dark so that the world stays the bright thing on screen.
 | The flame catching | On release the flame flares, and the good action throws a few sparks | It was done |
 | A coal | A refusing button glows red-brown under the pointer | This stops, refuses or throws away |
 | Candle under a word | A low pool of light under a menu title or a tab | Where you are in a menu or a set of tabs |
-| A lamp lit over a panel | Lamplight falls from the top of Needs You while something waits, and swells when something new arrives | Something waits for you |
+| A lamp lit over a panel | Lamplight falls from the top of the Hub while something waits, and swells when something new arrives | Something waits for you |
 | A breath of magic | A faint teal light crosses the top of the Inspector when what it shows changes, another page or another agent | You are looking at something else now. This and its tab's flash are the only teal in the panels |
 | A lit tab | A panel behind another carries its light on its tab: lamplight rising from the tab's foot, or a teal flash | Something happened in a panel you are not looking at |
 | A badge | A small amber pill with a number burns on the tab of a panel behind another while something waits in it | Something waits for you there, and how many |
@@ -46,5 +46,5 @@ In `hamlet_ui/src/`:
 ## Seeing it
 
 `cargo run --example ui_gallery -- --scene controls --out <dir>` draws
-every control in each state. The scene `waiting` shows Needs You with
+every control in each state. The scene `waiting` shows the Hub with
 questions, an approval and an edit waiting.

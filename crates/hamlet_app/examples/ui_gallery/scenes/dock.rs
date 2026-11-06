@@ -11,8 +11,8 @@ use bevy_fynix::dock::{
 };
 use bevy_fynix::views::{FrameProps, column, frame, overlay};
 use hamlet_app::{
-    Convo, chat, highlight_panel, hub, menu, panel, petition,
-    settings, status_bar, toolbar, welcome,
+    Convo, chat, highlight_panel, hub, menu, panel, settings,
+    status_bar, toolbar, welcome,
 };
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::styles::ICON;
@@ -59,25 +59,12 @@ pub(super) fn seed_dock(world: &mut World) {
             .icon(Glyph::Globe.image(ICON)),
     );
     registry.register(
-        "needs",
-        DockWindowKind::new("PETITIONS", || {
-            highlight_panel(
-                petition::screen(),
-                Highlight {
-                    attention: true,
-                    flash: false,
-                },
-            )
-        })
-        .icon(Glyph::Bell.image(ICON)),
-    );
-    registry.register(
         "hub",
         DockWindowKind::new("HUB", || {
             highlight_panel(
                 hub::screen(),
                 Highlight {
-                    attention: false,
+                    attention: true,
                     flash: true,
                 },
             )
@@ -95,13 +82,11 @@ pub(super) fn seed_dock(world: &mut World) {
         DockLeaf::new("centre", DockAreaStyle::TabBar)
             .with_windows(vec!["world".into()]),
     );
-    if let Some((side, hub)) =
+    if let Some((side, _)) =
         tree.split(centre, Edge::Right, "hub".into())
     {
-        tree.add_tab(side, "needs");
-        tree.set_active(side, hub);
         if let Some(parent) = tree.parent_of(side) {
-            tree.set_fraction(parent, 0.6);
+            tree.set_fraction(parent, 0.5);
         }
         if matches!(
             scene,

@@ -601,7 +601,7 @@ mod tests {
         app.update();
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            crate::petition::screen(),
+            crate::petition::waiting(),
         );
         app.update();
         let shown = words(&mut app);

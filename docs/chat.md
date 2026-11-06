@@ -54,7 +54,8 @@ Sending a line triggers `ChiefMessage`, which the client sends as `say` to
 the selected address. Typed slash lines are refused locally with directions
 to use the window's controls; those controls send commands to the server.
 Unaddressed server faults and error replies to the chat's own requests show
-under the field and play the Error sound. Fault waits stay in Needs You.
+under the field and play the Error sound. Fault waits stay on the realm's page
+in the Hub.
 
 ## Links
 
@@ -98,7 +99,7 @@ at most 200 lines, each cut at 240 characters. It arrives in the tool's
 A change is open when it arrives and shows its first `change_lines` lines
 (`[chat]` in `assets/ui.toml`), with a button for the rest. An edit that
 was not applied says so with the reason. An edit that waits for the chief
-in manual mode shows the same view in Needs You. A change made by a shell
+in manual mode shows the same view in its card in the Hub. A change made by a shell
 command is not shown.
 
 ## Replying
@@ -243,7 +244,7 @@ takes words. `crates/hamlet_server/src/talk/asking.rs` reads and
 checks a call, and a call it refuses tells the agent why.
 
 **Where it is answered.** One card, `hamlet_app/src/asking.rs`, is shown
-in Needs You and over the field of the chat with the agent that asked,
+on the realm's page and over the field of the chat with the agent that asked,
 and both read the same answers, so what is begun in one stands in the
 other. The card shows one question at a time, with "1 of 3" and the way
 between them at its head. The options are a list of rows, each with its

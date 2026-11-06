@@ -54,7 +54,6 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::{Showing, show};
 use crate::convo::{Convo, talk_to, talk_to_hand};
-use crate::dock::{PETITIONS, show_tab};
 use crate::status::now_ms;
 
 /// The width of the rail at first, the least it is dragged to, so a
@@ -290,7 +289,6 @@ pub(super) enum Target {
     Scholar(Entity),
     Library,
     Gone(Entity),
-    Petitions,
 }
 
 /// The state shown at a row's end.
@@ -827,7 +825,8 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
                     None => agent.called.clone(),
                 },
             ),
-            None => (Target::Petitions, Glyph::Bell, wait.by.clone()),
+            // The realm's page has every wait in full.
+            None => (Target::Home, Glyph::Bell, wait.by.clone()),
         };
         lines.push(Line {
             target,
@@ -1055,7 +1054,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     sections.push(Section {
         group: Group::Needs,
         title: "NEEDS YOU".into(),
-        opens: Some(Target::Petitions),
+        opens: Some(Target::Home),
         mark: Mark::None,
         count: needs.len(),
         folded: false,
@@ -1360,7 +1359,6 @@ fn go(world: &mut World, target: Target) {
             look_at(world, Thing::Library);
         }
         Target::Gone(agent) => show(world, Showing::Gone(agent)),
-        Target::Petitions => show_tab(world, PETITIONS),
     }
 }
 

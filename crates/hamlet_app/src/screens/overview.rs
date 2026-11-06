@@ -20,6 +20,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_client::messages::Veto;
 use hamlet_client::realm::{
     Busy, Closed, Deeds, HamletId, Identity, Left, Scholar,
 };
@@ -28,9 +29,9 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_realm::pick::{Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bare, beside, close, description, framed,
-    group, note, raised, scroll_area, section, status_label_large,
-    text_input, title,
+    Fills, ICON, action, bad_action, bare, beside, close,
+    description, framed, group, note, raised, scroll_area, section,
+    status_label_large, text_input, title,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::tabs;
@@ -47,6 +48,8 @@ use crate::{chat, world_menu};
 pub fn plugin(app: &mut App) {
     app.add_plugins(record::plugin)
         .init_resource::<Erasing>()
+        // The realm's page lists what waits.
+        .init_resource::<crate::petition::Queue>()
         .add_observer(disarm)
         .add_systems(Update, reconcile_erasing)
         .init_resource::<Search>()
@@ -179,7 +182,13 @@ pub fn overview() -> impl View {
             title("REALM"),
             today(),
             search,
-            scroll_area((hand(), list, closed())),
+            // What waits for the chief comes first, in full.
+            scroll_area((
+                crate::petition::waiting(),
+                hand(),
+                list,
+                closed(),
+            )),
             beside((
                 action(
                     Glyph::Hearth,
@@ -191,6 +200,10 @@ pub fn overview() -> impl View {
                     "NEW SCHOLAR",
                     world_menu::ask_new_scholar,
                 ),
+                bad_action(Glyph::Stop, "STOP ALL", |world| {
+                    world.trigger(Veto { agent: None });
+                    world.flush();
+                }),
             )),
         ))
         .fills_height()
@@ -345,18 +358,6 @@ fn today() -> AnyView {
                     .boxed(),
                 );
             }
-            if today.needs > 0 {
-                lines.push(action(
-                    Glyph::Bell,
-                    "OPEN PETITIONS",
-                    |world| {
-                        crate::dock::show_tab(
-                            world,
-                            crate::dock::PETITIONS,
-                        );
-                    },
-                ));
-            }
             framed(lines).boxed()
         },
     )
@@ -438,7 +439,7 @@ fn closed() -> AnyView {
                 if *erase {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
-                    actions.push(hamlet_ui::styles::bad_action(
+                    actions.push(bad_action(
                         Glyph::Gone,
                         "DELETE FOR GOOD",
                         move |world| {
@@ -472,7 +473,7 @@ fn closed() -> AnyView {
                                  This cannot be undone.",
                             ),
                             hamlet_ui::styles::buttons(vec![
-                                hamlet_ui::styles::bad_action(
+                                bad_action(
                                     Glyph::Gone,
                                     "DELETE",
                                     move |world| {

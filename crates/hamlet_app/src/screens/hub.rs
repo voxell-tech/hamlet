@@ -43,10 +43,11 @@ pub fn plugin(app: &mut App) {
     app.add_panel(
         HUB,
         DockWindowKind::new("HUB", || {
+            // Its tab glows while anything waits for the chief.
             highlight_panel(
                 screen(),
                 Highlight {
-                    attention: false,
+                    attention: true,
                     flash: true,
                 },
             )

@@ -140,7 +140,7 @@ A chief's instruction is recorded before it starts. In a chief conversation an
 agent may object once and wait for go or withdraw. When a chief instructs a
 hire directly, its lead's review, as the limits set, runs beside the work and
 may raise its own objection. An agent overseen by a chief can ask a question
-and wait for reply or dismiss. These waits appear in Needs You and survive a
+and wait for reply or dismiss. These waits appear in the Hub and survive a
 server restart. Tool calls wait too (H11): the network, manual-mode edits and
 commands, the acts a chief's limits reserve, and the Hand's acts on scholars.
 Answering allows once, for the session, or always; `/grants` lists and

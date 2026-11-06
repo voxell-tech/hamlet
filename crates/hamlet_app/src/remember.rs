@@ -548,7 +548,7 @@ mod tests {
                 .tabs()
                 .map(|(name, _)| name)
                 .collect::<Vec<_>>(),
-            ["hub", "needs", "skills"]
+            ["hub", "skills"]
         );
     }
 
