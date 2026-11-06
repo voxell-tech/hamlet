@@ -20,9 +20,7 @@ use bevy::ecs::system::{Local, Res};
 use bevy::ecs::world::World;
 use bevy::ui::{percent, px};
 use bevy_fynix::dock::DockWindowKind;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, row,
-};
+use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::Left;
 use hamlet_realm::pick::{Selected, Thing};
@@ -147,7 +145,7 @@ pub fn screen() -> impl View {
         let gap = cx.theme().space.section;
         row((
             rail::view(),
-            frame().width(px(1.0)).fill(cx.theme().palette.gold_6),
+            rail::divider(),
             column((page(),)).grow(1.0).min_width(px(0.0)),
         ))
         .gap(gap)

@@ -58,6 +58,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
+pub use self::entry::OpenTools;
 pub(crate) use self::entry::entry_view;
 pub use self::field::{
     FieldBar, Placeholder, bar, grow, keep_typed, scroll_field,
@@ -99,6 +100,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(remember_said)
         .add_observer(remember_rewind)
         .add_observer(response)
+        .init_resource::<OpenTools>()
         .add_plugins((rewind::plugin, lines::plugin, reply::plugin))
         // The rows are folded before fynix mounts them, so a received
         // reply shows in the update it arrives.
@@ -1205,18 +1207,24 @@ mod tests {
         press(&mut app, "+  Working, 1 step so far");
         press(&mut app, "+  Thought it over");
         app.update();
+        // Each call is a row of its request; a finished one says how
+        // long it took, and the failed one opens to its exit.
         let shown = words(&mut app);
-        for text in [
-            "Done",
-            "Failed (exit 7)",
-            "Running",
-            "A received notice",
-        ] {
-            assert!(
-                shown.iter().any(|shown| shown == text),
-                "missing {text}: {shown:?}"
-            );
-        }
+        let count =
+            |text: &str| shown.iter().filter(|s| *s == text).count();
+        assert_eq!(count("pwd"), 3, "{shown:?}");
+        assert_eq!(count("0.0s"), 2, "{shown:?}");
+        assert_eq!(count("A received notice"), 1, "{shown:?}");
+        app.world_mut()
+            .resource_mut::<OpenTools>()
+            .0
+            .push((session, "failed:0".into()));
+        app.update();
+        app.update();
+        assert!(
+            words(&mut app).contains(&"Failed (exit 7)".to_string()),
+            "the failed call opened"
+        );
     }
 
     #[test]

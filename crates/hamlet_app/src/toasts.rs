@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use bevy::app::{App, PreUpdate};
+use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
@@ -15,12 +16,14 @@ use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::picking::hover::Hovered;
 use bevy::time::Time;
-use bevy::ui::{PositionType, UiRect, Val, px};
+use bevy::ui::{
+    AlignItems, JustifyContent, PositionType, UiRect, Val, px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource};
+use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource, style};
 use hamlet_client::messages::{Answer, ServerFault};
 use hamlet_client::realm::{
     Departure, Faulted, Kind, Left, Scholar, Seen, Settings,
@@ -29,10 +32,8 @@ use hamlet_client::waits::{RaisedBy, Waiting};
 use hamlet_protocol::client::{
     AgentKind, Arrival, LeftHow, Newcomers, ScholarId, WaitDetail,
 };
-use hamlet_ui::styles::{
-    action, buttons, caption, card_button, close_button,
-};
-use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::styles::{action, buttons, caption, close_button};
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View};
 
@@ -378,9 +379,9 @@ fn card(toast: &Toast) -> AnyView {
         .grow(1.0)
         .min_width(px(0.0));
         let body = bevy_fynix::views::button(row((words,)))
-            .width(Val::Percent(100.0))
-            .rules(card_button)
-            .tagged(Variant::Default)
+            .grow(1.0)
+            .min_width(px(0.0))
+            .rules(opener)
             .on_activate(move |world| {
                 if opens {
                     show_tab(world, PETITIONS);
@@ -388,15 +389,27 @@ fn card(toast: &Toast) -> AnyView {
                 dismiss(world, &own);
             });
         let dismissed = what.clone();
+        let space = &cx.theme().space;
+        let palette = &cx.theme().palette;
+        // The answers are in the card, under its words.
         let card = column((
             row((
                 body,
                 close_button(move |world| dismiss(world, &dismissed)),
             ))
-            .gap(6.0),
+            .gap(6.0)
+            .align(AlignItems::FlexStart),
             answers,
         ))
-        .gap(cx.theme().space.gap)
+        .gap(space.gap)
+        .fill(palette.card)
+        .border(space.border)
+        .border_color(palette.gold_6)
+        .radius(space.round)
+        .padding(UiRect::axes(
+            px(space.card_padding_x),
+            px(space.card_padding_y),
+        ))
         .rules(fading(id));
         let node = cx.build(card);
         cx.world
@@ -404,6 +417,21 @@ fn card(toast: &Toast) -> AnyView {
             .insert((Hovered::default(), Body(id)));
         node
     })
+}
+
+/// A toast's words, pressed to open what it is about: no fill of its
+/// own, the card around it is the toast.
+fn opener(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, _| {
+            f.fill(Color::NONE)
+                .padding(UiRect::all(px(0.0)))
+                .justify(JustifyContent::FlexStart)
+                .align(AlignItems::FlexStart)
+        })
+        .hovered(|s| s.fill(|_| Color::NONE))
+        .pressed(|s| s.fill(|_| Color::NONE))
+        .apply(cx);
 }
 
 /// The rules that fade every part of toast `id` with its time.
@@ -459,10 +487,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            stack(),
-        );
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), stack());
         app.update();
         app
     }
@@ -512,10 +537,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            stack(),
-        );
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), stack());
         app.update();
         let shown = words(&mut app);
         assert!(

@@ -6,22 +6,28 @@ use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
+use bevy::ecs::observer::On;
 use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
+use bevy::picking::events::{
+    PointerDrag, PointerDragEnd, PointerDragStart,
+};
 use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, ComputedNode, JustifyContent, Overflow, UiRect,
     percent, px,
 };
+use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, label, row, text_field,
+    self, Axis, BehaviorExt, FrameProps, TooltipExt, button, column,
+    dropdown, frame, label, row, text_field,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
+    Dragging, OverrideCursor, ScopedExt, ViewExt, derived,
+    every_frame, keyed, resource, style,
 };
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
@@ -45,12 +51,16 @@ use crate::convo::{Convo, talk_to, talk_to_hand};
 use crate::hover::short;
 use crate::status::now_ms;
 
-/// The width of the rail with its rows, and with only their icons.
+/// The width of the rail with its rows at first, and with only their
+/// icons.
 const WIDE: f32 = 232.0;
 const ICONS: f32 = 46.0;
 
-/// The width of the Hub under which the rail shows only icons.
-const NARROW: f32 = 640.0;
+/// The width under which a dragged rail folds to its icons.
+const FOLDS: f32 = 140.0;
+/// The most the rail is wide, and the least it leaves the page.
+const WIDEST: f32 = 520.0;
+const PAGE: f32 = 280.0;
 
 /// The most that left a rail shows.
 const LEFT_SHOWN: usize = 6;
@@ -64,34 +74,133 @@ const ROW: f32 = 44.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Rail>()
-        .add_systems(Update, (read_search, measure));
+        .add_observer(grab)
+        .add_observer(drag)
+        .add_observer(drop)
+        .add_systems(Update, read_search);
 }
 
 /// The rail's search, filter and width.
-#[derive(Resource, Default, PartialEq)]
+#[derive(Resource, PartialEq)]
 pub struct Rail {
     search: String,
     hamlet: Option<Entity>,
-    /// What the chief chose, over what the Hub's width says.
-    chosen: Option<bool>,
-    narrow: bool,
+    /// How wide the chief dragged it; under [`FOLDS`] it shows only
+    /// icons.
+    width: f32,
+    /// The width it unfolds to.
+    unfolded: f32,
+}
+
+impl Default for Rail {
+    fn default() -> Self {
+        Self {
+            search: String::new(),
+            hamlet: None,
+            width: WIDE,
+            unfolded: WIDE,
+        }
+    }
 }
 
 impl Rail {
-    /// Keeps the rail showing its rows, however narrow the Hub is.
+    /// Shows the rail's rows at its first width.
     pub fn show_rows(&mut self) {
-        self.chosen = Some(false);
+        self.width = WIDE;
     }
 
     fn is_icons(&self) -> bool {
-        self.chosen.unwrap_or(self.narrow)
+        self.width < FOLDS
+    }
+
+    /// How wide the rail is drawn.
+    fn shown(&self) -> f32 {
+        if self.is_icons() { ICONS } else { self.width }
+    }
+
+    /// Folds the rail to its icons, or opens it to where it was.
+    fn fold(&mut self) {
+        if self.is_icons() {
+            self.width = self.unfolded;
+        } else {
+            self.unfolded = self.width;
+            self.width = ICONS;
+        }
     }
 }
 
-/// The root of the Hub, whose width says whether the rail is
-/// narrow.
+/// The root of the Hub, whose width bounds the rail's.
 #[derive(Component)]
 pub(super) struct Frame;
+
+/// The line between the rail and the page, dragged to size the rail.
+#[derive(Component)]
+pub(super) struct Divider;
+
+/// The line between the rail and the page: dragged, it sizes the
+/// rail, which folds to its icons when dragged narrow enough.
+pub(super) fn divider() -> impl View {
+    views::divider(Axis::Vertical)
+        .rules(revealed_line)
+        .tagged(Divider)
+}
+
+/// The divider is a hairline, in the accent while held or hovered.
+fn revealed_line(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, t| f.fill(t.palette.gold_6))
+        .hovered(|s| s.fill(|t: &HamletTheme| t.palette.gold_4))
+        .when::<Dragging>(|s| {
+            s.fill(|t: &HamletTheme| t.palette.gold_4)
+        })
+        .transition(Motion::Interact)
+        .apply(cx);
+}
+
+fn grab(
+    start: On<PointerDragStart>,
+    dividers: Query<(), With<Divider>>,
+    mut cursor: ResMut<OverrideCursor>,
+) {
+    if dividers.contains(start.entity) {
+        cursor.0 = Some(SystemCursorIcon::EwResize);
+    }
+}
+
+fn drag(
+    drag: On<PointerDrag>,
+    dividers: Query<(), With<Divider>>,
+    frames: Query<&ComputedNode, With<Frame>>,
+    mut rail: ResMut<Rail>,
+) {
+    if !dividers.contains(drag.entity) {
+        return;
+    }
+    let most = frames
+        .iter()
+        .next()
+        .map(|node| {
+            node.size().x * node.inverse_scale_factor() - PAGE
+        })
+        .unwrap_or(WIDEST)
+        .clamp(FOLDS, WIDEST);
+    rail.width = (rail.width + drag.delta.x).clamp(ICONS, most);
+}
+
+fn drop(
+    end: On<PointerDragEnd>,
+    dividers: Query<(), With<Divider>>,
+    mut rail: ResMut<Rail>,
+    mut cursor: ResMut<OverrideCursor>,
+) {
+    if !dividers.contains(end.entity) {
+        return;
+    }
+    cursor.0 = None;
+    if !rail.is_icons() {
+        rail.unfolded = rail.width;
+    }
+}
 
 /// The root of the search field.
 #[derive(Component)]
@@ -111,24 +220,6 @@ fn read_search(
     };
     if text.value() != rail.search.as_str() {
         rail.search = text.value().to_string();
-    }
-}
-
-fn measure(
-    frames: Query<&ComputedNode, With<Frame>>,
-    mut rail: ResMut<Rail>,
-) {
-    let Some(node) = frames.iter().next() else {
-        return;
-    };
-    let width = node.size().x * node.inverse_scale_factor();
-    // A frame not laid out yet is as wide as nothing.
-    if width <= 1.0 {
-        return;
-    }
-    let narrow = width < NARROW;
-    if rail.narrow != narrow {
-        rail.narrow = narrow;
     }
 }
 
@@ -914,10 +1005,7 @@ fn fold(icons: bool) -> impl View {
         })
         .rules(hamlet_ui::styles::button)
         .tagged(Variant::Default)
-        .on_activate(|world| {
-            let mut rail = world.resource_mut::<Rail>();
-            rail.chosen = Some(!rail.is_icons());
-        })
+        .on_activate(|world| world.resource_mut::<Rail>().fold())
 }
 
 /// The dropdown that narrows the rail to one hamlet.
@@ -1009,8 +1097,11 @@ pub(super) fn view() -> impl View {
         with_cx(move |cx| {
             column((head, scroll_area((body,))))
                 .gap(cx.theme().space.gap)
-                .width(px(if icons { ICONS } else { WIDE }))
-                .min_width(px(if icons { ICONS } else { WIDE }))
+                .width(resource::<Rail, _>(|rail| px(rail.shown())))
+                .min_width(resource::<Rail, _>(|rail| {
+                    px(rail.shown())
+                }))
+                .shrink(0.0)
                 .fills_height()
         })
         .boxed()

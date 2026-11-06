@@ -237,7 +237,11 @@ pub(super) fn fold_view(
     .within(
         column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
     );
-    column((head, inside)).gap(4.0).align(AlignItems::FlexStart)
+    column((head, inside))
+        .gap(4.0)
+        .align(AlignItems::FlexStart)
+        .width(percent(100.0))
+        .min_width(px(0.0))
 }
 
 /// The identity of a row for as long as it is the same row: the agent
