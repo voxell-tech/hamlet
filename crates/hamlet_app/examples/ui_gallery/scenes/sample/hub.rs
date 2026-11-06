@@ -90,11 +90,11 @@ fn offer_models(world: &mut World) {
     ];
     world.resource_mut::<hamlet_app::models::Shelf>().models = vec![
         card("faux::faux-1", &[], false),
-        card("lantern::wren-large", &thinks, true),
-        card("lantern::wren-small", &thinks[..3], true),
-        card("lantern::wren-mini", &[Effort::Off], false),
-        card("meadow::finch-pro", &thinks[..4], false),
-        card("meadow::finch-lite", &thinks[..3], false),
+        card("openai::wren-large", &thinks, true),
+        card("openai::wren-small", &thinks[..3], true),
+        card("google::wren-mini", &[Effort::Off], false),
+        card("anthropic::finch-pro", &thinks[..4], false),
+        card("groq::finch-lite", &thinks[..3], false),
     ];
     let agent = world.resource::<Convo>().agent;
     hamlet_app::world_menu::open_model(
@@ -104,7 +104,7 @@ fn offer_models(world: &mut World) {
     );
     // Starred after it opens, so it opens on every model.
     world.resource_mut::<hamlet_app::world_menu::Favorites>().0 =
-        vec!["lantern::wren-large".into()];
+        vec!["openai::wren-large".into()];
 }
 
 /// Sample papers received for the Memory page.

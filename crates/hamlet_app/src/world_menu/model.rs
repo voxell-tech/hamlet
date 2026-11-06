@@ -16,7 +16,7 @@ use bevy_fynix::shortcut::{
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame, icon,
     label, menu_item, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
@@ -29,6 +29,7 @@ use hamlet_ui::styles::{
     ICON, choice, choices, description, hairline, note, scroll_area,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::providers::provider_mark;
 use hamlet_ui::{AnyView, View, with_cx};
 use serde::{Deserialize, Serialize};
 
@@ -334,14 +335,24 @@ fn side() -> impl View {
                 ),
             ];
             for name in providers {
-                let letter = name
-                    .chars()
-                    .next()
-                    .map(|first| first.to_uppercase().to_string())
-                    .unwrap_or_default();
+                // Its mark, or the first letter of an endpoint that
+                // has none.
+                let face = match provider_mark(name, ICON) {
+                    Some(mark) => icon(mark).size(ICON).boxed(),
+                    None => label(
+                        name.chars()
+                            .next()
+                            .map(|first| {
+                                first.to_uppercase().to_string()
+                            })
+                            .unwrap_or_default(),
+                    )
+                    .bold(true)
+                    .boxed(),
+                };
                 tabs.push(tab(
                     Side::Provider(name.clone()),
-                    label(letter).bold(true).boxed(),
+                    face,
                     name.clone(),
                 ));
             }

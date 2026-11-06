@@ -7,6 +7,7 @@ pub mod effects;
 pub mod fade;
 pub mod icons;
 pub mod platform;
+pub mod providers;
 pub mod range;
 pub mod switch;
 pub mod tabs;
@@ -22,5 +23,6 @@ pub fn plugin(app: &mut App) {
         switch::plugin,
         fade::plugin,
         cut::CutTextPlugin,
+        providers::plugin,
     ));
 }

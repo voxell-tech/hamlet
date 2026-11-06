@@ -76,6 +76,8 @@ regex = "1"
 rfd = "0.17"
 ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+# The model providers' marks, drawn from their SVGs. No text or fonts.
+resvg = { version = "0.48.1", default-features = false }
 rustix = "1"
 serde = { version = "1.0.229", features = ["derive"] }
 schemars = "1.2.3"

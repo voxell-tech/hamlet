@@ -21,11 +21,11 @@ use self::Shape::{
 const GRID: f32 = 16.0;
 
 /// The sizes an icon is drawn for, in the interface's pixels.
-const SIZES: [f32; 4] = [12.0, 14.0, 16.0, 20.0];
+pub(super) const SIZES: [f32; 4] = [12.0, 14.0, 16.0, 20.0];
 
 /// The pixels of an image to one of the interface's, so that an icon
 /// is sharp on a display of twice the density.
-const DENSITY: f32 = 2.0;
+pub(super) const DENSITY: f32 = 2.0;
 
 /// The handles of the icons' images start here.
 const FIRST: u128 = 0x6861_6d6c_6574_5f69_636f_6e73_0000_0000;
