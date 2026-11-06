@@ -12,7 +12,7 @@ use bevy::ecs::system::{Query, Res, SystemParam};
 use bevy::math::Vec3;
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
-    AgentNumber, Kind as AgentKind, LivesIn, Mayor, Purpose,
+    AgentNumber, Kind as AgentKind, LivesIn, Mayor, Nickname, Purpose,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::chief::{Chief, Look};
@@ -104,6 +104,7 @@ pub struct People<'w, 's> {
             Option<&'static LivesIn>,
             Option<&'static Housed>,
             Option<&'static AgentKind>,
+            Option<&'static Nickname>,
         ),
     >,
     chiefs: Query<'w, 's, (&'static Chief, &'static Look)>,
@@ -117,6 +118,7 @@ pub struct People<'w, 's> {
             With<AgentNumber>,
             Or<(
                 Changed<Name>,
+                Changed<Nickname>,
                 Changed<Purpose>,
                 Changed<Housed>,
                 Changed<LivesIn>,
@@ -137,8 +139,17 @@ impl People<'_, '_> {
     }
 
     fn agent(&self, agent: Entity) -> Option<Who> {
-        let (_, name, number, mayor, purpose, _, housed, kind) =
-            self.agents.get(agent).ok()?;
+        let (
+            _,
+            name,
+            number,
+            mayor,
+            purpose,
+            _,
+            housed,
+            kind,
+            nickname,
+        ) = self.agents.get(agent).ok()?;
         let hand = kind
             .is_some_and(|kind| kind.0 == protocol::AgentKind::Hand);
         let look = match (mayor || hand, housed, number) {
@@ -156,10 +167,12 @@ impl People<'_, '_> {
             None => Palette::default().paints,
         };
         Some(Who {
-            name: if hand {
-                "The Hand".to_string()
-            } else {
-                titled(name.as_str())
+            // An address is kept as it is written; a nickname over
+            // it.
+            name: match (hand, nickname) {
+                (true, _) => "The Hand".to_string(),
+                (_, Some(nickname)) => nickname.0.clone(),
+                _ => name.as_str().to_string(),
             },
             tag: if hand {
                 "HAND".to_string()
@@ -230,7 +243,7 @@ impl Cast<'_, '_, '_> {
         self.place(Id::Agent(agent), || {
             people.agent(agent).unwrap_or_else(|| match &convo.with {
                 Some(name) => Who {
-                    name: titled(name),
+                    name: name.clone(),
                     ..Who::default()
                 },
                 None => Who {

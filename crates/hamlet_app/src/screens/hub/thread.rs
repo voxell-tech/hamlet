@@ -17,8 +17,8 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::realm::{
-    Activity, Busy, Kind, Left, LivesIn, Parent, PeerChats, Settings,
-    Works, id_of, name_of,
+    Activity, Busy, Kind, Left, LivesIn, Nickname, Parent, PeerChats,
+    Settings, Works, id_of, name_of,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
@@ -231,37 +231,76 @@ fn slash() -> impl View {
     label("/").tone(Tone::Dim).wrap(false)
 }
 
-/// `hamlet / agent / Session n`, the hamlet leading to its page and
-/// the session to the menu of the others.
+/// What `agent` is called in the path: its nickname, else its address
+/// without its hamlet, and the Hand as itself.
+fn called(world: &World, agent: Entity) -> String {
+    if world.get::<Kind>(agent).map(|kind| kind.0)
+        == Some(protocol::AgentKind::Hand)
+    {
+        return "The Hand".into();
+    }
+    match world.get::<Nickname>(agent) {
+        Some(nickname) => nickname.0.clone(),
+        None => hamlet_realm::pick::short(&name_of(world, agent))
+            .to_string(),
+    }
+}
+
+/// The chain of command down to the thread: `Home / hamlet / mayor /
+/// lead / agent / Session n`. Each step above the agent leads to its
+/// page or its thread, and the session to the menu of the others.
 fn path(agent: Entity) -> impl View {
     built(move |cx| {
-        let hamlet = cx.world.get::<LivesIn>(agent).map(|l| l.0);
-        let mut parts = Vec::new();
-        match hamlet {
-            Some(hamlet) => {
-                let name = name_of(cx.world, hamlet);
-                parts.push(
-                    step(name, move |world| {
-                        select(world, Some(Thing::Common(hamlet)));
-                        show(world, Showing::Hamlet(hamlet));
-                    })
-                    .boxed(),
-                );
-            }
-            None => parts.push(
-                step("Realm".into(), |world| {
-                    show(world, Showing::Home);
+        let world = &*cx.world;
+        let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
+        let mut parts = vec![
+            step("Home".into(), |world| show(world, Showing::Home))
+                .boxed(),
+        ];
+        if let Some(hamlet) = hamlet {
+            parts.push(slash().boxed());
+            parts.push(
+                step(name_of(world, hamlet), move |world| {
+                    select(world, Some(Thing::Common(hamlet)));
+                    show(world, Showing::Hamlet(hamlet));
                 })
                 .boxed(),
-            ),
+            );
+        }
+        // The leads above it in its hamlet, the mayor first.
+        let mut above = Vec::new();
+        let mut at = agent;
+        while let Some(parent) =
+            world.get::<Parent>(at).and_then(|parent| {
+                hamlet_client::realm::agent(world, parent.0)
+            })
+        {
+            let same = world.get::<LivesIn>(parent).map(|l| l.0);
+            if above.contains(&parent)
+                || hamlet.is_none()
+                || same != hamlet
+            {
+                break;
+            }
+            above.insert(0, parent);
+            at = parent;
+        }
+        for lead in above {
+            parts.push(slash().boxed());
+            parts.push(
+                step(called(world, lead), move |world| {
+                    crate::convo::talk_to(world, lead);
+                })
+                .boxed(),
+            );
         }
         parts.push(slash().boxed());
-        let name = name_of(cx.world, agent);
-        let name = name.split('@').next().unwrap_or("").to_string();
+        let address = name_of(world, agent);
         parts.push(
-            label(if name.is_empty() { "hand".into() } else { name })
+            label(called(world, agent))
                 .bold(true)
                 .wrap(false)
+                .tooltip(move || note(address.clone()))
                 .boxed(),
         );
         parts.push(slash().boxed());
@@ -276,6 +315,15 @@ fn path(agent: Entity) -> impl View {
     })
 }
 
+/// Work in the accent, rest dim, as the rail shows them.
+fn working_tone(world: &World, agent: Entity) -> Tone {
+    if world.get::<Busy>(agent).is_some() {
+        Tone::Accent
+    } else {
+        Tone::Faint
+    }
+}
+
 /// What it is doing, with the mark of its state.
 fn state(agent: Entity) -> impl View {
     let words = label(rolled(move |world| {
@@ -285,7 +333,7 @@ fn state(agent: Entity) -> impl View {
             .unwrap_or_default()
             .words
     }))
-    .tone(Tone::Accent);
+    .tone(rolled(move |world| working_tone(world, agent)));
     let mark = icon(rolled(move |world| {
         let which = match world.get::<Busy>(agent) {
             Some(_) => Glyph::Bolt,
@@ -294,7 +342,7 @@ fn state(agent: Entity) -> impl View {
         which.image(ICON)
     }))
     .size(ICON)
-    .tone(Tone::Accent);
+    .tone(rolled(move |world| working_tone(world, agent)));
     row((mark, words.wrap(false)))
         .gap(5.0)
         .align(AlignItems::Center)

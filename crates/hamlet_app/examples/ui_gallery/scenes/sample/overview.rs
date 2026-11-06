@@ -51,9 +51,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }];
     let mut next = 10;
     for (id, title, mayor, others) in [
-        ("home", "Pear Tree Hollow", "ada", 3),
-        ("mill", "mill", "miller", 2),
-        ("quay", "The Quay", "harbourmaster", 1),
+        (
+            "home",
+            "Pear Tree Hollow",
+            "ada",
+            &["scout", "pip", "wren"][..],
+        ),
+        ("mill", "mill", "miller", &["sorrel", "fen"][..]),
+        ("quay", "The Quay", "harbourmaster", &["tansy"][..]),
     ] {
         let first = if id == "home" { 2 } else { next };
         let mut hamlet = hamlet_testing::realm::hamlet(id, first);
@@ -83,14 +88,31 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             ));
             next += 1;
         }
-        for number in 1..=others {
-            let mut agent = hamlet_testing::realm::agent(
-                next,
-                id,
-                number,
-                &format!("{id}-hand-{number}"),
-            );
-            agent.purpose = "Keeps a row of the orchard.".into();
+        // In the hollow scout is a lead, with pip and wren under it;
+        // elsewhere every hire is under the mayor.
+        let lead = next;
+        for (number, name) in (1..).zip(others) {
+            let mut agent =
+                hamlet_testing::realm::agent(next, id, number, name);
+            agent.parent = Some(protocol::AgentId(
+                if id == "home" && number > 1 {
+                    lead
+                } else {
+                    first
+                },
+            ));
+            if *name == "pip" {
+                agent.nickname = Some("Pippin".into());
+            }
+            agent.purpose = match *name {
+                "scout" => "Reads the orchard's records.",
+                "pip" => "Counts the pears in each row.",
+                "wren" => "Mends the fences.",
+                "sorrel" => "Keeps the millstones.",
+                "fen" => "Weighs the flour.",
+                _ => "Keeps the boats.",
+            }
+            .into();
             agent.busy = number == 2;
             agent.activity.doing_words =
                 "Reading the orchard's notes".into();
@@ -225,7 +247,7 @@ fn busy_realm(state: &mut protocol::State) {
     let Some(lead) = state
         .agents
         .iter_mut()
-        .find(|agent| agent.name == "home-hand-2@home")
+        .find(|agent| agent.name == "pip@home")
     else {
         return;
     };
@@ -247,7 +269,7 @@ fn busy_realm(state: &mut protocol::State) {
     if let Some(waiting) = state
         .agents
         .iter()
-        .find(|agent| agent.name == "mill-hand-1@mill")
+        .find(|agent| agent.name == "sorrel@mill")
     {
         let mut wait = hamlet_testing::realm::wait("ask");
         wait.agent = Some(waiting.id);
