@@ -1,4 +1,4 @@
-//! The hamlets and their agents as rows of the Inspector's lists.
+//! The hamlets and their agents as rows of the Hub's lists.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
@@ -45,14 +45,9 @@ pub(crate) fn stale()
 #[derive(Clone, PartialEq)]
 pub(super) struct HamletRow {
     pub hamlet: Entity,
-    /// The name it is known by in commands, and the one shown.
+    /// The id commands name it by.
     pub id: String,
     pub title: String,
-    pub mayor: String,
-    pub living: usize,
-    pub working: usize,
-    pub waiting: usize,
-    pub gone: usize,
     pub account: String,
 }
 
@@ -272,37 +267,15 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
     )>() else {
         return Vec::new();
     };
-    let everyone = agent_rows(world, None);
-    let lives =
-        |agent: Entity| world.get::<LivesIn>(agent).map(|l| l.0);
     let mut rows = hamlets
         .iter(world)
-        .map(|(hamlet, id, name, treasury)| {
-            let here = everyone
-                .iter()
-                .filter(|row| lives(row.agent) == Some(hamlet))
-                .collect::<Vec<_>>();
-            let living = here
-                .iter()
-                .filter(|row| !row.gone)
-                .collect::<Vec<_>>();
-            HamletRow {
-                hamlet,
-                id: id.0.clone(),
-                title: name.as_str().to_string(),
-                mayor: living
-                    .iter()
-                    .find(|row| row.mayor)
-                    .map(|row| row.name.clone())
-                    .unwrap_or_default(),
-                living: living.len(),
-                working: living.iter().filter(|row| row.busy).count(),
-                waiting: living.iter().map(|row| row.waiting).sum(),
-                gone: here.len() - living.len(),
-                account: treasury
-                    .map(|t| t.0.summary.clone())
-                    .unwrap_or_default(),
-            }
+        .map(|(hamlet, id, name, treasury)| HamletRow {
+            hamlet,
+            id: id.0.clone(),
+            title: name.as_str().to_string(),
+            account: treasury
+                .map(|t| t.0.summary.clone())
+                .unwrap_or_default(),
         })
         .collect::<Vec<_>>();
     rows.sort_by_key(|row| row.title.to_lowercase());
