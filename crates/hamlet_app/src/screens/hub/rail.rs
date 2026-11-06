@@ -8,7 +8,7 @@ use bevy::app::{App, Update};
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::Children;
+use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
@@ -193,21 +193,34 @@ fn grab(
 }
 
 /// Sizes the rail so that the line is where the pointer is, however
-/// fast it moves.
+/// fast it moves. Every desk has a Hub of its own, so the rail
+/// measured is the one beside the line dragged.
 fn drag(
     drag: On<PointerDrag>,
     dividers: Query<&UiGlobalTransform, With<Divider>>,
     frames: Query<(&ComputedNode, &UiGlobalTransform), With<Frame>>,
     bodies: Query<(&ComputedNode, &UiGlobalTransform), With<Body>>,
+    parents: Query<&ChildOf>,
+    children: Query<&Children>,
     mut rail: ResMut<Rail>,
 ) {
     let Ok(line) = dividers.get(drag.entity) else {
         return;
     };
     let at = drag.pointer.position;
+    let Some(frame) = parents
+        .iter_ancestors(drag.entity)
+        .find(|above| frames.contains(*above))
+    else {
+        return;
+    };
     // The Hub starts where the rail does, in logical pixels.
-    let (Some((node, place)), Some((body, body_at))) =
-        (frames.iter().next(), bodies.iter().next())
+    let Ok((node, place)) = frames.get(frame) else {
+        return;
+    };
+    let Some((body, body_at)) = children
+        .iter_descendants(frame)
+        .find_map(|kid| bodies.get(kid).ok())
     else {
         return;
     };
