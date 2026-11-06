@@ -184,12 +184,7 @@ impl Providers {
         let name = format!("{}::{}", model.provider, model.id);
         let cards = catalogue(db)?;
         let price = if model.provider == FAUX {
-            Price {
-                input: 0.0,
-                output: 0.0,
-                cache_read: 0.0,
-                cache_write: 0.0,
-            }
+            flat_price(0.0)
         } else {
             match cards
                 .get(&name)
@@ -204,18 +199,13 @@ impl Providers {
                 None => {
                     serde_json::from_value(listed["cost"].clone())
                         .unwrap_or_else(|_| {
-                            let rate =
+                            flat_price(
                                 if is_local(base_url.as_deref()) {
                                     LOCAL_RATE
                                 } else {
                                     RATE
-                                };
-                            Price {
-                                input: rate,
-                                output: rate,
-                                cache_read: rate,
-                                cache_write: rate,
-                            }
+                                },
+                            )
                         })
                 }
             }
@@ -542,14 +532,7 @@ impl Core {
                     else {
                         self.answer(
                             client,
-                            reply(
-                                id,
-                                Err(Refusal::Usage {
-                                    words: "No sign-in of yours is \
-                                            open."
-                                        .into(),
-                                }),
-                            ),
+                            reply(id, Err(no_sign_in())),
                         )?;
                         return Ok(true);
                     };
@@ -590,14 +573,7 @@ impl Core {
                     else {
                         self.answer(
                             client,
-                            reply(
-                                id,
-                                Err(Refusal::Usage {
-                                    words: "No sign-in of yours is \
-                                            open."
-                                        .into(),
-                                }),
-                            ),
+                            reply(id, Err(no_sign_in())),
                         )?;
                         return Ok(true);
                     };
@@ -1046,6 +1022,24 @@ impl Core {
         }
         keep_catalogue(db, &cards)?;
         Ok(Ok("Saved.".into()))
+    }
+}
+
+/// A price of `rate` dollars per million tokens of every kind.
+fn flat_price(rate: f64) -> Price {
+    Price {
+        input: rate,
+        output: rate,
+        cache_read: rate,
+        cache_write: rate,
+    }
+}
+
+/// The refusal of a sign-in reply or cancel that is not the
+/// connection's own open one.
+fn no_sign_in() -> Refusal {
+    Refusal::Usage {
+        words: "No sign-in of yours is open.".into(),
     }
 }
 
