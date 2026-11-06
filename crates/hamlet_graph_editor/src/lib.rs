@@ -1,19 +1,20 @@
-//! The graph editor, generic over a [`Flavor`]: the canvas with its
-//! tools, and beside it two inner panels, the preview of what the
-//! graph puts down, run again on every change, and the selected
-//! node's properties. [`plugin`] adds the editor for a flavor and
-//! [`screen`] is its panel's view.
+//! The graph editor: the canvas with its toolbar, the cards over it
+//! and a side beside it, each a view that whoever puts the editor in
+//! a panel composes. [`plugin`] adds an editor keyed by an
+//! [`EditorKey`] for the graphs a [`Setup`] describes, and [`editor`]
+//! lays its panel out. Running the graph is up to the caller, which
+//! watches [`Editor::changes`].
 
 pub mod canvas;
 mod controls;
 pub mod files;
-mod flavor;
 pub mod library;
 mod menu;
 mod others;
 mod params;
+mod setup;
 mod split;
-mod toolbar;
+pub mod toolbar;
 mod wire;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,9 +28,9 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::math::Vec2;
 use bevy::picking::hover::Hovered;
-use bevy::ui::{Display, percent, px};
+use bevy::ui::{percent, px};
 use bevy::ui_render::UiMaterialPlugin;
-use bevy_fynix::views::{FrameProps, column, frame, row, scroll};
+use bevy_fynix::views::{FrameProps, column, row, scroll};
 use bevy_fynix::{ViewExt, resource};
 use hamlet_graph::{
     Book, Catalogue, Constant, Does, Edit, Fragment, Graph,
@@ -41,8 +42,9 @@ use hamlet_ui::styles::{Fills, hairline};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, with_cx};
 
-pub use self::flavor::{Flavor, Nesting};
+pub use self::canvas::Dropped;
 use self::library::{Item, Library, Source, lone, parse_book};
+pub use self::setup::{EditorKey, Nesting, Setup, keep};
 use self::split::{Layout, Pane, divider, floating, outline};
 
 /// How far a duplicate, or a paste with no place, lies from the
@@ -53,29 +55,34 @@ const NUDGE: f32 = 28.0;
 /// of its ports. No node has it, as the card is not one.
 pub(crate) const OUTPUTS: NodeId = NodeId(u32::MAX);
 
-/// Adds the editor for `F`: the open asset and what the editing
-/// needs, its examples in the library, and whatever `F` adds itself.
-/// The panel is [`screen`], which the caller puts in a dock.
-pub fn plugin<F: Flavor>(app: &mut App) {
-    if !app.world().contains_resource::<Library>() {
-        app.add_plugins(library::plugin);
+/// Adds the editor keyed by `K` for the graphs `setup` describes: the
+/// open asset and what the editing needs, and its examples in the
+/// library. Its panel is laid out by [`editor`], which the caller
+/// puts in a dock.
+pub fn plugin<K: EditorKey>(
+    setup: Setup,
+) -> impl Fn(&mut App) + Send + Sync {
+    move |app| {
+        if !app.world().contains_resource::<Library>() {
+            app.add_plugins(library::plugin);
+        }
+        app.world_mut()
+            .resource_mut::<Library>()
+            .add_examples(setup.kind, setup.examples);
+        app.insert_resource(Editor::<K>::new(setup)).add_plugins((
+            canvas::plugin::<K>,
+            menu::plugin::<K>,
+            split::plugin::<K>,
+            files::plugin::<K>,
+            others::plugin::<K>,
+        ));
+        // The wires' material is shared by every editor.
+        if !app
+            .is_plugin_added::<UiMaterialPlugin<wire::WireMaterial>>()
+        {
+            app.add_plugins(wire::plugin);
+        }
     }
-    app.world_mut()
-        .resource_mut::<Library>()
-        .add_examples(F::KIND, F::EXAMPLES);
-    app.insert_resource(Editor::<F>::new()).add_plugins((
-        canvas::plugin::<F>,
-        menu::plugin::<F>,
-        split::plugin::<F>,
-        files::plugin::<F>,
-        others::plugin::<F>,
-    ));
-    // The wires' material is shared by every editor.
-    if !app.is_plugin_added::<UiMaterialPlugin<wire::WireMaterial>>()
-    {
-        app.add_plugins(wire::plugin);
-    }
-    F::plugin(app);
 }
 
 /// How much of what is built from the sheet a change touches.
@@ -95,10 +102,12 @@ pub enum Place {
 }
 
 /// The graph being edited: the sheet of the open library asset with
-/// its history, the other assets it may run as nodes, and what the
-/// open one last gave.
+/// its history, the other assets it may run as nodes, and the errors
+/// of its last run.
 #[derive(Resource)]
-pub struct Editor<F: Flavor> {
+pub struct Editor<K: EditorKey> {
+    /// The graphs it edits.
+    pub setup: Setup,
     /// The open sheet.
     pub sheet: Sheet,
     /// The open asset's name in the library.
@@ -134,23 +143,22 @@ pub struct Editor<F: Flavor> {
     /// Whether the open sheet has changed since it was opened or
     /// saved.
     dirty: bool,
+    /// Changes whenever the open graph, the others or the assets
+    /// change, so whatever runs the graph runs it again.
+    pub changes: u64,
     /// The nodes that failed in the last run, each with its error;
-    /// the rest of the graph ran without them.
+    /// the rest of the graph ran without them. Written by whatever
+    /// runs the graph.
     pub errors: Vec<GraphError>,
-    /// What the flavor keeps of the last run.
-    pub got: F::Got,
+    key: PhantomData<K>,
 }
 
-impl<F: Flavor> Default for Editor<F> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<F: Flavor> Editor<F> {
-    /// An editor open on the first example of `F`.
-    pub fn new() -> Self {
+impl<K: EditorKey> Editor<K> {
+    /// An editor of the graphs `setup` describes, open on the first
+    /// of its examples.
+    pub fn new(setup: Setup) -> Self {
         let mut editor = Self {
+            setup,
             sheet: Sheet::default(),
             name: String::new(),
             source: Source::Example(""),
@@ -158,17 +166,18 @@ impl<F: Flavor> Editor<F> {
             rules: Ruleset::default(),
             selected: BTreeSet::new(),
             clipboard: None,
-            registry: F::registry(),
+            registry: (setup.registry)(),
             undo: Vec::new(),
             redo: Vec::new(),
             apart: false,
             shape: 0,
             revision: 0,
             dirty: false,
+            changes: 0,
             errors: Vec::new(),
-            got: F::Got::default(),
+            key: PhantomData,
         };
-        if let Some((name, text)) = F::EXAMPLES.first() {
+        if let Some((name, text)) = setup.examples.first() {
             let sheet =
                 parse_book(text).map(lone).unwrap_or_default();
             editor.open(
@@ -183,7 +192,7 @@ impl<F: Flavor> Editor<F> {
     /// The open asset.
     pub fn item(&self) -> Item {
         Item {
-            kind: F::KIND,
+            kind: self.setup.kind,
             name: self.name.clone(),
             source: self.source.clone(),
         }
@@ -287,7 +296,7 @@ impl<F: Flavor> Editor<F> {
         source: Source,
         mut sheet: Sheet,
     ) {
-        F::upgrade(&mut sheet.graph);
+        (self.setup.upgrade)(&mut sheet.graph);
         self.sheet = sheet;
         self.name = name;
         self.source = source;
@@ -302,7 +311,7 @@ impl<F: Flavor> Editor<F> {
     /// Opens the unsaved `sheet` of the open asset again, as it was
     /// left, with nothing to take back.
     pub fn recover(&mut self, mut sheet: Sheet) {
-        F::upgrade(&mut sheet.graph);
+        (self.setup.upgrade)(&mut sheet.graph);
         self.sheet = sheet;
         self.selected.clear();
         self.undo.clear();
@@ -509,7 +518,7 @@ impl<F: Flavor> Editor<F> {
         let graph = &self.sheet.graph;
         self.selected.retain(|node| {
             graph.node(*node).is_some()
-                || (*node == OUTPUTS && F::HAS_OUTPUTS)
+                || (*node == OUTPUTS && self.setup.outputs)
         });
         self.rules = Ruleset {
             entry: self.name.clone(),
@@ -528,7 +537,7 @@ impl<F: Flavor> Editor<F> {
         if self.sheet.layout.is_empty() {
             self.sheet.layout = canvas::arrange(self);
         }
-        F::run(self);
+        self.changes += 1;
     }
 
     /// Adds a node that does `does`, set by `settings`, with its card
@@ -948,90 +957,104 @@ fn is_reshaping(
     }
 }
 
-/// The Graph panel: its toolbar over the canvas, with the parameters
-/// floating over the canvas's corner, and the preview floating there
-/// too or beside it, sized by dragging the line between them. The
-/// canvas and the preview fill their sides edge to edge.
-pub fn screen<F: Flavor>() -> impl View {
-    // Each tab scrolls when it has more than the canvas has room for.
-    let mut tabs = vec![(
-        Glyph::Sliders,
-        "PARAMETERS",
-        params::view::<F>().boxed(),
-    )];
-    tabs.extend(F::tabs().into_iter().map(|(which, name, body)| {
-        (which, name, params::tab::<F>(body).boxed())
-    }));
-    let tabs = tabs
-        .into_iter()
-        .map(|(which, name, body)| {
-            (which, name, scroll((body,)).gap(0.0).boxed())
-        })
-        .collect();
-    let parameters =
-        floating::<F>(Pane::Parameters, Glyph::Sliders, tabs);
-    let floating_preview = if F::PREVIEW_FLOATS {
-        floating::<F>(
-            Pane::Preview,
-            F::ICON,
-            vec![(F::ICON, "PREVIEW", F::preview())],
-        )
-    } else {
-        frame().display(Display::None).boxed()
-    };
+/// An editor's panel: `toolbar` over the canvas, with `cards`
+/// floating over the canvas and `side` beside it, sized by dragging
+/// the line between them, and the menu of what can be added. The
+/// side shows and hides as the preview does. The canvas and the side
+/// fill their parts edge to edge.
+pub fn editor<K: EditorKey>(
+    toolbar: AnyView,
+    cards: Vec<AnyView>,
+    side: Option<AnyView>,
+) -> impl View {
     // The cards are placed over the canvas, in its frame.
-    let over = column((
-        canvas::view::<F>(),
-        outline::<F>(),
-        parameters,
-        floating_preview,
-    ))
-    .fills_width()
-    .fills_height()
-    .min_width(px(0.0))
-    .gap(0.0);
+    let mut over = vec![canvas::view::<K>().boxed(), outline::<K>()];
+    over.extend(cards);
+    let over = column(over)
+        .fills_width()
+        .fills_height()
+        .min_width(px(0.0))
+        .gap(0.0);
     // The row takes the column's height; without it the canvas has
     // none.
-    let body: AnyView = if F::PREVIEW_FLOATS {
-        row((over,)).fills_height().boxed()
-    } else {
-        // Not `fills_height`: its grow would be along the row,
-        // sharing the width with the canvas.
-        let preview = column((F::preview(),))
-            .gap(0.0)
-            .min_height(px(0.0))
-            .width(resource::<Layout<F>, _>(|layout| {
-                px(layout.preview)
-            }))
-            .display(Layout::<F>::shows(Pane::Preview))
-            .shrink(0.0);
-        row((over, divider::<F>(), preview)).fills_height().boxed()
+    let body: AnyView = match side {
+        None => row((over,)).fills_height().boxed(),
+        Some(side) => {
+            // Not `fills_height`: its grow would be along the row,
+            // sharing the width with the canvas.
+            let side = column((side,))
+                .gap(0.0)
+                .min_height(px(0.0))
+                .width(resource::<Layout<K>, _>(|layout| {
+                    px(layout.preview)
+                }))
+                .display(Layout::<K>::shows(Pane::Preview))
+                .shrink(0.0);
+            row((over, divider::<K>(), side)).fills_height().boxed()
+        }
     };
     column((
-        toolbar::view::<F>(),
+        toolbar,
         with_cx(|cx| hairline(cx.theme().palette.border)),
         column((body,))
             .width(percent(100.0))
             .fills_height()
             .gap(0.0),
-        menu::view::<F>(),
+        menu::view::<K>(),
     ))
     .fills_width()
     .fills_height()
     .gap(0.0)
-    .with((Screen::<F>(PhantomData), Hovered::default()))
+    .with((Screen::<K>(PhantomData), Hovered::default()))
+}
+
+/// The card of the open graph's parameters, floating over the canvas,
+/// with `tabs` after them: each an icon, a name and a builder of its
+/// body, which runs again when the graph's shape changes. Each tab
+/// scrolls when it has more than the canvas has room for.
+pub fn parameters<K: EditorKey>(
+    tabs: Vec<(Glyph, &'static str, fn() -> AnyView)>,
+) -> AnyView {
+    let mut shown = vec![(
+        Glyph::Sliders,
+        "PARAMETERS",
+        params::view::<K>().boxed(),
+    )];
+    shown.extend(tabs.into_iter().map(|(which, name, body)| {
+        (which, name, params::tab::<K>(body).boxed())
+    }));
+    let shown = shown
+        .into_iter()
+        .map(|(which, name, body)| {
+            (which, name, scroll((body,)).gap(0.0).boxed())
+        })
+        .collect();
+    floating::<K>(Pane::Parameters, Glyph::Sliders, shown)
+}
+
+/// `preview` in a card of its own floating over the canvas, named by
+/// `icon`.
+pub fn preview_card<K: EditorKey>(
+    icon: Glyph,
+    preview: AnyView,
+) -> AnyView {
+    floating::<K>(
+        Pane::Preview,
+        icon,
+        vec![(icon, "PREVIEW", preview)],
+    )
 }
 
 /// Marks an editor's whole screen: its toolbar, canvas and preview.
 #[derive(Component)]
-pub(crate) struct Screen<F: Flavor>(PhantomData<F>);
+pub(crate) struct Screen<K: EditorKey>(PhantomData<K>);
 
 /// Whether the pointer is anywhere on the editor's screen.
-pub(crate) fn is_screen_hovered<F: Flavor>(
+pub(crate) fn is_screen_hovered<K: EditorKey>(
     world: &mut World,
 ) -> bool {
     world
-        .query_filtered::<&Hovered, With<Screen<F>>>()
+        .query_filtered::<&Hovered, With<Screen<K>>>()
         .iter(world)
         .any(Hovered::get)
 }

@@ -1,39 +1,32 @@
-//! The graph editors in the window: the blueprint and the material
-//! flavors of `hamlet_graph_editor`, each in a panel of the dock.
+//! The graph editors in the window: a blueprint and a shader editor
+//! of `hamlet_graph_editor`, each in a panel of the dock.
 
 mod assets;
 mod blueprint;
 mod gizmo;
 mod handles;
-mod material;
 mod overlay;
 mod preview;
+mod shader;
 mod thumbnails;
 
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy_fynix::dock::DockWindowKind;
 use hamlet_graph_editor::canvas::Dragging;
+use hamlet_graph_editor::files;
 use hamlet_graph_editor::library::{Item, Kind};
-use hamlet_graph_editor::{Flavor, files, screen};
-use hamlet_ui::styles::ICON;
 
 pub(crate) use self::assets::add_mesh;
 pub(crate) use self::blueprint::Blueprint;
-pub(crate) use self::material::Material;
+pub(crate) use self::shader::ShaderGraph;
 use crate::cursor::Faint;
-use crate::dock::{PanelAppExt, flush_panel};
 
-/// Adds the editor for `F` with its dock panel.
-pub(crate) fn plugin<F: Flavor>(app: &mut App) {
-    app.add_panel(
-        F::PANEL,
-        DockWindowKind::new(F::TITLE, || flush_panel(screen::<F>()))
-            .icon(F::ICON.image(ICON)),
-    )
-    .add_plugins(hamlet_graph_editor::plugin::<F>);
+/// Adds the blueprint and the shader editors, each with its dock
+/// panel.
+pub(crate) fn plugin(app: &mut App) {
+    app.add_plugins((blueprint::plugin, shader::plugin));
 }
 
 /// Draws the cursor faint while a wire is dragged, so what it is
@@ -57,7 +50,7 @@ pub(crate) fn open_item(
 ) -> Result<(), OpenRefusal> {
     let opened = match item.kind {
         Kind::Blueprint => files::open_item::<Blueprint>(world, item),
-        Kind::Material => files::open_item::<Material>(world, item),
+        Kind::Shader => files::open_item::<ShaderGraph>(world, item),
         Kind::Mesh | Kind::Texture => {
             return Err(OpenRefusal::Dragged {
                 name: item.name.clone(),

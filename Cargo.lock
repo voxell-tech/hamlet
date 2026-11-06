@@ -3367,9 +3367,9 @@ dependencies = [
  "hamlet_desktop",
  "hamlet_graph",
  "hamlet_graph_editor",
- "hamlet_material",
  "hamlet_protocol",
  "hamlet_realm",
+ "hamlet_shader",
  "hamlet_testing",
  "hamlet_ui",
  "hamlet_vfx",
@@ -3496,16 +3496,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet_material"
-version = "0.1.0"
-dependencies = [
- "bevy_math",
- "hamlet_graph",
- "naga",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "hamlet_os"
 version = "0.1.0"
 dependencies = [
@@ -3575,6 +3565,16 @@ dependencies = [
  "unicode-normalization",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "hamlet_shader"
+version = "0.1.0"
+dependencies = [
+ "bevy_math",
+ "hamlet_graph",
+ "naga",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

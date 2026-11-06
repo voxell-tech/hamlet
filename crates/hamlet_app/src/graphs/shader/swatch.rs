@@ -21,9 +21,9 @@ use bevy::ui_render::prelude::MaterialNode;
 use bevy::ui_render::ui_material::UiMaterial;
 use hamlet_graph_editor::Editor;
 use hamlet_graph_editor::canvas::Room;
-use hamlet_material::{SLOTS, swatch_shader};
+use hamlet_shader::{SLOTS, swatch_shader};
 
-use super::Material;
+use super::{Got, ShaderGraph};
 
 /// A swatch's width and height, in sheet pixels.
 pub(super) const SIZE: f32 = 64.0;
@@ -81,7 +81,10 @@ impl UiMaterial for SwatchMaterial {
 /// Puts a swatch in each card's room as the card is built.
 fn fill(
     mut commands: Commands,
-    rooms: Query<(Entity, &Room<Material>), Added<Room<Material>>>,
+    rooms: Query<
+        (Entity, &Room<ShaderGraph>),
+        Added<Room<ShaderGraph>>,
+    >,
     mut materials: ResMut<Assets<SwatchMaterial>>,
 ) {
     for (room, Room(node, ..)) in &rooms {
@@ -106,22 +109,22 @@ fn fill(
 
 /// Writes the swatches' shader again when the graph's code changes.
 fn shade(
-    editor: Res<Editor<Material>>,
+    got: Res<Got>,
     mut shaders: ResMut<Assets<Shader>>,
     mut shaded: Local<Option<u64>>,
 ) {
-    if *shaded == Some(editor.got.version) {
+    if *shaded == Some(got.version) {
         return;
     }
-    let Some(compiled) = editor.got.compiled() else {
+    let Some(compiled) = got.compiled() else {
         return;
     };
-    *shaded = Some(editor.got.version);
+    *shaded = Some(got.version);
     let _ = shaders.insert(
         SHADER.id(),
         Shader::from_wesl(
             swatch_shader(compiled),
-            "hamlet_material/swatch.wesl",
+            "hamlet_shader/swatch.wesl",
         ),
     );
 }
@@ -129,16 +132,18 @@ fn shade(
 /// Fills every swatch's slots with the graph's values, again each
 /// frame while the graph reads the time.
 fn feed(
-    editor: Res<Editor<Material>>,
+    editor: Res<Editor<ShaderGraph>>,
+    got: Res<Got>,
     time: Res<Time>,
     mut materials: ResMut<Assets<SwatchMaterial>>,
     added: Query<(), Added<MaterialNode<SwatchMaterial>>>,
 ) {
-    let Some(compiled) = editor.got.compiled() else {
+    let Some(compiled) = got.compiled() else {
         return;
     };
     if !compiled.reads_time()
         && !editor.is_changed()
+        && !got.is_changed()
         && added.is_empty()
     {
         return;

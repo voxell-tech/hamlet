@@ -1,4 +1,4 @@
-// What every compiled material shares: the values its graph is set
+// What every compiled shader shares: the values its graph is set
 // to, what a surface is read from and gives, and the patterns its
 // nodes draw. Plain WGSL, so the realm's PBR shader and the editor's
 // swatches both take it as it is.

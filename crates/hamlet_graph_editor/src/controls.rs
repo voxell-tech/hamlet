@@ -28,9 +28,9 @@ use hamlet_ui::widgets::switch::switch;
 
 use super::Editor;
 use super::canvas::Input;
-use super::flavor::Flavor;
 use super::library::picker;
 use super::menu::Menu;
+use super::setup::EditorKey;
 
 /// The width of a number's field.
 const NUMBER: f32 = 58.0;
@@ -46,8 +46,8 @@ const CHOICE: f32 = 140.0;
 const PICTURE: f32 = 20.0;
 
 /// How an input of `node` is set now.
-pub(super) fn current<F: Flavor>(
-    editor: &Editor<F>,
+pub(super) fn current<K: EditorKey>(
+    editor: &Editor<K>,
     node: NodeId,
     input: &str,
 ) -> Option<Setting> {
@@ -81,8 +81,8 @@ pub(super) fn written(input: &Input) -> Option<ValueType> {
 }
 
 /// The value an input shows: what it is fixed to, else its default.
-pub(super) fn value_of<F: Flavor>(
-    editor: &Editor<F>,
+pub(super) fn value_of<K: EditorKey>(
+    editor: &Editor<K>,
     node: NodeId,
     input: &Input,
 ) -> Option<Constant> {
@@ -113,13 +113,13 @@ fn default_of(input: &Input) -> Option<Constant> {
     })
 }
 
-pub(super) fn put<F: Flavor>(
+pub(super) fn put<K: EditorKey>(
     world: &mut World,
     node: NodeId,
     input: &str,
     setting: Option<Setting>,
 ) {
-    world.resource_mut::<Editor<F>>().apply(Edit::Set {
+    world.resource_mut::<Editor<K>>().apply(Edit::Set {
         node,
         input: input.to_owned(),
         setting,
@@ -128,13 +128,13 @@ pub(super) fn put<F: Flavor>(
 
 /// The controls for an unwired input of `node`, as it is set when the
 /// card is built, or nothing for one that can only be wired.
-pub(super) fn control<F: Flavor>(
+pub(super) fn control<K: EditorKey>(
     node: NodeId,
     input: Input,
     setting: Option<&Setting>,
 ) -> Option<AnyView> {
     if input.value_type == ValueType::Path {
-        return Some(points::<F>(node, input));
+        return Some(points::<K>(node, input));
     }
     let value = match setting {
         Some(Setting::Random(_)) => {
@@ -142,30 +142,30 @@ pub(super) fn control<F: Flavor>(
         }
         _ => match written(&input)? {
             ValueType::Number | ValueType::Integer => {
-                number::<F>(node, input.clone(), Slot::Scalar)
+                number::<K>(node, input.clone(), Slot::Scalar)
             }
             ValueType::Point | ValueType::Vector3 => {
-                axes::<F>(node, &input, 3)
+                axes::<K>(node, &input, 3)
             }
-            ValueType::Vector2 => axes::<F>(node, &input, 2),
+            ValueType::Vector2 => axes::<K>(node, &input, 2),
             ValueType::Color => row((
-                axes::<F>(node, &input, 4),
-                swatch_of::<F>(node, input.clone()),
+                axes::<K>(node, &input, 4),
+                swatch_of::<K>(node, input.clone()),
             ))
             .gap(2.0)
             .align(AlignItems::Center)
             .boxed(),
-            ValueType::Bool => flag::<F>(node, input.clone()),
+            ValueType::Bool => flag::<K>(node, input.clone()),
             _ if !input.choices.is_empty()
                 || input.listed.is_some() =>
             {
-                choice::<F>(node, input.clone())
+                choice::<K>(node, input.clone())
             }
-            _ => words::<F>(node, input.clone()),
+            _ => words::<K>(node, input.clone()),
         },
     };
     Some(
-        row((value, reset::<F>(node, input.name)))
+        row((value, reset::<K>(node, input.name)))
             .gap(2.0)
             .align(AlignItems::Center)
             .boxed(),
@@ -174,10 +174,10 @@ pub(super) fn control<F: Flavor>(
 
 /// The note on a path input: how many points it has, and the mark
 /// that puts them back to the default.
-fn points<F: Flavor>(node: NodeId, input: Input) -> AnyView {
+fn points<K: EditorKey>(node: NodeId, input: Input) -> AnyView {
     let read = input.clone();
     row((
-        label(resource::<Editor<F>, _>(
+        label(resource::<Editor<K>, _>(
             move |editor| match value_of(editor, node, &read) {
                 Some(Constant::Path(path)) if path.len() == 1 => {
                     "1 point".to_owned()
@@ -190,7 +190,7 @@ fn points<F: Flavor>(node: NodeId, input: Input) -> AnyView {
         ))
         .wrap(false)
         .tone(Tone::Dim),
-        reset::<F>(node, input.name),
+        reset::<K>(node, input.name),
     ))
     .gap(2.0)
     .align(AlignItems::Center)
@@ -205,14 +205,14 @@ fn pill(text: String) -> AnyView {
 
 /// A row of fields, one for each of the first `count` axes of a
 /// point, a vector or a colour.
-fn axes<F: Flavor>(
+fn axes<K: EditorKey>(
     node: NodeId,
     input: &Input,
     count: usize,
 ) -> AnyView {
     row((0..count)
         .map(|axis| {
-            number::<F>(node, input.clone(), Slot::Axis(axis))
+            number::<K>(node, input.clone(), Slot::Axis(axis))
         })
         .collect::<Vec<_>>())
     .gap(2.0)
@@ -230,7 +230,7 @@ enum Slot {
 
 /// A field for a number, whole or not, or for one axis of a point, a
 /// vector or a colour.
-fn number<F: Flavor>(
+fn number<K: EditorKey>(
     node: NodeId,
     input: Input,
     slot: Slot,
@@ -239,7 +239,7 @@ fn number<F: Flavor>(
     let whole = input.value_type == ValueType::Integer;
     let colour = input.value_type == ValueType::Color;
     let field = number_field(
-        resource::<Editor<F>, _>(move |editor| {
+        resource::<Editor<K>, _>(move |editor| {
             match (value_of(editor, node, &read), slot) {
                 (Some(Constant::Number(value)), Slot::Scalar) => {
                     f64::from(value)
@@ -272,7 +272,7 @@ fn number<F: Flavor>(
                 Slot::Scalar => Constant::Number(value),
                 Slot::Axis(axis) => {
                     let current = value_of(
-                        world.resource::<Editor<F>>(),
+                        world.resource::<Editor<K>>(),
                         node,
                         &input,
                     );
@@ -298,7 +298,7 @@ fn number<F: Flavor>(
                     }
                 }
             };
-            put::<F>(
+            put::<K>(
                 world,
                 node,
                 &input.name,
@@ -318,9 +318,9 @@ fn number<F: Flavor>(
 }
 
 /// A small square of the colour an input is set to.
-fn swatch_of<F: Flavor>(node: NodeId, input: Input) -> AnyView {
+fn swatch_of<K: EditorKey>(node: NodeId, input: Input) -> AnyView {
     let shown =
-        resource::<Editor<F>, _>(move |editor| {
+        resource::<Editor<K>, _>(move |editor| {
             match value_of(editor, node, &input) {
                 Some(Constant::Color(rgba)) => {
                     Color::srgba(rgba.x, rgba.y, rgba.z, rgba.w)
@@ -331,17 +331,17 @@ fn swatch_of<F: Flavor>(node: NodeId, input: Input) -> AnyView {
     swatch(MARK, shown)
 }
 
-fn flag<F: Flavor>(node: NodeId, input: Input) -> AnyView {
+fn flag<K: EditorKey>(node: NodeId, input: Input) -> AnyView {
     let read = input.clone();
     switch(
-        resource::<Editor<F>, _>(move |editor| {
+        resource::<Editor<K>, _>(move |editor| {
             matches!(
                 value_of(editor, node, &read),
                 Some(Constant::Bool(true))
             )
         }),
         move |world, on| {
-            put::<F>(
+            put::<K>(
                 world,
                 node,
                 &input.name,
@@ -356,12 +356,12 @@ fn flag<F: Flavor>(node: NodeId, input: Input) -> AnyView {
 /// at the pointer, or the pictures of the library's meshes for an
 /// asset, which it then shows a picture of too. The chevron points
 /// down, and up while the list is open.
-fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
+fn choice<K: EditorKey>(node: NodeId, input: Input) -> AnyView {
     let read = input.clone();
     let name = input.name.clone();
     let pictured = input.clone();
     let picture = keyed(
-        resource::<Editor<F>, _>(move |editor| {
+        resource::<Editor<K>, _>(move |editor| {
             match (pictured.listed, value_of(editor, node, &pictured))
             {
                 (
@@ -382,7 +382,7 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
             picture,
             // Words too long for the control are cut at its edge, so
             // the chevron keeps its place.
-            row((label(resource::<Editor<F>, _>(move |editor| {
+            row((label(resource::<Editor<K>, _>(move |editor| {
                 match value_of(editor, node, &read) {
                     Some(Constant::Choice(choice)) => {
                         choice.replace('_', " ")
@@ -396,7 +396,7 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
             .overflow(Overflow::clip()),
             glyph(Glyph::Chevron, MARK)
                 .tone(Tone::Dim)
-                .rotation(resource::<Menu<F>, _>(move |menu| {
+                .rotation(resource::<Menu<K>, _>(move |menu| {
                     if menu.is_choosing(node, &name) {
                         0.0
                     } else {
@@ -415,14 +415,14 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
     .rules(text_input)
     .on_activate(move |world| {
         if input.listed == Some(Listed::Assets) {
-            super::menu::choose_asset::<F>(
+            super::menu::choose_asset::<K>(
                 world,
                 node,
                 input.name.clone(),
             );
             return;
         }
-        let catalogue = &world.resource::<Editor<F>>().rules.assets;
+        let catalogue = &world.resource::<Editor<K>>().rules.assets;
         let choices = match input.listed {
             Some(Listed::Sockets) => catalogue.socket_names(),
             Some(Listed::Assets) => Vec::new(),
@@ -432,7 +432,7 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
                 .map(|choice| (*choice).to_owned())
                 .collect(),
         };
-        super::menu::choose::<F>(
+        super::menu::choose::<K>(
             world,
             node,
             input.name.clone(),
@@ -443,17 +443,17 @@ fn choice<F: Flavor>(node: NodeId, input: Input) -> AnyView {
 }
 
 /// Any text, for a choice with no list.
-fn words<F: Flavor>(node: NodeId, input: Input) -> AnyView {
+fn words<K: EditorKey>(node: NodeId, input: Input) -> AnyView {
     let read = input.clone();
     text_field(
-        resource::<Editor<F>, _>(move |editor| {
+        resource::<Editor<K>, _>(move |editor| {
             match value_of(editor, node, &read) {
                 Some(Constant::Choice(text)) => text,
                 _ => String::new(),
             }
         }),
         move |world, text| {
-            put::<F>(
+            put::<K>(
                 world,
                 node,
                 &input.name,
@@ -467,9 +467,9 @@ fn words<F: Flavor>(node: NodeId, input: Input) -> AnyView {
 }
 
 /// The field a group's title is written in.
-pub(super) fn title<F: Flavor>(at: usize) -> AnyView {
+pub(super) fn title<K: EditorKey>(at: usize) -> AnyView {
     text_field(
-        resource::<Editor<F>, _>(move |editor| {
+        resource::<Editor<K>, _>(move |editor| {
             editor
                 .sheet
                 .groups
@@ -478,7 +478,7 @@ pub(super) fn title<F: Flavor>(at: usize) -> AnyView {
                 .unwrap_or_default()
         }),
         move |world, text| {
-            world.resource_mut::<Editor<F>>().retitle(at, text);
+            world.resource_mut::<Editor<K>>().retitle(at, text);
         },
     )
     .width(px(NUMBER * 3.0))
@@ -488,11 +488,11 @@ pub(super) fn title<F: Flavor>(at: usize) -> AnyView {
 
 /// The field the name of the output `name` is written in on its row
 /// of the Outputs card.
-pub(super) fn output_name<F: Flavor>(name: String) -> AnyView {
+pub(super) fn output_name<K: EditorKey>(name: String) -> AnyView {
     let rename = name.clone();
     text_field(name, move |world, text| {
         world
-            .resource_mut::<Editor<F>>()
+            .resource_mut::<Editor<K>>()
             .rename_output(&rename, text);
     })
     .grow(1.0)
@@ -503,10 +503,10 @@ pub(super) fn output_name<F: Flavor>(name: String) -> AnyView {
 
 /// The mark that puts an input back to its default, shown while it is
 /// fixed.
-fn reset<F: Flavor>(node: NodeId, input: String) -> AnyView {
+fn reset<K: EditorKey>(node: NodeId, input: String) -> AnyView {
     let shown: Signal<Display> = {
         let input = input.clone();
-        resource::<Editor<F>, _>(move |editor| {
+        resource::<Editor<K>, _>(move |editor| {
             match current(editor, node, &input) {
                 Some(Setting::Fixed(_)) => Display::Flex,
                 _ => Display::None,
@@ -517,6 +517,6 @@ fn reset<F: Flavor>(node: NodeId, input: String) -> AnyView {
         .display(shown)
         .rules(icon_button)
         .tooltip(|| note("Back to the default"))
-        .on_activate(move |world| put::<F>(world, node, &input, None))
+        .on_activate(move |world| put::<K>(world, node, &input, None))
         .boxed()
 }

@@ -16,6 +16,7 @@ use bevy::color::{Alpha, Color};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::event::Event;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
@@ -60,10 +61,11 @@ use hamlet_ui::styles::Fills;
 use hamlet_ui::theme::{HamletTheme, Palette};
 use hamlet_ui::{View, with_cx};
 
-use super::flavor::Flavor;
 use super::menu::Which;
+use super::setup::EditorKey;
 use super::wire::{Shape, WireMaterial};
 use super::{Editor, OUTPUTS, controls};
+use crate::library::Item;
 use crate::library::carry::{Carried, tile_of};
 
 /// The gap between two columns of cards laid out, and between the
@@ -96,39 +98,39 @@ const ZOOM_EASE: f32 = 16.0;
 /// rather than opening a menu.
 const PAN_SLOP: f32 = 4.0;
 
-pub(super) fn plugin<F: Flavor>(app: &mut App) {
+pub(super) fn plugin<K: EditorKey>(app: &mut App) {
     app.init_resource::<Dragging>()
-        .init_resource::<Sight<F>>()
-        .init_resource::<Held<F>>()
-        .init_resource::<RightPress<F>>()
+        .init_resource::<Sight<K>>()
+        .init_resource::<Held<K>>()
+        .init_resource::<RightPress<K>>()
         .add_systems(
             Update,
             (
-                (right_drag::<F>, ease_zoom::<F>),
-                build::<F>,
-                place::<F>,
-                paint::<F>,
-                lasso::<F>,
+                (right_drag::<K>, ease_zoom::<K>),
+                build::<K>,
+                place::<K>,
+                paint::<K>,
+                lasso::<K>,
             )
                 .chain(),
         )
         .add_systems(
             Update,
-            (forget_ended::<F>, cancel::<F>, faint::<F>).chain(),
+            (forget_ended::<K>, cancel::<K>, faint::<K>).chain(),
         )
         .add_systems(
             Update,
-            (titles::<F>, retitled::<F>, drop_hint::<F>),
+            (titles::<K>, retitled::<K>, drop_hint::<K>),
         );
 }
 
 /// Outlines the canvas while a carried asset is over it, where letting
 /// it go would put it down.
-fn drop_hint<F: Flavor>(
+fn drop_hint<K: EditorKey>(
     mut commands: Commands,
     carried: Res<Carried>,
     If(theme): If<Res<Theme<HamletTheme>>>,
-    canvas: Query<(Entity, &Hovered, Has<Outline>), With<Canvas<F>>>,
+    canvas: Query<(Entity, &Hovered, Has<Outline>), With<Canvas<K>>>,
 ) {
     for (canvas, hovered, outlined) in &canvas {
         let wanted = carried.item.is_some() && hovered.get();
@@ -150,9 +152,9 @@ pub struct Dragging(pub bool);
 
 /// The frame the canvas is drawn in.
 #[derive(Component)]
-pub(super) struct Canvas<F: Flavor>(PhantomData<F>);
+pub(super) struct Canvas<K: EditorKey>(PhantomData<K>);
 
-impl<F: Flavor> Canvas<F> {
+impl<K: EditorKey> Canvas<K> {
     pub(super) fn new() -> Self {
         Self(PhantomData)
     }
@@ -161,47 +163,47 @@ impl<F: Flavor> Canvas<F> {
 /// The node every card and wire hangs off, moved and scaled to pan
 /// and zoom them as one.
 #[derive(Component)]
-struct Sheet<F: Flavor>(PhantomData<F>);
+struct Sheet<K: EditorKey>(PhantomData<K>);
 
 /// The box a Shift-drag on the bare canvas draws to select the cards
 /// it touches.
 #[derive(Component)]
-struct Lasso<F: Flavor>(PhantomData<F>);
+struct Lasso<K: EditorKey>(PhantomData<K>);
 
 /// A node's card.
 #[derive(Component)]
-struct Card<F: Flavor>(NodeId, PhantomData<F>);
+struct Card<K: EditorKey>(NodeId, PhantomData<K>);
 
-/// The room under a card's header the flavor fills.
+/// The room under a card's header, filled by whatever draws there.
 #[derive(Component)]
-pub struct Room<F: Flavor>(pub NodeId, pub PhantomData<F>);
+pub struct Room<K: EditorKey>(pub NodeId, pub PhantomData<K>);
 
 /// A group's frame, by its place among the sheet's groups.
 #[derive(Component)]
-struct Frame<F: Flavor>(usize, PhantomData<F>);
+struct Frame<K: EditorKey>(usize, PhantomData<K>);
 
 /// A group's title bar, which drags its cards.
 #[derive(Component)]
-struct TitleBar<F: Flavor>(usize, PhantomData<F>);
+struct TitleBar<K: EditorKey>(usize, PhantomData<K>);
 
 /// A group's title, drawn on its bar.
 #[derive(Component)]
-struct TitleText<F: Flavor>(usize, PhantomData<F>);
+struct TitleText<K: EditorKey>(usize, PhantomData<K>);
 
 /// The group whose title is being written, and the field it is
 /// written in.
 #[derive(Resource)]
-struct Retitling<F: Flavor> {
+struct Retitling<K: EditorKey> {
     text: Entity,
     field: Entity,
     focused: bool,
-    flavor: PhantomData<F>,
+    key: PhantomData<K>,
 }
 
 /// The node a wire is drawn on: the wire's, or none for one being
 /// dragged out of a port.
 #[derive(Component)]
-struct Drawn<F: Flavor>(Option<Wire>, PhantomData<F>);
+struct Drawn<K: EditorKey>(Option<Wire>, PhantomData<K>);
 
 /// The edge of a card a port's dot sits on.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -212,14 +214,14 @@ enum Side {
 
 /// A port's dot on a card: the area it is pointed at in.
 #[derive(Component)]
-struct Dot<F: Flavor> {
+struct Dot<K: EditorKey> {
     port: Port,
     side: Side,
     value_type: ValueType,
-    flavor: PhantomData<F>,
+    key: PhantomData<K>,
 }
 
-impl<F: Flavor> Dot<F> {
+impl<K: EditorKey> Dot<K> {
     fn is_output(&self) -> bool {
         self.side == Side::Output
     }
@@ -244,14 +246,14 @@ impl<F: Flavor> Dot<F> {
 
 /// The drawn dot inside a dot's area, which paint colours.
 #[derive(Component)]
-struct Disc<F: Flavor>(Entity, PhantomData<F>);
+struct Disc<K: EditorKey>(Entity, PhantomData<K>);
 
 /// An input's row on a card, which a right click asks about.
 #[derive(Component)]
-struct InputRow<F: Flavor> {
+struct InputRow<K: EditorKey> {
     node: NodeId,
     input: Input,
-    flavor: PhantomData<F>,
+    key: PhantomData<K>,
 }
 
 /// An input as a row shows it: a kind's port, or an input of the
@@ -282,21 +284,21 @@ impl Input {
 /// How far the sheet is panned, in canvas pixels, and how much it is
 /// zoomed.
 #[derive(Resource)]
-struct Sight<F: Flavor> {
+struct Sight<K: EditorKey> {
     pan: Vec2,
     zoom: f32,
     /// The zoom a scroll asked for, which [`ease_zoom`] goes to.
     goal: Option<ZoomGoal>,
-    flavor: PhantomData<F>,
+    key: PhantomData<K>,
 }
 
-impl<F: Flavor> Sight<F> {
+impl<K: EditorKey> Sight<K> {
     fn new(pan: Vec2, zoom: f32) -> Self {
         Self {
             pan,
             zoom,
             goal: None,
-            flavor: PhantomData,
+            key: PhantomData,
         }
     }
 }
@@ -312,16 +314,16 @@ struct ZoomGoal {
 /// the menu it opens if it does not move, or the sheet panning once
 /// it has.
 #[derive(Resource)]
-struct RightPress<F: Flavor> {
+struct RightPress<K: EditorKey> {
     held: Option<RightHeld>,
-    flavor: PhantomData<F>,
+    key: PhantomData<K>,
 }
 
-impl<F: Flavor> Default for RightPress<F> {
+impl<K: EditorKey> Default for RightPress<K> {
     fn default() -> Self {
         Self {
             held: None,
-            flavor: PhantomData,
+            key: PhantomData,
         }
     }
 }
@@ -335,7 +337,7 @@ struct RightHeld {
     panning: bool,
 }
 
-impl<F: Flavor> Default for Sight<F> {
+impl<K: EditorKey> Default for Sight<K> {
     fn default() -> Self {
         Self::new(Vec2::splat(16.0), 1.0)
     }
@@ -343,15 +345,15 @@ impl<F: Flavor> Default for Sight<F> {
 
 /// The gesture a drag on one canvas is doing.
 #[derive(Resource)]
-struct Held<F: Flavor>(Gesture, PhantomData<F>);
+struct Held<K: EditorKey>(Gesture, PhantomData<K>);
 
-impl<F: Flavor> Default for Held<F> {
+impl<K: EditorKey> Default for Held<K> {
     fn default() -> Self {
         Self(Gesture::None, PhantomData)
     }
 }
 
-impl<F: Flavor> Deref for Held<F> {
+impl<K: EditorKey> Deref for Held<K> {
     type Target = Gesture;
 
     fn deref(&self) -> &Gesture {
@@ -359,7 +361,7 @@ impl<F: Flavor> Deref for Held<F> {
     }
 }
 
-impl<F: Flavor> DerefMut for Held<F> {
+impl<K: EditorKey> DerefMut for Held<K> {
     fn deref_mut(&mut self) -> &mut Gesture {
         &mut self.0
     }
@@ -404,7 +406,7 @@ impl Link {
     }
 }
 
-pub(super) fn view<F: Flavor>() -> impl View {
+pub(super) fn view<K: EditorKey>() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         frame()
@@ -413,23 +415,23 @@ pub(super) fn view<F: Flavor>() -> impl View {
             .overflow(Overflow::clip())
             .fill(theme.palette.input)
             .radius(theme.space.round)
-            .tagged(Canvas::<F>::new())
+            .tagged(Canvas::<K>::new())
     })
 }
 
 /// The middle of what is in sight, in the sheet's layout, for a new
 /// card.
-pub(super) fn middle<F: Flavor>(world: &mut World) -> Vec2 {
-    let size = canvas_size::<F>(world);
-    let sight = world.resource::<Sight<F>>();
+pub(super) fn middle<K: EditorKey>(world: &mut World) -> Vec2 {
+    let size = canvas_size::<K>(world);
+    let sight = world.resource::<Sight<K>>();
     (size * 0.5 - sight.pan) / sight.zoom
         - Vec2::new(WIDTH * 0.5, HEADER)
 }
 
 /// Pans and zooms so that every card is in sight.
-pub fn fit<F: Flavor>(world: &mut World) {
-    let size = canvas_size::<F>(world);
-    let editor = world.resource::<Editor<F>>();
+pub fn fit<K: EditorKey>(world: &mut World) {
+    let size = canvas_size::<K>(world);
+    let editor = world.resource::<Editor<K>>();
     let (mut low, mut high) =
         (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
     for id in card_ids(editor) {
@@ -452,32 +454,32 @@ pub fn fit<F: Flavor>(world: &mut World) {
         .min_element()
         .clamp(LEAST_ZOOM, 1.0);
     let pan = size * 0.5 - (low + high) * 0.5 * zoom;
-    *world.resource_mut::<Sight<F>>() = Sight::new(pan, zoom);
+    *world.resource_mut::<Sight<K>>() = Sight::new(pan, zoom);
 }
 
 /// Where the window's point `at` is on the sheet, if it is over the
 /// canvas.
-pub(super) fn on_sheet<F: Flavor>(
+pub(super) fn on_sheet<K: EditorKey>(
     world: &mut World,
     at: Vec2,
 ) -> Option<Vec2> {
     let corner = world
-        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Canvas<F>>>()
+        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Canvas<K>>>()
         .iter(world)
         .next()
         .map(|(node, transform)| corner(node, transform))?;
-    let size = canvas_size::<F>(world);
+    let size = canvas_size::<K>(world);
     let inside = at - corner;
     if inside.cmplt(Vec2::ZERO).any() || inside.cmpgt(size).any() {
         return None;
     }
-    let sight = world.resource::<Sight<F>>();
+    let sight = world.resource::<Sight<K>>();
     Some((inside - sight.pan) / sight.zoom)
 }
 
-pub(super) fn is_hovered<F: Flavor>(world: &mut World) -> bool {
+pub(super) fn is_hovered<K: EditorKey>(world: &mut World) -> bool {
     world
-        .query_filtered::<&Hovered, With<Canvas<F>>>()
+        .query_filtered::<&Hovered, With<Canvas<K>>>()
         .iter(world)
         .any(Hovered::get)
 }
@@ -491,9 +493,9 @@ pub fn corner(
         * node.inverse_scale_factor()
 }
 
-fn canvas_size<F: Flavor>(world: &mut World) -> Vec2 {
+fn canvas_size<K: EditorKey>(world: &mut World) -> Vec2 {
     world
-        .query_filtered::<&ComputedNode, With<Canvas<F>>>()
+        .query_filtered::<&ComputedNode, With<Canvas<K>>>()
         .iter(world)
         .next()
         .map_or(Vec2::splat(400.0), |node| {
@@ -501,27 +503,31 @@ fn canvas_size<F: Flavor>(world: &mut World) -> Vec2 {
         })
 }
 
-/// The room under the header of the card `node`: the flavor's for a
+/// The room under the header of the card `node`: the setup's for a
 /// node's, none for the Outputs card.
-fn room_of<F: Flavor>(node: NodeId) -> f32 {
-    if node == OUTPUTS { 0.0 } else { F::ROOM }
+fn room_of<K: EditorKey>(editor: &Editor<K>, node: NodeId) -> f32 {
+    if node == OUTPUTS {
+        0.0
+    } else {
+        editor.setup.room
+    }
 }
 
 /// Every card of the open sheet: its nodes, then the Outputs card.
-fn card_ids<F: Flavor>(editor: &Editor<F>) -> Vec<NodeId> {
+fn card_ids<K: EditorKey>(editor: &Editor<K>) -> Vec<NodeId> {
     editor
         .sheet
         .graph
         .nodes
         .iter()
         .map(|node| node.id)
-        .chain(F::HAS_OUTPUTS.then_some(OUTPUTS))
+        .chain(editor.setup.outputs.then_some(OUTPUTS))
         .collect()
 }
 
 /// The rows of the Outputs card: one for each output, named after
 /// it, and an empty one after them to wire into.
-fn output_rows<F: Flavor>(editor: &Editor<F>) -> Vec<Dot<F>> {
+fn output_rows<K: EditorKey>(editor: &Editor<K>) -> Vec<Dot<K>> {
     editor
         .sheet
         .graph
@@ -536,25 +542,27 @@ fn output_rows<F: Flavor>(editor: &Editor<F>) -> Vec<Dot<F>> {
             },
             side: Side::Input,
             value_type,
-            flavor: PhantomData,
+            key: PhantomData,
         })
         .collect()
 }
 
 /// The input and output rows of the card `id`, if there is one.
-fn card_rows<F: Flavor>(
-    editor: &Editor<F>,
+fn card_rows<K: EditorKey>(
+    editor: &Editor<K>,
     id: NodeId,
-) -> Option<(Vec<Dot<F>>, Vec<Dot<F>>)> {
+) -> Option<(Vec<Dot<K>>, Vec<Dot<K>>)> {
     if id == OUTPUTS {
-        return F::HAS_OUTPUTS
+        return editor
+            .setup
+            .outputs
             .then(|| (output_rows(editor), Vec::new()));
     }
     editor.sheet.graph.node(id).map(|node| rows(editor, node))
 }
 
 /// The size of the card `id` on the sheet.
-fn card_size<F: Flavor>(editor: &Editor<F>, id: NodeId) -> Vec2 {
+fn card_size<K: EditorKey>(editor: &Editor<K>, id: NodeId) -> Vec2 {
     let rows = card_rows(editor, id)
         .map_or(0, |(inputs, outputs)| inputs.len() + outputs.len());
     Vec2::new(
@@ -562,15 +570,17 @@ fn card_size<F: Flavor>(editor: &Editor<F>, id: NodeId) -> Vec2 {
         BORDER * 2.0
             + HEADER
             + PAD * 2.0
-            + room_of::<F>(id)
+            + room_of(editor, id)
             + rows as f32 * ROW,
     )
 }
 
 /// Every wire drawn: those of the graph, and one from each output's
 /// port to its row on the Outputs card.
-fn drawn_wires<F: Flavor>(editor: &Editor<F>) -> Vec<Wire> {
-    let outputs = F::HAS_OUTPUTS
+fn drawn_wires<K: EditorKey>(editor: &Editor<K>) -> Vec<Wire> {
+    let outputs = editor
+        .setup
+        .outputs
         .then_some(&editor.sheet.graph.outputs)
         .into_iter()
         .flatten()
@@ -604,10 +614,10 @@ fn unwire(wire: Wire) -> Edit {
 /// The inputs and outputs of `node` in the order drawn. The input
 /// that names the node is its title and is left out, as is an input
 /// the name does not use unless it is wired.
-fn rows<F: Flavor>(
-    editor: &Editor<F>,
+fn rows<K: EditorKey>(
+    editor: &Editor<K>,
     node: &hamlet_graph::Node,
-) -> (Vec<Dot<F>>, Vec<Dot<F>>) {
+) -> (Vec<Dot<K>>, Vec<Dot<K>>) {
     let Ok((inputs, outputs)) = ports(
         &editor.registry,
         &editor.rules,
@@ -624,7 +634,7 @@ fn rows<F: Flavor>(
             },
             side,
             value_type: info.value_type,
-            flavor: PhantomData,
+            key: PhantomData,
         }
     };
     let named = super::naming(&editor.registry, node);
@@ -659,7 +669,10 @@ fn rows<F: Flavor>(
 
 /// The inputs of `node` as rows show them: its kind's ports, each
 /// port of a growing one too, or the inputs of the graph it runs.
-fn specs<F: Flavor>(editor: &Editor<F>, node: NodeId) -> Vec<Input> {
+fn specs<K: EditorKey>(
+    editor: &Editor<K>,
+    node: NodeId,
+) -> Vec<Input> {
     let found = editor.sheet.graph.node(node);
     match found.map(|node| &node.does) {
         Some(Does::Kind(kind)) => {
@@ -729,7 +742,7 @@ fn dot_at(card: Vec2, room: f32, row: usize, side: Side) -> Vec2 {
 
 /// Where the card `node` is on the sheet. The Outputs card is where
 /// the sheet puts it, or beside the other cards.
-fn card_at<F: Flavor>(editor: &Editor<F>, node: NodeId) -> Vec2 {
+fn card_at<K: EditorKey>(editor: &Editor<K>, node: NodeId) -> Vec2 {
     if node != OUTPUTS {
         return editor
             .sheet
@@ -759,8 +772,8 @@ fn card_at<F: Flavor>(editor: &Editor<F>, node: NodeId) -> Vec2 {
 /// The corners of the frame of the group at `at` on the sheet, around
 /// its cards and its title bar above them; none for a group with no
 /// cards.
-fn frame_bounds<F: Flavor>(
-    editor: &Editor<F>,
+fn frame_bounds<K: EditorKey>(
+    editor: &Editor<K>,
     at: usize,
 ) -> Option<(Vec2, Vec2)> {
     let group = editor.sheet.groups.get(at)?;
@@ -787,8 +800,8 @@ fn frame_bounds<F: Flavor>(
 /// and each column stacked by the cards' heights. Each group is a
 /// band of its own, below the one before, so no two frames overlap;
 /// the cards in no group are the last band.
-pub(super) fn arrange<F: Flavor>(
-    editor: &Editor<F>,
+pub(super) fn arrange<K: EditorKey>(
+    editor: &Editor<K>,
 ) -> BTreeMap<NodeId, Vec2> {
     const DOWN: f32 = 24.0;
     let graph = &editor.sheet.graph;
@@ -928,7 +941,7 @@ fn tint(palette: &Palette, value_type: ValueType) -> Color {
 
 /// The colour of the dot `dot`: its type's, or grey for the empty
 /// row of the Outputs card.
-fn dot_tint<F: Flavor>(palette: &Palette, dot: &Dot<F>) -> Color {
+fn dot_tint<K: EditorKey>(palette: &Palette, dot: &Dot<K>) -> Color {
     if dot.is_blank() {
         palette.grey_1
     } else {
@@ -938,13 +951,13 @@ fn dot_tint<F: Flavor>(palette: &Palette, dot: &Dot<F>) -> Color {
 
 /// Builds every card again when the nodes, the wires or how an input
 /// is set change, and when the canvas is new.
-fn build<F: Flavor>(
+fn build<K: EditorKey>(
     mut commands: Commands,
-    editor: Res<Editor<F>>,
+    editor: Res<Editor<K>>,
     // The theme loads after the first frames.
     If(theme): If<Res<Theme<HamletTheme>>>,
-    canvas: Query<Entity, With<Canvas<F>>>,
-    cards: Query<Entity, Or<(With<Card<F>>, With<Frame<F>>)>>,
+    canvas: Query<Entity, With<Canvas<K>>>,
+    cards: Query<Entity, Or<(With<Card<K>>, With<Frame<K>>)>>,
     mut built: Local<Option<(Entity, Entity, u64)>>,
 ) {
     let Some(canvas) = canvas.iter().next() else {
@@ -961,16 +974,16 @@ fn build<F: Flavor>(
             commands
                 .entity(canvas)
                 .insert(Hovered::default())
-                .observe(ask::<F>)
-                .observe(received::<F>)
-                .observe(pan_start::<F>)
-                .observe(pan::<F>)
-                .observe(gesture_end::<F>)
-                .observe(zoom::<F>)
-                .observe(deselect::<F>);
+                .observe(ask::<K>)
+                .observe(received::<K>)
+                .observe(pan_start::<K>)
+                .observe(pan::<K>)
+                .observe(gesture_end::<K>)
+                .observe(zoom::<K>)
+                .observe(deselect::<K>);
             let sheet = commands
                 .spawn((
-                    Sheet::<F>(PhantomData),
+                    Sheet::<K>(PhantomData),
                     // A point at the canvas's corner, so it scales
                     // about the corner.
                     Node {
@@ -987,7 +1000,7 @@ fn build<F: Flavor>(
                 ))
                 .id();
             commands.spawn((
-                Lasso::<F>(PhantomData),
+                Lasso::<K>(PhantomData),
                 Node {
                     position_type: PositionType::Absolute,
                     display: Display::None,
@@ -1013,7 +1026,7 @@ fn build<F: Flavor>(
     for at in 0..editor.sheet.groups.len() {
         let frame = commands
             .spawn((
-                Frame::<F>(at, PhantomData),
+                Frame::<K>(at, PhantomData),
                 Node {
                     position_type: PositionType::Absolute,
                     flex_direction: FlexDirection::Column,
@@ -1031,7 +1044,7 @@ fn build<F: Flavor>(
             .id();
         let bar = commands
             .spawn((
-                TitleBar::<F>(at, PhantomData),
+                TitleBar::<K>(at, PhantomData),
                 Node {
                     height: px(TITLE),
                     padding: UiRect::horizontal(px(6.0)),
@@ -1047,16 +1060,16 @@ fn build<F: Flavor>(
                 EntityCursor(SystemCursorIcon::Grab),
                 ChildOf(frame),
             ))
-            .observe(select_group::<F>)
-            .observe(grab_group::<F>)
-            .observe(drag_card::<F>)
-            .observe(gesture_end::<F>)
-            .observe(retitle::<F>)
+            .observe(select_group::<K>)
+            .observe(grab_group::<K>)
+            .observe(drag_card::<K>)
+            .observe(gesture_end::<K>)
+            .observe(retitle::<K>)
             .id();
         // Its foot on the bar, so as it grows it grows up, off the
         // cards; never cut short or wrapped.
         commands.spawn((
-            TitleText::<F>(at, PhantomData),
+            TitleText::<K>(at, PhantomData),
             Text::new(
                 editor
                     .sheet
@@ -1114,7 +1127,7 @@ fn build<F: Flavor>(
         };
         let card = commands
             .spawn((
-                Card::<F>(id, PhantomData),
+                Card::<K>(id, PhantomData),
                 Node {
                     position_type: PositionType::Absolute,
                     width: px(WIDTH),
@@ -1130,11 +1143,11 @@ fn build<F: Flavor>(
                 EntityCursor(SystemCursorIcon::Grab),
                 ChildOf(sheet),
             ))
-            .observe(select::<F>)
-            .observe(open_on_double::<F>)
-            .observe(grab::<F>)
-            .observe(drag_card::<F>)
-            .observe(gesture_end::<F>)
+            .observe(select::<K>)
+            .observe(open_on_double::<K>)
+            .observe(grab::<K>)
+            .observe(drag_card::<K>)
+            .observe(gesture_end::<K>)
             .id();
         let header = commands
             .spawn((
@@ -1157,11 +1170,12 @@ fn build<F: Flavor>(
             Pickable::IGNORE,
             ChildOf(header),
         ));
-        if room_of::<F>(id) > 0.0 {
+        let room = room_of(&editor, id);
+        if room > 0.0 {
             commands.spawn((
-                Room::<F>(id, PhantomData),
+                Room::<K>(id, PhantomData),
                 Node {
-                    height: px(room_of::<F>(id)),
+                    height: px(room),
                     flex_shrink: 0.0,
                     ..Node::default()
                 },
@@ -1199,7 +1213,7 @@ fn build<F: Flavor>(
                 commands.queue(move |world: &mut World| {
                     let field = bevy_fynix::mount::<HamletTheme>(
                         world,
-                        controls::output_name::<F>(name),
+                        controls::output_name::<K>(name),
                     );
                     world
                         .entity_mut(field)
@@ -1233,10 +1247,10 @@ fn build<F: Flavor>(
             let spec =
                 specs.iter().find(|spec| spec.name == dot.port.name);
             if let (false, Some(spec)) = (dot.is_output(), spec) {
-                commands.entity(row).insert(InputRow::<F> {
+                commands.entity(row).insert(InputRow::<K> {
                     node: id,
                     input: spec.clone(),
-                    flavor: PhantomData,
+                    key: PhantomData,
                 });
             }
             if let (false, false, Some(spec), Some(node)) =
@@ -1245,7 +1259,7 @@ fn build<F: Flavor>(
                 let spec = spec.clone();
                 let setting = node.settings.get(&spec.name).cloned();
                 commands.queue(move |world: &mut World| {
-                    if let Some(control) = controls::control::<F>(
+                    if let Some(control) = controls::control::<K>(
                         id,
                         spec,
                         setting.as_ref(),
@@ -1309,14 +1323,14 @@ fn build<F: Flavor>(
                 ))
                 .id();
             let mut hit = commands.entity(area);
-            hit.insert(Disc::<F>(disc, PhantomData));
+            hit.insert(Disc::<K>(disc, PhantomData));
             // A drag from either end holds a wire: a new one out of
             // an output, or an input's own taken off by its end.
-            hit.observe(start_link::<F>)
-                .observe(drag_link::<F>)
-                .observe(gesture_end::<F>);
+            hit.observe(start_link::<K>)
+                .observe(drag_link::<K>)
+                .observe(gesture_end::<K>);
             if !dot.is_output() {
-                hit.observe(link::<F>).observe(cut::<F>);
+                hit.observe(link::<K>).observe(cut::<K>);
             }
             hit.insert(dot);
         }
@@ -1325,24 +1339,24 @@ fn build<F: Flavor>(
 
 /// Moves the sheet and the cards and draws each wire; a wire's node
 /// is kept and only moved or reshaped.
-fn place<F: Flavor>(
+fn place<K: EditorKey>(
     mut commands: Commands,
-    editor: Res<Editor<F>>,
-    sight: Res<Sight<F>>,
-    gesture: Res<Held<F>>,
+    editor: Res<Editor<K>>,
+    sight: Res<Sight<K>>,
+    gesture: Res<Held<K>>,
     If(theme): If<Res<Theme<HamletTheme>>>,
-    mut sheets: Query<(Entity, &mut UiTransform), With<Sheet<F>>>,
-    mut cards: Query<(&Card<F>, &mut Node), Without<Drawn<F>>>,
+    mut sheets: Query<(Entity, &mut UiTransform), With<Sheet<K>>>,
+    mut cards: Query<(&Card<K>, &mut Node), Without<Drawn<K>>>,
     mut frames: Query<
-        (&Frame<F>, &mut Node),
-        (Without<Card<F>>, Without<Drawn<F>>),
+        (&Frame<K>, &mut Node),
+        (Without<Card<K>>, Without<Drawn<K>>),
     >,
     mut drawn: Query<
-        (Entity, &Drawn<F>, &MaterialNode<WireMaterial>, &mut Node),
-        (Without<Card<F>>, Without<Frame<F>>),
+        (Entity, &Drawn<K>, &MaterialNode<WireMaterial>, &mut Node),
+        (Without<Card<K>>, Without<Frame<K>>),
     >,
     mut materials: ResMut<Assets<WireMaterial>>,
-    added: Query<(), Added<Card<F>>>,
+    added: Query<(), Added<Card<K>>>,
 ) {
     let Some((sheet, mut transform)) = sheets.iter_mut().next()
     else {
@@ -1428,7 +1442,7 @@ fn place<F: Flavor>(
         };
         set_place(&mut node, &shape);
         commands.spawn((
-            Drawn::<F>(key, PhantomData),
+            Drawn::<K>(key, PhantomData),
             node,
             MaterialNode(materials.add(shape.material)),
             Pickable::IGNORE,
@@ -1440,22 +1454,22 @@ fn place<F: Flavor>(
 
 /// Colours what the pointer is on, the selected cards, and, while a
 /// wire is dragged, the inputs it can go to.
-fn paint<F: Flavor>(
-    editor: Res<Editor<F>>,
-    gesture: Res<Held<F>>,
+fn paint<K: EditorKey>(
+    editor: Res<Editor<K>>,
+    gesture: Res<Held<K>>,
     If(theme): If<Res<Theme<HamletTheme>>>,
     mut cards: Query<
-        (&Card<F>, &Hovered, &mut BorderColor),
-        Without<Dot<F>>,
+        (&Card<K>, &Hovered, &mut BorderColor),
+        Without<Dot<K>>,
     >,
-    dots: Query<(&Dot<F>, &Hovered, &Disc<F>)>,
+    dots: Query<(&Dot<K>, &Hovered, &Disc<K>)>,
     mut discs: Query<
         (&mut BorderColor, &mut BackgroundColor),
-        (Without<Card<F>>, Without<TitleBar<F>>),
+        (Without<Card<K>>, Without<TitleBar<K>>),
     >,
     mut bars: Query<
-        (&TitleBar<F>, &Hovered, &mut BackgroundColor),
-        (Without<Card<F>>, Without<Dot<F>>),
+        (&TitleBar<K>, &Hovered, &mut BackgroundColor),
+        (Without<Card<K>>, Without<Dot<K>>),
     >,
     changed: Query<(), Or<(Changed<Hovered>, Added<Hovered>)>>,
 ) {
@@ -1559,10 +1573,10 @@ fn set_place(node: &mut Node, shape: &Shape) {
 
 /// Ends any drag: the cursor goes back, and a moved card's move is
 /// kept for undo.
-fn gesture_end<F: Flavor>(
+fn gesture_end<K: EditorKey>(
     mut end: On<PointerDragEnd>,
-    mut gesture: ResMut<Held<F>>,
-    mut editor: ResMut<Editor<F>>,
+    mut gesture: ResMut<Held<K>>,
+    mut editor: ResMut<Editor<K>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
     end.propagate(false);
@@ -1598,7 +1612,7 @@ const PUT_BACK: f32 = 6.0;
 
 /// Forgets a drag let go of last frame, once its release's click has
 /// been seen.
-fn forget_ended<F: Flavor>(mut gesture: ResMut<Held<F>>) {
+fn forget_ended<K: EditorKey>(mut gesture: ResMut<Held<K>>) {
     if matches!(**gesture, Gesture::Ended) {
         **gesture = Gesture::None;
     }
@@ -1606,11 +1620,11 @@ fn forget_ended<F: Flavor>(mut gesture: ResMut<Held<F>>) {
 
 /// Selects a card alone, or with Shift adds it to the selection or
 /// takes it out.
-fn select<F: Flavor>(
+fn select<K: EditorKey>(
     mut click: On<PointerClick>,
-    cards: Query<&Card<F>>,
+    cards: Query<&Card<K>>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
-    mut editor: ResMut<Editor<F>>,
+    mut editor: ResMut<Editor<K>>,
 ) {
     click.propagate(false);
     // A right click opens a menu on the selection as it is.
@@ -1630,11 +1644,11 @@ fn select<F: Flavor>(
 }
 
 /// Selects a group's cards, or with Shift adds them to the selection.
-fn select_group<F: Flavor>(
+fn select_group<K: EditorKey>(
     mut click: On<PointerClick>,
-    bars: Query<&TitleBar<F>>,
+    bars: Query<&TitleBar<K>>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
-    mut editor: ResMut<Editor<F>>,
+    mut editor: ResMut<Editor<K>>,
 ) {
     click.propagate(false);
     if click.button != PointerButton::Primary {
@@ -1659,11 +1673,11 @@ fn select_group<F: Flavor>(
 }
 
 /// Drags a group's cards by its title bar.
-fn grab_group<F: Flavor>(
+fn grab_group<K: EditorKey>(
     mut start: On<PointerDragStart>,
-    bars: Query<&TitleBar<F>>,
-    mut gesture: ResMut<Held<F>>,
-    mut editor: ResMut<Editor<F>>,
+    bars: Query<&TitleBar<K>>,
+    mut gesture: ResMut<Held<K>>,
+    mut editor: ResMut<Editor<K>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
     start.propagate(false);
@@ -1699,10 +1713,10 @@ fn is_shift_held(keys: Option<&ButtonInput<KeyCode>>) -> bool {
 
 /// Swaps a group's title for a text field on a double press of its
 /// bar.
-fn retitle<F: Flavor>(
+fn retitle<K: EditorKey>(
     press: On<PointerPress>,
-    bars: Query<(&TitleBar<F>, &Children)>,
-    texts: Query<(), With<TitleText<F>>>,
+    bars: Query<(&TitleBar<K>, &Children)>,
+    texts: Query<(), With<TitleText<K>>>,
     mut commands: Commands,
 ) {
     if press.button != PointerButton::Primary || press.count != 2 {
@@ -1720,12 +1734,12 @@ fn retitle<F: Flavor>(
     };
     let (at, bar) = (bar.0, press.entity);
     commands.queue(move |world: &mut World| {
-        if world.contains_resource::<Retitling<F>>() {
+        if world.contains_resource::<Retitling<K>>() {
             return;
         }
         let field = bevy_fynix::mount::<HamletTheme>(
             world,
-            controls::title::<F>(at),
+            controls::title::<K>(at),
         );
         world
             .entity_mut(field)
@@ -1736,24 +1750,24 @@ fn retitle<F: Flavor>(
         if let Some(mut node) = world.get_mut::<Node>(text) {
             node.display = Display::None;
         }
-        world.insert_resource(Retitling::<F> {
+        world.insert_resource(Retitling::<K> {
             text,
             field,
             focused: false,
-            flavor: PhantomData,
+            key: PhantomData,
         });
     });
 }
 
 /// Focuses the title's field once it is built, and puts the title
 /// back when the field loses focus or Enter or Escape is pressed.
-fn retitled<F: Flavor>(world: &mut World) {
-    let Some(&Retitling::<F> {
+fn retitled<K: EditorKey>(world: &mut World) {
+    let Some(&Retitling::<K> {
         text,
         field,
         focused,
         ..
-    }) = world.get_resource::<Retitling<F>>()
+    }) = world.get_resource::<Retitling<K>>()
     else {
         return;
     };
@@ -1768,7 +1782,7 @@ fn retitled<F: Flavor>(world: &mut World) {
             {
                 edit.queue_edit(TextEdit::SelectAll);
             }
-            world.resource_mut::<Retitling<F>>().focused = true;
+            world.resource_mut::<Retitling<K>>().focused = true;
         }
         return;
     }
@@ -1792,7 +1806,7 @@ fn retitled<F: Flavor>(world: &mut World) {
     if let Some(mut node) = world.get_mut::<Node>(text) {
         node.display = Display::Flex;
     }
-    world.remove_resource::<Retitling<F>>();
+    world.remove_resource::<Retitling<K>>();
 }
 
 /// The text field under `root`, if it is built.
@@ -1813,11 +1827,11 @@ fn editable_under(world: &mut World, root: Entity) -> Option<Entity> {
 
 /// Keeps each group's title what the group says, and as large on
 /// screen however far the sheet is zoomed out.
-fn titles<F: Flavor>(
-    editor: Res<Editor<F>>,
-    sight: Res<Sight<F>>,
-    mut texts: Query<(&TitleText<F>, &mut Text, &mut TextFont)>,
-    added: Query<(), Added<TitleText<F>>>,
+fn titles<K: EditorKey>(
+    editor: Res<Editor<K>>,
+    sight: Res<Sight<K>>,
+    mut texts: Query<(&TitleText<K>, &mut Text, &mut TextFont)>,
+    added: Query<(), Added<TitleText<K>>>,
 ) {
     if !editor.is_changed() && !sight.is_changed() && added.is_empty()
     {
@@ -1837,9 +1851,9 @@ fn titles<F: Flavor>(
 }
 
 /// Opens the graph a card runs on a double press.
-fn open_on_double<F: Flavor>(
+fn open_on_double<K: EditorKey>(
     press: On<PointerPress>,
-    cards: Query<&Card<F>>,
+    cards: Query<&Card<K>>,
     mut commands: Commands,
 ) {
     if press.button != PointerButton::Primary || press.count != 2 {
@@ -1848,16 +1862,16 @@ fn open_on_double<F: Flavor>(
     if let Ok(card) = cards.get(press.entity) {
         let node = card.0;
         commands.queue(move |world: &mut World| {
-            super::menu::open_graph::<F>(world, node);
+            super::menu::open_graph::<K>(world, node);
         });
     }
 }
 
-fn deselect<F: Flavor>(
+fn deselect<K: EditorKey>(
     click: On<PointerClick>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
-    gesture: Res<Held<F>>,
-    mut editor: ResMut<Editor<F>>,
+    gesture: Res<Held<K>>,
+    mut editor: ResMut<Editor<K>>,
 ) {
     // The release that ends a box clicks the canvas too.
     let boxing =
@@ -1872,11 +1886,11 @@ fn deselect<F: Flavor>(
     }
 }
 
-fn grab<F: Flavor>(
+fn grab<K: EditorKey>(
     mut start: On<PointerDragStart>,
-    cards: Query<&Card<F>>,
-    mut gesture: ResMut<Held<F>>,
-    mut editor: ResMut<Editor<F>>,
+    cards: Query<&Card<K>>,
+    mut gesture: ResMut<Held<K>>,
+    mut editor: ResMut<Editor<K>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
     start.propagate(false);
@@ -1899,11 +1913,11 @@ fn grab<F: Flavor>(
     }
 }
 
-fn drag_card<F: Flavor>(
+fn drag_card<K: EditorKey>(
     mut drag: On<PointerDrag>,
-    gesture: Res<Held<F>>,
-    sight: Res<Sight<F>>,
-    mut editor: ResMut<Editor<F>>,
+    gesture: Res<Held<K>>,
+    sight: Res<Sight<K>>,
+    mut editor: ResMut<Editor<K>>,
 ) {
     drag.propagate(false);
     if let Gesture::Cards(cards) = &**gesture {
@@ -1916,16 +1930,16 @@ fn drag_card<F: Flavor>(
 /// Draws a box to select by on a drag of the bare canvas, adding to
 /// the selection with Shift, or pans on a drag with the middle
 /// button. The right button pans in [`right_drag`].
-fn pan_start<F: Flavor>(
+fn pan_start<K: EditorKey>(
     start: On<PointerDragStart>,
     canvas: Query<
         (&ComputedNode, &UiGlobalTransform),
-        With<Canvas<F>>,
+        With<Canvas<K>>,
     >,
     keys: Option<Res<ButtonInput<KeyCode>>>,
-    sight: Res<Sight<F>>,
-    editor: Res<Editor<F>>,
-    mut gesture: ResMut<Held<F>>,
+    sight: Res<Sight<K>>,
+    editor: Res<Editor<K>>,
+    mut gesture: ResMut<Held<K>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
     match start.button {
@@ -1956,11 +1970,11 @@ fn pan_start<F: Flavor>(
     }
 }
 
-fn pan<F: Flavor>(
+fn pan<K: EditorKey>(
     drag: On<PointerDrag>,
-    mut gesture: ResMut<Held<F>>,
-    mut editor: ResMut<Editor<F>>,
-    mut sight: ResMut<Sight<F>>,
+    mut gesture: ResMut<Held<K>>,
+    mut editor: ResMut<Editor<K>>,
+    mut sight: ResMut<Sight<K>>,
 ) {
     match &mut **gesture {
         Gesture::Pan => sight.pan += drag.delta,
@@ -1986,10 +2000,10 @@ fn pan<F: Flavor>(
 /// Lets Escape take back a drag: a wire is let go unwired, cards go
 /// back where they were, and a box gives back the selection it began
 /// with. The rest of the drag then does nothing.
-fn cancel<F: Flavor>(
+fn cancel<K: EditorKey>(
     keys: Option<Res<ButtonInput<KeyCode>>>,
-    mut gesture: ResMut<Held<F>>,
-    mut editor: ResMut<Editor<F>>,
+    mut gesture: ResMut<Held<K>>,
+    mut editor: ResMut<Editor<K>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
     if matches!(**gesture, Gesture::None)
@@ -2011,8 +2025,8 @@ fn cancel<F: Flavor>(
 }
 
 /// Sets [`Dragging`] while this canvas drags a wire.
-fn faint<F: Flavor>(
-    gesture: Res<Held<F>>,
+fn faint<K: EditorKey>(
+    gesture: Res<Held<K>>,
     mut dragging: ResMut<Dragging>,
     mut was: Local<bool>,
 ) {
@@ -2027,9 +2041,9 @@ fn faint<F: Flavor>(
 
 /// Shows the box of a drag that selects where it is, and hides it
 /// after.
-fn lasso<F: Flavor>(
-    gesture: Res<Held<F>>,
-    mut boxes: Query<&mut Node, With<Lasso<F>>>,
+fn lasso<K: EditorKey>(
+    gesture: Res<Held<K>>,
+    mut boxes: Query<&mut Node, With<Lasso<K>>>,
 ) {
     if !gesture.is_changed() {
         return;
@@ -2053,13 +2067,13 @@ fn lasso<F: Flavor>(
 }
 
 /// Asks for a zoom about the pointer, which [`ease_zoom`] goes to.
-fn zoom<F: Flavor>(
+fn zoom<K: EditorKey>(
     scroll: On<PointerScroll>,
     canvas: Query<
         (&ComputedNode, &UiGlobalTransform),
-        With<Canvas<F>>,
+        With<Canvas<K>>,
     >,
-    mut sight: ResMut<Sight<F>>,
+    mut sight: ResMut<Sight<K>>,
 ) {
     let Ok((node, transform)) = canvas.get(scroll.entity) else {
         return;
@@ -2077,9 +2091,9 @@ fn zoom<F: Flavor>(
 
 /// Eases the zoom toward the one asked for, keeping the point it is
 /// about where it is on the canvas.
-fn ease_zoom<F: Flavor>(
+fn ease_zoom<K: EditorKey>(
     time: Res<Time>,
-    mut sight: ResMut<Sight<F>>,
+    mut sight: ResMut<Sight<K>>,
     mut redraw: MessageWriter<RequestRedraw>,
 ) {
     let Some(goal) = sight.goal else {
@@ -2105,11 +2119,11 @@ fn ease_zoom<F: Flavor>(
 /// Pans the sheet while the right button is dragged from a press on
 /// the canvas, and opens the press's menu where it is let go without
 /// having moved.
-fn right_drag<F: Flavor>(
+fn right_drag<K: EditorKey>(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
-    mut right: ResMut<RightPress<F>>,
-    mut sight: ResMut<Sight<F>>,
+    mut right: ResMut<RightPress<K>>,
+    mut sight: ResMut<Sight<K>>,
     mut cursor: ResMut<OverrideCursor>,
     mut commands: Commands,
 ) {
@@ -2141,7 +2155,7 @@ fn right_drag<F: Flavor>(
     } else {
         // Through `open`, which clears what was searched for.
         commands.queue(move |world: &mut World| {
-            super::menu::open::<F>(world, held.menu);
+            super::menu::open::<K>(world, held.menu);
         });
     }
 }
@@ -2149,19 +2163,19 @@ fn right_drag<F: Flavor>(
 /// Holds a right press on the canvas with the menu it opens if let go
 /// where it is: the menu of the card or row it is on, or the list of
 /// kinds on the bare canvas. [`right_drag`] opens it or pans.
-fn ask<F: Flavor>(
+fn ask<K: EditorKey>(
     press: On<PointerPress>,
-    cards: Query<&Card<F>>,
-    rows: Query<&InputRow<F>>,
-    bars: Query<&TitleBar<F>>,
+    cards: Query<&Card<K>>,
+    rows: Query<&InputRow<K>>,
+    bars: Query<&TitleBar<K>>,
     parents: Query<&ChildOf>,
     canvas: Query<
         (&ComputedNode, &UiGlobalTransform),
-        With<Canvas<F>>,
+        With<Canvas<K>>,
     >,
-    sight: Res<Sight<F>>,
-    mut editor: ResMut<Editor<F>>,
-    mut right: ResMut<RightPress<F>>,
+    sight: Res<Sight<K>>,
+    mut editor: ResMut<Editor<K>>,
+    mut right: ResMut<RightPress<K>>,
 ) {
     if press.button != PointerButton::Secondary {
         return;
@@ -2213,11 +2227,11 @@ fn ask<F: Flavor>(
     });
 }
 
-fn start_link<F: Flavor>(
+fn start_link<K: EditorKey>(
     mut start: On<PointerDragStart>,
-    dots: Query<&Dot<F>>,
-    editor: Res<Editor<F>>,
-    mut gesture: ResMut<Held<F>>,
+    dots: Query<&Dot<K>>,
+    editor: Res<Editor<K>>,
+    mut gesture: ResMut<Held<K>>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
     start.propagate(false);
@@ -2271,8 +2285,8 @@ fn start_link<F: Flavor>(
 }
 
 /// Where on the sheet the dot of `port` on `side` is, and its type.
-fn port_at<F: Flavor>(
-    editor: &Editor<F>,
+fn port_at<K: EditorKey>(
+    editor: &Editor<K>,
     port: &Port,
     side: Side,
 ) -> Option<(Vec2, ValueType)> {
@@ -2286,7 +2300,7 @@ fn port_at<F: Flavor>(
     Some((
         dot_at(
             card_at(editor, port.node),
-            room_of::<F>(port.node),
+            room_of(editor, port.node),
             before + row,
             side,
         ),
@@ -2294,10 +2308,10 @@ fn port_at<F: Flavor>(
     ))
 }
 
-fn drag_link<F: Flavor>(
+fn drag_link<K: EditorKey>(
     mut drag: On<PointerDrag>,
-    sight: Res<Sight<F>>,
-    mut gesture: ResMut<Held<F>>,
+    sight: Res<Sight<K>>,
+    mut gesture: ResMut<Held<K>>,
 ) {
     drag.propagate(false);
     if let Gesture::Link(link) = &mut **gesture {
@@ -2305,10 +2319,20 @@ fn drag_link<F: Flavor>(
     }
 }
 
-/// Adds what a library tile dropped on the canvas is, where it is
-/// dropped. The drag may have begun on something inside the tile,
-/// such as its picture.
-fn received<F: Flavor>(
+/// A library tile dropped on the canvas of the editor `K`, `at` on
+/// its sheet. What it adds to the graph, if anything, is up to
+/// whoever observes it.
+#[derive(Event)]
+pub struct Dropped<K: EditorKey> {
+    pub item: Item,
+    pub at: Vec2,
+    key: PhantomData<K>,
+}
+
+/// Tells what a library tile dropped on the canvas is, and where. The
+/// drag may have begun on something inside the tile, such as its
+/// picture.
+fn received<K: EditorKey>(
     drop: On<PointerDragDrop>,
     mut commands: Commands,
 ) {
@@ -2322,10 +2346,14 @@ fn received<F: Flavor>(
             .iter(world)
             .find_map(Window::cursor_position)
             .unwrap_or_default();
-        let Some(at) = on_sheet::<F>(world, at) else {
+        let Some(at) = on_sheet::<K>(world, at) else {
             return;
         };
-        F::dropped(&mut world.resource_mut::<Editor<F>>(), &item, at);
+        world.trigger(Dropped::<K> {
+            item,
+            at,
+            key: PhantomData,
+        });
     });
 }
 
@@ -2334,11 +2362,11 @@ fn received<F: Flavor>(
 /// step. On a row of the Outputs card, the output of the wire is
 /// given to the graph under that row's name, or a new one on the
 /// empty row.
-fn link<F: Flavor>(
+fn link<K: EditorKey>(
     mut drop: On<PointerDragDrop>,
-    dots: Query<&Dot<F>>,
-    mut gesture: ResMut<Held<F>>,
-    mut editor: ResMut<Editor<F>>,
+    dots: Query<&Dot<K>>,
+    mut gesture: ResMut<Held<K>>,
+    mut editor: ResMut<Editor<K>>,
 ) {
     drop.propagate(false);
     let (Ok(to), Gesture::Link(link)) =
@@ -2412,11 +2440,11 @@ fn link<F: Flavor>(
 
 /// Cuts the wire into an input whose dot is clicked, or removes the
 /// output whose row on the Outputs card is.
-fn cut<F: Flavor>(
+fn cut<K: EditorKey>(
     mut click: On<PointerClick>,
-    dots: Query<&Dot<F>>,
-    gesture: Res<Held<F>>,
-    mut editor: ResMut<Editor<F>>,
+    dots: Query<&Dot<K>>,
+    gesture: Res<Held<K>>,
+    mut editor: ResMut<Editor<K>>,
 ) {
     click.propagate(false);
     // The release of a wire dragged off this dot clicks it too.

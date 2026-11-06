@@ -29,6 +29,7 @@ use hamlet_graph_editor::canvas::picked;
 use hamlet_ui::theme::HamletTheme;
 
 use super::Blueprint;
+use super::blueprint::Got;
 use super::gizmo::fills::{FillMaterial, Fills, spawn_shape};
 use super::gizmo::{Background, Frame as Seen, LIGHT_DARKEN, Style};
 use super::preview::{Framing, Preview};
@@ -75,10 +76,12 @@ fn spawn(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "it reads the editor, the view and the mesh it fills"
+    reason = "it reads the editor and its run, the view and the \
+              mesh it fills"
 )]
 fn draw(
     editor: Res<Editor<Blueprint>>,
+    got: Res<Got>,
     framing: Res<Framing>,
     preview: Option<Res<Preview>>,
     If(theme): If<Res<Theme<HamletTheme>>>,
@@ -106,7 +109,7 @@ fn draw(
             let colour =
                 tone(picked(palette, at), *background, &style);
             for (_, value) in
-                editor.got.watched.get(node).into_iter().flatten()
+                got.watched.get(node).into_iter().flatten()
             {
                 sketch.show(value, colour);
             }

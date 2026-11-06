@@ -22,10 +22,10 @@ pub enum ValueType {
     Transform,
     Field,
     Objects,
-    /// Two numbers on a material's surface, such as where it is in
-    /// its texture.
+    /// Two numbers on a shaded surface, such as where it is in its
+    /// texture.
     Vector2,
-    /// Three numbers on a material's surface, such as a direction.
+    /// Three numbers on a shaded surface, such as a direction.
     Vector3,
     /// Red, green, blue and how opaque, each from 0 to 1.
     Color,
@@ -50,12 +50,12 @@ impl ValueType {
                     ValueType::Number | ValueType::Field
                 )
             )
-            // A material widens or narrows between numbers, vectors
+            // A shader widens or narrows between numbers, vectors
             // and colours, filling or dropping the last axes.
             || (self.on_surface() && from.on_surface())
     }
 
-    /// Whether a material's surface works out values of this type.
+    /// Whether a shader works out values of this type on a surface.
     pub fn on_surface(self) -> bool {
         matches!(
             self,
