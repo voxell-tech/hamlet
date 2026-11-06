@@ -16,7 +16,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         keep_notes(world);
         // The thread with its details open beside it.
         world.insert_resource(Showing::Thread);
-        world.insert_resource(hub::Sheet { open: true });
+        world.insert_resource(hub::Sheet::Details);
     }
     if matches!(
         scene,

@@ -32,7 +32,7 @@ use hamlet_ui::{View, with_cx};
 pub(crate) use self::gone::{of_agent, skills_screen};
 pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
-pub use self::rail::Rail;
+pub use self::rail::{Rail, Tab as RailTab};
 pub(crate) use self::thread::show_prompt;
 pub use self::thread::{Briefing, Sheet};
 use crate::convo::{Convo, seat};
@@ -64,6 +64,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<crate::forms::OpenForm>()
     .init_resource::<scholar::Form>()
     .init_resource::<Sheet>()
+    .add_systems(Update, hamlet_ui::widgets::tabs::mark::<Sheet>)
     .init_resource::<Papers>()
     .init_resource::<Briefing>()
     .init_resource::<Opened>()

@@ -24,12 +24,13 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, back_link, bad_action, bare, close, filling,
+    Fills, ICON, back_link, bad_action, bare, close, filling,
     hairline, lettered, note, scroll_area,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
+use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
 use super::{Showing, conversations, details, show};
@@ -40,14 +41,22 @@ use crate::models::Shelf;
 use crate::overview::tell;
 use crate::roll::rolled;
 use crate::screens::petition::{self, Need};
-use crate::status::Bar;
 use crate::world_menu::{self};
 
-/// Whether the thread has its details open beside it.
-#[derive(Resource, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Sheet {
-    pub open: bool,
+/// What the thread's page shows: its chat, or its details in the
+/// chat's place.
+#[derive(Resource, Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum Sheet {
+    #[default]
+    Chat,
+    Details,
 }
+
+/// The tabs between a thread's chat and its details.
+const SHEETS: [(Sheet, Glyph, &str); 2] = [
+    (Sheet::Chat, Glyph::Talk, "CHAT"),
+    (Sheet::Details, Glyph::Sliders, "DETAILS"),
+];
 
 /// The system prompt of an agent, as it was last read for the chief.
 #[derive(Resource, Default, PartialEq)]
@@ -399,18 +408,20 @@ fn state(agent: Entity) -> impl View {
 
 fn header(agent: Entity) -> impl View {
     built(move |cx| {
-        let sheet = action(Glyph::Sliders, "DETAILS", |world| {
-            let mut sheet = world.resource_mut::<Sheet>();
-            sheet.open = !sheet.open;
-        })
+        // Everything else that can be done to it, as a right click on
+        // it in the world offers: a new session, gifts, its prompt,
+        // stopping, roads, merging, ending.
+        let more = button(hamlet_ui::widgets::icons::glyph(
+            Glyph::More,
+            ICON,
+        ))
+        .padding(UiRect::axes(px(8.0), px(4.0)))
+        .rules(hamlet_ui::styles::button)
+        .tagged(Variant::Default)
         .tooltip(|| {
-            note("What it is, its memory and its side chats")
-        });
-        // Everything else that can be done to it, as a right click
-        // on it in the world offers.
-        // Everything else that can be done to it: a new session,
-        // gifts, its prompt, stopping, roads, merging, ending.
-        let more = action(Glyph::More, "MORE", move |world| {
+            note("A new session, its prompt, gifts, roads, ending it")
+        })
+        .on_activate(move |world| {
             let hall = hamlet_client::realm::first_mayor(world);
             let thing = if hall == Some(agent) {
                 Thing::Keeper
@@ -418,47 +429,47 @@ fn header(agent: Entity) -> impl View {
                 Thing::Agent(agent)
             };
             world_menu::open_for(world, thing);
-        })
-        .tooltip(|| {
-            note(
-                "A new session, its prompt, gifts, roads, ending \
-                 it...",
-            )
         });
-        // Which of its chats the page shows: this session, an
+        // Which of its chats the chat tab shows: this session, an
         // earlier one, its letters and questions, its workers.
-        let showing = row((
-            label("Showing").tone(Tone::Faint).wrap(false),
-            session_menu(),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center)
+        let sessions = keyed(
+            resource::<Sheet, _>(|sheet| *sheet == Sheet::Chat),
+            |chat| {
+                if *chat {
+                    session_menu().boxed()
+                } else {
+                    frame().boxed()
+                }
+            },
+        )
+        .within(bare())
         .tooltip(|| {
             note(
                 "Switch to an earlier session, its letters or \
                  questions with other agents, or a worker it started",
             )
         });
-        let (section, gap) =
-            (cx.theme().space.section, cx.theme().space.gap);
+        let gap = cx.theme().space.gap;
         cx.build(
-            // The path on its own line; its state, then what can be
-            // done, on the next.
+            // The path with its state; under it the tabs between the
+            // chat and the details, the one shown underlined, with
+            // what the chat tab shows and the rest at their end.
             column((
-                path(agent),
+                row((path(agent), frame().grow(1.0), state(agent)))
+                    .gap(gap)
+                    .align(AlignItems::Center)
+                    .tagged(Wraps),
                 row((
-                    state(agent),
-                    frame().grow(1.0),
-                    showing,
-                    sheet,
+                    column((tabs::strip(&SHEETS, |world, sheet| {
+                        *world.resource_mut::<Sheet>() = sheet;
+                    }),))
+                    .grow(1.0)
+                    .min_width(px(0.0)),
+                    sessions,
                     more,
                 ))
-                .gap(section)
-                .align(AlignItems::Center)
-                .tagged(Wraps),
-                note(resource::<Bar, _>(|b| {
-                    format!("{}  This chat: {}", b.model, b.usage)
-                })),
+                .gap(gap)
+                .align(AlignItems::Center),
             ))
             .gap(gap),
         )
@@ -762,7 +773,9 @@ pub(super) fn living() -> impl View {
             let agent = *agent;
             // The details take the chat's place while they are open.
             let body = keyed(
-                resource::<Sheet, _>(|sheet| sheet.open),
+                resource::<Sheet, _>(|sheet| {
+                    *sheet == Sheet::Details
+                }),
                 move |open| {
                     if *open {
                         details::sheet(agent).boxed()
@@ -875,7 +888,7 @@ mod tests {
     fn hub_app() -> App {
         let mut app = panel_app();
         app.add_plugins((chat::plugin, crate::hub::plugin));
-        app.init_resource::<Bar>();
+        app.init_resource::<crate::status::Bar>();
         app
     }
 
@@ -948,7 +961,7 @@ mod tests {
             Thing::Agent(ada),
         )))
         .insert_resource(Showing::Thread)
-        .insert_resource(Sheet { open: true });
+        .insert_resource(Sheet::Details);
         app.update();
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
@@ -1271,7 +1284,7 @@ mod tests {
         use serde_json::json;
         let mut app = ada_app();
         // The chat is under the details, so they are shut.
-        app.insert_resource(Sheet { open: false });
+        app.insert_resource(Sheet::Chat);
         let mut state = hamlet_testing::realm::state();
         state.agents.push(hamlet_testing::realm::agent(
             3, "home", 1, "scout",

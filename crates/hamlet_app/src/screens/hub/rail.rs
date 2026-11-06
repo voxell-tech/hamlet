@@ -14,19 +14,20 @@ use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
+use bevy::picking::Pickable;
 use bevy::picking::events::{
     PointerDrag, PointerDragEnd, PointerDragStart,
 };
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, ComputedNode, JustifyContent, Overflow,
-    UiGlobalTransform, UiRect, percent, px,
+    AlignItems, ComputedNode, Display, JustifyContent, Overflow,
+    PositionType, UiGlobalTransform, UiRect, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    self, Axis, BehaviorExt, FrameProps, TooltipExt, button,
-    checkbox, column, frame, label, row, segmented, text_field,
+    self, Axis, BehaviorExt, FrameProps, TooltipExt, button, column,
+    frame, label, row, text_field,
 };
 use bevy_fynix::{
     Dragging, OverrideCursor, ScopedExt, ViewExt, derived,
@@ -47,6 +48,8 @@ use hamlet_ui::styles::{
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::switch::labelled_switch;
+use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::{Showing, show};
@@ -83,10 +86,11 @@ const DEEPEST: u8 = 6;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Rail>()
+        .init_resource::<Tab>()
         .add_observer(grab)
         .add_observer(drag)
         .add_observer(drop)
-        .add_systems(Update, read_search);
+        .add_systems(Update, (read_search, tabs::mark::<Tab>));
 }
 
 /// The rail's search, what is folded, and its width.
@@ -98,9 +102,6 @@ pub struct Rail {
     folded: Vec<Group>,
     /// How wide the chief dragged it.
     width: f32,
-    /// Which of the realm's two parts it lists under the realm's own
-    /// rows and what waits.
-    tab: Tab,
     /// The hamlets left out of it; one with something waiting is
     /// shown whatever this says.
     hidden: Vec<Entity>,
@@ -108,9 +109,10 @@ pub struct Rail {
     filtering: bool,
 }
 
-/// The parts of the realm the rail lists, one at a time.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub(super) enum Tab {
+/// The part of the realm the rail lists under the realm's own rows
+/// and what waits, one at a time.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Tab {
     /// The hamlets, each the tree under its mayor, and the hires
     /// that left.
     #[default]
@@ -125,7 +127,6 @@ impl Default for Rail {
             search: String::new(),
             folded: Vec::new(),
             width: WIDE,
-            tab: Tab::Hamlets,
             hidden: Vec::new(),
             filtering: false,
         }
@@ -972,18 +973,19 @@ fn society(world: &World, sections: &mut Vec<Section>) {
 /// The rail's rows in their groups. A group with no row is left out;
 /// while searching every group is open and keeps only what matches.
 pub(super) fn sections(world: &World) -> Vec<Section> {
-    let (search, folded, tab, hidden) =
+    let (search, folded, hidden) =
         world.get_resource::<Rail>().map_or_else(
-            || (String::new(), Vec::new(), Tab::Hamlets, Vec::new()),
+            || (String::new(), Vec::new(), Vec::new()),
             |rail| {
                 (
                     rail.search.trim().to_lowercase(),
                     rail.folded.clone(),
-                    rail.tab,
                     rail.hidden.clone(),
                 )
             },
         );
+    let tab =
+        world.get_resource::<Tab>().copied().unwrap_or_default();
     let all = agents(world);
     let mut sections = Vec::new();
 
@@ -1154,93 +1156,148 @@ fn hamlet_names(world: &World) -> Vec<(Entity, String)> {
     found
 }
 
-/// The tabs between the hamlets and the city, and on the hamlets'
-/// a list with a box for each hamlet that shows or hides it.
-fn tabs_and_filter() -> impl View {
-    let tabs = segmented(
-        ["HAMLETS", "CITY"],
-        resource::<Rail, _>(|rail| match rail.tab {
-            Tab::Hamlets => 0,
-            Tab::City => 1,
-        }),
-        |world, at| {
-            world.resource_mut::<Rail>().tab =
-                if at == 0 { Tab::Hamlets } else { Tab::City };
-        },
-    );
-    let filter = keyed(
+/// The tabs between the hamlets and the city.
+const TABS: [(Tab, Glyph, &str); 2] = [
+    (Tab::Hamlets, Glyph::Hamlet, "HAMLETS"),
+    (Tab::City, Glyph::Notes, "CITY"),
+];
+
+/// An icon button of the search row.
+fn tool(
+    which: Glyph,
+    says: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    button(glyph(which, ICON))
+        .padding(UiRect::all(px(4.0)))
+        .rules(views::tint)
+        .tooltip(move || note(says))
+        .on_activate(act)
+        .boxed()
+}
+
+/// The search over the rail's rows, with a word in it while it is
+/// empty, and at its end the filter of the hamlets shown and a way to
+/// make what the tab lists.
+fn search_row() -> impl View {
+    let field = column((
+        text_field(String::new(), |_, _| {})
+            .width(percent(100.0))
+            .rules(text_input)
+            .tagged(Search),
+        // The word that stands in an empty field, which the pointer
+        // passes through to the field.
+        column((label("Search").tone(Tone::Faint).wrap(false),))
+            .position(PositionType::Absolute)
+            .inset(UiRect::new(px(8.0), Val::Auto, px(0.0), px(0.0)))
+            .justify(JustifyContent::Center)
+            .display(resource::<Rail, _>(|rail| {
+                if rail.search.is_empty() {
+                    Display::Flex
+                } else {
+                    Display::None
+                }
+            }))
+            .tagged(Pickable::IGNORE),
+    ))
+    .grow(1.0)
+    .min_width(px(0.0));
+    let tools =
+        keyed(resource::<Tab, _>(|tab| *tab), |tab| match tab {
+            Tab::Hamlets => row((
+                tool(
+                    Glyph::Sliders,
+                    "Choose which hamlets are shown",
+                    |w| {
+                        let mut rail = w.resource_mut::<Rail>();
+                        rail.filtering = !rail.filtering;
+                    },
+                ),
+                tool(Glyph::Plus, "Found a hamlet", |w| {
+                    crate::world_menu::ask_found(w);
+                }),
+            ))
+            .gap(2.0)
+            .boxed(),
+            Tab::City => tool(Glyph::Plus, "Make a scholar", |w| {
+                show(w, Showing::Home);
+                crate::forms::toggle(
+                    w,
+                    crate::forms::Asking::Scholar,
+                );
+            }),
+        })
+        .within(hamlet_ui::styles::bare());
+    with_cx(move |cx| {
+        row((
+            glyph(Glyph::Lens, ICON).tone(Tone::Faint),
+            field,
+            tools,
+        ))
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::Center)
+    })
+}
+
+/// A switch for each hamlet that shows or hides it, while the filter
+/// is open on the hamlets' tab.
+fn filter_list() -> impl View {
+    keyed(
         derived(|world: &World| {
             let rail = world.resource::<Rail>();
-            let on_hamlets = rail.tab == Tab::Hamlets;
-            let (open, hidden) =
-                (rail.filtering, rail.hidden.clone());
-            (on_hamlets, open, hidden, hamlet_names(world))
+            let open = rail.filtering
+                && world.get_resource::<Tab>().copied()
+                    == Some(Tab::Hamlets);
+            (open, rail.hidden.clone(), hamlet_names(world))
         })
         .when(every_frame()),
-        |(on_hamlets, open, hidden, names)| {
-            if !*on_hamlets || names.is_empty() {
+        |(open, hidden, names)| {
+            if !*open {
                 return frame().boxed();
             }
-            let shown = names.len()
-                - names
+            column(
+                names
                     .iter()
-                    .filter(|(h, _)| hidden.contains(h))
-                    .count();
-            let open = *open;
-            let toggle = button(
-                row((
-                    glyph(Glyph::Sliders, ICON).tone(Tone::Faint),
-                    label(format!(
-                        "Showing {shown} of {}",
-                        names.len()
-                    ))
-                    .tone(Tone::Dim)
-                    .wrap(false),
-                    glyph(Glyph::Chevron, 10.0)
-                        .tone(Tone::Faint)
-                        .rotation(if open { 180.0 } else { 90.0 }),
-                ))
-                .gap(6.0)
-                .align(AlignItems::Center),
+                    .cloned()
+                    .map(|(hamlet, name)| {
+                        labelled_switch(
+                            name,
+                            !hidden.contains(&hamlet),
+                            move |world, show| {
+                                let hidden = &mut world
+                                    .resource_mut::<Rail>()
+                                    .hidden;
+                                hidden.retain(|h| *h != hamlet);
+                                if !show {
+                                    hidden.push(hamlet);
+                                }
+                            },
+                        )
+                        .boxed()
+                    })
+                    .collect::<Vec<_>>(),
             )
-            .padding(UiRect::all(px(2.0)))
-            .rules(views::tint)
-            .tooltip(|| note("Choose which hamlets the rail shows"))
-            .on_activate(|world| {
-                let mut rail = world.resource_mut::<Rail>();
-                rail.filtering = !rail.filtering;
-            });
-            let mut parts = vec![toggle.boxed()];
-            if open {
-                for (hamlet, name) in names.iter().cloned() {
-                    let on = !hidden.contains(&hamlet);
-                    parts.push(
-                        row((
-                            checkbox(on).on_change(
-                                move |world, show| {
-                                    let hidden = &mut world
-                                        .resource_mut::<Rail>()
-                                        .hidden;
-                                    hidden.retain(|h| *h != hamlet);
-                                    if !show {
-                                        hidden.push(hamlet);
-                                    }
-                                },
-                            ),
-                            label(name).wrap(false),
-                        ))
-                        .gap(8.0)
-                        .align(AlignItems::Center)
-                        .padding(UiRect::left(px(CHEVRON)))
-                        .boxed(),
-                    );
-                }
-            }
-            column(parts).gap(4.0).boxed()
+            .gap(6.0)
+            .padding(UiRect::axes(px(CHEVRON), px(4.0)))
+            .boxed()
         },
     )
-    .within(hamlet_ui::styles::bare());
-    column((tabs, filter)).gap(6.0)
+    .within(hamlet_ui::styles::bare())
+}
+
+/// The tabs between the hamlets and the city, in the style of the
+/// panels' tabs, the search under them, and the hamlets to show.
+fn tabs_and_search() -> impl View {
+    with_cx(|cx| {
+        column((
+            tabs::strip(&TABS, |world, tab| {
+                *world.resource_mut::<Tab>() = tab;
+            }),
+            search_row(),
+            filter_list(),
+        ))
+        .gap(cx.theme().space.gap)
+    })
 }
 
 /// What pressing a row does.
@@ -1510,25 +1567,7 @@ fn header(section: &Section) -> AnyView {
 
 fn sections_view(sections: &[Section]) -> AnyView {
     let mut parts = Vec::new();
-    let mut tabbed = false;
     for section in sections {
-        // The tabs come after the realm's own rows and what waits,
-        // over the part of the realm they choose.
-        if !tabbed
-            && !matches!(section.group, Group::Top | Group::Needs)
-        {
-            parts.push(
-                column((tabs_and_filter(),))
-                    .padding(UiRect::new(
-                        px(0.0),
-                        px(0.0),
-                        px(10.0),
-                        px(4.0),
-                    ))
-                    .boxed(),
-            );
-            tabbed = true;
-        }
         if !section.title.is_empty() {
             parts.push(header(section));
         }
@@ -1537,38 +1576,56 @@ fn sections_view(sections: &[Section]) -> AnyView {
         }
         parts.extend(section.lines.iter().map(expanded));
     }
-    if !tabbed {
-        parts.push(tabs_and_filter().boxed());
-    }
     // No gap, so the guides of a tree run unbroken from row to row.
     column(parts).gap(0.0).boxed()
 }
 
-fn expanded_head() -> impl View {
-    with_cx(|cx| {
-        let gap = cx.theme().space.gap;
-        row((
-            glyph(Glyph::Lens, ICON).tone(Tone::Faint),
-            text_field(String::new(), |_, _| {})
-                .grow(1.0)
-                .min_width(px(0.0))
-                .rules(text_input)
-                .tagged(Search),
-        ))
-        .gap(gap)
-        .align(AlignItems::Center)
-    })
+/// Whether `section` is of the realm's own, over the tabs: the realm,
+/// the Hand, the library and what waits.
+fn is_over_tabs(section: &Section) -> bool {
+    matches!(section.group, Group::Top | Group::Needs)
 }
 
-/// The rail down the Hub's left side.
+/// The rail down the Hub's left side: the realm's own rows and what
+/// waits, then the tabs and the search, then the part of the realm
+/// the tab chooses. The rows are built anew as they change; the tabs
+/// and the search between them are not, so typing keeps its place.
 pub(super) fn view() -> impl View {
-    let body = keyed(
-        derived(|world: &World| sections(world)).when(every_frame()),
+    let over = keyed(
+        derived(|world: &World| {
+            sections(world)
+                .into_iter()
+                .filter(is_over_tabs)
+                .collect::<Vec<_>>()
+        })
+        .when(every_frame()),
         |sections| sections_view(sections),
     )
     .within(hamlet_ui::styles::bare());
+    let under = keyed(
+        derived(|world: &World| {
+            sections(world)
+                .into_iter()
+                .filter(|section| !is_over_tabs(section))
+                .collect::<Vec<_>>()
+        })
+        .when(every_frame()),
+        |sections| sections_view(sections),
+    )
+    .within(hamlet_ui::styles::bare());
+    let body = column((
+        over,
+        column((tabs_and_search(),)).padding(UiRect::new(
+            px(0.0),
+            px(0.0),
+            px(10.0),
+            px(4.0),
+        )),
+        under,
+    ))
+    .gap(0.0);
     with_cx(move |cx| {
-        column((expanded_head(), scroll_area((body,))))
+        column((scroll_area((body,)),))
             .gap(cx.theme().space.gap)
             .width(resource::<Rail, _>(|rail| px(rail.width)))
             .min_width(px(NARROWEST))

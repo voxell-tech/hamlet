@@ -37,10 +37,6 @@ use super::timeline::{Line, People, Who, timeline};
 use super::{AwayFromEnd, ChatScroll, bubble};
 use crate::convo::Convo;
 
-/// Messages are people talking, so they get the width of a readable
-/// line.
-const LINE: f32 = 760.0;
-
 /// The least width the conversation is laid out at. A panel
 /// narrower than this cuts it off.
 const LEAST: f32 = 240.0;
@@ -714,8 +710,7 @@ pub fn transcript() -> impl View {
         column(())
             .gap(GAP)
             .width(percent(100.0))
-            .min_width(px(LEAST))
-            .max_width(px(LINE)),
+            .min_width(px(LEAST)),
     );
     let said = scroll((
         note(resource::<Lines, _>(|l| {
