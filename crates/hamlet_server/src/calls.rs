@@ -32,7 +32,6 @@ use crate::oversight::gate::{
     self, Asked, Session, Standing, Verdict,
 };
 use crate::oversight::{self, Raise, Ruling, WaitKind};
-use crate::society::limits::{self, Limits};
 use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
 use crate::talk::{asking, conversations, inputs};
@@ -379,18 +378,17 @@ impl Core {
             .await;
     }
 
-    /// Reserves the call's key for its request; the reply to give
-    /// when the call cannot go on.
-    fn admit(
+    /// The call a runtime asked, with its key reserved for its
+    /// request; the reply to give when the call cannot go on.
+    fn admit<'a>(
         &mut self,
         index: usize,
         conversation: &str,
         key: &str,
-        input: Option<&str>,
-        tool: &str,
-        arguments: &BTreeMap<String, Value>,
-    ) -> Result<std::result::Result<(Conversation, Request), Answer>>
-    {
+        input: Option<&'a str>,
+        tool: &'a str,
+        arguments: &'a BTreeMap<String, Value>,
+    ) -> Result<std::result::Result<Call<'a>, Answer>> {
         let runtime = self.runtimes.list[index].id.clone();
         let db = self.realm.store().connection();
         let Some(kept) =
@@ -411,7 +409,17 @@ impl Core {
         )? {
             return Ok(Err(Answer::Refusal(IDENTITY.into())));
         }
-        Ok(Ok((kept, request)))
+        Ok(Ok(Call {
+            call: CallId {
+                runtime,
+                key: key.into(),
+            },
+            conversation: kept,
+            input,
+            tool,
+            arguments,
+            request,
+        }))
     }
 
     fn reply_of(&self, index: usize, re: &str) -> Reply {
@@ -429,7 +437,7 @@ impl Core {
         asked: runtime::Allow,
     ) -> Result<()> {
         let reply = self.reply_of(index, &asked.id);
-        let (conversation, request) = match self.admit(
+        let call = match self.admit(
             index,
             &asked.conversation,
             &asked.key,
@@ -437,22 +445,11 @@ impl Core {
             &asked.tool,
             &asked.arguments,
         )? {
-            Ok(admitted) => admitted,
+            Ok(call) => call,
             Err(answer) => {
                 self.tell_call(&reply, &asked.key, answer).await;
                 return Ok(());
             }
-        };
-        let call = Call {
-            call: CallId {
-                runtime: self.runtimes.list[index].id.clone(),
-                key: asked.key.clone(),
-            },
-            conversation,
-            input: asked.input.as_deref(),
-            tool: &asked.tool,
-            arguments: &asked.arguments,
-            request,
         };
         if call.tool != "object" && self.withdrawn(&call)? {
             self.tell_call(
@@ -498,7 +495,7 @@ impl Core {
         asked: runtime::Operation,
     ) -> Result<()> {
         let reply = self.reply_of(index, &asked.id);
-        let (conversation, request) = match self.admit(
+        let call = match self.admit(
             index,
             &asked.conversation,
             &asked.key,
@@ -506,22 +503,11 @@ impl Core {
             &asked.tool,
             &asked.arguments,
         )? {
-            Ok(admitted) => admitted,
+            Ok(call) => call,
             Err(answer) => {
                 self.tell_call(&reply, &asked.key, answer).await;
                 return Ok(());
             }
-        };
-        let call = Call {
-            call: CallId {
-                runtime: self.runtimes.list[index].id.clone(),
-                key: asked.key.clone(),
-            },
-            conversation,
-            input: asked.input.as_deref(),
-            tool: &asked.tool,
-            arguments: &asked.arguments,
-            request: request.clone(),
         };
         if self.calls.join(&call.call, &reply) {
             return Ok(());
@@ -531,7 +517,7 @@ impl Core {
         let answer = match marker::read::<Outcome>(
             db,
             call.call.identity(),
-            &request,
+            &call.request,
         )? {
             Marked::Begun => Some(Answer::Result(Outcome::thrown(
                 "tool_interrupted",
@@ -617,7 +603,7 @@ impl Core {
                         self.run_tool(
                             &call,
                             reply.clone(),
-                            request.clone(),
+                            call.request.clone(),
                             net,
                         )
                         .await?
@@ -630,7 +616,7 @@ impl Core {
             marker::settle(
                 db,
                 call.call.identity(),
-                &request,
+                &call.request,
                 &outcome,
                 crate::clock::now(),
             )?;
@@ -934,10 +920,7 @@ impl Core {
         let allow_net = self.env.settings.allow_net;
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();
-        let limits = match &at.hamlet {
-            Some(hamlet) => limits::of(db, hamlet)?,
-            None => Limits::default(),
-        };
+        let limits = society::limits_of(db, at.hamlet.as_ref())?;
         let (edit, command) = match chat_session(&call.conversation) {
             Some(session) => gate::trusted(db, session)?,
             None => (false, false),
@@ -1084,10 +1067,9 @@ impl Core {
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();
         let at = place::of(db, &layout, agent)?;
-        let most = match &at.hamlet {
-            Some(hamlet) => limits::of(db, hamlet)?.asking.questions,
-            None => Limits::default().asking.questions,
-        };
+        let most = society::limits_of(db, at.hamlet.as_ref())?
+            .asking
+            .questions;
         let mut asked =
             Asked::of(db, call.conversation.id, call.input)?;
         if asked.questions >= most {

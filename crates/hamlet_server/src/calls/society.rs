@@ -1014,7 +1014,7 @@ pub(super) fn task_chief(
     })
 }
 
-/// The limits of the hamlet `agent` works in.
+/// The limits of `hamlet`, or the defaults outside every hamlet.
 pub(super) fn limits_of(
     db: &mut hamlet_store::Db,
     hamlet: Option<&HamletId>,
