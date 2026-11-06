@@ -21,6 +21,12 @@ struct SurfaceIn {
     // The colour the mesh gives, its palette colour.
     color: vec4<f32>,
     time: f32,
+    // The position, the normal and the way to the camera in the
+    // mesh's own space, before it is moved, turned and scaled into
+    // the world.
+    local_position: vec3<f32>,
+    local_normal: vec3<f32>,
+    local_view: vec3<f32>,
 }
 
 // What a surface gives. Colours are linear.

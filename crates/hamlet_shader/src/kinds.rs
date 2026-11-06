@@ -96,6 +96,26 @@ const AT: PortSpec = PortSpec::new(
      unwired",
 );
 
+/// Which space a surface's position, normal or view is given in: the
+/// world's, or the mesh's own, which moves, turns and scales with it.
+const SPACE: PortSpec = PortSpec::new(
+    "space",
+    Choice,
+    "World: as placed in the world. Local: in the mesh's own space, \
+     so it moves, turns and scales with the mesh",
+)
+.initial(Initial::Choice("world"))
+.choices(&["world", "local"]);
+
+/// The field `field` of the surface read in the space the node's
+/// `space` names.
+fn in_space(emit: &Emit, field: &str) -> Result<String, Error> {
+    Ok(match emit.choice("space")?.as_str() {
+        "local" => format!("i.local_{field}"),
+        _ => format!("i.{field}"),
+    })
+}
+
 const WHITE: Vec4 = Vec4::new(1.0, 1.0, 1.0, 1.0);
 const BLACK: Vec4 = Vec4::new(0.0, 0.0, 0.0, 1.0);
 const GREY: Vec4 = Vec4::new(0.8, 0.8, 0.8, 1.0);
@@ -128,31 +148,36 @@ const INPUTS: &[ShaderKind] = &[
     ),
     kind(
         "position",
-        "Where the surface is, in the world",
-        &[],
+        "Where the surface is, in the world or in the mesh's own space",
+        &[SPACE],
         &[out("position", Vector3, "Where it is")],
         |emit| {
-            emit.put("position", Vector3, "i.position");
+            let code = in_space(emit, "position")?;
+            emit.put("position", Vector3, &code);
             Ok(())
         },
     ),
     kind(
         "normal",
-        "The way the surface faces, in the world",
-        &[],
+        "The way the surface faces, in the world or in the mesh's own \
+         space",
+        &[SPACE],
         &[out("normal", Vector3, "The way it faces")],
         |emit| {
-            emit.put("normal", Vector3, "i.normal");
+            let code = in_space(emit, "normal")?;
+            emit.put("normal", Vector3, &code);
             Ok(())
         },
     ),
     kind(
         "view direction",
-        "The way from the surface to the camera",
-        &[],
+        "The way from the surface to the camera, in the world or in \
+         the mesh's own space",
+        &[SPACE],
         &[out("view", Vector3, "Toward the camera")],
         |emit| {
-            emit.put("view", Vector3, "i.view");
+            let code = in_space(emit, "view")?;
+            emit.put("view", Vector3, &code);
             Ok(())
         },
     ),

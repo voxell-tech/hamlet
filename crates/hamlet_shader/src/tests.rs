@@ -69,7 +69,9 @@ struct UiVertexOutput {{ @location(0) uv: vec2<f32> }}
 @fragment
 fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {{
     let s = surface(SurfaceIn(in.uv, vec3<f32>(0.0), vec3<f32>(0.0, \
-         1.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), vec4<f32>(1.0), 0.0));
+         1.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), vec4<f32>(1.0), 0.0, \
+         vec3<f32>(0.0), vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, \
+         1.0)));
     if s.unlit > 2.0 {{ return s.base_color; }}
     {SPHERE}
 }}

@@ -22,6 +22,7 @@ pub fn surface_shader(compiled: &Compiled) -> String {
     pbr_functions::{{apply_pbr_lighting, \
          main_pass_post_lighting_processing}},
     forward_io::{{VertexOutput, FragmentOutput}},
+    mesh_functions::{{get_world_from_local, get_local_from_world}},
 }};
 
 {code}
@@ -33,8 +34,17 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) \
     @if(VERTEX_UVS_A) {{
         uv = in.uv;
     }}
+    let world_from_local = get_world_from_local(in.instance_index);
+    let to_local = mat3x3<f32>(world_from_local[0].xyz, \
+         world_from_local[1].xyz, world_from_local[2].xyz);
+    let local_from_world = get_local_from_world(in.instance_index);
+    let from_world = mat3x3<f32>(local_from_world[0].xyz, \
+         local_from_world[1].xyz, local_from_world[2].xyz);
     let i = SurfaceIn(uv, in.world_position.xyz, pbr_input.N, \
-         pbr_input.V, pbr_input.material.base_color, slots.v[0].x);
+         pbr_input.V, pbr_input.material.base_color, slots.v[0].x, \
+         (local_from_world * vec4<f32>(in.world_position.xyz, 1.0)).xyz, \
+         normalize(transpose(to_local) * pbr_input.N), \
+         normalize(from_world * pbr_input.V));
     let s = surface(i);
     pbr_input.material.base_color = s.base_color;
     pbr_input.material.perceptual_roughness = s.roughness;
@@ -91,7 +101,8 @@ pub(crate) const SPHERE: &str =
     let uv = vec2<f32>(atan2(n.x, n.z) / 6.2831853 + 0.5, \
      acos(clamp(-n.y, -1.0, 1.0)) / 3.1415927);
     let i = SurfaceIn(uv, n * 0.5, n, vec3<f32>(0.0, 0.0, 1.0), \
-     vec4<f32>(0.8, 0.8, 0.8, 1.0), slots.v[0].x);
+     vec4<f32>(0.8, 0.8, 0.8, 1.0), slots.v[0].x, n * 0.5, n, \
+     vec3<f32>(0.0, 0.0, 1.0));
     let c = preview(shown.x, i);
     let shade = 0.7 + 0.3 * max(dot(n, normalize(vec3<f32>(-0.4, \
      0.5, 0.8))), 0.0);
