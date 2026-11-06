@@ -307,12 +307,10 @@ pub(crate) fn carry(
                 .filter(input::conversation.eq(asker))
                 .filter(input::submission.eq(submission))
                 .select(input::status)
-                .first::<Option<String>>(cx.db)
+                .first::<Option<inputs::Status>>(cx.db)
                 .optional()?
                 .flatten()
-                .is_none_or(|status| {
-                    status != "done" && status != "unanswered"
-                }),
+                .is_none_or(|status| !status.is_ended()),
             None => false,
         };
     if waiting {
