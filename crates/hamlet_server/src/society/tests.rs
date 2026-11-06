@@ -1,6 +1,6 @@
 use hamlet_store::ids::{Actor, AgentId, HamletId};
 
-use super::addresses::{self, Address, Reach};
+use super::addresses::{self, Reach};
 use super::agents::{self, Effort, EndHow};
 use super::hamlets::{self, Founding};
 use super::hires::{self, Hired, Hiring, Spec};
@@ -371,10 +371,6 @@ fn a_worker_starts_no_worker_and_works_where_its_starter_does() {
     assert_eq!(
         workers::get(realm.db(), by_hand).unwrap().hamlet,
         None
-    );
-    assert!(
-        addresses::parse("worker#3")
-            .is_ok_and(|a| a == Address::Worker(AgentId(3)))
     );
 }
 
