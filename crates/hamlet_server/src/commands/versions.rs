@@ -82,7 +82,7 @@ impl Core {
             Err(refusal) => return Ok(Err(refusal)),
         };
         if *version == MAIN || repo.resolve(version)?.is_some() {
-            return Ok(Err(Refusal::BadVersion {
+            return Ok(Err(Refusal::VersionTaken {
                 version: (*version).into(),
             }));
         }

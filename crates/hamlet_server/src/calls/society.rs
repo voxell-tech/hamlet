@@ -657,7 +657,10 @@ impl Core {
                 let hamlet = match hires::find(db, hire)? {
                     Some(found) => found.hamlet,
                     None => {
-                        return Ok(Step::of(Err(Refusal::RoadEnds)));
+                        let name = addresses::name_of(db, hire)?;
+                        return Ok(Step::of(Err(Refusal::NotHire {
+                            name,
+                        })));
                     }
                 };
                 let name = self.name(hire)?;
@@ -788,7 +791,8 @@ impl Core {
         let caller = call.conversation.agent;
         let db = self.realm.store().connection();
         if agents::get(db, hire)?.kind != AgentKind::Hire {
-            return Ok(Err(Refusal::RoadEnds));
+            let name = addresses::name_of(db, hire)?;
+            return Ok(Err(Refusal::NotHire { name }));
         }
         if hire == caller
             || !authority::may_lead(db, Actor::Agent(caller), hire)?

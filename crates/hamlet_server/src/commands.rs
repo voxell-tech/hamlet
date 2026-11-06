@@ -1556,7 +1556,8 @@ impl Core {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         if agents::get(db, hire)?.kind != AgentKind::Hire {
-            return Ok(Err(Refusal::RoadEnds));
+            let name = addresses::name_of(db, hire)?;
+            return Ok(Err(Refusal::NotHire { name }));
         }
         if !authority::may_lead(db, Actor::Chief(chief), hire)? {
             let name = addresses::name_of(db, hire)?;
