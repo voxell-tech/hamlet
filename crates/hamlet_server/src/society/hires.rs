@@ -81,9 +81,6 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
             id: spec.hamlet.to_string()
         });
     }
-    if spec.purpose.trim().is_empty() {
-        refuse!(Refusal::NoPurpose);
-    }
     if count_living(cx.db, &spec.hamlet)? >= place.tier {
         refuse!(Refusal::HamletFull {
             id: spec.hamlet.to_string(),
@@ -170,6 +167,36 @@ pub(crate) fn find(db: &mut Db, id: AgentId) -> Result<Option<Hire>> {
 
 pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Hire> {
     find(db, id)?.with_context(|| format!("no hire {id}"))
+}
+
+/// How many letters of a first message a purpose keeps.
+const PURPOSE_KEPT: usize = 200;
+
+/// Gives `agent`, a hire hired without saying what for, the first
+/// line of `text`, the first message it is given, as its purpose.
+/// Anything else is left as it is.
+pub(crate) fn take_purpose(
+    cx: &mut Change<'_>,
+    agent: AgentId,
+    text: &str,
+) -> Result<()> {
+    let Some(found) = find(cx.db, agent)? else {
+        return Ok(());
+    };
+    if !found.purpose.trim().is_empty() {
+        return Ok(());
+    }
+    let line =
+        text.lines().map(str::trim).find(|line| !line.is_empty());
+    let Some(line) = line else {
+        return Ok(());
+    };
+    let purpose = line.chars().take(PURPOSE_KEPT).collect::<String>();
+    diesel::update(hire::table.find(agent))
+        .set(hire::purpose.eq(purpose))
+        .execute(cx.db)?;
+    cx.touched.agents.insert(agent);
+    Ok(())
 }
 
 /// The living hires of `hamlet`, by number.

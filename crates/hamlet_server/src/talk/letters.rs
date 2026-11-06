@@ -145,6 +145,11 @@ pub(crate) fn send(
     diesel::update(message::table.find(id))
         .set(message::input.eq(&request))
         .execute(cx.db)?;
+    crate::society::hires::take_purpose(
+        cx,
+        send.receiver,
+        send.text,
+    )?;
     cx.touched.agents.insert(send.receiver);
     cx.touched.agents.insert(send.sender);
     Ok(message::table

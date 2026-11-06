@@ -130,12 +130,21 @@ fn hire(
 ) -> Result<()> {
     let found = hires::get(db, id)?;
     let name = addresses::name_of(db, id)?;
-    lines.push(format!(
-        "You are `{name}`, a scholar of the city, hired into `{}` \
-         to {}",
-        found.hamlet,
-        found.purpose.trim_end_matches('.')
-    ));
+    // A hire hired without a purpose takes its first message as one.
+    let purpose = found.purpose.trim().trim_end_matches('.');
+    lines.push(if purpose.is_empty() {
+        format!(
+            "You are `{name}`, a scholar of the city, hired into \
+             `{}`.",
+            found.hamlet
+        )
+    } else {
+        format!(
+            "You are `{name}`, a scholar of the city, hired into \
+             `{}` to {purpose}",
+            found.hamlet
+        )
+    });
     let mayor = hires::is_mayor(db, id)?;
     match found.parent {
         Some(parent) => lines.push(format!(

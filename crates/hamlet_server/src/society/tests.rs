@@ -487,6 +487,48 @@ fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
 }
 
 #[test]
+fn a_hire_without_a_purpose_takes_its_first_message() {
+    let mut realm = Realm::new();
+    let mayor = realm.found("docs", "ada").agent;
+    let owner = realm.chief;
+    let bo = realm
+        .chief(|cx| {
+            hires::hire(
+                cx,
+                Spec {
+                    hamlet: docs(),
+                    parent: Some(mayor),
+                    hiring: new("bo"),
+                    purpose: String::new(),
+                    reason: String::new(),
+                    owner,
+                },
+            )
+        })
+        .unwrap()
+        .agent;
+    let env = Env {
+        settings: Settings::default(),
+        overrides: Overrides {
+            faux: true,
+            ..Overrides::default()
+        },
+    };
+    for (request, text) in
+        [("r1", "\nSort the shelves.\nThen rest."), ("r2", "Sweep.")]
+    {
+        realm
+            .chief(|cx| {
+                chats::say(cx, &env, bo, owner, request, text)?;
+                Ok(Ok(()))
+            })
+            .unwrap();
+    }
+    let purpose = hires::get(realm.db(), bo).unwrap().purpose;
+    assert_eq!(purpose, "Sort the shelves.");
+}
+
+#[test]
 fn an_agents_own_effort_wins_and_the_realms_fills_in() {
     let mut realm = Realm::new();
     let mayor = realm.found("docs", "ada").agent;

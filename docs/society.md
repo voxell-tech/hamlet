@@ -51,10 +51,13 @@ an existing scholar, of one at a version (`name@v3`), or of a new name, and
 of the scholar `mayor` when none is named; with no purpose it is there to run
 the hamlet. The
 hamlet's id is lowercase letters, digits and hyphens, never reused, even
-after erasure. `/hire <scholar>[@<version>] [under <address>] <purpose>`
+after erasure. `/hire <scholar>[@<version>] [under <address>] [purpose]`
 hires a scholar into the hamlet you are in, up to the hamlet's tier of 50,
 100, 200 or 500 (`/tier`); the same scholar can be hired more than once, and
-`name#3@hamlet` names the third hire when `name@hamlet` is not enough.
+`name#3@hamlet` names the third hire when `name@hamlet` is not enough. A hire
+a chief makes without a purpose takes the first line of the first message it
+is given, from the chief or by letter, as its purpose. An agent always says
+what it hires for.
 
 A hire's branch and lodge are its own. Its tools write the lodge, a turn that
 changed it is committed to the branch, and the diff against `main` is what it

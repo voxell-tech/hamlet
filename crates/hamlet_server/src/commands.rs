@@ -227,7 +227,7 @@ const TABLE: &[Command] = &[
     Command {
         name: "hire",
         usage: "/hire <scholar>[@<version>] [under <address>] \
-                <purpose>",
+                [purpose]",
         does: "Hire a scholar into this hamlet",
     },
     Command {

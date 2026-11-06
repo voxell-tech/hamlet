@@ -81,6 +81,9 @@ pub(crate) fn found(
     if find(cx.db, &id)?.is_some() {
         refuse!(Refusal::HamletUsed { id: id.to_string() });
     }
+    if founding.purpose.trim().is_empty() {
+        refuse!(Refusal::NoPurpose);
+    }
     // The mayor is set once its hire is made; the key is checked at
     // the commit.
     diesel::insert_into(hamlet::table)

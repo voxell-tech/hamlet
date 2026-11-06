@@ -927,7 +927,12 @@ impl Core {
             Some(&hamlet),
             overseer,
         )?;
+        // An agent says what it hires for; only a chief may leave it
+        // to the hire's first message.
         let purpose = text(call, "purpose");
+        if purpose.trim().is_empty() {
+            return Ok(Err(Refusal::NoPurpose));
+        }
         self.carry(call, |cx, env| {
             let hired = match hires::hire(
                 cx,

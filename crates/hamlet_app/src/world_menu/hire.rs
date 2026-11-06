@@ -194,8 +194,8 @@ fn list() -> impl View {
     .within(column(()))
 }
 
-/// The chief's command that hires the one chosen under `lead`. None
-/// until a scholar is chosen and its purpose given.
+/// The chief's command that hires the one chosen under `lead`, with
+/// its purpose if one is given. None until a scholar is chosen.
 fn command(world: &World, lead: Entity) -> Option<String> {
     let hiring = world.resource::<Hiring>();
     let scholar = hiring.chosen.as_ref()?;
@@ -204,11 +204,12 @@ fn command(world: &World, lead: Entity) -> Option<String> {
         .as_ref()
         .map(|version| format!("@{version}"))
         .unwrap_or_default();
-    let purpose = hiring.purpose.trim();
-    (!purpose.is_empty()).then(|| {
-        let under = agents::name_of(world, lead);
-        format!("/hire {scholar}{pinned} under {under} {purpose}")
-    })
+    let under = agents::name_of(world, lead);
+    let command = format!(
+        "/hire {scholar}{pinned} under {under} {}",
+        hiring.purpose.trim()
+    );
+    Some(command.trim_end().to_string())
 }
 
 /// The form a scholar is hired under `lead` with.
@@ -244,7 +245,8 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
             column((scroll_area((list(),)),)).max_height(px(LIST)),
             version(),
             styles::close((
-                section("What it is hired to do"),
+                // Left empty, its first message says it.
+                section("What it is hired to do (optional)"),
                 text_field(
                     bevy_fynix::resource::<Hiring, _>(|h| {
                         h.purpose.clone()
