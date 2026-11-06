@@ -339,7 +339,7 @@ mod tests {
         use crate::dock::designed;
 
         let mut app = panel_app();
-        app.insert_resource(Showing::Home);
+        app.insert_resource(Showing::Realm);
         let ada = agents::named(app.world_mut(), "home#0").unwrap();
         seat(app.world_mut(), ada);
         let mut tree = app.world_mut().resource_mut::<DockTree>();

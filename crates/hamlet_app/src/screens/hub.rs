@@ -1,5 +1,5 @@
 //! The Hub: a rail of the realm's agents and the page beside it,
-//! which is a thread, a scholar, a hamlet, the library or the home.
+//! which is a thread, a scholar, a hamlet, the library or the realm.
 
 mod conversations;
 mod details;
@@ -84,7 +84,7 @@ pub fn plugin(app: &mut App) {
 pub enum Showing {
     /// Every hamlet, and the Hand.
     #[default]
-    Home,
+    Realm,
     /// The chat with the agent the Hub is seated at.
     Thread,
     /// That agent's past sessions.
@@ -118,7 +118,7 @@ pub(crate) fn show(world: &mut World, showing: Showing) {
 fn page() -> impl View {
     keyed(resource::<Showing, _>(|showing| *showing), |showing| {
         match showing {
-            Showing::Home => overview::overview().boxed(),
+            Showing::Realm => overview::overview().boxed(),
             Showing::Scholar(scholar) => {
                 scholar::page(*scholar).boxed()
             }

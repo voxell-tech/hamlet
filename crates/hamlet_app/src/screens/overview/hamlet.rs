@@ -463,7 +463,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                     select(world, None);
                     crate::hub::show(
                         world,
-                        crate::hub::Showing::Home,
+                        crate::hub::Showing::Realm,
                     );
                 },
             ),

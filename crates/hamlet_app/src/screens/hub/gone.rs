@@ -51,7 +51,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 let place = hamlet.filter(|_| at == 1);
                 select(world, place.map(Thing::Common));
                 if place.is_none() {
-                    show(world, Showing::Home);
+                    show(world, Showing::Realm);
                 }
             },
         );
@@ -109,7 +109,7 @@ pub(super) fn library() -> impl View {
                 "THE LIBRARY",
                 |world, _| {
                     select(world, None);
-                    show(world, Showing::Home);
+                    show(world, Showing::Realm);
                 },
             ),
             title("THE LIBRARY"),

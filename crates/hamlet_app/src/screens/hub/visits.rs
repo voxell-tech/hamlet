@@ -128,7 +128,7 @@ fn stands(world: &World, visit: &Visit) -> bool {
 /// has a thing of its own.
 fn thing_of(world: &World, visit: &Visit) -> Option<Option<Thing>> {
     Some(match visit.showing {
-        Showing::Home => None,
+        Showing::Realm => None,
         Showing::Thread => {
             Some(crate::convo::home_of(world, visit.agent?))
         }
@@ -218,7 +218,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         let ada = realm::named(app.world_mut(), "home#0").unwrap();
-        app.insert_resource(Showing::Home)
+        app.insert_resource(Showing::Realm)
             .init_resource::<Sheet>()
             .init_resource::<Selected>()
             .init_resource::<hamlet_realm::pick::Also>();
@@ -237,7 +237,10 @@ mod tests {
         );
         travel(app.world_mut(), Way::Back);
         app.update();
-        assert_eq!(*app.world().resource::<Showing>(), Showing::Home);
+        assert_eq!(
+            *app.world().resource::<Showing>(),
+            Showing::Realm
+        );
         travel(app.world_mut(), Way::Forward);
         travel(app.world_mut(), Way::Forward);
         app.update();

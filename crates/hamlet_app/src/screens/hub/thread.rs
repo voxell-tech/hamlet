@@ -263,7 +263,7 @@ fn path(agent: Entity) -> impl View {
         let world = &*cx.world;
         let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
         let mut parts = vec![
-            step("Realm".into(), |world| show(world, Showing::Home))
+            step("Realm".into(), |world| show(world, Showing::Realm))
                 .boxed(),
         ];
         if let Some(hamlet) = hamlet {

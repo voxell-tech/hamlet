@@ -745,7 +745,7 @@ fn body(shown: &Shown) -> AnyView {
             breadcrumb(
                 vec!["Realm".into()],
                 name.clone(),
-                |world, _| show(world, Showing::Home),
+                |world, _| show(world, Showing::Realm),
             ),
             heading,
             head,

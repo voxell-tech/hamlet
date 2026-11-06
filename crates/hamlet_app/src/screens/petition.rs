@@ -205,7 +205,7 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
             crate::hub::show(world, Showing::Scholar(scholar));
         }
         (None, Some(agent)) => crate::convo::talk_to(world, agent),
-        (None, None) => crate::hub::show(world, Showing::Home),
+        (None, None) => crate::hub::show(world, Showing::Realm),
     }
 }
 

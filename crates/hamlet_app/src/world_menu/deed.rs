@@ -36,7 +36,7 @@ pub(crate) enum Deed {
         absorbed: Entity,
         kept: Entity,
     },
-    /// Closes down the hamlet of this name.
+    /// Closes down the hamlet of this id.
     Close(String),
     /// Deletes what is archived of an agent that left, for good.
     Erase(Entity),
@@ -52,7 +52,7 @@ pub(crate) enum Deed {
         session: Entity,
         entry: String,
     },
-    /// Ends the home's own charter, so the built-in one stands.
+    /// Ends the realm's own charter, so the built-in one stands.
     DefaultCharter,
 }
 
