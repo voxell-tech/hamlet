@@ -52,7 +52,7 @@ tunnel. The server runs for one chief, named for the account that runs it.
 Closing a client stops no work; end of input waits for that client's
 submissions and triggers no reflection.
 
-Windows has no sandbox yet, so a Windows server starts only in insecure
+Windows has no sandbox, so a Windows server starts only in insecure
 mode, which the chief asks for with `--insecure` on `hamlet`,
 `hamlet server` or `hamlet dev`. Agents' commands then reach whatever the
 account running the server can (C18). Linux and macOS refuse the flag

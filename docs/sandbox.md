@@ -7,7 +7,7 @@ Seatbelt on macOS. It holds the `Policy` of a command (what it may read,
 write and reach), the `Env` that carries out file operations and commands
 under it, the `Leftovers` a command leaves running, and `scrub`, which takes
 secrets out of what commands give back (C32). Startup probes the sandbox and
-refuses to serve if it cannot run. Windows has no sandbox yet, so a Windows
+refuses to serve if it cannot run. Windows has no sandbox, so a Windows
 server runs only in insecure mode, below. Linux needs `bwrap` and a
 kernel/host policy that allows its namespaces; installing the executable
 alone is not sufficient.
