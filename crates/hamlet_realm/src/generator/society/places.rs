@@ -269,7 +269,7 @@ impl Society {
         settled
     }
 
-    /// Founds a town on `site` and grows the island about it.
+    /// Founds a town on `site` and grows the hamlet island about it.
     fn found_on(&mut self, land: &mut Land, site: usize) -> TownId {
         let id = TownId(self.next_town);
         self.next_town += 1;

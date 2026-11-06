@@ -50,15 +50,15 @@ pub struct LandSettings {
     /// the scale of its noise and its height.
     pub hills: (f32, f32),
     pub grain: (f32, f32),
-    /// The island: how far its land reaches from the middle and from
-    /// every town, the wobble of its coast as the scale of its noise
-    /// and how far it reaches, and the depth under the water of the
-    /// floor off the shore and far out.
+    /// Each island: how far its land reaches from its middle and
+    /// from what stands on it, the wobble of its coast as the scale
+    /// of its noise and how far it reaches, and the depth under the
+    /// water of the floor off the shore and far out.
     pub island: f32,
     pub coast: (f32, f32),
     pub shelf: f32,
     pub sea_floor: f32,
-    /// The least and the most width of the skirt the island's rim
+    /// The least and the most width of the skirt an island's rim
     /// falls to the sea floor in: steep where narrow, gentle where
     /// wide.
     pub rim: (f32, f32),

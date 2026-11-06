@@ -209,8 +209,8 @@ pub struct GeneratorSettings {
     pub road: RoadSettings,
 }
 
-/// Tells the land which sites have towns, so that the island reaches
-/// about them.
+/// Tells the land which sites have towns, so that the hamlet island
+/// reaches about them.
 fn settle(society: Res<Society>, mut land: ResMut<Land>) {
     let settled = society.settled();
     if land.settled() != settled {

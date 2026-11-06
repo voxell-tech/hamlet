@@ -1,6 +1,6 @@
 // A page of the land, one texel to a point of a grid, as `land/terrain.rs`
 // has it: its height as `Land::height_wide` has it, with rolling plains,
-// flat-topped hills, town sites levelled, rivers cut, the island's coast
+// flat-topped hills, town sites levelled, rivers cut, each island's coast
 // falling to the sea floor and held ground kept level; and its share of
 // woods, as `forest` has it, and of heath. The two must give the same land,
 // so a change to one is a change to the other.
@@ -243,7 +243,7 @@ fn waterline(top: f32, bed: f32) -> f32 {
 }
 
 // How far `p` lies out to sea from the nearest waterline, in metres, below
-// zero on land, at most `SHORE_REACH` either way, where the island's
+// zero on land, at most `SHORE_REACH` either way, where an island's
 // skirt falls through the water. It is found from how far inside its
 // coast `p` lies, which grows about a metre to a metre, so it runs
 // smooth; the coast's raggedness is left out, and the plains taken as

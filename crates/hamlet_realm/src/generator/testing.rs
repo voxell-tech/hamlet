@@ -39,8 +39,8 @@ pub(crate) fn land(seed: u32) -> Land {
     Land::new(seed, still(), Palette::default())
 }
 
-/// [`land`] with a town on every site it has, so that the island
-/// reaches about all of them.
+/// [`land`] with a town on every site it has, so that the hamlet
+/// island reaches about all of them.
 pub(crate) fn settled_land(seed: u32) -> Land {
     let mut land = land(seed);
     land.settle(&(0..land.sites.len()).collect::<Vec<_>>());
