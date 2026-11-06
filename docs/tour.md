@@ -64,7 +64,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_realm` | The two islands, the city, the harbor, hamlets, houses, roads, robots, the Hand, the library, chief, sound and camera |
 | `hamlet_ui` | The widget kit: theme, styles, controls and their effects, with no client state |
 | `hamlet_vfx` | Visual effects |
-| `hamlet_testing` | Fixtures shared by tests: scratch folders, protocol values, faux scripts, the loopback OpenAI endpoint, and a server process on a scratch realm folder with a raw connection to it (`send`, `until`, `answers`) |
+| `hamlet_testing` | Fixtures shared by tests: scratch folders, protocol values, recorded sessions' server messages, faux scripts, the loopback OpenAI endpoint, and a server process on a scratch realm folder with a raw connection to it (`send`, `until`, `answers`) |
 | `hamlet_workspace` | The Linux remote-workspace worker |
 | `hamlet_workspace_wire` | The workspace protocol for both sides: one type per operation with its reply, error codes, limits, the walk order and the shared fixture |
 

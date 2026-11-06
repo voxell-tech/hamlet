@@ -118,7 +118,6 @@ impl Server {
         }
         let started = command
             .env("HAMLET_HOME", home)
-            .env("HAMLET_USER", "chief")
             .envs(env.iter().copied())
             .stdin(Stdio::null())
             .stdout(output.try_clone().unwrap())

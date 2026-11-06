@@ -41,7 +41,6 @@ impl Cli {
         let mut child = command
             .args(args)
             .env("HAMLET_HOME", home)
-            .env("HAMLET_USER", "chief")
             .envs(env.iter().copied())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

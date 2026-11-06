@@ -66,7 +66,7 @@ paths for bare `hamlet` and for `hamlet window`. `HAMLET_APP` can name a
 window built outside the repository's `target/` folder.
 
 The server keeps the agents' files; the window keeps its size, layout and
-look in `HAMLET_VIEW`, else the OS's config folder for Hamlet. Closing the
+theme in `HAMLET_VIEW`, else the OS's config folder for Hamlet. Closing the
 window ends only its process; agents keep working on the server. Stop
 `hamlet dev` with Ctrl-C when done.
 
@@ -117,7 +117,7 @@ npm test
 ```
 
 The acceptance suite in `crates/hamlet_acceptance` starts real server
-processes on scratch homes and drives them through the client protocol, so plain
+processes on scratch realms and drives them through the client protocol, so plain
 `cargo test` compiles none of it. It needs the built CLI and server,
 and `npm ci --prefix harnesses/pi`. It must be clean before a commit too. It never
 contacts a model server or the internet: models are faux, or a loopback
