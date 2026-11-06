@@ -6,7 +6,7 @@ use bevy::math::{Rect, Vec2};
 use bevy::ui::px;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, dropdown, frame, label, popup,
-    row, text_field,
+    row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
@@ -15,14 +15,13 @@ use hamlet_client::realm::{Deeds, Scholar, scholar_address};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     ICON, button, description, lettered, primary_button, section,
-    text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{View, built};
 
-use super::close;
+use super::{asks, close};
 use crate::chat;
 
 /// The name of a hamlet being founded, the scholar that is its mayor,
@@ -58,24 +57,6 @@ impl Founding {
             None => format!("/found {name} {purpose}"),
         })
     }
-}
-
-/// One line of the founding form: its question, and its field.
-fn asks(
-    what: &'static str,
-    read: fn(&Founding) -> &String,
-    write: fn(&mut Founding, String),
-) -> impl View {
-    hamlet_ui::styles::close((
-        section(what),
-        text_field(
-            resource::<Founding, _>(move |f| read(f).clone()),
-            move |world, text| {
-                write(&mut world.resource_mut::<Founding>(), text);
-            },
-        )
-        .rules(text_input),
-    ))
 }
 
 /// The scholars that can be the mayor: living ones, by name.
@@ -156,9 +137,13 @@ pub(super) fn founding(at: Vec2) -> impl View {
                 "It is built on the next free ground and gets its \
                  own mayor.",
             ),
-            asks("Its name", |f| &f.name, |f, text| f.name = text),
+            asks::<Founding>(
+                "Its name",
+                |f| &f.name,
+                |f, text| f.name = text,
+            ),
             mayor(),
-            asks(
+            asks::<Founding>(
                 "What it is for",
                 |f| &f.purpose,
                 |f, text| f.purpose = text,

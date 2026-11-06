@@ -12,7 +12,7 @@ mod road;
 mod search;
 
 use bevy::app::{App, Update};
-use bevy::ecs::component::Component;
+use bevy::ecs::component::{Component, Mutable};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
@@ -129,6 +129,25 @@ pub(crate) fn answer_ask(
 
 fn close(world: &mut World) {
     *world.resource_mut::<Open>() = Open::Nothing;
+}
+
+/// One line of a popup's form: the question `what` over a field of
+/// the text in resource `R` that `read` and `write` reach.
+fn asks<R: Resource<Mutability = Mutable>>(
+    what: &'static str,
+    read: fn(&R) -> &String,
+    write: fn(&mut R, String),
+) -> impl View {
+    hamlet_ui::styles::close((
+        hamlet_ui::styles::section(what),
+        bevy_fynix::views::text_field(
+            bevy_fynix::resource::<R, _>(move |r| read(r).clone()),
+            move |world, text| {
+                write(&mut world.resource_mut::<R>(), text);
+            },
+        )
+        .rules(hamlet_ui::styles::text_input),
+    ))
 }
 
 /// Stops what `agent` is doing now.
