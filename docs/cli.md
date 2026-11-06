@@ -35,12 +35,12 @@ CLI entry, so opening it also starts or reuses the server. Running
 | `hamlet stop` | Stops the realm's server and waits for it to close in order |
 | `hamlet status` | Reports whether the realm's server runs, with its address, process ID, start time and log path |
 | `hamlet server [--port <n>] [--faux <script.json>] [--insecure]` | Starts a server on a realm; a faux script answers offline for tests and demos |
-| `hamlet chat [--to <hand\|hamlet#number\|mayor@hamlet>]` | Chats with the Hand or the named agent and answers what waits, in the terminal |
+| `hamlet chat [--to <hand\|<hamlet>#<number>\|mayor@<hamlet>>]` | Chats with the Hand or the named agent and answers what waits, in the terminal |
 | `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot]` | Serves a scratch realm on a free port unless given one, and opens its window; `--hot` builds a window that reloads saved shaders and tuning files |
 | `hamlet window` | Opens a window connected to a running server |
 | `hamlet edit <charter\|limits\|settings> [--hamlet <id>]` | Opens the chief's document in `$EDITOR` and saves through the server; limits and settings are JSON, and `--hamlet` selects a hamlet's limits in place of the realm's |
 | `hamlet edit character <scholar#id>` | Opens a scholar's character; a hire's address works too, for its scholar's |
-| `hamlet edit memory <scholar#id\|hamlet#number> [path]` | Opens a memory file of a scholar's `main` or a hire's lodge, `notes.md` under `memory/` unless a path is given |
+| `hamlet edit memory <scholar#id\|<hamlet>#<number>> [path]` | Opens a memory file of a scholar's `main` or a hire's lodge, `notes.md` under `memory/` unless a path is given |
 | `hamlet login <provider> [--key]` | Gives a key or follows an offered sign-in |
 | `hamlet models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
 
@@ -52,7 +52,7 @@ tunnel. The server runs for one chief, named for the account that runs it.
 Closing a client stops no work; end of input waits for that client's
 submissions and triggers no reflection.
 
-Windows has no sandbox yet, so a Windows server starts only in insecure
+Windows has no sandbox, so a Windows server starts only in insecure
 mode, which the chief asks for with `--insecure` on `hamlet`,
 `hamlet server` or `hamlet dev`. Agents' commands then reach whatever the
 account running the server can (C18). Linux and macOS refuse the flag
@@ -71,8 +71,8 @@ versions of a scholar, the library, the record, the budget and what waits.
 The server parses commands; the terminal handles only `/hand`, `/hamlet` and
 `/agent` as address changes. `/hand` talks to the Hand, `/hamlet <hamlet>` to
 that hamlet's mayor, and `/agent` finds an agent anywhere in the realm by its
-address (`hand`, `hamlet#number`, `mayor@hamlet`, `worker#id`). The CLI replaces its realm view on whole states as well as
-applying changes. See [`society.md`](society.md) for the society and realm's
+address (`hand`, `<hamlet>#<number>`, `mayor@<hamlet>`, `worker#<id>`). The
+CLI replaces its realm view on whole states as well as applying changes. See [`society.md`](society.md) for the society and realm's
 surface, and the command table in [`spec/hamlet.md`](spec/hamlet.md#chiefs).
 
 ## The window
@@ -92,7 +92,7 @@ On macOS, Finder may not inherit the shell's Node PATH: run the bundle's
 
 The window has no realm claim and runs no agent. It finds a local server
 through the realm's `server.json` and connection token, or uses
-`HAMLET_SERVER` and `HAMLET_TOKEN`. Its own size, layout, chief's look and
+`HAMLET_SERVER` and `HAMLET_TOKEN`. Its own size, layout, chief's appearance and
 places live on its machine under `HAMLET_VIEW`, else the OS's config folder
 for Hamlet. It reads them once at launch: a missing file is the default,
 and one that does not parse stops it with an error naming the file, which

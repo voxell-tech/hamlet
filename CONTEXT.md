@@ -32,14 +32,26 @@ that a chief changes and that may repeat.
 _Avoid_: persona, profile, template, house
 
 **Hire**:
-A scholar working in a hamlet, on a branch of its own and in a lodge.
-Hires form a tree under the mayor.
+A scholar working in a hamlet, on a branch of its own and in a lodge, for a
+purpose a chief may leave out. Hires form a tree under the mayor.
 _Avoid_: member, employee, citizen
+
+**Address**:
+How a chief or an agent names an agent or a scholar, by ids and never by a
+name: `hand`, `mayor@<hamlet>`, `<hamlet>#<number>` (the mayor is 0),
+`worker#<id>`, `scholar#<id>`. Wherever an agent is shown, its address comes
+first and its name beside it.
+_Avoid_: handle, username
+
+**Name**:
+The words a scholar, a hamlet or a hire is shown by: a scholar's name, a
+hamlet's display name, a hire's nickname. Metadata a chief changes and that
+may repeat; it never finds anything.
 
 **Nickname**:
 What a hire is called in the world, given by a chief, the Hand or a lead
-above it. Its address, `hamlet#number`, stays the same.
-_Avoid_: alias, display name
+above it. Its address, `<hamlet>#<number>`, stays the same.
+_Avoid_: alias
 
 **Mayor**:
 The hire at the top of a hamlet's tree: the one the chief talks to first.
@@ -110,12 +122,16 @@ _Avoid_: home, world, server
 
 **City**:
 Where the scholars live, apart from any hamlet, each in a house the server
-sets down. In the world it is the **city island**, with the Hand's tower.
+sets down. In the world it is the **city island**, with the Hand's tower,
+the Library and the chief's Hearth.
 _Avoid_: town (for anything), guild
 
 **Hamlet island**:
 The island across the water where the hamlets stand.
 _Avoid_: mainland, the world
+
+**Hearth**:
+A chief's own house on the city island, where the chief's mascot lives.
 
 **Harbor**:
 The pier on each island, with a boat between them. A newcomer waits at the
@@ -206,8 +222,14 @@ _Avoid_: job, ticket
 
 **Wait**:
 A question or act held until a chief answers: a question, an objection, a
-tool call that needs a grant. Waits survive a restart.
+tool call that needs a grant, a newcomer to welcome. Waits survive a
+restart.
 _Avoid_: pending item, approval request
+
+**Petition**:
+A wait as the window shows it to a chief: in full, with the answers it
+takes, in the thread of the agent that asks and on a toast.
+_Avoid_: ticket, request
 
 **Grant**:
 A chief's allowing of an act that waits: once, for the session (trust), or
@@ -253,7 +275,8 @@ _Avoid_: workspace, layout
 
 **Hub**:
 The panel of the realm's agents: a rail of them by what they are doing,
-and beside it a thread, a scholar, a hamlet or the library.
+and beside it a thread, a scholar, a hamlet, the library or the page of
+every hamlet and the Hand.
 _Avoid_: inspector, sidebar
 
 **Toast**:

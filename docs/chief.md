@@ -46,8 +46,8 @@ eased into from the pose before it.
 ## Wickstep
 
 The magic is called **Wickstep**. The mascot goes out like a candle where
-it stands and is lit again somewhere else. Agents are bound to roads; the
-chief is not, and this is how that looks.
+it stands and is lighted again somewhere else. Agents are bound to roads;
+the chief is not, and this is how that is shown.
 
 When the chat is pointed at an agent and that agent is selected, the
 mascot goes to it. When nobody is selected any more it goes home. The

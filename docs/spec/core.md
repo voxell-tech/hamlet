@@ -233,7 +233,7 @@ call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
 line of a failure, and the notices meant only for people. Letters,
 questions and replies show their writer by its address with its name beside
-it (`docs#1 (Robb)`), `hand`, or `worker#id`; once a hire is erased, as its
+it (`docs#1 (Mira)`), `hand`, or `worker#id`; once a hire is erased, as its
 address alone. They are shown as agents' words,
 never as a chief's words that can be taken back.
 

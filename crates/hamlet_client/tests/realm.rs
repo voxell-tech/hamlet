@@ -4,20 +4,7 @@ use bevy_ecs::prelude::*;
 use hamlet_client::realm::*;
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
-
-fn frames(text: &str) -> Vec<protocol::ServerMessage> {
-    text.lines()
-        .filter_map(|line| {
-            let frame =
-                serde_json::from_str::<serde_json::Value>(line)
-                    .unwrap();
-            (frame["from"] == "server").then(|| {
-                serde_json::from_value(frame["message"].clone())
-                    .unwrap()
-            })
-        })
-        .collect()
-}
+use hamlet_testing::server_frames as frames;
 
 fn app() -> App {
     let mut app = App::new();

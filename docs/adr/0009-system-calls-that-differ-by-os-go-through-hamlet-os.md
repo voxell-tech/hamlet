@@ -15,8 +15,8 @@ without a C compiler, which the whole server cannot be.
 
 ## Considered options
 
-- `cfg` twins inside `papers/tree.rs` and `sandbox/env.rs`. The
-  smallest change, but platform code stays spread over three files and
+- `cfg` twins inside the files that need them. The smallest change, but
+  platform code stays spread over many files and
   nothing checks the Windows half until the whole server does.
 - A store trait inside `hamlet_server`, with one implementation per OS.
   A second seam beside `Files`, a type parameter or a trait object for

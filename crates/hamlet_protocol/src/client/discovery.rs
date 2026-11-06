@@ -1,5 +1,5 @@
 //! The server a client connects to: the one named by the environment,
-//! or the one running for the local home.
+//! or the one running for the local realm.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ impl fmt::Debug for ServerAddress {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// `HAMLET_SERVER` is set without `HAMLET_TOKEN`.
-    #[error("HAMLET_SERVER needs HAMLET_TOKEN, its home's token.")]
+    #[error("HAMLET_SERVER needs HAMLET_TOKEN, its realm's token.")]
     NoToken,
     /// Neither `HAMLET_HOME` nor the chief's home directory is set.
     #[error(
@@ -34,13 +34,13 @@ pub enum Error {
          and HAMLET_TOKEN."
     )]
     NoHomeDirectory,
-    /// The home's path cannot be made absolute.
+    /// The realm's path cannot be made absolute.
     #[error("{}: {error}", .home.display())]
     Unresolvable {
         home: PathBuf,
         error: std::io::Error,
     },
-    /// No server keeps a record in this home.
+    /// No server keeps a record in this realm's folder.
     #[error(
         "No server runs for {}. Start one with hamlet server.",
         .0.display()
@@ -66,7 +66,7 @@ pub enum Error {
 
 impl ServerAddress {
     /// The server named by the environment, or the one running for
-    /// the local home.
+    /// the local realm.
     pub fn find(
         vars: impl Fn(&str) -> Option<String>,
     ) -> Result<Self, Error> {
@@ -76,7 +76,7 @@ impl ServerAddress {
         }
     }
 
-    /// The server running for `home`.
+    /// The server running for the realm in the folder `home`.
     pub fn in_home(home: &Path) -> Result<Self, Error> {
         Running::read(home)?
             .ok_or_else(|| Error::NotRunning(home.to_owned()))?
@@ -89,7 +89,7 @@ impl ServerAddress {
 pub enum Chosen {
     /// `HAMLET_SERVER` with its `HAMLET_TOKEN`.
     At(ServerAddress),
-    /// The local home, whose server may start later.
+    /// The local realm's folder, whose server may start later.
     Home(PathBuf),
 }
 
@@ -106,8 +106,9 @@ pub fn choose(
     home(vars).map(Chosen::Home)
 }
 
-/// The absolute local home: `HAMLET_HOME`, else `.hamlet` in the
-/// chief's home directory. An empty variable is unset.
+/// The absolute folder of the local realm: `HAMLET_HOME`, else
+/// `.hamlet` in the chief's home directory. An empty variable is
+/// unset.
 pub fn home(
     vars: impl Fn(&str) -> Option<String>,
 ) -> Result<PathBuf, Error> {
@@ -124,7 +125,8 @@ pub fn home(
         .map_err(|error| Error::Unresolvable { home, error })
 }
 
-/// The record a running server keeps in its home, `server.json`.
+/// The record a running server keeps in its realm's folder,
+/// `server.json`.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Running {
     pub url: String,
@@ -138,7 +140,8 @@ pub struct Running {
 }
 
 impl Running {
-    /// The record of the server running for `home`, or `None` when no
+    /// The record of the server running in the folder `home`, or
+    /// `None` when no
     /// server keeps one there.
     pub fn read(home: &Path) -> Result<Option<Self>, Error> {
         let path = home.join("server.json");
@@ -161,7 +164,7 @@ impl Running {
             .ok_or_else(unreadable)
     }
 
-    /// This server's address, with the token of `home`.
+    /// This server's address, with the token of the realm in `home`.
     pub fn address(
         &self,
         home: &Path,

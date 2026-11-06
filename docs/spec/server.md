@@ -38,7 +38,7 @@ the library, a hamlet closing or coming back, and an agent leaving.
 
 **S6.** Everything a chief does goes to the server: typed lines and
 commands, answers to what waits, stopping, taking a conversation back, where
-a chief sets a town or a house down in the world, and edits to the charter,
+a chief sets a hamlet or a house down in the world, and edits to the charter,
 characters, memory, limits and settings.
 
 **S15.** Local chat links and pictures resolve on the window's machine,

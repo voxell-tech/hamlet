@@ -90,7 +90,7 @@ that runs every frame is also work that keeps the app from resting.
    like one line. Index by the entity or by the id the generator already
    keeps (`Drawn`).
 7. **Share handles.** One material and colours in the vertices let the
-   renderer batch a town's houses. A material per entity does not batch
+   renderer batch a hamlet's houses. A material per entity does not batch
    and is prepared one by one. The flags of one length wave with one
    material (`flag::Waving`).
 8. **Ask for a frame only for what is seen.** Something that moves on its

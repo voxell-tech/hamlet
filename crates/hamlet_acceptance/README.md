@@ -1,7 +1,7 @@
 # hamlet_acceptance
 
 The acceptance suite for Hamlet's server. Each scenario starts a server
-process on a scratch home and checks what it does from outside: through
+process on a scratch realm and checks what it does from outside: through
 the client protocol over the authenticated WebSocket, with `hamlet_protocol`'s
 generated types, and through the `hamlet` command. It checks behaviour
 only, never the server's insides. The default server is `hamlet server`.
@@ -39,9 +39,10 @@ The suite runs the command with `--port 0` and `--faux <file>`, or, for
 the scenarios that use the loopback endpoint, without `--faux` and with
 `HAMLET_MODEL` and `HAMLET_BASE_URL` set. Its environment is the suite's
 own with the ambient overrides named by `hamlet_testing::OVERRIDES`
-removed. It then sets `HAMLET_HOME` to a scratch folder, `HAMLET_USER=chief`
-and `HAMLET_REFLECT_EVERY=0` unless a scenario says otherwise. The server
-is ready when `<home>/server.json` names the process the suite started.
+removed. It then sets `HAMLET_HOME` to a scratch folder and
+`HAMLET_REFLECT_EVERY=0` unless a scenario says otherwise. The server
+is ready when `<realm folder>/server.json` names the process the suite
+started.
 Stdin is closed; stdout and stderr go to a log shown on failure.
 
 ## Faux scripts
@@ -63,7 +64,7 @@ endpoint, which bills a fixed price per answer.
 
 | File | Covers |
 |---|---|
-| `connection` | Token, version, hello order, malformed and oversized messages, shared changes, shutdown, one server per home. |
+| `connection` | Token, version, hello order, malformed and oversized messages, shared changes, shutdown, one server per realm. |
 | `city` | The empty realm, founding hamlets, the hire tree, removing, restoring and erasing scholars and hamlets, hamlet administration. |
 | `chats` | Answers, sessions, `/new`, `/resume`, `/retry`, `/stop`, `Rewind`, history, reflection. |
 | `oversight` | Network approvals and grants, manual and auto modes, `ask_chief`, objections. |
@@ -88,7 +89,7 @@ endpoint, which bills a fixed price per answer.
 the Hand's chats, a hire's approvals, reads and edits, sign-in, spend, file
 and skill gifts, letters and questions, leaving and merging, hamlets and
 roads, the library, and the questions and objections that wait for a chief.
-It uses scratch homes, faux responses and a loopback endpoint, never a live
+It uses scratch realms, faux responses and a loopback endpoint, never a live
 provider. Both wire directions are saved as JSONL; connection tokens and the
 fake sign-in key are redacted. IDs, timestamps and stream boundaries come
 from the running server.

@@ -1,6 +1,6 @@
 //! Fixtures shared by the crates' tests: scratch folders, protocol
-//! values, faux scripts, a loopback OpenAI endpoint and a server
-//! process on a scratch home.
+//! values, recorded sessions, faux scripts, a loopback OpenAI
+//! endpoint and a server process on a scratch realm.
 
 pub mod links;
 pub mod openai;
@@ -41,6 +41,25 @@ pub const OVERRIDES: &[&str] = &[
     "HAMLET_HARNESS_FAULT",
     "HAMLET_UNSAFE_TOOLS",
 ];
+
+/// The messages the server sent in a recorded session, one frame to
+/// a line, in order.
+pub fn server_frames(
+    recording: &str,
+) -> Vec<hamlet_protocol::client::ServerMessage> {
+    recording
+        .lines()
+        .filter_map(|line| {
+            let frame =
+                serde_json::from_str::<serde_json::Value>(line)
+                    .unwrap();
+            (frame["from"] == "server").then(|| {
+                serde_json::from_value(frame["message"].clone())
+                    .unwrap()
+            })
+        })
+        .collect()
+}
 
 /// Removes every one of [`OVERRIDES`] from `command`'s environment.
 pub fn strip_overrides(command: &mut Command) -> &mut Command {

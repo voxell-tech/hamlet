@@ -67,13 +67,13 @@ An address names an agent by ids and never by a name: `hand`, `mayor@<hamlet>`
 hamlet, the mayor being 0) and `worker#<id>`. A scholar is `scholar#<id>`.
 Wherever an agent is shown to an agent or a chief, a prompt, a notice, a
 letter's header or a tool's result, its address comes first and its name beside
-it, as `winterfell#3 (Robb)`: a hire's nickname, else its scholar's name.
+it, as `orchard#3 (Mira)`: a hire's nickname, else its scholar's name.
 Hands and leads see the scholars they may hire in their prompts, as
 `scholar#<id> (<name>)`, since a name finds nothing.
 
 A hire's branch and lodge are its own. Its tools write the lodge, a turn that
 changed it is committed to the branch, and the diff against `main` is what it
-learned, which the inspector shows. The hires of a hamlet form a tree under
+learned, which the Hub shows under a hire's memory. The hires of a hamlet form a tree under
 the mayor, no deeper than the depth limit. A hire with hires under it is a
 lead, with the mayor's powers over its subtree: it hires, creates scholars,
 ends and merges hires, chooses their models, turns tools off and sets
@@ -104,8 +104,8 @@ both kept across restarts. The task follows their work and charges, and a
 reply is delivered even when the message cap has been reached. Messages
 between hamlets are paid by the sender's hamlet.
 
-The inspector's AGENT CHATS page opens those conversations read-only,
-choosing letters or questions. Their authors are shown as agents, never as the
+An agent's session menu in the Hub opens those conversations read-only,
+one for each sender's letters and questions. Their authors are shown as agents, never as the
 chief. See [`chat.md`](chat.md) for paging and watches.
 
 ## Ending, merging and restoring

@@ -22,18 +22,19 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
                      [--insecure] [--hot]
        hamlet window
-       hamlet chat [--to <hand|hamlet#number|mayor@hamlet>]
+       hamlet chat [--to <hand|<hamlet>#<number>|mayor@<hamlet>>]
        hamlet edit <charter|limits|settings> [--hamlet <id>]
        hamlet edit character <scholar#id>
-       hamlet edit memory <scholar#id|hamlet#number> [path]
+       hamlet edit memory <scholar#id|<hamlet>#<number>> [path]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
 
 Bare hamlet starts or reuses a background server and opens a window.
 Closing a window stops no agent. hamlet stop stops the local server.
 dev builds the checkout's server and window and serves a scratch \
-                     home; Ctrl-C stops both. --hot builds a window \
-                     that reloads saved shaders and tuning files.
+                     realm; Ctrl-C stops both. --hot builds a \
+                     window that reloads saved shaders and tuning \
+                     files.
 server serves in the foreground; Ctrl-C stops it.
 --insecure, on Windows only, runs agents' commands with no sandbox.
 
@@ -121,9 +122,9 @@ fn parse(args: &[String]) -> Result<Command> {
                         "the path of a script"
                     }
                     "--home" if name == "dev" => {
-                        "the path of a scratch home"
+                        "the path of a scratch realm"
                     }
-                    "--to" if name == "chat" => "an agent's name",
+                    "--to" if name == "chat" => "an agent's address",
                     _ => return Err(unknown(flag)),
                 };
                 let value = flags.next().ok_or_else(|| {

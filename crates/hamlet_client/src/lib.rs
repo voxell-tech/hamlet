@@ -55,7 +55,7 @@ impl Plugin for ClientPlugin {
 #[derive(Resource, Clone)]
 pub struct Tokio(pub Handle);
 
-/// The folder for this window's layout, size and look.
+/// The folder for this window's layout, size and theme.
 #[derive(Resource, Clone, Debug)]
 pub struct ViewFolder(pub PathBuf);
 
