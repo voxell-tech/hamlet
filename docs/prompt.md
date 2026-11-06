@@ -42,7 +42,7 @@ name written there is never committed. A chief edits it on the scholar's
 hire's prompt reads it at the tip of its own branch, which began at `main` or
 at its pin.
 
-Settings has the Charter page. The inspector's CHARACTER tab shows the selected
+Settings has the Charter page. CHARACTER in the Hub's details sheet shows the
 agent's scholar's character. EDIT opens a local temporary Markdown copy, and
 each save sends an `edit` request to the server. Character filenames name the
 scholar, so kept copies can be identified. `hamlet edit character <scholar>`
@@ -60,12 +60,12 @@ An agent keeps its memory in its lodge, as files. Files at the root of
 `memory/` go into every prompt; a folder shows only the `description:` line at
 the top of its `MEMORY.md` until the agent reads it. Every memory file opens
 with such a front matter. A chief can read and edit a hire's memory or its
-scholar's: `hamlet edit memory <scholar|name@hamlet> [path]`, or the
-inspector. What a hire keeps stays on its branch until a dream brings it home
+scholar's: `hamlet edit memory <scholar|name@hamlet> [path]`, or MEMORY in
+the Hub. What a hire keeps stays on its branch until a dream brings it home
 to the scholar's `main` (see [`society.md`](society.md)).
 
 ## The whole prompt
 
 Prompt in an agent's right-click menu sends `read prompt`. The server uses the
-same prompt sections as a model request, and the inspector displays the
-returned text. The window reads no lodge or realm files to build it.
+same prompt sections as a model request, and the Hub displays the returned
+text. The window reads no lodge or realm files to build it.

@@ -237,6 +237,13 @@ built-in ones.
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs`, `index.rs` |
 | Gifts of skills and files, their upload in parts | `hamlet_client/src/gifts.rs`; dropped files reach it through `hamlet_realm/src/orders.rs` |
 | A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
+| The Hub: its rail, a thread, its details sheet, scholar and hamlet pages | `hamlet_app/src/screens/hub.rs`, `hub/` (`rail.rs`, `thread.rs`, `details.rs`, `scholar.rs`) |
+| Toasts that answer petitions in place | `hamlet_app/src/toasts.rs` |
+| The starting desk | `hamlet_app/src/dock.rs` |
+| The two islands, where the hamlet island lies | `hamlet_realm/src/generator/land.rs`, `land/`; [`islands.md`](islands.md) |
+| The city: the Hand's tower, scholars' houses, newcomers | `hamlet_realm/src/city.rs`, `city/`; the spots in `hamlet_server/src/society/city.rs` |
+| The piers, boats and the sea route | `hamlet_realm/src/harbor.rs`, `harbor/` |
+| What things are called in the world | `pick::Names` in `hamlet_realm/src/pick.rs`, the signs in `pick/signs.rs` |
 | Panels' colors, controls and icons | `assets/theme.toml`, `effects.toml`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
 | Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |

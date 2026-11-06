@@ -35,6 +35,11 @@ A scholar working in a hamlet, on a branch of its own and in a lodge.
 Hires form a tree under the mayor.
 _Avoid_: member, employee, citizen
 
+**Nickname**:
+What a hire is called in the world, given by a chief, the Hand or a lead
+above it. Its address stays its name.
+_Avoid_: alias, display name
+
 **Mayor**:
 The hire at the top of a hamlet's tree: the one the chief talks to first.
 Given to another hire with `/mayor`.
@@ -104,11 +109,16 @@ _Avoid_: home, world, server
 
 **City**:
 Where the scholars live, apart from any hamlet, each in a house the server
-sets down.
+sets down. In the world it is the **city island**, with the Hand's tower.
 _Avoid_: town (for anything), guild
 
+**Hamlet island**:
+The island across the water where the hamlets stand.
+_Avoid_: mainland, the world
+
 **Harbor**:
-Where a newcomer waits until it is let into the city.
+The pier on each island, with a boat between them. A newcomer waits at the
+city's until it is let into the city.
 
 **Newcomer**:
 A scholar a lead made, waiting at the harbor until a chief or the Hand lets
@@ -239,6 +249,16 @@ _Avoid_: trash, deleted agents
 A named arrangement of the window's panels. A chief keeps several and shows
 one at a time.
 _Avoid_: workspace, layout
+
+**Hub**:
+The panel of the realm's agents: a rail of them by what they are doing,
+and beside it a thread, a scholar, a hamlet or the library.
+_Avoid_: inspector, sidebar
+
+**Toast**:
+A card over the realm view that tells of something new, and answers a
+petition in place.
+_Avoid_: notification, popup
 
 **Town**:
 Only in the world's code: how a hamlet is drawn. Never in what a person

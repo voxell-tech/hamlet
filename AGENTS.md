@@ -14,8 +14,8 @@
   proposals for what is not built in [`docs/proposals/`](docs/proposals/).
 - [`CONTEXT.md`](CONTEXT.md) is the glossary: the words for Hamlet's
   concepts, and the ones to avoid.
-- [`docs/endless-world.md`](docs/endless-world.md) before touching the
-  ground, the sites or `crates/hamlet_realm/src/moving.rs`.
+- [`docs/islands.md`](docs/islands.md) before touching the ground, the
+  islands, the sites, the harbor or `crates/hamlet_realm/src/moving.rs`.
 - What is known and deliberately left for later is kept outside this
   repository, in `../hamlet_backlog/README.md` where that folder exists.
   Check it before reporting something as a new problem, and add to it when

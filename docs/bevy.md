@@ -168,7 +168,7 @@ where a signal reads from. The pattern that fits:
 > resource.
 
 `Lines`, `Bar`, `Card`, `Roll`, `petition::Queue` and
-`inspector::Papers` are built this way. A signal on `every_frame()` does
+`hub::Papers` are built this way. A signal on `every_frame()` does
 its whole read each frame, and a dock tab that is not in front still runs
 its signals. A read that has no resource of its own takes its check from
 `rolled`, `moved::<R>()` or `either(..)` in `roll.rs`.

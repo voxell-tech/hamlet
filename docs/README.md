@@ -31,7 +31,7 @@ Then read the page for the part you are about to touch.
 | [`cli.md`](cli.md) | The `hamlet` command: serving, stopping, chatting, editing, signing in, and finding the server and the window |
 | [`sandbox.md`](sandbox.md) | What an agent's tools can reach: the sandbox, the network, a folder a hamlet works on, manual and auto |
 | [`prompt.md`](prompt.md) | What an agent is told every turn: the charter, its character, its memory and skills, and how the chief reads and edits them |
-| [`endless-world.md`](endless-world.md) | The land with no edge, the ground everything stands on, founding and moving a town |
+| [`islands.md`](islands.md) | The city and hamlet islands, the harbor between them, the ground everything stands on, founding and moving a town |
 | [`robots.md`](robots.md) | How the robots move: their motions, blending, rolling on their wheels, and what one costs |
 | [`working-alone.md`](working-alone.md) | What a robot does in its yard while its agent works |
 | [`chief.md`](chief.md) | The chief in the world: the Hearth, the mascot and Wickstep |

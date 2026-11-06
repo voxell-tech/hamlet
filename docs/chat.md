@@ -26,7 +26,7 @@ one finishes its queue. History comes from `read history`; Read opens a
 numbered past conversation read-only, and Resume sends `/resume <n>`.
 Every conversation is kept. Search matches its title and who began it.
 
-AGENT CHATS in the inspector lists the selected agent's conversations with
+SIDE CHATS in the Hub's details sheet lists the agent's conversations with
 other agents, with their counts and last activity. Choosing letters or
 questions opens a reference with `from` and `kind`; without a kind the
 server selects letters. These watches have paging and live updates, but no

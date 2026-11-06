@@ -1,4 +1,4 @@
-//! The generated world alone (docs/endless-world.md):
+//! The generated world alone (docs/islands.md):
 //! towns, houses, robots and roads drawn from a made-up society, with
 //! keys to grow it and watch that nothing already built moves.
 //!

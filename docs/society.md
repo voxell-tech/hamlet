@@ -37,7 +37,7 @@ harbor, its hires working all the while. `/welcome` lets a scholar at the
 harbor in and `/turn-away` sends one back, undoing the Hand's verdicts.
 
 A chief reads and edits a scholar's character and memory through the
-inspector or `hamlet edit character <scholar>` and `hamlet edit memory`, and
+Hub or `hamlet edit character <scholar>` and `hamlet edit memory`, and
 each save is a commit on `main`. `/tag` names a version, `/versions` lists
 them, `/pin` holds a hire at one, `/revert` undoes a commit, `/fork` starts a
 new scholar from a version and `/purge` takes a path out of the whole history.
