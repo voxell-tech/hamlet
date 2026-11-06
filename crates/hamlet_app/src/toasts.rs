@@ -249,8 +249,9 @@ fn failed(
     );
 }
 
-/// The commands given from the world or a form rather than a chat,
-/// whose refusal would otherwise be said only in the Hand's chat.
+/// The commands the window made, from the world, a form or a button
+/// rather than typed in a chat, whose refusal would otherwise be said
+/// only in the chat they went to.
 #[derive(Resource, Default)]
 pub(crate) struct Decreed(HashSet<RequestId>);
 

@@ -292,9 +292,12 @@ pub(crate) fn command(world: &mut World, text: String) {
     }
 }
 
+/// Sends a command the window made, not one typed in a chat, so its
+/// refusal is toasted rather than said only in a chat.
 fn command_to(world: &mut World, agent: Entity, text: String) {
     if let Some(to) = agents::id_of(world, agent) {
         world.trigger(ChiefMessage { to, text });
+        crate::toasts::watch_last(world);
     }
 }
 
@@ -302,13 +305,9 @@ fn command_to(world: &mut World, agent: Entity, text: String) {
 /// [`command`] does when it is about no hamlet.
 pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
     let Decree { hamlet, text } = decree.event().clone();
-    commands.queue(move |world: &mut World| {
-        match hamlet {
-            Some(hamlet) => self::decree(world, &hamlet, text),
-            None => command(world, text),
-        }
-        // Given from the world, not a chat: a refusal is toasted.
-        crate::toasts::watch_last(world);
+    commands.queue(move |world: &mut World| match hamlet {
+        Some(hamlet) => self::decree(world, &hamlet, text),
+        None => command(world, text),
     });
 }
 
