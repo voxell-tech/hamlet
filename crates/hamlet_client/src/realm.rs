@@ -188,7 +188,7 @@ pub struct Faulted;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Paper {
     File,
-    Notes,
+    Memory,
     Skill,
 }
 
@@ -212,10 +212,12 @@ impl From<protocol::Doing> for Doing {
             protocol::Doing::Rest => Self::Unknown,
             protocol::Doing::Think => Self::Think,
             protocol::Doing::ReadFile => Self::Read(Paper::File),
-            protocol::Doing::ReadNotes => Self::Read(Paper::Notes),
+            protocol::Doing::ReadMemory => Self::Read(Paper::Memory),
             protocol::Doing::ReadSkill => Self::Read(Paper::Skill),
             protocol::Doing::WriteFile => Self::Write(Paper::File),
-            protocol::Doing::WriteNotes => Self::Write(Paper::Notes),
+            protocol::Doing::WriteMemory => {
+                Self::Write(Paper::Memory)
+            }
             protocol::Doing::WriteSkill => Self::Write(Paper::Skill),
             protocol::Doing::Run => Self::Run,
             protocol::Doing::Fetch => Self::Fetch,

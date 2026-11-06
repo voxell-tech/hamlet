@@ -57,10 +57,10 @@ pub(super) fn deed(doing: Doing) -> Option<&'static str> {
     Some(match doing {
         Doing::Unknown | Doing::Think => return None,
         Doing::Read(Paper::File) => "Reading a file",
-        Doing::Read(Paper::Notes) => "Reading its notes",
+        Doing::Read(Paper::Memory) => "Reading its memory",
         Doing::Read(Paper::Skill) => "Reading a skill",
         Doing::Write(Paper::File) => "Writing a file",
-        Doing::Write(Paper::Notes) => "Writing its notes",
+        Doing::Write(Paper::Memory) => "Writing its memory",
         Doing::Write(Paper::Skill) => "Writing a skill",
         Doing::Run => "Running a command",
         Doing::Fetch => "Reaching the network",

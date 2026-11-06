@@ -18,10 +18,10 @@ pub(crate) fn words(doing: &Doing) -> &'static str {
         Doing::Rest => "At rest",
         Doing::Think => "Thinking",
         Doing::ReadFile => "Reading a file",
-        Doing::ReadNotes => "Reading its notes",
+        Doing::ReadMemory => "Reading its memory",
         Doing::ReadSkill => "Reading a skill",
         Doing::WriteFile => "Writing a file",
-        Doing::WriteNotes => "Writing its notes",
+        Doing::WriteMemory => "Writing its memory",
         Doing::WriteSkill => "Writing a skill",
         Doing::Run => "Running a command",
         Doing::Fetch => "Fetching from the network",
@@ -242,7 +242,7 @@ fn doing_of(
         .unwrap_or_default()
         .to_lowercase();
     let (read, write) = if text.contains("memory/") {
-        (Doing::ReadNotes, Doing::WriteNotes)
+        (Doing::ReadMemory, Doing::WriteMemory)
     } else if text.contains("skills/") || text.contains("skill.md") {
         (Doing::ReadSkill, Doing::WriteSkill)
     } else {
@@ -269,7 +269,7 @@ fn doing_of(
             {
                 Doing::Fetch
             } else if text.contains("memory/") {
-                Doing::ReadNotes
+                Doing::ReadMemory
             } else {
                 Doing::Run
             }

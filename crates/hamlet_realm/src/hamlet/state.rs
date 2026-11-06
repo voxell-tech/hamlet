@@ -18,7 +18,7 @@ use crate::keeper::work::{self, Task, Work};
 fn work(activity: &Activity) -> Work {
     let paper = |p: Paper| match p {
         Paper::File => work::Paper::File,
-        Paper::Notes => work::Paper::Notes,
+        Paper::Memory => work::Paper::Memory,
         Paper::Skill => work::Paper::Skill,
     };
     Work {

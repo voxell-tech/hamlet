@@ -444,14 +444,14 @@ pub enum Doing {
     Think,
     #[serde(rename = "read-file")]
     ReadFile,
-    #[serde(rename = "read-notes")]
-    ReadNotes,
+    #[serde(rename = "read-memory")]
+    ReadMemory,
     #[serde(rename = "read-skill")]
     ReadSkill,
     #[serde(rename = "write-file")]
     WriteFile,
-    #[serde(rename = "write-notes")]
-    WriteNotes,
+    #[serde(rename = "write-memory")]
+    WriteMemory,
     #[serde(rename = "write-skill")]
     WriteSkill,
     #[serde(rename = "run")]

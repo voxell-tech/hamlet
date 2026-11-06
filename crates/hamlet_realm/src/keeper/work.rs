@@ -8,7 +8,7 @@ use super::pose::dice;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Paper {
     File,
-    Notes,
+    Memory,
     Skill,
 }
 
@@ -28,7 +28,7 @@ pub enum Task {
     Fetch,
     /// Using a tool added by hand.
     CustomTool,
-    /// Going over its session to bring its notes up to date.
+    /// Going over its session to bring its memory up to date.
     Reflect,
     /// Waiting for the answer of an agent it asked.
     Await,
@@ -54,9 +54,9 @@ pub enum Chore {
     Stand,
     /// Thinking, up and down its yard.
     Ponder,
-    /// Reading its notes.
+    /// Reading its memory.
     Study,
-    /// Writing its notes.
+    /// Writing its memory.
     Jot,
     /// Writing a file.
     Write,
@@ -145,7 +145,7 @@ impl Chore {
             Task::Read(Paper::Skill) => Self::Recall,
             Task::Read(_) => Self::Study,
             Task::Write(Paper::File) => Self::Write,
-            Task::Write(Paper::Notes) => Self::Jot,
+            Task::Write(Paper::Memory) => Self::Jot,
             Task::Write(Paper::Skill) => Self::Stow,
             Task::Run => Self::Run,
             Task::Fetch => Self::Fetch,
