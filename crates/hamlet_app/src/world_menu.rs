@@ -409,11 +409,10 @@ mod tests {
     }
 
     #[test]
-    fn the_first_mayors_menu_keeps_new_prompt_stop_and_undo() {
+    fn the_first_mayors_menu_keeps_new_stop_and_undo() {
         let mut app = app(realm::state());
 
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
-        assert!(words(&mut app).iter().any(|text| text == "Prompt"));
         // It asks first, as the Hub does.
         press(&mut app, "New Session...");
         app.update();

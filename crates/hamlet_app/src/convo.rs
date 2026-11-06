@@ -275,7 +275,7 @@ mod tests {
     use bevy_fynix::dock::DockTree;
 
     use super::*;
-    use crate::testing::{panel_app, press};
+    use crate::testing::panel_app;
 
     #[test]
     fn the_first_chat_watches_the_received_hand_and_sends_to_it() {
@@ -311,24 +311,13 @@ mod tests {
     }
 
     #[test]
-    fn a_menu_seats_the_agents_chat_and_the_hand_takes_it_back() {
+    fn talking_seats_the_agents_chat_and_the_hand_takes_it_back() {
         let mut app = panel_app();
-        app.init_resource::<crate::world_menu::Open>();
         let ada = agents::named(app.world_mut(), "ada@home").unwrap();
         let hand = agents::hand(app.world()).unwrap();
         let first = app.world().resource::<Convo>().session;
         assert_eq!(app.world().resource::<Convo>().agent, hand);
-        *app.world_mut().resource_mut::<crate::world_menu::Open>() =
-            crate::world_menu::Open::Menu(
-                Thing::Agent(ada),
-                bevy::math::Vec2::ZERO,
-            );
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            crate::world_menu::view(),
-        );
-        app.update();
-        press(&mut app, "Talk to ada@home");
+        talk_to(app.world_mut(), ada);
         let convo = app.world().resource::<Convo>();
         assert_eq!(convo.agent, ada);
         assert_eq!(convo.with.as_deref(), Some("ada@home"));

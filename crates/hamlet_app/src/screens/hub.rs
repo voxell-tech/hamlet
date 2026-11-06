@@ -33,7 +33,6 @@ pub(crate) use self::gone::{of_agent, skills_screen};
 pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
 pub use self::rail::{Rail, Tab as RailTab};
-pub(crate) use self::thread::show_prompt;
 pub use self::thread::{Briefing, Sheet};
 use crate::convo::{Convo, seat};
 use crate::dock::{HUB, PanelAppExt, highlight_panel, panel};

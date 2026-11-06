@@ -314,19 +314,22 @@ fn form_view(name: String) -> impl View {
 fn arrival(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
     let can = |deed| shown.allowed.contains(&deed);
-    let (glyph, words, tone) =
-        match (&shown.scholar.left, shown.scholar.arrival) {
-            (Some(_), _) => (Glyph::Gone, "Archived", Tone::Critical),
-            (None, protocol::Arrival::Housed) => {
-                (Glyph::Hamlet, "Lives in the city", Tone::Accent)
-            }
-            (None, protocol::Arrival::Waiting) => {
-                (Glyph::Bell, "Waits at the harbor", Tone::Critical)
-            }
-            (None, protocol::Arrival::Turned) => {
-                (Glyph::Gone, "Turned away at the harbor", Tone::Dim)
-            }
-        };
+    // Living in the city is what a scholar does, so only the rest
+    // is said.
+    let said = match (&shown.scholar.left, shown.scholar.arrival) {
+        (Some(_), _) => {
+            Some((Glyph::Gone, "Archived", Tone::Critical))
+        }
+        (None, protocol::Arrival::Housed) => None,
+        (None, protocol::Arrival::Waiting) => {
+            Some((Glyph::Bell, "Waits at the harbor", Tone::Critical))
+        }
+        (None, protocol::Arrival::Turned) => Some((
+            Glyph::Gone,
+            "Turned away at the harbor",
+            Tone::Dim,
+        )),
+    };
     let mut buttons_row = Vec::new();
     match (&shown.scholar.left, shown.scholar.arrival) {
         (Some(_), _) => {
@@ -378,12 +381,14 @@ fn arrival(shown: &Shown) -> AnyView {
             }
         }
     }
-    column((
-        status_label_large(glyph, words, tone),
-        buttons(buttons_row),
-    ))
-    .gap(6.0)
-    .boxed()
+    let mut parts = said
+        .map(|(glyph, words, tone)| {
+            status_label_large(glyph, words, tone).boxed()
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+    parts.push(buttons(buttons_row).boxed());
+    column(parts).gap(6.0).boxed()
 }
 
 /// The versions, each with what can be done from it.

@@ -20,7 +20,6 @@ use super::deed::Deed;
 use super::{Open, close, restore, stop};
 use crate::chat;
 use crate::convo::talk_to;
-use crate::hub::show_prompt;
 
 /// An agent of the hamlet that is not its mayor and has not left,
 /// with its name.
@@ -74,12 +73,6 @@ fn joined(world: &World, agent: Entity) -> Vec<(Entity, String)> {
     peers
 }
 
-fn talk_to_first_mayor(world: &mut World) {
-    if let Some(mayor) = agents::first_mayor(world) {
-        talk_to(world, mayor);
-    }
-}
-
 fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
 }
@@ -111,11 +104,6 @@ fn gifts(world: &World, agent: Entity, at: Vec2) -> Vec<AnyView> {
 
 fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
     let mut items = vec![
-        item("Talk to the Mayor".into(), talk_to_first_mayor),
-        item("Prompt".into(), |world| {
-            talk_to_first_mayor(world);
-            show_prompt(world);
-        }),
         item("Stop the Mayor".into(), |world| {
             if let Some(mayor) = agents::first_mayor(world) {
                 stop(world, mayor);
@@ -126,7 +114,7 @@ fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
         }),
     ];
     if let Some(mayor) = agents::first_mayor(world) {
-        items.insert(1, new_conversation(mayor));
+        items.insert(0, new_conversation(mayor));
         items.extend(gifts(world, mayor, at));
     }
     items
@@ -150,20 +138,11 @@ fn for_agent(
     at: Vec2,
 ) -> Vec<AnyView> {
     let name = |agent: Entity| agents::name_of(world, agent);
-    let mut items =
-        vec![item(format!("Talk to {}", name(agent)), move |w| {
-            talk_to(w, agent);
-        })];
-    items.push(new_conversation(agent));
+    // Selecting it already talks to it, and its prompt is among its
+    // details.
+    let mut items = vec![new_conversation(agent)];
     items.extend(gifts(world, agent, at));
-    items.push(item("Prompt".into(), move |w| {
-        talk_to(w, agent);
-        show_prompt(w);
-    }));
     items.push(focus(thing));
-    items.push(item("Follow".into(), move |w| {
-        focus_on(w, thing, true);
-    }));
     if world.get::<Busy>(agent).is_some() {
         items.push(item(format!("Stop {}", name(agent)), move |w| {
             stop(w, agent);
