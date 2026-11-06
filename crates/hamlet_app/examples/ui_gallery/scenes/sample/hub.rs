@@ -36,9 +36,6 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if scene == Scene::Hub {
         world.resource_mut::<hub::Rail>().show_rows();
     }
-    if scene == Scene::Desk {
-        world.resource_mut::<hub::Rail>().show_icons();
-    }
     if scene == Scene::Scholar {
         let scholar = hamlet_client::realm::scholar(
             world,

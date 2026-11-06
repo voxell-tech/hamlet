@@ -42,7 +42,7 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, focus_on, select};
 use hamlet_ui::styles::{
-    Fills, ICON, caption, hairline, note, scroll_area, text_input,
+    Fills, ICON, caption, note, scroll_area, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -54,15 +54,12 @@ use crate::convo::{Convo, talk_to, talk_to_hand};
 use crate::dock::{PETITIONS, show_tab};
 use crate::status::now_ms;
 
-/// The width of the rail with its rows at first, and with only their
-/// icons.
+/// The width of the rail at first, the least it is dragged to, so a
+/// row keeps its name, and the most.
 const WIDE: f32 = 248.0;
-const ICONS: f32 = 46.0;
-
-/// The width under which a dragged rail folds to its icons.
-const FOLDS: f32 = 140.0;
-/// The most the rail is wide, and the least it leaves the page.
+const NARROWEST: f32 = 200.0;
 const WIDEST: f32 = 520.0;
+/// The least the rail leaves the page beside it.
 const PAGE: f32 = 280.0;
 
 /// The most that left a rail shows.
@@ -71,9 +68,6 @@ const LEFT_SHOWN: usize = 6;
 /// The most letters of a line a row holds; the rail's width cuts it
 /// shorter.
 const LINE_SHOWN: usize = 90;
-
-/// How tall a cell is while the rail shows only icons.
-const ICON_ROW: f32 = 38.0;
 
 /// How tall a row is, so that the lines of a branch meet.
 const ROW: f32 = 40.0;
@@ -102,11 +96,8 @@ pub struct Rail {
     /// The parts folded to their header. A hamlet with something
     /// waiting opens whatever this says.
     folded: Vec<Group>,
-    /// How wide the chief dragged it; under [`FOLDS`] it shows only
-    /// icons.
+    /// How wide the chief dragged it.
     width: f32,
-    /// The width it unfolds to.
-    unfolded: f32,
 }
 
 impl Default for Rail {
@@ -116,7 +107,6 @@ impl Default for Rail {
             // The city is a long list the chief seldom needs.
             folded: vec![Group::City],
             width: WIDE,
-            unfolded: WIDE,
         }
     }
 }
@@ -125,30 +115,6 @@ impl Rail {
     /// Shows the rail's rows at its first width.
     pub fn show_rows(&mut self) {
         self.width = WIDE;
-    }
-
-    /// Folds the rail to its icons.
-    pub fn show_icons(&mut self) {
-        self.width = ICONS;
-    }
-
-    fn is_icons(&self) -> bool {
-        self.width < FOLDS
-    }
-
-    /// How wide the rail is drawn.
-    fn shown(&self) -> f32 {
-        if self.is_icons() { ICONS } else { self.width }
-    }
-
-    /// Folds the rail to its icons, or opens it to where it was.
-    fn fold(&mut self) {
-        if self.is_icons() {
-            self.width = self.unfolded;
-        } else {
-            self.unfolded = self.width;
-            self.width = ICONS;
-        }
     }
 
     /// Folds `group` to its header, or opens it.
@@ -171,7 +137,7 @@ pub(super) struct Frame;
 pub(super) struct Divider;
 
 /// The line between the rail and the page: dragged, it sizes the
-/// rail, which folds to its icons when dragged narrow enough.
+/// rail, between [`NARROWEST`] and [`WIDEST`].
 pub(super) fn divider() -> impl View {
     views::divider(Axis::Vertical)
         .rules(revealed_line)
@@ -218,23 +184,19 @@ fn drag(
     };
     let scale = node.inverse_scale_factor();
     let left = (place.translation.x - node.size().x * 0.5) * scale;
-    let most = (node.size().x * scale - PAGE).clamp(FOLDS, WIDEST);
+    let most =
+        (node.size().x * scale - PAGE).clamp(NARROWEST, WIDEST);
     let width = at.x - left;
-    rail.width = width.clamp(ICONS, most);
+    rail.width = width.clamp(NARROWEST, most);
 }
 
 fn drop(
     end: On<PointerDragEnd>,
     dividers: Query<(), With<Divider>>,
-    mut rail: ResMut<Rail>,
     mut cursor: ResMut<OverrideCursor>,
 ) {
-    if !dividers.contains(end.entity) {
-        return;
-    }
-    cursor.0 = None;
-    if !rail.is_icons() {
-        rail.unfolded = rail.width;
+    if dividers.contains(end.entity) {
+        cursor.0 = None;
     }
 }
 
@@ -1329,44 +1291,6 @@ fn expanded(line: &Line) -> AnyView {
         .boxed()
 }
 
-fn icon_only(line: &Line) -> AnyView {
-    let target = line.target;
-    let rules: fn(&mut Cx) = if line.current {
-        current_rules
-    } else {
-        row_rules
-    };
-    let mark: AnyView = match line.mark.shown() {
-        Some((which, tone)) => glyph(which, 10.0).tone(tone).boxed(),
-        None => frame().height(px(10.0)).boxed(),
-    };
-    let name = line.name.clone();
-    // Each icon in a cell of its own height, its mark centred under
-    // it, so no mark touches the icon below.
-    button(
-        column((
-            glyph(line.glyph, ICON + 2.0).tone(if line.current {
-                Tone::Accent
-            } else {
-                Tone::Body
-            }),
-            mark,
-        ))
-        .gap(3.0)
-        .width(percent(100.0))
-        .height(px(ICON_ROW))
-        .justify(JustifyContent::Center)
-        .align(AlignItems::Center),
-    )
-    .width(percent(100.0))
-    .height(px(ICON_ROW))
-    .tooltip(move || note(name.clone()))
-    .rules(rules)
-    .tagged(Variant::Default)
-    .on_activate(move |world| go(world, target))
-    .boxed()
-}
-
 /// A section's header: a chevron that folds it, its title, which
 /// opens its page where it has one, its count and its state.
 fn header(section: &Section) -> AnyView {
@@ -1423,65 +1347,19 @@ fn header(section: &Section) -> AnyView {
         .boxed()
 }
 
-fn sections_view(icons: bool, sections: &[Section]) -> AnyView {
+fn sections_view(sections: &[Section]) -> AnyView {
     let mut parts = Vec::new();
-    for (at, section) in sections.iter().enumerate() {
-        if icons {
-            if at > 0 {
-                parts.push(
-                    with_cx(|cx| hairline(cx.theme().palette.gold_6))
-                        .boxed(),
-                );
-            }
-            // Icons have no room for a tree: a hamlet is its own
-            // icon, marked with the state of all of it.
-            if let (Group::Hamlet(_), Some(target)) =
-                (section.group, section.opens)
-            {
-                parts.push(icon_only(&Line {
-                    target,
-                    glyph: Glyph::Hamlet,
-                    name: section.title.clone(),
-                    title: String::new(),
-                    age: String::new(),
-                    mark: section.mark,
-                    address: String::new(),
-                    depth: 0,
-                    last: true,
-                    current: false,
-                    fold: None,
-                    rails: Vec::new(),
-                }));
-                continue;
-            }
-        } else if !section.title.is_empty() {
+    for section in sections {
+        if !section.title.is_empty() {
             parts.push(header(section));
         }
         if section.folded {
             continue;
         }
-        for line in &section.lines {
-            parts.push(if icons {
-                icon_only(line)
-            } else {
-                expanded(line)
-            });
-        }
+        parts.extend(section.lines.iter().map(expanded));
     }
     // No gap, so the guides of a tree run unbroken from row to row.
     column(parts).gap(0.0).boxed()
-}
-
-/// The button over a rail folded to its icons that opens it to its
-/// rows again; dragging the line beside it does the same.
-fn unfold() -> impl View {
-    button(glyph(Glyph::Into, ICON))
-        .padding(UiRect::axes(px(8.0), px(0.0)))
-        .min_height(px(hamlet_ui::styles::CONTROL))
-        .tooltip(|| note("Show the names"))
-        .rules(hamlet_ui::styles::button)
-        .tagged(Variant::Default)
-        .on_activate(|world| world.resource_mut::<Rail>().fold())
 }
 
 fn expanded_head() -> impl View {
@@ -1502,32 +1380,19 @@ fn expanded_head() -> impl View {
 
 /// The rail down the Hub's left side.
 pub(super) fn view() -> impl View {
-    keyed(resource::<Rail, _>(Rail::is_icons), |icons| {
-        let icons = *icons;
-        let body = keyed(
-            derived(|world: &World| sections(world))
-                .when(every_frame()),
-            move |sections| sections_view(icons, sections),
-        )
-        .within(hamlet_ui::styles::bare());
-        let head: AnyView = if icons {
-            unfold().boxed()
-        } else {
-            expanded_head().boxed()
-        };
-        with_cx(move |cx| {
-            column((head, scroll_area((body,))))
-                .gap(cx.theme().space.gap)
-                .width(resource::<Rail, _>(|rail| px(rail.shown())))
-                .min_width(resource::<Rail, _>(|rail| {
-                    px(rail.shown())
-                }))
-                .shrink(0.0)
-                .fills_height()
-        })
-        .boxed()
+    let body = keyed(
+        derived(|world: &World| sections(world)).when(every_frame()),
+        |sections| sections_view(sections),
+    )
+    .within(hamlet_ui::styles::bare());
+    with_cx(move |cx| {
+        column((expanded_head(), scroll_area((body,))))
+            .gap(cx.theme().space.gap)
+            .width(resource::<Rail, _>(|rail| px(rail.width)))
+            .min_width(px(NARROWEST))
+            .shrink(0.0)
+            .fills_height()
     })
-    .within(hamlet_ui::styles::filling())
 }
 
 #[cfg(test)]

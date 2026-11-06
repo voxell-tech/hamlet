@@ -7,6 +7,7 @@
 //! Sooner, to catch what fades: the same with `--strike 12`
 //! Another size, or another picture of the world, shown whole:
 //! `--size 1600x900 --world <png>`
+//! A scene in a window to use by hand: `-- --scene hub --live`
 
 #[path = "../common/offscreen.rs"]
 mod offscreen;
@@ -286,7 +287,56 @@ fn main() {
         .iter()
         .find(|shot| shot.name == scene)
         .expect("a scene named in SHOTS");
+    if std::env::args().any(|arg| arg == "--live") {
+        live(shot);
+        return;
+    }
     draw(shot, out.join(format!("{}.png", shot.name)));
+}
+
+/// Opens the scene in a window of its own, to be used by hand: the
+/// same sample realm and layout as its still, with nothing taken.
+fn live(shot: &Shot) {
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: format!("Hamlet gallery: {}", shot.name),
+            resolution: bevy::window::WindowResolution::new(
+                shot.size.x,
+                shot.size.y,
+            ),
+            ..default()
+        }),
+        ..default()
+    }));
+    let world = std::fs::read(WORLD).ok().and_then(|bytes| {
+        Image::from_buffer(
+            &bytes,
+            ImageType::Extension("png"),
+            CompressedImageFormats::NONE,
+            true,
+            ImageSampler::linear(),
+            default(),
+        )
+        .ok()
+    });
+    if let Some(world) = world {
+        let world = app
+            .world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(world);
+        app.insert_resource(Stand(
+            world,
+            Rect::new(0.0, 150.0, 720.0, 850.0),
+        ));
+    }
+    // Nothing is pressed for it: the hand at the window does that.
+    app.insert_resource(Strike(u32::MAX))
+        .add_plugins(GalleryPlugin(shot.scene))
+        .add_systems(Startup, |mut commands: Commands| {
+            commands.spawn((Camera2d, IsDefaultUiCamera));
+        });
+    app.run();
 }
 
 fn draw(shot: &Shot, path: PathBuf) {
