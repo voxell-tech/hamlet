@@ -20,6 +20,7 @@ use hamlet_protocol::runtime::{
 };
 use hamlet_store::Db;
 use hamlet_store::schema::document;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::clients::check::reply;
@@ -900,8 +901,7 @@ impl Core {
                 "{provider}::{}",
                 model["id"].as_str().unwrap_or_default()
             );
-            let card = cards.entry(name.clone()).or_insert(Listed {
-                allowed: false,
+            let card = cards.entry(name.clone()).or_insert(Card {
                 context: None,
                 name,
                 note: String::new(),
@@ -984,6 +984,7 @@ impl Core {
                         |(provider, _)| reached(provider),
                     )
             })
+            .map(Card::listed)
             .collect();
         Ok(ServerMessage::Read(ReadResult::Models {
             to: id.clone(),
@@ -1015,9 +1016,6 @@ impl Core {
         let Some(card) = cards.get_mut(name) else {
             return Ok(Err(Refusal::NoModel { model: name.into() }));
         };
-        if let Some(allowed) = set.allowed {
-            card.allowed = allowed;
-        }
         if let Some(note) = set.note {
             card.note = self.credentials.scrub_text(&note);
         }
@@ -1061,8 +1059,30 @@ fn login_step(
     })
 }
 
+/// What the catalogue keeps of a model.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Card {
+    context: Option<i64>,
+    name: String,
+    note: String,
+    price: Option<ListedPrice>,
+    priced: ListedPriced,
+}
+
+impl Card {
+    fn listed(self) -> Listed {
+        Listed {
+            context: self.context,
+            name: self.name,
+            note: self.note,
+            price: self.price,
+            priced: self.priced,
+        }
+    }
+}
+
 /// The model catalogue: each model's card, by its name.
-type Catalogue = BTreeMap<String, Listed>;
+type Catalogue = BTreeMap<String, Card>;
 
 fn catalogue(db: &mut Db) -> Result<Catalogue> {
     let text = document::table

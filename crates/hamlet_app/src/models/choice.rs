@@ -9,7 +9,6 @@ use hamlet_client::realm::{Bylaws, Settings};
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{bare, close, description, group, section};
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{View, built};
 
 use super::{Shelf, edit};
@@ -28,11 +27,8 @@ fn offered(
     now: &str,
 ) -> Vec<String> {
     let mut names = vec![default.to_string()];
-    for name in models
-        .iter()
-        .filter(|model| model.allowed)
-        .map(|model| model.name.as_str())
-        .chain([now])
+    for name in
+        models.iter().map(|model| model.name.as_str()).chain([now])
     {
         if !names.iter().any(|known| known == name) {
             names.push(name.to_string());
@@ -147,67 +143,11 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
                 whole(world, hamlet, |limits| limits.model = chosen);
             },
         );
-        let choices = bevy_fynix::derived(move |world: &World| {
-            let models = world
-                .resource::<Shelf>()
-                .models
-                .iter()
-                .filter(|model| model.allowed)
-                .cloned()
-                .collect::<Vec<_>>();
-            let chosen = world
-                .get::<Bylaws>(hamlet)
-                .map(|limits| limits.0.models.clone())
-                .unwrap_or_default();
-            (models, chosen)
-        })
-        .when(either(moved::<Shelf>(), hamlets_moved()));
-        let rows = keyed(choices, move |(models, chosen)| {
-            if models.is_empty() {
-                return description(
-                    "The home allows no model besides its default \
-                     yet. Allow some under Models in Settings.",
-                )
-                .boxed();
-            }
-            close(
-                models
-                    .iter()
-                    .map(|model| {
-                        let name = model.name.clone();
-                        labelled_switch(
-                            model.name.clone(),
-                            chosen.contains(&name),
-                            move |world, on| {
-                                whole(world, hamlet, |limits| {
-                                    limits.models.retain(|known| {
-                                        known != &name
-                                    });
-                                    if on {
-                                        limits
-                                            .models
-                                            .push(name.clone());
-                                    }
-                                });
-                            },
-                        )
-                        .boxed()
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .boxed()
-        })
-        .within(bare());
         cx.build(group((
             crate::overview::heading(
                 Glyph::Chip,
-                "MODELS THIS HAMLET MAY RUN",
+                "MODEL THIS HAMLET RUNS",
             ),
-            description(
-                "The mayor picks from the switched-on models. The \
-                 default model is always allowed.",
-            ),
-            rows,
             super::problem(),
             close((section("Its default model"), default)),
             description(

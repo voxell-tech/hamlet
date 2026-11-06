@@ -279,11 +279,11 @@ live. Otherwise it is refused, naming them.
 and why. What it waited for lapses and what it was granted is taken back; if
 it comes back, it asks again.
 
-**H29.** A hire runs the model chosen for it, by a chief or by a lead from
-the models the chief allows the hamlet, else the hamlet's own model, else the
-realm's default. A lead may not change a chief's choice. Each choice is kept
-in the record with its reason. A worker runs its starter's model unless it
-was given one.
+**H29.** A hire runs the model chosen for it, by a chief or by a lead, else
+the hamlet's own model, else the realm's default. Every model of every
+configured provider may be chosen. A lead may not change a chief's choice.
+Each choice is kept in the record with its reason. A worker runs its
+starter's model unless it was given one.
 
 **H29a.** How hard an agent's model thinks (off, minimal, low, medium or
 high) is the hire's own effort when set, else the realm's `effort` setting,

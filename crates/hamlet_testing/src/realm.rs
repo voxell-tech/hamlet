@@ -52,7 +52,7 @@ pub fn hamlet(id: &str, mayor: u64) -> protocol::Hamlet {
             "task": {"messages": 12, "cost": 1, "minutes": null},
             "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
             "reserved": {"hire": false, "roads": false, "end": false, "merge": false},
-            "models": [], "model": null, "depth": 3, "toldDays": 7, "protectedMinutes": 0,
+            "model": null, "depth": 3, "toldDays": 7, "protectedMinutes": 0,
             "asking": {"review": "remote", "questions": 3, "refusals": 3}
         }
     })).unwrap()

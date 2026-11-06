@@ -34,11 +34,7 @@ fn catalogue_edits_preserve_missing_null_and_assigned_prices() {
             ClientMessage::Edit(Edit::Catalogue {
                 id: id(),
                 model: "faux/test".into(),
-                set: EditCatalogueSet {
-                    allowed: None,
-                    price,
-                    note: None,
-                },
+                set: EditCatalogueSet { price, note: None },
             }),
             json!({"type": "edit", "id": ID, "doc": "catalogue", "model": "faux/test", "set": set}),
         );
@@ -286,12 +282,11 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
             id: id(),
             model: "faux/test".into(),
             set: EditCatalogueSet {
-                allowed: Some(true),
                 price: None,
                 note: Some("Local".into()),
             },
         }),
-        json!({"type": "edit", "id": ID, "doc": "catalogue", "model": "faux/test", "set": {"allowed": true, "note": "Local"}}),
+        json!({"type": "edit", "id": ID, "doc": "catalogue", "model": "faux/test", "set": {"note": "Local"}}),
     );
 }
 
@@ -449,7 +444,7 @@ fn limits_wire() -> Value {
         "task": {"messages": 12, "cost": 1.0, "minutes": 20},
         "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
         "reserved": {"hire": false, "roads": true, "end": false, "merge": true},
-        "models": ["faux/test"], "model": null, "depth": 3, "toldDays": 7, "protectedMinutes": 0,
+        "model": null, "depth": 3, "toldDays": 7, "protectedMinutes": 0,
         "asking": {"review": "remote", "questions": 3, "refusals": 3}
     })
 }
@@ -567,7 +562,6 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
     assert_eq!(state.agents[1].activity.doing, Doing::ReadFile);
     assert_eq!(state.hamlets[0].mayor, AgentId(2));
     assert_eq!(state.scholars[0].hires, [AgentId(2)]);
-    assert_eq!(state.hamlets[0].limits.models, ["faux/test"]);
     assert_eq!(
         state.hamlets[0].budget.remains.as_deref(),
         Some("$3.75 left")

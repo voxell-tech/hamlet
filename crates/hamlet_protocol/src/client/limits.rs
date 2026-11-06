@@ -16,8 +16,6 @@ pub struct Limits {
     /// The hamlet's own model, else the realm's.
     #[serde(deserialize_with = "Option::deserialize")]
     pub model: Option<String>,
-    /// The models its leads may choose; empty is any.
-    pub models: Vec<String>,
     /// How long after a chief's task a lead may not end or merge the
     /// hire (H7).
     #[serde(rename = "protectedMinutes")]

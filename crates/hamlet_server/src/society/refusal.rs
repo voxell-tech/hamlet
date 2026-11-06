@@ -143,8 +143,6 @@ pub(crate) enum Refusal {
         "a chief chose `{name}`'s model; only a chief may change it"
     )]
     ChiefChose { name: String },
-    #[error("the chief does not allow the model `{model}` here")]
-    ModelNotAllowed { model: String },
     #[error(
         "the hamlet `{id}` holds {count} hires, more than {tier}"
     )]

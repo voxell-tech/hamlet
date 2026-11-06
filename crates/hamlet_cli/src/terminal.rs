@@ -129,13 +129,8 @@ async fn models(
                     format!("\t{}", model.note)
                 };
                 println!(
-                    "{}\t{price}\t{context} context\t{}{note}",
-                    model.name,
-                    if model.allowed {
-                        "allowed"
-                    } else {
-                        "not allowed"
-                    }
+                    "{}\t{price}\t{context} context{note}",
+                    model.name
                 );
             }
         }

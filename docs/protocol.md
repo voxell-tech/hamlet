@@ -164,7 +164,7 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 | `limits` | `hamlet?: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
 | `limits` | `hamlet?: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
 | `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; the `efforts` limit sets it for one agent. `newcomers` says who lets a scholar an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank scholar starts from, at most 4000 characters. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
-| `catalogue` | `model: string`, `set: {allowed?: boolean, price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. |
+| `catalogue` | `model: string`, `set: {price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. |
 
 ### Read documents
 
@@ -174,7 +174,7 @@ Each row is a `Read` form with `type: "read"` and `id`.
 |---|---|---|
 | `prompt` | `agent: AgentId` | `prompt: string`: the composed prompt. |
 | `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
-| `models` | `refresh?: boolean` | `models: Listed[]`: name, price, price source, context size, allowed flag and note. `refresh` refreshes discovery. |
+| `models` | `refresh?: boolean` | `models: Listed[]`: name, price, price source, context size and note. `refresh` refreshes discovery. |
 | `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's lodge `learned` against its scholar, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
 

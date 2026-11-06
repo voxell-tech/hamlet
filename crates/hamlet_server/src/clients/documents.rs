@@ -828,7 +828,6 @@ fn limits_of(shown: &protocol::Limits) -> Limits {
             end: shown.reserved.end,
             merge: shown.reserved.merge,
         },
-        models: shown.models.clone(),
         model: shown.model.clone(),
         depth: shown.depth,
         told_days: shown.told_days,

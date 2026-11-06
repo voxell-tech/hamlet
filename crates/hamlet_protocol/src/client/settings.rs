@@ -155,7 +155,6 @@ pub struct ProviderView {
 )]
 #[serde(deny_unknown_fields)]
 pub struct Listed {
-    pub allowed: bool,
     #[serde(deserialize_with = "Option::deserialize")]
     pub context: Option<i64>,
     pub name: String,

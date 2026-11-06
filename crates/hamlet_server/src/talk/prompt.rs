@@ -525,12 +525,6 @@ fn budget(
                 ));
             }
         }
-        if !own.models.is_empty() {
-            lines.push(format!(
-                "Models a lead may choose: {}.",
-                own.models.join(", ")
-            ));
-        }
     }
     let words = lines.join("\n");
     if let Some(submission) = submission {

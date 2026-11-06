@@ -147,10 +147,6 @@ pub struct EditSettingsSetWorkspace {
 pub struct EditCatalogueSet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "bool")]
-    pub allowed: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -474,15 +474,6 @@ pub(crate) fn set_model(
             name: super::addresses::name_of(cx.db, id)?
         });
     }
-    if let Some(model) = model {
-        let allowed = limits::of(cx.db, &hire.hamlet)?.models;
-        if !allowed.is_empty() && !allowed.iter().any(|m| m == model)
-        {
-            refuse!(Refusal::ModelNotAllowed {
-                model: model.into()
-            });
-        }
-    }
     diesel::update(hire::table.find(id))
         .set((
             hire::model.eq(model),
