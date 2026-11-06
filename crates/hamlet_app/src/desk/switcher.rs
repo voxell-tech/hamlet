@@ -59,7 +59,6 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::theme::{HamletTheme, Themed};
 use hamlet_ui::widgets::effects::EffectSettings;
-use hamlet_ui::widgets::fade::{FadeSurface, ScrollFade};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
@@ -250,9 +249,6 @@ pub(crate) fn switcher() -> impl View {
             .height(percent(100.0))
             .shrink(1.0)
             .tagged(OwnScrollbar(hidden))
-            .tagged(ScrollFade {
-                surface: FadeSurface::Well,
-            })
             .tagged(TabStrip);
         let new = segment(glyph(Glyph::Plus, ICON), space.gap)
             .on_activate(new_desk)

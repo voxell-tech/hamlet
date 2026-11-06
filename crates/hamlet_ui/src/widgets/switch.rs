@@ -18,7 +18,7 @@ use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{FrameProps, frame, label, row};
 use bevy_fynix::{EntityCursor, Prop, component, style};
 
-use super::fade::ease;
+use super::effects::ease;
 use crate::theme::{HamletTheme, Themed};
 use crate::{AnyView, Cx, View};
 

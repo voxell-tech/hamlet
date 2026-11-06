@@ -17,8 +17,8 @@ use bevy::ui::{
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
-    label, number_field, row, scroll, slider,
+    FrameProps, TooltipExt, column, dropdown, frame, label,
+    number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::messages::{Reconnected, Response};
@@ -33,7 +33,6 @@ use hamlet_ui::styles::{
     close, description, hairline, list, nav_list, note, parts,
     section, small_rules, text_input,
 };
-use hamlet_ui::widgets::fade::ScrollFade;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
@@ -810,15 +809,10 @@ pub fn screen() -> AnyView {
             page.within(column(()).gap(0.0).max_width(px(width)));
         // It scrolls down only: a page is laid out to the panel's
         // width.
-        cx.build(
-            scroll((page,))
-                .fills_height()
-                .overflow(Overflow {
-                    x: OverflowAxis::Clip,
-                    y: OverflowAxis::Scroll,
-                })
-                .tagged(ScrollFade::default()),
-        )
+        cx.build(scroll((page,)).fills_height().overflow(Overflow {
+            x: OverflowAxis::Clip,
+            y: OverflowAxis::Scroll,
+        }))
     })
 }
 
