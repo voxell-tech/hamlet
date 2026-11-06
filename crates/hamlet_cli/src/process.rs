@@ -301,7 +301,7 @@ async fn inspect(
     }
     bail!(
         "Process {} for {} is alive but does not answer with the \
-         home's token; it is not ours to touch. Inspect it on its \
+         realm's token; it is not ours to touch. Inspect it on its \
          machine; no signal was sent.",
         record.pid,
         home.display()
@@ -741,7 +741,7 @@ fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
     anyhow::ensure!(
         chosen != Some("~/.hamlet")
             && canonical(&path)? != canonical(&ordinary)?,
-        "hamlet dev refuses ~/.hamlet; choose a scratch home with \
+        "hamlet dev refuses ~/.hamlet; choose a scratch realm with \
          --home or HAMLET_HOME."
     );
     if !path.exists() {
@@ -756,7 +756,7 @@ fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
         shared(&stat)
     };
     if let Some(reason) = unsafe_reason {
-        bail!("unsafe scratch home {}: {reason}.", path.display());
+        bail!("unsafe scratch realm {}: {reason}.", path.display());
     }
     Ok(path)
 }
