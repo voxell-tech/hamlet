@@ -1,6 +1,7 @@
 //! The MEMORY of an agent or a scholar, shown as the folder it is:
 //! the files at its root go into every prompt, and a folder is
-//! described by its own `MEMORY.md`.
+//! described by its own `MEMORY.md`. Its skills and character are
+//! listed here too.
 
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
@@ -21,6 +22,7 @@ use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::papers::{self, Papers};
+use super::thread::dim;
 
 /// The memory file whose text is open, and the name typed for a new
 /// one.
@@ -193,6 +195,42 @@ fn add() -> impl View {
         .gap(gap)
         .align(AlignItems::Center)
     })
+}
+
+/// The skills of an agent or a scholar, each with what it does.
+pub(super) fn skills() -> impl View {
+    keyed(resource::<Papers, _>(|p| p.skills.clone()), |skills| {
+        if skills.is_empty() {
+            return dim("None of its own").boxed();
+        }
+        column(
+            skills
+                .iter()
+                .map(|(name, does)| {
+                    crate::lists::item(
+                        name.clone(),
+                        does.clone(),
+                        Tone::Body,
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
+        .gap(4.0)
+        .boxed()
+    })
+    .within(bare())
+}
+
+/// The character of an agent or a scholar.
+pub(super) fn character() -> impl View {
+    keyed(resource::<Papers, _>(|p| p.character.clone()), |text| {
+        if text.is_empty() {
+            dim("Not written yet").boxed()
+        } else {
+            hamlet_ui::markdown::fixed(text, Tone::Body).boxed()
+        }
+    })
+    .within(bare())
 }
 
 /// The memory, with the failure of the last save under it.

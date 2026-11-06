@@ -11,9 +11,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
     text_field,
 };
-use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
-};
+use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{
     Account, Deeds, Kind, Road, name_of, roads_of, shown_of,
 };
@@ -28,8 +26,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::memory;
-use super::papers::Papers;
-use super::thread::{dim, said};
+use super::thread::said;
 use crate::convo::talk_to;
 use crate::overview::heading;
 
@@ -243,59 +240,14 @@ fn agent_section(agent: Entity) -> impl View {
 
 /// Its own skills and its character, which a chief may edit.
 fn skills_and_character() -> impl View {
-    let skills = keyed(
-        resource::<Papers, _>(|p| p.skills.clone()),
-        |skills| {
-            if skills.is_empty() {
-                return dim("None of its own").boxed();
-            }
-            column(
-                skills
-                    .iter()
-                    .map(|(name, does)| {
-                        crate::lists::item(
-                            name.clone(),
-                            does.clone(),
-                            Tone::Body,
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .gap(4.0)
-            .boxed()
-        },
-    )
-    .within(bare());
-    let character = keyed(
-        resource::<Papers, _>(|p| p.character.clone()),
-        |text| {
-            if text.is_empty() {
-                dim("Not written yet").boxed()
-            } else {
-                hamlet_ui::markdown::fixed(text, Tone::Body).boxed()
-            }
-        },
-    )
-    .within(bare());
     let edit =
         action(Glyph::Rename, "EDIT", super::papers::edit_character);
-    let failed = keyed(
-        resource::<Papers, _>(|p| p.failed.clone()),
-        |failed| match failed {
-            Some(why) => {
-                label(why.clone()).tone(Tone::Critical).boxed()
-            }
-            None => column(()).boxed(),
-        },
-    )
-    .within(bare());
     column((
         heading(Glyph::Book, "SKILLS"),
-        skills,
+        memory::skills(),
         heading(Glyph::Robot, "CHARACTER"),
-        character,
+        memory::character(),
         row((edit,)),
-        failed,
     ))
     .gap(6.0)
 }
