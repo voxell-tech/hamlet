@@ -42,7 +42,7 @@ chief is talking to.
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
 | `/hamlets`, `/found <hamlet> [scholar#id] [purpose]` | List hamlets, or found one with a scholar as its mayor, a new scholar named Mayor by default (H6) |
-| `/name-hamlet <hamlet> [name]`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet a display name, or set its town down elsewhere (H32) |
+| `/name-hamlet <hamlet> [name]`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet a name to be shown by, or set it down elsewhere on the hamlet island (H32) |
 | `/remove-hamlet <hamlet> <reason>`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
 | `/mayor <address> <reason>` | Give the hamlet's office to another hire (H18) |
@@ -61,7 +61,7 @@ chief is talking to.
 | `/scholars`, `/scholar new <name>[: <character>]`, `/name-scholar <scholar#id> <name>` | List the city's scholars, make one, or give one a new name (H38) |
 | `/welcome <scholar#id> [reason]`, `/turn-away <scholar#id> [reason]` | Let a scholar at the harbor into the city, or send one back there (H45) |
 | `/remove-scholar <scholar#id> <reason>`, `/restore-scholar <scholar#id> [reason]`, `/erase-scholar <scholar#id>` | Archive a scholar and end its hires, bring it back, or erase it for good (H38) |
-| `/move-house <scholar#id> <x> <z>` | Set a scholar's house down elsewhere in the city |
+| `/move-house <scholar#id> <x> <z> [degrees]` | Set a scholar's house down elsewhere in the city |
 | `/tag`, `/versions`, `/pin`, `/revert`, `/fork`, `/purge` | A scholar's versions and history (H39) |
 | `/dream <scholar#id\|address>` | Have a hire bring its learning home, or a scholar tidy, now (H43) |
 | `/unshelve <skill> [reason]` | Take a skill out of the library (H33) |
@@ -194,8 +194,10 @@ branch of its scholar's repository and a lodge of its own (C8).
 
 - **Hiring.** A chief hires its own scholar into a hamlet it is chief of. The
   Hand hires any chief's scholar, and a lead any scholar of its hamlet's
-  chiefs. Hiring needs a purpose, and a hamlet holds at most its tier of
-  living hires, the whole tree counted, workers not.
+  chiefs. A lead says what the hire is for; a chief may leave the purpose
+  out, and the hire takes the first line of the first message it is given
+  as its purpose. A hamlet holds at most its tier of living hires, the
+  whole tree counted, workers not.
 - **Its branch** `hires/<agent id>` starts at `main`, or at its pin.
 - **Its lodge** is a checkout of its branch, without `CHARACTER.md`, plus an
   `inbox/` that is never committed. Its tools write there.
@@ -418,8 +420,8 @@ branches stay, archived with its record, with its tree kept so that restoring
 the hamlet (H20) brings them back. Erasing it deletes the lodges and the
 hires' branches. No hamlet is special: any can be removed.
 
-**H32.** A chief can give a hamlet a name to be shown by, while its own name
-stays for commands, and set its town down elsewhere in the world. It can
+**H32.** A chief can give a hamlet a name to be shown by, while its ID stays
+for commands, and set the hamlet down elsewhere on the hamlet island. It can
 also set a scholar's house down elsewhere in the city.
 
 ## The library

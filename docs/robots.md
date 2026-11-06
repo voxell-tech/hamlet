@@ -116,10 +116,10 @@ each part is a pure function of the time since it began.
   porch.
 - **Out.** The house waits for its robot's `Leave` or `MergeInto`, then
   shudders and falls flat, and what it rests as stands up under it.
-- **A house that moves town** sinks on its old plot and rises on the new.
+- **A house that moves with its hamlet** sinks on its old plot and rises on the new.
 
 What a house rests as is decided in one place: `Agent::remains` in
 `society.rs`, read from `HouseSettings`.
 
-A house that is there when its town is first drawn does not move, which
+A house that is there when its hamlet is first drawn does not move, which
 covers everything at load.
