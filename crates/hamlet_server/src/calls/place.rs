@@ -55,7 +55,7 @@ const HAND: [&str; 8] = [
 
 /// Where an agent's tools work, and how its calls are overseen.
 #[derive(Clone, Debug)]
-pub(crate) struct Where {
+pub(crate) struct Workplace {
     pub caller: Caller,
     pub place: Place,
     /// The hamlet whose limits and mode its calls are under.
@@ -69,11 +69,11 @@ pub(crate) fn of(
     db: &mut Db,
     layout: &Layout,
     agent: AgentId,
-) -> Result<Where> {
+) -> Result<Workplace> {
     let shared = vec![layout.library(), layout.tools()];
     let kept = agents::get(db, agent)?;
     Ok(match kept.kind {
-        AgentKind::Hand => Where {
+        AgentKind::Hand => Workplace {
             caller: Caller::Hand,
             place: Place {
                 lodge: layout.hand(),
@@ -87,7 +87,7 @@ pub(crate) fn of(
         AgentKind::Hire => {
             let hire = hires::get(db, agent)?;
             let (folder, manual) = folder(db, &hire.hamlet)?;
-            Where {
+            Workplace {
                 caller: Caller::Hire,
                 place: Place {
                     lodge: layout.lodge(&hire.hamlet, hire.number),
@@ -120,7 +120,7 @@ pub(crate) fn of(
                 Some(hamlet) => folder(db, hamlet)?,
                 None => (None, false),
             };
-            Where {
+            Workplace {
                 caller: Caller::Worker,
                 place: Place {
                     lodge: layout.worker(agent),
@@ -142,7 +142,7 @@ pub(crate) fn of_conversation(
     db: &mut Db,
     layout: &Layout,
     conversation: &crate::talk::conversations::Conversation,
-) -> Result<Where> {
+) -> Result<Workplace> {
     let mut at = of(db, layout, conversation.agent)?;
     if conversation.kind == Kind::Dream
         && let Some(dream) = crate::society::dreams::of_conversation(
