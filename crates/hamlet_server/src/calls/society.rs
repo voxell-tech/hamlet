@@ -809,40 +809,11 @@ impl Core {
         &mut self,
         text: &str,
     ) -> Result<Result<Hiring, Refusal>> {
-        let (address, version) = match text.split_once('@') {
-            Some((address, version)) => {
-                (address, Some(version.to_owned()))
-            }
-            None => (text, None),
-        };
-        let id = match addresses::parse_scholar(address) {
-            Ok(id) => id,
+        let (scholar, version) = match self.scholar_pinned(text)? {
+            Ok(found) => found,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        let layout = self.realm.layout().clone();
-        let db = self.realm.store().connection();
-        let Some(scholar) = city::living(db, id)? else {
-            return Ok(Err(Refusal::NoScholar {
-                address: address.into(),
-            }));
-        };
-        if let Some(version) = &version {
-            let found = hamlet_git::Repository::open(
-                &layout.repository(scholar.id),
-            )
-            .ok()
-            .and_then(|repo| repo.resolve(version).ok().flatten());
-            if found.is_none() || version == hamlet_git::MAIN {
-                return Ok(Err(Refusal::NoVersion {
-                    name: scholar.label(),
-                    version: version.clone(),
-                }));
-            }
-        }
-        Ok(Ok(Hiring::Existing {
-            scholar: scholar.id,
-            pin: version,
-        }))
+        self.existing(scholar, version)
     }
 
     async fn hire_tool(

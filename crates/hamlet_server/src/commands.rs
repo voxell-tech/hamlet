@@ -1449,31 +1449,53 @@ impl Core {
         text: &str,
         chief: hamlet_store::ids::ChiefId,
     ) -> Result<Result<Hiring, Refusal>> {
+        let (scholar, version) = match self.scholar_pinned(text)? {
+            Ok(found) => found,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let db = self.realm.store().connection();
+        if city::get(db, scholar)?.chief != Some(chief) {
+            return Ok(Err(Refusal::ScholarNotOwn {
+                name: addresses::scholar_name_of(db, scholar)?,
+            }));
+        }
+        self.existing(scholar, version)
+    }
+
+    /// The living scholar `text` addresses, `scholar#<id>` with
+    /// `@<version>` to pin one, and that version.
+    pub(crate) fn scholar_pinned(
+        &mut self,
+        text: &str,
+    ) -> Result<Result<(ScholarId, Option<String>), Refusal>> {
         let (address, version) = match text.split_once('@') {
             Some((address, version)) => {
                 (address, Some(version.to_owned()))
             }
             None => (text, None),
         };
-        let scholar = match self.scholar_at(address, false)? {
-            Ok(scholar) => scholar,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let layout = self.realm.layout().clone();
-        let db = self.realm.store().connection();
-        let shown = addresses::scholar_name_of(db, scholar)?;
-        if city::get(db, scholar)?.chief != Some(chief) {
-            return Ok(Err(Refusal::ScholarNotOwn { name: shown }));
-        }
+        Ok(self
+            .scholar_at(address, false)?
+            .map(|scholar| (scholar, version)))
+    }
+
+    /// A hire of the living `scholar`, at its `main` or pinned to
+    /// `version` when that is one the scholar has.
+    pub(crate) fn existing(
+        &mut self,
+        scholar: ScholarId,
+        version: Option<String>,
+    ) -> Result<Result<Hiring, Refusal>> {
         if let Some(version) = &version {
-            let found = Repository::open(&layout.repository(scholar))
-                .ok()
-                .and_then(|repo| {
-                    repo.resolve(version).ok().flatten()
-                });
+            let found = Repository::open(
+                &self.realm.layout().repository(scholar),
+            )
+            .ok()
+            .and_then(|repo| repo.resolve(version).ok().flatten());
             if found.is_none() || version == hamlet_git::MAIN {
+                let db = self.realm.store().connection();
                 return Ok(Err(Refusal::NoVersion {
-                    name: shown,
+                    name: addresses::scholar_name_of(db, scholar)?,
                     version: version.clone(),
                 }));
             }
