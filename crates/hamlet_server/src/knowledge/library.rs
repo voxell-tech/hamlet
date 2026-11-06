@@ -3,9 +3,10 @@
 //! commit holds the starter skills built into the server.
 
 use anyhow::{Context, Result};
-use hamlet_git::{Author, Change, CommitId, MAIN, Repository, Step};
+use hamlet_git::{Author, Change, CommitId, MAIN, Repository};
 
 use super::folder::Folder;
+use super::run::write_tree;
 use crate::layout::Layout;
 
 macro_rules! starter {
@@ -78,21 +79,9 @@ pub(crate) fn open(layout: &Layout, at: i64) -> Result<()> {
 /// Makes `library/` hold the files of the library's `main`.
 fn check_out(layout: &Layout, repo: &Repository) -> Result<()> {
     let tip = repo.tip(MAIN)?.context("the library has no main")?;
-    let folder = Folder::make(&layout.library())?;
-    let listing = folder.list(&|_| false)?;
-    for step in repo.plan(tip, &listing, &|_| false)? {
-        match step {
-            Step::Write {
-                path,
-                blob,
-                executable,
-            } => {
-                folder.write(&path, &repo.blob(blob)?, executable)?;
-            }
-            Step::Remove { path } => folder.remove(&path)?,
-        }
-    }
-    Ok(())
+    write_tree(repo, tip, &Folder::make(&layout.library())?, &|_| {
+        false
+    })
 }
 
 /// Every shelved skill, by its folder, with its description.
