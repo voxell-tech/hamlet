@@ -61,7 +61,7 @@ pub fn hamlet(id: &str, mayor: u64) -> protocol::Hamlet {
 /// The Hand.
 pub fn hand(id: u64) -> protocol::Agent {
     serde_json::from_value(json!({
-        "id": id, "kind": "hand", "name": "hand", "hamlet": null, "number": null,
+        "id": id, "kind": "hand", "name": "hand", "nickname": null, "hamlet": null, "number": null,
         "scholar": null, "parent": null, "pin": null, "purpose": "", "since": 0, "mayor": false,
         "model": "faux::faux-1", "busy": false, "faulted": false,
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
@@ -79,7 +79,7 @@ pub fn agent(
     name: &str,
 ) -> protocol::Agent {
     serde_json::from_value(json!({
-        "id": id, "kind": "hire", "name": format!("{name}@{hamlet}"),
+        "id": id, "kind": "hire", "name": format!("{name}@{hamlet}"), "nickname": null,
         "hamlet": hamlet, "number": number, "scholar": id,
         "parent": if number == 0 { json!(1) } else { json!(2) },
         "pin": null, "purpose": "", "since": 0, "mayor": number == 0,

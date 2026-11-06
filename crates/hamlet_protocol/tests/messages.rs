@@ -470,7 +470,7 @@ fn hamlet_wire() -> Value {
 
 fn hand_wire() -> Value {
     json!({
-        "id": 1, "kind": "hand", "name": "hand", "hamlet": null, "number": null, "scholar": null,
+        "id": 1, "kind": "hand", "name": "hand", "nickname": null, "hamlet": null, "number": null, "scholar": null,
         "parent": null, "pin": null, "purpose": "", "since": 0, "mayor": false, "model": "faux/test",
         "busy": false, "faulted": false,
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
@@ -482,7 +482,7 @@ fn hand_wire() -> Value {
 
 fn agent_wire() -> Value {
     json!({
-        "id": 2, "kind": "hire", "name": "founder@home", "hamlet": "home", "number": 0, "scholar": 1,
+        "id": 2, "kind": "hire", "name": "founder@home", "nickname": "Fen", "hamlet": "home", "number": 0, "scholar": 1,
         "parent": 1, "pin": "v1", "purpose": "Help the chief",
         "since": 1700000000000_i64, "mayor": true, "model": "faux/test", "busy": true, "faulted": false,
         "activity": {"doing": "read-file", "doingWords": "Reading a file", "step": 2, "failures": 0},

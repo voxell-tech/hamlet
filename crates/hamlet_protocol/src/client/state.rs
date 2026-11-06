@@ -221,6 +221,10 @@ pub struct Agent {
     /// How it is named: `hand`, `name@hamlet`, `name#number@hamlet`
     /// or `worker#id`.
     pub name: String,
+    /// What a hire is called in the world, given by a chief or an
+    /// agent above it; none while it goes by its name.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub nickname: Option<String>,
     /// A hire's number in its hamlet.
     #[serde(deserialize_with = "Option::deserialize")]
     pub number: Option<u64>,

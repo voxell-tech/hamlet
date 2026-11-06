@@ -51,6 +51,7 @@ chief is talking to.
 | `/end <address> <reason>`, `/merge <address> into <address> [reason]` | End a hire, or make one of two (H5) |
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended hire back, or split a merged one out again, or erase it for good (H20) |
 | `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | A hire's model, tools and allowance (H29, H41, H44) |
+| `/nickname <address> [nickname]` | What a hire is called in the world, or its name again (H46) |
 | `/road <address> <address> <reason>`, `/unroad <address> <address> <reason>` | Lay or take up a road between two hires (H3) |
 | `/worker <task>` | Start a worker on a task in the hamlet (H42) |
 | `/give <scholar\|address> <skill> [from <scholar\|address>]` | Give a skill (H25) |
@@ -360,6 +361,11 @@ a model call, what the hire and everything under it have spent must be within
 its own allowance and that of every lead above it. A worker counts as its
 starter.
 
+**H46.** A chief of its hamlet, the Hand or a lead above it can give a hire
+a nickname of at most 24 letters, kept in the record. The world shows a hire
+by its nickname, else by its name without its hamlet; the window keeps its
+address.
+
 **H16.** An agent that does nothing costs nothing.
 
 ## Memory and dreams
@@ -472,7 +478,7 @@ the tools in its own row:
 |---|---|
 | Every agent but a worker | `tell`, `ask` (H30), `start_worker` (H42), `submit_skill`, `ask_librarian` (H33), `ask_chief` (H10) |
 | Every hire | `request_road` |
-| A lead, and the Hand | `create_scholar`, `hire`, `end_hire`, `merge_hires`, `set_model`, `set_tools`, `set_allowance`, `lay_road`, `take_up_road` |
+| A lead, and the Hand | `create_scholar`, `hire`, `end_hire`, `merge_hires`, `set_model`, `set_tools`, `set_allowance`, `nickname`, `lay_road`, `take_up_road` |
 | A mayor, when other hamlets live | `agree_road` |
 | The Hand | `found_hamlet`, `seat_mayor`, `remove_hamlet`, `read_record`, `read_scholar`, `edit_scholar`, `tag`, `revert` |
 | Every agent but a worker, in a chief conversation | `object` (H10) |

@@ -23,6 +23,7 @@ use bevy::picking::mesh_picking::{
 use bevy::prelude::*;
 use bevy::shape::Aabb3d;
 use bevy::window::PrimaryWindow;
+use hamlet_client::realm::Nickname;
 
 pub use self::camera::{
     Centre, Following, Glide, Leash, Orbit, Stance, Steer, focus_on,
@@ -138,13 +139,23 @@ pub enum Thing {
     Workbench(Entity),
 }
 
+/// The names things go by in the world: a hire's nickname, given by a
+/// chief or an agent above it, over its own name.
+pub type Names<'w, 's> =
+    Query<'w, 's, (&'static Name, Option<&'static Nickname>)>;
+
+/// What `name` is called in the world without a nickname: a hire's
+/// name without its hamlet, `ada` for `ada@home`.
+pub fn short(name: &str) -> &str {
+    name.split_once('@').map_or(name, |(own, _)| own)
+}
+
 impl Thing {
-    pub fn name(self, names: &Query<&Name>) -> String {
-        let named = |agent: Entity| {
-            names
-                .get(agent)
-                .map(|name| name.as_str().to_string())
-                .unwrap_or_default()
+    pub fn name(self, names: &Names) -> String {
+        let named = |agent: Entity| match names.get(agent) {
+            Ok((_, Some(nickname))) => nickname.0.clone(),
+            Ok((name, None)) => short(name.as_str()).to_string(),
+            Err(_) => String::new(),
         };
         match self {
             Thing::Keeper => "The Mayor".into(),
@@ -197,7 +208,7 @@ impl Thing {
     }
 
     /// The few words shown over it all the time, when it is `Named`.
-    fn sign(self, names: &Query<&Name>) -> String {
+    fn sign(self, names: &Names) -> String {
         match self {
             Thing::Cottage => "Mayor".into(),
             Thing::House(agent) | Thing::Ruin(agent) => {

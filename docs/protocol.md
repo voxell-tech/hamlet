@@ -219,7 +219,7 @@ the machine. It is discriminated by `kind`: `sandbox` with the sandbox's
 full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
-`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the formatted name (`hand`, `name@hamlet`, `name#number@hamlet`, `worker#id`), purpose, model, mayor flag, busy and
+`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the formatted name (`hand`, `name@hamlet`, `name#number@hamlet`, `worker#id`), a hire's `nickname` (`null` while it goes by its name), purpose, model, mayor flag, busy and
 fault flags, activity, short saying, spend, skills, consultation and peer
 conversation summaries, and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`

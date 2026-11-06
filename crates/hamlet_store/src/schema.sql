@@ -142,6 +142,8 @@ CREATE TABLE hire (
     scholar INTEGER NOT NULL REFERENCES scholar(id),
     parent INTEGER REFERENCES hire(agent),
     purpose TEXT NOT NULL,
+    -- What the chief or an agent above it calls it in the world.
+    nickname TEXT CHECK (nickname IS NULL OR length(nickname) > 0),
     pin TEXT,
     base TEXT,
     model TEXT,

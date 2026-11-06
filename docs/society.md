@@ -62,8 +62,9 @@ learned, which the inspector shows. The hires of a hamlet form a tree under
 the mayor, no deeper than the depth limit. A hire with hires under it is a
 lead, with the mayor's powers over its subtree: it hires, creates scholars,
 ends and merges hires, chooses their models, turns tools off and sets
-allowances (`set_model`, `set_tools`, `set_allowance`), and lays and takes up
-roads among them. The mayor can be given to another hire with `/mayor`; the
+allowances (`set_model`, `set_tools`, `set_allowance`), gives them nicknames
+the world shows them by (`nickname`, or a chief's `/nickname`), and lays and
+takes up roads among them. The mayor can be given to another hire with `/mayor`; the
 old mayor and its hires go under the new one.
 
 A worker is started for one task by any agent but a worker (`start_worker`)

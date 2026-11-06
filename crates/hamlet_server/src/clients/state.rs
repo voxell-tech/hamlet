@@ -203,9 +203,12 @@ fn agent_view(
         }),
         _ => None,
     };
-    let pin = match found.kind {
-        AgentKind::Hire => hires::get(db, id)?.pin,
-        _ => None,
+    let (pin, nickname) = match found.kind {
+        AgentKind::Hire => {
+            let hire = hires::get(db, id)?;
+            (hire.pin, hire.nickname)
+        }
+        _ => (None, None),
     };
     let skills = match found.kind {
         AgentKind::Worker => Vec::new(),
@@ -243,6 +246,7 @@ fn agent_view(
         mayor,
         model,
         name,
+        nickname,
         number: number.and_then(|n| u64::try_from(n).ok()),
         parent: parent.map(wire_agent),
         pin,

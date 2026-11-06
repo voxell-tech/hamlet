@@ -51,6 +51,7 @@ text_enum! {
         Tools = "tools",
         Allowance = "allowance",
         Pinned = "pinned",
+        Nicknamed = "nicknamed",
         Road = "road",
         Unroad = "unroad",
         RoadAgreed = "road-agreed",
@@ -214,6 +215,7 @@ impl DecisionKind {
             Self::RoadAgreed => "agreed a road from",
             Self::RoadRefused => "refused a road for",
             Self::Pinned => "pinned",
+            Self::Nicknamed => "nicknamed",
             _ => "changed",
         }
     }

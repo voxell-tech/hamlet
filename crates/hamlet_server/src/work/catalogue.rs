@@ -2,7 +2,7 @@
 
 /// Every society tool, by name. A tool added by hand may not take
 /// one.
-pub(crate) const SOCIETY: [&str; 26] = [
+pub(crate) const SOCIETY: [&str; 27] = [
     "tell",
     "ask",
     "start_worker",
@@ -18,6 +18,7 @@ pub(crate) const SOCIETY: [&str; 26] = [
     "set_model",
     "set_tools",
     "set_allowance",
+    "nickname",
     "lay_road",
     "take_up_road",
     "agree_road",

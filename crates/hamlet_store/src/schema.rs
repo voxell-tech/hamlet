@@ -217,6 +217,7 @@ diesel::table! {
         scholar -> BigInt,
         parent -> Nullable<BigInt>,
         purpose -> Text,
+        nickname -> Nullable<Text>,
         pin -> Nullable<Text>,
         base -> Nullable<Text>,
         model -> Nullable<Text>,

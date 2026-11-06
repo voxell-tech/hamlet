@@ -261,6 +261,12 @@ const TABLE: &[Command] = &[
         does: "Choose a hire's model",
     },
     Command {
+        name: "nickname",
+        usage: "/nickname <address> [nickname]",
+        does: "Call a hire something in the world, or by its name \
+               again",
+    },
+    Command {
         name: "tools",
         usage: "/tools <address> -<tool> +<tool>",
         does: "Turn a hire's tools off or back on",
@@ -837,6 +843,43 @@ impl Core {
                         "`{text}` runs {}.",
                         model.unwrap_or("its hamlet's model")
                     )
+                }))
+            }
+            "nickname" => {
+                let Some(text) = words.first() else {
+                    return Ok(Err(usage(name)));
+                };
+                let hire = match self.resolve(
+                    text,
+                    here.as_ref(),
+                    Reach::Living,
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                if let Err(refusal) = self.leads(hire)? {
+                    return Ok(Err(refusal));
+                }
+                let nickname = tail(1);
+                let given =
+                    (!nickname.is_empty()).then_some(nickname);
+                let done = self
+                    .attempt(by, |cx, _| {
+                        hires::set_nickname(
+                            cx,
+                            hire,
+                            given.as_deref(),
+                            "",
+                        )
+                    })
+                    .await?;
+                Ok(done.map(|()| match &given {
+                    Some(nickname) => {
+                        format!("`{text}` is called {nickname} now.")
+                    }
+                    None => {
+                        format!("`{text}` goes by its name again.")
+                    }
                 }))
             }
             "tools" => {

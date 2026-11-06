@@ -53,6 +53,7 @@ pub(crate) struct Hire {
     pub scholar: ScholarId,
     pub parent: Option<AgentId>,
     pub purpose: String,
+    pub nickname: Option<String>,
     pub pin: Option<String>,
     pub base: Option<String>,
     pub model: Option<String>,
@@ -605,6 +606,47 @@ pub(crate) fn set_pin(
             .detail(json!({ "version": version })),
     )?;
     jobs::add(cx, &Job::TakeIn { hire: id })?;
+    cx.touched.agents.insert(id);
+    Ok(Ok(()))
+}
+
+/// The most letters a nickname has.
+pub(crate) const NICKNAME: usize = 24;
+
+/// Calls the living hire `id` `nickname` in the world, or by its own
+/// name again when none (H46).
+pub(crate) fn set_nickname(
+    cx: &mut Change<'_>,
+    id: AgentId,
+    nickname: Option<&str>,
+    reason: &str,
+) -> Done<()> {
+    let hire = get(cx.db, id)?;
+    if !agents::get(cx.db, id)?.is_living() {
+        refuse!(left(cx.db, id)?);
+    }
+    let nickname = nickname.map(str::trim).filter(|n| !n.is_empty());
+    if let Some(nickname) = nickname
+        && (nickname.chars().count() > NICKNAME
+            || nickname.contains(char::is_control))
+    {
+        refuse!(Refusal::Usage {
+            words: format!(
+                "A nickname is one line of at most {NICKNAME} \
+                 letters."
+            ),
+        });
+    }
+    diesel::update(hire::table.find(id))
+        .set(hire::nickname.eq(nickname))
+        .execute(cx.db)?;
+    record::keep(
+        cx,
+        Decision::new(DecisionKind::Nicknamed, reason)
+            .hamlet(&hire.hamlet)
+            .subject(id)
+            .detail(json!({ "nickname": nickname })),
+    )?;
     cx.touched.agents.insert(id);
     Ok(Ok(()))
 }

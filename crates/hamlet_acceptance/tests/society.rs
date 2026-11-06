@@ -123,6 +123,10 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
                     json!({"hire": "cy", "model": "faux::faux-1", "reason": "same"}),
                 ),
                 (
+                    "nickname",
+                    json!({"hire": "cy", "nickname": "Spade", "reason": "short"}),
+                ),
+                (
                     "lay_road",
                     json!({"a": "cy", "b": "dee", "reason": "share"}),
                 ),
@@ -154,6 +158,22 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
 
     let cy = s.chief.agent("cy@docs").unwrap();
     assert_eq!((cy.kind, cy.parent), (AgentKind::Hire, Some(ada)));
+    assert_eq!(cy.nickname.as_deref(), Some("Spade"));
+    // A chief above it names it too, and an empty name takes the
+    // nickname away.
+    assert_eq!(
+        s.chief.command(ada, "/nickname cy Pick").await,
+        "`cy` is called Pick now."
+    );
+    assert_eq!(
+        s.chief.command(ada, "/nickname cy").await,
+        "`cy` goes by its name again."
+    );
+    s.chief
+        .until("the nickname gone", |c| {
+            c.agent("cy@docs").is_some_and(|cy| cy.nickname.is_none())
+        })
+        .await;
     assert_eq!(
         s.chief.command(ada, "/tools cy").await,
         "`cy` has these off: bash"
@@ -165,6 +185,7 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
         "ada@docs hired cy@docs",
         "ada@docs set the allowance of cy@docs: small",
         "ada@docs chose the model of cy@docs: same",
+        "ada@docs nicknamed cy@docs: short",
         "ada@docs laid a road from cy@docs: share",
         "ada@docs took up a road from cy@docs: done",
         "ada@docs ended dee@docs: finished",

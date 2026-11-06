@@ -112,6 +112,10 @@ pub struct Parent(pub protocol::AgentId);
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OfScholar(pub protocol::ScholarId);
 
+/// What a hire is called in the world.
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct Nickname(pub String);
+
 /// The version of its scholar a hire is pinned to.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Pin(pub String);
@@ -360,6 +364,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Parent>();
     world.register_component::<OfScholar>();
     world.register_component::<Pin>();
+    world.register_component::<Nickname>();
     world.register_component::<Scholar>();
     world.register_component::<Purpose>();
     world.register_component::<Lived>();
@@ -668,6 +673,7 @@ fn upsert_agent(
     optional(&mut agent, value.parent.map(Parent));
     optional(&mut agent, value.scholar.map(OfScholar));
     optional(&mut agent, value.pin.clone().map(Pin));
+    optional(&mut agent, value.nickname.clone().map(Nickname));
     put(&mut agent, Purpose(value.purpose));
     put(&mut agent, HouseSkills(value.skills));
     put(

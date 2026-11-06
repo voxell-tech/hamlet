@@ -36,7 +36,7 @@ const LEAD: &str =
      ends one nobody needs and `merge_hires` makes one hire of two \
      whose work overlaps, and both keep its work in its scholar. \
      `set_model`, `set_tools` and `set_allowance` shape a hire \
-     under you.";
+     under you, and `nickname` names it in the world.";
 
 /// How an agent takes a chief's instruction.
 const OBJECT: &str =

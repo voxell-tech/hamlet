@@ -28,7 +28,7 @@ const EVERYONE: [&str; 6] = [
 ];
 
 /// A lead's tools over its own tree, which the Hand has over all.
-const LEADS: [&str; 9] = [
+const LEADS: [&str; 10] = [
     "create_scholar",
     "hire",
     "end_hire",
@@ -36,6 +36,7 @@ const LEADS: [&str; 9] = [
     "set_model",
     "set_tools",
     "set_allowance",
+    "nickname",
     "lay_road",
     "take_up_road",
 ];

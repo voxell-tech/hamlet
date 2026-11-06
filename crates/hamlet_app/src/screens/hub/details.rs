@@ -6,7 +6,7 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row,
+    BehaviorExt, FrameProps, column, label, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
@@ -18,7 +18,7 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, action, back_link, bare, hairline, lettered, note,
-    scroll_area,
+    scroll_area, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -38,6 +38,9 @@ struct Facts {
     scholar: Option<(Entity, String)>,
     /// The version it is pinned to, none for its scholar's `main`.
     pin: Option<String>,
+    /// Its address, and what it is called in the world.
+    address: String,
+    nickname: Option<String>,
     lead: Option<(Entity, String)>,
     hires: Vec<(Entity, String)>,
     roads: Vec<(Entity, String)>,
@@ -117,6 +120,10 @@ fn facts(world: &World, agent: Entity) -> Facts {
         pin: world
             .get::<hamlet_client::realm::Pin>(agent)
             .map(|pin| pin.0.clone()),
+        address: name_of(world, agent),
+        nickname: world
+            .get::<hamlet_client::realm::Nickname>(agent)
+            .map(|nickname| nickname.0.clone()),
         lead: lead(agent).map(named),
         hires,
         roads,
@@ -137,6 +144,28 @@ fn fact(name: &'static str, value: impl View + 'static) -> AnyView {
         .gap(8.0)
         .align(AlignItems::Center)
         .boxed()
+}
+
+/// What a hire is called in the world, typed over: Enter gives it the
+/// nickname, and a field left empty its own name again.
+fn nickname_field(facts: &Facts) -> AnyView {
+    let address = facts.address.clone();
+    let had = facts.nickname.clone().unwrap_or_default();
+    text_field(had.clone(), move |world, typed| {
+        let typed = typed.trim().to_string();
+        if typed != had {
+            crate::chat::command(
+                world,
+                format!("/nickname {address} {typed}")
+                    .trim_end()
+                    .into(),
+            );
+        }
+    })
+    .grow(1.0)
+    .min_width(px(0.0))
+    .rules(text_input)
+    .boxed()
 }
 
 /// An agent's name that leads to its thread.
@@ -183,6 +212,7 @@ fn agent_section(agent: Entity) -> impl View {
                         }),
                 ));
                 if facts.kind != "The Hand" {
+                    parts.push(fact("Called", nickname_field(facts)));
                     parts.push(fact(
                         "Version",
                         label(match &facts.pin {

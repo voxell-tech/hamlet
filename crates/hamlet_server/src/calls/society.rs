@@ -228,6 +228,16 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             safe.clone(),
         ),
         spec(
+            "nickname",
+            "Give a hire under you a short nickname it is shown by \
+             in the world; leave out `nickname` for its own name.",
+            object(
+                json!({"hire": string(address), "nickname": string("At most 24 letters."), "reason": string(reason)}),
+                &["hire", "reason"],
+            ),
+            safe.clone(),
+        ),
+        spec(
             "lay_road",
             "Lay a road between two hires under you, so they can \
              write and ask each other.",
@@ -496,6 +506,35 @@ impl Core {
                     .map(|()| {
                         format!("Set the allowance of {name}.")
                     }))
+                })
+                .await?
+            }
+            "nickname" => {
+                let hire =
+                    match self.led(call, "hire", here.as_ref())? {
+                        Ok(hire) => hire,
+                        Err(refusal) => {
+                            return Ok(Step::of(Err(refusal)));
+                        }
+                    };
+                let nickname = text(call, "nickname");
+                let given =
+                    (!nickname.trim().is_empty()).then_some(nickname);
+                let name = self.name(hire)?;
+                let words = match &given {
+                    Some(nickname) => {
+                        format!("{name} is called {nickname} now.")
+                    }
+                    None => format!("{name} goes by its name again."),
+                };
+                self.carry(call, |cx, _| {
+                    Ok(hires::set_nickname(
+                        cx,
+                        hire,
+                        given.as_deref(),
+                        &reason,
+                    )?
+                    .map(|()| words))
                 })
                 .await?
             }
