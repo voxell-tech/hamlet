@@ -566,7 +566,7 @@ pub(crate) fn environment(
 
 /// The full path a tool's `path` names (C20). A full path stays as it
 /// is. A relative one is the folder's, unless `own`: only the lodge
-/// has its first part, as with `NOTES.md`, `skills/` and `inbox/`.
+/// has its first part, as with `memory/`, `skills/` and `inbox/`.
 /// With no folder it is the lodge's.
 fn footing(
     path: &str,
