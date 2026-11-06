@@ -145,7 +145,7 @@ impl Pane {
                 "Reflection, network access and keeping awake."
             }
             Pane::Workspace => {
-                "Where agents' commands run and their houses are \
+                "Where agents' commands run and their lodges are \
                  kept."
             }
             Pane::Charter => "What every agent is told.",

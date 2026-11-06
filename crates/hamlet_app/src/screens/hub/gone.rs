@@ -72,7 +72,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 .align(AlignItems::Center)
                 .tagged(Wraps),
                 super::thread::said(purpose),
-                dim("Its house is kept in the archive. Deleting it \
+                dim("Its lodge is kept in the archive. Deleting it \
                      frees the space on disk."),
                 buttons(vec![
                     good_action(

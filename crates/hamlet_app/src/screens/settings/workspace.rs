@@ -197,7 +197,7 @@ fn progress(settings: &Settings) -> String {
                 "this computer"
             };
             format!(
-                "Copies every agent's house to {to}, replacing the \
+                "Copies every agent's lodge to {to}, replacing the \
                  lodges there."
             )
         }
@@ -535,7 +535,7 @@ mod tests {
         received(&mut app, 3, url, None);
         assert!(said(
             &mut app,
-            "Copies every agent's house to the remote server, \
+            "Copies every agent's lodge to the remote server, \
              replacing the lodges there."
         ));
         requests(&mut app);
@@ -566,7 +566,7 @@ mod tests {
             moving(1, State::Moving, ""),
         );
         assert!(said(&mut app, "Moving lodges: 1 of 2."));
-        let stopped = "The house of agent 1 in home was not moved.";
+        let stopped = "The lodge of home#1 was not moved.";
         received_moving(
             &mut app,
             5,

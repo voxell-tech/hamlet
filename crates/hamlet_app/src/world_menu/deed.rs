@@ -172,20 +172,20 @@ impl Deed {
             ),
             Deed::Merge { absorbed, kept } => format!(
                 "{} takes the memory, skills, files and roads of \
-                 {}, whose house is archived. It can be split out \
+                 {}, whose lodge is archived. It can be split out \
                  again.",
                 name(kept),
                 name(absorbed)
             ),
             Deed::Close(hamlet) => format!(
-                "Everyone in {hamlet} stops and every house is \
+                "Everyone in {hamlet} stops and every lodge is \
                  archived. You can restore it from the list of \
                  hamlets."
             ),
             Deed::Erase(agent) => {
                 let name = name(agent);
                 format!(
-                    "The archived house of {name} is deleted from \
+                    "The archived lodge of {name} is deleted from \
                      disk. This cannot be undone."
                 )
             }
