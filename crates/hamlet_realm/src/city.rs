@@ -26,6 +26,7 @@ pub(crate) fn plugin(app: &mut App) {
         Update,
         (
             raise,
+            houses::claim,
             houses::tend,
             newcomers::wait,
             newcomers::arrive,

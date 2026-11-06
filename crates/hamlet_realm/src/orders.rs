@@ -4,11 +4,13 @@
 use std::path::PathBuf;
 
 use bevy::prelude::*;
-use hamlet_client::realm::{self as agents, Deeds, HamletId};
+use hamlet_client::realm::{
+    self as agents, Deeds, HamletId, Scholar,
+};
 use hamlet_client::{ViewFolder, gifts};
 
 use crate::chief::{Kept, Player, Stands};
-use crate::generator::land::Land;
+use crate::generator::land::{IslandId, Land};
 use crate::generator::society::Ground;
 use crate::hamlet::{hamlet_of, town_of};
 use crate::hand::{self, Wish};
@@ -89,6 +91,18 @@ pub fn carry(world: &mut World, hamlet: Entity) {
     }
 }
 
+/// Takes the house of `scholar` in hand, to be set down with a click
+/// on the ground.
+pub fn carry_house(world: &mut World, scholar: Entity) {
+    if !Deeds::is_allowed(world, "move-house") {
+        return;
+    }
+    if let Some(scholar) = world.get::<Scholar>(scholar) {
+        let id = scholar.0.id;
+        moving::pick_up(world, Ground::House(id));
+    }
+}
+
 /// Records the place a chief set something down. The world moves it
 /// when the record says so.
 fn set_down(world: &mut World, set: SetDown) {
@@ -132,6 +146,36 @@ fn set_down(world: &mut World, set: SetDown) {
                 world.resource_mut::<Kept>().library = Some(set.to);
             }
             world.resource_mut::<Stood>().0 = Some(set.to);
+        }
+        Ground::House(id) => {
+            if !Deeds::is_allowed(world, "move-house") {
+                return;
+            }
+            let found = world
+                .query::<&Scholar>()
+                .iter(world)
+                .find(|scholar| scholar.0.id == id)
+                .and_then(|scholar| {
+                    let house = scholar.0.house.as_ref()?;
+                    Some((scholar.0.name.clone(), house.turn))
+                });
+            let Some((name, turn)) = found else {
+                return;
+            };
+            let city = world
+                .resource::<Land>()
+                .island(IslandId::City)
+                .centre;
+            let to = set.to - city;
+            let (x, z) = (to.x, to.y);
+            let degrees = turn.to_degrees();
+            world.trigger(Decree {
+                hamlet: None,
+                text: format!(
+                    "/move-house {name} {x:.1} {z:.1} {degrees:.0}"
+                ),
+            });
+            world.flush();
         }
         // Nothing carries it, so nothing sets it down.
         Ground::Tower => {}

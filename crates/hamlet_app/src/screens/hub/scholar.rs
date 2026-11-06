@@ -36,9 +36,10 @@ use crate::overview::{heading, typed};
 
 /// The deeds a scholar's page offers, in the names the server
 /// advertises them by.
-const DEEDS: [&str; 10] = [
+const DEEDS: [&str; 12] = [
     "welcome",
     "turn-away",
+    "move-house",
     "tag",
     "pin",
     "revert",
@@ -47,6 +48,7 @@ const DEEDS: [&str; 10] = [
     "dream",
     "remove-scholar",
     "restore-scholar",
+    "erase-scholar",
 ];
 
 /// What a scholar's page is asking for words to do.
@@ -62,6 +64,8 @@ enum Act {
     Fork(Option<String>),
     Purge,
     Remove,
+    /// The erasing for good of a scholar that was archived.
+    Erase,
     /// An undoing of the commit a version names.
     Revert(String),
 }
@@ -112,6 +116,8 @@ struct HireShown {
 /// A scholar and its hires as the page reads them.
 #[derive(Clone, PartialEq)]
 struct Shown {
+    /// The scholar's entity, for what acts on it in the world.
+    entity: Entity,
     scholar: protocol::Scholar,
     hires: Vec<HireShown>,
     allowed: Vec<&'static str>,
@@ -147,6 +153,7 @@ fn shown(world: &World, entity: Entity) -> Option<Shown> {
         .filter(|deed| Deeds::is_allowed(world, deed))
         .collect();
     Some(Shown {
+        entity,
         scholar,
         hires,
         allowed,
@@ -181,6 +188,11 @@ fn command(
         Act::Fork(None) => format!("/fork {name} {first}"),
         Act::Purge => format!("/purge {name} {first}"),
         Act::Remove => format!("/remove-scholar {name} {first}"),
+        // Only when its name is typed, as nothing brings it back.
+        Act::Erase if first == name => {
+            format!("/erase-scholar {name}")
+        }
+        Act::Erase => return None,
         Act::Revert(to) => format!("/revert {name} {to} {first}"),
     })
 }
@@ -228,13 +240,20 @@ fn form(name: String, act: Act) -> AnyView {
         Act::Remove => {
             ("Archive it and end its hires.".to_string(), "why", None)
         }
+        Act::Erase => (
+            "Erase it, its repository and its hires for good. \
+             Nothing brings it back."
+                .to_string(),
+            "type its name",
+            None,
+        ),
         Act::Revert(_) => (
             "Undo that version's commit of its main.".to_string(),
             "why (optional)",
             None,
         ),
     };
-    let remove = act == Act::Remove || act == Act::Purge;
+    let remove = matches!(act, Act::Remove | Act::Purge | Act::Erase);
     let go = {
         let act = act.clone();
         move |world: &mut World| run(world, &name, &act)
@@ -325,8 +344,27 @@ fn arrival(shown: &Shown) -> AnyView {
                 ));
             }
         }
-        // Sending it back is among the careful acts at the foot.
-        (None, protocol::Arrival::Housed) => {}
+        // Picked up and set down in the world; sending it back is
+        // among the careful acts at the foot.
+        (None, protocol::Arrival::Housed) => {
+            if can("move-house") {
+                let scholar = shown.entity;
+                buttons_row.push(
+                    action(Glyph::Move, "MOVE HOUSE", move |world| {
+                        hamlet_realm::orders::carry_house(
+                            world, scholar,
+                        );
+                    })
+                    .tooltip(|| {
+                        note(
+                            "Pick its house up and set it down \
+                             elsewhere in the city",
+                        )
+                    })
+                    .boxed(),
+                );
+            }
+        }
         (None, _) => {
             if can("welcome") {
                 let name = name.clone();
@@ -633,6 +671,15 @@ fn careful(shown: &Shown) -> AnyView {
         acts.push(bad_action(Glyph::Gone, "REMOVE", |world| {
             ask(world, Act::Remove);
         }));
+    }
+    if !living && can("erase-scholar") {
+        acts.push(bad_action(
+            Glyph::Delete,
+            "ERASE FOR GOOD",
+            |world| {
+                ask(world, Act::Erase);
+            },
+        ));
     }
     if acts.is_empty() {
         return frame().boxed();

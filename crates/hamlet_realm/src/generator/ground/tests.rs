@@ -119,11 +119,19 @@ fn tiles_share_no_tree_and_far_ones_hold_fewer() {
     assert_eq!(all.len(), under);
 
     // The same wood from far off is one mesh, and from further
-    // one of fewer trees.
-    let wood = Tile {
+    // one of fewer trees: a wood of the hamlet island, as the city
+    // keeps few trees.
+    let side = Tile {
         level: 3,
         x: 0,
-        z: -1,
+        z: 0,
+    }
+    .side(chunk);
+    let at = (land.hamlet_centre() / side).floor();
+    let wood = Tile {
+        level: 3,
+        x: at.x as i32,
+        z: at.y as i32 - 1,
     };
     let count = |every: u32| {
         let lo = wood.corner(chunk);

@@ -10,7 +10,7 @@ use hamlet_client::realm::{Identity, Left, Scholar};
 use super::{Glass, Level};
 use crate::generator::house::{self, Banner, TownStyle};
 use crate::generator::land::{IslandId, Land};
-use crate::generator::society::AgentId;
+use crate::generator::society::{AgentId, Claim, Ground, Society};
 use crate::lantern::NightLight;
 use crate::pick::{self, Named, PickSettings, Thing, hit_box};
 use crate::stock::Stock;
@@ -104,6 +104,40 @@ pub(super) fn spots(
         .into_iter()
         .map(|home| home.at)
         .collect()
+}
+
+/// Half the distance the server keeps between two houses.
+const ROOM: f32 = 6.0;
+
+/// Gives the house of every scholar that has not left a claim on
+/// its ground, and takes the claims of houses that are gone.
+pub(super) fn claim(
+    land: Res<Land>,
+    scholars: Query<(Entity, &Scholar)>,
+    mut society: ResMut<Society>,
+) {
+    let wanted = wanted(&land, &scholars, &[])
+        .into_iter()
+        .filter(|home| !home.shut)
+        .filter_map(|home| {
+            let (_, scholar) = scholars.get(home.scholar).ok()?;
+            Some(Claim {
+                place: Ground::House(scholar.0.id),
+                at: home.at,
+                radius: ROOM,
+            })
+        })
+        .collect::<Vec<_>>();
+    let held =
+        |claim: &&Claim| matches!(claim.place, Ground::House(_));
+    let have = society.claims.iter().filter(held).count();
+    if have == wanted.len()
+        && wanted.iter().all(|claim| society.claims.contains(claim))
+    {
+        return;
+    }
+    society.claims.retain(|claim| !held(&claim));
+    society.claims.extend(wanted);
 }
 
 /// Raises the house of every scholar that has none, takes down the
