@@ -333,6 +333,9 @@ fn live(shot: &Shot) {
     // Nothing is pressed for it: the hand at the window does that.
     app.insert_resource(Strike(u32::MAX))
         .add_plugins(GalleryPlugin(shot.scene))
+        // The stills keep hover off so a held hover stays; a hand at
+        // the window needs it to point at anything.
+        .insert_resource(bevy::picking::PickingSettings::default())
         .add_systems(Startup, |mut commands: Commands| {
             commands.spawn((Camera2d, IsDefaultUiCamera));
         });
