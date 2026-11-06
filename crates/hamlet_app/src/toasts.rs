@@ -1,7 +1,7 @@
 //! Toasts: what newly waits for the chief, and what happened that
 //! needs no answer, stacked over the realm view.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bevy::app::{App, PreUpdate};
 use bevy::color::Color;
@@ -24,13 +24,15 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource, style};
-use hamlet_client::messages::{Answer, ServerFault};
+use hamlet_client::messages::{Answer, Response, ServerFault};
+use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{
     Departure, Faulted, Kind, Left, Scholar, Seen,
 };
 use hamlet_client::waits::{RaisedBy, Waiting};
 use hamlet_protocol::client::{
-    AgentKind, Arrival, LeftHow, ScholarId, WaitDetail,
+    AgentKind, Arrival, ClientMessage, LeftHow, ReplyKind, ScholarId,
+    ServerMessage, WaitDetail,
 };
 use hamlet_ui::styles::{action, buttons, caption, close_button};
 use hamlet_ui::theme::HamletTheme;
@@ -54,8 +56,10 @@ const WIDTH: f32 = 340.0;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Toasts>()
+        .init_resource::<Decreed>()
         .add_observer(answered)
         .add_observer(failed)
+        .add_observer(refused)
         .add_systems(
             PreUpdate,
             (raise, judged, keep).chain().in_set(PanelSystems::Bind),
@@ -229,6 +233,57 @@ fn failed(
             tone: Tone::Critical,
             head: "FAULT".into(),
             line: fault.text.clone(),
+        },
+        time.elapsed_secs(),
+    );
+}
+
+/// The commands given from the world or a form rather than a chat,
+/// whose refusal would otherwise be said only in the Hand's chat.
+#[derive(Resource, Default)]
+pub(crate) struct Decreed(HashSet<RequestId>);
+
+/// Watches the command just queued, the last thing sent, so that its
+/// refusal is toasted.
+pub(crate) fn watch_last(world: &mut World) {
+    let last = world.resource::<Outbox>().iter().last().and_then(
+        |message| match message {
+            ClientMessage::Say(say) => Some(say.id.clone()),
+            _ => None,
+        },
+    );
+    // A window drawn without toasts watches nothing.
+    if let Some(id) = last
+        && let Some(mut decreed) = world.get_resource_mut::<Decreed>()
+    {
+        decreed.0.insert(id);
+    }
+}
+
+/// A command given from the world that the server refused.
+fn refused(
+    response: On<Response>,
+    time: Res<Time>,
+    mut decreed: ResMut<Decreed>,
+    mut toasts: ResMut<Toasts>,
+) {
+    if !decreed.0.remove(&response.to) {
+        return;
+    }
+    let text = match &response.message {
+        ServerMessage::Reply(reply)
+            if reply.kind == ReplyKind::Error =>
+        {
+            reply.text.clone()
+        }
+        ServerMessage::Fault(fault) => fault.text.clone(),
+        _ => return,
+    };
+    toasts.push(
+        What::Notice {
+            tone: Tone::Critical,
+            head: "NOT DONE".into(),
+            line: text,
         },
         time.elapsed_secs(),
     );
@@ -476,14 +531,14 @@ mod tests {
         state.waits.push(hamlet_testing::realm::wait("old"));
         hamlet_client::receive(
             app.world_mut(),
-            protocol::ServerMessage::State(state.clone()),
+            ServerMessage::State(state.clone()),
         );
         app.update();
         state.revision += 1;
         state.waits.push(hamlet_testing::realm::wait("new"));
         hamlet_client::receive(
             app.world_mut(),
-            protocol::ServerMessage::State(state),
+            ServerMessage::State(state),
         );
         app.update();
         bevy_fynix::mount::<HamletTheme>(app.world_mut(), stack());
@@ -506,7 +561,7 @@ mod tests {
         press(&mut app, "ALLOW ONCE");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {
-                matches!(message, protocol::ClientMessage::Answer(answer)
+                matches!(message, ClientMessage::Answer(answer)
                     if answer.wait == "new" && answer.choice == Choice::Allow)
             });
         assert!(allowed);
@@ -525,7 +580,7 @@ mod tests {
         state.scholars.push(moss);
         hamlet_client::receive(
             app.world_mut(),
-            protocol::ServerMessage::State(state.clone()),
+            ServerMessage::State(state.clone()),
         );
         app.update();
         state.revision += 1;
@@ -534,7 +589,7 @@ mod tests {
         moss.arrival_by = Some(HAND.into());
         hamlet_client::receive(
             app.world_mut(),
-            protocol::ServerMessage::State(state),
+            ServerMessage::State(state),
         );
         app.update();
         bevy_fynix::mount::<HamletTheme>(app.world_mut(), stack());
@@ -549,7 +604,7 @@ mod tests {
         press(&mut app, "UNDO");
         let undone =
             app.world().resource::<Outbox>().iter().any(|message| {
-                matches!(message, protocol::ClientMessage::Say(say)
+                matches!(message, ClientMessage::Say(say)
                     if say.text == "/turn-away moss")
             });
         assert!(undone);
@@ -576,5 +631,42 @@ mod tests {
         app.world_mut().entity_mut(body).insert(Hovered(false));
         app.update();
         assert!(app.world().resource::<Toasts>().shown.is_empty());
+    }
+
+    #[test]
+    fn a_command_from_the_world_that_is_refused_toasts() {
+        let mut app = panel_app();
+        app.add_plugins(plugin).add_observer(chat::decreed);
+        app.world_mut().trigger(hamlet_realm::orders::Decree {
+            hamlet: None,
+            text: "/move-house ada 1 1".into(),
+        });
+        app.world_mut().flush();
+        let said = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .filter_map(|message| match message {
+                ClientMessage::Say(say) => Some(say),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let [say] = &said[..] else {
+            panic!("one command: {said:?}");
+        };
+        let refusal = serde_json::from_value(serde_json::json!({
+            "type": "reply",
+            "to": say.id,
+            "kind": "error",
+            "text": "the house would stand on another",
+        }))
+        .unwrap();
+        hamlet_client::receive(app.world_mut(), refusal);
+        let shown = &app.world().resource::<Toasts>().shown;
+        assert!(matches!(
+            &shown[..],
+            [Toast { what: What::Notice { line, .. }, .. }]
+                if line == "the house would stand on another"
+        ));
     }
 }

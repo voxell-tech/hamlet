@@ -302,9 +302,13 @@ fn command_to(world: &mut World, agent: Entity, text: String) {
 /// [`command`] does when it is about no hamlet.
 pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
     let Decree { hamlet, text } = decree.event().clone();
-    commands.queue(move |world: &mut World| match hamlet {
-        Some(hamlet) => self::decree(world, &hamlet, text),
-        None => command(world, text),
+    commands.queue(move |world: &mut World| {
+        match hamlet {
+            Some(hamlet) => self::decree(world, &hamlet, text),
+            None => command(world, text),
+        }
+        // Given from the world, not a chat: a refusal is toasted.
+        crate::toasts::watch_last(world);
     });
 }
 
