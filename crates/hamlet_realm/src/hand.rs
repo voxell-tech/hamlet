@@ -344,9 +344,6 @@ fn meet(
     }
 }
 
-/// The robot `thing` is, if it can be lifted now. A scholar's house
-/// shares its thing with the scholar's figure, so that one counts
-/// only when the pointer is on the figure's own box.
 /// The robot the pointer is on as `thing`: a hamlet's robot, or a
 /// scholar's figure in the city when the pointer is on the figure
 /// itself, not on the house that shares its name.
@@ -371,6 +368,7 @@ fn robot_under(
     }
 }
 
+/// The robot `thing` is, if it can be lifted now.
 fn liftable(
     thing: Option<Thing>,
     boxes: &Query<(Entity, &Thing, &ChildOf)>,
