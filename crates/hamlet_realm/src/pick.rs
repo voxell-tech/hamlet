@@ -491,12 +491,9 @@ fn click_surface(
     }
 }
 
-fn press(
-    press: On<PointerPress>,
-    surfaces: Query<(), With<WorldSurface>>,
-    mut travel: ResMut<Travel>,
-) {
-    if surfaces.contains(press.event_target()) {
-        travel.0 = 0.0;
-    }
+/// Every press starts the count of how far the pointer travels, on a
+/// robot or a house as on the bare ground, so a click on a thing is
+/// judged by its own press and not by the drag before it.
+fn press(_: On<PointerPress>, mut travel: ResMut<Travel>) {
+    travel.0 = 0.0;
 }
