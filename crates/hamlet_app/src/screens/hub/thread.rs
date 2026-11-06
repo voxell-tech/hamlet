@@ -1007,8 +1007,7 @@ mod tests {
         assert!(
             shown.iter().any(|text| text == "No memory files yet.")
         );
-        assert!(shown.iter().any(|text| text
-            == "Write here how this agent behaves and speaks."));
+        assert!(shown.iter().any(|text| text == "Not written yet"));
         app.world_mut()
             .resource_mut::<Outbox>()
             .drain()

@@ -2,13 +2,9 @@
 //! read-only.
 
 use bevy::ecs::world::World;
-use bevy_fynix::views::BehaviorExt;
-use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::chats::Chat;
 use hamlet_client::realm::{PeerChats, id_of, name_of};
 use hamlet_protocol::client as protocol;
-use hamlet_ui::styles::{close, filling, group, lettered, note};
-use hamlet_ui::{View, built};
 
 use super::{Showing, show};
 use crate::convo::Convo;
@@ -97,50 +93,4 @@ pub(super) fn name_of_peer(
         .filter(|agent| id_of(world, *agent).is_some())
         .map(|agent| name_of(world, agent))
         .unwrap_or_else(|| format!("agent#{}", with.0))
-}
-
-fn exchange(peer: protocol::ConversationView) -> impl View {
-    built(move |cx| {
-        let name = name_of_peer(cx.world, peer.with);
-        let kind = match peer.kind {
-            protocol::ConversationViewKind::Letters => "LETTERS",
-            protocol::ConversationViewKind::Questions => "QUESTIONS",
-        };
-        let selected = peer.clone();
-        let button =
-            lettered(format!("{kind} WITH {}", name.to_uppercase()))
-                .rules(hamlet_ui::styles::button)
-                .on_activate(move |world| {
-                    open(world, selected.clone());
-                });
-        let last = peer
-            .last
-            .and_then(chrono::DateTime::from_timestamp_millis)
-            .map(|at| at.format("%Y-%m-%d %H:%M UTC").to_string())
-            .unwrap_or_default();
-        cx.build(close((
-            button,
-            note(format!("{} messages. Last: {last}", peer.count)),
-        )))
-    })
-}
-
-/// The letters and questions the agent has had with others, each
-/// to be watched.
-pub(super) fn list() -> impl View {
-    keyed(derived(peers).when(every_frame()), |chats| {
-        if chats.is_empty() {
-            return note("No conversations with other agents yet.")
-                .boxed();
-        }
-        group(
-            chats
-                .iter()
-                .cloned()
-                .map(|peer| exchange(peer).boxed())
-                .collect::<Vec<_>>(),
-        )
-        .boxed()
-    })
-    .within(filling())
 }

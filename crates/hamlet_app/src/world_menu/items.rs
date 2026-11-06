@@ -8,8 +8,7 @@ use bevy_fynix::ViewExt;
 use bevy_fynix::views::{BehaviorExt, label, menu_item};
 use hamlet_client::gifts::{give, offers};
 use hamlet_client::realm::{
-    self as agents, Busy, Deeds, HamletId, Kind, Left, Mayor, Road,
-    road_between, roads_of,
+    self as agents, Busy, Deeds, HamletId, Kind, Left, Mayor,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::society::Ground;
@@ -56,21 +55,6 @@ fn asking(text: String, deed: Deed, at: Vec2) -> AnyView {
                 Open::Question(deed.clone(), at);
         })
         .boxed()
-}
-
-/// The agents `agent` has a road to, the mayor aside, by name.
-fn joined(world: &World, agent: Entity) -> Vec<(Entity, String)> {
-    let mut peers = roads_of(world, agent)
-        .filter_map(|road| world.get::<Road>(road))
-        .map(|road| match road.ends {
-            (a, b) if a == agent => b,
-            (a, _) => a,
-        })
-        .filter(|peer| world.get::<Mayor>(*peer).is_none())
-        .map(|peer| (peer, agents::name_of(world, peer)))
-        .collect::<Vec<_>>();
-    peers.sort_by(|a, b| a.1.cmp(&b.1));
-    peers
 }
 
 /// Hires a scholar under `lead`, while it is a living hire.
@@ -172,21 +156,7 @@ fn for_agent(
         .flatten()
         .filter_map(|thing| plain_agent(world, thing))
         .find(|(other, _)| *other != agent);
-    let chosen = other.as_ref().map(|(them, _)| *them);
-    if let Some((them, other)) = other.clone() {
-        let joined = road_between(world, agent, them).is_some();
-        if joined && Deeds::is_allowed(world, "unroad") {
-            items.push(item(
-                format!("Remove the road to {other}"),
-                move |w| orders::part(w, agent, them),
-            ));
-        } else if !joined && Deeds::is_allowed(world, "road") {
-            items.push(item(
-                format!("Build a road to {other}"),
-                move |w| orders::introduce(w, agent, them),
-            ));
-        }
-    }
+    // Its roads are built and taken up in its details.
     if let Some((them, other)) =
         other.filter(|_| Deeds::is_allowed(world, "merge"))
     {
@@ -208,17 +178,6 @@ fn for_agent(
             into_other,
             at,
         ));
-    }
-    // The roads it has, besides the one to the other of
-    // two that are chosen, which is offered above.
-    for (peer, name) in joined(world, agent) {
-        if Some(peer) != chosen && Deeds::is_allowed(world, "unroad")
-        {
-            items.push(item(
-                format!("Remove the road to {name}"),
-                move |w| orders::part(w, agent, peer),
-            ));
-        }
     }
     if Deeds::is_allowed(world, "mayor") {
         items.push(asking(

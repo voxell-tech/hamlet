@@ -7,6 +7,7 @@ mod founding;
 mod hire;
 mod items;
 mod new_scholar;
+mod road;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
@@ -40,6 +41,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Founding>()
         .init_resource::<new_scholar::Making>()
         .init_resource::<hire::Hiring>()
+        .init_resource::<road::Roading>()
         .add_observer(ask_of_row)
         .add_systems(Update, answer_ask);
 }
@@ -59,6 +61,8 @@ pub(crate) enum Open {
     NewScholar(Vec2),
     /// The form a scholar is hired under a lead with.
     Hire(Entity, Vec2),
+    /// The form a road from an agent is built with.
+    Road(Entity, Vec2),
     /// The skills an agent could be given.
     Skills(Entity, Vec2),
 }
@@ -178,6 +182,15 @@ pub(crate) fn ask_hire(world: &mut World, lead: Entity) {
     *world.resource_mut::<Open>() = Open::Hire(lead, at);
 }
 
+/// Opens the form a road from `agent` is built with, at the pointer.
+pub(crate) fn ask_road(world: &mut World, agent: Entity) {
+    if !Deeds::is_allowed(world, "road") {
+        return;
+    }
+    let at = pointer(world);
+    *world.resource_mut::<Open>() = Open::Road(agent, at);
+}
+
 /// Asks before `deed` is done, at the pointer.
 pub(crate) fn ask(world: &mut World, deed: Deed) {
     let at = pointer(world);
@@ -248,6 +261,7 @@ fn menus() -> AnyView {
                 new_scholar::new_scholar(at).boxed()
             }
             Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
+            Open::Road(agent, at) => road::road(agent, at).boxed(),
             Open::Skills(agent, at) => {
                 AnyView::new(move |cx: &mut Cx| {
                     let items = items::skills(cx.world, agent);
@@ -413,7 +427,6 @@ mod tests {
         open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
         let shown = words(&mut app);
         for absent in [
-            "Build a road to scribe@home",
             "End scout@home...",
             "Make scout@home Mayor...",
             "Merge scout@home into scribe@home...",
@@ -429,8 +442,8 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         open(&mut app, Open::Nothing);
-        open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
-        press(&mut app, "Build a road to scribe@home");
+        open(&mut app, Open::Road(a, Vec2::ZERO));
+        press(&mut app, "scribe@home");
         let messages = sent(&mut app);
         let [protocol::ClientMessage::Say(say)] = &messages[..]
         else {
