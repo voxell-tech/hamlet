@@ -389,14 +389,7 @@ fn arrival(shown: &Shown) -> AnyView {
 /// The versions, each with what can be done from it.
 fn versions(shown: &Shown) -> AnyView {
     let can = |deed| shown.allowed.contains(&deed);
-    let mut parts = vec![
-        heading(Glyph::History, "VERSIONS"),
-        note(
-            "A version is a named point in what the scholar knows. \
-             Its hires follow main, or one of these.",
-        )
-        .boxed(),
-    ];
+    let mut parts = vec![heading(Glyph::History, "VERSIONS")];
     if shown.scholar.versions.is_empty() {
         parts.push(note("No version is named yet.").boxed());
     }
@@ -619,14 +612,12 @@ fn deeds(shown: &Shown) -> AnyView {
     {
         return frame().boxed();
     }
-    row((
-        action(Glyph::Moon, "DREAM", move |world| {
-            tell_hand(world, format!("/dream {name}"));
-        }),
-        dim("Bring home what its hires learned, and tidy its memory."),
-    ))
-    .gap(8.0)
-    .align(AlignItems::Center)
+    action(Glyph::Moon, "DREAM", move |world| {
+        tell_hand(world, format!("/dream {name}"));
+    })
+    .tooltip(|| {
+        note("Bring home what its hires learned, and tidy its memory")
+    })
     .boxed()
 }
 
@@ -684,13 +675,9 @@ fn careful(shown: &Shown) -> AnyView {
     if acts.is_empty() {
         return frame().boxed();
     }
-    column((
-        heading(Glyph::Stop, "CAREFUL"),
-        note("These change the scholar for good, or send it away."),
-        buttons(acts),
-    ))
-    .gap(6.0)
-    .boxed()
+    column((heading(Glyph::Stop, "CAREFUL"), buttons(acts)))
+        .gap(6.0)
+        .boxed()
 }
 
 /// The scholar's page: where it stands, its hires, what it knows, its

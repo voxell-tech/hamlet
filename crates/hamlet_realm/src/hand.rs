@@ -297,19 +297,24 @@ fn yaw_of(rotation: Quat) -> f32 {
 /// True when a robot can be given a motion to play now: about its
 /// house, and in nothing it must finish.
 fn is_free(robot: &Robot, passage: Option<&Passage>) -> bool {
-    robot.is_at_house()
-        && passage.is_none_or(|passage| {
-            matches!(
-                passage.act(),
-                Act::Wave
-                    | Act::Wiggle
-                    | Act::Startle
-                    | Act::Land
-                    | Act::Greet
-                    | Act::Receive
-                    | Act::Celebrate
-            )
-        })
+    robot.is_at_house() && is_open(passage)
+}
+
+/// True when a robot is in nothing it must finish: still, or in a
+/// motion it can be taken out of, such as a wave or a greeting.
+fn is_open(passage: Option<&Passage>) -> bool {
+    passage.is_none_or(|passage| {
+        matches!(
+            passage.act(),
+            Act::Wave
+                | Act::Wiggle
+                | Act::Startle
+                | Act::Land
+                | Act::Greet
+                | Act::Receive
+                | Act::Celebrate
+        )
+    })
 }
 
 /// The robot a thing is, if it is one.
@@ -342,6 +347,30 @@ fn meet(
 /// The robot `thing` is, if it can be lifted now. A scholar's house
 /// shares its thing with the scholar's figure, so that one counts
 /// only when the pointer is on the figure's own box.
+/// The robot the pointer is on as `thing`: a hamlet's robot, or a
+/// scholar's figure in the city when the pointer is on the figure
+/// itself, not on the house that shares its name.
+fn robot_under(
+    thing: Thing,
+    boxes: &Query<(Entity, &Thing, &ChildOf)>,
+    robots: &Query<&Robot>,
+    over: &HoverMap,
+) -> Option<Entity> {
+    match thing {
+        Thing::Scholar(_) => boxes
+            .iter()
+            .find(|(hit, of, parent)| {
+                **of == thing
+                    && robots.contains(parent.parent())
+                    && over
+                        .values()
+                        .any(|hits| hits.contains_key(hit))
+            })
+            .map(|(_, _, parent)| parent.parent()),
+        _ => robot_of(thing, boxes, robots),
+    }
+}
+
 fn liftable(
     thing: Option<Thing>,
     boxes: &Query<(Entity, &Thing, &ChildOf)>,
@@ -350,19 +379,7 @@ fn liftable(
     over: &HoverMap,
 ) -> Option<Entity> {
     thing
-        .and_then(|thing| match thing {
-            Thing::Scholar(_) => boxes
-                .iter()
-                .find(|(hit, of, parent)| {
-                    **of == thing
-                        && robots.contains(parent.parent())
-                        && over
-                            .values()
-                            .any(|hits| hits.contains_key(hit))
-                })
-                .map(|(_, _, parent)| parent.parent()),
-            _ => robot_of(thing, boxes, robots),
-        })
+        .and_then(|thing| robot_under(thing, boxes, robots, over))
         .filter(|robot| {
             robots.get(*robot).is_ok_and(|of| {
                 is_free(of, passages.get(*robot).ok())

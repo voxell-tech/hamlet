@@ -176,13 +176,9 @@ pub fn overview() -> impl View {
     });
     with_cx(move |cx| {
         column((
-            beside((
-                title("REALM"),
-                note("Today in your realm, and its hamlets."),
-            )),
+            title("REALM"),
             today(),
             search,
-            note("Search by a hamlet's name or its mayor's."),
             scroll_area((hand(), list, closed())),
             beside((
                 action(
@@ -196,9 +192,6 @@ pub fn overview() -> impl View {
                         crate::forms::Asking::Scholar,
                     );
                 }),
-                note(
-                    "Where you live, and a new scholar for the city.",
-                ),
             )),
             new_scholar(),
         ))

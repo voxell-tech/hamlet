@@ -80,8 +80,15 @@ fn level(land: &Land, p: Vec2) -> f32 {
     smoothstep(0.14, 0.06, 1.0 - land.normal(p).y)
 }
 
-/// A shrub: a few low clumps of leaves, most at the edge of the
-/// woods, where they meet open ground.
+/// How far beyond a hamlet's houses or a held plot shrubs grow
+/// thick, in metres.
+const HOMELY: f32 = 12.0;
+
+/// The share of shrubs left in the wilds, away from any home.
+const WILD_SHARE: f32 = 0.15;
+
+/// A shrub: a few low clumps of leaves, about homes and at the edge
+/// of the woods, where they meet open ground.
 fn shrub(meshing: &mut Meshing, land: &Land, p: Vec2, h: u32) {
     let y = land.height(p);
     if y < land.set.land.water_y + 0.5 || y > 24.0 || is_kept(land, p)
@@ -90,7 +97,14 @@ fn shrub(meshing: &mut Meshing, land: &Land, p: Vec2, h: u32) {
     }
     let f = land.forest(p);
     let edge = 4.0 * f * (1.0 - f);
-    if roll(h, 2) > level(land, p) * (0.06 + 0.5 * edge) {
+    // Most grow about where someone lives: around a hamlet's houses
+    // and the city's held plots; elsewhere only a few.
+    let near_home = land.site_dist(p) < land.set.town.radius + HOMELY
+        || land.is_held(p, HOMELY);
+    let share = if near_home { 1.0 } else { WILD_SHARE };
+    let chance = (0.06 + 0.5 * edge) * share
+        + if near_home { 0.2 } else { 0.0 };
+    if roll(h, 2) > level(land, p) * chance {
         return;
     }
     let pal = &land.pal;

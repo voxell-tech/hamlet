@@ -3,11 +3,14 @@
 
 use std::f32::consts::PI;
 
+use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use hamlet_client::realm::Busy;
 
 use super::toys::{self, Kind, Toys};
-use super::{Hand, Mood, PlaySettings, is_free, robot_of, toward};
+use super::{
+    Hand, Mood, PlaySettings, is_free, is_open, robot_under, toward,
+};
 use crate::bubble::Pinned;
 use crate::generator::{Passage, Robot, Thought};
 use crate::hamlet::Housed;
@@ -199,7 +202,9 @@ pub(super) fn pokes(
             continue;
         };
         let at = place.translation;
-        if !is_free(robot, passage) || mood.is_sulking(now) {
+        // A poke lands wherever the robot is, between chores or
+        // waving hello as well as at its house.
+        if !is_open(passage) || mood.is_sulking(now) {
             continue;
         }
         let proud = agents
@@ -288,6 +293,7 @@ pub(super) fn pats(
     set: Res<PlaySettings>,
     toys: Option<Res<Toys>>,
     hovered: Res<Hovered>,
+    over: Res<HoverMap>,
     reach: Res<Reach>,
     mut hand: ResMut<Hand>,
     boxes: Query<(Entity, &Thing, &ChildOf)>,
@@ -305,7 +311,7 @@ pub(super) fn pats(
     let on = hovered
         .0
         .filter(|_| hand.held.is_none() && !clock.frozen)
-        .and_then(|thing| robot_of(thing, &boxes, &plain));
+        .and_then(|thing| robot_under(thing, &boxes, &plain, &over));
     let (Some(on), Some(at)) = (on, reach.at) else {
         hand.rest = None;
         return;
