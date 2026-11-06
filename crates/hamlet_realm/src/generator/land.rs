@@ -102,6 +102,9 @@ pub struct LandSettings {
     /// island.
     pub tree_cell: f32,
     pub tree_origin: f32,
+    /// The share of the trees the hamlet island would have that the
+    /// city island keeps, so its houses stand in the open.
+    pub city_trees: f32,
 }
 
 /// A cell of the grid the land lays its sites and corridors on.

@@ -410,7 +410,13 @@ fn scatter(
             // degrees they thin, and past about 33 there are none.
             let steep = 1.0 - land.normal(p).y;
             let footing = smoothstep(0.16, 0.06, steep);
-            let chance = footing
+            // The city keeps only a share, so its houses stand open.
+            let share = match id {
+                IslandId::City => land.set.land.city_trees,
+                IslandId::Hamlet => 1.0,
+            };
+            let chance = share
+                * footing
                 * if high > 0.5 {
                     0.75 * smoothstep(36.0, 24.0, y)
                 } else {

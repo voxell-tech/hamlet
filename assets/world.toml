@@ -437,6 +437,7 @@ wilds = 0.45
 heath = 0.55
 tree_cell = 4.2
 tree_origin = -352.0
+city_trees = 0.3
 
 [generator.town]
 radius = 27.0

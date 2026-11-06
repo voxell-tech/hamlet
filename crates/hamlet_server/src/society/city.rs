@@ -26,8 +26,10 @@ use crate::text::text_enum;
 pub(crate) const CHARACTER_MOST: usize = 4000;
 
 /// The round at the city's middle that its landmarks keep: the Hand's
-/// tower, the Hearth and the Library.
-pub(crate) const MIDDLE: f64 = 30.0;
+/// tower, and the Hearth and the Library on the ring about it, which
+/// the world sets 44 m out with gardens 8.5 m about them
+/// (`city_ring` and `grounds` in `assets/world.toml`).
+pub(crate) const MIDDLE: f64 = 58.0;
 
 /// The least distance between the middles of two houses.
 pub(crate) const APART: f64 = 12.0;
