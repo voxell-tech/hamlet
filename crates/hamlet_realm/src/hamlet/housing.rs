@@ -5,7 +5,8 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    AgentNumber, HamletId, Left, Lived, LivesIn, MergedInto, Spot,
+    AgentNumber, HamletId, Left, Lived, LivesIn, Mayor, MergedInto,
+    Spot,
 };
 
 use super::{Housed, Returning, Sited, Unhoused, Wing};
@@ -122,8 +123,8 @@ pub(super) fn house(
         story.sort_by_key(|(when, ..)| *when);
         for ((_, number, goes), entity, host) in story {
             if !goes {
-                // The hall is the first mayor's house, whoever
-                // holds the office.
+                // The first mayor is housed in the hall. A later one
+                // trades houses with it, in `seat`.
                 let agent = if number == 0 {
                     Some(mayor)
                 } else if society.has_room(&land, town) {
@@ -161,6 +162,31 @@ pub(super) fn house(
             if let Some(host) = archive(&mut society, gone, host) {
                 commands.entity(entity).try_insert(Wing(host));
             }
+        }
+    }
+}
+
+/// The mayor lives in the hall: a hire that becomes mayor trades
+/// houses with the mayor before it, whether it is seen happen or the
+/// world meets the hamlet with a later mayor than its first.
+pub(super) fn seat(
+    mut society: ResMut<Society>,
+    mayors: Query<
+        &Housed,
+        (
+            With<Mayor>,
+            Without<Left>,
+            Or<(Added<Mayor>, Changed<Housed>)>,
+        ),
+    >,
+) {
+    for housed in &mayors {
+        let seated = society
+            .agent(housed.0)
+            .and_then(|agent| society.town(agent.town))
+            .is_none_or(|town| town.mayor == housed.0);
+        if !seated {
+            society.seat(housed.0);
         }
     }
 }

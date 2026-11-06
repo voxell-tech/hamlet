@@ -225,6 +225,25 @@ fn the_world_shows_who_left_and_who_came_back() {
 }
 
 #[test]
+fn a_new_mayor_trades_houses_with_the_one_before() {
+    let (mut app, hamlet) = app();
+    tell(&mut app, hamlet, &[1, 2], &[]);
+    let (hall, home) =
+        (agent(&mut app, 0).plot, agent(&mut app, 2).plot);
+    let (founder, two) =
+        (entity(&mut app, 0).unwrap(), entity(&mut app, 2).unwrap());
+    app.world_mut().entity_mut(founder).remove::<Mayor>();
+    app.world_mut().entity_mut(two).insert(Mayor);
+    app.update();
+    assert_eq!(agent(&mut app, 2).plot, hall);
+    assert_eq!(agent(&mut app, 0).plot, home);
+    let town = app.world().get::<Sited>(hamlet).unwrap().0;
+    let mayor =
+        app.world().resource::<Society>().town(town).unwrap().mayor;
+    assert_eq!(mayor, agent(&mut app, 2).id);
+}
+
+#[test]
 fn a_world_opened_later_puts_everyone_on_the_same_plot() {
     let (mut first, hamlet) = app();
     tell(&mut first, hamlet, &[1, 2, 3], &[]);
@@ -372,15 +391,6 @@ fn several_hamlets_are_towns_with_roads_between() {
     // Each first mayor has its town's hall.
     let society = app.world().resource::<Society>();
     assert_eq!(society.town(there.town).unwrap().mayor, there.id);
-
-    // The office moves and nobody changes house.
-    let one = entity(&mut app, 1).unwrap();
-    let plot = housed(&app, one).plot;
-    app.world_mut().entity_mut(mayor).remove::<Mayor>();
-    app.world_mut().entity_mut(one).insert(Mayor);
-    app.update();
-    assert_eq!(housed(&app, one).plot, plot);
-    assert_eq!(housed(&app, mayor).id, here.id);
 
     // A road between the mayors crosses the towns.
     let ends = if mayor <= miller {

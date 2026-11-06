@@ -44,6 +44,7 @@ pub(crate) fn plugin(app: &mut App) {
                     ),
                 ),
                 housing::house,
+                housing::seat,
                 crossing::board.run_if(resource_exists::<Harbor>),
                 (crossing::leave_home, crossing::cross)
                     .run_if(any_with_component::<crossing::Voyage>),
