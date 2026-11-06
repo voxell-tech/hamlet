@@ -14,6 +14,7 @@ use bevy::input::mouse::MouseButton;
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, GLOBAL, Mods, ShortcutAppExt,
 };
+use hamlet_realm::pick::{Selected, Thing, select};
 
 use super::{Sheet, Showing, show};
 use crate::convo::{Convo, seat};
@@ -123,6 +124,23 @@ fn stands(world: &World, visit: &Visit) -> bool {
     shown && visit.agent.is_none_or(alive)
 }
 
+/// What is selected in the world while `visit` is shown, if the page
+/// has a thing of its own.
+fn thing_of(world: &World, visit: &Visit) -> Option<Option<Thing>> {
+    Some(match visit.showing {
+        Showing::Home => None,
+        Showing::Thread => {
+            Some(crate::convo::home_of(world, visit.agent?))
+        }
+        Showing::Scholar(scholar) => Some(Thing::Scholar(scholar)),
+        Showing::Hamlet(hamlet) => Some(Thing::Common(hamlet)),
+        Showing::Gone(agent) => Some(Thing::Ruin(agent)),
+        Showing::Chief(chief) => Some(Thing::Chief(chief)),
+        Showing::Library => Some(Thing::Library),
+        Showing::Sessions | Showing::Prompt => return None,
+    })
+}
+
 /// Turns the Hub to the page behind, or the one ahead.
 fn travel(world: &mut World, way: Way) {
     let Some(now) = here(world) else {
@@ -148,6 +166,14 @@ fn travel(world: &mut World, way: Way) {
     }
     // Shown as it is, it is not kept again as a page left.
     visits.now = Some(next);
+    // The world's ring moves with it. A page of an agent's sessions
+    // or prompt leaves the ring where it is, as selecting the agent
+    // would turn the Hub to its chat.
+    if let Some(thing) = thing_of(world, &next)
+        && world.resource::<Selected>().0 != thing
+    {
+        select(world, thing);
+    }
     if let Some(agent) = next.agent
         && world.resource::<Convo>().agent != agent
     {
@@ -192,7 +218,10 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         let ada = realm::named(app.world_mut(), "ada@home").unwrap();
-        app.insert_resource(Showing::Home).init_resource::<Sheet>();
+        app.insert_resource(Showing::Home)
+            .init_resource::<Sheet>()
+            .init_resource::<Selected>()
+            .init_resource::<hamlet_realm::pick::Also>();
         app.update();
         crate::convo::talk_to(app.world_mut(), ada);
         show(app.world_mut(), Showing::Thread);
