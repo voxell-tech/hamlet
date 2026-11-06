@@ -32,8 +32,8 @@ pub(crate) struct Roading {
     search: String,
 }
 
-/// The hires `agent` could have a road to whose addresses hold
-/// `search`, by address.
+/// The hires `agent` could have a road to whose shown names hold
+/// `search`, by name.
 fn choices(
     world: &World,
     agent: Entity,
