@@ -1058,17 +1058,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     });
 
     // Each hamlet as the tree under its mayor.
-    let mut hamlets = world
-        .try_query::<(Entity, &HamletId)>()
-        .map(|mut query| {
-            query
-                .iter(world)
-                .map(|(hamlet, _)| (hamlet, name_of(world, hamlet)))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    hamlets.sort_by_key(|(_, name)| name.to_lowercase());
-    for (hamlet, name) in hamlets {
+    for (hamlet, name) in hamlet_names(world) {
         let here = all
             .iter()
             .filter(|agent| agent.hamlet == Some(hamlet))
@@ -1155,7 +1145,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     sections
 }
 
-/// The hamlets the chief can choose to show, by name.
+/// Every hamlet with its name, in name order.
 fn hamlet_names(world: &World) -> Vec<(Entity, String)> {
     let mut found = world
         .try_query::<(Entity, &HamletId)>()
