@@ -1202,32 +1202,47 @@ fn search_row() -> impl View {
     ))
     .grow(1.0)
     .min_width(px(0.0));
-    let tools =
-        keyed(resource::<Tab, _>(|tab| *tab), |tab| match tab {
-            Tab::Hamlets => row((
-                tool(
-                    Glyph::Sliders,
-                    "Choose which hamlets are shown",
-                    |w| {
-                        let mut rail = w.resource_mut::<Rail>();
-                        rail.filtering = !rail.filtering;
-                    },
-                ),
-                tool(Glyph::Plus, "Found a hamlet", |w| {
-                    crate::world_menu::ask_found(w);
-                }),
-            ))
-            .gap(2.0)
-            .boxed(),
-            Tab::City => tool(Glyph::Plus, "Make a scholar", |w| {
+    // Every tab's tools are built once and only shown on their tab,
+    // so that a change of tab does not make them anew.
+    let on = |shown: Tab, view: AnyView| {
+        column((view,)).display(resource::<Tab, _>(move |tab| {
+            if *tab == shown {
+                Display::Flex
+            } else {
+                Display::None
+            }
+        }))
+    };
+    let tools = row((
+        on(
+            Tab::Hamlets,
+            tool(
+                Glyph::Sliders,
+                "Choose which hamlets are shown",
+                |w| {
+                    let mut rail = w.resource_mut::<Rail>();
+                    rail.filtering = !rail.filtering;
+                },
+            ),
+        ),
+        on(
+            Tab::Hamlets,
+            tool(Glyph::Plus, "Found a hamlet", |w| {
+                crate::world_menu::ask_found(w);
+            }),
+        ),
+        on(
+            Tab::City,
+            tool(Glyph::Plus, "Make a scholar", |w| {
                 show(w, Showing::Home);
                 crate::forms::toggle(
                     w,
                     crate::forms::Asking::Scholar,
                 );
             }),
-        })
-        .within(hamlet_ui::styles::bare());
+        ),
+    ))
+    .gap(2.0);
     with_cx(move |cx| {
         row((
             glyph(Glyph::Lens, ICON).tone(Tone::Faint),
