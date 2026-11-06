@@ -18,31 +18,6 @@ use super::refusal::Refusal;
 use super::{hamlets, tree};
 use crate::change::{Change, Done, done, refuse};
 use crate::jobs::{self, Job};
-use crate::text::text_enum;
-
-text_enum! {
-    /// How hard a hire's model thinks (H29a).
-    pub(crate) enum Effort {
-        Off = "off",
-        Minimal = "minimal",
-        Low = "low",
-        Medium = "medium",
-        High = "high",
-    }
-}
-
-impl Effort {
-    /// The effort as the protocols carry it.
-    pub fn wire(self) -> hamlet_protocol::Effort {
-        match self {
-            Self::Off => hamlet_protocol::Effort::Off,
-            Self::Minimal => hamlet_protocol::Effort::Minimal,
-            Self::Low => hamlet_protocol::Effort::Low,
-            Self::Medium => hamlet_protocol::Effort::Medium,
-            Self::High => hamlet_protocol::Effort::High,
-        }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = hire)]
@@ -59,7 +34,6 @@ pub(crate) struct Hire {
     pub model: Option<String>,
     pub model_by: Option<Actor>,
     pub model_reason: Option<String>,
-    pub effort: Option<Effort>,
     pub allowance: Option<Micros>,
     pub allowance_by: Option<Actor>,
     pub merged_into: Option<AgentId>,

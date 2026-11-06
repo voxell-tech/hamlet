@@ -5,9 +5,10 @@ use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId};
-use hamlet_store::schema::{agent, permission_grant};
+use hamlet_store::schema::{agent, hand, permission_grant, worker};
 
-use crate::change::Change;
+use super::hires;
+use crate::change::{Change, Done, refuse};
 use crate::text::text_enum;
 
 /// The harness an agent's conversations run in unless it is given
@@ -42,6 +43,70 @@ text_enum! {
     }
 }
 
+text_enum! {
+    /// How hard an agent's model thinks (H29a), weakest first.
+    pub(crate) enum Effort {
+        Off = "off",
+        Minimal = "minimal",
+        Low = "low",
+        Medium = "medium",
+        High = "high",
+        XHigh = "xhigh",
+        Max = "max",
+    }
+}
+
+impl Effort {
+    /// Every effort, weakest first.
+    pub const ALL: [Self; 7] = [
+        Self::Off,
+        Self::Minimal,
+        Self::Low,
+        Self::Medium,
+        Self::High,
+        Self::XHigh,
+        Self::Max,
+    ];
+
+    /// The effort as the protocols carry it.
+    pub fn wire(self) -> hamlet_protocol::Effort {
+        match self {
+            Self::Off => hamlet_protocol::Effort::Off,
+            Self::Minimal => hamlet_protocol::Effort::Minimal,
+            Self::Low => hamlet_protocol::Effort::Low,
+            Self::Medium => hamlet_protocol::Effort::Medium,
+            Self::High => hamlet_protocol::Effort::High,
+            Self::XHigh => hamlet_protocol::Effort::XHigh,
+            Self::Max => hamlet_protocol::Effort::Max,
+        }
+    }
+
+    /// The effort the protocols name.
+    pub fn of(wire: hamlet_protocol::Effort) -> Self {
+        match wire {
+            hamlet_protocol::Effort::Off => Self::Off,
+            hamlet_protocol::Effort::Minimal => Self::Minimal,
+            hamlet_protocol::Effort::Low => Self::Low,
+            hamlet_protocol::Effort::Medium => Self::Medium,
+            hamlet_protocol::Effort::High => Self::High,
+            hamlet_protocol::Effort::XHigh => Self::XHigh,
+            hamlet_protocol::Effort::Max => Self::Max,
+        }
+    }
+
+    /// The effort among `supported` nearest to this one, looking up
+    /// first and then down; this one when `supported` is empty.
+    pub fn clamped(self, supported: &[Self]) -> Self {
+        let at = self as usize;
+        Self::ALL[at..]
+            .iter()
+            .chain(Self::ALL[..at].iter().rev())
+            .find(|e| supported.contains(e))
+            .copied()
+            .unwrap_or(self)
+    }
+}
+
 impl EndHow {
     /// The words for an agent that ended this way.
     pub fn words(&self) -> &'static str {
@@ -64,6 +129,8 @@ pub(crate) struct Agent {
     pub kind: AgentKind,
     pub since: i64,
     pub harness: String,
+    pub effort: Option<Effort>,
+    pub fast: bool,
     pub ended_at: Option<i64>,
     pub ended_by: Option<Actor>,
     pub ended_how: Option<EndHow>,
@@ -106,6 +173,72 @@ pub(crate) fn find(
 
 pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Agent> {
     find(db, id)?.with_context(|| format!("no agent {id}"))
+}
+
+/// Chooses how hard the living agent `id` thinks, or lets it follow
+/// the realm's setting again when `None`.
+pub(crate) fn set_effort(
+    cx: &mut Change<'_>,
+    id: AgentId,
+    effort: Option<Effort>,
+) -> Done<()> {
+    if !get(cx.db, id)?.is_living() {
+        refuse!(hires::left(cx.db, id)?);
+    }
+    diesel::update(agent::table.find(id))
+        .set(agent::effort.eq(effort))
+        .execute(cx.db)?;
+    cx.touched.agents.insert(id);
+    Ok(Ok(()))
+}
+
+/// Turns the provider's fast tier on or off for the living agent
+/// `id`.
+pub(crate) fn set_fast(
+    cx: &mut Change<'_>,
+    id: AgentId,
+    fast: bool,
+) -> Done<()> {
+    if !get(cx.db, id)?.is_living() {
+        refuse!(hires::left(cx.db, id)?);
+    }
+    diesel::update(agent::table.find(id))
+        .set(agent::fast.eq(fast))
+        .execute(cx.db)?;
+    cx.touched.agents.insert(id);
+    Ok(Ok(()))
+}
+
+/// Chooses the model of the living agent `id`, or lets it follow its
+/// hamlet's or the realm's default when `None` (H29). A lead may not
+/// change a chief's choice for a hire.
+pub(crate) fn set_model(
+    cx: &mut Change<'_>,
+    id: AgentId,
+    model: Option<&str>,
+    reason: &str,
+) -> Done<()> {
+    let found = get(cx.db, id)?;
+    match found.kind {
+        AgentKind::Hire => hires::set_model(cx, id, model, reason),
+        AgentKind::Hand => {
+            diesel::update(hand::table)
+                .set(hand::model.eq(model))
+                .execute(cx.db)?;
+            cx.touched.agents.insert(id);
+            Ok(Ok(()))
+        }
+        AgentKind::Worker => {
+            if !found.is_living() {
+                refuse!(hires::left(cx.db, id)?);
+            }
+            diesel::update(worker::table.find(id))
+                .set(worker::model.eq(model))
+                .execute(cx.db)?;
+            cx.touched.agents.insert(id);
+            Ok(Ok(()))
+        }
+    }
 }
 
 /// Every hire, living or ended, oldest first.

@@ -108,12 +108,17 @@ CREATE TABLE hamlet_folder (
 -- Agents
 
 -- Anything that talks: the Hand, a hire or a worker. `harness` is the
--- one its new conversations run in.
+-- one its new conversations run in. `effort` is how hard its model
+-- thinks when chosen for it, and `fast` asks the provider for its fast
+-- tier.
 CREATE TABLE agent (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('hand', 'hire', 'worker')),
     since INTEGER NOT NULL,
     harness TEXT NOT NULL,
+    effort TEXT CHECK (effort IS NULL OR effort IN
+        ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')),
+    fast INTEGER NOT NULL DEFAULT 0 CHECK (fast IN (0, 1)),
     ended_at INTEGER,
     ended_by TEXT,
     ended_how TEXT CHECK (ended_how IS NULL OR ended_how IN
@@ -128,7 +133,9 @@ CREATE UNIQUE INDEX agent_hand ON agent(kind) WHERE kind = 'hand';
 
 CREATE TABLE hand (
     agent INTEGER PRIMARY KEY REFERENCES agent(id),
-    scholar INTEGER NOT NULL UNIQUE REFERENCES scholar(id)
+    scholar INTEGER NOT NULL UNIQUE REFERENCES scholar(id),
+    -- The model chosen for it; the realm's default while none.
+    model TEXT
 ) STRICT;
 
 -- A scholar working in a hamlet. Its branch is hires/<agent> in its
@@ -149,8 +156,6 @@ CREATE TABLE hire (
     model TEXT,
     model_by TEXT,
     model_reason TEXT,
-    effort TEXT CHECK (effort IS NULL OR effort IN
-        ('off', 'minimal', 'low', 'medium', 'high')),
     allowance INTEGER CHECK (allowance IS NULL OR allowance >= 0),
     allowance_by TEXT,
     merged_into INTEGER REFERENCES hire(agent),

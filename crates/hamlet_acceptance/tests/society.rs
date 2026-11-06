@@ -178,6 +178,29 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
         s.chief.command(ada, "/tools cy").await,
         "`cy` has these off: bash"
     );
+    // A chief chooses how any agent thinks, its tier and its model.
+    assert_eq!(
+        s.chief.command(ada, "/effort cy xhigh").await,
+        "`cy` thinks at xhigh."
+    );
+    assert_eq!(
+        s.chief.command(ada, "/fast cy on").await,
+        "`cy` asks for the fast tier: on."
+    );
+    assert_eq!(
+        s.chief.command(ada, "/model hand faux::faux-1").await,
+        "`hand` runs faux::faux-1."
+    );
+    s.chief
+        .until("the choices shown", |c| {
+            c.agent("cy@docs").is_some_and(|cy| {
+                cy.effort == Some(hamlet_protocol::Effort::XHigh)
+                    && cy.fast
+            }) && c.agent("hand").is_some_and(|hand| {
+                hand.own_model.as_deref() == Some("faux::faux-1")
+            })
+        })
+        .await;
     let dee = s.chief.agent("dee@docs").unwrap();
     assert_eq!(dee.left.unwrap().how, LeftHow::Ended);
     let record = s.chief.command(ada, "/record").await;

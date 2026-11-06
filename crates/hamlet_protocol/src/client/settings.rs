@@ -157,6 +157,17 @@ pub struct ProviderView {
 pub struct Listed {
     #[serde(deserialize_with = "Option::deserialize")]
     pub context: Option<i64>,
+    /// The effort the model thinks at unless asked otherwise; none
+    /// while unknown.
+    #[serde(rename = "defaultEffort")]
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub default_effort: Option<crate::Effort>,
+    /// The efforts the model can be asked for, weakest first; none
+    /// are listed while they are unknown.
+    pub efforts: Vec<crate::Effort>,
+    /// Whether the model's provider has a fast tier it can be asked
+    /// for.
+    pub fast: bool,
     pub name: String,
     pub note: String,
     #[serde(deserialize_with = "Option::deserialize")]

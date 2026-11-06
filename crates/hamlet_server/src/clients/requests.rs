@@ -18,7 +18,7 @@ use super::connection::{self, Event};
 use super::fold::Fold;
 use super::{Owed, Watch, changes};
 use crate::core::{Core, Live};
-use crate::society::agents::{self, AgentKind};
+use crate::society::agents::{self, AgentKind, Effort};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, hires, workers};
 use crate::talk::activity::Activity;
@@ -778,7 +778,7 @@ impl Core {
         protocol::SettingsView {
             allow_net: settings.allow_net,
             character: settings.character.clone(),
-            effort: settings.effort.map(hires::Effort::wire),
+            effort: settings.effort.map(Effort::wire),
             endpoints: settings
                 .endpoints
                 .iter()

@@ -6,6 +6,8 @@ diesel::table! {
         kind -> Text,
         since -> BigInt,
         harness -> Text,
+        effort -> Nullable<Text>,
+        fast -> Bool,
         ended_at -> Nullable<BigInt>,
         ended_by -> Nullable<Text>,
         ended_how -> Nullable<Text>,
@@ -206,6 +208,7 @@ diesel::table! {
     hand (agent) {
         agent -> BigInt,
         scholar -> BigInt,
+        model -> Nullable<Text>,
     }
 }
 
@@ -223,7 +226,6 @@ diesel::table! {
         model -> Nullable<Text>,
         model_by -> Nullable<Text>,
         model_reason -> Nullable<Text>,
-        effort -> Nullable<Text>,
         allowance -> Nullable<BigInt>,
         allowance_by -> Nullable<Text>,
         merged_into -> Nullable<BigInt>,

@@ -232,7 +232,7 @@ mod tests {
         incoming(
             &mut app,
             json!({"type":"read", "to":requests[0]["id"], "models":[
-                {"name":"far::large", "price":{"input":3.0,"output":15.0}, "priced":"listed", "context":200000, "note":"For hard questions."}
+                {"name":"far::large", "price":{"input":3.0,"output":15.0}, "priced":"listed", "context":200000, "defaultEffort":null, "efforts":[], "fast":false, "note":"For hard questions."}
             ]}),
         );
         mount::<HamletTheme>(app.world_mut(), shelf());
@@ -250,7 +250,7 @@ mod tests {
         incoming(
             &mut app,
             json!({"type":"read", "to":read["id"], "models":[
-                {"name":"far::small", "price":null, "priced":"unknown", "context":null, "note":""}
+                {"name":"far::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":""}
             ]}),
         );
         app

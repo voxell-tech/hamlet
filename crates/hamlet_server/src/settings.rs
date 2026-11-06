@@ -10,7 +10,7 @@ use hamlet_store::ids::ChiefId;
 use hamlet_store::schema::document;
 use serde::{Deserialize, Serialize};
 
-use crate::society::hires::Effort;
+use crate::society::agents::Effort;
 
 /// A model's endpoint by the name models are chosen through.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -52,7 +52,7 @@ pub(crate) struct Settings {
     pub reflect_every: u64,
     /// Whether every agent's commands may reach the network (C19).
     pub allow_net: bool,
-    /// How hard models think unless a hire's own effort says
+    /// How hard models think unless an agent's own effort says
     /// otherwise (H29a).
     pub effort: Option<Effort>,
     pub dreams: Dreams,

@@ -12,7 +12,7 @@ use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
-use crate::society::agents::{self, AgentKind, EndHow};
+use crate::society::agents::{self, AgentKind, Effort, EndHow};
 use crate::society::hamlets::{self, Founding, Mode};
 use crate::society::hires::{self, Hiring, Spec};
 use crate::society::refusal::Refusal;
@@ -253,7 +253,18 @@ const TABLE: &[Command] = &[
     Command {
         name: "model",
         usage: "/model <address> <model|none> [reason]",
-        does: "Choose a hire's model",
+        does: "Choose an agent's model",
+    },
+    Command {
+        name: "effort",
+        usage: "/effort <address> \
+                <off|minimal|low|medium|high|xhigh|max|none>",
+        does: "Choose how hard an agent's model thinks",
+    },
+    Command {
+        name: "fast",
+        usage: "/fast <address> <on|off>",
+        does: "Turn an agent's fast tier on or off",
     },
     Command {
         name: "nickname",
@@ -823,21 +834,78 @@ impl Core {
                     Ok(found) => found,
                     Err(refusal) => return Ok(Err(refusal)),
                 };
-                if let Err(refusal) = self.leads(hire)? {
+                if let Err(refusal) = self.steers(hire)? {
                     return Ok(Err(refusal));
                 }
                 let model = (*model != "none").then_some(*model);
                 let reason = tail(2);
                 let done = self
                     .attempt(by, |cx, _| {
-                        hires::set_model(cx, hire, model, &reason)
+                        agents::set_model(cx, hire, model, &reason)
                     })
                     .await?;
                 Ok(done.map(|()| {
                     format!(
                         "`{text}` runs {}.",
-                        model.unwrap_or("its hamlet's model")
+                        model.unwrap_or("its default model")
                     )
+                }))
+            }
+            "effort" | "fast" => {
+                let (Some(text), Some(value)) =
+                    (words.first(), words.get(1))
+                else {
+                    return Ok(Err(usage(name)));
+                };
+                let agent = match self.resolve(
+                    text,
+                    here.as_ref(),
+                    Reach::Living,
+                )? {
+                    Ok(found) => found,
+                    Err(refusal) => return Ok(Err(refusal)),
+                };
+                if let Err(refusal) = self.steers(agent)? {
+                    return Ok(Err(refusal));
+                }
+                if name == "fast" {
+                    let fast = match *value {
+                        "on" => true,
+                        "off" => false,
+                        _ => return Ok(Err(usage(name))),
+                    };
+                    let done = self
+                        .attempt(by, |cx, _| {
+                            agents::set_fast(cx, agent, fast)
+                        })
+                        .await?;
+                    return Ok(done.map(|()| {
+                        format!(
+                            "`{text}` asks for the fast tier: \
+                             {value}."
+                        )
+                    }));
+                }
+                let effort = match *value {
+                    "none" => None,
+                    level => match Effort::named(level) {
+                        Some(effort) => Some(effort),
+                        None => return Ok(Err(usage(name))),
+                    },
+                };
+                let done = self
+                    .attempt(by, |cx, _| {
+                        agents::set_effort(cx, agent, effort)
+                    })
+                    .await?;
+                Ok(done.map(|()| match effort {
+                    Some(effort) => {
+                        format!("`{text}` thinks at {effort}.")
+                    }
+                    None => format!(
+                        "`{text}` thinks as hard as the realm's \
+                         setting says."
+                    ),
                 }))
             }
             "nickname" => {
@@ -1429,6 +1497,21 @@ impl Core {
         }
         if !authority::may_lead(db, Actor::Chief(chief), hire)? {
             let name = addresses::name_of(db, hire)?;
+            return Ok(Err(Refusal::NotYours { name }));
+        }
+        Ok(Ok(()))
+    }
+
+    /// Refuses unless this server's chief may choose the model,
+    /// effort and fast tier of `agent`.
+    fn steers(
+        &mut self,
+        agent: AgentId,
+    ) -> Result<Result<(), Refusal>> {
+        let chief = self.realm.chief();
+        let db = self.realm.store().connection();
+        if !authority::may_steer(db, Actor::Chief(chief), agent)? {
+            let name = addresses::name_of(db, agent)?;
             return Ok(Err(Refusal::NotYours { name }));
         }
         Ok(Ok(()))

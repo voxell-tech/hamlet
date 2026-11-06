@@ -357,6 +357,9 @@ async fn lists_prices_and_bills_an_endpoints_models() {
         large,
         Some(Listed {
             context: Some(32000),
+            default_effort: Some(hamlet_protocol::Effort::Off),
+            efforts: vec![hamlet_protocol::Effort::Off],
+            fast: false,
             name: "local::org/large".into(),
             note: "For careful work.".into(),
             price: Some(Price {

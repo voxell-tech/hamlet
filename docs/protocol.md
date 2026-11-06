@@ -163,7 +163,7 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 | `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a scholar's `main` or a hire's lodge, by its path under `memory/`; empty text removes it. |
 | `limits` | `hamlet?: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
 | `limits` | `hamlet?: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
-| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; the `efforts` limit sets it for one agent. `newcomers` says who lets a scholar an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank scholar starts from, at most 4000 characters. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
+| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; an agent's own effort, set with `/effort`, overrides it. `newcomers` says who lets a scholar an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank scholar starts from, at most 4000 characters. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
 | `catalogue` | `model: string`, `set: {price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. |
 
 ### Read documents
@@ -174,7 +174,7 @@ Each row is a `Read` form with `type: "read"` and `id`.
 |---|---|---|
 | `prompt` | `agent: AgentId` | `prompt: string`: the composed prompt. |
 | `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
-| `models` | `refresh?: boolean` | `models: Listed[]`: name, price, price source, context size and note. `refresh` refreshes discovery. |
+| `models` | `refresh?: boolean` | `models: Listed[]`: name, price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown) and `fast` (whether its provider has a fast tier). `refresh` refreshes discovery. |
 | `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's lodge `learned` against its scholar, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
 
@@ -217,7 +217,7 @@ the machine. It is discriminated by `kind`: `sandbox` with the sandbox's
 full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
-`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the formatted name (`hand`, `name@hamlet`, `name#number@hamlet`, `worker#id`), a hire's `nickname` (`null` while it goes by its name), purpose, model, mayor flag, busy and
+`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the formatted name (`hand`, `name@hamlet`, `name#number@hamlet`, `worker#id`), a hire's `nickname` (`null` while it goes by its name), purpose, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), mayor flag, busy and
 fault flags, activity, short saying, spend, skills, consultation and peer
 conversation summaries, and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`

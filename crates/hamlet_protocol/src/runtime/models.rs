@@ -59,6 +59,9 @@ pub struct Selection {
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "crate::Effort")]
     pub effort: Option<crate::Effort>,
+    /// Whether the call asks for the provider's fast tier.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fast: bool,
     #[serde(rename = "maxTokens")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]

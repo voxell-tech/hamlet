@@ -49,7 +49,8 @@ chief is talking to.
 | `/hire <scholar>[@<version>] [under <address>] <purpose>` | Hire a scholar into the hamlet (H40) |
 | `/end <address> <reason>`, `/merge <address> into <address> [reason]` | End a hire, or make one of two (H5) |
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended hire back, or split a merged one out again, or erase it for good (H20) |
-| `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | A hire's model, tools and allowance (H29, H41, H44) |
+| `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | An agent's model, a hire's tools and allowance (H29, H41, H44) |
+| `/effort <address> <off\|minimal\|low\|medium\|high\|xhigh\|max\|none>`, `/fast <address> <on\|off>` | How hard an agent's model thinks, and whether it asks for the provider's fast tier (H29a) |
 | `/nickname <address> [nickname]` | What a hire is called in the world, or its name again (H46) |
 | `/road <address> <address> <reason>`, `/unroad <address> <address> <reason>` | Lay or take up a road between two hires (H3) |
 | `/worker <task>` | Start a worker on a task in the hamlet (H42) |
@@ -279,15 +280,18 @@ live. Otherwise it is refused, naming them.
 and why. What it waited for lapses and what it was granted is taken back; if
 it comes back, it asks again.
 
-**H29.** A hire runs the model chosen for it, by a chief or by a lead, else
-the hamlet's own model, else the realm's default. Every model of every
-configured provider may be chosen. A lead may not change a chief's choice.
-Each choice is kept in the record with its reason. A worker runs its
-starter's model unless it was given one.
+**H29.** An agent runs the model chosen for it, by a chief or, for a hire, by
+a lead, else its hamlet's own model, else the realm's default. Every model of
+every configured provider may be chosen. A lead may not change a chief's
+choice. A hire's choice is kept in the record with its reason. A worker runs
+its starter's model unless it was given one.
 
-**H29a.** How hard an agent's model thinks (off, minimal, low, medium or
-high) is the hire's own effort when set, else the realm's `effort` setting,
-else the model's own default. Models that cannot think ignore it.
+**H29a.** How hard an agent's model thinks (off, minimal, low, medium, high,
+xhigh or max) is the agent's own effort when set, else its starter's for a
+worker, else the realm's `effort` setting, else the model's own default. An
+effort the model cannot be asked for becomes the nearest it can. A chief may
+also turn on an agent's fast tier, which asks the model's provider for its
+faster, dearer tier where it has one; it is off unless turned on.
 
 ## Roads and letters
 

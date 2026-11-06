@@ -120,6 +120,18 @@ pub struct Nickname(pub String);
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Pin(pub String);
 
+/// The model chosen for an agent, while it has one.
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct OwnModel(pub String);
+
+/// How hard an agent thinks when chosen for it, while it has one.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnEffort(pub hamlet_protocol::Effort);
+
+/// An agent whose calls ask for the provider's fast tier.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Fast;
+
 /// A scholar of the city, with its `Name`.
 #[derive(Component, Clone, Debug, PartialEq)]
 #[component(
@@ -361,6 +373,9 @@ pub fn register(world: &mut World) {
     world.register_component::<OfScholar>();
     world.register_component::<Pin>();
     world.register_component::<Nickname>();
+    world.register_component::<OwnModel>();
+    world.register_component::<OwnEffort>();
+    world.register_component::<Fast>();
     world.register_component::<Scholar>();
     world.register_component::<Purpose>();
     world.register_component::<Lived>();
@@ -669,6 +684,9 @@ fn upsert_agent(
     optional(&mut agent, value.scholar.map(OfScholar));
     optional(&mut agent, value.pin.clone().map(Pin));
     optional(&mut agent, value.nickname.clone().map(Nickname));
+    optional(&mut agent, value.own_model.clone().map(OwnModel));
+    optional(&mut agent, value.effort.map(OwnEffort));
+    flag(&mut agent, value.fast, Fast);
     put(&mut agent, Purpose(value.purpose));
     put(&mut agent, HouseSkills(value.skills));
     put(

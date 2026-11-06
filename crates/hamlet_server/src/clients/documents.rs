@@ -16,6 +16,7 @@ use crate::core::Core;
 use crate::jobs::{self, Job};
 use crate::knowledge::folder::Folder;
 use crate::knowledge::{self, CHARACTER, outside_git};
+use crate::society::agents::Effort;
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::limits::{self, Limits, RealmLimits};
 use crate::society::refusal::Refusal;
@@ -228,7 +229,7 @@ impl Core {
                     settings.allow_net = net;
                 }
                 if let Some(effort) = set.effort {
-                    settings.effort = effort.map(effort_of);
+                    settings.effort = effort.map(Effort::of);
                 }
                 if let Some(newcomers) = set.newcomers {
                     settings.newcomers = newcomers;
@@ -784,17 +785,6 @@ fn endpoint_fault(
         }
     }
     None
-}
-
-fn effort_of(effort: hamlet_protocol::Effort) -> hires::Effort {
-    use crate::society::hires::Effort;
-    match effort {
-        hamlet_protocol::Effort::Off => Effort::Off,
-        hamlet_protocol::Effort::Minimal => Effort::Minimal,
-        hamlet_protocol::Effort::Low => Effort::Low,
-        hamlet_protocol::Effort::Medium => Effort::Medium,
-        hamlet_protocol::Effort::High => Effort::High,
-    }
 }
 
 fn budget_of(budget: &protocol::LimitsBudget) -> limits::Budget {

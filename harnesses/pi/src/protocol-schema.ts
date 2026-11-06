@@ -269,7 +269,9 @@ export const schema = {
                 "minimal",
                 "low",
                 "medium",
-                "high"
+                "high",
+                "xhigh",
+                "max"
             ],
             "type": "string"
         },
@@ -1352,6 +1354,10 @@ export const schema = {
                 "effort": {
                     "$ref": "#/$defs/Effort",
                     "description": "How hard the model thinks; its own default when absent."
+                },
+                "fast": {
+                    "description": "Whether the call asks for the provider's fast tier.",
+                    "type": "boolean"
                 },
                 "maxTokens": {
                     "format": "uint64",
