@@ -91,8 +91,8 @@ const SHOTS: [Shot; 36] = [
         scale: 1.0,
     },
     Shot {
-        name: "home",
-        scene: Scene::Home,
+        name: "realm",
+        scene: Scene::Realm,
         size: UVec2::new(1800, 1100),
         scale: 1.0,
     },
