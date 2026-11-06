@@ -407,7 +407,7 @@ costing at most a cap [$0.20].
   `mayor@<hamlet>`; `<hamlet>#<n>`, hire number `n` of that hamlet, the
   mayor being 0; and `worker#<id>`. A scholar is `scholar#<id>`. No name
   finds an agent or a scholar. Wherever an agent is shown, its address comes
-  first and its name beside it, as `docs#3 (Robb)`.
+  first and its name beside it, as `docs#3 (Mira)`.
 - A message between hamlets is paid for by the sender's hamlet.
 
 The chiefs of each hamlet concerned are told, in their conversation with its
