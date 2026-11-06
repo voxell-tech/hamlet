@@ -29,7 +29,7 @@ pub fn state() -> protocol::State {
             "budget": {"period": "day", "cost": 5, "minutes": null}
         },
         "realm": "/tmp/hamlet-test", "library": [], "closed": [],
-        "deeds": [], "starters": []
+        "deeds": []
     })).unwrap()
 }
 

@@ -74,7 +74,7 @@ endpoint, which bills a fixed price per answer.
 | `restart` | Waits and the realm across a crash and a stop. |
 | `models` | Model and connection checks, key sign-in, listings and prices, refusals. |
 | `oauth` | Sign-in prompts and token rotation. |
-| `gifts` | Files handed over in parts to an inbox, skills given to a scholar from a starter, the library or another scholar. |
+| `gifts` | Files handed over in parts to an inbox, skills given to a scholar from an agent or another scholar. |
 | `versions` | `/tag`, `/versions`, `/pin`, `/revert`, `/fork` and `/purge`. |
 | `merges` | `/merge` and the split by `/restore`. |
 | `library` | `submit_skill` judged by the librarian, `ask_librarian` and `/unshelve`. |

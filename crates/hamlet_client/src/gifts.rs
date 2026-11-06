@@ -42,7 +42,7 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Offer {
     pub skill: String,
-    pub from: Option<String>,
+    pub from: String,
     source: protocol::GiveSkillSource,
 }
 
@@ -138,19 +138,7 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
     let own = world.get::<realm::HouseSkills>(agent);
     let has =
         |skill: &String| own.is_some_and(|own| own.0.contains(skill));
-    let mut offers = world
-        .get_resource::<realm::Starters>()
-        .into_iter()
-        .flat_map(|starters| &starters.0)
-        .filter(|starter| !has(&starter.name))
-        .map(|starter| Offer {
-            skill: starter.name.clone(),
-            from: None,
-            source: protocol::GiveSkillSource::Starter {
-                starter: starter.name.clone(),
-            },
-        })
-        .collect::<Vec<_>>();
+    let mut offers = Vec::new();
     let hamlet = realm::hamlet_of(world, agent);
     let mut others = world
         .try_query::<(Entity, &realm::HouseSkills)>()
@@ -181,8 +169,8 @@ pub fn offers(world: &World, agent: Entity) -> Vec<Offer> {
             skills.0.iter().filter(|skill| !has(skill)).map(
                 |skill| Offer {
                     skill: skill.clone(),
-                    from: Some(from.clone()),
-                    source: protocol::GiveSkillSource::From {
+                    from: from.clone(),
+                    source: protocol::GiveSkillSource {
                         from: protocol::Keeper::Agent(id),
                         name: skill.clone(),
                     },

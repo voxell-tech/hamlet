@@ -440,50 +440,35 @@ mod tests {
     }
 
     #[test]
-    fn the_first_mayors_skill_menu_sends_a_received_starter_or_agents_skill()
-     {
+    fn the_first_mayors_skill_menu_sends_another_agents_skill() {
         let mut state = realm::state();
         state.deeds = realm::deeds(&["give"]);
-        state.starters = vec![protocol::Skill {
-            name: "research".into(),
-            description: "Find sources".into(),
-        }];
         let mut scout = realm::agent(3, "home", 1, "scout");
         scout.skills = vec!["maps".into()];
         state.agents.push(scout);
         let mut app = app(state);
-        for (label, expected) in [
-            (
-                "research (starter)",
-                protocol::GiveSkillSource::Starter {
-                    starter: "research".into(),
-                },
-            ),
-            (
-                "maps (of scout)",
-                protocol::GiveSkillSource::From {
-                    from: protocol::Keeper::Agent(protocol::AgentId(
-                        3,
-                    )),
-                    name: "maps".into(),
-                },
-            ),
-        ] {
-            open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
-            press(&mut app, "Give a skill...");
-            app.update();
-            press(&mut app, label);
-            let messages = sent(&mut app);
-            let [
-                protocol::ClientMessage::Give(
-                    protocol::Give::Skill { skill, to, .. },
-                ),
-            ] = &messages[..]
-            else {
-                panic!("one skill: {messages:?}");
-            };
-            assert_eq!(skill, &expected);
-            assert_eq!(*to, protocol::ScholarId(2));
-        }
+        open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
+        press(&mut app, "Give a skill...");
+        app.update();
+        press(&mut app, "maps (of scout)");
+        let messages = sent(&mut app);
+        let [
+            protocol::ClientMessage::Give(protocol::Give::Skill {
+                skill,
+                to,
+                ..
+            }),
+        ] = &messages[..]
+        else {
+            panic!("one skill: {messages:?}");
+        };
+        assert_eq!(
+            skill,
+            &protocol::GiveSkillSource {
+                from: protocol::Keeper::Agent(protocol::AgentId(3)),
+                name: "maps".into(),
+            }
+        );
+        assert_eq!(*to, protocol::ScholarId(2));
     }
 }

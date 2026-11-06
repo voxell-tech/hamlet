@@ -162,7 +162,7 @@ fn gifts_name_the_agent_for_files_and_the_scholar_for_skills() {
         ClientMessage::Give(Give::Skill {
             id: id(),
             to: ScholarId(1),
-            skill: GiveSkillSource::From {
+            skill: GiveSkillSource {
                 from: Keeper::Agent(agent()),
                 name: "maps".into(),
             },
@@ -545,8 +545,7 @@ fn state_wire() -> Value {
         "hamlets": [hamlet_wire()], "agents": [hand_wire(), agent_wire()], "waits": [wait_wire()],
         "grants": grants_wire(), "settings": settings_wire(), "providers": providers_wire(),
         "realm": "/home/chief/.hamlet", "hand": 1, "scholars": [scholar_wire()], "limits": {"roadsBetween": true, "budget": {"period": "day", "cost": 5.0, "minutes": null}}, "library": [], "closed": [],
-        "deeds": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}],
-        "starters": [{"name": "web-search", "description": "Searches the web"}]
+        "deeds": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}]
     })
 }
 

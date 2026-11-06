@@ -324,10 +324,6 @@ pub struct Seen {
     pub revision: i64,
 }
 
-/// The shipped skills offered as gifts.
-#[derive(Resource, Clone, Debug, Default, PartialEq)]
-pub struct Starters(pub Vec<protocol::Skill>);
-
 /// The skill folder names in an agent's house.
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct HouseSkills(pub Vec<String>);
@@ -558,7 +554,6 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
             state.deeds.into_iter().map(|deed| deed.name).collect(),
         ),
     );
-    replace(world, Starters(state.starters));
     world.insert_resource(Seen {
         epoch: state.epoch,
         revision: state.revision,

@@ -134,4 +134,3 @@ or window does not stop the server.
 into the server by `knowledge/library.rs`; `assets/charter.md` is the default
 charter and `assets/hand.md` the Hand's first character. The library's first
 commit holds the starters once; a skill taken out or changed later stays so.
-The chief can also give a scholar a starter through the protocol.

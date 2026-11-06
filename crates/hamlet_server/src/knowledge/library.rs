@@ -33,34 +33,6 @@ const STARTERS: &[Starter] = &[
 /// The most a skill's files may hold, together.
 pub(crate) const MOST_BYTES: usize = 4 * 1024 * 1024;
 
-/// The files of the starter `name`.
-pub(crate) fn starter(name: &str) -> Option<Vec<(String, Vec<u8>)>> {
-    STARTERS.iter().find(|(each, _)| *each == name).map(
-        |(_, files)| {
-            files
-                .iter()
-                .map(|(path, text)| {
-                    ((*path).to_owned(), text.as_bytes().to_vec())
-                })
-                .collect()
-        },
-    )
-}
-
-/// Every starter's name and description.
-pub(crate) fn starters() -> Vec<(String, String)> {
-    STARTERS
-        .iter()
-        .map(|(name, files)| {
-            let paper = files
-                .iter()
-                .find(|(path, _)| *path == "SKILL.md")
-                .map_or("", |(_, text)| *text);
-            ((*name).to_owned(), field(paper, "description:"))
-        })
-        .collect()
-}
-
 /// The value of `key` in the front matter of `paper`.
 pub(crate) fn field(paper: &str, key: &str) -> String {
     let head = paper.strip_prefix("---").unwrap_or_default();
@@ -246,24 +218,4 @@ pub(crate) fn unshelve(
     )?;
     check_out(layout, &repo)?;
     Ok(Some(commit))
-}
-
-/// The files of the library's skill `name`, as they are shelved now.
-pub(crate) fn files(
-    layout: &Layout,
-    name: &str,
-) -> Result<Vec<(String, Vec<u8>)>> {
-    let repo = Repository::open(&layout.library_repository())?;
-    let Some(tip) = repo.tip(MAIN)? else {
-        return Ok(Vec::new());
-    };
-    let prefix = format!("{name}/");
-    repo.entries(tip)?
-        .into_iter()
-        .filter_map(|entry| {
-            let path = entry.path.strip_prefix(&prefix)?.to_owned();
-            Some((path, entry.blob))
-        })
-        .map(|(path, blob)| Ok((path, repo.blob(blob)?)))
-        .collect()
 }

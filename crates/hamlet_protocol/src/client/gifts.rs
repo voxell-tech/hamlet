@@ -37,20 +37,11 @@ pub struct GiveFile {
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
-#[serde(untagged, deny_unknown_fields)]
-pub enum GiveSkillSource {
-    Starter {
-        starter: String,
-    },
-    /// A skill on the library's shelves.
-    Library {
-        library: String,
-    },
-    /// A skill of a scholar's `main` or of a hire's lodge.
-    From {
-        from: Keeper,
-        name: String,
-    },
+#[serde(deny_unknown_fields)]
+pub struct GiveSkillSource {
+    /// The scholar or hire the skill is copied from.
+    pub from: Keeper,
+    pub name: String,
 }
 
 #[derive(

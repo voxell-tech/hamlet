@@ -168,9 +168,9 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "give",
-        usage: "/give <scholar|address> <skill> [from \
-                <scholar|address>]",
-        does: "Give a scholar a starter, library or other skill",
+        usage: "/give <scholar|address> <skill> from \
+                <scholar|address>",
+        does: "Copy a skill from one scholar to another",
     },
     Command {
         name: "unshelve",

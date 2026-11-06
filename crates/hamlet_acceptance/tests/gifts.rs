@@ -3,7 +3,8 @@
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
-use hamlet_testing::words;
+use hamlet_testing::{call, words};
+use serde_json::json;
 
 fn kind_text(reply: &Reply) -> (&ReplyKind, &str) {
     (&reply.kind, reply.text.as_str())
@@ -121,8 +122,22 @@ async fn refuses_files_that_would_leave_the_inbox_or_the_manifest() {
 }
 
 #[tokio::test]
-async fn gives_a_scholar_skills_from_every_source() {
-    let mut s = Session::start(Faux::new()).await;
+async fn gives_a_scholar_skills_from_an_agent_or_a_scholar() {
+    let mut s = Session::start(Faux::new().responses([
+        call(
+            "bash",
+            json!({"command": "mkdir -p skills/greet && printf -- \
+                '---\\nname: greet\\ndescription: Says hello\\n---\\n\
+                 Run it.\\n' > skills/greet/SKILL.md"}),
+        ),
+        words("Written."),
+    ]))
+    .await;
+    let hand = s.hand();
+    let now = chat(hand);
+    s.chief.open(&now).await;
+    s.chief.tell(hand, "Write a skill.").await;
+    s.chief.shows(&now, "Written.").await;
     s.found("docs", "ada", "keep the docs").await;
     s.found("mill", "bo", "grind").await;
     let ada = s.chief.scholar("ada").unwrap().id;
@@ -139,61 +154,44 @@ async fn gives_a_scholar_skills_from_every_source() {
         .chief
         .give_skill(
             ada,
-            GiveSkillSource::Starter {
-                starter: "weather".into(),
+            GiveSkillSource {
+                from: Keeper::Agent(hand),
+                name: "greet".into(),
             },
         )
         .await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
-    assert!(reply.text.starts_with("Gave weather to ada"));
+    assert!(reply.text.starts_with("Gave greet to ada"));
     assert_eq!(
         skills(s.chief.papers(Keeper::Scholar(ada)).await),
-        ["weather"]
+        ["greet"]
     );
 
-    // From the library's shelves, and from another scholar's main.
-    let reply = s
-        .chief
-        .give_skill(
-            ada,
-            GiveSkillSource::Library {
-                library: "write-skill".into(),
-            },
-        )
-        .await;
-    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     let reply = s
         .chief
         .give_skill(
             bo,
-            GiveSkillSource::From {
+            GiveSkillSource {
                 from: Keeper::Scholar(ada),
-                name: "weather".into(),
+                name: "greet".into(),
             },
         )
         .await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     assert_eq!(
         skills(s.chief.papers(Keeper::Scholar(bo)).await),
-        ["weather"]
+        ["greet"]
     );
-    let mut both = skills(s.chief.papers(Keeper::Scholar(ada)).await);
-    both.sort();
-    assert_eq!(both, ["weather", "write-skill"]);
 
-    for source in [
-        GiveSkillSource::Starter {
-            starter: "nothing".into(),
-        },
-        GiveSkillSource::Library {
-            library: "nothing".into(),
-        },
-        GiveSkillSource::From {
-            from: Keeper::Scholar(ada),
-            name: "nothing".into(),
-        },
-    ] {
-        let reply = s.chief.give_skill(bo, source).await;
-        assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
-    }
+    let reply = s
+        .chief
+        .give_skill(
+            bo,
+            GiveSkillSource {
+                from: Keeper::Scholar(ada),
+                name: "nothing".into(),
+            },
+        )
+        .await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
 }

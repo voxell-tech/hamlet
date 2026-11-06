@@ -752,13 +752,6 @@ impl Core {
                 name,
             });
         }
-        let starters = crate::knowledge::library::starters()
-            .into_iter()
-            .map(|(name, description)| protocol::Skill {
-                description,
-                name,
-            })
-            .collect();
         let sources = super::state::Sources {
             layout: &layout,
             env: &self.env,
@@ -770,7 +763,6 @@ impl Core {
             settings_view,
             waits,
             library,
-            starters,
         };
         super::state::compose(
             db,

@@ -24,8 +24,8 @@ is words, whatever it begins with.
 
 **H25.** A chief can give a hire or the Hand a file or folder, which lands in
 its inbox (at most 32 MB and 1000 files at once), or give a scholar a skill,
-which is committed to its `main`: a starter, one on the library's shelves, or
-one from another scholar or a hire's lodge.
+which is committed to its `main` and copied from another scholar or a hire's
+lodge. The library's skills need no gift: every agent reads the library.
 
 **H26.** A chief has these commands. A command that names an agent takes its
 address (H14); one that names no hamlet means the hamlet of the agent the
@@ -54,7 +54,7 @@ chief is talking to.
 | `/nickname <address> [nickname]` | What a hire is called in the world, or its name again (H46) |
 | `/road <address> <address> <reason>`, `/unroad <address> <address> <reason>` | Lay or take up a road between two hires (H3) |
 | `/worker <task>` | Start a worker on a task in the hamlet (H42) |
-| `/give <scholar\|address> <skill> [from <scholar\|address>]` | Give a skill (H25) |
+| `/give <scholar\|address> <skill> from <scholar\|address>` | Copy a skill from one scholar to another (H25) |
 | `/folder <folder\|none>`, `/mode <manual\|auto>` | The hamlet's folder and its mode (C20, C21) |
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
 | `/record` | Who was hired, ended, merged and restored, and the other decisions (H17) |

@@ -36,7 +36,6 @@ pub struct State {
     /// The city's scholars, living and archived.
     pub scholars: Vec<Scholar>,
     pub settings: SettingsView,
-    pub starters: Vec<Skill>,
     pub waits: Vec<Wait>,
 }
 

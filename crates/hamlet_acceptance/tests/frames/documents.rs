@@ -1,7 +1,7 @@
 //! Recordings of reads, edits, sign-in, spend and gifts.
 
 use base64::prelude::*;
-use hamlet_acceptance::{Faux, Home, words};
+use hamlet_acceptance::{Faux, Home, call, words};
 use hamlet_testing::openai::{self, Endpoint, Response};
 use serde_json::json;
 
@@ -157,9 +157,14 @@ async fn budget_stop() {
 #[tokio::test]
 #[ignore = "records real sessions; see the acceptance README"]
 async fn give() {
-    let mut c = Capture::start(
-        Faux::new().responses([words("A folder received.")]),
-    )
+    let mut c = Capture::start(Faux::new().responses([
+        words("A folder received."),
+        call(
+            "bash",
+            json!({"command":"mkdir -p skills/greet && printf -- '---\\nname: greet\\ndescription: Says hello\\n---\\nRun it.\\n' > skills/greet/SKILL.md"}),
+        ),
+        words("Written."),
+    ]))
     .await;
     let begun = c.ask(json!({"type":"give","to":HAND,"files":[{"path":"folder/deep/a.md","size":1},{"path":"folder/b.md","size":1}]})).await;
     assert_eq!(begun["kind"], "notice");
@@ -177,19 +182,22 @@ async fn give() {
     c.open(HAND).await;
     c.shows(HAND, "A folder received.").await;
     c.idle().await;
+    c.say(HAND, "Write a skill.").await;
+    c.shows(HAND, "Written.").await;
+    c.idle().await;
     c.say(HAND, "/found docs ada keep the docs").await;
     c.until(|c| c.state().scholars.iter().any(|s| s.name == "ada"))
         .await;
     let ada = scholar(&c, "ada");
-    assert_eq!(c.ask(json!({"type":"give","to":ada,"skill":{"starter":"web-search"}})).await["kind"], "notice");
+    assert_eq!(c.ask(json!({"type":"give","to":ada,"skill":{"from":{"agent":HAND},"name":"greet"}})).await["kind"], "notice");
     c.until(|c| {
         c.state().agents.iter().any(|a| {
             a.name == "ada@docs"
-                && a.skills.iter().any(|s| s == "web-search")
+                && a.skills.iter().any(|s| s == "greet")
         })
     })
     .await;
-    assert_eq!(c.ask(json!({"type":"give","to":ada,"skill":{"starter":"nothing"}})).await["kind"], "error");
+    assert_eq!(c.ask(json!({"type":"give","to":ada,"skill":{"from":{"agent":HAND},"name":"nothing"}})).await["kind"], "error");
     c.open(HAND).await;
     c.finish("give").await;
 }

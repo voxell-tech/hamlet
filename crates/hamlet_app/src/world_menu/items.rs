@@ -304,10 +304,7 @@ pub(super) fn skills(world: &World, agent: Entity) -> Vec<AnyView> {
     offers(world, agent)
         .into_iter()
         .map(|offer| {
-            let text = match &offer.from {
-                Some(from) => format!("{} (of {from})", offer.skill),
-                None => format!("{} (starter)", offer.skill),
-            };
+            let text = format!("{} (of {})", offer.skill, offer.from);
             item(text, move |w| give(w, agent, &offer))
         })
         .collect()
@@ -336,16 +333,9 @@ pub(super) fn items(
         // They stand where the city puts them: only the view moves.
         Thing::Hand => vec![focus(thing)],
         // A scholar's house, or the scholar waiting on the pier.
+        // Selecting it already opens its page, and it is in view.
         Thing::Scholar(scholar) => {
-            let mut items = vec![
-                item("Open its page".into(), move |w| {
-                    crate::hub::show(
-                        w,
-                        crate::hub::Showing::Scholar(scholar),
-                    );
-                }),
-                focus(thing),
-            ];
+            let mut items = Vec::new();
             let housed = world
                 .get::<hamlet_client::realm::Scholar>(scholar)
                 .is_some_and(|s| s.0.house.is_some());

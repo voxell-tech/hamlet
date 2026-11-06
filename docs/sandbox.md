@@ -79,9 +79,8 @@ realm's `staging/` folder, outside the lodges. Files are delivered to the
 agent's `inbox/`, which is never committed, and the server then admits the
 chief's notification as an input to the receiving agent.
 
-A skill gift is a commit to a scholar's `main`: the skill comes from a
-starter, the library, another scholar or a hire's lodge, and the chief is the
-author. Typed `/give` and structured requests use the same owner. Gift
+A skill gift is a commit to a scholar's `main`: the skill comes from
+another scholar or a hire's lodge, and the chief is the author. Typed `/give` and structured requests use the same owner. Gift
 transport and the agent's subsequent model work are separate: a complete
 delivered file is not undone by stopping its turn.
 

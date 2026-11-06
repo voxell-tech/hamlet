@@ -15,8 +15,8 @@ use hamlet_store::ids::{Actor, AgentId, ScholarId};
 
 use crate::clients::check::reply;
 use crate::core::Core;
+use crate::knowledge;
 use crate::knowledge::folder::{Folder, remove_folder};
-use crate::knowledge::{self, library};
 use crate::society::refusal::Refusal;
 use crate::society::{addresses, authority, city};
 use crate::talk::chats;
@@ -284,59 +284,34 @@ impl Core {
                 name: scholar.name,
             }));
         }
-        let (name, files) = match source {
-            GiveSkillSource::Starter { starter } => {
-                match library::starter(&starter) {
-                    Some(files) => (starter, files),
-                    None => {
-                        return Ok(Err(Refusal::NoSkill {
-                            name: starter,
-                        }));
-                    }
+        let GiveSkillSource { from, name } = source;
+        let files = match from {
+            Keeper::Scholar(other) => {
+                let other = ScholarId(i64::try_from(other.0)?);
+                if !authority::may_keep(
+                    db,
+                    Actor::Chief(chief),
+                    other,
+                )? {
+                    let name = city::get(db, other)?.name;
+                    return Ok(Err(Refusal::ScholarNotOwn { name }));
                 }
+                main_skill(&layout.repository(other), &name)?
             }
-            GiveSkillSource::Library { library: name } => {
-                let files = library::files(&layout, &name)?;
-                if files.is_empty() {
-                    return Ok(Err(Refusal::NoSkill { name }));
+            Keeper::Agent(agent) => {
+                let agent = AgentId(i64::try_from(agent.0)?);
+                if let Err(refusal) = self.reaches(agent)? {
+                    return Ok(Err(refusal));
                 }
-                (name, files)
-            }
-            GiveSkillSource::From { from, name } => {
-                let files = match from {
-                    Keeper::Scholar(other) => {
-                        let other =
-                            ScholarId(i64::try_from(other.0)?);
-                        if !authority::may_keep(
-                            db,
-                            Actor::Chief(chief),
-                            other,
-                        )? {
-                            let name = city::get(db, other)?.name;
-                            return Ok(Err(Refusal::ScholarNotOwn {
-                                name,
-                            }));
-                        }
-                        main_skill(&layout.repository(other), &name)?
-                    }
-                    Keeper::Agent(agent) => {
-                        let agent = AgentId(i64::try_from(agent.0)?);
-                        if let Err(refusal) = self.reaches(agent)? {
-                            return Ok(Err(refusal));
-                        }
-                        let db = self.realm.store().connection();
-                        let lodge =
-                            knowledge::lodging(db, &layout, agent)?
-                                .path;
-                        lodge_skill(&lodge, &name)?
-                    }
-                };
-                if files.is_empty() {
-                    return Ok(Err(Refusal::NoSkill { name }));
-                }
-                (name, files)
+                let db = self.realm.store().connection();
+                let lodge =
+                    knowledge::lodging(db, &layout, agent)?.path;
+                lodge_skill(&lodge, &name)?
             }
         };
+        if files.is_empty() {
+            return Ok(Err(Refusal::NoSkill { name }));
+        }
         if !is_plain(&name) || name.contains('/') {
             return Ok(Err(Refusal::NoSkill { name }));
         }
@@ -362,71 +337,51 @@ impl Core {
         )))
     }
 
-    /// `/give <scholar|address> <skill> [from <scholar|address>]`
+    /// `/give <scholar|address> <skill> from <scholar|address>`
     pub(crate) async fn give_command(
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
-        let (target, skill, from) = match words {
-            [target, skill] => (*target, *skill, None),
-            [target, skill, "from", from] => {
-                (*target, *skill, Some(*from))
-            }
-            _ => {
-                return Ok(Err(Refusal::Usage {
-                    words: "Use /give <scholar|address> <skill> \
-                            [from <scholar|address>]"
-                        .into(),
-                }));
-            }
+        let [target, skill, "from", from] = words else {
+            return Ok(Err(Refusal::Usage {
+                words: "Use /give <scholar|address> <skill> from \
+                        <scholar|address>"
+                    .into(),
+            }));
         };
         let to = match self.scholar_of(here, target)? {
             Ok(to) => to,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        let source = match from {
-            None if library::starter(skill).is_some() => {
-                GiveSkillSource::Starter {
-                    starter: skill.into(),
-                }
+        let db = self.realm.store().connection();
+        let keeper = match city::named(db, from)? {
+            Some(found) => {
+                Keeper::Scholar(hamlet_protocol::client::ScholarId(
+                    u64::try_from(found.id.0)?,
+                ))
             }
-            None => GiveSkillSource::Library {
-                library: skill.into(),
-            },
-            Some(from) => {
-                let db = self.realm.store().connection();
-                let keeper = match city::named(db, from)? {
-                    Some(found) => Keeper::Scholar(
-                        hamlet_protocol::client::ScholarId(
-                            u64::try_from(found.id.0)?,
-                        ),
-                    ),
-                    None => {
-                        let address = match addresses::parse(from) {
-                            Ok(address) => address,
-                            Err(refusal) => return Ok(Err(refusal)),
-                        };
-                        match addresses::resolve(
-                            db,
-                            &address,
-                            here,
-                            addresses::Reach::Living,
-                        )? {
-                            Ok(agent) => Keeper::Agent(
-                                crate::clients::state::wire_agent(
-                                    agent,
-                                ),
-                            ),
-                            Err(refusal) => return Ok(Err(refusal)),
-                        }
-                    }
+            None => {
+                let address = match addresses::parse(from) {
+                    Ok(address) => address,
+                    Err(refusal) => return Ok(Err(refusal)),
                 };
-                GiveSkillSource::From {
-                    from: keeper,
-                    name: skill.into(),
+                match addresses::resolve(
+                    db,
+                    &address,
+                    here,
+                    addresses::Reach::Living,
+                )? {
+                    Ok(agent) => Keeper::Agent(
+                        crate::clients::state::wire_agent(agent),
+                    ),
+                    Err(refusal) => return Ok(Err(refusal)),
                 }
             }
+        };
+        let source = GiveSkillSource {
+            from: keeper,
+            name: (*skill).into(),
         };
         self.give_skill(to, source).await
     }
