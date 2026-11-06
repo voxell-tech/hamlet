@@ -52,13 +52,13 @@ The server applies no matching outbound limit to state or transcript pages.
 File gifts have a separate
 **32 MiB** limit and travel in chunks (`Give`, `GivePart`). A server shutdown
 closes clients with **1001**. These rules are in
-[`crates/hamlet_server/src/connection.rs`](../crates/hamlet_server/src/connection.rs).
+[`crates/hamlet_server/src/clients/connection.rs`](../crates/hamlet_server/src/clients/connection.rs).
 
 ## Shared shapes
 
 | Schema | Shape and meaning |
 |---|---|
-| `AgentId` | An integer naming one agent of the realm (the Hand, a hire or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `mayor@hamlet`, `hamlet#number`, `worker#id`) in chief commands; messages carry ids. |
+| `AgentId` | An integer naming one agent of the realm (the Hand, a hire or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `mayor@<hamlet>`, `<hamlet>#<number>`, `worker#<id>`) in chief commands; messages carry ids. |
 | `ScholarId` | An integer naming one scholar of the city. Commands address a scholar as `scholar#<id>`; its name is a label that may change and repeat. |
 | `Keeper` | `{scholar: ScholarId}` or `{agent: AgentId}`: whose knowledge a document is of, a scholar's `main` or an agent's lodge. |
 | `ChatRef` | `{with: AgentId, past?: integer, from?: AgentId, kind?: "letters" \| "questions"}`. |
@@ -70,8 +70,7 @@ closes clients with **1001**. These rules are in
 
 `ChatRef.with` selects the agent the chief talks to. Without `past`, it
 selects the current chief conversation; `past` selects a stable conversation
-number. A current watch addressed to `mayor` follows the office when its
-holder changes. `from` selects a peer conversation with that stable agent;
+number. `from` selects a peer conversation with that stable agent;
 `kind` selects its letters or questions lane, defaulting to letters.
 `from` and `past` together are refused.
 
@@ -84,9 +83,9 @@ The durable conversation inputs have separate request IDs. A chief's line
 uses `chief:<say id>` to admit it once in that conversation.
 A retry uses `retry:<UUID>`; this UUID is independent of the wire
 `retry` request's `id`. A reflection uses
-`reflect:<conversation number>:<ordinal>`. Clients send UUIDs, not these
-internal IDs. The server constructs them in `chats/say.rs`,
-`chats/deeds.rs` and `chats/follow.rs`.
+`reflection:<conversation>:<number>`. Clients send UUIDs, not these
+internal IDs. The server constructs them in `talk/chats.rs` and
+`talk/reflections.rs`.
 
 `State.epoch` identifies the running state watcher, using the server clock
 at its start. Revision starts at zero and increases when the realm state
@@ -106,7 +105,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
-| `hello` (`Hello`) | `v: 2`, `token: string`; no `id` | Authenticate; full `state`. |
+| `hello` (`Hello`) | `v: Version`, `token: string`; no `id` | Authenticate; full `state`. |
 | `say` (`Say`) | `to: AgentId`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
 | `give` (`Give`) | `to: AgentId`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
 | `give` (`Give`) | `to: ScholarId`, `skill: {from: Keeper, name: string}` | Copy a named skill of a scholar or a hire's lodge; `reply`. |
@@ -217,9 +216,9 @@ the machine. It is discriminated by `kind`: `sandbox` with the sandbox's
 full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
-`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `hamlet#number`, `worker#id`), a hire's `nickname` (`null` while it goes by its scholar's name), purpose, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), mayor flag, busy and
-fault flags, activity, short saying, spend, skills, consultation and peer
-conversation summaries, and `left?` once it has left. It contains no
+`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `<hamlet>#<number>`, `worker#<id>`), a hire's `nickname` (`null` while it goes by its scholar's name), `purpose`, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), `mayor`, `busy` and
+`faulted` flags, `activity`, `saying`, `spent`, `since`, `skills`, `consulting` and
+`conversations` (the peer conversations it holds), and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`
 is `{url, running, move?}`: the remote workspace chosen and the
@@ -263,8 +262,8 @@ one conversation and returns the newest page first. A connection can keep
 several watches. It receives live `turn` operations only for those chats.
 `close {chat}` ends that connection's watch; disconnect ends all its watches.
 
-A page holds at most **40 items**, not 40 turns or durable entries.
-`chats/watch.rs` takes the last 40 folded items before the
+A page holds at most **100 items**, not 100 turns or durable entries.
+`clients/requests.rs` takes the last 100 folded items before the
 cursor, or before the end when `before` is omitted. Pages are fetched newest
 first, but **items inside each page stay in entry and content-block order,
 oldest to newest**, not reverse timestamp order. Harness history batches
@@ -277,8 +276,8 @@ watch leaves its live subscription running, even if the page request fails.
 
 Peer conversations (`from` and `kind`) are read-only. `say`, `stop`,
 `rewind`, `new`, `resume` and `retry` cannot edit a peer conversation.
-`rewind` explicitly refuses a peer or past `ChatRef` through
-`chats/deeds.rs`. The other five messages take an `AgentId`, not a
+`rewind` explicitly refuses a peer or past `ChatRef` in
+`clients/requests.rs`. The other five messages take an `AgentId`, not a
 peer `ChatRef`, and act on the chief conversation or agent. Adding peer chat
 fields to them is malformed. Opening a peer watch does not retarget writes.
 
@@ -344,15 +343,15 @@ readable `text`; neither carries a machine error code.
 
 | Envelope | Use |
 |---|---|
-| `reply`, kind `error`, with `to` | An ordinary requested operation is refused: an edit, read, answer, gift, check or conversation action. Some typed command refusals are rendered as kind `notice` instead (`chats/say.rs`). |
+| `reply`, kind `error`, with `to` | An ordinary requested operation is refused: an edit, read, answer, gift, check or conversation action, or a typed command. |
 | `fault` with `to` | A malformed request with a recoverable UUID, an open/page refusal, a watch failure still associated with its opening request, or an unexpected request-handler failure, a panic included. |
 | `fault` without `to` | A handshake or connection failure, input with no valid request ID, or a watch failure after its opening request has been answered. |
 
 A fault does not itself imply disconnect. Malformed input after hello,
 second hello and request-handler failures leave the connection open.
 Handshake refusals, message size violations and unexpected connection
-failures close it as described above. The server's `protocol.rs`,
-`connection.rs` and `requests.rs` own these paths. Watch failures use
+failures close it as described above. The server's
+`clients/connection.rs` and `clients/requests.rs` own these paths. Watch failures use
 the `fault` envelope, even when their cause is an ordinary access
 refusal.
 
