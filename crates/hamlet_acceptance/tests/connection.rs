@@ -119,7 +119,7 @@ async fn answers_malformed_messages_with_faults_and_stays_open() {
             json!({"type": "read", "id": "ID"}),
             "This `read` message does not fit the protocol: `what` \
              must be one of `prompt`, `history`, `models`, \
-             `papers`, `charter`.",
+             `papers`, `charter`, `image`.",
             true,
         ),
         (
