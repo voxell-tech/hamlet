@@ -49,6 +49,11 @@ use crate::work::tools::{self, Shells};
 use crate::workspace::Transport;
 use crate::workspace::lodges::Synced;
 
+/// How long a terminal's watcher whose queue was full waits before
+/// it is drawn again.
+const CATCH_UP: std::time::Duration =
+    std::time::Duration::from_millis(100);
+
 pub(crate) struct Core {
     pub realm: Realm,
     pub env: Env,
@@ -91,6 +96,8 @@ pub(crate) struct Core {
     /// Held while anything writes the realm's repositories and
     /// lodges.
     pub writing: Writing,
+    /// The shells on terminals that the chief and agents use.
+    pub terminals: crate::terminals::Terminals,
 }
 
 /// A conversation's transcript and activity, as kept and as running.
@@ -106,6 +113,7 @@ pub(crate) struct Inbox {
     worked: mpsc::UnboundedReceiver<Vec<crate::jobs::Job>>,
     events: mpsc::Receiver<Event>,
     ran: mpsc::UnboundedReceiver<Ran>,
+    printed: mpsc::UnboundedReceiver<crate::terminals::Printed>,
     listener: Option<TcpListener>,
 }
 
@@ -132,6 +140,7 @@ impl Core {
         let (worked_to, worked) = mpsc::unbounded_channel();
         let (events_to, events) = mpsc::channel(128);
         let (ran_to, ran) = mpsc::unbounded_channel();
+        let (printed_to, printed) = mpsc::unbounded_channel();
         let writing = Writing::default();
         let runner = Runner::start(
             realm.layout(),
@@ -155,6 +164,7 @@ impl Core {
             );
         }
         let mut catalogue = tools::specs(&shells);
+        catalogue.extend(crate::terminals::specs());
         catalogue.extend(calls::specs());
         catalogue.extend(
             added.iter().map(|manifest| manifest.spec.clone()),
@@ -193,7 +203,20 @@ impl Core {
             moving: None,
             runner,
             writing,
+            terminals: crate::terminals::Terminals::new(
+                layout.terminals(),
+                printed_to,
+            ),
         };
+        if let Err(error) = crate::terminals::kept::restore(&mut core)
+        {
+            tell(
+                Secrets::Of(&core.credentials),
+                format!(
+                    "could not open the kept terminals: {error:#}"
+                ),
+            );
+        }
         core.retool()?;
         core.start_providers()?;
         let unfollowed =
@@ -212,6 +235,7 @@ impl Core {
                 worked,
                 events,
                 ran,
+                printed,
                 listener: None,
             },
         ))
@@ -233,6 +257,9 @@ impl Core {
             .next_expiry()
             .map(tokio::time::Instant::from_std);
         let listener = inbox.listener.as_ref();
+        // A watcher that fell behind is drawn again once its queue
+        // has room.
+        let behind = self.terminals.behind();
         tokio::select! {
             Some(received) = inbox.lines.recv() => {
                 self.received(received).await?;
@@ -249,6 +276,24 @@ impl Core {
             }
             Some(ran) = inbox.ran.recv() => {
                 self.ran(ran).await?;
+                Ok(true)
+            }
+            Some(printed) = inbox.printed.recv() => {
+                let mut all = vec![printed];
+                while let Ok(more) = inbox.printed.try_recv() {
+                    all.push(more);
+                }
+                self.printed(all).await?;
+                Ok(true)
+            }
+            () = async {
+                if behind {
+                    tokio::time::sleep(CATCH_UP).await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {
+                self.catch_up()?;
                 Ok(true)
             }
             Ok((stream, _)) = async {
@@ -1080,6 +1125,7 @@ impl Core {
         mut self,
         grace: std::time::Duration,
     ) -> Result<()> {
+        self.terminals.keep_all();
         self.calls.stop_all();
         self.runtimes.stop(grace).await;
         self.leftovers.end(|_| true);

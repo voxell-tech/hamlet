@@ -386,6 +386,7 @@ pub(super) async fn run(
     place: &Place,
     secrets: &[String],
     arguments: &Map<String, Value>,
+    shown: Option<&crate::terminals::Feed>,
 ) -> Outcome {
     let args = Arguments::new(shell.dialect.tool(), arguments);
     let checked = (
@@ -444,7 +445,12 @@ pub(super) async fn run(
                     &argv,
                     Duration::from_secs_f64(wall),
                     secrets,
-                    &mut |text| kept.push(text),
+                    &mut |text| {
+                        kept.push(text);
+                        if let Some(shown) = shown {
+                            shown.print_lines(text);
+                        }
+                    },
                 )
                 .await
             }
@@ -608,7 +614,7 @@ mod tests {
             Shells(vec![shell.clone()]),
             AllLeftovers::default().of(1),
         )
-        .run(&[], shell.dialect.tool(), &arguments)
+        .run(&[], shell.dialect.tool(), &arguments, None)
         .await
     }
 

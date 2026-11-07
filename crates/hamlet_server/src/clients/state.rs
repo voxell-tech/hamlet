@@ -36,6 +36,7 @@ pub(crate) struct Sources<'a> {
     pub settings_view: protocol::SettingsView,
     pub waits: Vec<protocol::Wait>,
     pub library: Vec<protocol::LibrarySkill>,
+    pub terminals: Vec<protocol::TerminalView>,
 }
 
 /// The whole state at `at`.
@@ -98,6 +99,7 @@ pub(crate) fn compose(
         revision,
         scholars: scholars_shown,
         settings: sources.settings_view.clone(),
+        terminals: sources.terminals.clone(),
         waits: sources.waits.clone(),
     })
 }

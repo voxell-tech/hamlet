@@ -84,6 +84,27 @@ pub(crate) fn call_of(
             net: args.get("network") == Some(&Value::Bool(true)),
         };
     }
+    // Opening a terminal and typing into it run commands as a shell
+    // call does, so they pass the gate as one.
+    if let Some(terminal) = crate::terminals::Tool::named(tool) {
+        use crate::terminals::Tool;
+        let shell = |command: String| Call::Shell {
+            dialect: Dialect::Bash,
+            command,
+            net: args.get("network") == Some(&Value::Bool(true)),
+        };
+        return match terminal {
+            Tool::Open => {
+                shell("bash (a terminal that stays open)".into())
+            }
+            Tool::Write => shell(crate::terminals::command(args)),
+            Tool::Read => Call::Read,
+            Tool::Close => Call::Other {
+                name: tool.into(),
+                args: args.clone(),
+            },
+        };
+    }
     match tool {
         "write" => Call::Edit {
             write: true,

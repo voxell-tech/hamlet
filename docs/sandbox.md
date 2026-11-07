@@ -32,6 +32,30 @@ use is separately gated by the settings and permissions. A shell request that
 needs the network while it is off can wait for the chief's grant. An approval
 does not remove filesystem confinement.
 
+## Terminals
+
+`crates/hamlet_server/src/terminals/shell.rs` starts shells on pseudo-terminals
+(`hamlet_os::process::pty`). An agent's terminal runs `bash` under the same
+policy as its shell tool calls, with the network only when the call that
+opened it asked and the gate allowed it. One the chief opens in a hamlet runs
+`bash` in the hamlet's folder under a policy that writes that folder alone,
+with the network: no lodge, the mayor's included, is written by anyone but its
+agent. A hamlet with no folder has no terminal of the chief's. bubblewrap runs
+a terminal without `--new-session`, which would cut it from its terminal
+(`Sandbox::terminal`); the shell has no ulimits or wall time, since it runs
+for as long as it is used, and ends with its terminal. `terminal_open` and
+every `terminal_write` pass the gate as a shell command does, so a chief who
+is asked about commands is asked about each line an agent types. What the
+chief types is not gated.
+
+An unbounded terminal, with no hamlet, is the chief's own login shell
+(`$SHELL -l` in their home folder), run by the server's account with no
+sandbox, as any terminal emulator's is. Only the chief opens one; no agent
+tool reaches it.
+
+A remote workspace has no terminals yet: opening one there is refused.
+Windows has none yet either.
+
 ## A folder a hamlet works on
 
 The chief chooses a local folder for a hamlet. Its agents then work there,

@@ -37,7 +37,7 @@ use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
 use crate::talk::{asking, conversations, inputs, models};
 use crate::work::cut::change_between;
-use crate::work::tools::{Outcome, Sight, ToolSession};
+use crate::work::tools::{Dialect, Outcome, Sight, ToolSession};
 
 /// The words of a call that waits for a chief.
 const WAITING: &str = "This call waits for a chief's answer.";
@@ -607,6 +607,15 @@ impl Core {
                                 return Ok(());
                             }
                         }
+                    } else if let Some(terminal) =
+                        crate::terminals::Tool::named(tool)
+                    {
+                        self.run_terminal(
+                            &call,
+                            reply.clone(),
+                            terminal,
+                            net,
+                        )?
                     } else {
                         self.run_tool(
                             &call,
@@ -665,6 +674,18 @@ impl Core {
                 crate::clock::now(),
             )?;
         }
+        let commands = match Dialect::of_tool(call.tool) {
+            Some(_) => {
+                let command = call
+                    .arguments
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                Some(self.commands(agent, &at, command)?)
+            }
+            None => None,
+        };
+        let db = self.realm.store().connection();
         let change =
             held::kept(db, &call.call.runtime, &call.call.key)?
                 .and_then(|kept| kept.change)
@@ -688,8 +709,22 @@ impl Core {
             request,
             (pull && once).then_some(agent),
             async move {
-                let mut outcome =
-                    session.run(&secrets, &name, &arguments).await;
+                let mut outcome = session
+                    .run(
+                        &secrets,
+                        &name,
+                        &arguments,
+                        commands.as_ref(),
+                    )
+                    .await;
+                if let Some(commands) = &commands {
+                    let code = outcome
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("exitCode"))
+                        .and_then(Value::as_i64);
+                    commands.ended_run(code);
+                }
                 if let Some(change) = change {
                     outcome
                         .details
@@ -698,6 +733,41 @@ impl Core {
                 }
                 outcome
             },
+        );
+        Ok(None)
+    }
+
+    /// Runs the terminal tool `tool` of `call` with the network
+    /// `net`, after marking it begun when it may not run again.
+    fn run_terminal(
+        &mut self,
+        call: &Call<'_>,
+        reply: Reply,
+        tool: crate::terminals::Tool,
+        net: bool,
+    ) -> Result<Option<Outcome>> {
+        if self.runs_once(call.tool) {
+            marker::begin(
+                self.realm.store().connection(),
+                call.call.identity(),
+                &call.request,
+                crate::clock::now(),
+            )?;
+        }
+        let work = crate::terminals::call(
+            self,
+            call.conversation.agent,
+            tool,
+            call.arguments,
+            net,
+        )?;
+        self.calls.run(
+            call.call.clone(),
+            call.conversation.id,
+            reply,
+            call.request.clone(),
+            None,
+            work,
         );
         Ok(None)
     }

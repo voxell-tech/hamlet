@@ -230,8 +230,13 @@ pub(crate) fn tools(
     match kind {
         // An errand answers in words alone.
         Kind::Errand => only.clear(),
+        // A dream writes its scholar's checkout, where no terminal
+        // runs.
         Kind::Dream => {
-            only.retain(|name| !society.contains(&name.as_str()));
+            only.retain(|name| {
+                !society.contains(&name.as_str())
+                    && crate::terminals::Tool::named(name).is_none()
+            });
         }
         _ => {}
     }

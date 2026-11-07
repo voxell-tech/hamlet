@@ -53,6 +53,7 @@ impl Core {
             }
             Event::Gone(client) => {
                 self.clients.gone(client);
+                self.terminals.gone(client);
                 self.providers.disconnect(client);
                 self.images.disconnect(client);
                 self.files.disconnect(client);
@@ -456,6 +457,9 @@ impl Core {
             ClientMessage::MoveLodges(asked) => {
                 self.move_lodges(client, &asked.id).await
             }
+            ClientMessage::Terminal(asked) => {
+                self.terminal(client, asked).await
+            }
             // The providers answered these above.
             ClientMessage::Login(_) | ClientMessage::Check(_) => {
                 Ok(())
@@ -771,6 +775,8 @@ impl Core {
                 activity.insert(live.agent, shown.clone());
             }
         }
+        self.prune_terminals()?;
+        let terminals = self.terminals.views();
         let chief = self.realm.chief();
         let layout = self.realm.layout().clone();
         let confinement = self.confinement();
@@ -818,6 +824,7 @@ impl Core {
             settings_view,
             waits,
             library,
+            terminals,
         };
         super::state::compose(
             db,

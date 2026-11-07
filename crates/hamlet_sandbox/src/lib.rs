@@ -162,6 +162,23 @@ impl Sandbox {
             }
         }
     }
+
+    /// `argv` as [`Self::command`] confines it, on a terminal it
+    /// keeps: bubblewrap's new session would cut it from the
+    /// terminal.
+    pub fn terminal(
+        &self,
+        policy: &Policy,
+        argv: &[String],
+        cwd: &str,
+        tmp: &str,
+    ) -> Confined {
+        let mut confined = self.command(policy, argv, cwd, tmp);
+        if self.0 == Kind::Bwrap {
+            confined.argv.retain(|word| word != "--new-session");
+        }
+        confined
+    }
 }
 
 /// The environment tools start from on this platform.

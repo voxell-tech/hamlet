@@ -22,6 +22,7 @@ and `layout.rs` defines `Layout`. The server's chief is named by
 | `workers/<id>/` | A worker's scratch folder while it runs |
 | `library.git/`, `library/` | The library's repository, and its `main` checked out, read-only to agent tools |
 | `tools/` | Hand-added tool manifests and scripts |
+| `terminals/<id>.json` | Each terminal's view and its last output, kept across restarts, outside agents' reach |
 | `images/`, `files/` | The images chiefs sent and agents read, and the files chiefs sent, each kept once under the hash of its bytes, out of agents' reach |
 | `dreams/` | The checkout of a scholar's `main` a dream writes, out of agents' reach |
 

@@ -4600,6 +4600,7 @@ dependencies = [
  "unicode-normalization",
  "url",
  "uuid",
+ "vt100",
 ]
 
 [[package]]
