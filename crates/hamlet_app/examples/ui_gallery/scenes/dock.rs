@@ -95,6 +95,7 @@ pub(super) fn open_settings(
         || !matches!(
             scene,
             Scene::Settings
+                | Scene::SettingsModels
                 | Scene::Charter
                 | Scene::Workspace
                 | Scene::Sight

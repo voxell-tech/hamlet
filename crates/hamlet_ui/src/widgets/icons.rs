@@ -146,6 +146,8 @@ pub enum Glyph {
     Star,
     /// The star filled: a favourite.
     Starred,
+    /// An arrow up: send what is typed.
+    Send,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -174,7 +176,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 54] = [
+    pub const ALL: [Glyph; 55] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -229,6 +231,7 @@ impl Glyph {
         Glyph::Rise,
         Glyph::Star,
         Glyph::Starred,
+        Glyph::Send,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -605,6 +608,10 @@ impl Glyph {
             ],
             Glyph::Star => &[Loop(&STAR)],
             Glyph::Starred => &[Loop(&STAR), Fill(&STAR)],
+            Glyph::Send => &[
+                Line(8.0, 13.0, 8.0, 3.0),
+                Path(&[[4.0, 7.0], [8.0, 3.0], [12.0, 7.0]]),
+            ],
         }
     }
 }

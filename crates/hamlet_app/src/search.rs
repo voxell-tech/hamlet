@@ -16,7 +16,7 @@ use hamlet_ui::View;
 use hamlet_ui::styles::text_input;
 use hamlet_ui::widgets::hint;
 
-pub(super) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.add_systems(Update, follow);
 }
 
@@ -40,14 +40,15 @@ fn follow(
     }
 }
 
-/// A search field after a lens, with `word` in it while it is empty;
-/// `write` takes the text as it is typed.
-pub(super) fn search(
+/// A search field after a lens, holding `text` at first and `word`
+/// while it is empty; `write` takes the text as it is typed.
+pub(crate) fn search(
     word: &'static str,
+    text: String,
     write: impl Fn(&mut World, String) + Send + Sync + 'static,
 ) -> impl View {
     hint::search(
-        text_field(String::new(), |_, _| {})
+        text_field(text, |_, _| {})
             .rules(text_input)
             .tagged(Typed(Arc::new(write))),
         word,

@@ -92,6 +92,7 @@ impl Plugin for GalleryPlugin {
             .init_resource::<hamlet_realm::pick::AskedGround>()
             .add_plugins((
                 hamlet_app::world_menu::plugin,
+                hamlet_app::search::plugin,
                 hamlet_app::desk::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
@@ -150,6 +151,9 @@ pub enum Scene {
     Toasts,
     /// The popup an agent's model is chosen in, over the Hub.
     Models,
+    /// That popup with a search typed in it, found across every
+    /// provider.
+    ModelsSearch,
     /// The Hub's page of the realm, with nothing selected.
     Overview,
     /// One hamlet and everyone in it.
@@ -164,6 +168,8 @@ pub enum Scene {
     Chief,
     /// The Settings panel.
     Settings,
+    /// The Settings panel at its Models page.
+    SettingsModels,
     /// The Settings panel at its Charter page.
     Charter,
     /// The Settings panel at its Workspace page, a remote workspace

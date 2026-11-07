@@ -3,6 +3,7 @@
 //! details take its place while open, and its sessions and prompt are
 //! pages of their own.
 
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
@@ -24,8 +25,8 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, bad_action, bare, close, crumb, crumb_here,
-    crumb_slash, crumbs, filling, hairline, lettered, note,
+    Fills, ICON, bare, choice, close, crumb, crumb_here, crumb_slash,
+    crumbs, danger_button, filling, hairline, note, primary_button,
     scroll_area,
 };
 use hamlet_ui::widgets::effects::Variant;
@@ -478,20 +479,13 @@ fn header(agent: Entity) -> impl View {
 /// popup they are chosen in.
 fn model_chip(agent: Entity) -> impl View {
     button(
-        row((
-            label(rolled(move |world| {
-                world_menu::chip_words(world, agent)
-            }))
-            .wrap(false),
-            glyph(Glyph::Chevron, ICON),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center),
+        row((world_menu::chip(agent), glyph(Glyph::Chevron, 12.0)))
+            .gap(6.0)
+            .align(AlignItems::Center),
     )
     .padding(UiRect::axes(px(8.0), px(0.0)))
-    .min_height(px(hamlet_ui::styles::CONTROL))
-    .rules(hamlet_ui::styles::button)
-    .tagged(Variant::Default)
+    .rules(choice(false))
+    .tagged(Variant::Text)
     .on_activate(move |world| world_menu::ask_model(world, agent))
 }
 
@@ -511,9 +505,10 @@ fn mode_chip(agent: Entity) -> impl View {
                 hamlet_client::realm::Mode::Manual => "Manual",
                 hamlet_client::realm::Mode::Auto => "Auto",
             };
-            lettered(words)
-                .rules(hamlet_ui::styles::button)
-                .tagged(Variant::Default)
+            button(label(words).wrap(false))
+                .padding(UiRect::axes(px(8.0), px(0.0)))
+                .rules(choice(false))
+                .tagged(Variant::Text)
                 .tooltip(|| {
                     note(
                         "How this hamlet's work is overseen. Press \
@@ -537,10 +532,9 @@ fn mode_chip(agent: Entity) -> impl View {
 fn gifts(agent: Entity) -> impl View {
     row((button(glyph(Glyph::Plus, ICON))
         .padding(UiRect::axes(px(8.0), px(0.0)))
-        .min_height(px(hamlet_ui::styles::CONTROL))
         .tooltip(|| note("Give it a skill"))
-        .rules(hamlet_ui::styles::button)
-        .tagged(Variant::Default)
+        .rules(choice(false))
+        .tagged(Variant::Text)
         .on_activate(move |world| {
             world_menu::open_skills(world, agent);
         }),))
@@ -553,37 +547,71 @@ fn gifts(agent: Entity) -> impl View {
     }))
 }
 
-/// Stops what the agent is doing, there only while it is working.
-fn stop(agent: Entity) -> impl View {
-    row((bad_action(Glyph::Stop, "Stop", move |world| {
-        world_menu::stop(world, agent);
-    }),))
-    .display(rolled(move |world| {
-        if conversations::is_read_only(world) {
-            return Display::None;
-        }
-        match world.get::<Busy>(agent) {
-            Some(_) => Display::Flex,
-            None => Display::None,
-        }
-    }))
+/// The side of the round send and stop buttons.
+const ROUND: f32 = 30.0;
+
+/// On the round button that stops the agent.
+#[derive(Component)]
+struct Stopping;
+
+/// The round button at the end of the toolbar: Send, or Stop while
+/// the agent works.
+fn send_or_stop(agent: Entity) -> impl View {
+    keyed(
+        derived(move |world: &World| {
+            world.get::<Busy>(agent).is_some()
+        })
+        .when(every_frame()),
+        move |busy| {
+            let round = |face: AnyView| {
+                button(face)
+                    .width(px(ROUND))
+                    .height(px(ROUND))
+                    .padding(UiRect::all(px(0.0)))
+                    .radius(ROUND / 2.0)
+            };
+            if *busy {
+                let square = with_cx(|cx| {
+                    frame()
+                        .width(px(10.0))
+                        .height(px(10.0))
+                        .radius(2.0)
+                        .fill(cx.theme().palette.red)
+                });
+                round(square.boxed())
+                    .rules(danger_button)
+                    .tagged(Variant::Danger)
+                    .tagged(Stopping)
+                    .tooltip(|| note("Stop"))
+                    .on_activate(move |world| {
+                        world_menu::stop(world, agent);
+                    })
+                    .boxed()
+            } else {
+                round(glyph(Glyph::Send, 16.0).boxed())
+                    .rules(primary_button)
+                    .tagged(Variant::Primary)
+                    .tooltip(|| note("Send"))
+                    .on_activate(chat::send_typed)
+                    .boxed()
+            }
+        },
+    )
+    .within(bare())
 }
 
-/// Under the message field: the gifts, the model and effort, the
-/// hamlet's mode, and the stop.
+/// The composer's toolbar, under its field: the gifts, the model and
+/// effort and the hamlet's mode, then Send or Stop.
 fn chips(agent: Entity) -> impl View {
-    with_cx(move |cx| {
-        row((
-            gifts(agent),
-            model_chip(agent),
-            mode_chip(agent),
-            frame().grow(1.0),
-            stop(agent),
-        ))
-        .gap(cx.theme().space.gap)
-        .align(AlignItems::Center)
-        .tagged(Wraps)
-    })
+    row((
+        gifts(agent),
+        model_chip(agent),
+        mode_chip(agent),
+        frame().grow(1.0),
+        send_or_stop(agent),
+    ))
+    .gap(2.0)
+    .align(AlignItems::Center)
 }
 
 /// The transcript over its composer, or over a note when the chat
@@ -605,8 +633,7 @@ fn talk(agent: Entity) -> AnyView {
             } else {
                 column((
                     chat::transcript(),
-                    chat::message_bar(),
-                    chips(agent),
+                    chat::message_bar(chips(agent)),
                 ))
                 .fills_height()
                 .gap(gap)
@@ -745,8 +772,8 @@ pub(super) fn sessions() -> impl View {
 #[cfg(test)]
 mod tests {
     use bevy::app::App;
-    use bevy::ecs::hierarchy::ChildOf;
-    use bevy::ecs::query::With;
+    use bevy::ecs::query::{With, Without};
+    use bevy_fynix::Leaving;
     use hamlet_client::outbox::Outbox;
 
     use super::*;
@@ -779,7 +806,18 @@ mod tests {
         assert!(words(&mut app).iter().any(
             |text| text == "Reading the received orchard ledger"
         ));
-        press(&mut app, "Stop");
+        let stop = |app: &mut App| {
+            let world = app.world_mut();
+            // Past one going out as Send comes in.
+            world
+                .query_filtered::<Entity, (With<Stopping>, Without<Leaving>)>()
+                .iter(world)
+                .next()
+        };
+        let button = stop(&mut app).expect("Stop while she works");
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity: button });
+        app.world_mut().flush();
         let stopped =
             app.world().resource::<Outbox>().iter().any(|message| {
                 let protocol::ClientMessage::Stop(stop) = message
@@ -796,27 +834,9 @@ mod tests {
             ),
         );
         app.update();
-        let world = app.world_mut();
-        let stop = world
-            .query::<(Entity, &bevy::ui::widget::Text)>()
-            .iter(world)
-            .find(|(_, text)| text.0 == "Stop")
-            .unwrap()
-            .0;
-        let mut at = stop;
-        let mut hidden = false;
-        loop {
-            hidden |= world
-                .get::<bevy::ui::Node>(at)
-                .is_some_and(|node| node.display == Display::None);
-            let Some(parent) = world.get::<ChildOf>(at) else {
-                break;
-            };
-            at = parent.parent();
-        }
         assert!(
-            hidden,
-            "Stop is hidden while the received agent is at rest"
+            stop(&mut app).is_none(),
+            "Send in its place while the received agent is at rest"
         );
     }
 

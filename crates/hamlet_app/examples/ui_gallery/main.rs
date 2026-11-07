@@ -41,7 +41,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 36] = [
+const SHOTS: [Shot; 38] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -51,7 +51,7 @@ const SHOTS: [Shot; 36] = [
     Shot {
         name: "icons",
         scene: Scene::Icons,
-        size: UVec2::new(1200, 760),
+        size: UVec2::new(1200, 840),
         scale: 1.0,
     },
     Shot {
@@ -106,6 +106,18 @@ const SHOTS: [Shot; 36] = [
         name: "models",
         scene: Scene::Models,
         size: UVec2::new(1800, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "models-search",
+        scene: Scene::ModelsSearch,
+        size: UVec2::new(1800, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "settings-models",
+        scene: Scene::SettingsModels,
+        size: UVec2::new(1440, 1100),
         scale: 1.0,
     },
     Shot {

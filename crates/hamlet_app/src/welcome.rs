@@ -5,17 +5,13 @@ mod providers;
 
 use std::collections::BTreeMap;
 
-use bevy::app::{App, PostUpdate, PreUpdate, Update};
-use bevy::ecs::component::Component;
-use bevy::ecs::hierarchy::Children;
+use bevy::app::{App, PostUpdate, PreUpdate};
 use bevy::ecs::observer::On;
-use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Local, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::{InputFocus, InputFocusSystems};
-use bevy::text::EditableText;
 use hamlet_client::Connection;
 use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
@@ -45,7 +41,6 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
         // After Bevy's text input, in `PreUpdate`, has edited the
         // field.
-        .add_systems(Update, read_narrow)
         // After Bevy tells the field commit() unfocused that it lost
         // focus, and fynix's observer hands its text to the page, so
         // a commit replies in the frame it was asked for.
@@ -367,29 +362,12 @@ fn follow(
     }
 }
 
-#[derive(Component)]
-pub(crate) struct Narrowing;
-
-pub(crate) fn read_narrow(
-    field: Query<&Children, With<Narrowing>>,
-    texts: Query<&EditableText>,
-    mut welcome: ResMut<Welcome>,
-) {
-    let Some(text) = field
-        .iter()
-        .flat_map(|children| children.iter().copied())
-        .find_map(|child| texts.get(child).ok())
-    else {
-        return;
-    };
-    if text.value() != welcome.narrow.as_str() {
-        welcome.narrow = text.value().to_string();
-    }
-}
 #[cfg(test)]
 mod server_tests {
     use bevy::color::Alpha;
     use bevy::ecs::entity::Entity;
+    use bevy::ecs::query::With;
+    use bevy::text::EditableText;
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_client::ClientPlugin;
     use hamlet_protocol::client as protocol;

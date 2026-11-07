@@ -1,7 +1,7 @@
 //! The server's endpoints and model catalogue in Settings.
 
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     FrameProps, label, number_field, row, text_field,
@@ -17,9 +17,10 @@ use hamlet_ui::styles::{
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, with_cx};
 
-use super::choice::{chooser, home_default};
+use super::choice::home_default;
 use super::{
-    Asked, Draft, SHOWN, Shelf, catalogue, edit, read_models,
+    Asked, Draft, ModelRow, SHOWN, Shelf, WORDS_AT, catalogue, edit,
+    model_row, read_models,
 };
 use crate::roll::{either, moved};
 
@@ -184,7 +185,7 @@ fn price(name: &str, output: bool) -> AnyView {
     .boxed()
 }
 
-fn entry(model: &protocol::Listed) -> AnyView {
+fn entry(model: &protocol::Listed, default: &str) -> AnyView {
     let name = model.name.clone();
     let source = match model.priced {
         protocol::ListedPriced::Unknown => "no price",
@@ -205,8 +206,23 @@ fn entry(model: &protocol::Listed) -> AnyView {
         ))
         .gap(cx.theme().space.gap)
         .align(AlignItems::Center)
+        .padding(UiRect::left(px(WORDS_AT)))
     });
-    close((super::named(&model.name), prices)).boxed()
+    let chosen = model.name.clone();
+    let is_default = model.name == default;
+    close((
+        model_row(
+            ModelRow {
+                name: model.name.clone(),
+                picked: is_default,
+                tag: is_default.then_some("Default"),
+                end: None,
+            },
+            move |world| save_default(world, &chosen),
+        ),
+        prices,
+    ))
+    .boxed()
 }
 
 /// The names holding every word of `narrow`, as the `page`th page of
@@ -279,10 +295,14 @@ pub fn shelf() -> AnyView {
                 .collect::<Vec<_>>(),
             page,
             pages,
+            home_default(world),
         )
     })
-    .when(either(moved::<Shelf>(), moved::<Draft>()));
-    let models = keyed(shown, |(models, page, pages)| {
+    .when(either(
+        either(moved::<Shelf>(), moved::<Draft>()),
+        moved::<Settings>(),
+    ));
+    let models = keyed(shown, |(models, page, pages, default)| {
         if models.is_empty() {
             return description(
                 "No models yet. Choose List Models to ask the \
@@ -290,7 +310,10 @@ pub fn shelf() -> AnyView {
             )
             .boxed();
         }
-        let mut rows = models.iter().map(entry).collect::<Vec<_>>();
+        let mut rows = models
+            .iter()
+            .map(|model| entry(model, default))
+            .collect::<Vec<_>>();
         let (page, pages) = (*page, *pages);
         if pages > 1 {
             rows.push(
@@ -310,14 +333,11 @@ pub fn shelf() -> AnyView {
     })
     .within(bare());
     group((
-        close((
-            section("Default model"),
-            chooser(home_default, save_default),
-            description("Used wherever nobody chose a model."),
-        )),
         description(
-            "Prices are dollars per million tokens in and out, used \
-             when the endpoint does not bill a call.",
+            "The default model is used wherever nobody chose one. \
+             Choose a model to make it the default. Prices are \
+             dollars per million tokens in and out, used when the \
+             endpoint does not bill a call.",
         ),
         beside((
             action(Glyph::Restore, "List models", |world| {

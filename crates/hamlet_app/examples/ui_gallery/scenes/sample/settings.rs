@@ -16,6 +16,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if !matches!(
         scene,
         Scene::Settings
+            | Scene::SettingsModels
             | Scene::Charter
             | Scene::Workspace
             | Scene::Sight
@@ -38,6 +39,11 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             own: true,
         });
         world.insert_resource(settings::Pane::Charter);
+    }
+    if scene == Scene::SettingsModels {
+        world.resource_mut::<hamlet_app::models::Shelf>().models =
+            super::hub::catalogue();
+        world.insert_resource(settings::Pane::Models);
     }
     if scene == Scene::Workspace {
         world.resource_mut::<Settings>().0.workspace =

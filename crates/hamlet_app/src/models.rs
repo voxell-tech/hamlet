@@ -2,6 +2,7 @@
 
 mod choice;
 mod home;
+mod row;
 
 use std::collections::BTreeMap;
 
@@ -14,7 +15,6 @@ use bevy::ecs::schedule::common_conditions::{
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Commands, ResMut};
 use bevy::ecs::world::World;
-use bevy_fynix::views::{FrameProps, column, label};
 use hamlet_client::Connection;
 use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
@@ -25,6 +25,7 @@ use hamlet_protocol::client as protocol;
 pub(crate) use self::choice::{efforts, of_hamlet};
 pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
+pub(crate) use self::row::{ModelRow, WORDS_AT, mark, model_row};
 use crate::PanelSystems;
 use crate::settings::Pane;
 
@@ -129,22 +130,6 @@ pub(crate) fn account_words(account: &Account) -> String {
     } else {
         format!("{} · {}", model_name(&account.model), account.cost)
     }
-}
-
-/// `model` by its name, with where it comes from in small words
-/// under it.
-pub(crate) fn named(model: &str) -> impl hamlet_ui::View {
-    let id = model.to_string();
-    column((
-        label(model_name(model).to_string()),
-        hamlet_ui::styles::description(
-            bevy_fynix::derived(move |world: &World| {
-                source_of(world, &id)
-            })
-            .when(crate::roll::moved::<Providers>()),
-        ),
-    ))
-    .gap(2.0)
 }
 
 fn follow(world: &mut World) {

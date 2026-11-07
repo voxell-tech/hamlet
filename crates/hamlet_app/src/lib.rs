@@ -24,6 +24,7 @@ mod remember;
 mod roll;
 mod root;
 mod saving;
+pub mod search;
 pub mod secret;
 
 pub mod screens;
@@ -134,6 +135,7 @@ impl Plugin for UiPlugin {
                 look::plugin,
                 world_menu::plugin,
                 hover::plugin,
+                search::plugin,
                 hamlet_ui::plugin,
                 tuning::plugin,
                 cursor::plugin,

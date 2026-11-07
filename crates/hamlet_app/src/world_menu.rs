@@ -9,7 +9,6 @@ mod items;
 mod model;
 mod new_scholar;
 mod road;
-mod search;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::{Component, Mutable};
@@ -37,11 +36,13 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
-pub(crate) use self::model::chip_words;
-pub use self::model::{Favorites, open as open_model};
+pub(crate) use self::model::chip;
+pub use self::model::{
+    Favorites, open as open_model, search as search_models,
+};
 
 pub fn plugin(app: &mut App) {
-    app.add_plugins((model::plugin, search::plugin))
+    app.add_plugins(model::plugin)
         .init_resource::<Open>()
         .init_resource::<Founding>()
         .init_resource::<new_scholar::Making>()

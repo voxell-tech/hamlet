@@ -38,7 +38,7 @@ fn offered(
     names
 }
 
-pub(super) fn chooser(
+fn chooser(
     read: impl Fn(&World) -> String + Send + Sync + 'static,
     write: impl Fn(&mut World, &str) + Send + Sync + Clone + 'static,
 ) -> impl View {

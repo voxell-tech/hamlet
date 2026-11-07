@@ -238,8 +238,9 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
             label(format!("Hire under {}", under))
                 .size(heading)
                 .bold(true),
-            super::search::search(
+            crate::search::search(
                 "Search scholars",
+                String::new(),
                 |world, text| {
                     world.resource_mut::<Hiring>().search = text;
                 },
