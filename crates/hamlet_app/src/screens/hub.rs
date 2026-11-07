@@ -104,12 +104,23 @@ pub(crate) fn reads_sessions(showing: Res<Showing>) -> bool {
     matches!(*showing, Showing::Thread | Showing::Sessions)
 }
 
-/// Turns the Hub's page to `showing`.
+/// Turns the Hub's page to `showing`, and the rail to the tab that
+/// lists it.
 pub(crate) fn show(world: &mut World, showing: Showing) {
     if let Some(mut now) = world.get_resource_mut::<Showing>()
         && *now != showing
     {
         *now = showing;
+    }
+    let tab = match showing {
+        Showing::Hamlet(_) => rail::Tab::Hamlets,
+        Showing::Scholar(_) => rail::Tab::City,
+        _ => return,
+    };
+    if let Some(mut now) = world.get_resource_mut::<rail::Tab>()
+        && *now != tab
+    {
+        *now = tab;
     }
 }
 

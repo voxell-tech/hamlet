@@ -57,6 +57,8 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         )
         .expect("the received scholar");
         world.insert_resource(Showing::Scholar(scholar));
+        // As the hub turns its rail to a scholar's page.
+        world.insert_resource(hub::RailTab::City);
         keep_notes(world);
     }
     if scene == Scene::Prompt {

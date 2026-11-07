@@ -10,10 +10,10 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, label, number_field, row,
+    BehaviorExt, FrameProps, column, label, number_field, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
@@ -518,9 +518,18 @@ pub fn panel(hamlet: Entity) -> AnyView {
             if *part == Part::Front {
                 return AnyView::new(
                     move |cx: &mut hamlet_ui::Cx| {
-                        let parts = Part::PAGES
-                            .into_iter()
-                            .map(|part| {
+                        let space = &cx.theme().space;
+                        // The folder it works on leads the list, open
+                        // where the others lead to a page.
+                        let folder =
+                            column((crate::folder::section(hamlet),))
+                                .padding(UiRect::axes(
+                                    px(space.card_padding_x),
+                                    px(space.card_padding_y),
+                                ))
+                                .boxed();
+                        let rows =
+                            Part::PAGES.into_iter().map(|part| {
                                 nav_row(
                                     part.glyph(),
                                     part.title(),
@@ -545,13 +554,20 @@ pub fn panel(hamlet: Entity) -> AnyView {
                                             part;
                                     },
                                 )
-                            })
+                            });
+                        let parts = std::iter::once(folder)
+                            .chain(rows)
                             .collect::<Vec<_>>();
-                        let foot =
-                            fine("These apply to this hamlet only.")
-                                .boxed();
                         cx.build(with_cx(move |cx| {
-                            nav_list(cx, parts, foot)
+                            let gap = cx.theme().space.gap;
+                            column((
+                                fine(
+                                    "These apply to this hamlet \
+                                     only.",
+                                ),
+                                nav_list(cx, parts),
+                            ))
+                            .gap(gap)
                         }))
                     },
                 );

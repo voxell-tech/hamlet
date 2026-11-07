@@ -233,7 +233,12 @@ mod tests {
     fn the_server_folder_history_and_mode_send_commands_to_its_mayor()
     {
         let mut app = panel_app();
-        app.add_plugins((plugin, crate::overview::plugin));
+        app.add_plugins((
+            plugin,
+            crate::overview::plugin,
+            crate::limits::plugin,
+        ));
+        app.insert_resource(crate::overview::Page::Bylaws);
         let mut state = hamlet_testing::realm::state();
         state.hamlets[0].folder =
             Some("/on-the-server/current".into());

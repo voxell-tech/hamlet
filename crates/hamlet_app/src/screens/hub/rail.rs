@@ -331,6 +331,8 @@ pub(super) struct Section {
     pub count: usize,
     pub folded: bool,
     pub lines: Vec<Line>,
+    /// Whether the page its title opens is the one shown.
+    pub current: bool,
 }
 
 /// An agent as the rail reads it.
@@ -854,6 +856,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
             count: lines.len(),
             folded: false,
             lines,
+            current: false,
         });
     }
     if let Some(mut query) = world.try_query::<(
@@ -906,6 +909,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
         count,
         folded: false,
         lines: gone,
+        current: false,
     });
 }
 
@@ -969,6 +973,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         count: 0,
         folded: false,
         lines: top,
+        current: false,
     });
 
     let (needs, count) = needs(world, &all);
@@ -980,6 +985,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         count,
         folded: false,
         lines: needs,
+        current: false,
     });
 
     // Each hamlet as the tree under its mayor.
@@ -1025,6 +1031,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             folded: folded.contains(&group)
                 && mark != Some(Standing::Waits),
             lines,
+            current: is_current(world, Target::Hamlet(hamlet)),
         });
     }
 
@@ -1443,13 +1450,18 @@ fn header(section: &Section) -> AnyView {
         }
         _ => chevron(group, section.folded, "Fold or open"),
     }];
+    let tone = if section.current {
+        Tone::Accent
+    } else {
+        Tone::Faint
+    };
     let title = with_cx({
         let title = section.title.clone();
         move |cx| {
             label(title)
                 .size(cx.theme().text.small)
                 .bold(true)
-                .tone(Tone::Faint)
+                .tone(tone)
                 .wrap(false)
                 .tagged(DisplayText)
         }

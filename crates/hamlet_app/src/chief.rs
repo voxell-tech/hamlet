@@ -232,33 +232,55 @@ const SWATCH: f32 = 28.0;
 /// The width of a swatch with its name under it.
 const SWATCH_WIDTH: f32 = 50.0;
 
+/// The width of the ring about a chosen swatch, and of the gap
+/// inside it.
+const RING: f32 = 2.0;
+
 /// The side of the chief's figure.
 const FIGURE: f32 = 88.0;
 
 /// A disc of `colour` with `name` under it, to press, a choice like
-/// those of words. The one chosen is lit.
+/// those of words. The one chosen has a ring about its disc and its
+/// name lit.
 fn swatch(
     colour: Color,
     name: &'static str,
     on: bool,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    button(
-        column((
-            frame()
-                .width(px(SWATCH))
-                .height(px(SWATCH))
-                .fill(colour)
-                .radius(SWATCH / 2.0),
-            label(name).wrap(false),
-        ))
-        .gap(4.0)
-        .align(AlignItems::Center),
-    )
-    .width(px(SWATCH_WIDTH))
-    .padding(UiRect::vertical(px(6.0)))
-    .rules(choice(on))
-    .on_activate(act)
+    with_cx(move |cx| {
+        let ring = if on {
+            cx.theme().palette.accent
+        } else {
+            Color::NONE
+        };
+        let word = label(name).wrap(false);
+        let word = if on {
+            word.tone(Tone::Accent).boxed()
+        } else {
+            word.boxed()
+        };
+        button(
+            column((
+                row((frame()
+                    .width(px(SWATCH))
+                    .height(px(SWATCH))
+                    .fill(colour)
+                    .radius(SWATCH / 2.0),))
+                .padding(UiRect::all(px(RING)))
+                .border(RING)
+                .border_color(ring)
+                .radius(SWATCH / 2.0 + 2.0 * RING),
+                word,
+            ))
+            .gap(2.0)
+            .align(AlignItems::Center),
+        )
+        .width(px(SWATCH_WIDTH))
+        .padding(UiRect::vertical(px(4.0)))
+        .rules(choice(false))
+        .on_activate(act)
+    })
     .boxed()
 }
 

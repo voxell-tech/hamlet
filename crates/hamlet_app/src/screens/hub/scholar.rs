@@ -60,6 +60,8 @@ pub struct Form {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum Act {
+    /// A new name, which its hires go by too.
+    Rename,
     Tag,
     /// A fork from a version, or from `main`.
     Fork(Option<String>),
@@ -175,6 +177,7 @@ fn command(
         return None;
     }
     Some(match act {
+        Act::Rename => format!("/name-scholar {address} {first}"),
         Act::Tag => format!("/tag {address} {first} {second}"),
         Act::Fork(Some(from)) => {
             format!("/fork {address}@{from} {first}")
@@ -211,6 +214,12 @@ fn field<M: Component>(marker: M) -> impl View {
 /// The fields and buttons of the deed being asked for.
 fn form(address: String, name: String, act: Act) -> AnyView {
     let (words, first, second) = match &act {
+        Act::Rename => (
+            "Give it a new name. Its hires keep working as it."
+                .to_string(),
+            "new name",
+            None,
+        ),
         Act::Tag => (
             "Name this version of its main, with a note.".to_string(),
             "version",
@@ -317,6 +326,15 @@ fn is_careful(act: &Act) -> bool {
     matches!(act, Act::Purge | Act::Remove | Act::Erase)
 }
 
+/// Whether `act` is done from the card of its versions.
+fn is_of_versions(act: &Act) -> bool {
+    matches!(act, Act::Tag | Act::Fork(_) | Act::Revert(_))
+}
+
+fn is_rename(act: &Act) -> bool {
+    *act == Act::Rename
+}
+
 /// Where the scholar stands, said beside its name: in the city, at
 /// the harbor or archived.
 fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
@@ -334,11 +352,17 @@ fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
     }
 }
 
-/// The deeds that change where the scholar stands.
+/// The deeds under its name: a new name, and what changes where it
+/// stands short of sending it away.
 fn arrival(shown: &Shown) -> AnyView {
     let address = scholar_address(shown.scholar.id);
     let can = |deed| shown.allowed.contains(&deed);
     let mut buttons_row = Vec::new();
+    if shown.scholar.left.is_none() && can("name-scholar") {
+        buttons_row.push(action(Glyph::Rename, "Rename", |world| {
+            ask(world, Act::Rename);
+        }));
+    }
     match (&shown.scholar.left, shown.scholar.arrival) {
         (Some(_), _) => {
             if can("restore-scholar") {
@@ -374,18 +398,6 @@ fn arrival(shown: &Shown) -> AnyView {
                     })
                     .boxed(),
                 );
-            }
-            if can("turn-away") {
-                buttons_row.push(action(
-                    Glyph::Anchor,
-                    "Send to the harbor",
-                    move |world| {
-                        tell_hand(
-                            world,
-                            format!("/turn-away {address}"),
-                        );
-                    },
-                ));
             }
         }
         (None, _) => {
@@ -511,9 +523,7 @@ fn versions(shown: &Shown) -> AnyView {
         );
     }
     parts.push(buttons(acts).boxed());
-    parts.push(
-        form_view(address, scholar, |act| !is_careful(act)).boxed(),
-    );
+    parts.push(form_view(address, scholar, is_of_versions).boxed());
     framed(parts).boxed()
 }
 
@@ -613,39 +623,6 @@ fn knowledge(shown: &Shown) -> [AnyView; 3] {
     ]
 }
 
-/// What the scholar is called, typed over: Enter gives it the name.
-/// Names are labels that may change and repeat, so the scholar stays
-/// the one at its address.
-fn renaming(shown: &Shown) -> AnyView {
-    if shown.scholar.left.is_some()
-        || !shown.allowed.contains(&"name-scholar")
-    {
-        return frame().boxed();
-    }
-    let address = scholar_address(shown.scholar.id);
-    let had = shown.scholar.name.clone();
-    let field = text_field(had.clone(), move |world, typed| {
-        let typed = typed.trim().to_string();
-        if !typed.is_empty() && typed != had {
-            tell_hand(
-                world,
-                format!("/name-scholar {address} {typed}"),
-            );
-        }
-    })
-    .grow(1.0)
-    .min_width(px(0.0))
-    .rules(text_input);
-    with_cx(move |cx| {
-        let gap = cx.theme().space.gap;
-        row((label("Called").tone(Tone::Faint).wrap(false), field))
-            .gap(gap)
-            .align(AlignItems::Center)
-            .boxed()
-    })
-    .boxed()
-}
-
 /// A dream, which brings home what its hires learned.
 fn dream(shown: &Shown) -> Option<AnyView> {
     if shown.scholar.left.is_some()
@@ -655,9 +632,13 @@ fn dream(shown: &Shown) -> Option<AnyView> {
     }
     let address = scholar_address(shown.scholar.id);
     Some(
-        action(Glyph::Moon, "Dream now", move |world| {
-            tell_hand(world, format!("/dream {address}"));
-        })
+        action(
+            Glyph::Moon,
+            "Note what its hires learned",
+            move |world| {
+                tell_hand(world, format!("/dream {address}"));
+            },
+        )
         .tooltip(|| {
             note(
                 "Brings home what its hires learned, and tidies its \
@@ -676,6 +657,28 @@ fn careful(shown: &Shown) -> AnyView {
     let can = |deed| shown.allowed.contains(&deed);
     let living = shown.scholar.left.is_none();
     let mut acts = Vec::new();
+    if living
+        && shown.scholar.arrival == protocol::Arrival::Housed
+        && can("turn-away")
+    {
+        let address = address.clone();
+        acts.push(
+            action(
+                Glyph::Anchor,
+                "Send to the harbor",
+                move |world| {
+                    tell_hand(world, format!("/turn-away {address}"));
+                },
+            )
+            .tooltip(|| {
+                note(
+                    "Takes its house out of the city. It waits at \
+                     the harbor until it is welcomed back",
+                )
+            })
+            .boxed(),
+        );
+    }
     if living && can("purge") {
         acts.push(
             bad_action(
@@ -724,7 +727,7 @@ fn careful(shown: &Shown) -> AnyView {
 /// changes it for good.
 fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
-    let rename = renaming(shown);
+    let address = scholar_address(shown.scholar.id);
     let (stands, tone) = standing(&shown.scholar);
     let heading = column((
         beside((title(name.clone()), label(stands).tone(tone))),
@@ -757,7 +760,7 @@ fn body(shown: &Shown) -> AnyView {
             ),
             heading,
             head,
-            rename,
+            form_view(address, name.clone(), is_rename),
             hires_part,
             character_part,
             memory_part,

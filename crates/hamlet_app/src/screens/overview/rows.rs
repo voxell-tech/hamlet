@@ -49,6 +49,9 @@ pub(super) struct HamletRow {
     pub id: String,
     pub title: String,
     pub account: String,
+    /// How much of its budget is spent, from 0 to 1, when it has
+    /// one.
+    pub spent: Option<f32>,
 }
 
 /// The state of a hamlet in a word: the agents `living` in it, and
@@ -255,6 +258,12 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
             account: treasury
                 .map(|t| t.0.summary.clone())
                 .unwrap_or_default(),
+            spent: treasury.and_then(|t| {
+                t.0.caps.micros.filter(|cap| *cap > 0).map(|cap| {
+                    (t.0.spent.micros as f32 / cap as f32)
+                        .clamp(0.0, 1.0)
+                })
+            }),
         })
         .collect::<Vec<_>>();
     rows.sort_by_key(|row| row.title.to_lowercase());

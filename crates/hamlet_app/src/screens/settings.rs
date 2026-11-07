@@ -787,10 +787,7 @@ pub fn screen() -> AnyView {
             let mut pages: Vec<AnyView> =
                 Pane::PAGES.map(nav_item).into();
             pages.push(again());
-            return with_cx(move |cx| {
-                nav_list(cx, pages, frame().boxed())
-            })
-            .boxed();
+            return with_cx(move |cx| nav_list(cx, pages)).boxed();
         }
         let body = match pane {
             Pane::Endpoints => crate::models::endpoints().boxed(),

@@ -9,11 +9,11 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
-use bevy::ui::{AlignItems, UiRect, px};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    label, row, text_field,
+    frame, label, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, keyed, resource, style,
@@ -211,7 +211,10 @@ fn list_of(hamlet: Entity) -> impl View {
 }
 
 /// How far a hire stands in from its lead.
-const STEP: f32 = 16.0;
+const STEP: f32 = 18.0;
+
+/// How far a row's icon stands in from its left edge.
+const INSET: f32 = 6.0;
 
 /// One agent as a row of the list: its kind, its name and state, what
 /// it does under them and its model and spending at the end.
@@ -238,6 +241,21 @@ fn person(row_of: &AgentRow) -> AnyView {
         (row_of.name.clone(), row_of.account.clone(), row_of.depth);
     with_cx(move |cx| {
         let space = &cx.theme().space;
+        let line = cx.theme().palette.gold_6;
+        // A guide down each lead above it, under the lead's icon, so
+        // that a lead's rows run together without a gap.
+        let mut parts = (0..depth)
+            .map(|_| {
+                row((frame()
+                    .width(px(1.0))
+                    .height(percent(100.0))
+                    .fill(line),))
+                .width(px(STEP))
+                .shrink(0.0)
+                .padding(UiRect::left(px(INSET + ICON / 2.0 - 0.5)))
+                .boxed()
+            })
+            .collect::<Vec<_>>();
         let words = column((
             row((
                 label(name).bold(true).wrap(false),
@@ -254,32 +272,38 @@ fn person(row_of: &AgentRow) -> AnyView {
         .gap(1.0)
         .grow(1.0)
         .min_width(px(0.0));
-        button(
-            row((
-                raised(glyph(kind, ICON).tone(Tone::Dim)),
-                words,
-                label(account).wrap(false).rules(note_rules),
+        parts.push(
+            button(
+                row((
+                    raised(glyph(kind, ICON).tone(Tone::Dim)),
+                    words,
+                    label(account).wrap(false).rules(note_rules),
+                ))
+                .gap(space.gap)
+                .grow(1.0)
+                .align(AlignItems::Center),
+            )
+            .padding(UiRect::new(
+                px(INSET),
+                px(6.0),
+                px(5.0),
+                px(5.0),
             ))
-            .gap(space.gap)
             .grow(1.0)
-            .align(AlignItems::Center),
-        )
-        .padding(UiRect::new(
-            px(6.0 + depth as f32 * STEP),
-            px(6.0),
-            px(5.0),
-            px(5.0),
-        ))
-        .rules(row_look)
-        .tagged(Variant::Default)
-        .tagged(world_menu::Asks(thing))
-        .on_activate(move |world| {
-            if gone {
-                select(world, Some(thing));
-            } else {
-                talk_to(world, agent);
-            }
-        })
+            .min_width(px(0.0))
+            .rules(row_look)
+            .tagged(Variant::Default)
+            .tagged(world_menu::Asks(thing))
+            .on_activate(move |world| {
+                if gone {
+                    select(world, Some(thing));
+                } else {
+                    talk_to(world, agent);
+                }
+            })
+            .boxed(),
+        );
+        row(parts).gap(0.0).align(AlignItems::Stretch)
     })
     .boxed()
 }
@@ -292,6 +316,41 @@ fn row_look(cx: &mut Cx) {
         .pressed(|s| s.frame(|f, t| f.fill(t.palette.input)))
         .transition(Motion::Interact)
         .apply(cx);
+}
+
+/// The width of the bar of a hamlet's budget.
+const METER: f32 = 120.0;
+
+/// What the hamlet spent of its budget, in words and, when it has a
+/// cap, as a bar filled as far as `spent` says.
+fn budget(words: String, spent: Option<f32>) -> AnyView {
+    with_cx(move |cx| {
+        let palette = &cx.theme().palette;
+        let mut parts = vec![note(words.clone()).boxed()];
+        if let Some(spent) = spent {
+            let fill = if spent >= 1.0 {
+                palette.red
+            } else {
+                palette.accent
+            };
+            parts.push(
+                row((frame()
+                    .width(percent(spent * 100.0))
+                    .height(percent(100.0))
+                    .radius(3.0)
+                    .fill(fill),))
+                .width(px(METER))
+                .height(px(6.0))
+                .radius(3.0)
+                .fill(palette.gold_6)
+                .boxed(),
+            );
+        }
+        row(parts)
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
+    })
+    .boxed()
 }
 
 /// One hamlet: what it is, what can be done to it, and its pages.
@@ -400,7 +459,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             )
             .boxed(),
             name,
-            note(facts.account.clone()).boxed(),
+            budget(facts.account.clone(), facts.spent),
         ];
         // The forms open only from these buttons, so without them
         // nothing stands under the account.
@@ -417,11 +476,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         if *tier {
             top.push(size(facts.id.clone()));
         }
-        with_cx(move |cx| {
-            column((group(top), crate::folder::section(hamlet)))
-                .gap(cx.theme().space.section)
-        })
-        .boxed()
+        group(top).boxed()
     })
     .within(bare());
     let pages = tabs::strip(&PAGES, |world, page| {

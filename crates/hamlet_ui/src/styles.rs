@@ -851,12 +851,8 @@ fn nav_item(
 }
 
 /// The parts of something as rows of one list, a hairline between
-/// each and the next, over `footer`.
-pub fn nav_list(
-    cx: &Cx,
-    items: Vec<AnyView>,
-    footer: AnyView,
-) -> impl View + use<> {
+/// each and the next.
+pub fn nav_list(cx: &Cx, items: Vec<AnyView>) -> impl View + use<> {
     let mut rows = Vec::new();
     for item in items {
         if !rows.is_empty() {
@@ -864,7 +860,6 @@ pub fn nav_list(
         }
         rows.push(item);
     }
-    rows.push(footer);
     column(rows).gap(0.0)
 }
 
