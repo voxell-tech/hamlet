@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::panic::AssertUnwindSafe;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use futures::FutureExt;
 use hamlet_protocol::client as protocol;
 use hamlet_protocol::runtime::{
@@ -137,8 +137,12 @@ impl Core {
         )?;
         let layout = realm.layout().clone();
         crate::knowledge::library::open(&layout, clock::now())?;
+        // Agents read it, so it is there even with nothing in it.
+        std::fs::create_dir_all(layout.tools()).with_context(
+            || format!("making {}", layout.tools().display()),
+        )?;
         let shells = Shells::local();
-        let (added, faults) = added::load(&layout.tools());
+        let (added, faults) = added::load(layout.root());
         for fault in &faults {
             tell(
                 Secrets::Fixed,
