@@ -51,8 +51,11 @@ url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-hamlet_acceptance.workspace = true
 hamlet_testing.workspace = true
+
+# Its fixtures stop servers with Unix signals.
+[target.'cfg(unix)'.dev-dependencies]
+hamlet_acceptance.workspace = true
 
 [[test]]
 name = "crashes"
