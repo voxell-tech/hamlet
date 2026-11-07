@@ -43,14 +43,8 @@ const SETTINGS: Chord = Chord {
     mods: Mods::PRIMARY,
 };
 
-/// The key that closes the window, as the menu shows it.
+/// The key that closes the window.
 const CLOSE: Chord = Chord {
-    key: KeyCode::KeyW,
-    mods: Mods::PRIMARY,
-};
-
-/// The key that quits, which closes the window too.
-const QUIT: Chord = Chord {
     key: KeyCode::KeyQ,
     mods: Mods::PRIMARY,
 };
@@ -75,7 +69,7 @@ pub fn plugin(app: &mut App) {
             command("app.close", "Close Window", |world, _| {
                 window::quit(world);
             }),
-            &[CLOSE, QUIT],
+            &[CLOSE],
         )
         .add_systems(Update, light_titles)
         // Before the toolkit closes a popup on Escape this frame.
