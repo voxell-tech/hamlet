@@ -323,7 +323,7 @@ const METER: f32 = 120.0;
 
 /// What the hamlet spent of its budget, in words and, when it has a
 /// cap, as a bar filled as far as `spent` says.
-fn budget(words: String, spent: Option<f32>) -> AnyView {
+pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
     with_cx(move |cx| {
         let palette = &cx.theme().palette;
         let mut parts = vec![note(words.clone()).boxed()];

@@ -179,7 +179,7 @@ fn fact(
             after_dot(
                 pair(
                     mark(which, Tone::Dim),
-                    note(resource::<Bar, _>(text)),
+                    told(resource::<Bar, _>(text), Tone::Dim),
                 )
                 .tooltip(move || note(tip)),
             )
@@ -200,7 +200,7 @@ fn confinement() -> AnyView {
                 let tip = format!("Agents' commands run in {name}");
                 pair(
                     mark(Glyph::Shield, Tone::Dim),
-                    note("Sandboxed"),
+                    told("Sandboxed", Tone::Dim),
                 )
                 .tooltip(move || note(tip.clone()))
                 .boxed()
@@ -216,16 +216,14 @@ fn confinement() -> AnyView {
                 )
             })
             .boxed(),
-            protocol::Confinement::Remote => {
-                pair(mark(Glyph::Shield, Tone::Dim), note("Remote"))
-                    .tooltip(|| {
-                        note(
-                            "Agents' commands run on the remote \
-                             machine",
-                        )
-                    })
-                    .boxed()
-            }
+            protocol::Confinement::Remote => pair(
+                mark(Glyph::Shield, Tone::Dim),
+                told("Remote", Tone::Dim),
+            )
+            .tooltip(|| {
+                note("Agents' commands run on the remote machine")
+            })
+            .boxed(),
         },
     )
     .within(row(()).gap(0.0))

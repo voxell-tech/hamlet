@@ -160,6 +160,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         wait.detail = protocol::WaitDetail::Newcomer {
             scholar: protocol::ScholarId(90),
         };
+        wait.answers = vec![
+            protocol::Choice::Welcome,
+            protocol::Choice::Dismiss,
+        ];
         state.waits.push(wait);
     }
     if scene == Scene::Toasts {

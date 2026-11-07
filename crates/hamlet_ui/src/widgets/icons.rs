@@ -3,7 +3,7 @@
 
 use bevy::app::{App, Startup};
 use bevy::asset::uuid::Uuid;
-use bevy::asset::{Assets, Handle, RenderAssetUsages};
+use bevy::asset::{AssetId, Assets, Handle, RenderAssetUsages};
 use bevy::ecs::system::ResMut;
 use bevy::image::Image;
 use bevy::math::Vec2;
@@ -278,6 +278,13 @@ impl Glyph {
     fn drawing(self, drawn: usize) -> Handle<Image> {
         let at = (self as usize * SIZES.len() + drawn) as u128;
         Handle::from(Uuid::from_u128(FIRST + at))
+    }
+
+    /// Whether `image` is one of the icons' drawings.
+    pub(crate) fn is_drawing(image: AssetId<Image>) -> bool {
+        let drawings = (Self::ALL.len() * SIZES.len()) as u128;
+        matches!(image, AssetId::Uuid { uuid }
+            if uuid.as_u128().wrapping_sub(FIRST) < drawings)
     }
 
     fn shapes(self) -> &'static [Shape] {

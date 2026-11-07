@@ -359,8 +359,9 @@ fn held(
 }
 
 /// The line over the card of `need`: what waits, in its tone, and
-/// how long it has waited.
-fn head(need: &Need) -> impl View + use<> {
+/// how long it has waited. A newcomer's is about `scholar`, the one
+/// at the harbor.
+fn head(need: &Need, scholar: &str) -> impl View + use<> {
     let what = match &need.detail {
         WaitDetail::Approval { says, .. } => {
             format!("{} {says}", need.shown)
@@ -372,7 +373,9 @@ fn head(need: &Need) -> impl View + use<> {
             format!("Objection from {}", need.shown)
         }
         WaitDetail::Fault {} => format!("Fault in {}", need.shown),
-        WaitDetail::Newcomer { .. } => "Newcomer".to_string(),
+        WaitDetail::Newcomer { .. } => {
+            format!("{scholar} wants to move into the city")
+        }
     };
     let when = match need.asked {
         1 => need.waited.clone(),
@@ -402,7 +405,7 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
         1 => String::new(),
         n => format!("{n} questions"),
     };
-    let head = head(need);
+    let head = head(need, "");
     with_cx(move |cx| {
         let open = marked(Glyph::Talk, "Answer")
             .rules(primary_button)
@@ -474,31 +477,32 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             Some(words) => note(words).boxed(),
             None => frame().boxed(),
         };
-        let head = head(&need);
+        let scholar = match &need.detail {
+            WaitDetail::Newcomer { scholar } => {
+                hamlet_client::realm::scholar(cx.world, *scholar)
+                    .and_then(|scholar| {
+                        cx.world.get::<hamlet_client::realm::Scholar>(
+                            scholar,
+                        )
+                    })
+                    .map_or_else(
+                        || "A new scholar".to_string(),
+                        |scholar| scholar.0.name.clone(),
+                    )
+            }
+            _ => String::new(),
+        };
+        let head = head(&need, &scholar);
         // A form says its questions itself, and an approval's
         // subject is its head and, in full, its body.
         let line = match &need.detail {
             WaitDetail::Question { .. }
             | WaitDetail::Approval { .. } => None,
-            WaitDetail::Newcomer { scholar } => {
-                let name =
-                    hamlet_client::realm::scholar(cx.world, *scholar)
-                        .and_then(|scholar| {
-                            cx.world
-                                .get::<hamlet_client::realm::Scholar>(
-                                    scholar,
-                                )
-                        })
-                        .map_or_else(
-                            || "A new scholar".to_string(),
-                            |scholar| scholar.0.name.clone(),
-                        );
-                Some(format!(
-                    "{name}, made by {}, waits at the harbor to be \
-                     let into the city.",
-                    need.shown
-                ))
-            }
+            WaitDetail::Newcomer { .. } => Some(format!(
+                "Made by {}, it waits at the harbor until you let \
+                 it in.",
+                need.shown
+            )),
             _ => Some(need.line.clone()),
         };
         let line = match line {

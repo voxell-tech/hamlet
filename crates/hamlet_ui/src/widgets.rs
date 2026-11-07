@@ -22,7 +22,7 @@ pub fn plugin(app: &mut App) {
         icons::plugin,
         effects::plugin,
         switch::plugin,
-        cut::CutTextPlugin,
+        cut::CutPlugin,
         ellipsis::plugin,
         hint::plugin,
         providers::plugin,

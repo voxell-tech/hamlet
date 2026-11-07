@@ -1,7 +1,7 @@
 //! The desk switcher in the top bar: the desks as tabs, the one
 //! shown on a raised plate and underlined, as a panel's tab is, then
-//! apart from them "New desk", which adds one, and a chevron listing
-//! them all. A tab is renamed in place on a double-click, closed by
+//! apart from them a chevron listing them all, and "New desk", which
+//! adds one. A tab is renamed in place on a double-click, closed by
 //! its "x" once asked, dragged to another place, and offers the rest
 //! on a right-click.
 
@@ -276,13 +276,15 @@ pub(crate) fn switcher() -> impl View {
             *world.resource_mut::<Opened>() = Opened::All { anchor };
         })
         .tooltip(|| note("All desks"));
-        let track = row((strip,))
+        // The list of every desk ends the desks, apart from what adds
+        // one.
+        let track = row((strip, all))
             .height(px(space.bar - 2.0 * space.track_inset))
             .min_width(px(0.0))
             .shrink(1.0)
             .padding(UiRect::all(px(space.track_padding)))
             .align(AlignItems::Stretch);
-        let tools = row((new, all))
+        let tools = row((new,))
             .height(px(space.bar - 2.0 * space.track_inset))
             .shrink(0.0)
             .gap(0.0)

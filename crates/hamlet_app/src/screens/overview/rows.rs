@@ -5,21 +5,21 @@ use bevy::ecs::name::Name;
 use bevy::ecs::query::Has;
 use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
+use bevy_fynix::ScopedExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::realm::{
     Account, Activity, AgentNumber, HamletId, Identity, Left,
     LivesIn, Mayor, MergedInto, Parent, Purpose, Treasury,
 };
 use hamlet_protocol::client::AgentId;
 use hamlet_realm::pick::Thing;
-use hamlet_ui::styles::{card_button, card_name, note, status_label};
+use hamlet_ui::styles::{card_button, card_name, status_label};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::{View, with_cx};
+use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Naming;
 use crate::roll::Roll;
@@ -271,19 +271,14 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
 }
 
 /// A row that can be pressed: a title with a word of status beside
-/// it, over dim lines. The right button opens the menu of `thing`.
+/// it, over `lines`. The right button opens the menu of `thing`.
 pub(super) fn pressable(
     thing: Thing,
     title: String,
     beside: (Glyph, String, Tone),
-    lines: Vec<String>,
+    lines: Vec<AnyView>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
-    let lines = lines
-        .into_iter()
-        .filter(|line| !line.is_empty())
-        .map(|line| note(line).boxed())
-        .collect::<Vec<_>>();
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
         button(

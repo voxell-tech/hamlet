@@ -34,9 +34,11 @@ use hamlet_ui::styles::{
     framed, group, note, raised, scroll_area, small_rules, title,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
+use self::hamlet::budget;
 pub(crate) use self::hamlet::typed;
 pub use self::hamlet::{Naming, Page, hamlet};
 pub use self::record::Annals;
@@ -220,13 +222,15 @@ fn today_of(world: &World) -> Today {
 
 /// One figure of the day on a card of its own: its mark and how
 /// many, large, over what they are, all in `tone`, or dim while
-/// there are none. The cards share the row's width and are as tall as
-/// the tallest, and their words wrap in a narrow one.
+/// there are none, and `tip` under the pointer. The cards share the
+/// row's width and are as tall as the tallest; a card that does not
+/// fit beside the others goes on below.
 fn figure(
     count: usize,
     which: Glyph,
     words: &'static str,
     tone: Tone,
+    tip: &'static str,
 ) -> AnyView {
     let tone = if count == 0 { Tone::Dim } else { tone };
     with_cx(move |cx| {
@@ -243,7 +247,7 @@ fn figure(
             ))
             .gap(6.0)
             .align(AlignItems::Center),
-            label(words).tone(tone).rules(small_rules),
+            label(words).tone(tone).wrap(false).rules(small_rules),
         ))
         .gap(space.gap / 2.0)
         // Less room at its sides than a card has, so that five fit a
@@ -253,16 +257,15 @@ fn figure(
         .border_color(theme.palette.gold_6)
         .radius(space.round)
         .fill(theme.palette.card)
-        // Each as wide as the others, whatever its words.
-        .width(px(0.0))
+        // As wide as its words, and the row's room left shared out.
         .grow(1.0)
-        .min_width(px(0.0))
+        .tooltip(move || note(tip))
     })
     .boxed()
 }
 
-/// The day's figures in one row: what waits, what works and rests,
-/// and who lives in the city or waits at its harbor.
+/// The day's figures: what waits, what works and rests, and the
+/// scholars in the city and the newcomers at its harbor.
 fn today() -> AnyView {
     keyed(
         derived(today_of).when(bevy_fynix::every_frame()),
@@ -275,35 +278,47 @@ fn today() -> AnyView {
                     waits.glyph(),
                     need_you(today.needs),
                     waits.tone(),
+                    "Petitions waiting for your answer",
                 ),
                 figure(
                     today.working,
                     works.glyph(),
                     "at work",
                     works.tone(),
+                    "Agents working now",
                 ),
                 figure(
                     today.resting,
                     rests.glyph(),
                     "at rest",
                     rests.tone(),
+                    "Agents resting until there is work",
                 ),
                 figure(
                     today.scholars,
                     Glyph::Scholar,
-                    "in the city",
+                    match today.scholars {
+                        1 => "scholar",
+                        _ => "scholars",
+                    },
                     Tone::Body,
+                    "Scholars living in the city",
                 ),
                 figure(
                     today.harbor,
                     Glyph::Anchor,
-                    "at the harbor",
+                    "arriving",
                     Tone::Body,
+                    "Newcomers waiting at the harbor to be let in",
                 ),
             ];
             // Closer than cards elsewhere, so their words have the
             // room.
-            row(figures).gap(6.0).align(AlignItems::Stretch).boxed()
+            row(figures)
+                .gap(6.0)
+                .align(AlignItems::Stretch)
+                .tagged(Wraps)
+                .boxed()
         },
     )
     .within(bare())
@@ -338,7 +353,9 @@ struct HamletCard {
     hamlet: Entity,
     title: String,
     standing: (Glyph, String, Tone),
-    lines: Vec<String>,
+    mayor: Option<String>,
+    account: String,
+    spent: Option<f32>,
 }
 
 fn hamlet_cards(world: &World) -> Vec<HamletCard> {
@@ -359,8 +376,7 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
             let mayor = living
                 .iter()
                 .find(|row| row.mayor)
-                .map(|row| format!("Mayor: {}", row.name))
-                .unwrap_or_default();
+                .map(|row| format!("Mayor: {}", row.name));
             HamletCard {
                 hamlet: facts.hamlet,
                 title: facts.title,
@@ -369,7 +385,9 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
                     how_many(Standing::Works),
                     how_many(Standing::Waits),
                 ),
-                lines: vec![mayor, facts.account],
+                mayor,
+                account: facts.account,
+                spent: facts.spent,
             }
         })
         .collect()
@@ -385,11 +403,17 @@ fn hamlets() -> AnyView {
             vec![counted(Glyph::Hamlet, "Hamlets", cards.len())];
         parts.extend(cards.iter().cloned().map(|card| {
             let hamlet = card.hamlet;
+            let mut lines = Vec::from_iter(
+                card.mayor.map(|mayor| note(mayor).boxed()),
+            );
+            if !card.account.is_empty() {
+                lines.push(budget(card.account, card.spent));
+            }
             pressable(
                 Thing::Common(hamlet),
                 card.title,
                 card.standing,
-                card.lines,
+                lines,
                 move |world| {
                     crate::hub::show(
                         world,

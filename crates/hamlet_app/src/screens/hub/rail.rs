@@ -697,7 +697,7 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
                 target: Target::Scholar(entity),
                 glyph: Glyph::Scholar,
                 name: format!("{name} · harbor"),
-                title: "Wants to be let into the city".into(),
+                title: "Wants to move into the city".into(),
                 age: age(now, wait.since),
                 mark: Some(Standing::Waits),
                 address: name,
