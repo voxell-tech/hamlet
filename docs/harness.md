@@ -78,6 +78,13 @@ admits nothing new and answers as the first time did. The server marks an
 input admitted only when the runtime says it kept it, and submits it
 again after a restart or a lost reply (S23).
 
+An input may carry images (C33), as may a tool result (C34). The server sends
+their bytes, fitted to the conversation's model, with the submission or the
+result, and keeps only their ids; pi hands them to the model as image
+content beside the words. A model's `selection` says `images` when the server
+knows it takes images, which a custom endpoint's listing does not say; pi then
+counts the model as taking them.
+
 ### IDs
 
 | ID | Made by | Unique within |

@@ -52,7 +52,8 @@ starts only the window.
 | `hamlet edit character <scholar#id>` | Opens a scholar's character; a hire's address works too, for its scholar's |
 | `hamlet edit memory <scholar#id\|hire#<id>> [path]` | Opens a memory file of a scholar's `main` or a hire's lodge, `notes.md` under `memory/` unless a path is given |
 | `hamlet login <provider> [--key]` | Gives a key or follows an offered sign-in; `hamlet login claude` prints the link of Claude's own sign-in, to open in a browser on the server's machine |
-| `hamlet models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
+| `hamlet models [try [model]\|refresh]` | Lists models with whether each takes images, tries a one-word hello, or refreshes the list |
+| `hamlet models images <model> [off\|[--width <px>] [--height <px>] [--mb <n>] [--per-line <n>]]` | Says a model takes images, as one of a custom endpoint needs, within the limits given and the defaults for the rest; `off` clears it back to what the endpoint lists |
 
 `hamlet server` listens on `127.0.0.1` at port 7313 unless given another
 port. Bare `hamlet` starts a server on a free port. Local clients find its

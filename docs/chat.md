@@ -198,8 +198,9 @@ while it asks.
 ## Pictures
 
 A picture an agent names in a reply, `![words](place)`, is drawn where the
-reply put it. Pictures are shown only: the window sends no picture bytes
-back to the server or a model.
+reply put it. Pictures a reply names are shown only: the window sends no
+bytes of them back to the server or a model. Images a chief attaches to a
+line are another thing (see Images on a line below).
 
 | The place is | What is drawn |
 |---|---|
@@ -224,6 +225,39 @@ size it is shown at. A picture too large to decode safely is refused.
 row that names it shares it. One that is shown is never dropped. Those no
 row shows are kept up to `picture_memory` bytes, the oldest dropped first.
 The limits are `[chat]` in `assets/ui.toml`.
+
+## Images on a line
+
+A chief attaches PNG, JPEG, WebP and GIF images to a line (C33), animated
+ones too. Drop files on the window, paste with Cmd+V on macOS or Ctrl+V
+elsewhere in the field, or press the picture button beside the field and
+choose them. A paste takes image files copied in a file manager, or a picture
+such as a screenshot; words on the clipboard are pasted as words. Each image
+is uploaded at once, shown as a small thumbnail over the field with a cross
+to take it off, and sent with the line, which may hold only images. A line
+waits for every image to be kept; one the server refused stays marked until it
+is taken off. Files are read off the frame, and one over 20 MiB is refused
+unread.
+
+A model that takes no images has the button greyed out, and a drag over
+the window says it cannot be dropped; a paste or drop is refused the same way.
+The catalogue entry of the agent's model tells which: a model the catalogue
+does not list is taken to see, and the server refuses what it cannot (S30).
+The number of images a line takes is the model's limit. A chief says that a
+model of a custom endpoint takes images, and within what limits, in the model
+catalogue in Settings, or with `hamlet models images`.
+
+A sent line shows its images under the sender's name as small copies the
+server makes (S29), each fetched by its id when the row is built and kept as a
+picture like the rest (see Pictures above). A click on one fetches the image
+itself and opens it with the program the system keeps for it. The window only
+reads the bytes of what is attached; the server checks, resizes and keeps
+them. A rewind puts the images of the line back over the field with its words.
+
+The system reports no pointer with a drop, so the hand holds each dropped
+file until the pointer is seen on something. Over the chat, an image file is
+attached and any other file is let lie. Over a robot or a house, a file is a
+gift to its agent. A file that is seen on nothing within a moment is let lie.
 
 ## Questions to the chief
 

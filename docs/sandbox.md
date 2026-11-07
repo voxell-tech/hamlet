@@ -14,8 +14,10 @@ alone is not sufficient.
 
 `work/tools.rs` builds the policy from the server-owned `Place`: the agent's
 lodge (or a worker's scratch folder), the folder its hamlet works on, the
-realm's folder (never read) and what is only read, the library and the tools
-added by hand. The pi harness has no host-tool implementation; it submits
+realm's folder (never read) and what is only read, the library, the tools
+added by hand. The images saved with a line are in the agent's own lodge, under
+`inbox/images/`, so an agent reads only the images given to it; the realm's
+`images/` folder is never in reach. The pi harness has no host-tool implementation; it submits
 operations to the server (see [the harness](harness.md)). `oversight/gate.rs`
 decides admission and `calls.rs` checks permissions at execution, including
 after approval or replay.

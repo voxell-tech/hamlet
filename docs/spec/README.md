@@ -34,7 +34,10 @@ agent between hamlets (`agree_move`); H5 and H20 govern hires.
 
 In `server.md`: **S21** (a harness runs only while its server does, which code
 already cited), **S26** to **S28** (records in one transaction, effects as
-jobs, versions in semver). In `hamlet.md`: **H37** (the Hand), **H38** (the city),
+jobs, versions in semver), **S29** (images kept once by hash) and **S30**
+(a model's image capability and limits). In `core.md`: **C33** (images
+attached to a line) and **C34** (the read tool shows an image). In
+`hamlet.md`: **H37** (the Hand), **H38** (the city),
 **H39** (versions), **H40** (hires), **H41** (the tree and leads), **H42**
 (workers), **H43** (dreams), **H44** (allowances) and **H45**
 (newcomers at the harbor).

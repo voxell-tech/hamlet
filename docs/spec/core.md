@@ -208,13 +208,18 @@ conversation or choose a model that holds more.
 **C29.** A model that answers with nothing fails the turn, and says to send
 the message again.
 
-**C33.** A chief can attach images (PNG, JPEG, WebP or GIF) to a line to an
-agent, as many as its model takes in a message [20 at most]. The agent's model
-is given each image beside the line, and the line also names where the image
-is saved, so a model that takes no images can hand the file to a tool. A line
-with images is refused, and nothing is kept, when the agent's model takes no
-images. The conversation shows the images with the line, and a rewind takes
-them back with it (C27).
+**C33.** A chief can attach images (PNG, JPEG, WebP or GIF, animated or not)
+to a line to an agent, as many as its model takes in a message [20 at most],
+by dropping them on the window, pasting them (an image file copied in a file
+manager, or a picture such as a screenshot) or choosing them in a dialog. The
+agent's model is given each image beside the line, and the line also names
+where the image is saved, a path the agent can open, so a model that takes no
+images can hand the file to a tool. An agent can open only the images given to
+it in its own conversations. A line with images is refused, and nothing is
+kept, when the agent's model takes no images. The conversation shows each image
+with the line as a small copy, and opens the image itself when the chief asks
+to see it. A rewind takes the images back with the line, and the words and
+images return to the chief's input together (C27).
 
 **C34.** The `read` tool gives an image file (PNG, JPEG, WebP or GIF) to the
 model as an image, made to fit the model's limits (S30), when the model takes
