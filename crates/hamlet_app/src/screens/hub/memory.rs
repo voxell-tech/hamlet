@@ -14,8 +14,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    ICON, action, bad_action, bare, good_action, lettered, note,
-    text_input,
+    ICON, action, bad_action, bare, good_action, inset, lettered,
+    note, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
@@ -154,7 +154,7 @@ fn file(entry: &Entry, open: bool) -> AnyView {
     if !open && !entry.path.contains('/') {
         let lines = gist(&entry.text);
         if !lines.is_empty() {
-            parts.push(label(lines).tone(Tone::Dim).boxed());
+            parts.push(inset(label(lines).tone(Tone::Dim)).boxed());
         }
     }
     if open {

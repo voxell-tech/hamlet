@@ -27,8 +27,8 @@ use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource, style};
 use hamlet_client::messages::{Answer, Response, ServerFault};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{
-    Departure, Faulted, Kind, Left, LivesIn, Mayor, Scholar, Seen,
-    Shown, name_of,
+    Departure, Faulted, Kind, Left, LivesIn, Scholar, Seen, Shown,
+    name_of,
 };
 use hamlet_client::waits::{RaisedBy, Waiting};
 use hamlet_protocol::client::{
@@ -44,7 +44,7 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::convo::Convo;
 use crate::hub::Showing;
-use crate::screens::petition::{Need, button};
+use crate::screens::petition::{Need, answers};
 use crate::{PanelSystems, chat};
 
 /// The most toasts on show at once.
@@ -393,28 +393,21 @@ fn said(need: &Need) -> &str {
         .trim_start()
 }
 
-/// The mark of who raised `need`, and where it is and how long ago
-/// it asked: `· mill · now`.
-fn origin(world: &World, need: &Need, by: &str) -> (Glyph, String) {
+/// Where who raised `need` is and how long ago it asked:
+/// `· mill · now`.
+fn origin(world: &World, need: &Need, by: &str) -> String {
     let age = need.waited.clone();
     if let WaitDetail::Newcomer { .. } = need.detail {
-        return (Glyph::Scholar, format!("· harbor · {age}"));
+        return format!("· harbor · {age}");
     }
-    let Some(agent) = hamlet_client::realm::named(world, by) else {
-        return (Glyph::Bell, format!("· {age}"));
-    };
-    let mark = match world.get::<Kind>(agent).map(|kind| kind.0) {
-        Some(AgentKind::Hand) => Glyph::Tower,
-        _ if world.get::<Mayor>(agent).is_some() => Glyph::Mayor,
-        _ => Glyph::Robot,
-    };
-    let from = match world.get::<LivesIn>(agent) {
+    match hamlet_client::realm::named(world, by)
+        .and_then(|agent| world.get::<LivesIn>(agent))
+    {
         Some(lives) => {
             format!("· {} · {age}", name_of(world, lives.0))
         }
         None => format!("· {age}"),
-    };
-    (mark, from)
+    }
 }
 
 fn card(toast: &Toast) -> AnyView {
@@ -431,16 +424,11 @@ fn card(toast: &Toast) -> AnyView {
                     WaitDetail::Fault {} => Tone::Critical,
                     _ => Tone::Accent,
                 };
-                let (mark, from) =
-                    origin(cx.world, &need, &waiting.by);
-                let answers = buttons(vec![
-                    button(&need, 0),
-                    button(&need, 1),
-                    button(&need, 2),
-                ])
-                .boxed();
+                let from = origin(cx.world, &need, &waiting.by);
+                let answers = answers(&need);
                 (
-                    Some(mark),
+                    // The bell of NEEDS YOU.
+                    Some((Glyph::Bell, Tone::Critical)),
                     need.shown.clone(),
                     from,
                     tone,
@@ -474,7 +462,7 @@ fn card(toast: &Toast) -> AnyView {
                     )
                 };
                 (
-                    Some(Glyph::Tower),
+                    Some((Glyph::Tower, Tone::Accent)),
                     head.into(),
                     String::new(),
                     Tone::Accent,
@@ -490,56 +478,62 @@ fn card(toast: &Toast) -> AnyView {
                 )
             }
         };
-        let own = what.clone();
         let mark = match mark {
-            Some(which) => glyph(which, ICON).tone(tone).boxed(),
+            Some((which, tone)) => {
+                glyph(which, ICON).tone(tone).boxed()
+            }
             None => frame().boxed(),
         };
         let head = row((mark, caption(head, tone), note(from)))
             .gap(6.0)
             .align(AlignItems::Center);
-        let words = column((head, quoted(&line)))
-            .gap(2.0)
-            .grow(1.0)
-            .min_width(px(0.0));
-        let body = bevy_fynix::views::button(row((words,)))
-            .grow(1.0)
-            .min_width(px(0.0))
-            .rules(opener)
-            .on_activate(move |world| {
-                if let What::Petition(wait) = &own {
-                    crate::petition::open(world, *wait);
-                }
-                dismiss(world, &own);
-            });
         let dismissed = what.clone();
+        // The close sits at the end of the head's line, centred on
+        // it.
+        let top = row((
+            opening(what.clone(), head),
+            close_button(move |world| dismiss(world, &dismissed)),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center);
+        let words =
+            column((top, opening(what.clone(), quoted(&line))))
+                .gap(2.0);
         let space = &cx.theme().space;
         let palette = &cx.theme().palette;
-        let card = column((
-            row((
-                body,
-                close_button(move |world| dismiss(world, &dismissed)),
+        let card = column((words, answers))
+            .gap(space.gap)
+            .fill(palette.card)
+            .border(space.border)
+            .border_color(palette.gold_5)
+            .radius(space.round)
+            .padding(UiRect::axes(
+                px(space.card_padding_x),
+                px(space.card_padding_y),
             ))
-            .gap(6.0)
-            .align(AlignItems::FlexStart),
-            answers,
-        ))
-        .gap(space.gap)
-        .fill(palette.card)
-        .border(space.border)
-        .border_color(palette.gold_6)
-        .radius(space.round)
-        .padding(UiRect::axes(
-            px(space.card_padding_x),
-            px(space.card_padding_y),
-        ))
-        .rules(fading(id));
+            .rules(fading(id))
+            .tagged(cx.theme().shadow());
         let node = cx.build(card);
         cx.world
             .entity_mut(node)
             .insert((Hovered::default(), Body(id)));
         node
     })
+}
+
+/// `content`, a part of the words of the toast of `what`, pressed to
+/// open what it is about.
+fn opening(what: What, content: impl View) -> impl View {
+    bevy_fynix::views::button(row((content,)))
+        .grow(1.0)
+        .min_width(px(0.0))
+        .rules(opener)
+        .on_activate(move |world| {
+            if let What::Petition(wait) = &what {
+                crate::petition::open(world, *wait);
+            }
+            dismiss(world, &what);
+        })
 }
 
 /// A toast's words, pressed to open what it is about: no fill of its

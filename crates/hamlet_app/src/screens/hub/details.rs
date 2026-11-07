@@ -19,8 +19,8 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    CONTROL, Fills, ICON, action, back_link, bare, buttons, framed,
-    lettered, note, scroll_area, text_input,
+    CONTROL, Fills, ICON, action, back_link, bare, description,
+    framed, lettered, note, scroll_area, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
@@ -36,7 +36,8 @@ use crate::overview::heading;
 /// How wide the names of the settings are, so their values line up.
 const NAMES: f32 = 76.0;
 
-/// How wide the field of an amount in dollars is.
+/// How wide the field of an amount in dollars is, and the least width
+/// of the choice of a version above it.
 const AMOUNT: f32 = 96.0;
 
 /// What the sheet shows of the agent, found from the world.
@@ -169,17 +170,23 @@ fn nickname_field(facts: &Facts) -> AnyView {
     .boxed()
 }
 
+/// The amount typed in a field of dollars, without its `$`.
+fn dollars(typed: &str) -> &str {
+    typed.trim().trim_start_matches('$').trim()
+}
+
 /// Its allowance in dollars, typed over: Enter gives it the amount,
 /// and a field left empty no allowance.
 fn allowance_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
-    let had = facts
+    let shown = facts
         .allowance
-        .map(|dollars| format!("{dollars:.2}"))
+        .map(|dollars| format!("${dollars:.2}"))
         .unwrap_or_default();
+    let had = dollars(&shown).to_string();
     column((hinted(
-        text_field(had.clone(), move |world, typed| {
-            let typed = typed.trim().trim_start_matches('$').trim();
+        text_field(shown, move |world, typed| {
+            let typed = dollars(&typed);
             if typed != had {
                 let amount =
                     if typed.is_empty() { "none" } else { typed };
@@ -211,21 +218,30 @@ fn version(facts: &Facts) -> AnyView {
         .map(|name| shown_version(name))
         .collect::<Vec<_>>();
     let address = facts.address.clone();
-    row((dropdown(
-        words,
-        at,
-        Glyph::Chevron.image(ICON),
-        move |world, chosen| {
-            if chosen != at
-                && let Some(to) = names.get(chosen)
-            {
-                crate::chat::command(
-                    world,
-                    format!("/pin {address} {to}"),
-                );
-            }
-        },
-    ),))
+    // Framed as the fields beside it are.
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        row((dropdown(
+            words,
+            at,
+            Glyph::Chevron.image(ICON),
+            move |world, chosen| {
+                if chosen != at
+                    && let Some(to) = names.get(chosen)
+                {
+                    crate::chat::command(
+                        world,
+                        format!("/pin {address} {to}"),
+                    );
+                }
+            },
+        )
+        .min_width(px(AMOUNT))
+        .fill(theme.palette.input)
+        .border(theme.space.border)
+        .border_color(theme.palette.gold_5)
+        .radius(theme.space.round),))
+    })
     .boxed()
 }
 
@@ -308,7 +324,6 @@ fn about(facts: &Facts) -> Option<AnyView> {
             "Dollars it may spend in its hamlet's budget period; \
              empty for no limit",
             row((
-                label("$").tone(Tone::Faint),
                 allowance_field(facts),
                 label(facts.period).tone(Tone::Faint).wrap(false),
             ))
@@ -429,20 +444,21 @@ pub(super) fn card(
     .boxed()
 }
 
-/// Its whole prompt, which acts on no one part of it.
-fn pages() -> impl View {
-    buttons(vec![
-        action(Glyph::Notes, "Prompt", super::thread::show_prompt)
-            .tooltip(|| {
-                note("Everything it is told at a turn's start")
-            })
-            .boxed(),
-    ])
+/// The way to its whole prompt, on a page of its own.
+fn prompt() -> AnyView {
+    card(
+        Glyph::Notes,
+        "Prompt",
+        Some(action(Glyph::Into, "Open", super::thread::show_prompt)),
+        description(
+            "Everything it is told at the start of each turn.",
+        ),
+    )
 }
 
 /// A reflection asked now, which writes to its memory.
 fn reflect() -> AnyView {
-    action(Glyph::Moon, "Note what it learned", |world| {
+    action(Glyph::Rename, "Note what it learned", |world| {
         if let Some(to) = super::papers::selected(world) {
             world.trigger(hamlet_client::messages::ChiefMessage {
                 to,
@@ -462,7 +478,6 @@ pub(super) fn sheet(agent: Entity) -> impl View {
     with_cx(move |cx| {
         let gap = cx.theme().space.section;
         column((scroll_area((column((
-            pages(),
             facts_cards(agent, head),
             memory::character_section(),
             card(
@@ -472,6 +487,7 @@ pub(super) fn sheet(agent: Entity) -> impl View {
                 memory::view(),
             ),
             card(Glyph::Book, "Skills", None, memory::skills()),
+            prompt(),
             facts_cards(agent, powers),
         ))
         .gap(gap)

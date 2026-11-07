@@ -609,7 +609,7 @@ mod tests {
             crate::petition::waiting(),
         );
         app.update();
-        press(&mut app, "Answer");
+        press(&mut app, "Answer 2 questions");
         app.update();
         press(&mut app, "Digital");
         app.update();

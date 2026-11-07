@@ -27,7 +27,7 @@ use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, ICON, action, back, bare, card_name, choice, close, crumb,
     crumb_here, crumb_slash, crumbs, danger_button, filling, framed,
-    hairline, note, primary_button, scroll_area,
+    hairline, note, primary_button, scroll_area, title,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -764,7 +764,8 @@ pub(super) fn leave_prompt(
 }
 
 /// A page about the agent the chat is with, under the path to it and
-/// the pages `under` names, with the way back to the page above.
+/// the pages `under` names, with its title or the way back to the
+/// page above.
 fn aside(
     under: fn(&World) -> Vec<Under>,
     body: impl View + 'static,
@@ -775,21 +776,29 @@ fn aside(
         })
         .when(every_frame()),
         |(agent, under)| {
-            let back = match under.as_slice() {
-                [Under::Prompt] => back("Details", |world| {
-                    *world.resource_mut::<Sheet>() = Sheet::Details;
-                    show(world, Showing::Thread);
-                }),
-                [Under::Sessions] => back("Chat", |world| {
-                    *world.resource_mut::<Sheet>() = Sheet::Chat;
-                    show(world, Showing::Thread);
-                }),
-                _ => back("Sessions", crate::history::close),
-            };
             let path = path(*agent, under.clone());
+            // What stands under the path, and how far under it in
+            // gaps: a title as far as a hamlet's.
+            let (second, apart) = match under.as_slice() {
+                // The path leads back to the details it was opened
+                // from.
+                [Under::Prompt] => (title("Prompt").boxed(), 1.0),
+                [Under::Sessions] => (
+                    back("Chat", |world| {
+                        *world.resource_mut::<Sheet>() = Sheet::Chat;
+                        show(world, Showing::Thread);
+                    })
+                    .boxed(),
+                    0.5,
+                ),
+                _ => (
+                    back("Sessions", crate::history::close).boxed(),
+                    0.5,
+                ),
+            };
             with_cx(move |cx| {
-                column((path, back))
-                    .gap(cx.theme().space.gap / 2.0)
+                column((path, second))
+                    .gap(cx.theme().space.gap * apart)
                     .align(AlignItems::FlexStart)
             })
             .boxed()

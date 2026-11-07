@@ -20,7 +20,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     let mut wait = hamlet_testing::realm::wait("approval-network");
     wait.detail = protocol::WaitDetail::Approval {
         danger: protocol::WaitDanger::Network,
-        says: "wants the network to run".into(),
+        says: "wants network access to run".into(),
         always: Some(protocol::Lasting::Grant),
     };
     wait.about =

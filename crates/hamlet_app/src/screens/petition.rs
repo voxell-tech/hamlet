@@ -29,8 +29,8 @@ use hamlet_protocol::client::{
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::styles::{
-    self, buttons, caption, command_block, danger_button, framed,
-    marked, note, primary_button,
+    self, buttons, caption, close, command_block, danger_button,
+    framed, marked, note, primary_button,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -213,8 +213,26 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
     }
 }
 
+/// The buttons of the answers `need` takes, with what the lasting
+/// one lets go under them.
+pub(crate) fn answers(need: &Need) -> AnyView {
+    let scope = match scope(need) {
+        Some(words) => note(words).boxed(),
+        None => frame().boxed(),
+    };
+    close((
+        buttons(vec![
+            button(need, 0),
+            button(need, 1),
+            button(need, 2),
+        ]),
+        scope,
+    ))
+    .boxed()
+}
+
 /// The button for the answer at `at` of `need`, or nothing.
-pub(crate) fn button(need: &Need, at: usize) -> AnyView {
+fn button(need: &Need, at: usize) -> AnyView {
     let Some(choice) = need.answers.get(at).cloned() else {
         return frame().boxed();
     };
@@ -308,7 +326,7 @@ fn scope(need: &Need) -> Option<String> {
             format!("{who}'s commands go ahead until it ends")
         }
         (Lasting::Grant, WaitDanger::Network) => {
-            format!("{who} keeps the network until you revoke it")
+            format!("{who} keeps network access until you revoke it")
         }
         (Lasting::Grant, _) => {
             format!("{who} may leave the sandbox until you revoke it")
@@ -401,13 +419,13 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
         .first()
         .map(|one| one.question.clone())
         .unwrap_or_default();
-    let more = match asked.questions.len() {
-        1 => String::new(),
-        n => format!("{n} questions"),
+    let answer = match asked.questions.len() {
+        1 => "Answer".to_string(),
+        n => format!("Answer {n} questions"),
     };
     let head = head(need, "");
     with_cx(move |cx| {
-        let open = marked(Glyph::Talk, "Answer")
+        let open = marked(Glyph::Talk, answer)
             .rules(primary_button)
             .tagged(Variant::Primary)
             .on_activate(move |world| {
@@ -416,9 +434,7 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
         framed((
             head,
             label(first).size(cx.theme().text.heading),
-            row((open, note(more)))
-                .gap(cx.theme().space.gap)
-                .align(AlignItems::Center),
+            row((open,)),
         ))
     })
     .boxed()
@@ -466,16 +482,7 @@ pub(crate) fn strip(need: &Need) -> AnyView {
         // A form has its own answers.
         let answers = match questions {
             Some(_) => frame().boxed(),
-            None => buttons(vec![
-                button(&need, 0),
-                button(&need, 1),
-                button(&need, 2),
-            ])
-            .boxed(),
-        };
-        let scope = match scope(&need) {
-            Some(words) => note(words).boxed(),
-            None => frame().boxed(),
+            None => answers(&need),
         };
         let scholar = match &need.detail {
             WaitDetail::Newcomer { scholar } => {
@@ -511,7 +518,7 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             }
             None => frame().boxed(),
         };
-        cx.build(framed((head, line, about, answers, scope)))
+        cx.build(framed((head, line, about, answers)))
     })
 }
 
