@@ -413,7 +413,7 @@ impl Terminals {
                     watcher.seq = screen.seq;
                     out.push((
                         *connection,
-                        output(id, screen.replay(), true, None),
+                        output(id, screen.redraw(), true, None),
                     ));
                 }
             }
@@ -443,7 +443,7 @@ impl Terminals {
                 behind: false,
             },
         );
-        Some(output(id, screen.replay(), true, to))
+        Some(output(id, screen.redraw(), true, to))
     }
 }
 

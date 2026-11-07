@@ -147,6 +147,24 @@ impl Screen {
         bytes
     }
 
+    /// The bytes that bring a window watching it to what it is now:
+    /// the replay, then what the replay may have lost to its trim,
+    /// which a program sets once as it starts. On the alternate
+    /// screen, that screen as it shows now; then the modes the
+    /// program asked for, such as reading the mouse and bracketed
+    /// paste. A restored terminal takes [`Self::replay`], since its
+    /// shell starts again without them.
+    pub(super) fn redraw(&self) -> Vec<u8> {
+        let mut bytes = self.replay();
+        let screen = self.parser.screen();
+        if screen.alternate_screen() {
+            bytes.extend(b"\x1b[?1049h");
+            bytes.extend(screen.contents_formatted().as_bytes());
+        }
+        bytes.extend(screen.input_mode_formatted().as_bytes());
+        bytes
+    }
+
     /// What the cursor's line shows before the cursor, its wrapped
     /// rows joined.
     fn before_cursor(&self) -> String {
@@ -318,6 +336,46 @@ mod tests {
         again.restore(&replay);
         assert_eq!(again.text(0), "abcdef\ngh");
         assert_eq!(again.text(0), screen.text(0));
+    }
+
+    #[test]
+    fn a_redraw_keeps_the_modes_and_the_screen_a_trim_cut_away() {
+        let mut screen = Screen::new(Size { rows: 3, cols: 20 });
+        screen
+            .take(b"$ copilot\r\n\x1b[?1049h\x1b[?1003h\x1b[?1006h");
+        let frame = "\x1b[H\x1b[2Jframe\r\n".repeat(64);
+        for _ in 0..REPLAY / frame.len() + 2 {
+            screen.take(frame.as_bytes());
+        }
+        screen.take(b"\x1b[Htabs");
+        assert!(
+            !screen.replay().windows(8).any(|w| w == b"\x1b[?1003h")
+        );
+        let mut window = vt100::Parser::new(cells(3), cells(20), 0);
+        for part in replayed(&screen.redraw()) {
+            match part {
+                Replayed::Printed(bytes) => window.process(bytes),
+                Replayed::Sized { cols, rows } => {
+                    window
+                        .screen_mut()
+                        .set_size(cells(rows), cells(cols));
+                }
+            }
+        }
+        let shown = window.screen();
+        assert_eq!(
+            shown.mouse_protocol_mode(),
+            vt100::MouseProtocolMode::AnyMotion
+        );
+        assert_eq!(
+            shown.mouse_protocol_encoding(),
+            vt100::MouseProtocolEncoding::Sgr
+        );
+        assert!(shown.alternate_screen());
+        assert_eq!(
+            shown.contents(),
+            screen.parser.screen().contents()
+        );
     }
 
     /// Types `keys` into `screen`, and has the shell echo `echo`.
