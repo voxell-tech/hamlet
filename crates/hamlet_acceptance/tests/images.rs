@@ -38,7 +38,7 @@ async fn an_uploaded_image_goes_with_a_line_and_is_read_back_by_id() {
     s.chief.shows(&now, "I see it.").await;
     let items = s.chief.items(&now);
     assert_eq!(items[0].text, "Look at this.");
-    assert_eq!(items[0].images, [image.clone()]);
+    assert_eq!(items[0].images, std::slice::from_ref(&image));
 
     let ServerMessage::Read(ReadResult::Image {
         image: bytes, ..
