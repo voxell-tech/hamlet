@@ -188,6 +188,9 @@ pub struct Result {
     pub error: bool,
     #[schemars(length(min = 1))]
     pub id: String,
+    /// Images the result holds, given to the model after `text`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<crate::runtime::Picture>,
     #[schemars(length(min = 1))]
     pub re: String,
     pub text: String,

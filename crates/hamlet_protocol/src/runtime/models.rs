@@ -62,6 +62,10 @@ pub struct Selection {
     /// Whether the call asks for the provider's fast tier.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub fast: bool,
+    /// Whether the model takes images, which the server says of it
+    /// whatever its provider lists.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub images: bool,
     #[serde(rename = "maxTokens")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]

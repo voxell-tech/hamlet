@@ -46,6 +46,17 @@ from existing absolute paths or paths under the received work folder.
 A path inside the server's realm folder is never a link, even when
 reached through a symbolic link.
 
+**S29.** An image a chief sends is kept once in the realm's folder, under the
+SHA-256 of its bytes, however often it is sent. A client sends an image
+once, in parts, and then names it by that id on each line; the conversation
+keeps ids and never bytes, and a client fetches an image by its id to show
+it. Only a PNG, JPEG, WebP or GIF of at most 20 MiB is kept (C33).
+
+**S30.** The server knows from its listing of a model whether it takes images,
+and its limits: the width, height and bytes of one image and how many a message
+holds. It refuses a line with images to a model that takes none, and gives a
+model each image only once made to fit within its limits.
+
 ## Credentials
 
 **S7.** The server keeps its credentials (model keys, subscription logins,

@@ -12,6 +12,7 @@ pub mod transcript;
 mod chat;
 mod documents;
 mod gifts;
+mod images;
 mod limits;
 mod request_id;
 mod settings;
@@ -21,6 +22,7 @@ mod waits;
 pub use chat::*;
 pub use documents::*;
 pub use gifts::*;
+pub use images::*;
 pub use limits::*;
 pub use request_id::*;
 pub use settings::*;
@@ -37,6 +39,8 @@ impl ClientMessage {
                 Give::Files { id, .. } | Give::Skill { id, .. },
             )
             | Self::GivePart(GivePart { id, .. })
+            | Self::PutImage(PutImage { id, .. })
+            | Self::PutImagePart(PutImagePart { id, .. })
             | Self::Answer(Answer { id, .. })
             | Self::Stop(Stop { id, .. })
             | Self::Rewind(Rewind { id, .. })
@@ -67,6 +71,7 @@ impl ClientMessage {
                 Read::Prompt { id, .. }
                 | Read::History { id, .. }
                 | Read::Models { id, .. }
+                | Read::Image { id, .. }
                 | Read::Papers { id, .. }
                 | Read::Charter { id },
             )
@@ -87,6 +92,7 @@ impl ServerMessage {
                 ReadResult::Prompt { to, .. }
                 | ReadResult::History { to, .. }
                 | ReadResult::Models { to, .. }
+                | ReadResult::Image { to, .. }
                 | ReadResult::Papers { to, .. }
                 | ReadResult::Charter { to, .. },
             ) => Some(to),
@@ -111,6 +117,10 @@ pub enum ClientMessage {
     Give(Give),
     #[serde(rename = "give-part")]
     GivePart(GivePart),
+    #[serde(rename = "put-image")]
+    PutImage(PutImage),
+    #[serde(rename = "put-image-part")]
+    PutImagePart(PutImagePart),
     #[serde(rename = "answer")]
     Answer(Answer),
     #[serde(rename = "stop")]
@@ -180,6 +190,14 @@ pub struct Hello {
 )]
 #[serde(deny_unknown_fields)]
 pub struct Reply {
+    /// The id an image is kept under once its last part arrived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
+    #[schemars(with = "ImageId")]
+    pub image: Option<ImageId>,
+    /// The images of the line a rewind took back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageId>,
     pub kind: ReplyKind,
     pub text: String,
     pub to: RequestId,

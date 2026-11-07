@@ -63,6 +63,7 @@ closes clients with **1001**. These rules are in
 | `Keeper` | `{scholar: ScholarId}` or `{agent: AgentId}`: whose knowledge a document is of, a scholar's `main` or an agent's lodge. |
 | `ChatRef` | `{with: AgentId, past?: integer, from?: AgentId, kind?: "letters" \| "questions"}`. |
 | `RequestId` | A UUID in its 36-character hyphenated form, in either case, such as `0f8fad5b-d9cb-469f-a165-70867728950e`. The braced, URN and 32-digit forms are refused. |
+| `ImageId` | The SHA-256 of an image's bytes as 64 lowercase hexadecimal digits. The same bytes have the same id however often they are sent. |
 | `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`, `welcome`. Use the choices advertised by the wait. |
 | `Endpoint` | `{name: string, baseUrl: string}`. |
 | `Price` | `{input: number, output: number}`: dollars per million tokens. |
@@ -106,7 +107,9 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
 | `hello` (`Hello`) | `v: Version`, `token: string`; no `id` | Authenticate; full `state`. |
-| `say` (`Say`) | `to: AgentId`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
+| `say` (`Say`) | `to: AgentId`, `text: string`, `images?: ImageId[]` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. `images` are images sent before with `put-image`, at most 20 and at most what the agent's model takes; a line with images is refused when that model takes none. A command takes no images. |
+| `put-image` (`PutImage`) | `size: integer` | Begin sending one image of that many bytes, at most 20 MiB, a PNG, JPEG, WebP or GIF; `reply.upload` identifies the upload for its parts. |
+| `put-image-part` (`PutImagePart`) | `upload: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset. `reply` acknowledges the part; the one that completes the image is answered with `reply.image`, the image's id. |
 | `give` (`Give`) | `to: AgentId`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
 | `give` (`Give`) | `to: ScholarId`, `skill: {from: Keeper, name: string}` | Copy a named skill of a scholar or a hire's lodge; `reply`. |
 | `give-part` (`GivePart`) | `upload: string`, `path: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset in a declared file. `reply` acknowledges the chunk or completed gift. |
@@ -173,7 +176,8 @@ Each row is a `Read` form with `type: "read"` and `id`.
 |---|---|---|
 | `prompt` | `agent: AgentId` | `prompt: [{name, text}]`: the composed prompt, section by section in the order the model reads them, each named for its source (`charter`, `machine`, `project`, `character`, `memory`, `skills`, `place`, `realm`, `scholars` or `errand`). |
 | `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
-| `models` | `refresh?: boolean` | `models: Listed[]`: name, `title` (what its provider calls it; empty when it gives no name), price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown) and `fast` (whether its provider has a fast tier). `refresh` refreshes discovery. |
+| `models` | `refresh?: boolean` | `models: Listed[]`: name, `title` (what its provider calls it; empty when it gives no name), price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown), `fast` (whether its provider has a fast tier) and `images?` (what it takes of images: `maxWidth?`, `maxHeight?`, `maxBytes?` and `perLine?`; absent when it takes none). `refresh` refreshes discovery. |
+| `image` | `image: ImageId` | `image: {mime: string, data: string}`: the image's bytes in base64, as they were sent. A refusal replies when the realm keeps no such image. |
 | `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's lodge `learned` against its scholar, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
 
@@ -205,8 +209,8 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
 | `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
 | `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: TranscriptOperation[]` | Live transcript operations, in order. | Only clients watching that chat. |
-| `reply` (`Reply`) | `to: RequestId`, `kind: "notice" \| "error" \| "rewound"`, `text: string`, `upload?: string` | Request receipt, refusal or words recovered by rewind. | Only the connection that asked. |
-| `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `history`, `models`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
+| `reply` (`Reply`) | `to: RequestId`, `kind: "notice" \| "error" \| "rewound"`, `text: string`, `upload?: string`, `image?: ImageId` | Request receipt, refusal or words recovered by rewind. | Only the connection that asked. |
+| `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `history`, `models`, `image`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
 | `login` (`LoginProgress`) | `login: string`, `to?: RequestId`, `step: LoginStep` | Sign-in session progress. | Only the connection that started the session. |
 | `fault` (`Fault`) | `text: string`, `to?: RequestId` | Protocol, watch or connection failure. | Only the affected connection. |
 
@@ -234,7 +238,8 @@ workspace since the server started: `state` (`moving`, `moved` or `failed`),
 lodges `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
-`chief`, `author`, `rewindable` and `tool`. Its kind is `user`, `assistant`,
+`chief`, `author`, `rewindable`, `tool` and `images` (the `ImageId`s a chief's
+line carried; the transcript holds ids and never bytes). Its kind is `user`, `assistant`,
 `reasoning`, `tool`, `notice`, `error` or `answered`, the chief's answers
 to questions. Peer inputs use `author`, not `chief`. Item IDs identify an
 entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool details are `name`, `summary`, nullable

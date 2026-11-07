@@ -4,6 +4,8 @@ use hamlet_protocol::client::*;
 use serde_json::{Value, json};
 
 const ID: &str = "00000000-0000-4000-8000-000000000001";
+const IMAGE: &str =
+    "0000000000000000000000000000000000000000000000000000000000000001";
 
 fn id() -> RequestId {
     ID.parse().unwrap()
@@ -34,7 +36,11 @@ fn catalogue_edits_preserve_missing_null_and_assigned_prices() {
             ClientMessage::Edit(Edit::Catalogue {
                 id: id(),
                 model: "faux/test".into(),
-                set: EditCatalogueSet { price, note: None },
+                set: EditCatalogueSet {
+                    images: None,
+                    price,
+                    note: None,
+                },
             }),
             json!({"type": "edit", "id": ID, "doc": "catalogue", "model": "faux/test", "set": set}),
         );
@@ -70,10 +76,20 @@ fn chief_requests_carry_addresses_ids_and_choices() {
     client(
         ClientMessage::Say(Say {
             id: id(),
+            images: Vec::new(),
             to: agent(),
             text: "Hello".into(),
         }),
         json!({"type": "say", "id": ID, "to": 2, "text": "Hello"}),
+    );
+    client(
+        ClientMessage::Say(Say {
+            id: id(),
+            images: vec![IMAGE.parse().unwrap()],
+            to: agent(),
+            text: "Look".into(),
+        }),
+        json!({"type": "say", "id": ID, "images": [IMAGE], "to": 2, "text": "Look"}),
     );
     client(
         ClientMessage::Answer(Answer {
@@ -282,11 +298,15 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
             id: id(),
             model: "faux/test".into(),
             set: EditCatalogueSet {
+                images: Some(Some(ImageInput {
+                    per_line: Some(4),
+                    ..Default::default()
+                })),
                 price: None,
                 note: Some("Local".into()),
             },
         }),
-        json!({"type": "edit", "id": ID, "doc": "catalogue", "model": "faux/test", "set": {"note": "Local"}}),
+        json!({"type": "edit", "id": ID, "doc": "catalogue", "model": "faux/test", "set": {"images": {"perLine": 4}, "note": "Local"}}),
     );
 }
 

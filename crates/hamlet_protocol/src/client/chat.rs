@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::client::{AgentId, RequestId, UsageView};
+use crate::client::{AgentId, ImageId, RequestId, UsageView};
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -12,6 +12,10 @@ use crate::client::{AgentId, RequestId, UsageView};
 #[serde(deny_unknown_fields)]
 pub struct Say {
     pub id: RequestId,
+    /// The images the line carries, each sent before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 20))]
+    pub images: Vec<ImageId>,
     pub text: String,
     pub to: AgentId,
 }
@@ -212,6 +216,9 @@ pub struct Item {
     #[schemars(with = "String")]
     pub chief: Option<String>,
     pub id: String,
+    /// The images a chief's line carried.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageId>,
     pub kind: ItemKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
