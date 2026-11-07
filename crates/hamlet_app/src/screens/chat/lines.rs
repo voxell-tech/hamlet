@@ -30,7 +30,7 @@ use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::View;
-use hamlet_ui::styles::{Fills, note};
+use hamlet_ui::styles::{Fills, note, small_rules};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 
 use super::entry::entry_view;
@@ -231,8 +231,8 @@ pub(super) fn fold_view(
             label(resource::<Lines, _>(move |l| {
                 l.heading(&heading_key)
             }))
-            .size(12.0)
-            .tone(resource::<Lines, _>(move |l| l.tone(&tone_key))),
+            .tone(resource::<Lines, _>(move |l| l.tone(&tone_key)))
+            .rules(small_rules),
         ))
         .gap(6.0)
         .align(AlignItems::Center),

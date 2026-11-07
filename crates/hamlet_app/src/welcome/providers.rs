@@ -2,11 +2,18 @@
 
 use std::collections::BTreeSet;
 
+use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
+use bevy::ecs::hierarchy::Children;
+use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
+use bevy::ecs::system::{Commands, Query};
 use bevy::ecs::world::World;
-use bevy::ui::AlignItems;
+use bevy::text::EditableText;
+use bevy::ui::{AlignItems, InteractionDisabled};
+use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, label, row, text_field,
+    BehaviorExt, FrameProps, frame, label, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
@@ -17,13 +24,15 @@ use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    bare, buttons, choice, close, description, good_action, group,
-    lettered, note, parts, text_input,
+    ICON, bare, close, good_action, group, note, parts, section,
+    segmented, small_rules, text_input,
 };
+use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
 
 use super::pages::{head, news, said};
 use super::{Step, Welcome, commit, go, read_models};
+use crate::models::mark;
 use crate::secret::secret_field;
 
 /// The browser used for the server's login URLs.
@@ -50,7 +59,7 @@ pub(super) struct Login {
     code: Option<String>,
     prompt: Option<(String, bool)>,
     progress: String,
-    answer: String,
+    pub(super) answer: String,
     /// Whether `answer` is a key typed before the sign-in asked for
     /// it, to be its answer once it does.
     held: bool,
@@ -128,20 +137,18 @@ pub(super) fn reconnected(world: &mut World) {
     }
 }
 
-/// The provider a key is for: the one chosen, else the only one that
+/// The provider a key is for: the one chosen, else the first that
 /// takes a key.
 fn keyed_provider(world: &World) -> Option<String> {
     if let Some(chosen) = &world.resource::<Login>().provider {
         return Some(chosen.clone());
     }
-    let mut keyed =
-        world.resource::<Providers>().0.iter().filter(|p| {
-            p.methods.contains(&protocol::LoginMethod::Key)
-        });
-    match (keyed.next(), keyed.next()) {
-        (Some(only), None) => Some(only.id.clone()),
-        _ => None,
-    }
+    world
+        .resource::<Providers>()
+        .0
+        .iter()
+        .find(|p| p.methods.contains(&protocol::LoginMethod::Key))
+        .map(|first| first.id.clone())
 }
 
 /// Starts a sign-in with the chosen provider that answers its prompt
@@ -170,7 +177,8 @@ pub(super) fn reply(world: &mut World) {
         }
         return;
     };
-    let answer = std::mem::take(&mut login.answer);
+    // The key stays in its field, to be put right after a failed try.
+    let answer = login.answer.clone();
     login.prompt = None;
     let request = world.resource_mut::<Outbox>().send(|request| {
         protocol::ClientMessage::Login(protocol::Login::Reply {
@@ -294,14 +302,12 @@ pub(super) fn receive(
             read_models(world, true);
         }
         protocol::LoginStep::Failed { failed } => {
-            // The provider stays chosen, to try again with.
-            let provider = world.resource::<Login>().provider.clone();
-            let abandoned = std::mem::take(
-                &mut world.resource_mut::<Login>().abandoned,
-            );
-            *world.resource_mut::<Login>() = Login {
-                provider,
-                abandoned,
+            // The provider and the key stay, to try again with.
+            let mut login = world.resource_mut::<Login>();
+            *login = Login {
+                provider: login.provider.take(),
+                abandoned: std::mem::take(&mut login.abandoned),
+                answer: std::mem::take(&mut login.answer),
                 ..Default::default()
             };
             let mut welcome = world.resource_mut::<Welcome>();
@@ -334,7 +340,7 @@ fn prompt() -> AnyView {
         resource::<Login, _>(|login| login.prompt.clone()),
         |prompt| {
             let Some((words, secret)) = prompt else {
-                return bevy_fynix::views::frame().boxed();
+                return frame().boxed();
             };
             let answer =
                 resource::<Login, _>(|login| login.answer.clone());
@@ -362,9 +368,9 @@ fn prompt() -> AnyView {
     .boxed()
 }
 
-/// The page for a key: the provider it is for, its field, why the
-/// last one failed under it, and the button that sends it, all there
-/// whatever has been tried.
+/// The page for a key: the providers to pick it for, the field it is
+/// pasted in under the name of the one picked, why the last try
+/// failed under it, and the button that sends it once it is typed.
 pub(super) fn key_page() -> AnyView {
     let names = keyed(
         derived(|world: &World| {
@@ -375,66 +381,146 @@ pub(super) fn key_page() -> AnyView {
         })
         .when(every_frame()),
         |(providers, chosen)| {
-            let choices = providers
+            let keyed = providers
                 .iter()
                 .filter(|provider| {
                     provider
                         .methods
                         .contains(&protocol::LoginMethod::Key)
                 })
-                .map(|provider| {
-                    let (id, name) =
-                        (provider.id.clone(), provider.name.clone());
-                    close((
-                        lettered(provider.name.clone())
-                            .rules(choice(
-                                chosen.as_ref() == Some(&id),
-                            ))
-                            .on_activate(move |world| {
-                                world
-                                    .resource_mut::<Login>()
-                                    .provider = Some(id.clone());
-                                world
-                                    .resource_mut::<Welcome>()
-                                    .from = name.clone();
-                            }),
-                        note(provider.label.clone()),
-                    ))
-                    .boxed()
-                })
+                .cloned()
                 .collect::<Vec<_>>();
-            buttons(choices).boxed()
+            let picked = keyed
+                .iter()
+                .position(|provider| {
+                    Some(&provider.id) == chosen.as_ref()
+                })
+                .unwrap_or_default();
+            let options = keyed.iter().map(|provider| {
+                row((
+                    mark(&provider.id, ICON),
+                    label(provider.name.clone()).wrap(false),
+                ))
+                .gap(6.0)
+                .align(AlignItems::Center)
+                .boxed()
+            });
+            let picks = keyed.clone();
+            let choice =
+                segmented(options, picked, move |world, at| {
+                    let provider = &picks[at];
+                    world.resource_mut::<Login>().provider =
+                        Some(provider.id.clone());
+                    world.resource_mut::<Welcome>().from =
+                        provider.name.clone();
+                });
+            // A provider's own words, where they say more than its
+            // name.
+            let says = keyed
+                .get(picked)
+                .filter(|provider| provider.label != provider.name)
+                .map(|provider| note(provider.label.clone()).boxed())
+                .unwrap_or_else(|| frame().boxed());
+            close((choice, says)).boxed()
         },
     )
     .within(bare());
-    let field = secret_field(
-        resource::<Login, _>(|login| login.answer.clone()),
-        |world: &mut World, answer| {
-            world.resource_mut::<Login>().answer = answer;
+    let named = keyed(
+        derived(|world: &World| {
+            let chosen = keyed_provider(world);
+            world
+                .resource::<Providers>()
+                .0
+                .iter()
+                .find(|provider| {
+                    Some(&provider.id) == chosen.as_ref()
+                })
+                .map(|provider| provider.name.clone())
+        })
+        .when(every_frame()),
+        |name| {
+            let name = name.as_deref().unwrap_or("Your provider's");
+            section(format!("{name} API key")).boxed()
         },
+    )
+    .within(bare());
+    let field = hinted(
+        secret_field(
+            resource::<Login, _>(|login| login.answer.clone()),
+            |world: &mut World, answer| {
+                world.resource_mut::<Login>().answer = answer;
+            },
+        )
+        .tagged(KeyField),
+        "Paste the key from the provider's site",
     );
+    // The reason the last key failed, once one was sent.
+    let under = keyed(
+        resource::<Welcome, _>(|welcome| {
+            (welcome.asking, welcome.problem.clone())
+        }),
+        |(asking, problem)| match problem {
+            _ if *asking => {
+                said("Waiting for the provider...").boxed()
+            }
+            Some(why) => label(why.clone())
+                .tone(Tone::Critical)
+                .rules(small_rules)
+                .boxed(),
+            None => note(
+                "The key goes only to the server, which keeps it.",
+            )
+            .boxed(),
+        },
+    )
+    .within(bare());
+    // Pressed only once the field has text; see `hold_send`.
+    let send =
+        row((good_action(Glyph::Check, "Continue", commit)
+            .tagged(KeySend),));
     parts((
-        head(Glyph::Globe, "Use a key"),
+        head(Glyph::Key, "Use a key"),
         names,
-        group((
-            // The sign-in's own words once it asks.
-            description(resource::<Login, _>(|login| {
-                login.prompt.as_ref().map_or_else(
-                    || {
-                        "Paste the API key from your provider's site."
-                            .into()
-                    },
-                    |(words, _)| words.clone(),
-                )
-            })),
-            field,
-            note("The key goes only to the server, which keeps it."),
-        )),
-        news("Waiting for the provider..."),
-        row((good_action(Glyph::Check, "Continue", commit),))
-            .align(AlignItems::Center),
+        close((named, field, under)),
+        send,
     ))
     .boxed()
+}
+
+/// The field a key is pasted in.
+#[derive(Component)]
+pub(super) struct KeyField;
+
+/// The button that sends a key.
+#[derive(Component)]
+pub(super) struct KeySend;
+
+/// Holds back the button that sends a key while its field, as it is
+/// typed in, is empty.
+pub(super) fn hold_send(
+    mut commands: Commands,
+    sends: Query<(Entity, Has<InteractionDisabled>), With<KeySend>>,
+    fields: Query<Entity, With<KeyField>>,
+    under: Query<&Children>,
+    texts: Query<&EditableText>,
+) {
+    let empty = fields.iter().all(|field| {
+        under
+            .iter_descendants(field)
+            .filter_map(|part| texts.get(part).ok())
+            .all(|text| text.value().to_string().trim().is_empty())
+    });
+    for (send, held) in &sends {
+        match (empty, held) {
+            (true, false) => {
+                commands.entity(send).insert(InteractionDisabled);
+            }
+            (false, true) => {
+                commands.entity(send).remove::<InteractionDisabled>();
+            }
+            _ => {}
+        }
+    }
 }
 
 pub(super) fn sign_in_page() -> AnyView {

@@ -80,7 +80,7 @@ fn choice(adding: bool) -> AnyView {
             },
         ),
         nav_card(
-            Glyph::Talk,
+            Glyph::Signal,
             "Continue with ChatGPT",
             "Use your ChatGPT plan, with no key. You sign in with \
              your browser, and what your hamlet does counts toward \
@@ -88,7 +88,7 @@ fn choice(adding: bool) -> AnyView {
             |world| super::providers::start(world, "chatgpt", false),
         ),
         nav_card(
-            Glyph::Globe,
+            Glyph::Key,
             "I have a key",
             "Use a key from a provider such as OpenAI, DeepSeek or \
              OpenRouter. You pay them for what you use.",
@@ -201,7 +201,7 @@ fn models() -> AnyView {
     parts((
         beside((
             back("Back", |world| go(world, Step::Choice)),
-            title(Glyph::Check, "Pick a model"),
+            title(Glyph::Chip, "Pick a model"),
             frame().grow(1.0),
             note("Step 3 of 3"),
         )),

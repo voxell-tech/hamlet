@@ -21,8 +21,9 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Bylaws, HamletId, RealmBylaws};
 use hamlet_protocol::client::{self as protocol, Limits, Period};
 use hamlet_ui::styles::{
-    Fills, action, bare, beside, breadcrumb, choices, close,
-    description, group, nav_list, nav_row, note, parts, text_input,
+    Fills, action, bare, beside, breadcrumb, close, description,
+    group, nav_list, nav_row, note, parts, segmented_words,
+    text_input,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch as toggle;
@@ -309,7 +310,7 @@ fn budget(hamlet: Entity) -> impl View {
                 }
             }),
             |chosen| {
-                choices(
+                segmented_words(
                     ["A day", "A month"],
                     *chosen,
                     |world, chosen| {
@@ -445,7 +446,7 @@ pub fn realm() -> AnyView {
                 }
             }),
             |chosen| {
-                choices(
+                segmented_words(
                     ["A day", "A month"],
                     *chosen,
                     |world, chosen| {

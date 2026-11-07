@@ -51,7 +51,7 @@ pub fn plugin(app: &mut App) {
                 },
             )
         })
-        .icon(Glyph::Lens.image(ICON)),
+        .icon(Glyph::Tree.image(ICON)),
     )
     .add_plugins((rail::plugin, visits::plugin))
     .init_resource::<Showing>()

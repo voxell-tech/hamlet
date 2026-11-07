@@ -176,6 +176,19 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             }
         }
         let mut wait = hamlet_testing::realm::wait("toast");
+        // From an agent whose chat is not the one open, which shows
+        // its own waits in full.
+        if let Some(fen) =
+            next.agents.iter().find(|agent| agent.name == "mill#2")
+        {
+            wait.agent = Some(fen.id);
+            wait.by = fen.name.clone();
+            if let Some(chat) = &mut wait.chat {
+                chat.with = fen.id;
+            }
+            wait.about = "git status --short".into();
+            wait.subject = wait.about.clone();
+        }
         // It came in a moment ago.
         wait.since = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

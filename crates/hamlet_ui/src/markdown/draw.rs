@@ -19,7 +19,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row,
 };
 use bevy_fynix::{
-    EntityCursor, Signal, ViewExt, derived, each, keyed, resource,
+    EntityCursor, ScopedExt, Signal, ViewExt, derived, each, keyed,
+    resource,
 };
 
 use super::parse::{parse, plain};
@@ -27,7 +28,7 @@ use super::{
     Align, Anchor, Area, Block, Kind, Marker, PathLinks, PictureView,
     Row, Span, Style, Target,
 };
-use crate::styles::{Fills, bare};
+use crate::styles::{Fills, bare, small_rules};
 use crate::theme::Palette;
 use crate::widgets::platform::{Mono, MonoText};
 use crate::{AnyView, Cx, View};
@@ -220,8 +221,8 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
     if !lang.is_empty() {
         parts.push(
             label(lang.to_string())
-                .size(11.0)
                 .tone(Tone::Dim)
+                .rules(small_rules)
                 .boxed(),
         );
     }

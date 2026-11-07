@@ -63,7 +63,7 @@ pub(super) fn seed_dock(world: &mut World) {
                 },
             )
         })
-        .icon(Glyph::Lens.image(ICON)),
+        .icon(Glyph::Tree.image(ICON)),
     );
     registry.register(
         "settings",

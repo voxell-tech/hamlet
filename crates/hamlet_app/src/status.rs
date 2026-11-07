@@ -29,6 +29,7 @@ use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::links::Aimed;
 use crate::petition::Queue;
+use crate::standing::Standing;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>().add_systems(
@@ -227,8 +228,11 @@ fn waiting() -> impl View {
     keyed(resource::<Queue, _>(Queue::len), |waiting| match waiting {
         0 => frame().boxed(),
         n => pair(
-            mark(Glyph::Bell, Tone::Accent),
-            told(format!("{n} waiting for you"), Tone::Accent),
+            mark(Standing::Waits.glyph(), Standing::Waits.tone()),
+            told(
+                format!("{n} waiting for you"),
+                Standing::Waits.tone(),
+            ),
         )
         .boxed(),
     })
@@ -304,11 +308,11 @@ pub fn status_bar() -> impl View {
                             let side = cx.theme().space.status_icon;
                             icon(resource::<Bar, _>(move |bar| {
                                 let which = if bar.busy {
-                                    Glyph::Bolt
+                                    Standing::Works
                                 } else {
-                                    Glyph::Moon
+                                    Standing::Rests
                                 };
-                                which.image(side)
+                                which.glyph().image(side)
                             }))
                             .size(side)
                             .tone(

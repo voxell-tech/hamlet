@@ -26,8 +26,8 @@ use hamlet_protocol::client::{
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::styles::{
-    self, buttons, caption, danger_button, framed, marked, note,
-    primary_button,
+    self, buttons, caption, command_chip, danger_button, framed,
+    marked, note, primary_button,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -210,8 +210,8 @@ pub(crate) fn button(need: &Need, at: usize) -> AnyView {
         WaitDetail::Approval {
             always: Some(Lasting::Session),
             ..
-        } => "For this session",
-        _ => "Always allow",
+        } => "Allow this session",
+        _ => "Allow always",
     };
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
     let (which, text, rules, variant): (_, _, fn(&mut Cx), _) =
@@ -339,7 +339,15 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             {
                 frame().boxed()
             }
-            // The exact text, which a tag in the world may cut.
+            // The exact command, which a tag in the world may cut.
+            (None, None)
+                if matches!(
+                    need.detail,
+                    WaitDetail::Approval { .. }
+                ) =>
+            {
+                command_chip(need.about.clone()).boxed()
+            }
             (None, None) => {
                 note(need.about.clone()).tagged(MonoText).boxed()
             }
@@ -502,7 +510,7 @@ mod tests {
                 .any(|text| text.starts_with("Approval from ada")),
             "{shown:?}"
         );
-        for text in ["Allow once", "For this session", "Deny"] {
+        for text in ["Allow once", "Allow this session", "Deny"] {
             assert!(
                 shown.iter().any(|shown| shown == text),
                 "missing {text}: {shown:?}"

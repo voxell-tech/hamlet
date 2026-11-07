@@ -23,9 +23,9 @@ use bevy::ui::{
     PositionType, UiRect, UiTransform, Val, px,
 };
 use bevy::window::{PrimaryWindow, Window};
-use bevy_fynix::resource;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{FrameProps, column, label, overlay};
+use bevy_fynix::{ScopedExt, resource};
 use hamlet_client::realm::{
     Account, Activity, AgentNumber, Busy, Left, LivesIn, Mayor,
     MergedInto, Mode, Purpose, Roster, Shown, Treasury, Works,
@@ -34,6 +34,7 @@ use hamlet_client::waits::Waiting;
 use hamlet_realm::chief::{Beside, Look};
 use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
+use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::EffectSettings;
 use hamlet_ui::widgets::platform::show;
@@ -587,8 +588,8 @@ pub fn place(
 /// A line of the card that takes no room while it is empty.
 fn line(read: fn(&Card) -> &String, tone: Tone) -> impl View {
     label(resource::<Card, _>(move |card| read(card).clone()))
-        .size(12.0)
         .tone(tone)
+        .rules(small_rules)
 }
 
 /// The card, on the window's top layer. It is built once.
@@ -601,8 +602,8 @@ pub fn view() -> impl View {
                 .bold(true)
                 .wrap(false),
             label(resource::<Card, _>(|card| card.state.clone()))
-                .size(12.0)
-                .tone(resource::<Card, _>(|card| card.tone)),
+                .tone(resource::<Card, _>(|card| card.tone))
+                .rules(small_rules),
             line(|card| &card.purpose, Tone::Body),
             line(|card| &card.account, Tone::Dim),
             line(|card| &card.hint, Tone::Dim),

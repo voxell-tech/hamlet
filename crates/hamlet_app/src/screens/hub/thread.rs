@@ -30,6 +30,7 @@ use hamlet_ui::styles::{
     scroll_area,
 };
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
@@ -41,6 +42,7 @@ use crate::history::History;
 use crate::overview::tell;
 use crate::roll::rolled;
 use crate::screens::petition::{self, Need};
+use crate::standing::Standing;
 use crate::{chat, world_menu};
 
 /// What the thread's page shows: its chat, or its details in the
@@ -381,34 +383,33 @@ fn waits(agent: Entity) -> impl View {
     .within(bare().shrink(0.0).max_height(percent(40.0)))
 }
 
-/// The state shown for `agent`: its waits first, then work or rest.
-fn standing(world: &World, agent: Entity) -> (Glyph, Tone, String) {
-    if !waits_of(world, agent).is_empty() {
-        return (Glyph::Bell, Tone::Critical, "Waits for you".into());
-    }
-    let words = world
-        .get::<Activity>(agent)
-        .cloned()
-        .unwrap_or_default()
-        .words;
-    match world.get::<Busy>(agent) {
-        Some(_) => (Glyph::Bolt, Tone::Accent, words),
-        None => (Glyph::Moon, Tone::Faint, words),
-    }
-}
-
-/// What it is doing, with the mark of its state.
+/// Its state, by its name, and what it works on while it works.
 fn state(agent: Entity) -> impl View {
-    let words = label(rolled(move |world| standing(world, agent).2))
-        .tone(rolled(move |world| standing(world, agent).1));
+    let standing = move |world: &World| Standing::of(world, agent);
     let mark = icon(rolled(move |world| {
-        standing(world, agent).0.image(ICON)
+        standing(world).glyph().image(ICON)
     }))
     .size(ICON)
-    .tone(rolled(move |world| standing(world, agent).1));
-    row((mark, words.wrap(false)))
+    .tone(rolled(move |world| standing(world).tone()));
+    let word = label(rolled(move |world| {
+        standing(world).word().to_string()
+    }))
+    .tone(rolled(move |world| standing(world).tone()))
+    .wrap(false);
+    let doing = label(rolled(move |world| {
+        if standing(world) != Standing::Works {
+            return String::new();
+        }
+        world
+            .get::<Activity>(agent)
+            .map(|activity| activity.words.clone())
+            .unwrap_or_default()
+    }))
+    .tone(Tone::Dim);
+    row((mark, word, column((one_line(doing),)).min_width(px(0.0))))
         .gap(5.0)
         .align(AlignItems::Center)
+        .min_width(px(0.0))
 }
 
 fn header(agent: Entity) -> impl View {
@@ -450,14 +451,10 @@ fn header(agent: Entity) -> impl View {
             // chat and the details, the one shown underlined, with
             // what the chat tab shows and the rest at their end.
             column((
-                row((
-                    path(agent, Vec::new()),
-                    frame().grow(1.0),
-                    state(agent),
-                ))
-                .gap(gap)
-                .align(AlignItems::Center)
-                .tagged(Wraps),
+                row((path(agent, Vec::new()), state(agent)))
+                    .gap(gap)
+                    .align(AlignItems::Center)
+                    .tagged(Wraps),
                 row((
                     column((tabs::strip(&SHEETS, |world, sheet| {
                         *world.resource_mut::<Sheet>() = sheet;

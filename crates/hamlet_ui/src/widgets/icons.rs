@@ -68,7 +68,8 @@ pub enum Glyph {
     Talk,
     /// A speech balloon with a plus in it.
     NewSession,
-    /// A written page.
+    /// A written page: what an agent is told, its memory and the
+    /// charter.
     Notes,
     /// An hourglass.
     History,
@@ -98,6 +99,7 @@ pub enum Glyph {
     Coins,
     /// A dial with a needle: the budget.
     Meter,
+    /// A signpost: roads.
     Signpost,
     /// A robot's head: an agent.
     Robot,
@@ -115,10 +117,11 @@ pub enum Glyph {
     Aim,
     Clock,
     Sun,
-    /// A magnifying glass: the Inspector.
+    /// A magnifying glass: a search.
     Lens,
     /// A triangle: go on.
     Play,
+    /// A globe: the world and the realm.
     Globe,
     /// A chevron that points up, for a dropdown to turn.
     Chevron,
@@ -131,6 +134,7 @@ pub enum Glyph {
     Folder,
     /// A compass needle, its north half filled, pointing up.
     Compass,
+    /// An eye: how something looks, and showing it.
     Eye,
     Mountains,
     /// Light falling from a small sun in the corner.
@@ -148,6 +152,22 @@ pub enum Glyph {
     Starred,
     /// An arrow up: send what is typed.
     Send,
+    /// A root with two branches: the Hub, the tree of the realm.
+    Tree,
+    /// A face: who an agent is, its character.
+    Face,
+    /// A tower: the Hand, from its tower in the city.
+    Tower,
+    /// A mortarboard: a scholar, and the city they live in.
+    Scholar,
+    /// A key: a provider's API key.
+    Key,
+    /// A speaker: sound.
+    Speaker,
+    /// An anchor: the harbor.
+    Anchor,
+    /// Two chevrons forward: the fast tier.
+    Fast,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -176,7 +196,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 55] = [
+    pub const ALL: [Glyph; 63] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -232,6 +252,14 @@ impl Glyph {
         Glyph::Star,
         Glyph::Starred,
         Glyph::Send,
+        Glyph::Tree,
+        Glyph::Face,
+        Glyph::Tower,
+        Glyph::Scholar,
+        Glyph::Key,
+        Glyph::Speaker,
+        Glyph::Anchor,
+        Glyph::Fast,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -611,6 +639,83 @@ impl Glyph {
             Glyph::Send => &[
                 Line(8.0, 13.0, 8.0, 3.0),
                 Path(&[[4.0, 7.0], [8.0, 3.0], [12.0, 7.0]]),
+            ],
+            Glyph::Tree => &[
+                Ring(8.0, 3.75, 1.75),
+                Ring(3.75, 12.25, 1.75),
+                Ring(12.25, 12.25, 1.75),
+                Path(&[
+                    [8.0, 5.5],
+                    [8.0, 8.0],
+                    [3.75, 8.0],
+                    [3.75, 10.5],
+                ]),
+                Path(&[[8.0, 8.0], [12.25, 8.0], [12.25, 10.5]]),
+            ],
+            Glyph::Face => &[
+                Ring(8.0, 8.0, 6.0),
+                Dot(5.9, 6.6, 0.9),
+                Dot(10.1, 6.6, 0.9),
+                Arc(8.0, 8.25, 3.25, 30.0, 150.0),
+            ],
+            Glyph::Tower => &[
+                Loop(&[
+                    [4.0, 13.75],
+                    [4.0, 2.5],
+                    [6.25, 2.5],
+                    [6.25, 4.5],
+                    [9.75, 4.5],
+                    [9.75, 2.5],
+                    [12.0, 2.5],
+                    [12.0, 13.75],
+                ]),
+                Path(&[[6.75, 13.75], [6.75, 10.5]]),
+                Arc(8.0, 10.5, 1.25, 180.0, 360.0),
+                Path(&[[9.25, 10.5], [9.25, 13.75]]),
+            ],
+            Glyph::Scholar => &[
+                Loop(&[
+                    [2.0, 6.0],
+                    [8.0, 3.25],
+                    [14.0, 6.0],
+                    [8.0, 8.75],
+                ]),
+                Path(&[
+                    [4.5, 7.25],
+                    [4.5, 11.0],
+                    [8.0, 12.75],
+                    [11.5, 11.0],
+                    [11.5, 7.25],
+                ]),
+                Line(14.0, 6.0, 14.0, 10.0),
+            ],
+            Glyph::Key => &[
+                Ring(5.0, 8.0, 3.0),
+                Line(8.0, 8.0, 14.0, 8.0),
+                Line(12.5, 8.0, 12.5, 10.75),
+                Line(10.25, 8.0, 10.25, 10.0),
+            ],
+            Glyph::Speaker => &[
+                Loop(&[
+                    [2.5, 6.0],
+                    [5.0, 6.0],
+                    [8.5, 3.0],
+                    [8.5, 13.0],
+                    [5.0, 10.0],
+                    [2.5, 10.0],
+                ]),
+                Arc(9.0, 8.0, 2.5, -45.0, 45.0),
+                Arc(9.0, 8.0, 4.75, -45.0, 45.0),
+            ],
+            Glyph::Anchor => &[
+                Ring(8.0, 3.5, 1.5),
+                Line(8.0, 5.0, 8.0, 13.75),
+                Line(5.25, 7.0, 10.75, 7.0),
+                Arc(8.0, 8.5, 5.25, 20.0, 160.0),
+            ],
+            Glyph::Fast => &[
+                Path(&[[3.0, 4.0], [7.0, 8.0], [3.0, 12.0]]),
+                Path(&[[8.5, 4.0], [12.5, 8.0], [8.5, 12.0]]),
             ],
         }
     }

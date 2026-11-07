@@ -577,7 +577,7 @@ fn hires(shown: &Shown) -> AnyView {
 /// Its skills and the character a chief may edit.
 fn knowledge() -> impl View {
     column((
-        heading(Glyph::Robot, "Character"),
+        heading(Glyph::Face, "Character"),
         memory::character(),
         row((action(Glyph::Rename, "Edit", papers::edit_character),)),
         heading(Glyph::Notes, "Memory"),
@@ -658,7 +658,7 @@ fn careful(shown: &Shown) -> AnyView {
         && can("turn-away")
     {
         acts.push(action(
-            Glyph::Back,
+            Glyph::Anchor,
             "Send to the harbor",
             move |world| {
                 tell_hand(world, format!("/turn-away {address}"));

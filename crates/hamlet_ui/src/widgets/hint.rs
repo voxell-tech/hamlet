@@ -40,16 +40,23 @@ pub fn hinted(
     field: impl View,
     word: impl Into<Prop<String>>,
 ) -> impl View {
-    column((
-        column((field.tagged(Hinted),)).width(percent(100.0)),
-        column((label(word).tone(Tone::Dim).wrap(false),))
+    let word = word.into();
+    with_cx(move |cx| {
+        let faint = cx.theme().hint_opacity();
+        column((
+            column((field.tagged(Hinted),)).width(percent(100.0)),
+            column((label(word)
+                .tone(Tone::Dim)
+                .opacity(faint)
+                .wrap(false),))
             .position(PositionType::Absolute)
             .inset(UiRect::new(px(8.0), Val::Auto, px(0.0), px(0.0)))
             .justify(JustifyContent::Center)
             .tagged(Hint),
-    ))
-    .grow(1.0)
-    .min_width(px(0.0))
+        ))
+        .grow(1.0)
+        .min_width(px(0.0))
+    })
 }
 
 /// `field` behind a lens, with `word` in it while it is empty.

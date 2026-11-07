@@ -14,9 +14,10 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row,
 };
-use bevy_fynix::{ViewExt, component, resource};
+use bevy_fynix::{ScopedExt, ViewExt, component, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::markdown::Area;
+use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Palette;
 use hamlet_ui::theme::contrast::{self, TEXT};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
@@ -199,9 +200,9 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             if let Some(to) = to {
                 head.push(
                     label(format!("to {to}"))
-                        .size(11.0)
                         .wrap(false)
                         .tone(Tone::Dim)
+                        .rules(small_rules)
                         .boxed(),
                 );
             }
@@ -209,12 +210,14 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             // The panel over the chat says what its own agent is
             // for.
             let tag = if line.by == 0 { "" } else { &who.tag };
-            let tag = label(tag.to_string()).size(11.0).wrap(false);
+            let tag = label(tag.to_string()).wrap(false);
             head.push(match who.kind {
-                Kind::Mayor | Kind::Hand => {
-                    tag.bold(true).tone(Tone::Faint).boxed()
-                }
-                _ => tag.tone(Tone::Dim).boxed(),
+                Kind::Mayor | Kind::Hand => tag
+                    .bold(true)
+                    .tone(Tone::Faint)
+                    .rules(small_rules)
+                    .boxed(),
+                _ => tag.tone(Tone::Dim).rules(small_rules).boxed(),
             });
             inside.push(
                 row(head)
@@ -249,11 +252,10 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             }
             false => hamlet_ui::markdown::typed(typed, reserve),
         };
-        let hour = label(time).size(10.0).wrap(false).tone(if mine {
-            Tone::Faint
-        } else {
-            Tone::Dim
-        });
+        let hour = label(time)
+            .wrap(false)
+            .tone(if mine { Tone::Faint } else { Tone::Dim })
+            .rules(small_rules);
         match words {
             // The hour sits in the room kept at the end of the
             // last line.

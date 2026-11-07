@@ -126,13 +126,13 @@ impl Pane {
     fn glyph(self) -> Glyph {
         match self {
             Pane::Front => Glyph::Sliders,
-            Pane::Endpoints => Glyph::Globe,
+            Pane::Endpoints => Glyph::Signal,
             Pane::Models => Glyph::Chip,
             Pane::Agents => Glyph::Robot,
             Pane::Workspace => Glyph::Shield,
             Pane::Charter => Glyph::Notes,
-            Pane::Realm => Glyph::Signpost,
-            Pane::Sound => Glyph::Bell,
+            Pane::Realm => Glyph::Globe,
+            Pane::Sound => Glyph::Speaker,
             Pane::Sight => Glyph::Sun,
             Pane::Appearance => Glyph::Eye,
         }

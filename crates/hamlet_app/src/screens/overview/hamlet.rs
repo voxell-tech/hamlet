@@ -194,17 +194,12 @@ fn list_of(hamlet: Entity) -> impl View {
             } else {
                 row.name.clone()
             };
-            let state = row.state.clone();
-            let beside = match (row.gone, row.waiting, row.busy) {
-                (true, ..) => (Glyph::Gone, state, Tone::Critical),
-                (_, 0, true) => (Glyph::Bolt, state, Tone::Accent),
-                (_, 0, false) => (Glyph::Moon, state, Tone::Dim),
-                (_, n, _) => (
-                    Glyph::Bell,
-                    format!("Waits for you ({n})"),
-                    Tone::Critical,
-                ),
-            };
+            let standing = row.standing;
+            let beside = (
+                standing.glyph(),
+                standing.word().to_string(),
+                standing.tone(),
+            );
             let gone = row.gone;
             let thing = if gone {
                 Thing::Ruin(agent)
@@ -215,7 +210,11 @@ fn list_of(hamlet: Entity) -> impl View {
                 thing,
                 title,
                 beside,
-                vec![row.purpose.clone(), row.account.clone()],
+                vec![
+                    row.doing.clone(),
+                    row.purpose.clone(),
+                    row.account.clone(),
+                ],
                 move |world| {
                     if gone {
                         select(world, Some(thing));
@@ -412,7 +411,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             // menu.
             let mayor_of = facts.id.clone();
             actions.push(action(
-                Glyph::Robot,
+                Glyph::Scholar,
                 "Hire a scholar",
                 move |world| {
                     if let Some(mayor) =
@@ -427,7 +426,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         }
         if *workers {
             actions.push(action(
-                Glyph::Chip,
+                Glyph::Robot,
                 "Start a worker",
                 move |world| {
                     forms::toggle(world, Asking::Worker(hamlet));

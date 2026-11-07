@@ -268,7 +268,7 @@ fn character() -> impl View {
     let edit =
         action(Glyph::Rename, "Edit", super::papers::edit_character);
     column((
-        heading(Glyph::Robot, "Character"),
+        heading(Glyph::Face, "Character"),
         memory::character(),
         row((edit,)),
     ))
@@ -278,8 +278,8 @@ fn character() -> impl View {
 /// Its prompt in full, and a reflection asked now.
 fn pages() -> impl View {
     row((
-        action(Glyph::Lens, "Prompt", super::thread::show_prompt),
-        action(Glyph::Notes, "Reflect now", |world| {
+        action(Glyph::Notes, "Prompt", super::thread::show_prompt),
+        action(Glyph::Moon, "Reflect now", |world| {
             if let Some(to) = super::papers::selected(world) {
                 world.trigger(
                     hamlet_client::messages::ChiefMessage {

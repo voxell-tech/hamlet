@@ -11,10 +11,9 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::realm::{
-    Account, Activity, AgentNumber, Busy, HamletId, Identity, Left,
+    Account, Activity, AgentNumber, HamletId, Identity, Left,
     LivesIn, Mayor, MergedInto, Parent, Purpose, Treasury,
 };
-use hamlet_client::waits::Waiting;
 use hamlet_protocol::client::AgentId;
 use hamlet_realm::pick::Thing;
 use hamlet_ui::styles::{card_button, card_name, note, status_label};
@@ -24,6 +23,7 @@ use hamlet_ui::{View, with_cx};
 
 use super::Naming;
 use crate::roll::Roll;
+use crate::standing::Standing;
 use crate::world_menu;
 
 /// A check that fires when the agents or the hamlets changed,
@@ -62,21 +62,14 @@ pub(crate) fn standing(
         1 => "1 agent".to_string(),
         n => format!("{n} agents"),
     };
-    match (waiting, working) {
-        (0, 0) => {
-            (Glyph::Moon, format!("{count}, all at rest"), Tone::Dim)
+    let (state, words) = match (waiting, working) {
+        (0, 0) => (Standing::Rests, format!("{count}, all at rest")),
+        (0, n) => (Standing::Works, format!("{count}, {n} at work")),
+        (w, _) => {
+            (Standing::Waits, format!("{count}, {w} waiting for you"))
         }
-        (0, n) => (
-            Glyph::Bolt,
-            format!("{count}, {n} at work"),
-            Tone::Accent,
-        ),
-        (w, _) => (
-            Glyph::Bell,
-            format!("{count}, {w} waiting for you"),
-            Tone::Critical,
-        ),
-    }
+    };
+    (state.glyph(), words, state.tone())
 }
 
 /// An agent of a hamlet, living or gone.
@@ -89,9 +82,8 @@ pub(super) struct AgentRow {
     pub mayor: bool,
     pub purpose: String,
     /// Its work, or the way it left.
-    pub state: String,
-    pub busy: bool,
-    pub waiting: usize,
+    pub doing: String,
+    pub standing: Standing,
     pub gone: bool,
     pub account: String,
     /// How many leads there are between it and the top of its
@@ -102,13 +94,12 @@ pub(super) struct AgentRow {
 type Told<'a> = (
     Entity,
     &'a AgentNumber,
-    &'a Name,
     &'a LivesIn,
     Option<&'a Purpose>,
     Option<&'a Activity>,
     Option<&'a Account>,
     Option<&'a MergedInto>,
-    (Has<Busy>, Has<Mayor>, Has<Left>),
+    (Has<Mayor>, Has<Left>),
     &'a Identity,
     Option<&'a Parent>,
 );
@@ -182,55 +173,42 @@ pub(super) fn agent_rows(
     let Some(mut agents) = world.try_query::<Told>() else {
         return Vec::new();
     };
-    let waits = world
-        .try_query::<&Waiting>()
-        .map(|mut waits| {
-            waits
-                .iter(world)
-                .map(|w| w.by.clone())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
     let named =
         |agent: Entity| hamlet_client::realm::shown_of(world, agent);
     let mut ids = Vec::new();
     let mut parents = Vec::new();
     let mut rows = agents
         .iter(world)
-        .filter(|told| hamlet.is_none_or(|h| told.3.0 == h))
+        .filter(|told| hamlet.is_none_or(|h| told.2.0 == h))
         .map(
             |(
                 agent,
                 number,
-                name,
                 _,
                 purpose,
                 activity,
                 account,
                 into,
-                (busy, mayor, gone),
+                (mayor, gone),
                 id,
                 parent,
             )| {
                 ids.push((agent, id.0));
                 parents.push((id.0, parent.map(|parent| parent.0)));
-                let address = name.as_str().to_string();
-                let name = named(agent);
-                let state = match (gone, into) {
+                let standing = Standing::of(world, agent);
+                let doing = match (gone, into) {
                     (true, Some(host)) => {
                         format!("Merged into {}", named(host.0))
                     }
                     (true, None) => "Removed".to_string(),
+                    // Its standing says the rest.
+                    _ if standing != Standing::Works => String::new(),
                     _ => activity.cloned().unwrap_or_default().words,
                 };
                 AgentRow {
                     agent,
                     number: number.0,
-                    waiting: waits
-                        .iter()
-                        .filter(|by| **by == address)
-                        .count(),
-                    name,
+                    name: named(agent),
                     mayor,
                     purpose: purpose
                         .map(|p| {
@@ -240,8 +218,8 @@ pub(super) fn agent_rows(
                             )
                         })
                         .unwrap_or_default(),
-                    state,
-                    busy,
+                    doing,
+                    standing,
                     gone,
                     account: account
                         .map(crate::models::account_words)

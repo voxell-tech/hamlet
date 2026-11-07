@@ -56,6 +56,14 @@ pub(super) fn setup(world: &mut World) {
         world,
         protocol::ServerMessage::State(state),
     );
+    // The key that was not accepted, still in its field.
+    if scene == Scene::Welcome(hamlet_app::welcome::Step::Key) {
+        hamlet_app::welcome::type_key(
+            world,
+            "openrouter",
+            "sk-or-v1-5e0d2c41a7",
+        );
+    }
     let agent =
         realm::first_mayor(world).expect("the received mayor");
     let to = protocol::AgentId(2);

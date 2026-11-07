@@ -13,11 +13,13 @@ use bevy::ui::{
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{Frame, FrameProps, column, frame, label};
-use bevy_fynix::{EntityCursor, ViewExt, derived, keyed, resource};
+use bevy_fynix::{
+    EntityCursor, ScopedExt, ViewExt, derived, keyed, resource,
+};
 use hamlet_ui::markdown::{
     Face, Ink, Span, Style, Target, picture_words as words, rich,
 };
-use hamlet_ui::styles::{action, bare, note};
+use hamlet_ui::styles::{action, bare, note, small_rules};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View};
 
@@ -124,8 +126,8 @@ fn card(
     if *state == State::Failed {
         parts.push(
             label("No picture came from there.")
-                .size(12.0)
                 .tone(Tone::Critical)
+                .rules(small_rules)
                 .boxed(),
         );
     }
@@ -133,7 +135,7 @@ fn card(
         State::Loading => note("Fetching the picture...").boxed(),
         _ => {
             let address = address.to_string();
-            action(Glyph::Globe, "Show picture", move |world| {
+            action(Glyph::Eye, "Show picture", move |world| {
                 fetch(world, &address);
             })
         }

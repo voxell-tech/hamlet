@@ -5,7 +5,7 @@ mod providers;
 
 use std::collections::BTreeMap;
 
-use bevy::app::{App, PostUpdate, PreUpdate};
+use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -39,6 +39,7 @@ pub(crate) fn plugin(app: &mut App) {
             commands.queue(providers::reconnected);
         })
         .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
+        .add_systems(Update, providers::hold_send)
         // After Bevy's text input, in `PreUpdate`, has edited the
         // field.
         // After Bevy tells the field commit() unfocused that it lost
@@ -119,6 +120,14 @@ pub fn again(world: &mut World) {
         manual: true,
         ..Default::default()
     };
+}
+
+/// `key` typed for `provider` on the key page, as the chief types
+/// it.
+pub fn type_key(world: &mut World, provider: &str, key: &str) {
+    let mut login = world.get_resource_or_init::<providers::Login>();
+    login.provider = Some(provider.into());
+    login.answer = key.into();
 }
 
 /// Setup for another provider, keeping the current model.
@@ -444,9 +453,44 @@ mod server_tests {
             .unwrap()
             .editor_mut()
             .set_text(key);
-        // The field's text is committed and sent in the same frame.
+        // Continue takes a press once the field has text, and the
+        // text is committed and sent in the same frame.
+        app.update();
         press(app, "Continue");
         app.update();
+    }
+
+    #[test]
+    fn continue_waits_for_a_key_to_be_typed() {
+        let mut app = welcome_app();
+        connect(&mut app, true);
+        providers(&mut app);
+        mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "I have a key");
+        app.update();
+        let held = |app: &mut App| {
+            app.world_mut()
+                .query_filtered::<(), (
+                    With<providers::KeySend>,
+                    With<bevy::ui::InteractionDisabled>,
+                )>()
+                .iter(app.world())
+                .count()
+                == 1
+        };
+        assert!(held(&mut app), "held while the field is empty");
+        let input = app
+            .world_mut()
+            .query_filtered::<Entity, With<EditableText>>()
+            .single(app.world())
+            .expect("one field");
+        app.world_mut()
+            .get_mut::<EditableText>(input)
+            .unwrap()
+            .editor_mut()
+            .set_text("fake-key");
+        app.update();
+        assert!(!held(&mut app), "free once a key is typed");
     }
 
     #[test]

@@ -23,7 +23,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::styles::{
-    Fills, ICON, back_link, bare, close_button, note,
+    Fills, ICON, back_link, bare, close_button, note, small_rules,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
@@ -235,15 +235,12 @@ pub(super) fn answered(answers: &Answers) -> impl View + use<> {
     row((
         glyph(Glyph::Talk, 11.0).tone(Tone::Dim),
         label(answers.by.clone())
-            .size(11.0)
             .bold(true)
             .wrap(false)
-            .tone(Tone::Dim),
-        one_line(
-            label(cut(&answers.text, SHOWN))
-                .size(11.0)
-                .tone(Tone::Dim),
-        ),
+            .tone(Tone::Dim)
+            .rules(small_rules),
+        one_line(label(cut(&answers.text, SHOWN)).tone(Tone::Dim))
+            .rules(small_rules),
     ))
     .gap(5.0)
     .align(AlignItems::Center)
@@ -280,15 +277,14 @@ fn shown(cx: &Cx, answers: &Answers) -> AnyView {
             .fill(cx.theme().palette.gold_5),
         column((
             label(format!("Replying to {}", answers.by))
-                .size(11.0)
                 .bold(true)
                 .wrap(false)
-                .tone(Tone::Faint),
+                .tone(Tone::Faint)
+                .rules(small_rules),
             one_line(
-                label(cut(&answers.text, SHOWN))
-                    .size(12.0)
-                    .tone(Tone::Dim),
-            ),
+                label(cut(&answers.text, SHOWN)).tone(Tone::Dim),
+            )
+            .rules(small_rules),
         ))
         .gap(1.0)
         .fills_width()

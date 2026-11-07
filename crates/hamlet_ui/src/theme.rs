@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use bevy::app::App;
 use bevy::asset::Asset;
-use bevy::color::{Color, Luminance};
+use bevy::color::{Color, Luminance, Mix, Srgba};
 use bevy::ecs::message::{Message, Messages};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{If, Res, SystemParam};
@@ -281,14 +281,12 @@ impl Palette {
 pub struct TextSizes {
     pub body: f32,
     /// Notes, buttons, tabs, breadcrumbs and the names of a panel's
-    /// parts.
+    /// parts. The least size of any lettering.
     pub small: f32,
     /// A menu's title and a card's, never below the body.
     pub heading: f32,
     /// The name at the head of a page, in the display face.
     pub title: f32,
-    /// The smallest lettering, as on a key.
-    pub caption: f32,
     /// The space between the letters of the display face.
     pub tracking: f32,
 }
@@ -528,6 +526,30 @@ impl SurfaceTokens for HamletTheme {
 }
 
 impl HamletTheme {
+    /// How opaque the words of an empty field are: as faint as dim
+    /// text can be while it still reads on the field.
+    pub fn hint_opacity(&self) -> f32 {
+        (0..=100)
+            .map(|step| step as f32 / 100.0)
+            // Above the need by a little, so the colour rounded to
+            // 8 bits still meets it.
+            .find(|&opacity| {
+                contrast::contrast(
+                    self.hint(opacity),
+                    self.palette.input,
+                ) >= contrast::TEXT + 0.1
+            })
+            .unwrap_or(1.0)
+    }
+
+    /// Dim text at `opacity` as seen on a field.
+    pub(crate) fn hint(&self, opacity: f32) -> Color {
+        let ground = Srgba::from(self.palette.input);
+        ground
+            .mix(&Srgba::from(self.palette.grey_1), opacity)
+            .into()
+    }
+
     fn away_from_on_accent(&self, by: f32) -> Color {
         let accent = self.accent();
         if contrast::light(self.tone(Tone::OnAccent))

@@ -34,15 +34,15 @@ use bevy_fynix::{
 };
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
-    Activity, Busy, Faulted, HamletId, Identity, Kind, Left, Lived,
-    LivesIn, Mayor, MergedInto, Parent, Purpose, Scholar, Shown,
-    Skills, name_of, shown_of,
+    Activity, Busy, HamletId, Identity, Kind, Left, Lived, LivesIn,
+    Mayor, MergedInto, Parent, Purpose, Scholar, Shown, Skills,
+    name_of, shown_of,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    ICON, caption, note, scroll_area, text_input,
+    ICON, caption, note, quoted, scroll_area, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -56,6 +56,7 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 use super::{Showing, show};
 use crate::age::Age;
 use crate::convo::{Convo, talk_to, talk_to_hand};
+use crate::standing::Standing;
 use crate::status::now_ms;
 
 /// The width of the rail at first, the least it is dragged to, so a
@@ -293,40 +294,6 @@ pub(super) enum Target {
     Gone(Entity),
 }
 
-/// The state shown at a row's end.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Mark {
-    Waits,
-    Works,
-    Rests,
-    Faulted,
-    Gone,
-    /// Nothing to say: a page, not someone.
-    None,
-}
-
-impl Mark {
-    fn shown(self) -> Option<(Glyph, Tone)> {
-        match self {
-            Self::Waits => Some((Glyph::Bell, Tone::Critical)),
-            Self::Works => Some((Glyph::Bolt, Tone::Accent)),
-            Self::Rests => Some((Glyph::Moon, Tone::Faint)),
-            Self::Faulted => Some((Glyph::Stop, Tone::Critical)),
-            Self::Gone => Some((Glyph::Gone, Tone::Faint)),
-            Self::None => None,
-        }
-    }
-
-    /// The mark of a group of rows: the most pressing of theirs.
-    fn of_all(marks: impl Iterator<Item = Mark>) -> Mark {
-        let marks = marks.collect::<Vec<_>>();
-        [Mark::Waits, Mark::Faulted, Mark::Works]
-            .into_iter()
-            .find(|mark| marks.contains(mark))
-            .unwrap_or(Mark::Rests)
-    }
-}
-
 /// A row of the rail.
 #[derive(Clone, PartialEq, Debug)]
 pub(super) struct Line {
@@ -335,7 +302,7 @@ pub(super) struct Line {
     pub name: String,
     pub title: String,
     pub age: String,
-    pub mark: Mark,
+    pub mark: Option<Standing>,
     /// What the search also finds it by: its address.
     pub address: String,
     /// How far under another agent it is nested.
@@ -359,7 +326,7 @@ pub(super) struct Section {
     /// Where pressing its title leads, if anywhere.
     pub opens: Option<Target>,
     /// The state of all of it, shown on its header.
-    pub mark: Mark,
+    pub mark: Option<Standing>,
     pub count: usize,
     pub folded: bool,
     pub lines: Vec<Line>,
@@ -373,7 +340,7 @@ struct Agent {
     parent: Option<protocol::AgentId>,
     hamlet: Option<Entity>,
     mayor: bool,
-    mark: Mark,
+    mark: Option<Standing>,
     /// Its address, and what it goes by: its nickname, or its
     /// scholar's name.
     address: String,
@@ -444,30 +411,14 @@ fn agents(world: &World) -> Vec<Agent> {
         &Lived,
         Option<&Purpose>,
         Option<&Shown>,
-        (Has<Busy>, Has<Faulted>, Has<Mayor>, Has<Left>),
+        (Has<Busy>, Has<Mayor>, Has<Left>),
     )>() else {
         return Vec::new();
     };
-    let waiting = world
-        .try_query::<&Waiting>()
-        .map(|mut waits| {
-            // A newcomer's wait is about the scholar, not its maker.
-            waits
-                .iter(world)
-                .filter(|wait| {
-                    !matches!(
-                        wait.detail,
-                        protocol::WaitDetail::Newcomer { .. }
-                    )
-                })
-                .map(|wait| wait.by.clone())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
     let now = now_ms();
     query
         .iter(world)
-        .filter(|(.., (_, _, _, left))| !left)
+        .filter(|(.., (_, _, left))| !left)
         .map(
             |(
                 entity,
@@ -479,19 +430,11 @@ fn agents(world: &World) -> Vec<Agent> {
                 lived,
                 purpose,
                 shown,
-                (busy, faulted, mayor, _),
+                (busy, mayor, _),
             )| {
                 let address = name_of(world, entity);
                 let (said, last) = thread(world, id.0);
-                let mark = if waiting.contains(&address) {
-                    Mark::Waits
-                } else if faulted {
-                    Mark::Faulted
-                } else if busy {
-                    Mark::Works
-                } else {
-                    Mark::Rests
-                };
+                let mark = Some(Standing::of(world, entity));
                 // Its work while it works, else what it was asked.
                 let title = if busy {
                     Some(activity.words.clone())
@@ -595,10 +538,11 @@ fn family_lines(
 
 fn kind_glyph(agent: &Agent) -> Glyph {
     match agent.kind {
-        protocol::AgentKind::Hand => Glyph::Shield,
+        protocol::AgentKind::Hand => Glyph::Tower,
         protocol::AgentKind::Hire if agent.mayor => Glyph::Mayor,
-        protocol::AgentKind::Hire => Glyph::Robot,
-        protocol::AgentKind::Worker => Glyph::Chip,
+        protocol::AgentKind::Hire | protocol::AgentKind::Worker => {
+            Glyph::Robot
+        }
     }
 }
 
@@ -680,10 +624,11 @@ fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
         let shut = folded.contains(&group);
         // Open, each row shows its own state; folded, the lead
         // stands for all of them.
-        let mark = Mark::of_all(
+        let mark = Some(Standing::of_all(
             std::iter::once(lines[at].mark)
-                .chain(range.iter().map(|line| line.mark)),
-        );
+                .chain(range.iter().map(|line| line.mark))
+                .flatten(),
+        ));
         let line = &mut lines[at];
         line.fold = Some((group, shut));
         if shut {
@@ -715,7 +660,7 @@ fn page_line(
     glyph: Glyph,
     name: &str,
     title: String,
-    mark: Mark,
+    mark: Option<Standing>,
 ) -> Line {
     Line {
         target,
@@ -766,11 +711,11 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
                 .unwrap_or_default();
             lines.push(Line {
                 target: Target::Scholar(entity),
-                glyph: Glyph::Notes,
+                glyph: Glyph::Scholar,
                 name: format!("{name} · harbor"),
                 title: "Wants to be let into the city".into(),
                 age: age(now, wait.since),
-                mark: Mark::Waits,
+                mark: Some(Standing::Waits),
                 address: name,
                 depth: 0,
                 last: true,
@@ -797,7 +742,7 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
             Some(agent)
                 if agent.kind == protocol::AgentKind::Hand =>
             {
-                (Target::Hand, Glyph::Shield, "The Hand".to_string())
+                (Target::Hand, Glyph::Tower, "The Hand".to_string())
             }
             // What it goes by, and the hamlet it is in.
             Some(agent) => (
@@ -821,7 +766,7 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
             name,
             title: said.to_string(),
             age: age(now, wait.since),
-            mark: Mark::Waits,
+            mark: Some(Standing::Waits),
             address: wait.by.clone(),
             depth: 0,
             last: true,
@@ -872,31 +817,33 @@ fn society(world: &World, sections: &mut Vec<Section>) {
             hamlets.dedup();
             let (title, mark) = match (&scholar.left, scholar.arrival)
             {
-                (Some(_), _) => ("Left the city".into(), Mark::Gone),
+                (Some(_), _) => {
+                    ("Left the city".into(), Some(Standing::Gone))
+                }
                 (None, protocol::Arrival::Waiting) => (
                     "Waits to be let in".into(),
                     if chief_holds_door {
-                        Mark::Waits
+                        Some(Standing::Waits)
                     } else {
-                        Mark::None
+                        None
                     },
                 ),
                 (None, protocol::Arrival::Turned) => {
-                    ("Turned away".into(), Mark::Gone)
+                    ("Turned away".into(), Some(Standing::Gone))
                 }
                 (None, protocol::Arrival::Housed)
                     if hamlets.is_empty() =>
                 {
-                    ("Not hired".into(), Mark::None)
+                    ("Not hired".into(), None)
                 }
                 (None, protocol::Arrival::Housed) => {
-                    (format!("In {}", hamlets.join(", ")), Mark::None)
+                    (format!("In {}", hamlets.join(", ")), None)
                 }
             };
             let line = page_line(
                 world,
                 Target::Scholar(entity),
-                Glyph::Notes,
+                Glyph::Scholar,
                 &scholar.name,
                 title,
                 mark,
@@ -916,7 +863,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
             group,
             title: title.into(),
             opens: None,
-            mark: Mark::None,
+            mark: None,
             count: lines.len(),
             folded: false,
             lines,
@@ -957,7 +904,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
                     }
                     None => "Ended".into(),
                 },
-                Mark::Gone,
+                Some(Standing::Gone),
             );
             line.address = address;
             gone.push(line);
@@ -968,7 +915,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
         group: Group::Left,
         title: "Left".into(),
         opens: None,
-        mark: Mark::None,
+        mark: None,
         count,
         folded: false,
         lines: gone,
@@ -1002,7 +949,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         Glyph::Globe,
         "Realm",
         String::new(),
-        Mark::None,
+        None,
     )];
     if let Some(hand) =
         all.iter().find(|a| a.kind == protocol::AgentKind::Hand)
@@ -1025,13 +972,13 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             1 => "1 skill on its shelves".into(),
             n => format!("{n} skills on its shelves"),
         },
-        Mark::None,
+        None,
     ));
     sections.push(Section {
         group: Group::Top,
         title: String::new(),
         opens: None,
-        mark: Mark::None,
+        mark: None,
         count: 0,
         folded: false,
         lines: top,
@@ -1042,7 +989,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         group: Group::Needs,
         title: "Needs you".into(),
         opens: Some(Target::Realm),
-        mark: Mark::None,
+        mark: None,
         count: needs.len(),
         folded: false,
         lines: needs,
@@ -1071,7 +1018,9 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             lines.extend(family_lines(world, &tree(root, &here), 0));
         }
         let group = Group::Hamlet(hamlet);
-        let mark = Mark::of_all(lines.iter().map(|line| line.mark));
+        let mark = Some(Standing::of_all(
+            lines.iter().filter_map(|line| line.mark),
+        ));
         // A search finds rows a lead would fold away.
         if search.is_empty() {
             lines = fold_leads(lines, &folded);
@@ -1086,7 +1035,8 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             opens: Some(Target::Hamlet(hamlet)),
             mark,
             count: hires,
-            folded: folded.contains(&group) && mark != Mark::Waits,
+            folded: folded.contains(&group)
+                && mark != Some(Standing::Waits),
             lines,
         });
     }
@@ -1102,7 +1052,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
                 && !section
                     .lines
                     .iter()
-                    .any(|l| l.mark == Mark::Waits);
+                    .any(|l| l.mark == Some(Standing::Waits));
         }
         if !search.is_empty() {
             section.folded = false;
@@ -1127,7 +1077,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             Group::Hamlet(hamlet) => {
                 tab == Tab::Hamlets
                     && (!hidden.contains(&hamlet)
-                        || section.mark == Mark::Waits)
+                        || section.mark == Some(Standing::Waits))
             }
             Group::City | Group::Harbor => tab == Tab::City,
         };
@@ -1154,7 +1104,7 @@ fn hamlet_names(world: &World) -> Vec<(Entity, String)> {
 /// The tabs between the hamlets and the city.
 const TABS: [(Tab, Glyph, &str); 2] = [
     (Tab::Hamlets, Glyph::Hamlet, "Hamlets"),
-    (Tab::City, Glyph::Notes, "City"),
+    (Tab::City, Glyph::Scholar, "City"),
 ];
 
 /// An icon button of the search row.
@@ -1329,6 +1279,13 @@ fn look_at(world: &mut World, thing: Thing) {
     }
 }
 
+/// The rules of words that stand back: every label in the view dim.
+fn dim_rules(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .label(|l, _| l.tone(Tone::Dim))
+        .apply(cx);
+}
+
 fn row_rules(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, _| {
@@ -1405,9 +1362,12 @@ fn branch(line: &Line) -> impl View {
     })
 }
 
-fn mark_icon(mark: Mark) -> AnyView {
-    match mark.shown() {
-        Some((which, tone)) => glyph(which, ICON).tone(tone).boxed(),
+fn mark_icon(mark: Option<Standing>) -> AnyView {
+    match mark {
+        Some(standing) => glyph(standing.glyph(), ICON)
+            .tone(standing.tone())
+            .tooltip(move || note(standing.word()))
+            .boxed(),
         None => frame().width(px(ICON)).boxed(),
     }
 }
@@ -1422,30 +1382,38 @@ fn expanded(line: &Line) -> AnyView {
     let content = row((
         glyph(line.glyph, ICON).tone(Tone::Dim),
         column((
-            one_line(
-                label(line.name.clone()).tone(name_tone).bold(true),
-            ),
+            // Its state right after its name.
+            row((
+                column((one_line(
+                    label(line.name.clone())
+                        .tone(name_tone)
+                        .bold(true),
+                ),))
+                .min_width(px(0.0))
+                .overflow(Overflow::clip()),
+                mark_icon(line.mark),
+            ))
+            .gap(6.0)
+            .align(AlignItems::Center),
             // A row with nothing more to say is one line.
-            column((one_line(
-                label(line.title.clone()).tone(Tone::Dim),
-            ),))
+            column((if line.title.contains('`') {
+                quoted(&line.title)
+            } else {
+                one_line(label(line.title.clone())).boxed()
+            },))
+            .overflow(Overflow::clip())
             .display(if line.title.is_empty() {
                 Display::None
             } else {
                 Display::Flex
-            }),
+            })
+            .rules(dim_rules),
         ))
         .gap(0.0)
         .grow(1.0)
         .min_width(px(0.0))
         .overflow(Overflow::clip()),
-        // How long ago, beside its state.
-        row((
-            label(line.age.clone()).tone(Tone::Faint).wrap(false),
-            mark_icon(line.mark),
-        ))
-        .gap(4.0)
-        .align(AlignItems::Center),
+        label(line.age.clone()).tone(Tone::Faint).wrap(false),
     ))
     .gap(8.0)
     .align(AlignItems::Center)
@@ -1547,7 +1515,6 @@ fn header(section: &Section) -> AnyView {
     parts.push(
         label(section.count.to_string()).tone(Tone::Dim).boxed(),
     );
-    parts.push(frame().grow(1.0).boxed());
     if matches!(group, Group::Hamlet(_)) {
         parts.push(mark_icon(section.mark));
     }

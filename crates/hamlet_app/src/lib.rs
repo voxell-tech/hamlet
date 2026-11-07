@@ -30,6 +30,7 @@ pub mod secret;
 pub mod screens;
 pub mod select;
 mod sounds;
+mod standing;
 mod status;
 #[cfg(test)]
 mod testing;

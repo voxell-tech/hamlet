@@ -36,6 +36,7 @@ pub(crate) use self::hamlet::typed;
 pub use self::hamlet::{Naming, Page, hamlet};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
+use crate::standing::Standing;
 use crate::{chat, world_menu};
 
 pub fn plugin(app: &mut App) {
@@ -89,15 +90,11 @@ pub fn overview() -> impl View {
                     crate::chief::go_home,
                 )
                 .boxed(),
+                action(Glyph::Anchor, "Harbor", glide_to_other_pier)
+                    .tooltip(|| note("Cross to the other island"))
+                    .boxed(),
                 action(
-                    Glyph::Signpost,
-                    "Harbor",
-                    glide_to_other_pier,
-                )
-                .tooltip(|| note("Cross to the other island"))
-                .boxed(),
-                action(
-                    Glyph::Notes,
+                    Glyph::Scholar,
                     "New scholar",
                     world_menu::ask_new_scholar,
                 )
@@ -170,6 +167,7 @@ fn today() -> AnyView {
     keyed(
         derived(today_of).when(bevy_fynix::every_frame()),
         |today| {
+            let waits = Standing::Waits;
             let (mark, words, tone) = match today.needs {
                 0 => (
                     Glyph::Check,
@@ -177,32 +175,33 @@ fn today() -> AnyView {
                     Tone::Dim,
                 ),
                 1 => (
-                    Glyph::Bell,
+                    waits.glyph(),
                     "1 waits for you".into(),
-                    Tone::Critical,
+                    waits.tone(),
                 ),
                 n => (
-                    Glyph::Bell,
+                    waits.glyph(),
                     format!("{n} wait for you"),
-                    Tone::Critical,
+                    waits.tone(),
                 ),
             };
+            let (works, rests) = (Standing::Works, Standing::Rests);
             let mut lines = vec![
                 status_label_large(mark, words, tone).boxed(),
                 status_label_large(
-                    Glyph::Bolt,
+                    works.glyph(),
                     format!("{} at work", today.working),
-                    Tone::Accent,
+                    works.tone(),
                 )
                 .boxed(),
                 status_label_large(
-                    Glyph::Moon,
+                    rests.glyph(),
                     format!("{} at rest", today.resting),
-                    Tone::Dim,
+                    rests.tone(),
                 )
                 .boxed(),
                 status_label_large(
-                    Glyph::Hamlet,
+                    Glyph::Scholar,
                     format!("{} in the city", today.scholars),
                     Tone::Body,
                 )
@@ -211,7 +210,7 @@ fn today() -> AnyView {
             if today.harbor > 0 {
                 lines.push(
                     status_label_large(
-                        Glyph::Signpost,
+                        Glyph::Anchor,
                         format!("{} at the harbor", today.harbor),
                         Tone::Body,
                     )

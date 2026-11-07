@@ -38,7 +38,8 @@ pub struct Waiting {
 }
 
 impl Waiting {
-    /// One line of at most about `max` characters of the subject.
+    /// One line of at most about `max` characters of the subject, a
+    /// command in it between backticks.
     pub fn line(&self, max: usize) -> String {
         let flat = self
             .subject

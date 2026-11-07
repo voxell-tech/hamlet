@@ -188,11 +188,12 @@ fn popups() -> Ui {
             .bold(true)
             .wrap(false),
         label("Reading the orchard notes")
-            .size(12.0)
+            .size(theme.text.small)
             .tone(Tone::Accent),
-        label("Keeps the orchard's notes in order.").size(12.0),
+        label("Keeps the orchard's notes in order.")
+            .size(theme.text.small),
         label("Click to talk, F to follow")
-            .size(12.0)
+            .size(theme.text.small)
             .tone(Tone::Dim),
     ))
     .gap(3.0)
@@ -266,6 +267,31 @@ pub(super) fn controls() -> Ui {
             ),
         ),
         part("A text field", fields()),
+        part(
+            "One of a few",
+            row((
+                cell(
+                    "Two",
+                    styles::segmented_words(
+                        ["Manual", "Auto"],
+                        0,
+                        |_, _| {},
+                    )
+                    .boxed(),
+                ),
+                cell(
+                    "Three, under the pointer",
+                    styles::segmented_words(
+                        ["A day", "A week", "A month"],
+                        2,
+                        |_, _| {},
+                    )
+                    .boxed(),
+                ),
+            ))
+            .gap(16.0)
+            .boxed(),
+        ),
         part(
             "A slider",
             bevy_fynix::views::slider(bevy_fynix::resource::<

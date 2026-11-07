@@ -42,7 +42,7 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{
-    ICON, choices, description, hairline, note, small_rules,
+    ICON, description, hairline, note, segmented_words, small_rules,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -732,9 +732,9 @@ fn key_cap(at: usize) -> AnyView {
     with_cx(move |cx| {
         let theme = cx.theme();
         column((label(chord.to_string())
-            .size(11.0)
             .tone(Tone::Faint)
-            .wrap(false),))
+            .wrap(false)
+            .rules(small_rules),))
         .padding(UiRect::axes(px(4.0), px(1.0)))
         .border(theme.space.border)
         .border_color(theme.palette.gold_6)
@@ -982,7 +982,7 @@ fn tier(agent: Entity) -> impl View {
                         .bold(true)
                         .wrap(false)
                         .rules(small_rules),
-                    choices(
+                    segmented_words(
                         ["Standard", "Fast"],
                         usize::from(fast),
                         move |world, at| {
@@ -1089,7 +1089,7 @@ pub(crate) fn chip(agent: Entity) -> impl View {
             }
             if now.fast {
                 parts.push(
-                    glyph(Glyph::Bolt, 12.0)
+                    glyph(Glyph::Fast, 12.0)
                         .tone(Tone::Accent)
                         .boxed(),
                 );

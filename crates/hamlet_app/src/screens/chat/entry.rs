@@ -13,7 +13,7 @@ use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::shown_of;
 use hamlet_ui::markdown::document;
-use hamlet_ui::styles::note;
+use hamlet_ui::styles::{note, small_rules};
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
@@ -78,19 +78,15 @@ pub(super) fn state(
             },
         }
     }))
-    .size(12.0)
     .wrap(false)
-    .tone(component::<Transcript, _>(
-        session,
-        move |t| match t
-            .and_then(|t| t.item(&id))
-            .map(|item| &item.entry)
-        {
+    .tone(component::<Transcript, _>(session, move |t| {
+        match t.and_then(|t| t.item(&id)).map(|item| &item.entry) {
             Some(Entry::Tool { exit: Some(0), .. }) => Tone::Dim,
             Some(Entry::Tool { exit: Some(_), .. }) => Tone::Critical,
             _ => Tone::Accent,
-        },
-    ))
+        }
+    }))
+    .rules(small_rules)
 }
 
 /// The tool calls opened to show their whole request.
@@ -164,9 +160,9 @@ fn tool_row(session: Entity, id: String) -> impl View {
             row((
                 glyph(which, 12.0).tone(tone),
                 label(time.map(took).unwrap_or_default())
-                    .size(11.0)
                     .wrap(false)
-                    .tone(Tone::Faint),
+                    .tone(Tone::Faint)
+                    .rules(small_rules),
             ))
             .gap(4.0)
             .align(AlignItems::Center)
@@ -185,18 +181,18 @@ fn tool_row(session: Entity, id: String) -> impl View {
                 Entry::Tool { name, .. } => name.clone(),
                 _ => String::new(),
             }))
-            .size(12.0)
             .bold(true)
             .wrap(false)
+            .rules(small_rules)
             .tagged(MonoText),
             column((one_line(
                 label(read(|e| match e {
                     Entry::Tool { summary, .. } => tool_text(summary),
                     _ => String::new(),
                 }))
-                .size(12.0)
                 .tone(Tone::Dim),
             )
+            .rules(small_rules)
             .tagged(MonoText),))
             .grow(1.0)
             .min_width(px(0.0))
@@ -245,8 +241,8 @@ fn tool_row(session: Entity, id: String) -> impl View {
                     },
                     _ => String::new(),
                 }))
-                .size(12.0)
-                .tone(Tone::Critical),
+                .tone(Tone::Critical)
+                .rules(small_rules),
             ))
             .gap(4.0)
             .width(percent(100.0))
@@ -373,7 +369,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                     _ => String::new(),
                 }))
                 .tone(Tone::Critical),
-                button(label("Try again").size(12.0))
+                button(label("Try again").rules(small_rules))
                     .rules(ghost)
                     .on_activate(move |world| {
                         let Some(to) = world

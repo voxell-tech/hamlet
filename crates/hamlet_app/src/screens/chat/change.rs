@@ -19,7 +19,7 @@ use hamlet_client::chats::{Entry, Transcript};
 use hamlet_protocol::client::{
     Change, ChangeLines as Line, ChangeLinesMark as Mark,
 };
-use hamlet_ui::styles::{Fills, bare, note};
+use hamlet_ui::styles::{Fills, bare, note, small_rules};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::{Mono, MonoText};
 use hamlet_ui::{AnyView, Cx, View};
@@ -228,7 +228,10 @@ pub(crate) fn change_view(
                     _ => 180.0,
                 }),
             ),
-            label(verb).size(12.0).wrap(false).tone(Tone::Dim),
+            label(verb)
+                .wrap(false)
+                .tone(Tone::Dim)
+                .rules(small_rules),
         ))
         .gap(6.0)
         .align(AlignItems::Center),
@@ -289,8 +292,8 @@ pub(crate) fn change_view(
         if let Some(refused) = refused {
             parts.push(
                 label(refused.clone())
-                    .size(12.0)
                     .tone(Tone::Critical)
+                    .rules(small_rules)
                     .boxed(),
             );
         }
@@ -326,7 +329,7 @@ fn lines_view(
             )
         };
         let more = (change.lines.len() > most).then(|| {
-            button(label(words).size(12.0).tone(Tone::Dim))
+            button(label(words).tone(Tone::Dim).rules(small_rules))
                 .rules(ghost)
                 .on_activate(move |world| {
                     flip(

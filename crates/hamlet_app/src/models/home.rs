@@ -12,7 +12,7 @@ use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, action, bad_action, bare, beside, close, description,
-    good_action, group, list, note, section, text_input,
+    good_action, group, list, note, section, small_rules, text_input,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, with_cx};
@@ -142,8 +142,8 @@ fn price(name: &str, output: bool) -> AnyView {
                     | protocol::ListedPriced::Yours
             ) {
                 return row((label(format!("{value:.2}"))
-                    .size(12.0)
-                    .tone(Tone::Faint),))
+                    .tone(Tone::Faint)
+                    .rules(small_rules),))
                 .width(px(PRICE_WIDE))
                 .boxed();
             }

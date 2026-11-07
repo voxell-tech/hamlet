@@ -19,7 +19,7 @@ use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 use hamlet_ui::styles::{
-    CONTROL, action, bare, button, buttons, choices, note,
+    CONTROL, action, bare, button, buttons, note, segmented_words,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -140,7 +140,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
         parts.push(
             hamlet_ui::styles::beside((
                 hamlet_ui::styles::section("Approvals"),
-                choices(
+                segmented_words(
                     ["Manual", "Auto"],
                     match mode {
                         Mode::Manual => 0,

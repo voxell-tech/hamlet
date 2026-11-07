@@ -16,7 +16,7 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    action, bare, beside, choices, description, note, parts,
+    action, bare, beside, description, note, parts, segmented_words,
     text_input,
 };
 use hamlet_ui::widgets::hint::hinted;
@@ -270,9 +270,13 @@ fn remote() -> AnyView {
 pub(super) fn page() -> impl View {
     let where_run =
         keyed(resource::<Draft, _>(|draft| draft.remote), |remote| {
-            choices(CHOICES, usize::from(*remote), |world, at| {
-                world.resource_mut::<Draft>().remote = at == 1;
-            })
+            segmented_words(
+                CHOICES,
+                usize::from(*remote),
+                |world, at| {
+                    world.resource_mut::<Draft>().remote = at == 1;
+                },
+            )
             .boxed()
         })
         .within(bare());

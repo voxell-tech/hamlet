@@ -3,7 +3,9 @@
 
 use bevy::color::Color;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
+use bevy::ui::{
+    AlignItems, InteractionDisabled, JustifyContent, UiRect, px,
+};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     self, BehaviorExt, Frame, FrameProps, Icon, Stack, column, frame,
@@ -15,8 +17,9 @@ use bevy_fynix::{
 
 use crate::theme::{HamletTheme, TextSizes};
 use crate::widgets::effects::Variant;
+use crate::widgets::ellipsis::one_line;
 use crate::widgets::icons::{Glyph, glyph};
-use crate::widgets::platform::{DisplayText, Wraps};
+use crate::widgets::platform::{DisplayText, MonoText, Wraps};
 use crate::{AnyView, Cx, View, with_cx};
 
 /// The least height of any button (macOS default control size, 28
@@ -60,7 +63,8 @@ pub fn button(cx: &mut Cx) {
 }
 
 /// The button for the one action a screen is for: a dark amber fill
-/// that brightens under the pointer.
+/// that brightens under the pointer, and a plain dim plate while it
+/// cannot be pressed.
 pub fn primary_button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
@@ -85,6 +89,13 @@ pub fn primary_button(cx: &mut Cx) {
                     .border_color(t.palette.gold_5)
             })
             .tone(Tone::Faint)
+        })
+        .when::<InteractionDisabled>(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.button)
+                    .border_color(t.palette.gold_6)
+            })
+            .tone(Tone::Dim)
         })
         .transition(Motion::Interact)
         .apply(cx);
@@ -256,6 +267,56 @@ pub fn list(rows: Vec<AnyView>) -> impl View {
             .collect::<Vec<_>>();
         column(rows).gap(0.0)
     })
+}
+
+/// A command, in monospace at the body size on a chip, wrapping
+/// where it is long.
+pub fn command_chip(text: impl Into<Prop<String>>) -> impl View {
+    // In a row of its own, so it is as wide as the command.
+    row((chip(label(text).tagged(MonoText)),))
+}
+
+fn chip(words: impl View + Send + Sync + 'static) -> impl View {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        row((words,))
+            .min_width(px(0.0))
+            .padding(UiRect::axes(px(5.0), px(0.0)))
+            .fill(theme.palette.code)
+            .border(theme.space.border)
+            .border_color(theme.palette.gold_6)
+            .radius(theme.space.round)
+    })
+}
+
+/// `line` on one line, each command in it, between backticks, on a
+/// chip as [`command_chip`]'s, cut short with an ellipsis where it
+/// does not fit. A line with none wraps as words do.
+pub fn quoted(line: &str) -> AnyView {
+    if !line.contains('`') {
+        return label(line.to_string()).boxed();
+    }
+    let parts = line
+        .split('`')
+        .enumerate()
+        .filter(|(_, part)| !part.trim().is_empty())
+        .map(|(at, part)| {
+            if at % 2 == 1 {
+                chip(
+                    one_line(label(part.to_string()))
+                        .tagged(MonoText),
+                )
+                .boxed()
+            } else {
+                label(part.trim().to_string()).wrap(false).boxed()
+            }
+        })
+        .collect::<Vec<_>>();
+    row(parts)
+        .gap(6.0)
+        .align(AlignItems::Center)
+        .min_width(px(0.0))
+        .boxed()
 }
 
 /// Small dim words, too short to be a description: a value, or
@@ -465,34 +526,114 @@ pub fn buttons(buttons: Vec<AnyView>) -> impl View {
     })
 }
 
-/// One answer of several to pick from, each showing `labels`, the
-/// one at `picked` highlighted. A press hands the place of its
-/// answer to `pick`.
-pub fn choices<F>(
-    labels: impl IntoIterator<Item = &'static str>,
+/// One answer of two to a few, as buttons joined in one track, the
+/// one at `picked` lit. A press hands the place of its answer to
+/// `pick`.
+pub fn segmented<F>(
+    options: impl IntoIterator<Item = AnyView>,
     picked: usize,
     pick: F,
 ) -> impl View
 where
     F: Fn(&mut World, usize) + Clone + Send + Sync + 'static,
 {
-    let options = labels
+    let options = options
         .into_iter()
         .enumerate()
-        .map(|(at, text)| {
+        .map(|(at, content)| {
             let pick = pick.clone();
-            views::button(label(text).wrap(false))
-                .rules(choice(at == picked))
+            views::button(content)
+                .rules(segment(at == picked))
                 .on_activate(move |world| pick(world, at))
                 .boxed()
         })
         .collect::<Vec<_>>();
     with_cx(move |cx| {
-        row(options)
-            .gap(cx.theme().space.gap / 2.0)
-            .align(AlignItems::Center)
-            .tagged(Wraps)
+        let theme = cx.theme();
+        let space = &theme.space;
+        // In a row of its own, so it is as wide as its answers.
+        row((row(options)
+            .gap(space.track_padding)
+            .padding(UiRect::all(px(space.track_padding)))
+            .fill(theme.palette.input)
+            .border(space.border)
+            .border_color(theme.palette.gold_5)
+            .radius(space.track_radius)
+            .align(AlignItems::Stretch)
+            .tagged(Wraps),))
     })
+}
+
+/// [`segmented`] with words for its answers.
+pub fn segmented_words<F>(
+    words: impl IntoIterator<Item = &'static str>,
+    picked: usize,
+    pick: F,
+) -> impl View
+where
+    F: Fn(&mut World, usize) + Clone + Send + Sync + 'static,
+{
+    segmented(
+        words
+            .into_iter()
+            .map(|text| label(text).wrap(false).boxed()),
+        picked,
+        pick,
+    )
+}
+
+/// The rules of a segment of a [`segmented`] track: a button's
+/// plate, and the picked one lit as the primary action is.
+fn segment(
+    picked: bool,
+) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
+    let base = style::<HamletTheme>()
+        .label(|l, t| l.size(t.text.small).bold(true))
+        .frame(|f, t| {
+            // As tall in its track as a lone button is.
+            let inside =
+                2.0 * (t.space.track_padding + t.space.border);
+            f.border(t.space.border)
+                .radius(
+                    (t.space.track_radius - t.space.track_padding)
+                        .max(0.0),
+                )
+                .min_height(px(CONTROL - inside))
+                .padding(UiRect::axes(px(t.space.gap), px(0.0)))
+        });
+    let rules = if picked {
+        base.frame(|f, t| {
+            f.fill(t.palette.primary_low)
+                .border_color(t.palette.gold_4)
+        })
+        .tone(Tone::Body)
+        .icon(|i, _| i.tone(Tone::Body))
+        .hovered(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.primary_low)
+                    .border_color(t.palette.accent)
+            })
+        })
+    } else {
+        base.frame(|f, t| {
+            f.fill(t.palette.button).border_color(t.palette.button)
+        })
+        .tone(Tone::Faint)
+        .icon(|i, _| i.tone(Tone::Faint))
+        .hovered(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.button_hover)
+                    .border_color(t.palette.gold_5)
+            })
+            .tone(Tone::Body)
+        })
+        .pressed(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.input).border_color(t.palette.gold_5)
+            })
+        })
+    };
+    rules.transition(Motion::Interact).bundle()
 }
 
 /// The rules of an answer to pick: no fill until the pointer is on

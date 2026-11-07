@@ -20,9 +20,7 @@ use bevy::ui::{
     AlignItems, JustifyContent, PositionType, UiRect, Val, px,
 };
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row,
-};
+use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource, style};
 use hamlet_client::messages::{Answer, Response, ServerFault};
 use hamlet_client::outbox::{Outbox, RequestId};
@@ -34,11 +32,15 @@ use hamlet_protocol::client::{
     AgentKind, Arrival, ClientMessage, LeftHow, ReplyKind, ScholarId,
     ServerMessage, WaitDetail,
 };
-use hamlet_ui::styles::{action, buttons, caption, close_button};
+use hamlet_ui::styles::{
+    action, buttons, caption, close_button, quoted,
+};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View};
 
+use crate::convo::Convo;
+use crate::hub::Showing;
 use crate::screens::petition::{Need, button};
 use crate::{PanelSystems, chat};
 
@@ -314,13 +316,18 @@ fn answered(answer: On<Answer>, mut toasts: ResMut<Toasts>) {
 fn keep(
     time: Res<Time>,
     over: Query<(&Hovered, &Body)>,
-    waiting: Query<(), With<Waiting>>,
+    waiting: Query<Option<&RaisedBy>, With<Waiting>>,
+    showing: Option<Res<Showing>>,
+    convo: Option<Res<Convo>>,
     mut toasts: ResMut<Toasts>,
 ) {
     if toasts.shown.is_empty() {
         return;
     }
     let now = time.elapsed_secs();
+    let chatting = convo
+        .filter(|_| showing.is_some_and(|s| *s == Showing::Thread))
+        .map(|convo| convo.agent);
     let mut next = toasts.shown.clone();
     for toast in &mut next {
         if over.iter().any(|(hovered, body)| {
@@ -334,7 +341,12 @@ fn keep(
     next.retain(|toast| {
         toast.opacity > 0.0
             && match &toast.what {
-                What::Petition(wait) => waiting.contains(*wait),
+                // Its chat, open, shows it in full.
+                What::Petition(wait) => {
+                    waiting.get(*wait).is_ok_and(|by| {
+                        by.is_none_or(|by| Some(by.0) != chatting)
+                    })
+                }
                 What::Notice { .. } | What::Verdict { .. } => true,
             }
     });
@@ -441,13 +453,10 @@ fn card(toast: &Toast) -> AnyView {
             }
         };
         let own = what.clone();
-        let words = column((
-            caption(head, tone),
-            label(line).size(cx.theme().text.small),
-        ))
-        .gap(2.0)
-        .grow(1.0)
-        .min_width(px(0.0));
+        let words = column((caption(head, tone), quoted(&line)))
+            .gap(2.0)
+            .grow(1.0)
+            .min_width(px(0.0));
         let body = bevy_fynix::views::button(row((words,)))
             .grow(1.0)
             .min_width(px(0.0))
@@ -567,9 +576,9 @@ mod tests {
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "ada"), "{shown:?}");
-        assert!(
-            shown.iter().any(|text| text == "wants to run `pwd`")
-        );
+        // The command on a chip of its own, with no backticks.
+        assert!(shown.iter().any(|text| text == "wants to run"));
+        assert!(shown.iter().any(|text| text == "pwd"));
         press(&mut app, "Allow once");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {

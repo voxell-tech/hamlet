@@ -12,7 +12,7 @@ use bevy_fynix::tokens::{SurfaceTokens, TextTokens, Tone};
 use super::HamletTheme;
 
 /// AA for normal text (WCAG 2 1.4.3). No panel text is WCAG-large:
-/// `assets/measures.toml` sizes run 11 to 16 px.
+/// `assets/measures.toml` sizes run 13 to 16 px.
 pub const TEXT: f32 = 4.5;
 /// Non-text contrast (WCAG 2 1.4.11): a control's bounds or state,
 /// an icon.
@@ -350,6 +350,12 @@ impl Report {
                 Gate::Fail,
             ));
         }
+        report.pairs.push(Pair::new(
+            Named::new("hint", theme.hint(theme.hint_opacity())),
+            Named::new("input", theme.palette.input),
+            Need::Text,
+            Gate::Fail,
+        ));
         for mark in of(Part::Mark) {
             for panel in of(Part::Panel) {
                 report.pairs.push(Pair::new(
