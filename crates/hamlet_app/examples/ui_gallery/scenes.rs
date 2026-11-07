@@ -53,7 +53,7 @@ impl Plugin for GalleryPlugin {
                 ..PickingSettings::default()
             })
             .insert_resource(Bar {
-                running: "Running, idle".into(),
+                running: "Idle".into(),
                 running_tone: Tone::Dim,
                 model: "hearth-large".into(),
                 link: "Connected, 1 model".into(),
@@ -102,6 +102,7 @@ impl Plugin for GalleryPlugin {
                 hamlet_app::world_menu::plugin,
                 hamlet_app::search::plugin,
                 hamlet_app::desk::plugin,
+                menu::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
                 welcome::hold_plugin,

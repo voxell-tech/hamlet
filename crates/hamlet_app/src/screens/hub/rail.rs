@@ -42,13 +42,14 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    ICON, caption, note, quoted, scroll_area, text_input,
+    ICON, note, quoted, scroll_area, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
@@ -74,18 +75,19 @@ const LEFT_SHOWN: usize = 6;
 /// shorter.
 const LINE_SHOWN: usize = 90;
 
-/// How tall a row is, so that the lines of a branch meet.
-const ROW: f32 = 42.0;
+/// The most letters of a row's second line, which wraps rather than
+/// being cut at the rail's edge.
+const TITLE_SHOWN: usize = 56;
 
-/// The room before a row for a lead's chevron.
+/// The least height of a row, so that a row of one line is as easy
+/// to press as one of two.
+const ROW: f32 = 32.0;
+
+/// The column at the rail's edge that holds every chevron.
 const CHEVRON: f32 = 14.0;
 
-/// How far each step down a tree is set in: under the middle of the
-/// chevron above, and a little more, so a guide leads to the next
-/// one.
-const STEP_IN: f32 = 12.0;
-/// The deepest a row is set in; deeper rows line up with it.
-const DEEPEST: u8 = 6;
+/// How far a row under a lead is set in.
+const STEP_IN: f32 = 16.0;
 
 /// The room inside a row's ends.
 const ROW_INSET: f32 = 6.0;
@@ -309,17 +311,12 @@ pub(super) struct Line {
     pub mark: Option<Standing>,
     /// What the search also finds it by: its address.
     pub address: String,
-    /// How far under another agent it is nested.
-    pub depth: u8,
-    /// Whether no row after it is nested under the same agent.
-    pub last: bool,
+    /// Whether it is set in under a lead.
+    pub nested: bool,
     pub current: bool,
     /// For a lead: the fold of the rows under it, and whether it is
     /// folded.
     pub fold: Option<(Group, bool)>,
-    /// For each level between the top and its own, whether the guide
-    /// of the agent there carries on past this row.
-    pub rails: Vec<bool>,
 }
 
 /// A group, its header and its rows.
@@ -517,34 +514,16 @@ fn tree<'a>(
     out
 }
 
-/// The rows of `family`, each knowing whether it is the last under
-/// the agent above it, and which guides above it carry on past it.
-fn family_lines(
-    world: &World,
-    family: &[(&Agent, u8)],
-    shift: u8,
-) -> Vec<Line> {
-    // Whether the agent last seen at each depth has more after it.
-    let mut more = Vec::<bool>::new();
+/// The rows of `family`, in two steps at most: the root and, under a
+/// mayor, the hires it made beside it; everyone further down set in
+/// once, in the tree's order.
+fn family_lines(world: &World, family: &[(&Agent, u8)]) -> Vec<Line> {
+    let mayor = family.first().is_some_and(|(root, _)| root.mayor);
+    let set_in = if mayor { 2 } else { 1 };
     family
         .iter()
-        .enumerate()
-        .map(|(at, (member, depth))| {
-            let last = family.get(at + 1..).is_none_or(|after| {
-                after
-                    .iter()
-                    .take_while(|(_, d)| d >= depth)
-                    .all(|(_, d)| d > depth)
-            });
-            let depth = (depth + shift).min(DEEPEST);
-            let level = usize::from(depth);
-            let mut line = agent_line(world, member, depth, last);
-            // The guides of the levels between the top and its own.
-            line.rails =
-                more.get(1..level).unwrap_or_default().to_vec();
-            more.resize(level + 1, false);
-            more[level] = !last;
-            line
+        .map(|(member, depth)| {
+            agent_line(world, member, *depth >= set_in)
         })
         .collect()
 }
@@ -585,12 +564,7 @@ fn is_current(world: &World, target: Target) -> bool {
     }
 }
 
-fn agent_line(
-    world: &World,
-    agent: &Agent,
-    depth: u8,
-    last: bool,
-) -> Line {
+fn agent_line(world: &World, agent: &Agent, nested: bool) -> Line {
     let hand = agent.kind == protocol::AgentKind::Hand;
     let target = if hand {
         Target::Hand
@@ -609,33 +583,30 @@ fn agent_line(
         age: agent.age.clone(),
         mark: agent.mark,
         address: agent.address.clone(),
-        depth,
-        last,
+        nested,
         current: is_current(world, target),
         fold: None,
-        rails: Vec::new(),
     }
 }
 
-/// Lets each lead in `lines`, a mayor too, stand for the rows under
-/// it: while folded they are left out and its mark becomes the most
+/// Lets each lead in `lines` stand for the rows set in under it:
+/// while folded they are left out and its mark becomes the most
 /// pressing of theirs. What waits under it is still in the rows of
 /// what needs the chief.
 fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
     let mut lines = lines;
     for at in 0..lines.len() {
-        let depth = lines[at].depth;
         let under = lines[at + 1..]
             .iter()
-            .take_while(|line| line.depth > depth)
+            .take_while(|line| line.nested)
             .count();
         let Target::Agent(agent) = lines[at].target else {
             continue;
         };
-        let range = &lines[at + 1..at + 1 + under];
-        if under == 0 {
+        if lines[at].nested || under == 0 {
             continue;
         }
+        let range = &lines[at + 1..at + 1 + under];
         let group = Group::Lead(agent);
         let shut = folded.contains(&group);
         // Open, each row shows its own state; folded, the lead
@@ -653,17 +624,12 @@ fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
     }
     // Leave out what folded leads hold.
     let mut kept = Vec::with_capacity(lines.len());
-    let mut hidden_below: Option<u8> = None;
+    let mut hiding = false;
     for line in lines {
-        if let Some(depth) = hidden_below {
-            if line.depth > depth {
-                continue;
-            }
-            hidden_below = None;
+        if hiding && line.nested {
+            continue;
         }
-        if matches!(line.fold, Some((_, true))) {
-            hidden_below = Some(line.depth);
-        }
+        hiding = matches!(line.fold, Some((_, true)));
         kept.push(line);
     }
     kept
@@ -686,11 +652,9 @@ fn page_line(
         age: String::new(),
         mark,
         address: String::new(),
-        depth: 0,
-        last: true,
+        nested: false,
         current: is_current(world, target),
         fold: None,
-        rails: Vec::new(),
     }
 }
 
@@ -703,12 +667,14 @@ fn matches(line: &Line, search: &str) -> bool {
 }
 
 /// What waits for the chief, one row for each who asks: the words of
-/// its oldest wait, how long it has waited, and how many more.
-fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
+/// its oldest wait, how long it has waited, and how many more; and
+/// how many waits there are in all.
+fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
     let Some(mut query) = world.try_query::<&Waiting>() else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
     let mut waits = query.iter(world).collect::<Vec<_>>();
+    let total = waits.len();
     waits.sort_by_key(|wait| wait.since);
     let now = now_ms();
     let mut lines = Vec::<Line>::new();
@@ -733,11 +699,9 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
                 age: age(now, wait.since),
                 mark: Some(Standing::Waits),
                 address: name,
-                depth: 0,
-                last: true,
+                nested: false,
                 current: false,
                 fold: None,
-                rails: Vec::new(),
             });
             counts.push(1);
             continue;
@@ -784,11 +748,9 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
             age: age(now, wait.since),
             mark: Some(Standing::Waits),
             address: wait.by.clone(),
-            depth: 0,
-            last: true,
+            nested: false,
             current: false,
             fold: None,
-            rails: Vec::new(),
         });
         counts.push(1);
     }
@@ -797,7 +759,7 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
             line.title = format!("{count} waits · {}", line.title);
         }
     }
-    lines
+    (lines, total)
 }
 
 /// `text` with its first letter a capital, as every row's line
@@ -983,7 +945,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             .iter()
             .filter(|agent| agent.hamlet.is_none())
             .collect::<Vec<_>>();
-        top.extend(family_lines(world, &tree(hand, &outside), 0));
+        top.extend(family_lines(world, &tree(hand, &outside)));
     }
     // The library is the realm's, beside the Hand.
     let shelf =
@@ -1009,13 +971,13 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         lines: top,
     });
 
-    let needs = needs(world, &all);
+    let (needs, count) = needs(world, &all);
     sections.push(Section {
         group: Group::Needs,
         title: "Needs you".into(),
         opens: Some(Target::Realm),
         mark: None,
-        count: needs.len(),
+        count,
         folded: false,
         lines: needs,
     });
@@ -1040,7 +1002,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         });
         let mut lines = Vec::new();
         for root in roots {
-            lines.extend(family_lines(world, &tree(root, &here), 0));
+            lines.extend(family_lines(world, &tree(root, &here)));
         }
         let group = Group::Hamlet(hamlet);
         let mark = Some(Standing::of_all(
@@ -1318,7 +1280,7 @@ fn row_rules(cx: &mut Cx) {
                 .radius(4.0)
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::Stretch)
-                .padding(UiRect::axes(px(ROW_INSET), px(0.0)))
+                .padding(UiRect::axes(px(ROW_INSET), px(4.0)))
         })
         .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
         .pressed(|s| s.frame(|f, t| f.fill(t.palette.input)))
@@ -1333,58 +1295,11 @@ fn current_rules(cx: &mut Cx) {
                 .radius(4.0)
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::Stretch)
-                .padding(UiRect::axes(px(ROW_INSET), px(0.0)))
+                .padding(UiRect::axes(px(ROW_INSET), px(4.0)))
         })
         .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
         .transition(Motion::Interact)
         .apply(cx);
-}
-
-/// The lines in front of a nested row, on a grid of [`STEP_IN`]: one
-/// column for each level above it, each with the guide of an agent
-/// that has more under it after this row, then the elbow from its
-/// parent. Every guide runs under the middle of its agent's chevron,
-/// so the tree lines up however deep it goes.
-fn branch(line: &Line) -> impl View {
-    let rails = line.rails.clone();
-    let last = line.last;
-    with_cx(move |cx| {
-        let colour = cx.theme().palette.gold_6;
-        let half = ROW / 2.0;
-        // A column of the grid, with a guide down its middle where
-        // `on` says, over its top and bottom halves.
-        let column_of = |top: bool, bottom: bool, across: bool| {
-            let bar = |on: bool| {
-                frame().width(px(1.0)).height(px(half)).fill(if on {
-                    colour
-                } else {
-                    Color::NONE
-                })
-            };
-            row((
-                frame().width(px(CHEVRON / 2.0)),
-                column((bar(top), bar(bottom))).gap(0.0),
-                column((frame()
-                    .width(px(STEP_IN - CHEVRON / 2.0 - 1.0))
-                    .height(px(1.0))
-                    .fill(if across {
-                        colour
-                    } else {
-                        Color::NONE
-                    }),))
-                .height(px(ROW))
-                .justify(JustifyContent::Center),
-            ))
-            .gap(0.0)
-            .boxed()
-        };
-        let mut parts = rails
-            .iter()
-            .map(|on| column_of(*on, *on, false))
-            .collect::<Vec<_>>();
-        parts.push(column_of(true, !last, true));
-        row(parts).gap(0.0)
-    })
 }
 
 /// The mark at the end of a row or a header, in its place whether or
@@ -1399,6 +1314,28 @@ fn mark_icon(mark: Option<Standing>) -> AnyView {
     }
 }
 
+/// The chevron that folds `group`, pointing down while open and to
+/// the right while folded, in the rail's one column of chevrons.
+fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
+    button(
+        glyph(Glyph::Chevron, 10.0)
+            .tone(Tone::Faint)
+            .rotation(if shut { 90.0 } else { 180.0 }),
+    )
+    .width(px(CHEVRON))
+    .shrink(0.0)
+    .padding(UiRect::all(px(0.0)))
+    .rules(views::tint)
+    .tooltip(move || note(says))
+    .on_activate(move |world| {
+        world.resource_mut::<Rail>().toggle(group);
+    })
+    .boxed()
+}
+
+/// A row: its icon, then its name with how long ago and its mark at
+/// the end, over what it is doing, which runs the row's whole width
+/// and wraps rather than being cut.
 fn expanded(line: &Line) -> AnyView {
     let target = line.target;
     let name_tone = if line.current {
@@ -1406,11 +1343,12 @@ fn expanded(line: &Line) -> AnyView {
     } else {
         Tone::Body
     };
+    let title = cut(&line.title, TITLE_SHOWN);
     let content = row((
-        glyph(line.glyph, ICON).tone(Tone::Dim),
+        column((glyph(line.glyph, ICON).tone(Tone::Dim),)).padding(
+            UiRect::top(px(if title.is_empty() { 0.0 } else { 2.0 })),
+        ),
         column((
-            // How long ago at the end of its name's line, against
-            // the column of marks.
             row((
                 column((one_line(
                     label(line.name.clone())
@@ -1421,17 +1359,18 @@ fn expanded(line: &Line) -> AnyView {
                 .min_width(px(0.0))
                 .overflow(Overflow::clip()),
                 label(line.age.clone()).tone(Tone::Faint).wrap(false),
+                mark_icon(line.mark),
             ))
             .gap(6.0)
             .align(AlignItems::Center),
             // A row with nothing more to say is one line.
-            column((if line.title.contains('`') {
-                quoted(&line.title)
+            column((if title.contains('`') {
+                quoted(&title)
             } else {
-                one_line(label(line.title.clone())).boxed()
+                label(title.clone()).boxed()
             },))
-            .overflow(Overflow::clip())
-            .display(if line.title.is_empty() {
+            .min_width(px(0.0))
+            .display(if title.is_empty() {
                 Display::None
             } else {
                 Display::Flex
@@ -1440,13 +1379,17 @@ fn expanded(line: &Line) -> AnyView {
         ))
         .gap(0.0)
         .grow(1.0)
-        .min_width(px(0.0))
-        .overflow(Overflow::clip()),
-        mark_icon(line.mark),
+        .min_width(px(0.0)),
     ))
     .gap(8.0)
-    .align(AlignItems::Center)
-    .height(px(ROW))
+    // A row of one line has its icon on its middle, and one of more
+    // on the middle of its first.
+    .align(if title.is_empty() {
+        AlignItems::Center
+    } else {
+        AlignItems::FlexStart
+    })
+    .min_height(px(ROW - 8.0))
     .width(percent(100.0));
     let rules: fn(&mut Cx) = if line.current {
         current_rules
@@ -1465,74 +1408,52 @@ fn expanded(line: &Line) -> AnyView {
     } else {
         shown.tooltip(move || note(address.clone())).boxed()
     };
-    // The tree's lines, then the chevron of a lead, outside the row's
-    // press so that folding does not open the thread.
-    let mut around = Vec::new();
-    if line.depth > 0 {
-        around.push(branch(line).boxed());
-    }
-    around.push(match line.fold {
-        Some((group, shut)) => button(
-            glyph(Glyph::Chevron, 10.0)
-                .tone(Tone::Faint)
-                .rotation(if shut { 90.0 } else { 180.0 }),
-        )
-        .width(px(CHEVRON))
-        .padding(UiRect::all(px(0.0)))
-        .rules(views::tint)
-        .tooltip(move || {
-            note(if shut {
+    // The chevron of a lead, outside the row's press so that folding
+    // does not open the thread, then the step in of a row under one.
+    let fold = match line.fold {
+        Some((group, shut)) => chevron(
+            group,
+            shut,
+            if shut {
                 "Show the hires under it"
             } else {
                 "Fold the hires under it"
-            })
-        })
-        .on_activate(move |world| {
-            world.resource_mut::<Rail>().toggle(group);
-        })
-        .boxed(),
-        None => frame().width(px(CHEVRON)).boxed(),
-    });
-    around.push(shown);
-    row(around)
+            },
+        ),
+        None => frame().width(px(CHEVRON)).shrink(0.0).boxed(),
+    };
+    let step = frame()
+        .width(px(if line.nested { STEP_IN } else { 0.0 }))
+        .shrink(0.0);
+    row((fold, step, shown))
         .gap(0.0)
         .align(AlignItems::Center)
         .width(percent(100.0))
         .boxed()
 }
 
-/// A section's header: a chevron that folds it, its title, which
-/// opens its page where it has one, its count and its state.
+/// A section's header, set apart from the rows under it in the
+/// display face: a chevron that folds it, its title, which opens its
+/// page where it has one, its count and its state.
 fn header(section: &Section) -> AnyView {
     let group = section.group;
-    let mut parts = Vec::new();
-    let foldable = !matches!(group, Group::Needs);
-    if foldable {
-        parts.push(
-            button(
-                glyph(Glyph::Chevron, 10.0)
-                    .tone(Tone::Faint)
-                    // Down while open, to the right while folded.
-                    .rotation(if section.folded {
-                        90.0
-                    } else {
-                        180.0
-                    }),
-            )
-            .width(px(CHEVRON))
-            .padding(UiRect::all(px(0.0)))
-            .rules(views::tint)
-            .tooltip(|| note("Fold or open"))
-            .on_activate(move |world| {
-                world.resource_mut::<Rail>().toggle(group);
-            })
-            .boxed(),
-        );
-    } else {
-        // Its title lines up with those that fold.
-        parts.push(frame().width(px(CHEVRON)).boxed());
-    }
-    let title = caption(section.title.clone(), Tone::Faint);
+    let mut parts = vec![match group {
+        Group::Needs => {
+            frame().width(px(CHEVRON)).shrink(0.0).boxed()
+        }
+        _ => chevron(group, section.folded, "Fold or open"),
+    }];
+    let title = with_cx({
+        let title = section.title.clone();
+        move |cx| {
+            label(title)
+                .size(cx.theme().text.small)
+                .bold(true)
+                .tone(Tone::Faint)
+                .wrap(false)
+                .tagged(DisplayText)
+        }
+    });
     parts.push(match section.opens {
         Some(target) => button(title)
             .padding(UiRect::all(px(0.0)))
@@ -1548,17 +1469,15 @@ fn header(section: &Section) -> AnyView {
         parts.push(frame().grow(1.0).boxed());
         parts.push(mark_icon(section.mark));
     }
-    // From the rail's edge, so its chevron stands in the same column
-    // as the chevrons of the rows under it, and its mark in the same
-    // column as theirs.
+    // Its mark in the column of the rows' marks.
     row(parts)
         .gap(6.0)
         .align(AlignItems::Center)
         .padding(UiRect::new(
             px(0.0),
             px(ROW_INSET),
-            px(10.0),
-            px(2.0),
+            px(12.0),
+            px(4.0),
         ))
         .width(percent(100.0))
         .boxed()
@@ -1575,7 +1494,6 @@ fn sections_view(sections: &[Section]) -> AnyView {
         }
         parts.extend(section.lines.iter().map(expanded));
     }
-    // No gap, so the guides of a tree run unbroken from row to row.
     column(parts).gap(0.0).boxed()
 }
 
@@ -1592,9 +1510,15 @@ fn is_over_tabs(section: &Section) -> bool {
 pub(super) fn view() -> impl View {
     let over = keyed(
         derived(|world: &World| {
+            // The realm's page lists what waits in full.
+            let on_realm = world.get_resource::<Showing>()
+                == Some(&Showing::Realm);
             sections(world)
                 .into_iter()
                 .filter(is_over_tabs)
+                .filter(|section| {
+                    !(on_realm && section.group == Group::Needs)
+                })
                 .collect::<Vec<_>>()
         })
         .when(every_frame()),
@@ -1673,6 +1597,7 @@ mod tests {
 
         let mut state = hamlet_testing::realm::state();
         state.waits.push(hamlet_testing::realm::wait("ask"));
+        state.waits.push(hamlet_testing::realm::wait("again"));
         state.revision += 1;
         hamlet_client::receive(
             app.world_mut(),
@@ -1683,6 +1608,13 @@ mod tests {
             names(&app, |g| *g == Group::Needs),
             ["ada · home"]
         );
+        // One row for who asks, counted as every wait, as the
+        // realm's page and the status bar count them.
+        let needs = sections(app.world())
+            .into_iter()
+            .find(|section| section.group == Group::Needs)
+            .unwrap();
+        assert_eq!(needs.count, 2);
         assert_eq!(names(&app, in_hamlet), ["ada"]);
     }
 }

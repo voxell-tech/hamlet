@@ -58,6 +58,7 @@ that name a part of Hamlet:
   a connection or a sign-in, `Shield` the sandbox and the workspace.
 - `Lens` a search, `Sliders` settings, `Speaker` sound, `Eye` how
   something looks or showing it, `Sun` the Sight page.
+- `Power` an agent's tools, `Leave` closing the window.
 
 Before giving an icon a new use, search for `Glyph::<Name>` and keep to
 its meaning; draw a new one when none fits.

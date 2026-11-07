@@ -119,7 +119,7 @@ pub(crate) fn screen() -> impl View {
                                 false;
                         }),
                         bad_action(
-                            Glyph::Power,
+                            Glyph::Leave,
                             "Close with copies",
                             |world| {
                                 world.write_message(AppExit::Success);

@@ -1,8 +1,9 @@
-//! The desk switcher in the top bar: the desks as segments of one
-//! sunken track, the one shown raised and underlined, then "+",
-//! which adds one, and a chevron listing them all. A tab is renamed
-//! in place on a double-click, closed by its "x" once asked, dragged
-//! to another place, and offers the rest on a right-click.
+//! The desk switcher in the top bar: the desks as tabs, the one
+//! shown on a raised plate and underlined, as a panel's tab is, then
+//! apart from them "New desk", which adds one, and a chevron listing
+//! them all. A tab is renamed in place on a double-click, closed by
+//! its "x" once asked, dragged to another place, and offers the rest
+//! on a right-click.
 
 mod motion;
 
@@ -249,9 +250,20 @@ pub(crate) fn switcher() -> impl View {
             .shrink(1.0)
             .tagged(OwnScrollbar(hidden))
             .tagged(TabStrip);
-        let new = segment(glyph(Glyph::Plus, ICON), space.gap)
-            .on_activate(new_desk)
-            .tooltip(|| note(format!("New desk ({NEW})")));
+        // Named, so that it does not read as a panel's "+".
+        let new = segment(
+            row((
+                glyph(Glyph::Plus, ICON),
+                // Smaller than a desk's name, as an action beside
+                // them.
+                label("New desk").size(theme.text.small),
+            ))
+            .gap(space.gap / 2.0)
+            .align(AlignItems::Center),
+            space.gap,
+        )
+        .on_activate(new_desk)
+        .tooltip(|| note(format!("New desk ({NEW})")));
         let all = segment(
             row((glyph(Glyph::Chevron, ICON),)).tagged(UiTransform {
                 rotation: Rot2::degrees(180.0),
@@ -264,18 +276,18 @@ pub(crate) fn switcher() -> impl View {
             *world.resource_mut::<Opened>() = Opened::All { anchor };
         })
         .tooltip(|| note("All desks"));
-        let track = row((strip, new, all))
+        let track = row((strip,))
             .height(px(space.bar - 2.0 * space.track_inset))
             .min_width(px(0.0))
             .shrink(1.0)
             .padding(UiRect::all(px(space.track_padding)))
-            .gap(space.track_padding)
-            .fill(palette.input)
-            .border(space.border)
-            .border_color(palette.gold_6)
-            .radius(space.track_radius)
             .align(AlignItems::Stretch);
-        row((divider, track))
+        let tools = row((new, all))
+            .height(px(space.bar - 2.0 * space.track_inset))
+            .shrink(0.0)
+            .gap(0.0)
+            .align(AlignItems::Stretch);
+        row((divider, track, tools))
             .gap(space.section)
             .padding(UiRect::left(px(space.section)))
             .min_width(px(0.0))

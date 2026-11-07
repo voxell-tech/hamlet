@@ -23,7 +23,7 @@ use hamlet_ui::{View, with_cx};
 
 use super::Naming;
 use crate::roll::Roll;
-use crate::standing::Standing;
+use crate::standing::{Standing, need_you};
 use crate::world_menu;
 
 /// A check that fires when the agents or the hamlets changed,
@@ -66,7 +66,8 @@ pub(crate) fn standing(
         (0, 0) => (Standing::Rests, format!("{count}, all at rest")),
         (0, n) => (Standing::Works, format!("{count}, {n} at work")),
         (w, _) => {
-            (Standing::Waits, format!("{count}, {w} waiting for you"))
+            let words = format!("{count}, {w} {}", need_you(w));
+            (Standing::Waits, words)
         }
     };
     (state.glyph(), words, state.tone())

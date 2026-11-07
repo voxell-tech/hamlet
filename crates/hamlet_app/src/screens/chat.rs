@@ -56,6 +56,7 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::orders::{Decree, Tell};
 use hamlet_ui::styles::{note, text_input};
 use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{Cx, View, with_cx};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -86,6 +87,9 @@ const LINE_ROOM: f32 = 4.5;
 
 /// The least width of the field a chief types in.
 const FIELD_LEAST: f32 = 150.0;
+
+/// The room the placeholder leaves for the caret before it.
+const CARET_ROOM: f32 = 4.0;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -574,14 +578,17 @@ fn message_bar_in(
                 ..UiRect::horizontal(px(FIELD_SIDE))
             })
             .rules(in_card)
+            // The card around it shows the focus, not a glow behind
+            // its first line.
+            .tagged(Variant::Subtle)
             .tagged(ChatField),
-        // Shown in the empty field, under the caret.
+        // Shown in the empty field, just after the caret.
         overlay((row((label("Message")
             .wrap(false)
             .tone(Tone::Dim),))
         .align(AlignItems::Center)
         .height(percent(100.0))
-        .padding(UiRect::left(px(gap + border)))
+        .padding(UiRect::left(px(gap + border + CARET_ROOM)))
         .tagged(Placeholder),)),
         bar(),
     ))

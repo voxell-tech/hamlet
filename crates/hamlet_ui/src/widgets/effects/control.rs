@@ -66,10 +66,12 @@ pub(super) fn arm(
     buttons: Query<Entity, (With<Button>, Without<ControlEffect>)>,
     fields: Query<&ChildOf, Added<EditableText>>,
 ) {
+    // A field given a look of its own keeps it.
     for field in &fields {
         commands
             .entity(field.parent())
-            .try_insert((ControlEffect::default(), Variant::Input));
+            .try_insert(ControlEffect::default())
+            .try_insert_if_new(Variant::Input);
     }
     for button in &buttons {
         commands.entity(button).try_insert((

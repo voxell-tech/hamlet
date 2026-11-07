@@ -8,13 +8,17 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
+use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseButton;
 use bevy::math::Rect;
 use bevy::ui::{
     AlignItems, ComputedNode, UiGlobalTransform, UiRect, percent, px,
 };
 use bevy::window::Window;
-use bevy_fynix::shortcut::{Chord, Scope};
+use bevy_fynix::shortcut::{
+    Chord, CommandId, CommandSpec, GLOBAL, Mods, Scope,
+    ShortcutAppExt,
+};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, POPUP, button, frame, label, menu_item,
@@ -22,7 +26,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
 use hamlet_realm::pick::Taken;
-use hamlet_ui::styles::ICON;
+use hamlet_ui::styles::{ICON, hairline};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Underglow;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -33,8 +37,40 @@ use crate::desk::{NEW, new_desk};
 use crate::dock::show_tab;
 use crate::window;
 
-pub(crate) fn plugin(app: &mut App) {
+/// The key that brings Settings forward.
+const SETTINGS: Chord = Chord {
+    key: KeyCode::Comma,
+    mods: Mods::PRIMARY,
+};
+
+/// The key that closes the window.
+const CLOSE: Chord = Chord {
+    key: KeyCode::KeyQ,
+    mods: Mods::PRIMARY,
+};
+
+pub fn plugin(app: &mut App) {
+    let command = |id, label, run| CommandSpec {
+        id: CommandId(id),
+        label,
+        scope: GLOBAL,
+        run,
+        enabled: |_| true,
+        repeat: false,
+    };
     app.init_resource::<OpenMenu>()
+        .add_command(
+            command("app.settings", "Settings", |world, _| {
+                settings(world);
+            }),
+            &[SETTINGS],
+        )
+        .add_command(
+            command("app.close", "Close Window", |world, _| {
+                window::quit(world);
+            }),
+            &[CLOSE],
+        )
         .add_systems(Update, light_titles)
         // Before the toolkit closes a popup on Escape this frame.
         .add_systems(First, hold_escape);
@@ -168,12 +204,21 @@ pub(crate) fn light_titles(
     }
 }
 
+/// A menu's title, with a chevron after its name that says it opens
+/// a menu.
 fn title(name: &'static str, menu: Menu) -> impl View {
-    button(label(name).wrap(false).tagged(DisplayText))
-        .rules(nav)
-        .tagged(menu)
-        .tagged(Underglow::new(false))
-        .on_activate_with(move |world, node| open(world, menu, node))
+    button(
+        row((
+            label(name).wrap(false).tagged(DisplayText),
+            glyph(Glyph::Chevron, 10.0).rotation(180.0),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center),
+    )
+    .rules(nav)
+    .tagged(menu)
+    .tagged(Underglow::new(false))
+    .on_activate_with(move |world, node| open(world, menu, node))
 }
 
 /// The menu titles, for the top bar.
@@ -195,8 +240,10 @@ fn item(
     act: fn(&mut World),
 ) -> AnyView {
     with_cx(move |cx| {
-        let keys =
-            keys.map_or_else(String::new, |keys| keys.to_string());
+        // A comma reads as its own mark, not its key's name.
+        let keys = keys.map_or_else(String::new, |keys| {
+            keys.to_string().replace("Comma", ",")
+        });
         menu_item(
             row((
                 glyph(which, ICON).tone(Tone::Faint),
@@ -225,7 +272,12 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
     match menu {
         Menu::App => {
             let mut items = vec![
-                item(Glyph::Sliders, "Settings", None, settings),
+                item(
+                    Glyph::Sliders,
+                    "Settings",
+                    Some(SETTINGS),
+                    settings,
+                ),
                 item(Glyph::Plus, "New desk", Some(NEW), new_desk),
                 item(
                     Glyph::Hearth,
@@ -242,11 +294,18 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
                     crate::world_menu::ask_found,
                 ));
             }
+            items.push(
+                with_cx(|cx| {
+                    hairline(cx.theme().palette.gold_6)
+                        .margin(UiRect::vertical(px(4.0)))
+                })
+                .boxed(),
+            );
             // The server and its agents carry on without the window.
             items.push(item(
-                Glyph::Power,
+                Glyph::Leave,
                 "Close window",
-                None,
+                Some(CLOSE),
                 window::quit,
             ));
             items

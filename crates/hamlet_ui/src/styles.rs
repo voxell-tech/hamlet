@@ -33,7 +33,7 @@ pub fn pad() -> UiRect {
 }
 
 /// A standard button: bordered, with gold text. It darkens while
-/// pressed.
+/// pressed and is only an outline while it cannot be pressed.
 pub fn button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
@@ -56,6 +56,12 @@ pub fn button(cx: &mut Cx) {
         .pressed(|s| {
             s.frame(|f, t| {
                 f.fill(t.palette.input).border_color(t.palette.gold_5)
+            })
+            .tone(Tone::Dim)
+        })
+        .when::<InteractionDisabled>(|s| {
+            s.frame(|f, t| {
+                f.fill(Color::NONE).border_color(t.palette.gold_6)
             })
             .tone(Tone::Dim)
         })

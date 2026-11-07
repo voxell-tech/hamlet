@@ -65,13 +65,18 @@ impl Standing {
 
     pub(crate) fn word(self) -> &'static str {
         match self {
-            Self::Waits => "Waits for you",
+            Self::Waits => "Needs you",
             Self::Stopped => "Stopped",
             Self::Works => "At work",
             Self::Rests => "At rest",
             Self::Gone => "Gone",
         }
     }
+}
+
+/// What `count` waits for the chief do, after their number.
+pub(crate) fn need_you(count: usize) -> &'static str {
+    if count == 1 { "needs you" } else { "need you" }
 }
 
 /// How many waits `agent` has raised. A newcomer's wait is about the
