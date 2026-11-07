@@ -40,6 +40,7 @@ const NAMES: f32 = 76.0;
 #[derive(Clone, Debug, PartialEq)]
 struct Facts {
     hand: bool,
+    worker: bool,
     purpose: String,
     /// The version it is pinned to, none for its scholar's `main`.
     pin: Option<String>,
@@ -71,6 +72,8 @@ fn facts(world: &World, agent: Entity) -> Facts {
     Facts {
         hand: world.get::<Kind>(agent).map(|kind| kind.0)
             == Some(protocol::AgentKind::Hand),
+        worker: world.get::<Kind>(agent).map(|kind| kind.0)
+            == Some(protocol::AgentKind::Worker),
         purpose: world
             .get::<hamlet_client::realm::Purpose>(agent)
             .map(|purpose| purpose.0.clone())
@@ -299,7 +302,7 @@ fn agent_section(agent: Entity) -> impl View {
                 parts.push(said(facts.purpose.clone()));
             }
             parts.push(settings(facts));
-            if !facts.hand {
+            if !facts.hand && !facts.worker {
                 parts.push(tools(facts));
             }
             if *may_road && !facts.hand {
