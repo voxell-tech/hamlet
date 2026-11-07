@@ -29,6 +29,7 @@ use bevy_fynix::tokens::{
 use hamlet_assets::{File, Tuning, TuningPlugin, tint};
 use serde::{Deserialize, Serialize};
 
+use self::contrast::Part;
 pub use self::themes::{Theme, ThemeId, Themes, Variant, Variants};
 
 pub fn plugin(app: &mut App) {
@@ -197,6 +198,81 @@ pub struct Palette {
     /// The shadow under what floats, with its alpha.
     #[serde(with = "tint")]
     pub shadow: Color,
+}
+
+impl Palette {
+    /// Every colour by name with the part it plays.
+    pub fn parts(&self) -> [(&'static str, Part, Color); 32] {
+        // No `..`: a new colour does not build until it has a part.
+        let Self {
+            surface,
+            grey_1,
+            button,
+            button_hover,
+            border,
+            gold_1,
+            gold_2,
+            gold_3,
+            gold_4,
+            gold_5,
+            gold_6,
+            gold_hover,
+            accent,
+            glow,
+            glow_core,
+            particle,
+            primary_low,
+            primary_high,
+            agent,
+            card,
+            input,
+            code,
+            text_selection,
+            bottom_glow,
+            red,
+            danger,
+            danger_border,
+            danger_hover,
+            danger_glow,
+            green,
+            green_deep,
+            shadow,
+        } = *self;
+        [
+            ("surface", Part::Panel, surface),
+            ("card", Part::Panel, card),
+            ("input", Part::Fill, input),
+            ("code", Part::Fill, code),
+            ("button", Part::Fill, button),
+            ("button_hover", Part::Fill, button_hover),
+            ("gold_hover", Part::Fill, gold_hover),
+            ("gold_6", Part::Fill, gold_6),
+            ("primary_low", Part::Fill, primary_low),
+            ("danger", Part::Fill, danger),
+            ("danger_hover", Part::Fill, danger_hover),
+            ("green_deep", Part::Fill, green_deep),
+            ("bottom_glow", Part::Fill, bottom_glow),
+            ("text_selection", Part::Fill, text_selection),
+            ("gold_1", Part::Ink, gold_1),
+            ("grey_1", Part::Ink, grey_1),
+            ("gold_2", Part::Ink, gold_2),
+            ("accent", Part::Ink, accent),
+            ("red", Part::Ink, red),
+            ("green", Part::Ink, green),
+            ("gold_5", Part::Mark, gold_5),
+            ("gold_3", Part::Mark, gold_3),
+            ("gold_4", Part::Mark, gold_4),
+            ("danger_border", Part::Mark, danger_border),
+            ("border", Part::Light, border),
+            ("glow", Part::Light, glow),
+            ("glow_core", Part::Light, glow_core),
+            ("particle", Part::Light, particle),
+            ("primary_high", Part::Light, primary_high),
+            ("agent", Part::Light, agent),
+            ("danger_glow", Part::Light, danger_glow),
+            ("shadow", Part::Light, shadow),
+        ]
+    }
 }
 
 /// The sizes of the lettering.

@@ -1,6 +1,8 @@
 //! The themes a chief can pick, one family a file under
 //! `assets/themes/`.
 
+use std::fmt;
+
 use bevy::app::{App, PreUpdate, Startup};
 use bevy::asset::{Asset, AssetEvent, AssetServer, Assets, Handle};
 use bevy::ecs::message::MessageReader;
@@ -12,7 +14,8 @@ use bevy::window::WindowTheme;
 use hamlet_assets::{File, THEMES};
 use serde::{Deserialize, Serialize};
 
-use super::Palette;
+use super::contrast::Report;
+use super::{HamletTheme, Measures, Palette};
 
 /// Reads a saved theme file again; adds nothing without an asset
 /// server.
@@ -29,6 +32,12 @@ pub(super) fn plugin(app: &mut App) {
 )]
 #[serde(transparent)]
 pub struct ThemeId(String);
+
+impl fmt::Display for ThemeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 /// Hamlet's own family.
 impl Default for ThemeId {
@@ -66,6 +75,36 @@ impl Variants {
             (Self::Light(only) | Self::Dark(only), _) => only,
         }
     }
+
+    /// Each variant with its appearance, light first.
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = (WindowTheme, &Variant)> {
+        let (light, dark) = match self {
+            Self::Light(light) => (Some(light), None),
+            Self::Dark(dark) => (None, Some(dark)),
+            Self::Both { light, dark } => (Some(light), Some(dark)),
+        };
+        light
+            .map(|light| (WindowTheme::Light, light))
+            .into_iter()
+            .chain(dark.map(|dark| (WindowTheme::Dark, dark)))
+    }
+}
+
+impl Theme {
+    /// The contrast report of each variant, light first.
+    pub fn reports(
+        &self,
+        measures: &Measures,
+    ) -> impl Iterator<Item = (WindowTheme, Report)> {
+        self.variants.iter().map(|(appearance, variant)| {
+            let theme =
+                HamletTheme::new(variant.palette.clone(), measures);
+            let title = format!("{}: {}", self.name, variant.name);
+            (appearance, Report::of(title, &theme))
+        })
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -87,6 +126,10 @@ impl Themes {
             (theme.id != ThemeId::default(), theme.name.clone())
         });
         Self(themes)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Theme> {
+        self.0.iter()
     }
 
     /// Theme `id`, or Hamlet's when `id` no longer ships.
@@ -196,12 +239,14 @@ fn open(server: Res<AssetServer>, mut commands: Commands) {
     ));
 }
 
-/// Replaces a saved theme in [`Themes`]. A file that no longer reads
-/// keeps its last values.
+/// Replaces a saved theme in [`Themes`] and warns of each pair that
+/// no longer reads. A file that no longer reads keeps its last
+/// values.
 fn reread(
     mut changes: MessageReader<AssetEvent<ThemeFile>>,
     open: Res<Open>,
     files: Res<Assets<ThemeFile>>,
+    measures: Res<Measures>,
     mut themes: ResMut<Themes>,
 ) {
     for change in changes.read() {
@@ -219,6 +264,11 @@ fn reread(
         match read(theme.clone(), file.clone()) {
             Ok(read) => {
                 info!("assets/themes/{}.toml read again", theme.0);
+                for (_, report) in read.reports(&measures) {
+                    if let Some(failing) = report.failing() {
+                        warn!("{failing}");
+                    }
+                }
                 themes.replace(read);
             }
             Err(why) => {
