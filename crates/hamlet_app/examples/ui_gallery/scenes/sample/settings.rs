@@ -8,6 +8,7 @@ use hamlet_realm::sky::{
     DistanceFogSettings, SkySettings, VolumetricFogSettings,
 };
 use hamlet_realm::{North, Sky};
+use hamlet_vfx::wind::WindChoice;
 
 use crate::scenes::Scene;
 
@@ -52,6 +53,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.init_resource::<VolumetricFogSettings>();
         world.init_resource::<DistanceFogSettings>();
         world.init_resource::<Sky>();
+        world.init_resource::<WindChoice>();
         world.insert_resource(North(30.0));
         world.insert_resource(settings::Pane::Sight);
     }

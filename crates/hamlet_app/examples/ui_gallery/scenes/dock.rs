@@ -76,7 +76,6 @@ pub(super) fn seed_dock(world: &mut World) {
         DockWindowKind::new("SETTINGS", || panel(settings::screen()))
             .icon(Glyph::Sliders.image(ICON)),
     );
-    let scene = *world.resource::<Scene>();
     let mut tree = world.resource_mut::<DockTree>();
     let centre = tree.set_root_leaf(
         DockLeaf::new("centre", DockAreaStyle::TabBar)
@@ -84,19 +83,35 @@ pub(super) fn seed_dock(world: &mut World) {
     );
     if let Some((side, _)) =
         tree.split(centre, Edge::Right, "hub".into())
+        && let Some(parent) = tree.parent_of(side)
     {
-        if let Some(parent) = tree.parent_of(side) {
-            tree.set_fraction(parent, 0.5);
-        }
-        if matches!(
+        tree.set_fraction(parent, 0.5);
+    }
+}
+
+/// Opens the Settings tab beside the Hub in the scenes of Settings.
+/// After the first update, as the desk lays its own dock out over the
+/// seeded one then.
+pub(super) fn open_settings(
+    world: &mut World,
+    mut opened: bevy::ecs::system::Local<bool>,
+) {
+    let scene = *world.resource::<Scene>();
+    if *opened
+        || !matches!(
             scene,
             Scene::Settings
                 | Scene::Charter
                 | Scene::Workspace
                 | Scene::Sight
-        ) {
-            tree.add_tab(side, "settings");
-        }
+        )
+    {
+        return;
+    }
+    *opened = true;
+    let mut tree = world.resource_mut::<DockTree>();
+    if let Some(side) = tree.find_leaf_with_window("hub") {
+        tree.add_tab(side, "settings");
     }
 }
 

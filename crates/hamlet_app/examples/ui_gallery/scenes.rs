@@ -4,7 +4,9 @@ mod dock;
 mod sample;
 mod sheets;
 
-use bevy::app::{App, Plugin, PostStartup, Startup, Update};
+use bevy::app::{
+    App, Plugin, PostStartup, PostUpdate, Startup, Update,
+};
 use bevy::asset::Handle;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -22,7 +24,7 @@ use hamlet_assets::Tuning;
 use hamlet_realm::sound::{Cue, SoundSettings};
 use hamlet_ui::theme::{self, HamletTheme};
 
-use self::dock::{panels, seed_dock};
+use self::dock::{open_settings, panels, seed_dock};
 use self::sample::{first_run, setup};
 use self::sheets::{controls, hold, hold_message, icon_sheet};
 
@@ -74,6 +76,7 @@ impl Plugin for GalleryPlugin {
                 PostStartup,
                 (seed_dock, mount_scene).chain(),
             )
+            .add_systems(PostUpdate, open_settings)
             .add_systems(
                 Update,
                 (
