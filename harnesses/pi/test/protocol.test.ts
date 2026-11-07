@@ -27,6 +27,7 @@ async function converse(
     tools: unknown[],
     answer: (operation: unknown) => string,
     done: (item: unknown) => boolean,
+    images: { data: string; mime: string }[] = [],
 ) {
     const folder = mkdtempSync(join(tmpdir(), "hamlet-pi-protocol-"));
     folders.push(folder);
@@ -74,6 +75,7 @@ async function converse(
                     conversation: field(message, "conversation"),
                     request: "r1",
                     content: "Hello.",
+                    images,
                     steer: false,
                 });
                 break;
@@ -112,6 +114,7 @@ async function converse(
                     type: "result",
                     re,
                     text: answer(message),
+                    images,
                     error: false,
                 });
                 break;
@@ -165,4 +168,33 @@ test("a tool that retains the tail keeps the end of a long result, and one witho
     expect(kept.get("tail")).not.toContain("line 1\n");
     expect(kept.get("head")).toContain("line 1\n");
     expect(kept.get("head")).not.toContain("line 3000");
+});
+
+test("images on a line and on a tool result reach the conversation as they came", async () => {
+    // A 1x1 PNG.
+    const data =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const tool = {
+        name: "snap",
+        description: "Takes a picture.",
+        parameters: { type: "object", properties: {} },
+        replay: "safe",
+    };
+    const { heard } = await converse(
+        {
+            agents: {
+                "0": [{ calls: [{ name: "snap", arguments: {} }] }, "seen"],
+            },
+        },
+        [tool],
+        () => "an image",
+        answered("seen"),
+        [{ data, mime: "image/png" }],
+    );
+    expect(heard.filter((message) => !isRuntimeMessage(message))).toEqual([]);
+    const kept = heard
+        .map((message) => field(message, "item"))
+        .filter((item) => field(item, "kind") === "tool_result");
+    // The kept text joins the result's blocks with a line, so the image is one more block after the words.
+    expect(kept.map((item) => field(item, "text"))).toEqual(["an image\n"]);
 });

@@ -397,6 +397,10 @@ export function selectedModel(
     return {
         ...listed,
         ...(ref.baseUrl === undefined ? {} : { baseUrl: ref.baseUrl }),
+        input:
+            selection.images && !listed.input.includes("image")
+                ? [...listed.input, "image"]
+                : listed.input,
         contextWindow: selection.contextWindow ?? listed.contextWindow,
         maxTokens: selection.maxTokens ?? listed.maxTokens,
         cost: { ...selection.price },
