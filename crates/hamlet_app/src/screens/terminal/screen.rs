@@ -593,6 +593,10 @@ fn draw_row(
             },
             LineHeight::Px(cell.y),
             TextColor(run.fg),
+            // Picking hits a text's spans and reads each one's own
+            // `Pickable`: without it a span would take the press
+            // meant for the canvas.
+            Pickable::IGNORE,
             ChildOf(text),
         ));
         if run.underline {
@@ -752,6 +756,41 @@ mod tests {
         assert_eq!(span.columns(0, 20), Some((5, 20)));
         assert_eq!(span.columns(1, 20), Some((0, 4)));
         assert_eq!(span.columns(2, 20), None);
+    }
+
+    #[test]
+    fn nothing_drawn_in_a_row_takes_the_pointer_from_the_canvas() {
+        let look = look();
+        let parser = screen("\x1b[44m tab \x1b[0m text");
+        let drawn = line(parser.screen(), 0, 20, None, None, &look);
+        let mut world = World::new();
+        let row = world.spawn_empty().id();
+        draw_row(
+            &mut world,
+            row,
+            &drawn,
+            Vec2::new(8.0, 16.0),
+            &TextFont::default(),
+        );
+        let mut inside = Vec::new();
+        let mut next = vec![row];
+        while let Some(at) = next.pop() {
+            for kid in world.get::<Children>(at).into_iter().flatten()
+            {
+                inside.push(*kid);
+                next.push(*kid);
+            }
+        }
+        assert!(inside.len() >= 3, "a back, a text and its spans");
+        for kid in inside {
+            assert!(
+                world
+                    .get::<Pickable>(kid)
+                    .is_some_and(|pickable| !pickable.is_hoverable
+                        && !pickable.should_block_lower),
+                "{kid} takes the pointer"
+            );
+        }
     }
 
     #[test]

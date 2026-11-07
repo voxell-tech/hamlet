@@ -163,9 +163,9 @@ fn press(
     mut focus: ResMut<InputFocus>,
     mut commands: Commands,
 ) {
-    if press.entity != press.original_event_target()
-        || !nodes.contains(press.entity)
-    {
+    // What was hit may be inside the canvas; the press reaches it
+    // as it goes up.
+    if !nodes.contains(press.entity) {
         return;
     }
     let Ok((canvas, mut chosen, mut reporting)) =
@@ -234,9 +234,7 @@ fn drag(
     held: Option<Res<ButtonInput<KeyCode>>>,
     mut commands: Commands,
 ) {
-    if drag.entity != drag.original_event_target()
-        || !nodes.contains(drag.entity)
-    {
+    if !nodes.contains(drag.entity) {
         return;
     }
     let Ok((canvas, mut chosen, mut reporting)) =
