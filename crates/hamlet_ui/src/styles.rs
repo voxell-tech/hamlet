@@ -110,8 +110,9 @@ pub fn hidden(cx: &mut Cx) {
     cx.root(|cx| cx.set::<Visual>(|visual, _| visual.scale(0.96)));
 }
 
-/// A text input: darker than the panel, with a dim gold border that
-/// brightens under the pointer and while it is typed in.
+/// A text input: darker than the panel, with a quiet border that
+/// lightens under the pointer and turns to the accent while it is
+/// typed in.
 pub fn text_input(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
@@ -122,7 +123,7 @@ pub fn text_input(cx: &mut Cx) {
         })
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.input).border_color(t.palette.gold_5)
+                f.fill(t.palette.input).border_color(t.palette.grey_1)
             })
         })
         .when::<bevy_fynix::Focused>(|s| {
