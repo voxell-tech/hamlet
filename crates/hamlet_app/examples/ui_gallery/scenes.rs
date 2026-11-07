@@ -57,6 +57,7 @@ impl Plugin for GalleryPlugin {
                 running_tone: Tone::Dim,
                 model: "hearth-large".into(),
                 link: "Connected, 1 model".into(),
+                link_tone: Tone::Dim,
                 usage: "12.4k tokens".into(),
                 budget: "$1.20 of $20.00".into(),
                 ..Bar::default()

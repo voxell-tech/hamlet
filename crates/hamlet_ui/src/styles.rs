@@ -353,10 +353,13 @@ pub fn note(text: impl Into<Prop<String>>) -> impl View {
     label(text).rules(note_rules)
 }
 
-/// The rules of a note: every label in the view small and dim.
+/// The rules of a note: every label in the view small, not bold and
+/// dim.
 pub fn note_rules(cx: &mut Cx) {
     style::<HamletTheme>()
-        .label(|l, t| l.size(t.text.small).tone(Tone::Dim))
+        .label(|l, t| {
+            l.size(t.text.small).bold(false).tone(Tone::Dim)
+        })
         .apply(cx);
 }
 

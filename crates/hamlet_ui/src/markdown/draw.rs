@@ -306,6 +306,15 @@ fn table_view(
     })
 }
 
+/// The size of a heading of `level`, from 1.
+pub fn heading_size(level: u8) -> f32 {
+    match level {
+        1 => 20.0,
+        2 => 17.0,
+        _ => 15.0,
+    }
+}
+
 fn block_view(
     cx: &Cx,
     at: usize,
@@ -329,11 +338,7 @@ fn block_view(
         Kind::Heading(level, spans) => rich(
             spans,
             Ink {
-                size: Some(match level {
-                    1 => 20.0,
-                    2 => 17.0,
-                    _ => 15.0,
-                }),
+                size: Some(heading_size(*level)),
                 face: Face::Heading,
                 ..body
             },

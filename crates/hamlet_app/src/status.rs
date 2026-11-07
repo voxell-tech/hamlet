@@ -144,27 +144,25 @@ fn mark(
     })
 }
 
-/// Bold words of the small size in `tone`, as the bar tells what is
-/// on.
+/// Words of the small size in `tone`, as the bar tells what is on.
 fn told(
+    text: impl Into<Prop<String>> + 'static,
+    tone: impl Into<Prop<Tone>> + 'static,
+) -> impl View {
+    label(text).tone(tone).rules(small_rules)
+}
+
+/// [`told`] in bold, for what needs the chief.
+fn alarm(
     text: impl Into<Prop<String>> + 'static,
     tone: impl Into<Prop<Tone>> + 'static,
 ) -> impl View {
     label(text).bold(true).tone(tone).rules(small_rules)
 }
 
-/// The faint dot between two of the bar's facts, before the second.
-fn after_dot(fact: impl View + 'static) -> impl View {
-    with_cx(move |cx| {
-        row((label("·").tone(Tone::Faint).rules(small_rules), fact))
-            .gap(cx.theme().space.status_gap)
-            .align(AlignItems::Center)
-    })
-}
-
-/// One of the bar's facts after another: a dot, an icon and what
-/// `text` reads, with `tip` to name it under the pointer. Nothing
-/// while there is nothing to say.
+/// One of the bar's facts: an icon and what `text` reads, with `tip`
+/// to name it under the pointer. Nothing while there is nothing to
+/// say.
 fn fact(
     which: Glyph,
     text: fn(&Bar) -> String,
@@ -176,13 +174,11 @@ fn fact(
             if *empty {
                 return frame().boxed();
             }
-            after_dot(
-                pair(
-                    mark(which, Tone::Dim),
-                    told(resource::<Bar, _>(text), Tone::Dim),
-                )
-                .tooltip(move || note(tip)),
+            pair(
+                mark(which, Tone::Dim),
+                told(resource::<Bar, _>(text), Tone::Dim),
             )
+            .tooltip(move || note(tip))
             .boxed()
         },
     )
@@ -207,7 +203,7 @@ fn confinement() -> AnyView {
             }
             protocol::Confinement::Insecure => pair(
                 mark(Glyph::Shield, Tone::Critical),
-                told("Insecure mode", Tone::Critical),
+                alarm("Insecure mode", Tone::Critical),
             )
             .tooltip(|| {
                 note(
@@ -237,13 +233,97 @@ fn waiting() -> impl View {
         0 => frame().boxed(),
         n => pair(
             mark(Standing::Waits.glyph(), Standing::Waits.tone()),
-            told(
+            alarm(
                 format!("{n} {}", need_you(*n)),
                 Standing::Waits.tone(),
             ),
         )
         .boxed(),
     })
+    .within(row(()).gap(0.0))
+}
+
+/// How the agents reach their models: what confines their commands,
+/// the default model and the link.
+fn setup() -> impl View {
+    with_cx(|cx| {
+        row((
+            confinement(),
+            fact(
+                Glyph::Chip,
+                |bar| {
+                    if bar.model.is_empty() {
+                        String::new()
+                    } else {
+                        format!("Default model: {}", bar.model)
+                    }
+                },
+                "The model agents use unless given another",
+            ),
+            pair(
+                mark(
+                    Glyph::Signal,
+                    resource::<Bar, _>(|bar| bar.link_tone),
+                ),
+                keyed(
+                    resource::<Bar, _>(|bar| bar.link_tone),
+                    |tone| {
+                        let words =
+                            resource::<Bar, _>(|s| s.link.clone());
+                        match tone {
+                            Tone::Critical => {
+                                alarm(words, Tone::Critical).boxed()
+                            }
+                            _ => told(words, *tone).boxed(),
+                        }
+                    },
+                )
+                .within(row(()).gap(0.0)),
+            )
+            .tooltip(|| {
+                note(resource::<Bar, _>(|bar| bar.connection.clone()))
+            }),
+        ))
+        .gap(cx.theme().space.status_gap)
+        .align(AlignItems::Center)
+    })
+}
+
+/// What the current session used, after a short upright line that
+/// sets it apart from [`setup`]. Nothing while there is no session.
+fn session() -> impl View {
+    keyed(
+        resource::<Bar, _>(|bar| {
+            bar.usage.is_empty() && bar.budget.is_empty()
+        }),
+        |none| {
+            if *none {
+                return frame().boxed();
+            }
+            with_cx(|cx| {
+                let space = &cx.theme().space;
+                row((
+                    frame()
+                        .width(px(1.0))
+                        .height(px(space.status_icon))
+                        .fill(cx.theme().palette.border),
+                    fact(
+                        Glyph::Coins,
+                        |bar| bar.usage.clone(),
+                        "Used by this session",
+                    ),
+                    fact(
+                        Glyph::Meter,
+                        |bar| bar.budget.clone(),
+                        "Spent of the hamlet's budget",
+                    ),
+                ))
+                .gap(space.status_gap)
+                .align(AlignItems::Center)
+            })
+            .boxed()
+        },
+    )
     .within(row(()).gap(0.0))
 }
 
@@ -268,53 +348,8 @@ pub fn status_bar() -> impl View {
             column((
                 hairline(palette.border),
                 row((
-                    confinement(),
-                    fact(
-                        Glyph::Chip,
-                        |bar| {
-                            if bar.model.is_empty() {
-                                String::new()
-                            } else {
-                                format!(
-                                    "Default model: {}",
-                                    bar.model
-                                )
-                            }
-                        },
-                        "The model agents use unless given another",
-                    ),
-                    after_dot(
-                        pair(
-                            mark(
-                                Glyph::Signal,
-                                resource::<Bar, _>(|bar| {
-                                    bar.link_tone
-                                }),
-                            ),
-                            label(resource::<Bar, _>(|s| {
-                                s.link.clone()
-                            }))
-                            .tone(resource::<Bar, _>(|bar| {
-                                bar.link_tone
-                            }))
-                            .rules(small_rules),
-                        )
-                        .tooltip(|| {
-                            note(resource::<Bar, _>(|bar| {
-                                bar.connection.clone()
-                            }))
-                        }),
-                    ),
-                    fact(
-                        Glyph::Coins,
-                        |bar| bar.usage.clone(),
-                        "Used by this session",
-                    ),
-                    fact(
-                        Glyph::Meter,
-                        |bar| bar.budget.clone(),
-                        "Spent of the hamlet's budget",
-                    ),
+                    setup(),
+                    session(),
                     aimed(),
                     waiting(),
                     pair(

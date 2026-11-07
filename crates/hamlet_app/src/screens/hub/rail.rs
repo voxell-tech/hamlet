@@ -42,7 +42,8 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    ICON, note, quoted, scroll_area, text_input,
+    ICON, description_rules, note, note_rules, quoted, scroll_area,
+    text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -91,6 +92,14 @@ const STEP_IN: f32 = 16.0;
 
 /// The room inside a row's ends.
 const ROW_INSET: f32 = 6.0;
+
+/// The space over each part of the rail: what waits, the tabs and
+/// each hamlet, so that the parts stand apart and evenly.
+const PART_GAP: f32 = 20.0;
+
+/// The space over the first part under the tabs, less than
+/// [`PART_GAP`] by what the search row already leaves under it.
+const UNDER_SEARCH: f32 = 16.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Rail>()
@@ -1273,13 +1282,6 @@ fn look_at(world: &mut World, thing: Thing) {
     }
 }
 
-/// The rules of words that stand back: every label in the view dim.
-fn dim_rules(cx: &mut Cx) {
-    style::<HamletTheme>()
-        .label(|l, _| l.tone(Tone::Dim))
-        .apply(cx);
-}
-
 fn row_rules(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, _| {
@@ -1365,7 +1367,7 @@ fn expanded(line: &Line) -> AnyView {
                 .grow(1.0)
                 .min_width(px(0.0))
                 .overflow(Overflow::clip()),
-                label(line.age.clone()).tone(Tone::Faint).wrap(false),
+                label(line.age.clone()).wrap(false).rules(note_rules),
                 mark_icon(line.mark),
             ))
             .gap(6.0)
@@ -1382,7 +1384,7 @@ fn expanded(line: &Line) -> AnyView {
             } else {
                 Display::Flex
             })
-            .rules(dim_rules),
+            .rules(description_rules),
         ))
         .gap(0.0)
         .grow(1.0)
@@ -1442,7 +1444,7 @@ fn expanded(line: &Line) -> AnyView {
 /// A section's header, set apart from the rows under it in the
 /// display face: a chevron that folds it, its title, which opens its
 /// page where it has one, its count and its state.
-fn header(section: &Section) -> AnyView {
+fn header(section: &Section, above: f32) -> AnyView {
     let group = section.group;
     let mut parts = vec![match group {
         Group::Needs => {
@@ -1488,18 +1490,25 @@ fn header(section: &Section) -> AnyView {
         .padding(UiRect::new(
             px(0.0),
             px(ROW_INSET),
-            px(12.0),
+            px(above),
             px(4.0),
         ))
         .width(percent(100.0))
         .boxed()
 }
 
-fn sections_view(sections: &[Section]) -> AnyView {
+/// `sections` one under another, the first header `first_above` under
+/// what is over it.
+fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
     let mut parts = Vec::new();
     for section in sections {
         if !section.title.is_empty() {
-            parts.push(header(section));
+            let above = if parts.is_empty() {
+                first_above
+            } else {
+                PART_GAP
+            };
+            parts.push(header(section, above));
         }
         if section.folded {
             continue;
@@ -1534,7 +1543,7 @@ pub(super) fn view() -> impl View {
                 .collect::<Vec<_>>()
         })
         .when(every_frame()),
-        |sections| sections_view(sections),
+        |sections| sections_view(sections, PART_GAP),
     )
     .within(hamlet_ui::styles::bare());
     let under = keyed(
@@ -1545,17 +1554,13 @@ pub(super) fn view() -> impl View {
                 .collect::<Vec<_>>()
         })
         .when(every_frame()),
-        |sections| sections_view(sections),
+        |sections| sections_view(sections, UNDER_SEARCH),
     )
     .within(hamlet_ui::styles::bare());
     let body = column((
         over,
-        column((tabs_and_search(),)).padding(UiRect::new(
-            px(0.0),
-            px(0.0),
-            px(10.0),
-            px(4.0),
-        )),
+        column((tabs_and_search(),))
+            .padding(UiRect::top(px(PART_GAP))),
         under,
     ))
     .gap(0.0);

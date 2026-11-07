@@ -25,7 +25,7 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, back, bare, card_name, choice, close, crumb,
+    Fills, ICON, action, back, bare, choice, close, crumb,
     crumb_here, crumb_slash, crumbs, danger_button, filling, framed,
     hairline, note, primary_button, scroll_area, title,
 };
@@ -896,10 +896,14 @@ fn prompt_sections(
                 Tone::Body,
             )
             .boxed();
-            with_cx(move |cx| {
-                column((card_name(name, Tone::Body), text))
-                    .gap(cx.theme().space.gap / 2.0)
-            })
+            column((
+                label(name)
+                    .size(hamlet_ui::markdown::heading_size(2))
+                    .bold(true)
+                    .wrap(false),
+                text,
+            ))
+            .gap(6.0)
             .boxed()
         })
         .collect::<Vec<_>>();
@@ -908,7 +912,7 @@ fn prompt_sections(
     // the area and dims the letters under it.
     with_cx(move |cx| {
         let line = cx.theme().palette.gold_6;
-        let gap = cx.theme().space.section;
+        let gap = cx.theme().space.panel;
         let mut parts = Vec::new();
         for section in sections {
             if !parts.is_empty() {
