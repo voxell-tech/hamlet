@@ -83,7 +83,14 @@ impl Scratch {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        // Private whatever the umask, as a realm's own folder is: a
+        // common Linux umask, 002, would leave it writable by the
+        // group, and `hamlet dev` refuses such a home.
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&dir).unwrap();
         // The real path: on macOS the temp folder is a symlink.
         Scratch(dir.canonicalize().unwrap())
     }
