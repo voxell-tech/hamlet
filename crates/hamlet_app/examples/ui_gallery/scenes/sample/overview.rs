@@ -45,6 +45,17 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         "welcome",
         "turn-away",
     ]);
+    // A hamlet's page as its chief sees it, with what can be done to
+    // the hamlet.
+    if matches!(scene, Scene::Hamlet | Scene::Bylaws) {
+        state.deeds.extend(hamlet_testing::realm::deeds(&[
+            "hire",
+            "worker",
+            "name-hamlet",
+            "move-hamlet",
+            "remove-hamlet",
+        ]));
+    }
     state.closed = vec![protocol::ClosedHamlet {
         id: "press".into(),
         name: "The Old Press".into(),

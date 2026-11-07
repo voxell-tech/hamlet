@@ -9,7 +9,7 @@ use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, label, row, text_field,
+    frame, label, menu_button, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
@@ -29,7 +29,7 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::details::card;
 use super::thread::dim;
-use super::{Showing, memory, show};
+use super::{Showing, memory, rail, show};
 use crate::chat;
 use crate::convo::talk_to;
 use crate::overview::{heading, typed};
@@ -328,11 +328,12 @@ fn is_careful(act: &Act) -> bool {
 
 /// Whether `act` is done from the card of its versions.
 fn is_of_versions(act: &Act) -> bool {
-    matches!(act, Act::Tag | Act::Fork(_) | Act::Revert(_))
+    matches!(act, Act::Tag | Act::Fork(Some(_)) | Act::Revert(_))
 }
 
-fn is_rename(act: &Act) -> bool {
-    *act == Act::Rename
+/// Whether `act` is done from the buttons under the scholar's name.
+fn is_of_header(act: &Act) -> bool {
+    matches!(act, Act::Rename | Act::Fork(None))
 }
 
 /// Where the scholar stands, said beside its name: in the city, at
@@ -362,6 +363,24 @@ fn arrival(shown: &Shown) -> AnyView {
         buttons_row.push(action(Glyph::Rename, "Rename", |world| {
             ask(world, Act::Rename);
         }));
+    }
+    if shown.scholar.left.is_none() && can("fork") {
+        buttons_row.push(
+            action(
+                Glyph::Scholar,
+                "New scholar from this one",
+                |world| {
+                    ask(world, Act::Fork(None));
+                },
+            )
+            .tooltip(|| {
+                note(
+                    "Start another scholar knowing all this one \
+                     knows now",
+                )
+            })
+            .boxed(),
+        );
     }
     match (&shown.scholar.left, shown.scholar.arrival) {
         (Some(_), _) => {
@@ -454,41 +473,21 @@ fn versions(shown: &Shown) -> AnyView {
             );
         }
         line.push(frame().grow(1.0).boxed());
+        let mut deeds = Vec::new();
         if can("fork") {
-            let from = name.clone();
-            line.push(
-                action(
-                    Glyph::NewSession,
-                    "New scholar",
-                    move |world| {
-                        ask(world, Act::Fork(Some(from.clone())));
-                    },
-                )
-                .tooltip({
-                    let name = name.clone();
-                    move || {
-                        note(format!(
-                            "Make a new scholar from {name}"
-                        ))
-                    }
-                })
-                .boxed(),
-            );
+            deeds.push((
+                format!("Make a new scholar from {name}"),
+                Act::Fork(Some(name.clone())),
+            ));
         }
         if can("revert") {
-            let to = name.clone();
-            line.push(
-                action(Glyph::Restore, "Undo", move |world| {
-                    ask(world, Act::Revert(to.clone()));
-                })
-                .tooltip({
-                    let name = name.clone();
-                    move || {
-                        note(format!("Undo the change {name} named"))
-                    }
-                })
-                .boxed(),
-            );
+            deeds.push((
+                format!("Undo the change saved as {name}"),
+                Act::Revert(name.clone()),
+            ));
+        }
+        if !deeds.is_empty() {
+            line.push(version_menu(deeds));
         }
         parts.push(
             row(line).gap(8.0).align(AlignItems::Center).boxed(),
@@ -504,27 +503,32 @@ fn versions(shown: &Shown) -> AnyView {
             .boxed(),
         );
     }
-    if can("fork") {
-        acts.push(
-            action(
-                Glyph::NewSession,
-                "New scholar from this one",
-                |world| {
-                    ask(world, Act::Fork(None));
-                },
-            )
-            .tooltip(|| {
-                note(
-                    "Start another scholar knowing all this one \
-                     knows now",
-                )
-            })
-            .boxed(),
-        );
-    }
     parts.push(buttons(acts).boxed());
     parts.push(form_view(address, scholar, is_of_versions).boxed());
     framed(parts).boxed()
+}
+
+/// The button that opens what can be done from one version: each of
+/// `deeds`, named in full, with what it asks for.
+fn version_menu(deeds: Vec<(String, Act)>) -> AnyView {
+    let (words, acts): (Vec<_>, Vec<_>) = deeds.into_iter().unzip();
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let acts = acts.clone();
+        menu_button("", words.clone(), move |world, at| {
+            if let Some(act) = acts.get(at) {
+                ask(world, act.clone());
+            }
+        })
+        .icon(Glyph::More.image(ICON))
+        .padding(UiRect::axes(px(8.0), px(4.0)))
+        .fill(theme.palette.button)
+        .border(theme.space.border)
+        .border_color(theme.palette.gold_5)
+        .radius(theme.space.round)
+        .tooltip(|| note("What can be done from this version"))
+    })
+    .boxed()
 }
 
 /// Its hires on their card, each led to and pinned to a version from
@@ -754,13 +758,22 @@ fn body(shown: &Shown) -> AnyView {
         ) = parts;
         column((
             breadcrumb(
-                vec!["Realm".into()],
+                vec!["Realm".into(), "City".into()],
                 name.clone(),
-                |world, _| show(world, Showing::Realm),
+                |world, at| {
+                    show(world, Showing::Realm);
+                    // The city is the rail's tab that lists it.
+                    if at == 1
+                        && let Some(mut tab) =
+                            world.get_resource_mut::<rail::Tab>()
+                    {
+                        *tab = rail::Tab::City;
+                    }
+                },
             ),
             heading,
             head,
-            form_view(address, name.clone(), is_rename),
+            form_view(address, name.clone(), is_of_header),
             hires_part,
             character_part,
             memory_part,

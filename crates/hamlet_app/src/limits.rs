@@ -519,15 +519,27 @@ pub fn panel(hamlet: Entity) -> AnyView {
                 return AnyView::new(
                     move |cx: &mut hamlet_ui::Cx| {
                         let space = &cx.theme().space;
-                        // The folder it works on leads the list, open
-                        // where the others lead to a page.
-                        let folder =
-                            column((crate::folder::section(hamlet),))
+                        let padded = |part: AnyView| {
+                            column((part,))
                                 .padding(UiRect::axes(
                                     px(space.card_padding_x),
                                     px(space.card_padding_y),
                                 ))
-                                .boxed();
+                                .boxed()
+                        };
+                        // The folder it works on and its approvals
+                        // lead the list, open where the others lead
+                        // to a page.
+                        let open = [
+                            padded(
+                                crate::folder::section(hamlet)
+                                    .boxed(),
+                            ),
+                            padded(
+                                crate::folder::approvals(hamlet)
+                                    .boxed(),
+                            ),
+                        ];
                         let rows =
                             Part::PAGES.into_iter().map(|part| {
                                 nav_row(
@@ -555,7 +567,8 @@ pub fn panel(hamlet: Entity) -> AnyView {
                                     },
                                 )
                             });
-                        let parts = std::iter::once(folder)
+                        let parts = open
+                            .into_iter()
                             .chain(rows)
                             .collect::<Vec<_>>();
                         cx.build(with_cx(move |cx| {
@@ -678,7 +691,9 @@ impl Part {
                 .map(|(_, what)| what)
                 .collect::<Vec<_>>();
                 let asks = match kept.split_last() {
-                    None => "Leads ask you for nothing".to_string(),
+                    None => {
+                        "Leads act without asking you".to_string()
+                    }
                     Some((last, [])) => {
                         format!("Leads ask you before they {last}")
                     }
@@ -688,7 +703,8 @@ impl Part {
                     ),
                 };
                 format!(
-                    "{asks}. A tree {} deep, {} roads at most.",
+                    "{asks}. Hires go {} levels deep at most, with \
+                     up to {} roads.",
                     limits.depth, limits.road.most
                 )
             }

@@ -19,7 +19,9 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, Frame, FrameProps, button, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
+use bevy_fynix::{
+    ScopedExt, ViewExt, component, derived, keyed, style,
+};
 use hamlet_client::ViewFolder;
 use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::Identity;
@@ -35,9 +37,10 @@ use hamlet_ui::styles::{
     Fills, action, breadcrumb, choice, description, filling, group,
     note, scroll_area, section, segmented_words, status_label, title,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::PanelSystems;
 use crate::convo::Convo;
@@ -185,7 +188,22 @@ struct Facts {
     with: Option<String>,
     cloaks: [Color; 8],
     lights: [Color; 5],
+    tints: Tints,
+}
+
+/// The colours of the figure's face, hair, hats and things held, as
+/// the mascot wears them.
+#[derive(Clone, Copy, PartialEq)]
+struct Tints {
     face: Color,
+    hair: Color,
+    brass: Color,
+    leaves: Color,
+    quill: Color,
+    ink: Color,
+    china: Color,
+    leather: Color,
+    page: Color,
 }
 
 fn facts(world: &World, chief: Entity) -> Option<Facts> {
@@ -210,7 +228,17 @@ fn facts(world: &World, chief: Entity) -> Option<Facts> {
         with,
         cloaks: Cloak::ALL.map(|cloak| shown(cloak.colour(pal))),
         lights: Light::ALL.map(|light| shown(light.colour(pal))),
-        face: shown(pal.face),
+        tints: Tints {
+            face: shown(pal.face),
+            hair: shown(pal.hair),
+            brass: shown(pal.brass),
+            leaves: shown(pal.foliage_shade),
+            quill: shown(pal.autumn),
+            ink: shown(pal.ink),
+            china: shown(pal.whitewash),
+            leather: shown(pal.leather),
+            page: shown(pal.page),
+        },
     })
 }
 
@@ -237,7 +265,7 @@ const SWATCH_WIDTH: f32 = 50.0;
 const RING: f32 = 2.0;
 
 /// The side of the chief's figure.
-const FIGURE: f32 = 88.0;
+const FIGURE: f32 = 104.0;
 
 /// A disc of `colour` with `name` under it, to press, a choice like
 /// those of words. The one chosen has a ring about its disc and its
@@ -255,11 +283,14 @@ fn swatch(
             Color::NONE
         };
         let word = label(name).wrap(false);
-        let word = if on {
-            word.tone(Tone::Accent).boxed()
-        } else {
-            word.boxed()
-        };
+        let word = if on { word.tone(Tone::Accent) } else { word };
+        // Regular, not the bold of a choice's words, so that the
+        // longest name fits its swatch's width.
+        let word = word.rules(|cx: &mut Cx| {
+            style::<HamletTheme>()
+                .label(|l, _| l.bold(false))
+                .apply(cx);
+        });
         button(
             column((
                 row((frame()
@@ -308,48 +339,117 @@ fn part(
     }
 }
 
-/// A circle at `top` of the figure, `side` across, of `colour`.
-fn disc(side: f32, top: f32, colour: Color) -> Frame {
+/// A rounded block of the figure, `dx` right of its middle and `top`
+/// down from its top, `width` by `height`, of `colour`.
+fn block(
+    dx: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+    colour: Color,
+) -> Frame {
     frame()
-        .width(px(side))
-        .height(px(side))
-        .radius(side / 2.0)
+        .width(px(width))
+        .height(px(height))
+        .radius(width.min(height) / 2.0)
         .fill(colour)
         .position(PositionType::Absolute)
         .inset(UiRect {
-            left: px((FIGURE - side) / 2.0),
+            left: px(FIGURE / 2.0 + dx - width / 2.0),
             top: px(top),
             right: Val::Auto,
             bottom: Val::Auto,
         })
 }
 
-/// The chief drawn flat in its cloak and light: its wick over a round
-/// face, over its cloak.
+/// A ring of the figure, as [`block`] places one, its line `colour`.
+fn hoop(
+    dx: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+    colour: Color,
+) -> Frame {
+    block(dx, top, width, height, Color::NONE)
+        .border(2.5)
+        .border_color(colour)
+}
+
+/// What sits on the head, drawn over the face but for a hood, which
+/// is behind it.
+fn hat(hat: Hat, cloak: Color, tints: &Tints) -> Vec<Frame> {
+    match hat {
+        Hat::Pointed => vec![
+            block(2.0, 22.0, 8.0, 10.0, cloak).radius(3.0),
+            block(1.0, 27.0, 15.0, 10.0, cloak).radius(3.0),
+            block(0.0, 32.0, 23.0, 9.0, cloak).radius(3.0),
+            block(0.0, 38.0, 42.0, 6.0, cloak),
+            block(3.0, 19.0, 5.0, 5.0, tints.brass),
+        ],
+        Hat::Crown => vec![
+            block(-8.0, 30.0, 5.0, 7.0, tints.brass).radius(1.5),
+            block(0.0, 29.0, 5.0, 8.0, tints.brass).radius(1.5),
+            block(8.0, 30.0, 5.0, 7.0, tints.brass).radius(1.5),
+            block(0.0, 35.0, 26.0, 6.0, tints.brass).radius(1.5),
+        ],
+        Hat::Wreath => {
+            vec![hoop(0.0, 39.0, 30.0, 10.0, tints.leaves)]
+        }
+        Hat::Hood | Hat::Bare => Vec::new(),
+    }
+}
+
+/// What is held, and the hand that holds it, at the figure's side.
+fn held(holds: Holds, tints: &Tints) -> Vec<Frame> {
+    let hand = block(22.0, 74.0, 9.0, 9.0, tints.face);
+    match holds {
+        Holds::Quill => vec![
+            block(28.0, 54.0, 7.0, 20.0, tints.quill),
+            block(28.0, 70.0, 2.0, 12.0, tints.ink),
+            hand,
+        ],
+        Holds::Teacup => vec![
+            hoop(34.0, 70.0, 8.0, 8.0, tints.china),
+            block(28.0, 68.0, 13.0, 11.0, tints.china).radius(3.0),
+            hand,
+        ],
+        Holds::Book => vec![
+            block(28.0, 62.0, 14.0, 18.0, tints.leather).radius(2.0),
+            block(31.0, 64.0, 4.0, 14.0, tints.page).radius(1.0),
+            hand,
+        ],
+        Holds::Nothing => Vec::new(),
+    }
+}
+
+/// The chief drawn flat as the mascot looks: its wick over its head,
+/// its hat, its cloak and what it holds.
 fn figure(facts: &Facts) -> impl View {
     let light = facts.lights[facts.look.light as usize];
     let cloak = facts.cloaks[facts.look.cloak as usize];
-    let face = facts.face;
+    let (tints, look) = (facts.tints, facts.look);
     with_cx(move |cx| {
+        let mut parts = vec![
+            block(0.0, 3.0, 24.0, 24.0, light.with_alpha(0.3)),
+            block(0.0, 9.5, 11.0, 11.0, light),
+            block(0.0, 60.0, 48.0, 36.0, cloak).radius(16.0),
+        ];
+        match look.hat {
+            Hat::Hood => {
+                parts.push(block(0.0, 33.0, 36.0, 36.0, cloak));
+            }
+            Hat::Bare => {
+                parts.push(block(0.0, 35.0, 28.0, 14.0, tints.hair));
+            }
+            _ => {}
+        }
+        parts.push(block(0.0, 38.0, 26.0, 26.0, tints.face));
+        parts.extend(hat(look.hat, cloak, &tints));
+        parts.extend(held(look.holds, &tints));
         let palette = &cx.theme().palette;
-        let body = frame()
-            .width(px(40.0))
-            .height(px(30.0))
-            .radius(14.0)
-            .fill(cloak)
-            .position(PositionType::Absolute)
-            .inset(UiRect {
-                left: px((FIGURE - 40.0) / 2.0),
-                top: px(50.0),
-                right: Val::Auto,
-                bottom: Val::Auto,
-            });
-        column((
-            disc(26.0, 4.0, light.with_alpha(0.3)),
-            disc(12.0, 11.0, light),
-            body,
-            disc(24.0, 28.0, face),
-        ))
+        column(
+            parts.into_iter().map(ViewExt::boxed).collect::<Vec<_>>(),
+        )
         .width(px(FIGURE))
         .height(px(FIGURE))
         .shrink(0.0)
@@ -448,7 +548,14 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View + use<> {
                 swatches(cloaks),
                 Some("Your roof at home takes this colour too."),
             ),
-            part("Light", swatches(lights), None),
+            part(
+                "Light",
+                swatches(lights),
+                Some(
+                    "The flame over your head. The orb on your roof \
+                     shines this colour too.",
+                ),
+            ),
             part("Hat", hats, None),
             part("Hand", held, None),
         ))

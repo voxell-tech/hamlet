@@ -10,10 +10,11 @@ use bevy::ecs::observer::On;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, UiRect, percent, px};
+use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, style};
 use hamlet_client::realm::{Mode, Works};
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
@@ -21,10 +22,10 @@ use hamlet_realm::works::Switched;
 use hamlet_ui::styles::{
     action, bare, buttons, link_row, note, segmented_words,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::platform::MonoText;
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::overview::{heading, tell};
 use crate::roll::hamlets_moved;
@@ -52,17 +53,7 @@ fn switched(switched: On<Switched>, mut commands: Commands) {
             Mode::Manual => Mode::Auto,
             Mode::Auto => Mode::Manual,
         };
-        tell(
-            world,
-            hamlet,
-            format!(
-                "/mode {}",
-                match to {
-                    Mode::Manual => "manual",
-                    Mode::Auto => "auto",
-                }
-            ),
-        );
+        set_mode(world, hamlet, to);
     });
 }
 
@@ -78,140 +69,164 @@ fn work_on(world: &mut World, hamlet: Entity, folder: &Path) {
     tell(world, hamlet, format!("/folder {}", folder.display()));
 }
 
-/// The folder `hamlet` works on, with what changes it.
-pub(crate) fn section(hamlet: Entity) -> impl View {
+/// The view `part` makes of what `hamlet` works on, rebuilt when it
+/// changes.
+fn of_works(
+    hamlet: Entity,
+    part: fn(Entity, &Works) -> AnyView,
+) -> impl View {
     let work = derived(move |world: &World| {
         world.get::<Works>(hamlet).cloned()
     })
     .when(hamlets_moved());
-    keyed(work, move |work| {
-        let Some(work) = work else {
-            return column(()).boxed();
-        };
-        let small = |text: String| note(text).boxed();
-        let choose = action(
-            Glyph::Folder,
-            match work.folder {
-                Some(_) => "Choose another",
-                None => "Choose a folder",
-            },
-            move |world| {
-                world.trigger(ChooseFolder {
-                    asker: hamlet,
-                    title: "Choose the folder this hamlet works on"
-                        .into(),
-                });
-            },
-        )
-        .tooltip(|| note("A path on the server's machine"))
-        .boxed();
-        let mut parts =
-            vec![heading(Glyph::Folder, "Works on").boxed()];
-        match &work.folder {
-            Some(folder) => {
-                parts.push(label(folder.clone()).boxed());
-                parts.push(
-                    buttons(vec![
-                        choose,
-                        action(
-                            Glyph::Cross,
-                            "No folder",
-                            move |world| {
-                                tell(
-                                    world,
-                                    hamlet,
-                                    "/folder none".to_string(),
-                                );
-                            },
-                        )
-                        .tooltip(|| {
-                            note("Stop working on this folder")
-                        })
-                        .boxed(),
-                    ])
-                    .boxed(),
-                );
-            }
-            None => {
-                parts.push(small("No folder selected.".to_string()));
-                parts.push(buttons(vec![choose]).boxed());
-            }
-        }
-        let mode = work.mode;
-        parts.push(
-            hamlet_ui::styles::beside((
-                hamlet_ui::styles::section("Approvals"),
-                segmented_words(
-                    ["Manual", "Auto"],
-                    match mode {
-                        Mode::Manual => 0,
-                        Mode::Auto => 1,
-                    },
-                    move |world, chosen| {
-                        let to = match chosen {
-                            0 => Mode::Manual,
-                            _ => Mode::Auto,
-                        };
-                        if to != mode {
-                            tell(
-                                world,
-                                hamlet,
-                                format!(
-                                    "/mode {}",
-                                    match to {
-                                        Mode::Manual => "manual",
-                                        Mode::Auto => "auto",
-                                    }
-                                ),
-                            );
-                        }
-                    },
-                ),
-            ))
-            .boxed(),
-        );
-        parts.push(small(work.words.clone()));
-        if !work.before.is_empty() {
-            let earlier = work
-                .before
-                .iter()
-                .take(EARLIER)
-                .map(|folder| earlier_row(hamlet, folder.clone()))
-                .collect::<Vec<_>>();
-            parts.push(
-                column((
-                    hamlet_ui::styles::section("Worked on before"),
-                    column(earlier).gap(0.0).width(percent(100.0)),
-                ))
-                .gap(2.0)
-                .width(percent(100.0))
-                .boxed(),
-            );
-        }
-        with_cx(move |cx| {
-            column(parts)
-                .gap(cx.theme().space.gap)
-                .align(AlignItems::FlexStart)
-        })
-        .boxed()
+    keyed(work, move |work| match work {
+        Some(work) => part(hamlet, work),
+        None => column(()).boxed(),
     })
     .within(bare())
 }
 
+/// The folder `hamlet` works on, with what changes it and the folders
+/// it worked on before.
+pub(crate) fn section(hamlet: Entity) -> impl View {
+    of_works(hamlet, works_on)
+}
+
+/// Whether `hamlet`'s agents ask before each edit and command.
+pub(crate) fn approvals(hamlet: Entity) -> impl View {
+    of_works(hamlet, approvals_of)
+}
+
+fn works_on(hamlet: Entity, work: &Works) -> AnyView {
+    let choose = action(
+        Glyph::Folder,
+        match work.folder {
+            Some(_) => "Choose another",
+            None => "Choose a folder",
+        },
+        move |world| {
+            world.trigger(ChooseFolder {
+                asker: hamlet,
+                title: "Choose the folder this hamlet works on"
+                    .into(),
+            });
+        },
+    )
+    .tooltip(|| note("A path on the server's machine"))
+    .boxed();
+    let mut parts = vec![heading(Glyph::Folder, "Works on").boxed()];
+    match &work.folder {
+        Some(folder) => {
+            parts.push(label(folder.clone()).boxed());
+            parts.push(
+                buttons(vec![
+                    choose,
+                    action(Glyph::Cross, "No folder", move |world| {
+                        tell(
+                            world,
+                            hamlet,
+                            "/folder none".to_string(),
+                        );
+                    })
+                    .tooltip(|| note("Stop working on this folder"))
+                    .boxed(),
+                ])
+                .boxed(),
+            );
+        }
+        None => {
+            parts.push(note("No folder selected.").boxed());
+            parts.push(buttons(vec![choose]).boxed());
+        }
+    }
+    if !work.before.is_empty() {
+        let earlier = work
+            .before
+            .iter()
+            .take(EARLIER)
+            .map(|folder| earlier_row(hamlet, folder.clone()))
+            .collect::<Vec<_>>();
+        parts.push(
+            column((
+                hamlet_ui::styles::section("Worked on before"),
+                column(earlier).gap(0.0).width(percent(100.0)),
+            ))
+            .gap(2.0)
+            .width(percent(100.0))
+            .boxed(),
+        );
+    }
+    stacked(parts)
+}
+
+fn approvals_of(hamlet: Entity, work: &Works) -> AnyView {
+    let mode = work.mode;
+    stacked(vec![
+        heading(Glyph::Shield, "Approvals"),
+        segmented_words(
+            ["Manual", "Auto"],
+            match mode {
+                Mode::Manual => 0,
+                Mode::Auto => 1,
+            },
+            move |world, chosen| {
+                let to = match chosen {
+                    0 => Mode::Manual,
+                    _ => Mode::Auto,
+                };
+                if to != mode {
+                    set_mode(world, hamlet, to);
+                }
+            },
+        )
+        .boxed(),
+        note(work.words.clone()).boxed(),
+    ])
+}
+
+/// `parts` one under another, at the start of the panel's width.
+fn stacked(parts: Vec<AnyView>) -> AnyView {
+    with_cx(move |cx| {
+        column(parts)
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::FlexStart)
+    })
+    .boxed()
+}
+
+fn set_mode(world: &mut World, hamlet: Entity, to: Mode) {
+    let word = match to {
+        Mode::Manual => "manual",
+        Mode::Auto => "auto",
+    };
+    tell(world, hamlet, format!("/mode {word}"));
+}
+
 /// A folder worked on before, as a quiet row whose press works on it
-/// again.
+/// again, its "Use" drawn as a button.
 fn earlier_row(hamlet: Entity, folder: String) -> AnyView {
     bevy_fynix::views::button(
         row((
-            label(folder.clone()).tagged(MonoText),
+            // In the body's words, as the folder it works on now.
+            label(folder.clone()).rules(|cx: &mut Cx| {
+                style::<HamletTheme>()
+                    .label(|l, t| {
+                        l.size(t.text.body)
+                            .bold(false)
+                            .tone(Tone::Body)
+                    })
+                    .apply(cx);
+            }),
             frame().grow(1.0),
-            label("Use").wrap(false),
+            row((label("Use").wrap(false),))
+                .padding(UiRect::axes(px(10.0), px(3.0)))
+                .rules(hamlet_ui::styles::button),
         ))
         .gap(8.0)
         .grow(1.0)
         .align(AlignItems::Center),
     )
-    .padding(UiRect::axes(px(6.0), px(3.0)))
+    .padding(UiRect::vertical(px(3.0)))
     .rules(link_row)
     .tagged(Variant::Text)
     .on_activate(move |world| {
@@ -258,7 +273,7 @@ mod tests {
             .next()
             .unwrap()
             .0;
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             crate::overview::hamlet(hamlet),
         );
