@@ -95,6 +95,8 @@ objc2-foundation = { version = "0.2", default-features = false, features = ["std
 winit = { version = "0.30", default-features = false }
 windows-sys = "0.61"
 toml = "1"
+# The desktop portal, asked whether the computer is light or dark.
+zbus = { version = "6", default-features = false, features = ["tokio", "proxy"] }
 
 [workspace.lints.rust]
 # Unsafe code lives only in the modules that say so.

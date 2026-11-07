@@ -10,6 +10,7 @@ use hamlet_app::{Remembered, UiPlugin, window_plugin};
 use hamlet_client::connection::LocalServer;
 use hamlet_client::{ClientPlugin, Connection, Tokio, ViewFolder};
 use hamlet_desktop::DesktopPlugin;
+use hamlet_desktop::appearance::SystemAppearance;
 use hamlet_protocol::client::discovery::{self, Chosen};
 use hamlet_realm::RealmPlugin;
 use hamlet_realm::chief::Kept;
@@ -77,8 +78,10 @@ fn main() -> Result<()> {
     let remembered = Remembered::read(&view)?;
     let kept = Kept::read(&view)?;
     let rt = tokio::runtime::Runtime::new()?;
+    let appearance = rt.block_on(SystemAppearance::ask());
     let mut app = App::new();
     app.insert_resource(Tokio(rt.handle().clone()))
+        .insert_resource(appearance)
         .insert_resource(ViewFolder(view))
         .insert_resource(remembered)
         .insert_resource(kept)

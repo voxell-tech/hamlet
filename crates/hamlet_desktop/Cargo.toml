@@ -21,6 +21,10 @@ bevy_window.workspace = true
 rfd.workspace = true
 tokio.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+futures.workspace = true
+zbus.workspace = true
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
 objc2-app-kit.workspace = true
