@@ -307,10 +307,10 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View + use<> {
     );
     with_cx(move |cx| {
         column((
-            part("CLOAK, AND THE ROOF AT HOME", swatches(cloaks)),
-            part("THE LIGHT OF THE WICK", swatches(lights)),
-            part("ON THE HEAD", hats),
-            part("IN THE HAND", held),
+            part("Cloak, and the roof at home", swatches(cloaks)),
+            part("The light of the wick", swatches(lights)),
+            part("On the head", hats),
+            part("In the Hand", held),
         ))
         .gap(cx.theme().space.section)
     })
@@ -346,12 +346,12 @@ pub fn panel(chief: Entity) -> AnyView {
         };
         let views = (
             breadcrumb(
-                vec!["REALM".into()],
-                facts.name.to_uppercase(),
+                vec!["Realm".into()],
+                facts.name.clone(),
                 |world, _| select(world, None),
             ),
             hamlet_ui::styles::beside((
-                title(facts.name.to_uppercase()),
+                title(facts.name.clone()),
                 label(place).tone(tone).wrap(false),
             )),
             description(

@@ -165,9 +165,9 @@ impl People<'_, '_> {
                 _ => name.as_str().to_string(),
             },
             tag: if hand {
-                "HAND".to_string()
+                "Hand".to_string()
             } else if mayor {
-                "MAYOR".to_string()
+                "Mayor".to_string()
             } else {
                 tag_of(purpose.map_or("", |p| p.0.as_str()))
             },
@@ -238,7 +238,7 @@ impl Cast<'_, '_, '_> {
                 },
                 None => Who {
                     name: "The Hand".to_string(),
-                    tag: "HAND".to_string(),
+                    tag: "Hand".to_string(),
                     kind: Kind::Hand,
                     paint: people.theme.palette.gold_5,
                 },
@@ -250,7 +250,7 @@ impl Cast<'_, '_, '_> {
         let paint = self.people.theme.palette.gold_5;
         self.place(Id::Peer(name.into()), || Who {
             name: name.into(),
-            tag: "AGENT".into(),
+            tag: "Agent".into(),
             kind: Kind::Agent,
             paint,
         })

@@ -288,7 +288,7 @@ fn volumetric_fog() -> impl View {
             |f, v| f.absorption = v,
             (0.0, 0.5),
         ),
-        action(Glyph::Restore, "RESET", |world: &mut World| {
+        action(Glyph::Restore, "Reset", |world: &mut World| {
             world.insert_resource(Fog::default());
         }),
     ))
@@ -324,7 +324,7 @@ pub(super) fn page() -> impl View {
         field(
             "Camera",
             told(
-                action(Glyph::Aim, "RESET", |world: &mut World| {
+                action(Glyph::Aim, "Reset", |world: &mut World| {
                     *world.resource_mut::<Orbit>() = Orbit::default();
                 }),
                 description("Back to where it first looked."),

@@ -39,7 +39,7 @@ pub(super) fn plugin(app: &mut App) {
         );
 }
 
-const CHOICES: [&str; 2] = ["THIS COMPUTER", "REMOTE SERVER"];
+const CHOICES: [&str; 2] = ["This computer", "Remote server"];
 
 /// The workspace as the page has it until it is saved.
 #[derive(Resource, Default)]
@@ -217,7 +217,7 @@ fn moving() -> AnyView {
         }),
         |offered| {
             if *offered {
-                action(Glyph::Move, "MOVE LODGES", move_lodges)
+                action(Glyph::Move, "Move lodges", move_lodges)
             } else {
                 frame().boxed()
             }
@@ -288,7 +288,7 @@ pub(super) fn page() -> impl View {
         ),
         remote(),
         beside((
-            action(Glyph::Check, "SAVE", save),
+            action(Glyph::Check, "Save", save),
             note(resource::<Draft, _>(|draft| {
                 if draft.saved { "Saved." } else { "" }.to_string()
             })),
@@ -407,7 +407,7 @@ mod tests {
             "Takes effect when Hamlet restarts."
         ));
         assert!(!said(&mut app, "Server address"));
-        press(&mut app, "REMOTE SERVER");
+        press(&mut app, "Remote server");
         settle(&mut app);
         type_into(
             &mut app,
@@ -463,7 +463,7 @@ mod tests {
             ]
         );
         requests(&mut app);
-        press(&mut app, "SAVE");
+        press(&mut app, "Save");
         let Some(protocol::ClientMessage::Edit(
             protocol::Edit::Settings { id, .. },
         )) = app.world().resource::<Outbox>().iter().next().cloned()
@@ -507,9 +507,9 @@ mod tests {
             app.world().get::<EditableText>(address).unwrap().value(),
             "https://workspace.example"
         );
-        press(&mut app, "THIS COMPUTER");
+        press(&mut app, "This computer");
         settle(&mut app);
-        press(&mut app, "SAVE");
+        press(&mut app, "Save");
         assert_eq!(
             requests(&mut app),
             [serde_json::json!({
@@ -531,7 +531,7 @@ mod tests {
             words_and_spans(app).iter().any(|shown| shown == text)
         };
         // Nothing waits for a restart, so nothing moves.
-        assert!(!said(&mut app, "MOVE LODGES"));
+        assert!(!said(&mut app, "Move lodges"));
         received(&mut app, 3, url, None);
         assert!(said(
             &mut app,
@@ -539,7 +539,7 @@ mod tests {
              replacing the lodges there."
         ));
         requests(&mut app);
-        press(&mut app, "MOVE LODGES");
+        press(&mut app, "Move lodges");
         let Some(protocol::ClientMessage::MoveLodges(
             protocol::MoveLodges { id },
         )) = app.world().resource::<Outbox>().iter().next().cloned()

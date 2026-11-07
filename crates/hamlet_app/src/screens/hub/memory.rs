@@ -129,10 +129,10 @@ fn file(entry: &Entry, open: bool) -> AnyView {
         let (edit, remove) = (path.clone(), path);
         parts.push(
             row((
-                action(Glyph::Rename, "EDIT", move |world| {
+                action(Glyph::Rename, "Edit", move |world| {
                     papers::edit_memory(world, edit.clone());
                 }),
-                bad_action(Glyph::Delete, "REMOVE", move |world| {
+                bad_action(Glyph::Delete, "Remove", move |world| {
                     papers::remove_memory(world, remove.clone());
                 }),
             ))
@@ -187,7 +187,7 @@ fn add() -> impl View {
             .grow(1.0)
             .min_width(px(0.0))
             .rules(text_input),
-            action(Glyph::Plus, "ADD FILE", |world| {
+            action(Glyph::Plus, "Add file", |world| {
                 let name = world.resource::<Opened>().name.clone();
                 papers::add_memory(world, &name);
             }),

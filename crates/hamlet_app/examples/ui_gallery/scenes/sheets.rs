@@ -51,12 +51,7 @@ fn caption(text: impl Into<String>) -> Ui {
 }
 
 fn heading(text: &'static str) -> Ui {
-    label(text)
-        .size(12.0)
-        .bold(true)
-        .tone(Tone::Faint)
-        .tagged(DisplayText)
-        .boxed()
+    label(text).size(12.0).bold(true).tone(Tone::Faint).boxed()
 }
 
 /// One cell of a row of states: a caption over what it names.
@@ -84,10 +79,10 @@ fn states(
             .on_activate(|_| {})
     };
     row((
-        cell("AT REST", one().boxed()),
-        cell("UNDER THE POINTER", one().tagged(Held::Hover).boxed()),
-        cell("HELD", one().tagged(Held::Press).boxed()),
-        cell("DONE", one().tagged(Held::Done).boxed()),
+        cell("At rest", one().boxed()),
+        cell("Under the pointer", one().tagged(Held::Hover).boxed()),
+        cell("Held", one().tagged(Held::Press).boxed()),
+        cell("Done", one().tagged(Held::Done).boxed()),
     ))
     .gap(16.0)
     .boxed()
@@ -101,13 +96,13 @@ fn field(text: &'static str) -> impl View<Bevy, HamletTheme> {
 
 fn fields() -> Ui {
     row((
-        cell("AT REST", field("A reason").boxed()),
+        cell("At rest", field("A reason").boxed()),
         cell(
-            "UNDER THE POINTER",
+            "Under the pointer",
             field("A reason").tagged(Held::Hover).boxed(),
         ),
         cell(
-            "TYPED IN",
+            "Typed in",
             field("A reason").tagged(Held::Focus).boxed(),
         ),
     ))
@@ -130,19 +125,19 @@ fn title(name: &'static str) -> impl View<Bevy, HamletTheme> {
 fn titles() -> Ui {
     row((
         cell(
-            "AT REST",
+            "At rest",
             title("HAMLET").tagged(Underglow::new(false)).boxed(),
         ),
         cell(
-            "UNDER THE POINTER",
-            title("VIEW")
+            "Under the pointer",
+            title("View")
                 .tagged(Underglow::new(false))
                 .tagged(Held::Hover)
                 .boxed(),
         ),
         cell(
-            "ITS MENU OPEN",
-            title("VIEW").tagged(Underglow::new(true)).boxed(),
+            "Its menu open",
+            title("View").tagged(Underglow::new(true)).boxed(),
         ),
     ))
     .gap(16.0)
@@ -159,7 +154,7 @@ fn tab(
 fn tabs() -> Ui {
     let theme = HamletTheme::designed();
     let shown = column((
-        tab(Glyph::Talk, "TALK")
+        tab(Glyph::Talk, "Talk")
             .tagged(Underglow::new(true))
             .tagged(tabs::Shown),
         frame().height(px(2.0)).fill(theme.palette.gold_3),
@@ -167,19 +162,19 @@ fn tabs() -> Ui {
     .gap(0.0);
     row((
         cell(
-            "AT REST",
-            tab(Glyph::Notes, "MEMORY")
+            "At rest",
+            tab(Glyph::Notes, "Memory")
                 .tagged(Underglow::new(false))
                 .boxed(),
         ),
         cell(
-            "UNDER THE POINTER",
-            tab(Glyph::Notes, "MEMORY")
+            "Under the pointer",
+            tab(Glyph::Notes, "Memory")
                 .tagged(Underglow::new(false))
                 .tagged(Held::Hover)
                 .boxed(),
         ),
-        cell("THE ONE SHOWN", shown.boxed()),
+        cell("The one shown", shown.boxed()),
     ))
     .gap(16.0)
     .boxed()
@@ -189,11 +184,10 @@ fn tabs() -> Ui {
 fn popups() -> Ui {
     let theme = HamletTheme::designed();
     let card = column((
-        label("JUNIPER")
-            .size(13.0)
+        label("Juniper")
+            .size(theme.text.heading)
             .bold(true)
-            .wrap(false)
-            .tagged(DisplayText),
+            .wrap(false),
         label("Reading the orchard notes")
             .size(12.0)
             .tone(Tone::Accent),
@@ -215,11 +209,11 @@ fn popups() -> Ui {
             .align(AlignItems::FlexStart)
     };
     row((
-        wide("HOVER CARD", card.boxed()),
+        wide("Hover card", card.boxed()),
         wide(
-            "A CARD IN A LIST",
+            "A card in a list",
             lists::item(
-                "ORCHARD".into(),
+                "Orchard".into(),
                 "Prune, graft and keep the press.".into(),
                 Tone::Body,
             )
@@ -237,44 +231,44 @@ pub(super) fn controls() -> Ui {
     };
     column((
         part(
-            "A PLAIN BUTTON",
+            "A plain button",
             states(
                 Glyph::NewSession,
-                "NEW SESSION",
+                "New session",
                 styles::button,
                 Variant::Default,
             ),
         ),
         part(
-            "THE ONE PRIMARY ACTION",
+            "The one primary action",
             states(
                 Glyph::Check,
-                "ALLOW ONCE",
+                "Allow once",
                 primary_button,
                 Variant::Primary,
             ),
         ),
         part(
-            "WHAT REFUSES OR STOPS",
+            "What refuses or stops",
             states(
                 Glyph::Cross,
-                "DENY",
+                "Deny",
                 danger_button,
                 Variant::Danger,
             ),
         ),
         part(
-            "A WAY BACK",
+            "A way back",
             states(
                 Glyph::Back,
-                "ALL HAMLETS",
+                "All hamlets",
                 back_link,
                 Variant::Text,
             ),
         ),
-        part("A TEXT FIELD", fields()),
+        part("A text field", fields()),
         part(
-            "A SLIDER",
+            "A slider",
             bevy_fynix::views::slider(bevy_fynix::resource::<
                 SoundSettings,
                 _,
@@ -284,9 +278,9 @@ pub(super) fn controls() -> Ui {
             })
             .boxed(),
         ),
-        part("MENU TITLES", titles()),
-        part("TABS", tabs()),
-        part("CARDS AND POPUPS", popups()),
+        part("Menu titles", titles()),
+        part("Tabs", tabs()),
+        part("Cards and popups", popups()),
     ))
     .width(percent(100.0))
     .height(percent(100.0))

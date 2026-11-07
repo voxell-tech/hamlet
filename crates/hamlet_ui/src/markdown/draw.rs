@@ -29,9 +29,7 @@ use super::{
 };
 use crate::styles::{Fills, bare};
 use crate::theme::Palette;
-use crate::widgets::platform::{
-    Display as DisplayFace, DisplayText, Mono, MonoText,
-};
+use crate::widgets::platform::{Mono, MonoText};
 use crate::{AnyView, Cx, View};
 
 /// Takes the link off a path that `blocks` end with, which may be
@@ -136,10 +134,6 @@ pub fn rich(spans: &[Span], ink: Ink) -> AnyView {
                     .world
                     .get_resource::<Mono>()
                     .map(|m| m.0.clone());
-                let display = cx
-                    .world
-                    .get_resource::<DisplayFace>()
-                    .map(|d| d.0.clone());
                 for (span, anchor) in spans {
                     let Style {
                         bold,
@@ -151,13 +145,10 @@ pub fn rich(spans: &[Span], ink: Ink) -> AnyView {
                         Some(_) => Tone::Accent,
                         None => ink.tone,
                     };
-                    let face = match (code, ink.face) {
-                        (true, _) => mono.clone(),
-                        (false, Face::Heading) => display.clone(),
-                        _ => None,
-                    };
                     let font = TextFont {
-                        font: face
+                        font: mono
+                            .clone()
+                            .filter(|_| code)
                             .map(FontSource::from)
                             .unwrap_or_default(),
                         font_size: FontSize::Px(if code {
@@ -188,8 +179,6 @@ pub fn rich(spans: &[Span], ink: Ink) -> AnyView {
                             MonoText,
                             TextBackgroundColor(theme.palette.code),
                         ));
-                    } else if ink.face == Face::Heading {
-                        entity.insert(DisplayText);
                     }
                     if let Some(anchor) = anchor {
                         entity.insert((

@@ -57,7 +57,7 @@ fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
             row((label(endpoint.name.clone()).bold(true),))
                 .fills_width(),
             note(if endpoint.key { "Key set" } else { "No key" }),
-            bad_action(Glyph::Gone, "REMOVE", move |world| {
+            bad_action(Glyph::Gone, "Remove", move |world| {
                 remove(world, &gone);
             }),
         )),
@@ -109,7 +109,7 @@ pub fn endpoints() -> impl View {
         providers,
         row((good_action(
             Glyph::Plus,
-            "ADD A PLACE FOR MODELS",
+            "Add a place for models",
             crate::welcome::add,
         ),)),
         crate::root::connection_test(),
@@ -197,9 +197,9 @@ fn entry(model: &protocol::Listed) -> AnyView {
     });
     let prices = with_cx(move |cx| {
         row((
-            section("IN"),
+            section("In"),
             price(&name, false),
-            section("OUT"),
+            section("Out"),
             price(&name, true),
             note(detail),
         ))
@@ -295,11 +295,11 @@ pub fn shelf() -> AnyView {
         if pages > 1 {
             rows.push(
                 beside((
-                    action(Glyph::Back, "PREVIOUS", move |world| {
+                    action(Glyph::Back, "Previous", move |world| {
                         turn(world, -1, pages);
                     }),
                     note(format!("Page {} of {pages}", page + 1)),
-                    action(Glyph::ToEnd, "NEXT", move |world| {
+                    action(Glyph::ToEnd, "Next", move |world| {
                         turn(world, 1, pages);
                     }),
                 ))
@@ -311,7 +311,7 @@ pub fn shelf() -> AnyView {
     .within(bare());
     group((
         close((
-            section("DEFAULT MODEL"),
+            section("Default model"),
             chooser(home_default, save_default),
             description("Used wherever nobody chose a model."),
         )),
@@ -320,10 +320,10 @@ pub fn shelf() -> AnyView {
              when the endpoint does not bill a call.",
         ),
         beside((
-            action(Glyph::Restore, "LIST MODELS", |world| {
+            action(Glyph::Restore, "List models", |world| {
                 read_models(world, true);
             }),
-            section("FIND"),
+            section("Find"),
             text_field(
                 resource::<Draft, _>(|draft| draft.narrow.clone()),
                 |world, text| {

@@ -190,13 +190,14 @@ pub struct Palette {
 #[serde(deny_unknown_fields)]
 pub struct TextSizes {
     pub body: f32,
-    /// Notes, buttons, tabs and the names of a panel's parts.
+    /// Notes, buttons, tabs, breadcrumbs and the names of a panel's
+    /// parts.
     pub small: f32,
-    /// A menu's title and a card's.
+    /// A menu's title and a card's, never below the body.
     pub heading: f32,
-    /// The name at the head of a page.
+    /// The name at the head of a page, in the display face.
     pub title: f32,
-    /// The line over a card that waits for the person.
+    /// The smallest lettering, as on a key.
     pub caption: f32,
     /// The space between the letters of the display face.
     pub tracking: f32,

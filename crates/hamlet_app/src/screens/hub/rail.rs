@@ -918,8 +918,8 @@ fn society(world: &World, sections: &mut Vec<Section>) {
         }
     }
     for (group, title, lines) in [
-        (Group::City, "CITY", city),
-        (Group::Harbor, "AT THE HARBOR", harbor),
+        (Group::City, "City", city),
+        (Group::Harbor, "At the harbor", harbor),
     ] {
         sections.push(Section {
             group,
@@ -975,7 +975,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
     let count = gone.len();
     sections.push(Section {
         group: Group::Left,
-        title: "LEFT".into(),
+        title: "Left".into(),
         opens: None,
         mark: Mark::None,
         count,
@@ -1049,7 +1049,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     let needs = needs(world, &all);
     sections.push(Section {
         group: Group::Needs,
-        title: "NEEDS YOU".into(),
+        title: "Needs you".into(),
         opens: Some(Target::Realm),
         mark: Mark::None,
         count: needs.len(),
@@ -1162,8 +1162,8 @@ fn hamlet_names(world: &World) -> Vec<(Entity, String)> {
 
 /// The tabs between the hamlets and the city.
 const TABS: [(Tab, Glyph, &str); 2] = [
-    (Tab::Hamlets, Glyph::Hamlet, "HAMLETS"),
-    (Tab::City, Glyph::Notes, "CITY"),
+    (Tab::Hamlets, Glyph::Hamlet, "Hamlets"),
+    (Tab::City, Glyph::Notes, "City"),
 ];
 
 /// An icon button of the search row.

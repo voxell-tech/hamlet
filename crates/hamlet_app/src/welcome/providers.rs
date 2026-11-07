@@ -305,7 +305,7 @@ fn prompt() -> AnyView {
                     "This answer goes only to the server's login. \
                      Credentials stay on the server.",
                 ),
-                good_action(Glyph::Check, "SEND", commit),
+                good_action(Glyph::Check, "Send", commit),
             ))
             .boxed()
         },
@@ -343,7 +343,7 @@ pub(super) fn key_page() -> AnyView {
     )
     .within(bare());
     parts((
-        head(Glyph::Globe, "USE A KEY"),
+        head(Glyph::Globe, "Use a key"),
         names,
         prompt(),
         news("Waiting for the provider..."),
@@ -376,11 +376,11 @@ pub(super) fn sign_in_page() -> AnyView {
     )
     .within(bare());
     parts((
-        head(Glyph::Signal, "SIGN IN"),
+        head(Glyph::Signal, "Sign in"),
         steps,
         prompt(),
         news("Waiting for sign-in..."),
-        row((good_action(Glyph::Gone, "CANCEL SIGN-IN", |world| {
+        row((good_action(Glyph::Gone, "Cancel sign-in", |world| {
             go(world, Step::Choice);
         }),))
         .align(AlignItems::Center),

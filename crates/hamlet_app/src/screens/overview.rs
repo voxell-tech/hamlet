@@ -72,28 +72,28 @@ pub(crate) fn heading(
 pub fn overview() -> impl View {
     with_cx(move |cx| {
         column((
-            title("REALM"),
+            title("Realm"),
             today(),
             // What waits for the chief comes first, in full.
             scroll_area((crate::petition::waiting(), closed())),
             beside((
                 action(
                     Glyph::Hearth,
-                    "YOUR HEARTH",
+                    "Your hearth",
                     crate::chief::go_home,
                 ),
                 action(
                     Glyph::Signpost,
-                    "HARBOR",
+                    "Harbor",
                     glide_to_other_pier,
                 )
                 .tooltip(|| note("Cross to the other island")),
                 action(
                     Glyph::Notes,
-                    "NEW SCHOLAR",
+                    "New scholar",
                     world_menu::ask_new_scholar,
                 ),
-                bad_action(Glyph::Stop, "STOP ALL", |world| {
+                bad_action(Glyph::Stop, "Stop all", |world| {
                     world.trigger(Veto { agent: None });
                     world.flush();
                 }),
@@ -260,7 +260,7 @@ fn closed() -> AnyView {
             }
             let mut parts = vec![heading(
                 Glyph::Gone,
-                format!("CLOSED DOWN ({})", closed.len()),
+                format!("Closed down ({})", closed.len()),
             )];
             for hamlet in closed {
                 let mut actions = Vec::new();
@@ -268,7 +268,7 @@ fn closed() -> AnyView {
                     let id = hamlet.id.clone();
                     actions.push(action(
                         Glyph::Restore,
-                        "RESTORE",
+                        "Restore",
                         move |world| {
                             if world
                                 .resource::<Deeds>()
@@ -289,7 +289,7 @@ fn closed() -> AnyView {
                     let at = hamlet.at;
                     actions.push(bad_action(
                         Glyph::Gone,
-                        "DELETE FOR GOOD",
+                        "Delete for good",
                         move |world| {
                             world.resource_mut::<Erasing>().0 =
                                 Some((id.clone(), at));
@@ -313,8 +313,8 @@ fn closed() -> AnyView {
                     parts.push(
                         close((
                             note(format!(
-                                "DELETE {} FOR GOOD?",
-                                hamlet.name.to_uppercase()
+                                "Delete {} for good?",
+                                hamlet.name
                             )),
                             note(
                                 "Every archived lodge is deleted. \
@@ -323,7 +323,7 @@ fn closed() -> AnyView {
                             hamlet_ui::styles::buttons(vec![
                                 bad_action(
                                     Glyph::Gone,
-                                    "DELETE",
+                                    "Delete",
                                     move |world| {
                                         world
                                             .resource_mut::<Erasing>()
@@ -354,7 +354,7 @@ fn closed() -> AnyView {
                                 ),
                                 action(
                                     Glyph::Back,
-                                    "CANCEL",
+                                    "Cancel",
                                     |world| {
                                         world
                                             .resource_mut::<Erasing>()
@@ -420,19 +420,19 @@ mod tests {
         );
         app.update();
         assert!(
-            words(&mut app).iter().any(|s| s == "CLOSED DOWN (1)")
+            words(&mut app).iter().any(|s| s == "Closed down (1)")
         );
-        press(&mut app, "RESTORE");
+        press(&mut app, "Restore");
         assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/restore-hamlet mill" && s.to == protocol::AgentId(1))));
-        press(&mut app, "DELETE FOR GOOD");
+        press(&mut app, "Delete for good");
         assert!(!app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text.starts_with("/erase-hamlet"))));
         app.update();
         assert!(
             words(&mut app)
                 .iter()
-                .any(|s| s == "DELETE THE MILL FOR GOOD?")
+                .any(|s| s == "Delete The Mill for good?")
         );
-        press(&mut app, "DELETE");
+        press(&mut app, "Delete");
         assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/erase-hamlet mill" && s.to == protocol::AgentId(1))));
         app.world_mut().resource_mut::<Deeds>().0.clear();
         app.update();
@@ -440,7 +440,7 @@ mod tests {
         assert!(
             !shown
                 .iter()
-                .any(|s| s == "RESTORE" || s == "DELETE FOR GOOD")
+                .any(|s| s == "Restore" || s == "Delete for good")
         );
     }
 
@@ -471,15 +471,15 @@ mod tests {
             closed(),
         );
         app.update();
-        press(&mut app, "DELETE FOR GOOD");
+        press(&mut app, "Delete for good");
         app.update();
-        press(&mut app, "RESTORE");
+        press(&mut app, "Restore");
         app.update();
         assert!(
             !words(&mut app)
-                .contains(&"DELETE MILL FOR GOOD?".into())
+                .contains(&"Delete Mill for good?".into())
         );
-        press(&mut app, "DELETE FOR GOOD");
+        press(&mut app, "Delete for good");
         app.update();
         app.world_mut().despawn(root);
         app.update();
@@ -490,9 +490,9 @@ mod tests {
         app.update();
         assert!(
             !words(&mut app)
-                .contains(&"DELETE MILL FOR GOOD?".into())
+                .contains(&"Delete Mill for good?".into())
         );
-        press(&mut app, "DELETE FOR GOOD");
+        press(&mut app, "Delete for good");
         app.update();
         state.closed[0].at = 200;
         hamlet_client::receive(
@@ -502,7 +502,7 @@ mod tests {
         app.update();
         assert!(
             !words(&mut app)
-                .contains(&"DELETE MILL FOR GOOD?".into())
+                .contains(&"Delete Mill for good?".into())
         );
     }
 
@@ -532,14 +532,14 @@ mod tests {
             self::hamlet(hamlet),
         );
         app.update();
-        assert!(!words(&mut app).iter().any(|text| text == "MOVE"));
-        assert!(!words(&mut app).iter().any(|text| text == "RENAME"));
+        assert!(!words(&mut app).iter().any(|text| text == "Move"));
+        assert!(!words(&mut app).iter().any(|text| text == "Rename"));
         app.world_mut()
             .resource_mut::<Deeds>()
             .0
             .push("move-hamlet".into());
         app.update();
-        assert!(words(&mut app).iter().any(|text| text == "MOVE"));
+        assert!(words(&mut app).iter().any(|text| text == "Move"));
         let mut land = Land::new(
             1,
             GeneratorSettings::default(),
@@ -552,7 +552,7 @@ mod tests {
             .init_resource::<Carrying>()
             .add_message::<Played>();
         app.world_mut().entity_mut(hamlet).insert(Sited(town));
-        press(&mut app, "MOVE");
+        press(&mut app, "Move");
         assert_eq!(
             app.world().resource::<Carrying>().0.unwrap().place,
             Ground::Town(town)

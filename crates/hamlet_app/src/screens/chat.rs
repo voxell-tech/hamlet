@@ -1278,7 +1278,7 @@ mod tests {
         }
         world.trigger(Activate { entity: mark });
         app.update();
-        press(&mut app, "REWIND");
+        press(&mut app, "Rewind");
         let request = app
             .world()
             .resource::<Outbox>()

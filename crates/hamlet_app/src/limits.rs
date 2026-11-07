@@ -310,7 +310,7 @@ fn budget(hamlet: Entity) -> impl View {
             }),
             |chosen| {
                 choices(
-                    ["A DAY", "A MONTH"],
+                    ["A day", "A month"],
                     *chosen,
                     |world, chosen| {
                         let period =
@@ -330,7 +330,7 @@ fn budget(hamlet: Entity) -> impl View {
         .boxed()
     });
     group((
-        heading(Glyph::Meter, "THE BUDGET"),
+        heading(Glyph::Meter, "The budget"),
         fine(
             "The most model calls may cost in a period. 0 means no \
              limit.",
@@ -343,7 +343,7 @@ fn budget(hamlet: Entity) -> impl View {
         beside((
             action(
                 Glyph::Restore,
-                "START IT AGAIN NOW",
+                "Start it again now",
                 move |world| {
                     crate::overview::tell(
                         world,
@@ -356,7 +356,7 @@ fn budget(hamlet: Entity) -> impl View {
         ))
         .tagged(hamlet_ui::widgets::platform::Wraps)
         .boxed(),
-        heading(Glyph::Coins, "ONE TASK"),
+        heading(Glyph::Coins, "One task"),
         fine("Counted across every agent the task touches."),
         line(
             "May cost, in dollars",
@@ -374,7 +374,7 @@ fn budget(hamlet: Entity) -> impl View {
 /// tree and its roads.
 fn leads() -> impl View {
     group((
-        heading(Glyph::Mayor, "WAITS FOR YOU"),
+        heading(Glyph::Mayor, "Waits for you"),
         fine("What the leads may not do without asking you first."),
         line(
             "Hire a scholar",
@@ -392,7 +392,7 @@ fn leads() -> impl View {
             "Lay roads",
             switch("reserved", "roads", |l| l.reserved.roads).boxed(),
         ),
-        heading(Glyph::Signpost, "THE TREE AND ITS ROADS"),
+        heading(Glyph::Signpost, "The tree and its roads"),
         line(
             "Deepest tree under the mayor",
             whole("", "depth", |l| l.depth, 1000).boxed(),
@@ -415,7 +415,7 @@ fn leads() -> impl View {
             "Price of a road, in dollars",
             cost("road", "price", |l| Some(l.road.price)).boxed(),
         ),
-        heading(Glyph::Clock, "WHAT HIRES ARE TOLD"),
+        heading(Glyph::Clock, "What hires are told"),
         line(
             "Days of decisions each hire is told",
             whole("", "toldDays", |l| l.told_days, 3650).boxed(),
@@ -446,7 +446,7 @@ pub fn realm() -> AnyView {
             }),
             |chosen| {
                 choices(
-                    ["A DAY", "A MONTH"],
+                    ["A day", "A month"],
                     *chosen,
                     |world, chosen| {
                         let period =
@@ -498,7 +498,7 @@ pub fn realm() -> AnyView {
         .boxed()
     });
     group((
-        heading(Glyph::Globe, "THE REALM"),
+        heading(Glyph::Globe, "The realm"),
         fine(
             "The Hand's budget, and what holds between hamlets. 0 \
              means no limit.",
@@ -550,7 +550,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
             };
             parts((
                 breadcrumb(
-                    vec!["BYLAWS".into()],
+                    vec!["Bylaws".into()],
                     part.title(),
                     |world, _| {
                         *world.resource_mut::<Part>() = Part::Front;
@@ -593,10 +593,10 @@ impl Part {
 
     fn title(self) -> &'static str {
         match self {
-            Part::Front => "BYLAWS",
-            Part::Budget => "BUDGET",
-            Part::Models => "MODELS",
-            Part::Leads => "THE LEADS AND LIMITS",
+            Part::Front => "Bylaws",
+            Part::Budget => "Budget",
+            Part::Models => "Models",
+            Part::Leads => "The leads and limits",
         }
     }
 
@@ -823,7 +823,7 @@ mod tests {
     fn period_is_text_and_a_free_road_is_not_an_uncapped_meter() {
         use crate::testing::press;
         let (mut app, _) = page(Part::Budget);
-        press(&mut app, "A MONTH");
+        press(&mut app, "A month");
         assert_eq!(
             edits(&app)[0]["set"],
             json!({"section": "budget", "key": "period", "value": "month"})

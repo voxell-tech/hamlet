@@ -91,8 +91,8 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
         let choose = action(
             Glyph::Folder,
             match work.folder {
-                Some(_) => "CHOOSE ANOTHER",
-                None => "CHOOSE A FOLDER",
+                Some(_) => "Choose another",
+                None => "Choose a folder",
             },
             move |world| {
                 world.trigger(ChooseFolder {
@@ -105,7 +105,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
         .tooltip(|| note("A path on the server's machine"))
         .boxed();
         let mut parts =
-            vec![heading(Glyph::Folder, "WORKS ON").boxed()];
+            vec![heading(Glyph::Folder, "Works on").boxed()];
         match &work.folder {
             Some(folder) => {
                 parts.push(label(folder.clone()).boxed());
@@ -114,7 +114,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                         choose,
                         bad_action(
                             Glyph::Cross,
-                            "NONE",
+                            "None",
                             move |world| {
                                 tell(
                                     world,
@@ -135,7 +135,7 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
         let mode = work.mode;
         parts.push(
             choices(
-                ["MANUAL", "AUTO"],
+                ["Manual", "Auto"],
                 match mode {
                     Mode::Manual => 0,
                     Mode::Auto => 1,
@@ -242,7 +242,7 @@ mod tests {
             "/on-the-server/earlier-1",
             "/on-the-server/earlier-2",
             "/on-the-server/earlier-3",
-            "MANUAL",
+            "Manual",
             "The server holds each command for its chief.",
         ] {
             assert!(
@@ -251,14 +251,14 @@ mod tests {
             );
         }
         assert!(!shown.iter().any(|text| text.contains("earlier-4")));
-        press(&mut app, "AUTO");
+        press(&mut app, "Auto");
         press(&mut app, "/on-the-server/earlier-2");
         app.world_mut().trigger(FolderChosen {
             asker: hamlet,
             folder: "/chosen/on-the-server/with spaces".into(),
         });
         app.world_mut().flush();
-        press(&mut app, "NONE");
+        press(&mut app, "None");
         let sent = app
             .world()
             .resource::<Outbox>()

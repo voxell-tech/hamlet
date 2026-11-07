@@ -158,7 +158,7 @@ fn raise(
             toasts.push(
                 What::Notice {
                     tone: Tone::Accent,
-                    head: "A WORKER ANSWERED".into(),
+                    head: "A worker answered".into(),
                     line: format!("{name} is done."),
                 },
                 now,
@@ -176,7 +176,7 @@ fn raise(
             toasts.push(
                 What::Notice {
                     tone: Tone::Critical,
-                    head: "FAULT".into(),
+                    head: "Fault".into(),
                     line: format!("{name} failed."),
                 },
                 now,
@@ -242,7 +242,7 @@ fn failed(
     toasts.push(
         What::Notice {
             tone: Tone::Critical,
-            head: "FAULT".into(),
+            head: "Fault".into(),
             line: fault.text.clone(),
         },
         time.elapsed_secs(),
@@ -294,7 +294,7 @@ fn refused(
     toasts.push(
         What::Notice {
             tone: Tone::Critical,
-            head: "NOT DONE".into(),
+            head: "Not done".into(),
             line: text,
         },
         time.elapsed_secs(),
@@ -396,7 +396,7 @@ fn card(toast: &Toast) -> AnyView {
                 ])
                 .boxed();
                 (
-                    need.shown.to_uppercase(),
+                    need.shown.clone(),
                     tone,
                     said(&need).to_string(),
                     answers,
@@ -416,12 +416,12 @@ fn card(toast: &Toast) -> AnyView {
                 let undo = undo_of(*scholar, *housed);
                 let (head, line) = if *housed {
                     (
-                        "THE HAND LET A SCHOLAR IN",
+                        "The Hand let a scholar in",
                         format!("{name} has a house in the city."),
                     )
                 } else {
                     (
-                        "THE HAND TURNED A SCHOLAR AWAY",
+                        "The Hand turned a scholar away",
                         format!("{name} waits at the harbor."),
                     )
                 };
@@ -431,7 +431,7 @@ fn card(toast: &Toast) -> AnyView {
                     line,
                     buttons(vec![action(
                         Glyph::Restore,
-                        "UNDO",
+                        "Undo",
                         move |world| {
                             chat::command(world, undo.clone());
                         },
@@ -566,11 +566,11 @@ mod tests {
         let mut app = app_with_a_petition();
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
         let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text == "ADA"), "{shown:?}");
+        assert!(shown.iter().any(|text| text == "ada"), "{shown:?}");
         assert!(
             shown.iter().any(|text| text == "wants to run `pwd`")
         );
-        press(&mut app, "ALLOW ONCE");
+        press(&mut app, "Allow once");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, ClientMessage::Answer(answer)
@@ -610,10 +610,10 @@ mod tests {
         assert!(
             shown
                 .iter()
-                .any(|text| text == "THE HAND LET A SCHOLAR IN"),
+                .any(|text| text == "The Hand let a scholar in"),
             "{shown:?}"
         );
-        press(&mut app, "UNDO");
+        press(&mut app, "Undo");
         let undone =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, ClientMessage::Say(say)

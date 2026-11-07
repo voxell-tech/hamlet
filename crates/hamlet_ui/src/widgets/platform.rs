@@ -75,7 +75,8 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-/// The display face, for headers and buttons.
+/// The display face, for the app's name, the dock's tabs and a page's
+/// title.
 #[derive(Resource)]
 pub struct Display(pub Handle<Font>);
 

@@ -106,15 +106,15 @@ impl Pane {
 
     fn title(self) -> &'static str {
         match self {
-            Pane::Front => "SETTINGS",
-            Pane::Endpoints => "ENDPOINTS",
-            Pane::Models => "MODELS",
-            Pane::Agents => "AGENTS",
-            Pane::Workspace => "WORKSPACE",
-            Pane::Charter => "CHARTER",
-            Pane::Realm => "REALM",
-            Pane::Sound => "SOUND",
-            Pane::Sight => "SIGHT",
+            Pane::Front => "Settings",
+            Pane::Endpoints => "Endpoints",
+            Pane::Models => "Models",
+            Pane::Agents => "Agents",
+            Pane::Workspace => "Workspace",
+            Pane::Charter => "Charter",
+            Pane::Realm => "Realm",
+            Pane::Sound => "Sound",
+            Pane::Sight => "Sight",
         }
     }
 
@@ -337,7 +337,7 @@ fn agents() -> impl View {
         field(
             "Default character",
             told(
-                action(Glyph::Rename, "EDIT", edit_default_character)
+                action(Glyph::Rename, "Edit", edit_default_character)
                     .tooltip(|| {
                         note("Opens the text in your editor")
                     }),
@@ -454,7 +454,7 @@ fn permissions() -> AnyView {
                         row((description(says),)).fills_width(),
                         bad_action(
                             Glyph::Cross,
-                            "REVOKE",
+                            "Revoke",
                             move |world| {
                                 crate::chat::command(
                                     world,
@@ -608,14 +608,14 @@ pub(crate) fn default_charter(world: &mut World) {
 /// them and to have the built-in ones again.
 fn charter_page(cx: &Cx) -> impl View + use<> {
     let actions = keyed(resource::<Charter, _>(|c| c.own), |own| {
-        let edit = action(Glyph::Rename, "EDIT", edit_charter)
+        let edit = action(Glyph::Rename, "Edit", edit_charter)
             .tooltip(|| note("Opens the file in your editor"))
             .boxed();
         let mut actions = vec![edit];
         if *own {
             actions.push(action(
                 Glyph::Restore,
-                "BACK TO THE DEFAULT",
+                "Back to the default",
                 |world| world_menu::ask(world, Deed::DefaultCharter),
             ));
         }
@@ -778,7 +778,7 @@ fn again() -> impl View {
             description("Choose again where your model comes from."),
             action(
                 Glyph::Restore,
-                "SET UP AGAIN",
+                "Set up again",
                 crate::welcome::again,
             ),
         ))
@@ -808,7 +808,7 @@ pub fn screen() -> AnyView {
             Pane::Front | Pane::Sound => sound().boxed(),
         };
         let head = breadcrumb(
-            vec!["SETTINGS".into()],
+            vec!["Settings".into()],
             pane.title(),
             |world, _| *world.resource_mut::<Pane>() = Pane::Front,
         );
@@ -952,7 +952,7 @@ mod tests {
             words_and_spans(&mut app).iter().any(|text| text
                 == "ada may use: network (given by chief)")
         );
-        crate::testing::press(&mut app, "REVOKE");
+        crate::testing::press(&mut app, "Revoke");
         assert_eq!(
             requests(&mut app),
             [serde_json::json!({
@@ -990,7 +990,7 @@ mod tests {
             ),
             "{shown}"
         );
-        assert!(!shown.contains("REVOKE"));
+        assert!(!shown.contains("Revoke"));
         assert!(!shown.contains("given by limits"));
     }
 
@@ -1034,7 +1034,7 @@ mod tests {
             "{shown:?}"
         );
         assert!(
-            shown.iter().any(|text| text == "BACK TO THE DEFAULT")
+            shown.iter().any(|text| text == "Back to the default")
         );
     }
 
@@ -1077,7 +1077,7 @@ mod tests {
         );
         settle(&mut app);
         requests(&mut app);
-        crate::testing::press(&mut app, "EDIT");
+        crate::testing::press(&mut app, "Edit");
         let edits = &app.world().resource::<Edits>().0;
         assert_eq!(edits.len(), 1);
         assert_eq!(edits[0].key, "charter");
@@ -1133,11 +1133,11 @@ mod tests {
             app.world_mut(),
             world_menu::view(),
         );
-        crate::testing::press(&mut app, "BACK TO THE DEFAULT");
+        crate::testing::press(&mut app, "Back to the default");
         settle(&mut app);
         assert!(requests(&mut app).is_empty());
-        assert!(words_and_spans(&mut app).iter().any(|text| text == "GO BACK TO THE DEFAULT CHARTER?"));
-        crate::testing::press(&mut app, "USE THE DEFAULT");
+        assert!(words_and_spans(&mut app).iter().any(|text| text == "Go back to the default charter?"));
+        crate::testing::press(&mut app, "Use the default");
         let id = app
             .world()
             .resource::<Outbox>()
@@ -1198,7 +1198,7 @@ mod tests {
                 .any(|text| text == "The server's default words.")
         );
         assert!(
-            !shown.iter().any(|text| text == "BACK TO THE DEFAULT")
+            !shown.iter().any(|text| text == "Back to the default")
         );
         assert!(
             !shown

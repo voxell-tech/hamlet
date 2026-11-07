@@ -218,15 +218,15 @@ pub(crate) fn button(need: &Need, at: usize) -> AnyView {
         WaitDetail::Approval {
             always: Some(Lasting::Session),
             ..
-        } => "FOR THIS SESSION",
-        _ => "ALWAYS ALLOW",
+        } => "For this session",
+        _ => "Always allow",
     };
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
     let (which, text, rules, variant): (_, _, fn(&mut Cx), _) =
         match choice {
             Choice::Allow => (
                 Check,
-                "ALLOW ONCE",
+                "Allow once",
                 primary_button,
                 Variant::Primary,
             ),
@@ -234,17 +234,17 @@ pub(crate) fn button(need: &Need, at: usize) -> AnyView {
                 (CheckAll, always, styles::button, Variant::Default)
             }
             Choice::Deny => {
-                (Cross, "DENY", danger_button, Variant::Danger)
+                (Cross, "Deny", danger_button, Variant::Danger)
             }
             Choice::Go => {
-                (Check, "GO AHEAD", primary_button, Variant::Primary)
+                (Check, "Go ahead", primary_button, Variant::Primary)
             }
             Choice::Withdraw => {
-                (Restore, "WITHDRAW", danger_button, Variant::Danger)
+                (Restore, "Withdraw", danger_button, Variant::Danger)
             }
             Choice::Reply => (
                 Talk,
-                "REPLY IN CHAT",
+                "Reply in chat",
                 primary_button,
                 Variant::Primary,
             ),
@@ -252,20 +252,20 @@ pub(crate) fn button(need: &Need, at: usize) -> AnyView {
             Choice::Dismiss => match need.detail {
                 WaitDetail::Newcomer { .. } => (
                     Restore,
-                    "LATER",
+                    "Later",
                     styles::button,
                     Variant::Default,
                 ),
                 _ => (
                     Cross,
-                    "DISMISS",
+                    "Dismiss",
                     styles::button,
                     Variant::Default,
                 ),
             },
             Choice::Welcome => (
                 Check,
-                "WELCOME INTO THE CITY",
+                "Welcome into the city",
                 primary_button,
                 Variant::Primary,
             ),
@@ -351,20 +351,19 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             .boxed(),
         };
         let what = match need.detail {
-            WaitDetail::Approval { .. } => "APPROVAL",
-            WaitDetail::Objection {} => "OBJECTION",
-            WaitDetail::Question { .. } => "QUESTION",
-            WaitDetail::Fault {} => "FAULT",
-            WaitDetail::Newcomer { .. } => "NEWCOMER",
+            WaitDetail::Approval { .. } => "Approval",
+            WaitDetail::Objection {} => "Objection",
+            WaitDetail::Question { .. } => "Question",
+            WaitDetail::Fault {} => "Fault",
+            WaitDetail::Newcomer { .. } => "Newcomer",
         };
         let asked = match need.asked {
             1 => String::new(),
             n => format!(", asked {n} times"),
         };
         let head = format!(
-            "{what} FROM {}  (waited {}{asked})",
-            need.shown.to_uppercase(),
-            need.waited
+            "{what} from {}  (waited {}{asked})",
+            need.shown, need.waited
         );
         let tone = match need.detail {
             WaitDetail::Fault {} => Tone::Critical,
@@ -464,16 +463,16 @@ mod tests {
         assert!(
             shown
                 .iter()
-                .any(|text| text.starts_with("APPROVAL FROM ADA")),
+                .any(|text| text.starts_with("Approval from ada")),
             "{shown:?}"
         );
-        for text in ["ALLOW ONCE", "FOR THIS SESSION", "DENY"] {
+        for text in ["Allow once", "For this session", "Deny"] {
             assert!(
                 shown.iter().any(|shown| shown == text),
                 "missing {text}: {shown:?}"
             );
         }
-        press(&mut app, "ALLOW ONCE");
+        press(&mut app, "Allow once");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, protocol::ClientMessage::Answer(answer)

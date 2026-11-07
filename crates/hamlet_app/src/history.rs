@@ -26,8 +26,8 @@ use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::id_of;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, breadcrumb, buttons, card_button, command, filling,
-    good_action, hairline, hidden, note, scroll_area, text_input,
+    Fills, buttons, card_button, command, filling, good_action,
+    hairline, hidden, note, scroll_area, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -188,7 +188,7 @@ impl History {
 }
 
 /// Closes the reader.
-fn close(world: &mut World) {
+pub(crate) fn close(world: &mut World) {
     let mut history = world.resource_mut::<History>();
     if let Some(reading) = history.reading.take() {
         world.despawn(reading.holder);
@@ -456,7 +456,7 @@ fn list() -> impl View {
 
 /// Buttons for the session being read.
 fn actions() -> AnyView {
-    buttons(vec![good_action(Glyph::Play, "RESUME", resume)]).boxed()
+    buttons(vec![good_action(Glyph::Play, "Resume", resume)]).boxed()
 }
 
 /// The reader of the open session.
@@ -472,9 +472,8 @@ fn reader() -> impl View {
             Some(past) => (shortened(&past.title), detail(past)),
             None => Default::default(),
         };
-        let session = format!("SESSION {}", reading.number);
         let hint = format!(
-            "RESUME carries on from session {}.",
+            "Resume carries on from session {}.",
             reading.number
         );
         let theme = cx.theme();
@@ -486,11 +485,6 @@ fn reader() -> impl View {
         let line = theme.palette.gold_6;
         cx.build(
             column((
-                breadcrumb(
-                    vec!["HISTORY".into()],
-                    session,
-                    |world, _| close(world),
-                ),
                 label(title).size(heading).bold(true),
                 note(detail),
                 actions(),
@@ -519,7 +513,7 @@ fn reader() -> impl View {
                             if !*earlier {
                                 return frame().boxed();
                             }
-                            command("EARLIER", |world| {
+                            command("Earlier", |world| {
                                 let mut history =
                                     world.resource_mut::<History>();
                                 let Some(reading) =
@@ -566,21 +560,25 @@ fn reader() -> impl View {
     })
 }
 
-/// The sessions page.
+/// The sessions page of the agent the chat is with.
 pub fn screen() -> AnyView {
-    hub::of_agent("SESSIONS", || {
-        keyed(
-            resource::<History, _>(|h| {
-                h.reading.as_ref().map(|r| r.number)
-            }),
-            |reading| match reading {
-                Some(_) => reader().boxed(),
-                None => list().boxed(),
-            },
-        )
-        .within(filling())
-        .boxed()
-    })
+    keyed(
+        resource::<Convo, _>(|m| (m.session, m.with.clone())),
+        |_| {
+            keyed(
+                resource::<History, _>(|h| {
+                    h.reading.as_ref().map(|r| r.number)
+                }),
+                |reading| match reading {
+                    Some(_) => reader().boxed(),
+                    None => list().boxed(),
+                },
+            )
+            .within(filling())
+            .boxed()
+        },
+    )
+    .within(filling())
     .boxed()
 }
 
@@ -688,9 +686,9 @@ mod tests {
         assert!(
             !words(&mut app)
                 .iter()
-                .any(|text| text.contains("DELETE"))
+                .any(|text| text.contains("Delete"))
         );
-        press(&mut app, "RESUME");
+        press(&mut app, "Resume");
         let sent = app
             .world()
             .resource::<Outbox>()

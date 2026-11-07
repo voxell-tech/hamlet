@@ -12,7 +12,6 @@ use hamlet_ui::styles::{
     button, description, lettered, primary_button,
 };
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{View, built};
 
 use super::{asks, close};
@@ -56,10 +55,7 @@ pub(super) fn new_scholar(at: Vec2) -> impl View {
             )
         };
         let body = column((
-            label("NEW SCHOLAR")
-                .size(heading)
-                .bold(true)
-                .tagged(DisplayText),
+            label("New scholar").size(heading).bold(true),
             description("It gets a house in the city at once."),
             asks::<Making>(
                 "Its name",
@@ -76,7 +72,7 @@ pub(super) fn new_scholar(at: Vec2) -> impl View {
                  character.",
             ),
             row((
-                lettered("MAKE")
+                lettered("Make")
                     .rules(primary_button)
                     .tagged(Variant::Primary)
                     .on_activate(|world| {
@@ -93,7 +89,7 @@ pub(super) fn new_scholar(at: Vec2) -> impl View {
                             Making::default();
                         chat::command(world, command);
                     }),
-                lettered("CANCEL").rules(button).on_activate(close),
+                lettered("Cancel").rules(button).on_activate(close),
             ))
             .gap(gap),
         ))

@@ -414,14 +414,14 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
         );
     }
     let next = match at + 1 < count {
-        true => marked(Glyph::Into, "NEXT")
+        true => marked(Glyph::Into, "Next")
             .rules(styles::button)
             .tagged(Variant::Default)
             .on_activate(move |world| {
                 turn(world, card, count, at + 1);
             })
             .boxed(),
-        false => marked(Glyph::Check, "SUBMIT")
+        false => marked(Glyph::Check, "Submit")
             .rules(primary_button)
             .tagged(Variant::Primary)
             .on_activate(move |world| submit(world, card, count))
@@ -435,7 +435,7 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             let gap = cx.theme().space.gap;
             row((
                 column((done,)).fills_width(),
-                marked(Glyph::Cross, "DISMISS")
+                marked(Glyph::Cross, "Dismiss")
                     .rules(back_link)
                     .tagged(Variant::Text)
                     .on_activate(move |world| dismiss(world, card)),
@@ -612,7 +612,7 @@ mod tests {
                 .count(),
             2
         );
-        press(&mut app, "SUBMIT");
+        press(&mut app, "Submit");
         let answer = app
             .world()
             .resource::<Outbox>()

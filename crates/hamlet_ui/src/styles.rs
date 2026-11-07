@@ -307,20 +307,18 @@ pub fn title(text: impl Into<Prop<String>>) -> impl View {
         .tagged(DisplayText)
 }
 
-/// The name of a part of a panel: small, in the display face.
+/// The name of a part of a panel: small and bold.
 pub fn section(text: impl Into<Prop<String>>) -> impl View {
-    label(text)
-        .rules(|cx: &mut Cx| {
-            style::<HamletTheme>()
-                .label(|l, t| {
-                    l.size(t.text.small).bold(true).tone(Tone::Faint)
-                })
-                .apply(cx);
-        })
-        .tagged(DisplayText)
+    label(text).rules(|cx: &mut Cx| {
+        style::<HamletTheme>()
+            .label(|l, t| {
+                l.size(t.text.small).bold(true).tone(Tone::Faint)
+            })
+            .apply(cx);
+    })
 }
 
-/// The name on a card, in `tone`: heading size, in the display face.
+/// The name on a card, in `tone`: heading size and bold.
 pub fn card_name(
     text: impl Into<Prop<String>>,
     tone: Tone,
@@ -332,11 +330,10 @@ pub fn card_name(
             .bold(true)
             .tone(tone)
             .wrap(false)
-            .tagged(DisplayText)
     })
 }
 
-/// The line over a card that waits for the person: small capitals in
+/// The line over a card that waits for the person: small and bold, in
 /// `tone`.
 pub fn caption(
     text: impl Into<Prop<String>>,
@@ -345,10 +342,9 @@ pub fn caption(
     let text = text.into();
     with_cx(move |cx| {
         label(text)
-            .size(cx.theme().text.caption)
+            .size(cx.theme().text.small)
             .bold(true)
             .tone(tone)
-            .tagged(DisplayText)
     })
 }
 
@@ -381,11 +377,11 @@ pub fn framed(
     })
 }
 
-/// A button with `text` in the display face.
+/// A button with `text`.
 pub fn lettered(
     text: impl Into<Prop<String>>,
 ) -> impl View + FrameProps {
-    views::button(label(text).wrap(false).tagged(DisplayText))
+    views::button(label(text).wrap(false))
         .padding(pad())
         .min_height(px(CONTROL))
 }
@@ -393,13 +389,13 @@ pub fn lettered(
 /// The side of an icon set beside lettering.
 pub const ICON: f32 = 14.0;
 
-/// An icon set a pixel high, on the middle of the display face's
-/// capitals beside it.
+/// An icon set a pixel high, on the middle of the lettering beside
+/// it.
 pub fn raised(mark: Icon) -> impl View + FrameProps {
     row((mark,)).padding(UiRect::bottom(px(2.0)))
 }
 
-/// An icon before `words` in the display face.
+/// An icon before `words`.
 pub fn headed(
     which: Glyph,
     words: impl View + 'static,
@@ -414,13 +410,10 @@ pub fn marked(
     which: Glyph,
     text: &'static str,
 ) -> impl View + FrameProps {
-    views::button(headed(
-        which,
-        label(text).wrap(false).tagged(DisplayText),
-    ))
-    // Less on the icon's side, which has air of its own.
-    .padding(UiRect::new(px(10.0), px(13.0), px(0.0), px(0.0)))
-    .min_height(px(CONTROL))
+    views::button(headed(which, label(text).wrap(false)))
+        // Less on the icon's side, which has air of its own.
+        .padding(UiRect::new(px(10.0), px(13.0), px(0.0), px(0.0)))
+        .min_height(px(CONTROL))
 }
 
 /// A status text in the small size, behind its icon, both in
@@ -669,10 +662,16 @@ fn nav_item(
                 column((
                     headed(
                         which,
-                        label(title)
-                            .bold(true)
-                            .wrap(false)
-                            .tagged(DisplayText),
+                        label(title).wrap(false).rules(
+                            |cx: &mut Cx| {
+                                style::<HamletTheme>()
+                                    .label(|l, t| {
+                                        l.size(t.text.heading)
+                                            .bold(true)
+                                    })
+                                    .apply(cx);
+                            },
+                        ),
                     ),
                     description(holds),
                 ))
@@ -714,54 +713,61 @@ pub fn nav_list(
 }
 
 /// Where a page is within a panel that has pages under it: each page
-/// above it, from the top, as a bare button, a dim `/` after each,
-/// and then `current`, the page shown, which is not a button. A press
-/// hands `go` the place in `trail` of its page.
+/// above it, from the top, as a [`crumb`], a [`crumb_slash`] after
+/// each, and then `current`, the page shown, as a [`crumb_here`]. A
+/// press hands `go` the place in `trail` of its page.
 pub fn breadcrumb(
     trail: Vec<String>,
     current: impl Into<Prop<String>>,
     go: impl Fn(&mut World, usize) + Clone + Send + Sync + 'static,
 ) -> impl View {
-    let current = current.into();
+    let mut parts = Vec::new();
+    for (at, text) in trail.into_iter().enumerate() {
+        let go = go.clone();
+        parts.push(crumb(text, move |world| go(world, at)).boxed());
+        parts.push(crumb_slash().boxed());
+    }
+    parts.push(crumb_here(current).boxed());
+    crumbs(parts)
+}
+
+/// The parts of a breadcrumb in a row, wrapping in a narrow panel.
+pub fn crumbs(parts: Vec<AnyView>) -> impl View {
     with_cx(move |cx| {
-        let size = cx.theme().text.small;
-        let mut parts = Vec::new();
-        for (at, text) in trail.into_iter().enumerate() {
-            let go = go.clone();
-            parts.push(
-                views::button(
-                    label(text).wrap(false).tagged(DisplayText),
-                )
-                // Bare, so that the path starts at the panel's
-                // edge and its parts sit evenly apart.
-                .padding(UiRect::all(px(0.0)))
-                .rules(back_link)
-                .tagged(Variant::Text)
-                .on_activate(move |world| go(world, at))
-                .boxed(),
-            );
-            parts.push(
-                label("/")
-                    .size(size)
-                    .tone(Tone::Dim)
-                    .wrap(false)
-                    .tagged(DisplayText)
-                    .boxed(),
-            );
-        }
-        parts.push(
-            label(current)
-                .size(size)
-                .bold(true)
-                .tone(Tone::Faint)
-                .wrap(false)
-                .tagged(DisplayText)
-                .boxed(),
-        );
         row(parts)
             .gap(cx.theme().space.gap)
             .align(AlignItems::Center)
             .tagged(Wraps)
+    })
+}
+
+/// A page above the one shown in a breadcrumb, which `act` turns to.
+pub fn crumb(
+    text: impl Into<Prop<String>>,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> impl View {
+    views::button(label(text).wrap(false))
+        // Bare, so that the path starts at the panel's edge and its
+        // parts sit evenly apart.
+        .padding(UiRect::all(px(0.0)))
+        .rules(back_link)
+        .tagged(Variant::Text)
+        .on_activate(act)
+}
+
+/// The dim slash between two parts of a breadcrumb.
+pub fn crumb_slash() -> impl View {
+    label("/").wrap(false).rules(note_rules)
+}
+
+/// The page shown, at the end of a breadcrumb.
+pub fn crumb_here(text: impl Into<Prop<String>>) -> impl View {
+    label(text).wrap(false).rules(|cx: &mut Cx| {
+        style::<HamletTheme>()
+            .label(|l, t| {
+                l.size(t.text.small).bold(true).tone(Tone::Body)
+            })
+            .apply(cx);
     })
 }
 

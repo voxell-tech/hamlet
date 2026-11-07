@@ -18,7 +18,6 @@ use hamlet_realm::orders;
 use hamlet_ui::styles::{
     self, choice, description, lettered, scroll_area,
 };
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{View, built};
 
 use super::close;
@@ -119,10 +118,9 @@ pub(super) fn road(agent: Entity, at: Vec2) -> impl View {
             )
         };
         let body = column((
-            label(format!("A ROAD FROM {}", from.to_uppercase()))
+            label(format!("A road from {}", from))
                 .size(heading)
-                .bold(true)
-                .tagged(DisplayText),
+                .bold(true),
             super::search::search(
                 "Search hires",
                 |world| world.resource::<Roading>().search.clone(),
@@ -132,7 +130,7 @@ pub(super) fn road(agent: Entity, at: Vec2) -> impl View {
             ),
             column((scroll_area((list(agent),)),))
                 .max_height(px(LIST)),
-            lettered("CANCEL")
+            lettered("Cancel")
                 .rules(styles::button)
                 .on_activate(close),
         ))

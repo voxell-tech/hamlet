@@ -252,9 +252,9 @@ fn form(address: String, name: String, act: Act) -> AnyView {
         move |world: &mut World| run(world, &address, &name, &act)
     };
     let ready = if remove {
-        bad_action(Glyph::Check, "DO IT", go)
+        bad_action(Glyph::Check, "Do it", go)
     } else {
-        good_action(Glyph::Check, "DO IT", go)
+        good_action(Glyph::Check, "Do it", go)
     };
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
@@ -282,7 +282,7 @@ fn form(address: String, name: String, act: Act) -> AnyView {
         parts.push(
             buttons(vec![
                 ready,
-                action(Glyph::Cross, "CANCEL", |world| {
+                action(Glyph::Cross, "Cancel", |world| {
                     world.resource_mut::<Form>().act = None;
                 }),
             ])
@@ -332,7 +332,7 @@ fn arrival(shown: &Shown) -> AnyView {
                 let address = address.clone();
                 buttons_row.push(good_action(
                     Glyph::Restore,
-                    "RESTORE",
+                    "Restore",
                     move |world| {
                         tell_hand(
                             world,
@@ -348,7 +348,7 @@ fn arrival(shown: &Shown) -> AnyView {
             if can("move-house") {
                 let scholar = shown.entity;
                 buttons_row.push(
-                    action(Glyph::Move, "MOVE HOUSE", move |world| {
+                    action(Glyph::Move, "Move house", move |world| {
                         hamlet_realm::orders::carry_house(
                             world, scholar,
                         );
@@ -368,7 +368,7 @@ fn arrival(shown: &Shown) -> AnyView {
                 let address = address.clone();
                 buttons_row.push(good_action(
                     Glyph::Check,
-                    "WELCOME INTO THE CITY",
+                    "Welcome into the city",
                     move |world| {
                         tell_hand(
                             world,
@@ -392,7 +392,7 @@ fn arrival(shown: &Shown) -> AnyView {
 /// The versions, each with what can be done from it.
 fn versions(shown: &Shown) -> AnyView {
     let can = |deed| shown.allowed.contains(&deed);
-    let mut parts = vec![heading(Glyph::History, "VERSIONS")];
+    let mut parts = vec![heading(Glyph::History, "Versions")];
     if shown.scholar.versions.is_empty() {
         parts.push(note("No version is named yet.").boxed());
     }
@@ -466,7 +466,7 @@ fn versions(shown: &Shown) -> AnyView {
     let mut acts = Vec::new();
     if can("tag") {
         acts.push(
-            action(Glyph::Plus, "SAVE AS A VERSION", |world| {
+            action(Glyph::Plus, "Save as a version", |world| {
                 ask(world, Act::Tag);
             })
             .tooltip(|| note("Name what the scholar knows now"))
@@ -477,7 +477,7 @@ fn versions(shown: &Shown) -> AnyView {
         acts.push(
             action(
                 Glyph::NewSession,
-                "NEW SCHOLAR FROM THIS ONE",
+                "New scholar from this one",
                 |world| {
                     ask(world, Act::Fork(None));
                 },
@@ -497,7 +497,7 @@ fn versions(shown: &Shown) -> AnyView {
 
 /// Its hires, each led to and pinned to a version from here.
 fn hires(shown: &Shown) -> AnyView {
-    let mut parts = vec![heading(Glyph::Robot, "HIRES")];
+    let mut parts = vec![heading(Glyph::Robot, "Hires")];
     if shown.hires.is_empty() {
         parts.push(note("Nobody works as it now.").boxed());
     }
@@ -562,12 +562,12 @@ fn hires(shown: &Shown) -> AnyView {
 /// Its skills and the character a chief may edit.
 fn knowledge() -> impl View {
     column((
-        heading(Glyph::Robot, "CHARACTER"),
+        heading(Glyph::Robot, "Character"),
         memory::character(),
-        row((action(Glyph::Rename, "EDIT", papers::edit_character),)),
-        heading(Glyph::Notes, "MEMORY"),
+        row((action(Glyph::Rename, "Edit", papers::edit_character),)),
+        heading(Glyph::Notes, "Memory"),
         memory::view(),
-        heading(Glyph::Book, "SKILLS"),
+        heading(Glyph::Book, "Skills"),
         memory::skills(),
     ))
     .gap(6.0)
@@ -614,7 +614,7 @@ fn deeds(shown: &Shown) -> AnyView {
     {
         return frame().boxed();
     }
-    action(Glyph::Moon, "DREAM", move |world| {
+    action(Glyph::Moon, "Dream", move |world| {
         tell_hand(world, format!("/dream {address}"));
     })
     .tooltip(|| {
@@ -636,7 +636,7 @@ fn careful(shown: &Shown) -> AnyView {
     {
         acts.push(action(
             Glyph::Back,
-            "SEND TO THE HARBOR",
+            "Send to the harbor",
             move |world| {
                 tell_hand(world, format!("/turn-away {address}"));
             },
@@ -646,7 +646,7 @@ fn careful(shown: &Shown) -> AnyView {
         acts.push(
             bad_action(
                 Glyph::Delete,
-                "ERASE A FILE FROM ITS HISTORY",
+                "Erase a file from its history",
                 |world| {
                     ask(world, Act::Purge);
                 },
@@ -661,14 +661,14 @@ fn careful(shown: &Shown) -> AnyView {
         );
     }
     if living && can("remove-scholar") {
-        acts.push(bad_action(Glyph::Gone, "REMOVE", |world| {
+        acts.push(bad_action(Glyph::Gone, "Remove", |world| {
             ask(world, Act::Remove);
         }));
     }
     if !living && can("erase-scholar") {
         acts.push(bad_action(
             Glyph::Delete,
-            "ERASE FOR GOOD",
+            "Erase for good",
             |world| {
                 ask(world, Act::Erase);
             },
@@ -677,7 +677,7 @@ fn careful(shown: &Shown) -> AnyView {
     if acts.is_empty() {
         return frame().boxed();
     }
-    column((heading(Glyph::Stop, "CAREFUL"), buttons(acts)))
+    column((heading(Glyph::Stop, "Careful"), buttons(acts)))
         .gap(6.0)
         .boxed()
 }
@@ -694,7 +694,7 @@ fn body(shown: &Shown) -> AnyView {
     let heading = if renamed {
         frame().boxed()
     } else {
-        title(name.to_uppercase()).boxed()
+        title(name.clone()).boxed()
     };
     let (head, versions_part, hires_part, deeds_part, careful_part) = (
         arrival(shown),

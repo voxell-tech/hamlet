@@ -133,7 +133,7 @@ fn card(
         State::Loading => note("Fetching the picture...").boxed(),
         _ => {
             let address = address.to_string();
-            action(Glyph::Globe, "SHOW PICTURE", move |world| {
+            action(Glyph::Globe, "Show picture", move |world| {
                 fetch(world, &address);
             })
         }

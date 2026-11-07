@@ -169,7 +169,7 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
     let body = keyed(told, move |(lines, record, records)| {
         let mut parts = Vec::new();
         if *records {
-            parts.push(heading(Glyph::History, "WHO CAME AND WENT"));
+            parts.push(heading(Glyph::History, "Who came and went"));
             parts.push(
                 note(if record.is_empty() {
                     "Reading the record...".into()
@@ -179,7 +179,7 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
                 .boxed(),
             );
         }
-        parts.push(heading(Glyph::Meter, "THE BUDGET"));
+        parts.push(heading(Glyph::Meter, "The budget"));
         parts.extend(
             lines.iter().map(|line| note(line.clone()).boxed()),
         );

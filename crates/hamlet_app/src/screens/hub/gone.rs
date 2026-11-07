@@ -4,20 +4,18 @@ use bevy::ecs::entity::Entity;
 use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
-use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, action, bad_action, breadcrumb, buttons, filling,
-    good_action, scroll_area, section, status_label_large, title,
+    Fills, action, bad_action, breadcrumb, buttons, good_action,
+    scroll_area, status_label_large, title,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
-use hamlet_ui::{AnyView, View, built, with_cx};
+use hamlet_ui::{View, built, with_cx};
 
 use super::thread::dim;
 use super::{Showing, show};
-use crate::convo::Convo;
 use crate::lists;
 use crate::world_menu::{self, Deed};
 
@@ -40,28 +38,25 @@ pub(super) fn ruin(agent: Entity) -> impl View {
         // The path to it: the realm, then the hamlet it lived in.
         let hamlet =
             cx.world.get::<LivesIn>(agent).map(|lives| lives.0);
-        let mut trail = vec!["REALM".to_string()];
+        let mut trail = vec!["Realm".to_string()];
         if let Some(hamlet) = hamlet {
-            trail.push(named(hamlet).to_uppercase());
+            trail.push(named(hamlet));
         }
-        let crumb = breadcrumb(
-            trail,
-            name.to_uppercase(),
-            move |world, at| {
+        let crumb =
+            breadcrumb(trail, name.clone(), move |world, at| {
                 let place = hamlet.filter(|_| at == 1);
                 select(world, place.map(Thing::Common));
                 if place.is_none() {
                     show(world, Showing::Realm);
                 }
-            },
-        );
+            });
         let (section, gap) =
             (cx.theme().space.section, cx.theme().space.gap);
         cx.build(
             column((
                 crumb,
                 row((
-                    title(name.to_uppercase()),
+                    title(name),
                     status_label_large(
                         Glyph::Gone,
                         fate,
@@ -77,14 +72,14 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 buttons(vec![
                     good_action(
                         Glyph::Restore,
-                        "RESTORE",
+                        "Restore",
                         move |world| {
                             world_menu::restore(world, agent);
                         },
                     ),
                     bad_action(
                         Glyph::Delete,
-                        "DELETE FOR GOOD",
+                        "Delete for good",
                         move |world| {
                             world_menu::ask(
                                 world,
@@ -105,17 +100,17 @@ pub(super) fn library() -> impl View {
     with_cx(|cx| {
         column((
             breadcrumb(
-                vec!["REALM".into()],
-                "THE LIBRARY",
+                vec!["Realm".into()],
+                "The library",
                 |world, _| {
                     select(world, None);
                     show(world, Showing::Realm);
                 },
             ),
-            title("THE LIBRARY"),
+            title("The library"),
             // On a line of their own, and on to another when the
             // panel is narrow.
-            buttons(vec![action(Glyph::Move, "MOVE", |world| {
+            buttons(vec![action(Glyph::Move, "Move", |world| {
                 hamlet_realm::moving::pick_up(
                     world,
                     hamlet_realm::generator::society::Ground::Library,
@@ -128,30 +123,4 @@ pub(super) fn library() -> impl View {
         .fills_height()
         .gap(cx.theme().space.section)
     })
-}
-
-/// A page of `what` about the selected agent, under whose it is.
-pub(crate) fn of_agent(
-    what: &'static str,
-    body: fn() -> AnyView,
-) -> impl View {
-    keyed(
-        resource::<Convo, _>(|m| (m.session, m.with.clone())),
-        move |(_, with)| {
-            let whose = match with {
-                Some(name) => {
-                    format!("{}: {what}", name.to_uppercase())
-                }
-                None => format!("THE HAND: {what}"),
-            };
-            let body = body();
-            with_cx(move |cx| {
-                column((section(whose), body))
-                    .fills_height()
-                    .gap(cx.theme().space.section)
-            })
-            .boxed()
-        },
-    )
-    .within(filling())
 }

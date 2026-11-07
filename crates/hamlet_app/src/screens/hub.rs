@@ -30,7 +30,6 @@ use hamlet_ui::widgets::effects::{Highlight, Updated};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, with_cx};
 
-pub(crate) use self::gone::of_agent;
 pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
 pub use self::rail::{Rail, Tab as RailTab};

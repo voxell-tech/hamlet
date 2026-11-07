@@ -25,9 +25,7 @@ use bevy::ui::{
 use bevy::window::{PrimaryWindow, Window};
 use bevy_fynix::resource;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, overlay,
-};
+use bevy_fynix::views::{FrameProps, column, label, overlay};
 use hamlet_client::realm::{
     Account, Activity, AgentNumber, Busy, Left, LivesIn, Mayor,
     MergedInto, Mode, Purpose, Roster, Shown, Treasury, Works,
@@ -38,7 +36,7 @@ use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::EffectSettings;
-use hamlet_ui::widgets::platform::{DisplayText, show};
+use hamlet_ui::widgets::platform::show;
 use hamlet_ui::{View, built};
 
 use crate::overview::standing;
@@ -209,7 +207,7 @@ impl Told<'_, '_> {
             .unwrap_or_default();
         Card {
             shown: true,
-            title: self.name(hamlet).to_uppercase(),
+            title: self.name(hamlet),
             state,
             tone,
             purpose: mayor,
@@ -259,8 +257,7 @@ impl Told<'_, '_> {
         };
         Card {
             shown: true,
-            title: format!("CLOCKWORK OF {}", self.name(hamlet))
-                .to_uppercase(),
+            title: format!("Clockwork of {}", self.name(hamlet)),
             state: state.to_string(),
             tone,
             purpose: purpose.to_string(),
@@ -291,8 +288,7 @@ impl Told<'_, '_> {
         };
         Card {
             shown: true,
-            title: format!("WORKBENCH OF {}", self.name(hamlet))
-                .to_uppercase(),
+            title: format!("Workbench of {}", self.name(hamlet)),
             state,
             tone,
             purpose: purpose.to_string(),
@@ -303,7 +299,7 @@ impl Told<'_, '_> {
 
     /// The card of a chief's mascot, or of its place.
     fn of_chief(&self, chief: Entity, place: bool) -> Option<Card> {
-        let name = self.name(chief).to_uppercase();
+        let name = self.name(chief);
         let (look, beside) = self.chiefs.get(chief).ok()?;
         let (state, tone) = match beside.0 {
             Some(agent) => {
@@ -314,7 +310,7 @@ impl Told<'_, '_> {
         Some(Card {
             shown: true,
             title: if place {
-                format!("{name}'S HEARTH")
+                format!("{name}'s hearth")
             } else {
                 name
             },
@@ -370,7 +366,7 @@ impl Told<'_, '_> {
             matches!(hovered, Thing::Keeper | Thing::Agent(_));
         Some(Card {
             shown: true,
-            title: self.name(agent).to_uppercase(),
+            title: self.name(agent),
             state,
             tone,
             purpose: purpose
@@ -601,10 +597,9 @@ pub fn view() -> impl View {
         let shadow = cx.theme().shadow();
         let card = column((
             label(resource::<Card, _>(|card| card.title.clone()))
-                .size(13.0)
+                .size(cx.theme().text.heading)
                 .bold(true)
-                .wrap(false)
-                .tagged(DisplayText),
+                .wrap(false),
             label(resource::<Card, _>(|card| card.state.clone()))
                 .size(12.0)
                 .tone(resource::<Card, _>(|card| card.tone)),

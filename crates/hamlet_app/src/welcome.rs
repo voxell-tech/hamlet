@@ -31,7 +31,7 @@ use crate::PanelSystems;
 pub const NOTHING_LOCAL: &str = "No model server answered on the \
                                  server's machine. Install Ollama \
                                  from ollama.com there, download a \
-                                 model, then choose Look Again.";
+                                 model, then choose Look again.";
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Welcome>()
@@ -407,9 +407,9 @@ mod server_tests {
         let mut app = welcome_app();
         connect(&mut app, true);
         mount::<HamletTheme>(app.world_mut(), view());
-        assert!(all_words(&mut app).contains("WELCOME TO HAMLET"));
+        assert!(all_words(&mut app).contains("Welcome to Hamlet"));
         connect(&mut app, false);
-        assert!(!all_words(&mut app).contains("WELCOME TO HAMLET"));
+        assert!(!all_words(&mut app).contains("Welcome to Hamlet"));
         app.world_mut().insert_resource(Connection {
             state: Contact::Refused,
             words: "The server refused this window: bad token."
@@ -429,7 +429,7 @@ mod server_tests {
         let mut app = welcome_app();
         connect(&mut app, true);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I'LL SET THIS UP LATER");
+        press_and_update(&mut app, "I'll set this up later");
         let mut state = hamlet_testing::realm::state();
         state.settings.unset = true;
         // Differs from the held settings, so they read as changed.
@@ -439,7 +439,7 @@ mod server_tests {
             protocol::ServerMessage::State(state),
         );
         app.update();
-        assert!(!all_words(&mut app).contains("WELCOME TO HAMLET"));
+        assert!(!all_words(&mut app).contains("Welcome to Hamlet"));
     }
     fn providers(app: &mut App) {
         incoming(
@@ -457,7 +457,7 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I HAVE A KEY");
+        press_and_update(&mut app, "I have a key");
         press_and_update(&mut app, "OpenRouter");
         let requests = sent(&mut app);
         let start = &requests[0];
@@ -490,7 +490,7 @@ mod server_tests {
             .editor_mut()
             .set_text("fake-key");
         // The field's text is committed and sent in the same frame.
-        press(&mut app, "SEND");
+        press(&mut app, "Send");
         app.update();
         let requests = sent(&mut app);
         assert_eq!(
@@ -521,7 +521,7 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "CONTINUE WITH CHATGPT");
+        press_and_update(&mut app, "Continue with ChatGPT");
         let start = sent(&mut app).remove(0);
         assert_eq!(
             start["start"],
@@ -552,9 +552,9 @@ mod server_tests {
             app.world().resource::<Opened>().0,
             ["https://login.example/authorize"]
         );
-        press_and_update(&mut app, "CANCEL SIGN-IN");
+        press_and_update(&mut app, "Cancel sign-in");
         assert_eq!(sent(&mut app)[0]["cancel"], "plan-login");
-        press_and_update(&mut app, "SIGN IN WITH OPENROUTER");
+        press_and_update(&mut app, "Sign in with OpenRouter");
         assert_eq!(
             sent(&mut app)[0]["start"],
             serde_json::json!({"provider":"openrouter", "method":"subscription"})
@@ -573,7 +573,7 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "CONTINUE WITH CHATGPT");
+        press_and_update(&mut app, "Continue with ChatGPT");
         let start = sent(&mut app).remove(0);
         for url in [
             "file:///Applications/Calculator.app",
@@ -612,7 +612,7 @@ mod server_tests {
         let mut app = welcome_app();
         connect(&mut app, true);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I RUN MY OWN MODEL");
+        press_and_update(&mut app, "I run my own model");
         let requests = sent(&mut app);
         assert_eq!(requests[0]["what"], "connection");
         assert_eq!(requests[1]["what"], "models");
@@ -624,7 +624,7 @@ mod server_tests {
         assert!(all_words(&mut app).contains(
             "No model server answered on the server's machine."
         ));
-        press_and_update(&mut app, "LOOK AGAIN");
+        press_and_update(&mut app, "Look again");
         let requests = sent(&mut app);
         app.world_mut().resource_mut::<Settings>().0.endpoints.push(
             protocol::SettingsViewEndpoints {
@@ -656,7 +656,7 @@ mod server_tests {
         assert_eq!(check["what"], "model");
         app.world_mut().resource_mut::<Settings>().0.unset = false;
         app.update();
-        assert!(all_words(&mut app).contains("PICK A MODEL"));
+        assert!(all_words(&mut app).contains("Pick a model"));
         app.world_mut().resource_mut::<Settings>().0.link.state =
             protocol::LinkState::Connected;
         app.update();
@@ -664,7 +664,7 @@ mod server_tests {
             &mut app,
             serde_json::json!({"type":"reply", "to":check["id"], "kind":"notice", "text":"Hello"}),
         );
-        assert!(!all_words(&mut app).contains("PICK A MODEL"));
+        assert!(!all_words(&mut app).contains("Pick a model"));
     }
 
     #[test]
@@ -674,7 +674,7 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I HAVE A KEY");
+        press_and_update(&mut app, "I have a key");
         press_and_update(&mut app, "OpenRouter");
         let start = sent(&mut app).remove(0);
         incoming(
@@ -718,7 +718,7 @@ mod server_tests {
         app.world_mut().resource_mut::<Settings>().0.unset = false;
         app.update();
         assert!(
-            all_words(&mut app).contains("PICK A MODEL"),
+            all_words(&mut app).contains("Pick a model"),
             "a saved choice is not a model answer"
         );
         incoming(
@@ -726,7 +726,7 @@ mod server_tests {
             serde_json::json!({"type":"reply", "to":edit["id"], "kind":"notice", "text":"Saved."}),
         );
         assert_eq!(sent(&mut app)[0]["what"], "model");
-        assert!(all_words(&mut app).contains("PICK A MODEL"));
+        assert!(all_words(&mut app).contains("Pick a model"));
     }
 
     #[test]
@@ -769,15 +769,15 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "CONTINUE WITH CHATGPT");
+        press_and_update(&mut app, "Continue with ChatGPT");
         let start = sent(&mut app).remove(0);
-        press_and_update(&mut app, "CANCEL SIGN-IN");
+        press_and_update(&mut app, "Cancel sign-in");
         incoming(
             &mut app,
             serde_json::json!({"type":"login", "to":start["id"], "login":"late-login", "step":{"url":"https://must-not-open.example"}}),
         );
         assert_eq!(sent(&mut app)[0]["cancel"], "late-login");
-        assert!(all_words(&mut app).contains("WELCOME TO HAMLET"));
+        assert!(all_words(&mut app).contains("Welcome to Hamlet"));
     }
 
     #[test]
@@ -786,11 +786,11 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "CONTINUE WITH CHATGPT");
+        press_and_update(&mut app, "Continue with ChatGPT");
         sent(&mut app);
         app.world_mut().trigger(Reconnected);
         app.update();
-        assert!(all_words(&mut app).contains("WELCOME TO HAMLET"));
+        assert!(all_words(&mut app).contains("Welcome to Hamlet"));
     }
 
     #[test]
@@ -808,6 +808,6 @@ mod server_tests {
             ..Default::default()
         });
         mount::<HamletTheme>(app.world_mut(), view());
-        assert!(all_words(&mut app).contains("USE A KEY"));
+        assert!(all_words(&mut app).contains("Use a key"));
     }
 }

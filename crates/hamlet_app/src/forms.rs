@@ -132,7 +132,7 @@ pub(crate) fn form(
                                         .0 = None;
                                 }
                             }),
-                        lettered("CANCEL")
+                        lettered("Cancel")
                             .rules(styles::button)
                             .on_activate(|world| {
                                 world.resource_mut::<OpenForm>().0 =

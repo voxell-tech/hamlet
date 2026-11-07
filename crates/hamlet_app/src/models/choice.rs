@@ -148,7 +148,7 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
         cx.build(group((
             crate::overview::heading(
                 Glyph::Chip,
-                "MODEL THIS HAMLET RUNS",
+                "Model this hamlet runs",
             ),
             super::problem(),
             close((section("Its default model"), default)),

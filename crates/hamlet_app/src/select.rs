@@ -954,7 +954,7 @@ pub fn quote_button(session: Entity, id: String) -> impl View {
             }) && !s.chosen.trim().is_empty()
         }),
         |on| match on {
-            true => row((marked(Glyph::Talk, "QUOTE")
+            true => row((marked(Glyph::Talk, "Quote")
                 .rules(button)
                 .tagged(Variant::Default)
                 .on_activate(quote_chosen),))

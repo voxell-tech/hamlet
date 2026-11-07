@@ -14,7 +14,7 @@ use hamlet_client::messages::ChiefMessage;
 use hamlet_ui::markdown::document;
 use hamlet_ui::styles::note;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::{DisplayText, MonoText};
+use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, Cx, View};
 
 use super::change::change_view;
@@ -274,9 +274,10 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .and_then(|t| t.item(&id).map(|item| &item.entry))
             .cloned();
         let speaker = match &cx.world.resource::<Convo>().with {
-            Some(name) => name.to_uppercase(),
-            None => "MAYOR".to_string(),
+            Some(name) => name.clone(),
+            None => "Mayor".to_string(),
         };
+        let meta = cx.theme().text.small;
         let text_id = id.clone();
         let text = move |f: fn(&Entry) -> String| {
             let id = text_id.clone();
@@ -292,10 +293,9 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                     Entry::Chief { name, .. } => name.clone(),
                     _ => String::new(),
                 }))
-                .size(11.0)
+                .size(meta)
                 .bold(true)
-                .tone(Tone::Faint)
-                .tagged(DisplayText),
+                .tone(Tone::Faint),
                 label(text(|e| match e {
                     Entry::Chief { text, .. } => text.clone(),
                     _ => String::new(),
@@ -310,10 +310,9 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .boxed(),
             Some(Entry::Assistant(_)) => column((
                 label(speaker.clone())
-                    .size(11.0)
+                    .size(meta)
                     .bold(true)
-                    .tone(Tone::Faint)
-                    .tagged(DisplayText),
+                    .tone(Tone::Faint),
                 document(markdown::entry(session, id), Tone::Body),
             ))
             .gap(2.0)
@@ -373,13 +372,12 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .boxed(),
             Some(Entry::Agent { .. }) => column((
                 label(text(|e| match e {
-                    Entry::Agent { name, .. } => name.to_uppercase(),
+                    Entry::Agent { name, .. } => name.clone(),
                     _ => String::new(),
                 }))
-                .size(11.0)
+                .size(meta)
                 .bold(true)
-                .tone(Tone::Accent)
-                .tagged(DisplayText),
+                .tone(Tone::Accent),
                 document(markdown::entry(session, id), Tone::Dim),
             ))
             .gap(2.0)
@@ -395,10 +393,9 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             }
             Some(Entry::Answered(_)) => column((
                 label("Your answer")
-                    .size(11.0)
+                    .size(meta)
                     .bold(true)
-                    .tone(Tone::Faint)
-                    .tagged(DisplayText),
+                    .tone(Tone::Faint),
                 label(text(|e| match e {
                     Entry::Answered(s) => s.clone(),
                     _ => String::new(),

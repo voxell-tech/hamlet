@@ -18,7 +18,6 @@ use bevy_fynix::{ViewExt, component, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::markdown::Area;
 use hamlet_ui::theme::{Palette, contrast};
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::entry::entry_view;
@@ -228,13 +227,11 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             // The panel over the chat says what its own agent is
             // for.
             let tag = if line.by == 0 { "" } else { &who.tag };
-            let tag = label(tag.to_string()).size(10.0).wrap(false);
+            let tag = label(tag.to_string()).size(11.0).wrap(false);
             head.push(match who.kind {
-                Kind::Mayor | Kind::Hand => tag
-                    .bold(true)
-                    .tone(Tone::Faint)
-                    .tagged(DisplayText)
-                    .boxed(),
+                Kind::Mayor | Kind::Hand => {
+                    tag.bold(true).tone(Tone::Faint).boxed()
+                }
                 _ => tag.tone(Tone::Dim).boxed(),
             });
             inside.push(

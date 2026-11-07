@@ -539,7 +539,7 @@ fn reasoning(agent: Entity) -> impl View {
                 _ => EFFORTS.to_vec(),
             };
             let mut lines = vec![
-                label("REASONING")
+                label("Reasoning")
                     .tone(Tone::Faint)
                     .bold(true)
                     .boxed(),
@@ -610,7 +610,7 @@ fn tier(agent: Entity) -> impl View {
                     .boxed();
             }
             choices(
-                ["STANDARD", "FAST"],
+                ["Standard", "Fast"],
                 usize::from(*fast),
                 move |world, at| {
                     let to = address(world, agent);

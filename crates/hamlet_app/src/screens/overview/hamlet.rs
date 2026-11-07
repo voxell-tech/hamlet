@@ -77,7 +77,7 @@ fn naming(hamlet: Entity, id: String) -> AnyView {
                         .grow(1.0)
                         .rules(text_input)
                         .tagged(NameField),
-                    lettered("SAVE")
+                    lettered("Save")
                         .rules(primary_button)
                         .tagged(Variant::Primary)
                         .on_activate(move |world| {
@@ -89,7 +89,7 @@ fn naming(hamlet: Entity, id: String) -> AnyView {
                                 format!("/name-hamlet {id} {name}"),
                             );
                         }),
-                    lettered("CANCEL")
+                    lettered("Cancel")
                         .rules(styles::button)
                         .on_activate(|world| {
                             world.resource_mut::<Naming>().0 = None;
@@ -152,7 +152,7 @@ fn worker_form(hamlet: Entity, id: String) -> AnyView {
         "Start a worker on one task in this hamlet. It answers once \
          and ends.",
         &[("Task", "")],
-        "START",
+        "Start",
         move |world, typed| {
             let [task] = typed else {
                 return false;
@@ -176,9 +176,9 @@ pub enum Page {
 }
 
 const PAGES: [(Page, Glyph, &str); 3] = [
-    (Page::Agents, Glyph::Robot, "AGENTS"),
-    (Page::Bylaws, Glyph::Book, "BYLAWS"),
-    (Page::Record, Glyph::History, "RECORD"),
+    (Page::Agents, Glyph::Robot, "Agents"),
+    (Page::Bylaws, Glyph::Book, "Bylaws"),
+    (Page::Record, Glyph::History, "Record"),
 ];
 
 /// Everyone in `hamlet`, each pressed to talk to.
@@ -190,9 +190,9 @@ fn list_of(hamlet: Entity) -> impl View {
         let card = |row: &AgentRow| {
             let agent = row.agent;
             let title = if row.mayor {
-                format!("{} (mayor)", row.name.to_uppercase())
+                format!("{} (mayor)", row.name)
             } else {
-                row.name.to_uppercase()
+                row.name.clone()
             };
             let state = row.state.clone();
             let beside = match (row.gone, row.waiting, row.busy) {
@@ -255,7 +255,7 @@ fn list_of(hamlet: Entity) -> impl View {
         if !gone.is_empty() {
             parts.push(heading(
                 Glyph::Gone,
-                format!("GONE ({})", gone.len()),
+                format!("Gone ({})", gone.len()),
             ));
             parts.push(group(gone).boxed());
         }
@@ -412,7 +412,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             let mayor_of = facts.id.clone();
             actions.push(action(
                 Glyph::Robot,
-                "HIRE A SCHOLAR",
+                "Hire a scholar",
                 move |world| {
                     if let Some(mayor) =
                         hamlet_client::realm::mayor_of(
@@ -427,7 +427,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         if *workers {
             actions.push(action(
                 Glyph::Chip,
-                "START A WORKER",
+                "Start a worker",
                 move |world| {
                     forms::toggle(world, Asking::Worker(hamlet));
                 },
@@ -436,21 +436,21 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         if *rename {
             actions.push(action(
                 Glyph::Rename,
-                "RENAME",
+                "Rename",
                 move |world| {
                     world.resource_mut::<Naming>().0 = Some(hamlet);
                 },
             ));
         }
         if *carry {
-            actions.push(action(Glyph::Move, "MOVE", move |world| {
+            actions.push(action(Glyph::Move, "Move", move |world| {
                 orders::carry(world, hamlet);
             }));
         }
         if *close {
             actions.push(bad_action(
                 Glyph::Gone,
-                "CLOSE DOWN",
+                "Close down",
                 move |world| {
                     world_menu::ask(world, Deed::Close(id.clone()));
                 },
@@ -468,7 +468,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                     );
                 },
             ),
-            title(facts.title.to_uppercase()),
+            title(facts.title.clone()),
             note(facts.account.clone()),
             note(known),
             buttons(actions),

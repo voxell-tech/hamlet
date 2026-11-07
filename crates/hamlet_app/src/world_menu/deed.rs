@@ -20,7 +20,6 @@ use hamlet_ui::styles::{
     button, danger_button, description, lettered,
 };
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{View, built};
 
 use super::close;
@@ -131,33 +130,30 @@ impl Deed {
     }
 
     fn question(&self, world: &World) -> String {
-        let name = |agent: &Entity| {
-            agents::shown_of(world, *agent).to_uppercase()
-        };
+        let name = |agent: &Entity| agents::shown_of(world, *agent);
         match self {
-            Deed::End(agent) => format!("END {}?", name(agent)),
+            Deed::End(agent) => format!("End {}?", name(agent)),
             Deed::Merge { absorbed, kept } => format!(
-                "MERGE {} INTO {}?",
+                "Merge {} into {}?",
                 name(absorbed),
                 name(kept)
             ),
             Deed::Close(hamlet) => {
-                format!("CLOSE DOWN {}?", hamlet.to_uppercase())
+                format!("Close down {}?", hamlet)
             }
             Deed::Erase(agent) => {
-                format!("DELETE {} FOR GOOD?", name(agent))
+                format!("Delete {} for good?", name(agent))
             }
-            Deed::Unshelve(skill) => format!(
-                "TAKE {} OUT OF THE LIBRARY?",
-                skill.to_uppercase()
-            ),
-            Deed::NewSession => "START A NEW SESSION?".to_string(),
+            Deed::Unshelve(skill) => {
+                format!("Take {} out of the library?", skill)
+            }
+            Deed::NewSession => "Start a new session?".to_string(),
             Deed::Mayor(agent) => {
-                format!("MAKE {} MAYOR?", name(agent))
+                format!("Make {} mayor?", name(agent))
             }
-            Deed::Rewind { .. } => "REWIND TO HERE?".to_string(),
+            Deed::Rewind { .. } => "Rewind to here?".to_string(),
             Deed::DefaultCharter => {
-                "GO BACK TO THE DEFAULT CHARTER?".to_string()
+                "Go back to the default charter?".to_string()
             }
         }
     }
@@ -219,15 +215,15 @@ impl Deed {
 
     fn verb(&self) -> &'static str {
         match self {
-            Deed::End(_) => "END",
-            Deed::Merge { .. } => "MERGE",
-            Deed::Close(_) => "CLOSE DOWN",
-            Deed::Erase(_) => "DELETE",
-            Deed::Unshelve(_) => "TAKE OUT",
-            Deed::NewSession => "NEW SESSION",
-            Deed::Mayor(_) => "MAKE MAYOR",
-            Deed::Rewind { .. } => "REWIND",
-            Deed::DefaultCharter => "USE THE DEFAULT",
+            Deed::End(_) => "End",
+            Deed::Merge { .. } => "Merge",
+            Deed::Close(_) => "Close down",
+            Deed::Erase(_) => "Delete",
+            Deed::Unshelve(_) => "Take out",
+            Deed::NewSession => "New session",
+            Deed::Mayor(_) => "Make mayor",
+            Deed::Rewind { .. } => "Rewind",
+            Deed::DefaultCharter => "Use the default",
         }
     }
 
@@ -302,10 +298,7 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> impl View {
             )
         };
         let body = column((
-            label(deed.question(cx.world))
-                .size(heading)
-                .bold(true)
-                .tagged(DisplayText),
+            label(deed.question(cx.world)).size(heading).bold(true),
             description(deed.outcome(cx.world)),
             warning,
             row((
@@ -316,7 +309,7 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> impl View {
                         close(world);
                         done.run(world);
                     }),
-                lettered("CANCEL").rules(button).on_activate(close),
+                lettered("Cancel").rules(button).on_activate(close),
             ))
             .gap(gap),
         ))

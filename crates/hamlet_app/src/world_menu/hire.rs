@@ -22,7 +22,6 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{View, built};
 
 use super::close;
@@ -236,10 +235,9 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
             )
         };
         let body = column((
-            label(format!("HIRE UNDER {}", under.to_uppercase()))
+            label(format!("Hire under {}", under))
                 .size(heading)
-                .bold(true)
-                .tagged(DisplayText),
+                .bold(true),
             super::search::search(
                 "Search scholars",
                 |world| world.resource::<Hiring>().search.clone(),
@@ -263,7 +261,7 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
                 .rules(text_input),
             )),
             row((
-                lettered("HIRE")
+                lettered("Hire")
                     .rules(primary_button)
                     .tagged(Variant::Primary)
                     .on_activate(move |world| {
@@ -279,7 +277,7 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
                             Hiring::default();
                         orders::decree(world, lead, command);
                     }),
-                lettered("CANCEL")
+                lettered("Cancel")
                     .rules(styles::button)
                     .on_activate(close),
             ))
@@ -339,7 +337,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .for_each(drop);
-        press(&mut app, "HIRE");
+        press(&mut app, "Hire");
         let sent = app
             .world_mut()
             .resource_mut::<Outbox>()

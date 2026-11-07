@@ -190,7 +190,7 @@ fn settings(facts: &Facts) -> AnyView {
 /// The agents it has a road to, each to take up, and a way to build
 /// another.
 fn roads(agent: Entity, facts: &Facts) -> AnyView {
-    let mut parts = vec![heading(Glyph::Signpost, "ROADS")];
+    let mut parts = vec![heading(Glyph::Signpost, "Roads")];
     for (other, name) in facts.roads.iter().cloned() {
         let cut = button(glyph(Glyph::Cross, ICON).tone(Tone::Faint))
             .padding(bevy::ui::UiRect::all(px(2.0)))
@@ -207,7 +207,7 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
         );
     }
     parts.push(
-        row((action(Glyph::Plus, "BUILD A ROAD", move |world| {
+        row((action(Glyph::Plus, "Build a road", move |world| {
             crate::world_menu::ask_road(world, agent);
         }),))
         .boxed(),
@@ -241,11 +241,11 @@ fn agent_section(agent: Entity) -> impl View {
 /// Its own skills and its character, which a chief may edit.
 fn skills_and_character() -> impl View {
     let edit =
-        action(Glyph::Rename, "EDIT", super::papers::edit_character);
+        action(Glyph::Rename, "Edit", super::papers::edit_character);
     column((
-        heading(Glyph::Book, "SKILLS"),
+        heading(Glyph::Book, "Skills"),
         memory::skills(),
-        heading(Glyph::Robot, "CHARACTER"),
+        heading(Glyph::Robot, "Character"),
         memory::character(),
         row((edit,)),
     ))
@@ -255,8 +255,8 @@ fn skills_and_character() -> impl View {
 /// Its prompt in full, and a reflection asked now.
 fn pages() -> impl View {
     row((
-        action(Glyph::Lens, "PROMPT", super::thread::show_prompt),
-        action(Glyph::Notes, "REFLECT NOW", |world| {
+        action(Glyph::Lens, "Prompt", super::thread::show_prompt),
+        action(Glyph::Notes, "Reflect now", |world| {
             if let Some(to) = super::papers::selected(world) {
                 world.trigger(
                     hamlet_client::messages::ChiefMessage {
@@ -282,7 +282,7 @@ pub(super) fn sheet(agent: Entity) -> impl View {
             agent_section(agent),
             pages(),
             hairline(line),
-            heading(Glyph::Notes, "MEMORY"),
+            heading(Glyph::Notes, "Memory"),
             memory::view(),
             hairline(line),
             skills_and_character(),

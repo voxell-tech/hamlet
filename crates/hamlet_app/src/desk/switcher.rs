@@ -60,7 +60,6 @@ use hamlet_ui::styles::{
 use hamlet_ui::theme::{HamletTheme, Themed};
 use hamlet_ui::widgets::effects::EffectSettings;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use self::motion::TabDrag;
@@ -443,8 +442,7 @@ fn segment(content: impl View, pad: f32) -> impl View {
 
 /// The tab of the desk at `at`, one of `count`.
 fn tab(at: usize, name: &str, count: usize) -> impl View {
-    let words =
-        label(name.to_uppercase()).wrap(false).tagged(DisplayText);
+    let words = label(name).wrap(false);
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let content = if count > 1 {
@@ -547,7 +545,7 @@ fn all_view() -> impl View {
                 .boxed()
             })
             .collect::<Vec<_>>();
-        rows.push(section("NEW").boxed());
+        rows.push(section("New").boxed());
         rows.push(
             menu_item(label("New Desk"))
                 .on_activate(|world| {
@@ -588,11 +586,11 @@ fn close_view(at: usize) -> impl View {
         column((
             description("Close this desk?"),
             row((
-                bad_action(Glyph::Cross, "CLOSE", move |world| {
+                bad_action(Glyph::Cross, "Close", move |world| {
                     answered(world);
                     world.resource_mut::<Desks>().close(at);
                 }),
-                action(Glyph::Back, "CANCEL", answered),
+                action(Glyph::Back, "Cancel", answered),
             ))
             .gap(gap),
         ))
@@ -604,7 +602,7 @@ fn close_view(at: usize) -> impl View {
 /// The tab of the desk at `at` while it is renamed: a field over it,
 /// the tab as wide as before under it.
 fn renaming_tab(at: usize, name: &str) -> impl View {
-    let (name, shown) = (name.to_owned(), name.to_uppercase());
+    let name = name.to_owned();
     with_cx(move |cx| {
         let theme = cx.theme();
         let (pad, size) =
@@ -640,11 +638,8 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
                 .apply(cx);
         })
         .tagged(RenameField);
-        let room = label(shown.clone())
-            .size(size)
-            .bold(true)
-            .wrap(false)
-            .tagged(DisplayText);
+        let room =
+            label(name.clone()).size(size).bold(true).wrap(false);
         row((
             row((room,)).tagged(Visibility::Hidden),
             row((field,))

@@ -340,7 +340,7 @@ fn gift_reports() -> AnyView {
                     Rect::new(16.0, 52.0, 16.0, 52.0),
                     (column((
                         column(lines).gap(space.gap / 2.0),
-                        hamlet_ui::styles::lettered("DISMISS")
+                        hamlet_ui::styles::lettered("Dismiss")
                             .rules(hamlet_ui::styles::button)
                             .on_activate(|world| {
                                 world
@@ -495,7 +495,7 @@ mod tests {
         // It asks first, as the Hub does.
         press(&mut app, "New Session...");
         app.update();
-        press(&mut app, "NEW SESSION");
+        press(&mut app, "New session");
         // Its chat is opened, then the new session asked for there.
         let messages = sent(&mut app);
         let Some(protocol::ClientMessage::Say(say)) = messages.last()

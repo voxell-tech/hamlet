@@ -50,18 +50,18 @@ pub(super) fn news(waiting: &'static str) -> AnyView {
 fn choice(adding: bool) -> AnyView {
     let (name, says, leave, after) = if adding {
         (
-            "ADD A PLACE FOR MODELS",
+            "Add a place for models",
             "Where do the models come from? Your current model \
              stays as it is.",
-            "CANCEL",
+            "Cancel",
             "Its models are listed under Models, for you to allow.",
         )
     } else {
         (
-            "WELCOME TO HAMLET",
+            "Welcome to Hamlet",
             "Your hamlet needs a model to think with. How would you \
              like to give it one?",
-            "I'LL SET THIS UP LATER",
+            "I'll set this up later",
             "You can come back to this from Settings.",
         )
     };
@@ -70,7 +70,7 @@ fn choice(adding: bool) -> AnyView {
         said(says),
         nav_card(
             Glyph::Signal,
-            "SIGN IN WITH OPENROUTER",
+            "Sign in with OpenRouter",
             "The quickest way. You sign in with your browser and \
              pay OpenRouter for what you use.",
             |world| {
@@ -79,7 +79,7 @@ fn choice(adding: bool) -> AnyView {
         ),
         nav_card(
             Glyph::Talk,
-            "CONTINUE WITH CHATGPT",
+            "Continue with ChatGPT",
             "Use your ChatGPT plan, with no key. You sign in with \
              your browser, and what your hamlet does counts toward \
              your plan's usage.",
@@ -87,14 +87,14 @@ fn choice(adding: bool) -> AnyView {
         ),
         nav_card(
             Glyph::Globe,
-            "I HAVE A KEY",
+            "I have a key",
             "Use a key from a provider such as OpenAI, DeepSeek or \
              OpenRouter. You pay them for what you use.",
             |world| go(world, Step::Key),
         ),
         nav_card(
             Glyph::Chip,
-            "I RUN MY OWN MODEL",
+            "I run my own model",
             "Use a model served on the server's machine, with \
              Ollama or LM Studio.",
             look,
@@ -114,7 +114,7 @@ fn choice(adding: bool) -> AnyView {
 /// The head of a step: the way back to the first, and its name.
 pub(super) fn head(which: Glyph, text: &'static str) -> impl View {
     beside((
-        back("BACK", |world| go(world, Step::Choice)),
+        back("Back", |world| go(world, Step::Choice)),
         title(which, text),
     ))
 }
@@ -155,7 +155,7 @@ fn models() -> AnyView {
     )
     .within(bare());
     parts((
-        head(Glyph::Check, "PICK A MODEL"),
+        head(Glyph::Check, "Pick a model"),
         description(resource::<Welcome, _>(|welcome| {
             format!(
                 "{} listed these models. Pick the model your hamlet \
@@ -179,13 +179,13 @@ fn models() -> AnyView {
 
 fn local() -> AnyView {
     parts((
-        head(Glyph::Chip, "YOUR OWN MODEL"),
+        head(Glyph::Chip, "Your own model"),
         said(
             "Hamlet asks the endpoints configured on the server. \
              Ollama or LM Studio must run on the server's machine.",
         ),
         news("Looking..."),
-        good_action(Glyph::Restore, "LOOK AGAIN", look),
+        good_action(Glyph::Restore, "Look again", look),
     ))
     .boxed()
 }
@@ -212,7 +212,7 @@ fn screen() -> AnyView {
         |(open, step, adding, connection)| {
             let page = if let Some(words) = connection {
                 parts((
-                    title(Glyph::Signal, "CONNECT TO A SERVER"),
+                    title(Glyph::Signal, "Connect to a server"),
                     said(words.clone()),
                     said(
                         "Start a server with hamlet server, then \
