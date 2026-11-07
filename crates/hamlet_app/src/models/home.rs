@@ -105,6 +105,7 @@ pub fn endpoints() -> impl View {
              endpoint::model. Credentials stay on the server.",
         ),
         known,
+        super::problem(),
         providers,
         row((good_action(
             Glyph::Plus,

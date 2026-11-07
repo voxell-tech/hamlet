@@ -260,22 +260,6 @@ impl Core {
                         .collect();
                     settings.endpoints = endpoints;
                 }
-                // Only an endpoint this edit takes away can leave the
-                // model unserved; a provider one signs in to, such as
-                // a subscription, is never among the endpoints.
-                if let Some(provider) = settings.provider()
-                    && removed.iter().any(|name| name == provider)
-                    && !self.env.overrides.faux
-                {
-                    return Ok(Err(Refusal::Usage {
-                        words: format!(
-                            "The model `{}` is served by the \
-                             endpoint `{provider}`, which the \
-                             settings would no longer have.",
-                            settings.model
-                        ),
-                    }));
-                }
                 settings.saved = true;
                 let db = self.realm.store().connection();
                 crate::settings::keep(

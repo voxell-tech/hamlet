@@ -264,21 +264,7 @@ async fn signs_in_with_a_key_without_sending_it_to_any_client() {
             })
         }
     };
-    // The realm's model is served by `local`, so it cannot be taken
-    // away.
-    let before = (s.chief.realm().settings, credentials());
-    let reply = s.chief.request(edit(Vec::new())).await;
-    assert_eq!(
-        (reply.kind, reply.text.as_str()),
-        (
-            ReplyKind::Error,
-            "The model `local::qwen3.6:35b-a3b` is served by the \
-             endpoint `local`, which the settings would no longer \
-             have."
-        )
-    );
-    assert_eq!((s.chief.realm().settings, credentials()), before);
-    // Taking another endpoint away forgets its key.
+    // Taking an endpoint away forgets its key.
     let reply =
         s.chief.request(edit(endpoints(&["local", "spare"]))).await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{reply:?}");
