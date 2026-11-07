@@ -1238,7 +1238,7 @@ mod tests {
                 name: "bash".into(),
                 summary: "pwd".into(),
                 exit,
-                ms: Some(3),
+                ms: Some(400),
                 failure: None,
                 change: None,
             },
@@ -1289,7 +1289,7 @@ mod tests {
         let count =
             |text: &str| shown.iter().filter(|s| *s == text).count();
         assert_eq!(count("pwd"), 3, "{shown:?}");
-        assert_eq!(count("0.0s"), 2, "{shown:?}");
+        assert_eq!(count("0.4s"), 2, "{shown:?}");
         assert_eq!(count("A received notice"), 1, "{shown:?}");
         app.world_mut()
             .resource_mut::<OpenTools>()

@@ -42,11 +42,12 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{
-    ICON, description, hairline, note, segmented_words, small_rules,
+    ICON, description, hairline, note, small_rules,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 use serde::{Deserialize, Serialize};
 
@@ -73,7 +74,7 @@ const PADDING: f32 = 14.0;
 
 /// The popup's height, whatever it shows, so nothing in it moves
 /// under the pointer as it changes.
-const TALL: f32 = 330.0;
+const TALL: f32 = 354.0;
 
 /// The scope of the popup's keys, over the desks' own.
 const MODELS: ScopeId = ScopeId("models");
@@ -335,17 +336,6 @@ const fn words(effort: Effort) -> &'static str {
         Effort::High => "High",
         Effort::XHigh => "Extra High",
         Effort::Max => "Max",
-    }
-}
-
-/// How many of the chip's four bars an effort fills.
-const fn bars_of(effort: Effort) -> usize {
-    match effort {
-        Effort::Off => 0,
-        Effort::Minimal | Effort::Low => 1,
-        Effort::Medium => 2,
-        Effort::High => 3,
-        Effort::XHigh | Effort::Max => 4,
     }
 }
 
@@ -666,8 +656,8 @@ fn take_focus(world: &mut World) {
 }
 
 /// The look of a provider down the side: its name small and bold
-/// at `shown` opacity, lit under the pointer or the focus, brighter
-/// while chosen.
+/// at `shown` opacity, lit under the pointer or the focus, and lit as
+/// the model picked is while chosen.
 fn rail_look(
     chosen: bool,
     shown: f32,
@@ -679,7 +669,14 @@ fn rail_look(
         })
         .icon(move |i, _| i.opacity(shown))
         .tone(tone)
-        .frame(|f, t| f.fill(Color::NONE).radius(t.space.round))
+        .frame(move |f, t| {
+            f.fill(if chosen {
+                t.palette.primary_low
+            } else {
+                Color::NONE
+            })
+            .radius(t.space.round)
+        })
         .hovered(|s| {
             s.fill(|t| t.palette.button_hover).tone(Tone::Body)
         })
@@ -691,7 +688,7 @@ fn rail_look(
 }
 
 /// The favourites over the providers of the catalogue, each by its
-/// mark and its name, a bar of the accent at the one chosen. Faded
+/// mark and its name, the one chosen lit. Faded, none of them lit,
 /// and kept in place while a search runs over all of them, so the
 /// list beside it does not move.
 fn rail() -> impl View {
@@ -708,28 +705,14 @@ fn rail() -> impl View {
             let shown = if searching { 0.45 } else { 1.0 };
             let tab = |side: Side, face: AnyView, name: String| {
                 let chosen = *on == side;
-                let bar = with_cx(move |cx| {
-                    let fill = if chosen && !searching {
-                        cx.theme().palette.accent
-                    } else if chosen {
-                        cx.theme().palette.gold_5
-                    } else {
-                        Color::NONE
-                    };
-                    frame()
-                        .width(px(3.0))
-                        .height(px(16.0))
-                        .radius(1.5)
-                        .fill(fill)
-                });
                 let item = menu_item(
-                    row((bar, face, one_line(label(name))))
+                    row((face, one_line(label(name))))
                         .gap(8.0)
                         .align(AlignItems::Center)
                         .width(percent(100.0)),
                 )
-                .padding(UiRect::right(px(8.0)))
-                .rules(rail_look(chosen, shown))
+                .padding(UiRect::horizontal(px(8.0)))
+                .rules(rail_look(chosen && !searching, shown))
                 .on_activate(move |world| {
                     let mut picking = world.resource_mut::<Picking>();
                     picking.side = side.clone();
@@ -773,23 +756,25 @@ fn rail() -> impl View {
 }
 
 /// A star that adds `name` to the favourites, or takes it off:
-/// filled while starred, else hollow and faint.
-fn star(name: String, starred: bool) -> AnyView {
+/// filled while it is the favourite at `at`, else hollow and faint.
+fn star(name: String, at: Option<usize>) -> AnyView {
+    let starred = at.is_some();
     let face = if starred {
         glyph(Glyph::Starred, ICON).tone(Tone::Accent).opacity(1.0)
     } else {
         glyph(Glyph::Star, ICON).tone(Tone::Dim).opacity(0.5)
     };
+    let said = match at.and_then(chord) {
+        Some(chord) => {
+            format!("Take off the favourites. {chord} picks it.")
+        }
+        None if starred => "Take off the favourites".to_string(),
+        None => "Add to the favourites".to_string(),
+    };
     button(face)
         .padding(UiRect::all(px(2.0)))
         .rules(bevy_fynix::views::tint)
-        .tooltip(move || {
-            note(if starred {
-                "Take off the favourites"
-            } else {
-                "Add to the favourites"
-            })
-        })
+        .tooltip(move || note(said.clone()))
         .on_activate(move |world| {
             let mut favorites = world.resource_mut::<Favorites>();
             match favorites.0.iter().position(|kept| *kept == name) {
@@ -802,14 +787,19 @@ fn star(name: String, starred: bool) -> AnyView {
         .boxed()
 }
 
-/// The key that picks the favourite at `at`, as a small cap.
-fn key_cap(at: usize) -> AnyView {
-    let Some((_, _, key, _)) = PICKED_BY_DIGIT.get(at) else {
-        return frame().boxed();
-    };
-    let chord = Chord {
+/// The keys that pick the favourite at `at`.
+fn chord(at: usize) -> Option<Chord> {
+    let (_, _, key, _) = PICKED_BY_DIGIT.get(at)?;
+    Some(Chord {
         key: *key,
         mods: Mods::PRIMARY,
+    })
+}
+
+/// The key that picks the favourite at `at`, as a small cap.
+fn key_cap(at: usize) -> AnyView {
+    let Some(chord) = chord(at) else {
+        return frame().boxed();
     };
     with_cx(move |cx| {
         let theme = cx.theme();
@@ -895,13 +885,18 @@ fn models(agent: Entity, search: String) -> impl View {
                 .iter()
                 .map(|name| {
                     let at = favorites.iter().position(|f| f == name);
-                    let end = row((
-                        at.map_or_else(|| frame().boxed(), key_cap),
-                        star(name.clone(), at.is_some()),
-                    ))
-                    .gap(6.0)
-                    .align(AlignItems::Center)
-                    .boxed();
+                    // Only among the favourites does every row have
+                    // its key.
+                    let cap = match (side, at) {
+                        (Some(Side::Favorites), Some(at)) => {
+                            key_cap(at)
+                        }
+                        _ => frame().boxed(),
+                    };
+                    let end = row((cap, star(name.clone(), at)))
+                        .gap(6.0)
+                        .align(AlignItems::Center)
+                        .boxed();
                     let picked = name.clone();
                     model_row(
                         ModelRow {
@@ -1080,12 +1075,12 @@ fn tier(agent: Entity) -> impl View {
                     .wrap(false)
                     .rules(small_rules),))
                 .padding(UiRect::axes(px(8.0), px(0.0))),
-                row((segmented_words(
-                    ["Standard", "Fast"],
-                    usize::from(fast),
-                    move |world, at| {
+                row((labelled_switch(
+                    "Fast",
+                    fast,
+                    move |world, on| {
                         let to = address(world, agent);
-                        let on = if at == 1 { "on" } else { "off" };
+                        let on = if on { "on" } else { "off" };
                         crate::chat::command(
                             world,
                             format!("/fast {to} {on}"),
@@ -1188,8 +1183,8 @@ pub(super) fn picker(agent: Entity) -> impl View {
 }
 
 /// The model `agent` runs as the composer's chip shows it: its
-/// provider's mark, its name, the effort it thinks at as bars and a
-/// bolt on its fast tier. Its tooltip names them in words.
+/// provider's mark, its name, the effort it thinks at and a bolt on
+/// its fast tier. Its tooltip names them in words.
 pub(crate) fn chip(agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
@@ -1214,7 +1209,12 @@ pub(crate) fn chip(agent: Entity) -> impl View {
                 label(name).wrap(false).boxed(),
             ];
             if let Some(effort) = effort {
-                parts.push(bars(bars_of(*effort)).boxed());
+                parts.push(
+                    label(format!("· {}", words(*effort)))
+                        .wrap(false)
+                        .tone(Tone::Dim)
+                        .boxed(),
+                );
             }
             if now.fast {
                 parts.push(
@@ -1243,28 +1243,6 @@ pub(crate) fn chip(agent: Entity) -> impl View {
         },
     )
     .within(row(()))
-}
-
-/// Four rising bars, the first `filled` of them lit.
-fn bars(filled: usize) -> impl View {
-    with_cx(move |cx| {
-        let palette = &cx.theme().palette;
-        let bars = (0..4)
-            .map(|at| {
-                frame()
-                    .width(px(3.0))
-                    .height(px(4.0 + 3.0 * at as f32))
-                    .radius(1.0)
-                    .fill(if at < filled {
-                        palette.accent
-                    } else {
-                        palette.gold_6
-                    })
-                    .boxed()
-            })
-            .collect::<Vec<_>>();
-        row(bars).gap(2.0).align(AlignItems::FlexEnd)
-    })
 }
 
 #[cfg(test)]

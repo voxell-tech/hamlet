@@ -1,14 +1,16 @@
 //! The chat drawn as a group chat: a bubble for each message, each
 //! speaker's picture and name by its run of them, and who is in it.
 
+use std::sync::Arc;
+
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::picking::hover::Hovered;
 use bevy::text::TextColor;
 use bevy::ui::{
-    AlignItems, BorderRadius, FlexWrap, JustifyContent, Node,
-    Overflow, PositionType, UiRect, Val, percent, px,
+    AlignItems, BorderRadius, JustifyContent, Overflow, PositionType,
+    UiRect, Val, percent, px,
 };
 use bevy_fynix::patch::Paint;
 use bevy_fynix::tokens::Tone;
@@ -17,7 +19,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, component};
 use hamlet_client::chats::{Chat, Entry, Transcript};
-use hamlet_ui::markdown::Area;
+use hamlet_ui::markdown::{Area, Block, Kind as Shape, Span, Style};
 use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Palette;
 use hamlet_ui::theme::contrast::{self, TEXT};
@@ -109,19 +111,33 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
     }
 }
 
-/// `first` and then `last` on one line where there is room for
-/// both, and `last` on a line of its own under it where there is
-/// not.
-fn wrapping(first: AnyView, last: AnyView) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
-        let node = cx.build(
-            row((first, last)).gap(0.0).align(AlignItems::FlexEnd),
-        );
-        if let Some(mut node) = cx.world.get_mut::<Node>(node) {
-            node.flex_wrap = FlexWrap::Wrap;
-        }
-        node
-    })
+/// `blocks` with room for the hour at the end of the last line: on
+/// the last paragraph, or on a line of its own after any other block.
+fn kept_room(
+    mut blocks: Vec<Arc<Block>>,
+    reserve: &'static str,
+) -> Vec<Arc<Block>> {
+    if reserve.is_empty() {
+        return blocks;
+    }
+    let room = Span {
+        text: reserve.to_string(),
+        style: Style::default(),
+        link: None,
+    };
+    match blocks.last_mut().map(Arc::make_mut) {
+        Some(Block {
+            kind: Shape::Paragraph(spans),
+            ..
+        }) => spans.push(room),
+        _ => blocks.push(Arc::new(Block {
+            quote: 0,
+            indent: 0,
+            marker: None,
+            kind: Shape::Paragraph(vec![room]),
+        })),
+    }
+    blocks
 }
 
 /// The hour and minute of `at`, in milliseconds since 1970.
@@ -159,6 +175,9 @@ fn said<B: Board>(
     AnyView::new(move |cx: &mut Cx| {
         let cast = cx.world.resource::<B>().lines().cast();
         let who = cast.get(line.by).cloned().unwrap_or_default();
+        // Beside the agent and the chief, a picture alone does not
+        // say who speaks.
+        let group = cast.len() > 2;
         // The agent the chat is with comes first, and what is said
         // to it or to the chief needs no saying.
         let to = cast
@@ -214,7 +233,7 @@ fn said<B: Board>(
         let time = hour(line.at);
 
         let mut inside = Vec::new();
-        if line.named && !mine {
+        if line.named && !mine && group {
             let mut head = vec![inked(
                 who.name.clone(),
                 contrast::reach(who.paint, &[fill(palette)], TEXT),
@@ -279,9 +298,18 @@ fn said<B: Board>(
             .wrap(false)
             .tone(if mine { Tone::Faint } else { Tone::Dim })
             .rules(small_rules);
+        // The hour stands outside the words, so it is never selected
+        // with them, in the room kept at the end of their last line.
+        let hour = row((hour,))
+            .position(PositionType::Absolute)
+            .inset(UiRect::new(
+                Val::Auto,
+                px(9.0),
+                Val::Auto,
+                px(5.0),
+            ))
+            .boxed();
         match words {
-            // The hour sits in the room kept at the end of the
-            // last line.
             Words::Plain => {
                 if let Some(answers) = &answers {
                     inside.push(
@@ -310,38 +338,24 @@ fn said<B: Board>(
                     .boxed()
                 });
                 inside.push(selectable(said));
-                inside.push(
-                    row((hour,))
-                        .position(PositionType::Absolute)
-                        .inset(UiRect::new(
-                            Val::Auto,
-                            px(9.0),
-                            Val::Auto,
-                            px(5.0),
-                        ))
-                        .boxed(),
-                );
+                inside.push(hour);
             }
-            // The hour sits beside a reply of one short line, and
-            // under any other.
-            Words::Markdown | Words::Fault => {
-                let body = match words {
-                    Words::Fault => entry_view(session, id.clone()),
-                    _ => hamlet_ui::markdown::document(
-                        markdown::entry(session, id.clone()),
-                        Tone::Body,
-                    )
-                    .boxed(),
-                };
-                // The hour stands outside the words, so it is never
-                // selected with them.
-                inside.push(wrapping(
-                    selectable(body),
-                    row((hour,))
-                        .margin(UiRect::left(Val::Auto))
-                        .padding(UiRect::left(px(10.0)))
+            Words::Markdown => {
+                let blocks = markdown::entry(session, id.clone())
+                    .map(move |blocks| kept_room(blocks, reserve));
+                inside.push(selectable(
+                    hamlet_ui::markdown::document(blocks, Tone::Body)
                         .boxed(),
                 ));
+                inside.push(hour);
+            }
+            // Beside the button that tries again.
+            Words::Fault => {
+                inside.push(selectable(entry_view(
+                    session,
+                    id.clone(),
+                )));
+                inside.push(hour);
             }
         }
         let bubble = column(inside)

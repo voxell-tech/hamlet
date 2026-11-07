@@ -708,7 +708,7 @@ mod tests {
             app.world_mut()
                 .query::<&bevy::text::TextSpan>()
                 .iter(app.world())
-                .any(|text| text.0 == "Seven hives.")
+                .any(|text| text.0.trim_end() == "Seven hives.")
         );
 
         assert!(

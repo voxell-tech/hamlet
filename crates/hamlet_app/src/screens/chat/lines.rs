@@ -227,25 +227,17 @@ pub(super) fn fold_view<B: Board>(
     let heading_key = key.clone();
     let tone_key = key.clone();
     let turn_key = key.clone();
-    let shown_key = key.clone();
     let head = button(
         row((
-            glyph(Glyph::Chevron, 10.0)
-                .tone(Tone::Faint)
-                .rotation(resource::<B, _>(move |b| {
-                    if b.lines().is_open(&turn_key) == Some(true) {
+            glyph(Glyph::Chevron, 10.0).tone(Tone::Faint).rotation(
+                resource::<B, _>(move |b| {
+                    if b.lines().is_open(&turn_key) {
                         180.0
                     } else {
                         90.0
                     }
-                }))
-                .opacity(resource::<B, _>(move |b| {
-                    if b.lines().is_open(&shown_key).is_some() {
-                        1.0
-                    } else {
-                        0.0
-                    }
-                })),
+                }),
+            ),
             label(resource::<B, _>(move |b| {
                 b.lines().heading(&heading_key)
             }))
@@ -464,16 +456,24 @@ impl Lines {
         text
     }
 
-    /// Whether a fold is open, or nothing when it has nothing to
-    /// open: as a fold of another agent's work alone, or of edits
-    /// alone, which are shown shut.
-    fn is_open(&self, key: &RowKey) -> Option<bool> {
+    /// Whether a fold is open. A fold of edits alone is open until it
+    /// is shut, as its edits are shown under a shut fold of more.
+    fn is_open(&self, key: &RowKey) -> bool {
         match self.fold(key) {
             Some(Row::Fold {
                 steps, edits, open, ..
-            }) if steps.len() > edits.len() => Some(*open),
-            _ => None,
+            }) => *open != (steps.len() == edits.len()),
+            _ => false,
         }
+    }
+
+    /// Whether a fold holds steps besides its edits.
+    fn has_more(&self, key: &RowKey) -> bool {
+        matches!(
+            self.fold(key),
+            Some(Row::Fold { steps, edits, .. })
+                if steps.len() > edits.len()
+        )
     }
 
     fn tone(&self, key: &RowKey) -> Tone {
@@ -486,19 +486,24 @@ impl Lines {
 
     /// The steps of a fold that is open.
     fn shown(&self, key: &RowKey) -> Vec<String> {
-        match (self.fold(key), self.is_open(key)) {
-            (Some(Row::Fold { steps, .. }), Some(true)) => {
+        match self.fold(key) {
+            Some(Row::Fold { steps, .. })
+                if self.has_more(key) && self.is_open(key) =>
+            {
                 steps.clone()
             }
             _ => Vec::new(),
         }
     }
 
-    /// The edits of a fold that is shut, which stand under its
-    /// heading as their own cards.
+    /// The edits that stand under a fold's heading as their own
+    /// cards: those of a shut fold of more, or of an open fold of
+    /// edits alone.
     fn kept(&self, key: &RowKey) -> Vec<String> {
-        match (self.fold(key), self.is_open(key)) {
-            (Some(Row::Fold { edits, .. }), None | Some(false)) => {
+        match self.fold(key) {
+            Some(Row::Fold { edits, .. })
+                if self.has_more(key) != self.is_open(key) =>
+            {
                 edits.clone()
             }
             _ => Vec::new(),

@@ -213,9 +213,9 @@ impl Deed {
             ),
             Deed::Rewind { .. } => format!(
                 "{} forgets this message and everything after it, \
-                 and the message goes back in the field. Changed \
-                 files, commands that ran, letters and spending are \
-                 not undone.",
+                 and the message goes back in the message box. \
+                 Changed files, commands that ran, letters and \
+                 spending are not undone.",
                 name(&world.resource::<Convo>().agent)
             ),
             Deed::DefaultCharter => "Your own charter is deleted \
@@ -335,7 +335,7 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
         .gap(section)
         .width(px(300.0));
         // The chief's own message, at the chat's right, has its
-        // question hang from its right edge.
+        // question hang from its right edge, touching it.
         let placements = match deed {
             Deed::Rewind { .. } => {
                 [PopoverSide::Bottom, PopoverSide::Top]
@@ -343,18 +343,24 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
                     .map(|side| PopoverPlacement {
                         side,
                         align: PopoverAlign::End,
-                        gap: gap / 2.0,
+                        gap: 0.0,
                     })
                     .collect()
             }
             _ => corners(0.0),
         };
-        cx.build(
-            popup(anchor, (body,))
-                .placements(placements)
-                .on_dismiss(|world, _| close(world))
-                .padding(bevy::ui::UiRect::all(px(padding))),
-        )
+        let popup = popup(anchor, (body,))
+            .placements(placements)
+            .on_dismiss(|world, _| close(world))
+            .padding(bevy::ui::UiRect::all(px(padding)));
+        // Ringed as the message it asks about is.
+        match deed {
+            Deed::Rewind { .. } => {
+                let ring = cx.theme().palette.accent;
+                cx.build(popup.border_color(ring))
+            }
+            _ => cx.build(popup),
+        }
     })
 }
 

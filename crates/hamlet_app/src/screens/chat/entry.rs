@@ -58,32 +58,37 @@ pub(crate) enum Underway {
     Waiting,
 }
 
-/// How the tool call at entry `id` of `session` stands.
-pub(super) fn state(session: Entity, id: String) -> impl View {
-    let status_id = id.clone();
-    label(component::<Transcript, _>(session, move |t| {
-        match t
-            .and_then(|t| t.item(&status_id))
-            .map(|item| &item.entry)
-        {
-            Some(Entry::Tool { exit: Some(0), .. }) => {
-                "Done".to_string()
-            }
-            Some(Entry::Tool {
-                exit: Some(code), ..
-            }) => format!("Failed (exit {code})"),
-            _ => "Running".to_string(),
-        }
-    }))
-    .wrap(false)
-    .tone(component::<Transcript, _>(session, move |t| {
-        match t.and_then(|t| t.item(&id)).map(|item| &item.entry) {
-            Some(Entry::Tool { exit: Some(0), .. }) => Tone::Dim,
-            Some(Entry::Tool { exit: Some(_), .. }) => Tone::Critical,
-            _ => Tone::Accent,
-        }
-    }))
-    .rules(small_rules)
+/// How the tool call at entry `id` of `session` stands, as a mark and
+/// how long it took.
+pub(super) fn status(session: Entity, id: String) -> impl View {
+    keyed(
+        component::<Transcript, _>(session, move |t| ran(t, &id)),
+        |ran| {
+            let (which, tone, time) = match ran {
+                Ran::Running => (Glyph::Clock, Tone::Accent, None),
+                Ran::Done(ms) => (Glyph::Check, Tone::Dim, *ms),
+                Ran::Failed(_, ms) => {
+                    (Glyph::Cross, Tone::Critical, *ms)
+                }
+            };
+            row((
+                glyph(which, 12.0).tone(tone),
+                // A call quicker than a tenth of a second says no
+                // time.
+                label(
+                    time.filter(|ms| *ms >= 100)
+                        .map(took)
+                        .unwrap_or_default(),
+                )
+                .wrap(false)
+                .tone(Tone::Faint)
+                .rules(small_rules),
+            ))
+            .gap(4.0)
+            .align(AlignItems::Center)
+            .boxed()
+        },
+    )
 }
 
 /// The tool calls opened to show their whole request.
@@ -141,31 +146,7 @@ fn tool_row(session: Entity, id: String) -> impl View {
             })
         }
     };
-    let status_id = id.clone();
-    let status = keyed(
-        component::<Transcript, _>(session, move |t| {
-            ran(t, &status_id)
-        }),
-        |ran| {
-            let (which, tone, time) = match ran {
-                Ran::Running => (Glyph::Clock, Tone::Accent, None),
-                Ran::Done(ms) => (Glyph::Check, Tone::Dim, *ms),
-                Ran::Failed(_, ms) => {
-                    (Glyph::Cross, Tone::Critical, *ms)
-                }
-            };
-            row((
-                glyph(which, 12.0).tone(tone),
-                label(time.map(took).unwrap_or_default())
-                    .wrap(false)
-                    .tone(Tone::Faint)
-                    .rules(small_rules),
-            ))
-            .gap(4.0)
-            .align(AlignItems::Center)
-            .boxed()
-        },
-    );
+    let status = status(session, id.clone());
     let turned = is_open.clone();
     let head = button(
         row((

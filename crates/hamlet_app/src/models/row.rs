@@ -10,7 +10,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{Focused, ScopedExt, ViewExt, derived, style};
 use hamlet_client::realm::Providers;
-use hamlet_ui::styles::{ICON, note_rules, pill};
+use hamlet_ui::styles::{ICON, note_rules, pill, pill_on};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -48,8 +48,8 @@ pub(crate) enum Detail {
     Source,
     /// Its provider's mark alone.
     Mark,
-    /// Its id under its name where that says more, for a list of
-    /// one provider's models that names the provider once above them.
+    /// Its provider's mark, and its id under its name where that says
+    /// more, for a list of one provider's models.
     Id,
 }
 
@@ -132,18 +132,17 @@ pub(crate) fn model_row(
     let words =
         column((title, under)).gap(1.0).grow(1.0).min_width(px(0.0));
     let tag = match tag {
+        // A pill is lit as the row picked is, so on that row it
+        // stands on the panel's own colour.
+        Some(tag) if picked => {
+            pill_on(tag, |palette| palette.surface).boxed()
+        }
         Some(tag) => pill(tag).boxed(),
         None => frame().boxed(),
     };
-    let face = match detail {
-        Detail::Id => frame().boxed(),
-        Detail::Source | Detail::Mark => {
-            mark(provider_of(&name), MARK)
-        }
-    };
     menu_item(
         row((
-            face,
+            mark(provider_of(&name), MARK),
             words,
             tag,
             end.unwrap_or_else(|| frame().boxed()),
