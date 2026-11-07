@@ -5,6 +5,7 @@ use hamlet_client::messages::Reconnected;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
+use hamlet_testing::server_frames as frames;
 
 fn app() -> App {
     let mut app = App::new();
@@ -12,16 +13,19 @@ fn app() -> App {
     app
 }
 
-fn reference() -> protocol::ChatRef {
+/// The current chat with the agent `agent`.
+fn chat_with(agent: u64) -> protocol::ChatRef {
     protocol::ChatRef {
         kind: None,
         from: None,
-        with: protocol::Address {
-            hamlet: "home".into(),
-            agent: "mayor".into(),
-        },
+        with: protocol::AgentId(agent),
         past: None,
     }
+}
+
+/// The current chat with the Hand, which the recordings are of.
+fn reference() -> protocol::ChatRef {
+    chat_with(1)
 }
 
 fn requests(app: &mut App) -> Vec<protocol::ClientMessage> {
@@ -68,20 +72,6 @@ fn a_chat_is_watched_until_removed_and_reopens_without_losing_its_items()
     assert!(
         matches!(&requests(&mut app)[..], [protocol::ClientMessage::Close(close)] if close.chat == reference())
     );
-}
-
-fn frames(text: &str) -> Vec<protocol::ServerMessage> {
-    text.lines()
-        .filter_map(|line| {
-            let frame =
-                serde_json::from_str::<serde_json::Value>(line)
-                    .unwrap();
-            (frame["from"] == "server").then(|| {
-                serde_json::from_value(frame["message"].clone())
-                    .unwrap()
-            })
-        })
-        .collect()
 }
 
 #[derive(Resource, Default)]
@@ -150,7 +140,7 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     let said = world.get::<Transcript>(chat).unwrap();
     assert_eq!(said.items().len(), 4);
     assert!(
-        matches!(&said.items()[0].entry, Entry::Chief { name, text } if name == "chief" && text == "Hello, mayor.")
+        matches!(&said.items()[0].entry, Entry::Chief { name, text } if name == "chief" && text == "Hello, Hand.")
     );
     assert!(
         matches!(&said.items()[1].entry, Entry::Reasoning(text) if text == "I will greet the chief.")
@@ -159,13 +149,14 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
         matches!(&said.items()[2].entry, Entry::Tool { name, exit: Some(0), ms: Some(_), .. } if name == "bash")
     );
     assert!(
-        matches!(&said.items()[3].entry, Entry::Assistant(text) if text == "Hello chief. The mayor is here and ready to work with you. ".repeat(6).trim_end())
+        matches!(&said.items()[3].entry, Entry::Assistant(text) if text == "Hello chief. The Hand is here and ready to work with you. ".repeat(6).trim_end())
     );
     assert!(!said.is_answering());
     assert!(!world.get::<Status>(chat).unwrap().is_working());
     let protocol::ServerMessage::Transcript(page) = &read_back else {
         panic!("the recording ends with a read-back transcript");
     };
+    // The live `usage` operations carry the totals the read-back has.
     assert_eq!(
         world.get::<Usage>(chat).unwrap().summary(),
         page.usage.summary
@@ -216,7 +207,7 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
         .unwrap()
         .items()
         .to_vec();
-    assert_eq!(later.len(), 40);
+    assert_eq!(later.len(), 100);
     assert!(pages[0].earlier.is_some());
     assert_eq!(
         app.world().get::<Transcript>(chat).unwrap().earlier(),
@@ -237,8 +228,8 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
         protocol::ServerMessage::Transcript(page),
     );
     let said = app.world().get::<Transcript>(chat).unwrap();
-    assert_eq!(said.items().len(), 46);
-    assert_eq!(&said.items()[6..], &later);
+    assert_eq!(said.items().len(), 120);
+    assert_eq!(&said.items()[20..], &later);
     assert!(
         matches!(&said.items()[0].entry, Entry::Chief { text, .. } if text == "Line 1.")
     );
@@ -248,59 +239,36 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
 }
 
 #[test]
-fn chats_follow_the_addressed_agent_and_the_current_mayor_as_the_realm_changes()
- {
+fn chats_follow_their_agent_as_it_leaves_and_comes_back() {
     use hamlet_client::chats::{Conversations, TalksTo};
-    use hamlet_client::realm::mayor;
-    use hamlet_testing::realm::{agent, state};
+    use hamlet_client::realm::mayor_of;
+    use hamlet_testing::realm::state;
     let mut app = app();
-    let office = app.world_mut().spawn(Chat(reference())).id();
-    let mut named_ref = reference();
-    named_ref.with.agent = "founder".into();
-    let named = app.world_mut().spawn(Chat(named_ref)).id();
+    let chat = app.world_mut().spawn(Chat(chat_with(2))).id();
     app.update();
-    assert!(app.world().get::<TalksTo>(office).is_none());
+    assert!(app.world().get::<TalksTo>(chat).is_none());
     let mut realm = state();
     receive(
         app.world_mut(),
         protocol::ServerMessage::State(realm.clone()),
     );
     app.update();
-    let founder = mayor(app.world_mut()).unwrap();
-    assert_eq!(
-        app.world().get::<TalksTo>(office).unwrap().0,
-        founder
-    );
-    assert_eq!(app.world().get::<TalksTo>(named).unwrap().0, founder);
+    let ada = mayor_of(app.world_mut(), "home").unwrap();
+    assert_eq!(app.world().get::<TalksTo>(chat).unwrap().0, ada);
     assert_eq!(
         app.world()
-            .get::<Conversations>(founder)
+            .get::<Conversations>(ada)
             .unwrap()
             .iter()
             .count(),
-        2
+        1
     );
-    realm.agents[0].mayor = false;
-    let mut other = agent("home", 1, "writer");
-    other.mayor = true;
-    realm.agents.push(other);
-    realm.revision += 1;
-    receive(
-        app.world_mut(),
-        protocol::ServerMessage::State(realm.clone()),
-    );
-    app.update();
-    let writer = mayor(app.world_mut()).unwrap();
-    assert_ne!(founder, writer);
-    assert_eq!(app.world().get::<TalksTo>(office).unwrap().0, writer);
-    assert_eq!(app.world().get::<TalksTo>(named).unwrap().0, founder);
     realm.agents.clear();
     realm.revision += 1;
     receive(app.world_mut(), protocol::ServerMessage::State(realm));
     app.update();
-    assert!(app.world().get::<TalksTo>(office).is_none());
-    assert!(app.world().get::<TalksTo>(named).is_none());
-    assert!(app.world().get::<Chat>(office).is_some());
+    assert!(app.world().get::<TalksTo>(chat).is_none());
+    assert!(app.world().get::<Chat>(chat).is_some());
 }
 
 #[derive(Resource, Default)]
@@ -403,12 +371,13 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
 
 #[test]
 fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
-    for (recording, summary, code, failure) in [
+    for (recording, summary, code, failure, agent) in [
         (
             include_str!("../../hamlet_protocol/frames/tool.jsonl"),
             "exit 7",
             7,
             Some("broken"),
+            1,
         ),
         (
             include_str!(
@@ -417,6 +386,7 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             "reviewed",
             0,
             None,
+            2,
         ),
     ] {
         let recorded = frames(recording);
@@ -460,7 +430,7 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             })
             .expect("the recorded tool close carries its duration");
         let mut app = app();
-        let chat = app.world_mut().spawn(Chat(reference())).id();
+        let chat = app.world_mut().spawn(Chat(chat_with(agent))).id();
         for message in recorded {
             receive(app.world_mut(), message);
         }
@@ -485,7 +455,11 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
         assert_eq!(why.as_deref(), failure);
         if code == 0 {
             let change = change.as_ref().unwrap();
-            assert_eq!(change.path, "result.txt");
+            assert!(
+                change.path.ends_with("/work/result.txt"),
+                "{}",
+                change.path
+            );
             assert_eq!(change.count, "1 line added, 1 removed");
             assert_eq!(
                 change
@@ -576,9 +550,11 @@ fn new_and_resumed_conversations_keep_their_received_number() {
             );
         }
     }
-    assert_eq!(numbers, [1, 2, 1]);
+    // `/new` and `/resume` turn the open watch over, which sends the
+    // session it turned to, as the chief's opening it again does.
+    assert_eq!(numbers, [1, 2, 2, 1, 1]);
     let said = app.world().get::<Transcript>(chat).unwrap();
-    assert_eq!(said.items().len(), 3);
+    assert_eq!(said.items().len(), 5);
     assert!(
         matches!(&said.items()[0].entry, Entry::Chief { text, .. } if text == "Remember our first conversation.")
     );
@@ -888,7 +864,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
             protocol::ServerMessage::Transcript(fresh),
         );
         let said = app.world().get::<Transcript>(chat).unwrap();
-        assert_eq!(said.items().len(), 8);
+        assert_eq!(said.items().len(), 22);
         assert_eq!(said.items().last().unwrap().id, "latest:0");
     }
 }
@@ -900,7 +876,7 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
     app.update();
     let page = serde_json::json!({
         "type": "transcript", "chat": reference(), "items": [
-            {"id":"1:0", "at":1, "kind":"user", "text":"Check this", "author":"scout@mill"},
+            {"id":"1:0", "at":1, "kind":"user", "text":"Check this", "author":"mill#0 (scout)"},
             {"id":"2:0", "at":2, "kind":"user", "text":"My instruction", "chief":"chief"}
         ], "earlier": null, "last": null, "working":false, "pending":0,
         "usage":{"input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"", "micros":0,"ms":0}
@@ -910,7 +886,7 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
     assert_eq!(
         items[0].entry,
         Entry::Agent {
-            name: "scout@mill".into(),
+            name: "mill#0 (scout)".into(),
             text: "Check this".into()
         }
     );

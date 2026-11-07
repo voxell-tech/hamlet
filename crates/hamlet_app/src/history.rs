@@ -1,5 +1,4 @@
-//! The History page of the Inspector: the selected agent's
-//! sessions.
+//! The Hub's sessions page: the selected agent's past sessions.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -9,7 +8,6 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::Changed;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::schedule::common_conditions::resource_equals;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent};
@@ -25,7 +23,7 @@ use bevy_fynix::{
 use hamlet_client::chats::{Chat, Entry, TalksTo, Transcript};
 use hamlet_client::messages::{ChiefMessage, JobFinished, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
-use hamlet_client::realm::address_of;
+use hamlet_client::realm::id_of;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, breadcrumb, buttons, card_button, command, filling,
@@ -37,8 +35,9 @@ use hamlet_ui::{AnyView, View, built, with_cx};
 use protocol::Past;
 
 use crate::convo::Convo;
-use crate::dock::show_tab;
-use crate::{PanelSystems, chat, inspector};
+use crate::dock::{HUB, show_tab};
+use crate::hub::{self, Showing};
+use crate::{PanelSystems, chat};
 
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
@@ -51,11 +50,7 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Requests>()
         .add_observer(response)
         .add_observer(stale_on_job)
-        .add_systems(
-            Update,
-            refresh
-                .run_if(resource_equals(inspector::Section::History)),
-        )
+        .add_systems(Update, refresh.run_if(hub::reads_sessions))
         .add_systems(
             PreUpdate,
             keep_reader.in_set(PanelSystems::Bind),
@@ -103,7 +98,7 @@ struct Line {
 
 #[derive(Resource, Default)]
 struct Requests {
-    agent: Option<protocol::Address>,
+    agent: Option<protocol::AgentId>,
     pending: Option<RequestId>,
     open: bool,
 }
@@ -227,10 +222,9 @@ fn format_tokens(n: u64) -> String {
 }
 
 /// The numbered conversation opened as a read-only watched chat.
-fn open(world: &mut World, number: i64) {
+pub(crate) fn open(world: &mut World, number: i64) {
     close(world);
-    let Some(with) =
-        address_of(world, world.resource::<Convo>().agent)
+    let Some(with) = id_of(world, world.resource::<Convo>().agent)
     else {
         return;
     };
@@ -262,7 +256,7 @@ fn resume(world: &mut World) {
     let Some(number) = number else {
         return;
     };
-    let Some(to) = address_of(world, world.resource::<Convo>().agent)
+    let Some(to) = id_of(world, world.resource::<Convo>().agent)
     else {
         return;
     };
@@ -271,15 +265,14 @@ fn resume(world: &mut World) {
         to,
         text: format!("/resume {number}"),
     });
-    *world.resource_mut::<inspector::Section>() =
-        inspector::Section::Conversation;
-    show_tab(world, "agent");
+    hub::show(world, Showing::Thread);
+    show_tab(world, HUB);
 }
 
 /// The server's history requested while the page is open.
 pub(crate) fn refresh(world: &mut World) {
     let convo = world.resource::<Convo>();
-    let agent = address_of(world, convo.agent);
+    let agent = id_of(world, convo.agent);
     let moved = world.resource::<Requests>().agent != agent;
     if moved {
         close(world);
@@ -298,7 +291,7 @@ pub(crate) fn refresh(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Read(protocol::Read::History {
             id,
-            agent: agent.clone(),
+            agent,
         })
     });
     let mut requests = world.resource_mut::<Requests>();
@@ -315,7 +308,7 @@ fn response(reply: On<Response>, mut commands: Commands) {
         let requests = world.resource::<Requests>();
         if requests.pending.as_ref() != Some(&reply.to)
             || requests.agent
-                != address_of(world, world.resource::<Convo>().agent)
+                != id_of(world, world.resource::<Convo>().agent)
         {
             return;
         }
@@ -356,12 +349,12 @@ fn stale_on_job(job: On<JobFinished>, mut commands: Commands) {
 }
 
 fn keep_reader(
-    section: Res<inspector::Section>,
+    showing: Res<Showing>,
     mut requests: ResMut<Requests>,
     mut history: ResMut<History>,
     transcripts: Query<&Transcript, Changed<Transcript>>,
 ) {
-    if *section != inspector::Section::History && requests.open {
+    if !hub::reads_sessions(showing) && requests.open {
         requests.open = false;
     }
     let Some(reading) = &history.reading else {
@@ -573,9 +566,9 @@ fn reader() -> impl View {
     })
 }
 
-/// The Archive page.
+/// The sessions page.
 pub fn screen() -> AnyView {
-    inspector::of_agent("ARCHIVE", || {
+    hub::of_agent("SESSIONS", || {
         keyed(
             resource::<History, _>(|h| {
                 h.reading.as_ref().map(|r| r.number)
@@ -605,9 +598,9 @@ mod tests {
     fn history_reads_received_rows_searches_and_opens_a_numbered_chat()
      {
         let mut app = panel_app();
-        app.add_plugins((inspector::plugin, plugin));
-        *app.world_mut().resource_mut::<inspector::Section>() =
-            inspector::Section::History;
+        app.add_plugins((hub::plugin, plugin));
+        *app.world_mut().resource_mut::<Showing>() =
+            Showing::Sessions;
         app.update();
         let read = app
             .world()
@@ -616,10 +609,7 @@ mod tests {
             .map(|m| serde_json::to_value(m).unwrap())
             .find(|m| m["what"] == "history")
             .expect("read history when the tab opens");
-        assert_eq!(
-            read["agent"],
-            json!({"hamlet": "home", "agent": "founder"})
-        );
+        assert_eq!(read["agent"], json!(1));
         bevy_fynix::mount::<HamletTheme>(app.world_mut(), screen());
         app.update();
         assert!(
@@ -671,7 +661,7 @@ mod tests {
             .0
             .clone();
         assert_eq!(chat.past, Some(1));
-        assert_eq!(chat.with.agent, "founder");
+        assert_eq!(chat.with, protocol::AgentId(1));
         let open = app
             .world()
             .resource::<Outbox>()
@@ -709,10 +699,7 @@ mod tests {
             .find(|m| m["type"] == "say")
             .unwrap();
         assert_eq!(sent["text"], "/resume 1");
-        assert_eq!(
-            sent["to"],
-            json!({"hamlet": "home", "agent": "founder"})
-        );
+        assert_eq!(sent["to"], json!(1));
         assert!(app.world().get_entity(holder).is_err());
     }
 
@@ -720,7 +707,7 @@ mod tests {
     fn opening_the_tab_and_finishing_its_chat_request_fresh_history()
     {
         let mut app = panel_app();
-        app.add_plugins((inspector::plugin, plugin));
+        app.add_plugins((hub::plugin, plugin));
         app.update();
         let reads = |app: &App| {
             app.world()
@@ -737,8 +724,12 @@ mod tests {
                 .count()
         };
         assert_eq!(reads(&app), 0);
-        *app.world_mut().resource_mut::<inspector::Section>() =
-            inspector::Section::History;
+        // The thread lists the sessions too, for its menu.
+        *app.world_mut().resource_mut::<Showing>() = Showing::Thread;
+        app.update();
+        assert_eq!(reads(&app), 1);
+        *app.world_mut().resource_mut::<Showing>() =
+            Showing::Sessions;
         app.update();
         assert_eq!(reads(&app), 1);
         app.update();
@@ -752,11 +743,10 @@ mod tests {
         app.world_mut().trigger(JobFinished { chat });
         app.update();
         assert_eq!(reads(&app), 2);
-        *app.world_mut().resource_mut::<inspector::Section>() =
-            inspector::Section::Notes;
+        *app.world_mut().resource_mut::<Showing>() = Showing::Realm;
         app.update();
-        *app.world_mut().resource_mut::<inspector::Section>() =
-            inspector::Section::History;
+        *app.world_mut().resource_mut::<Showing>() =
+            Showing::Sessions;
         app.update();
         assert_eq!(reads(&app), 3);
     }

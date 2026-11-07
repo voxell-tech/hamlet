@@ -77,13 +77,21 @@ impl Plugin for GalleryPlugin {
             .add_systems(
                 Update,
                 (
+                    sample::overview::later,
                     hold,
                     hold_message.run_if(|scene: Res<Scene>| {
                         *scene == Scene::Rewind
                     }),
                 ),
             )
+            // The menus, and what the world tells them was asked
+            // about.
+            .init_resource::<hamlet_realm::pick::Asked>()
+            .init_resource::<hamlet_realm::pick::AskedGround>()
             .add_plugins((
+                hamlet_app::world_menu::plugin,
+                hamlet_app::desk::plugin,
+                hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_app::screens::plugin,
@@ -122,21 +130,33 @@ pub enum Scene {
     Rewind,
     /// A chat nothing has been said in.
     Quiet,
-    /// An agent's notes.
-    Notes,
+    /// An agent's memory.
+    Memory,
     /// An agent's character.
     Character,
     /// The whole of an agent's prompt.
     Prompt,
-    /// Every hamlet, with nothing selected.
+    /// The Hub with its rail open over a realm at work.
+    Hub,
+    /// The Hub's page of a scholar.
+    Scholar,
+    /// The Hub's page of the realm, over a realm at work.
+    Realm,
+    /// The starting desk, narrow enough for the rail's icons.
+    Desk,
+    /// Toasts stacked over the realm.
+    Toasts,
+    /// The popup an agent's model is chosen in, over the Hub.
+    Models,
+    /// The Hub's page of the realm, with nothing selected.
     Overview,
     /// One hamlet and everyone in it.
     Hamlet,
     /// The running of that hamlet: its budget, models and limits.
     Bylaws,
-    /// The Inspector's History page, with its list of sessions.
+    /// The Hub's sessions page, with its list of sessions.
     History,
-    /// The Inspector's History page, with one session being read.
+    /// The Hub's sessions page, with one session being read.
     Reading,
     /// A chief, with every choice of its look.
     Chief,
@@ -173,4 +193,6 @@ fn mount_scene(world: &mut World) {
         _ => panels(),
     };
     mount::<HamletTheme>(world, view);
+    // The menus and questions the app's own root draws over all.
+    mount::<HamletTheme>(world, hamlet_app::world_menu::view());
 }

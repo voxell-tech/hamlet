@@ -10,29 +10,29 @@ wire messages, watch rules and page boundaries; this page covers the window.
 ## The conversation and its watch
 
 A chat entity has `Chat(ChatRef)`, `Transcript`, `Status`, `Usage` and a
-`TalksTo(agent)` relationship. Its reference names a hamlet and an agent,
-with `mayor` for whoever holds the office. Adding the chat sends `open`;
-removing it sends `close`. Reconnecting opens every watched chat again.
-An open office chat follows the new mayor when the office changes.
+`TalksTo(agent)` relationship. Its reference names the agent by its id
+(the Hand, a hire or a worker). Adding the chat sends `open`; removing it
+sends `close`. Reconnecting opens every watched chat again.
 
 The server answers with a `transcript` page. Live `turn` operations add or
 replace an item, append text, close a tool, change status or usage, or reset
 the transcript. The client applies those operations; it runs no agent and
 reads no conversation files. Each item has a stable string ID, a time and
-a kind: chief input, assistant text, reasoning, tool, notice or error.
+a kind: chief input, assistant text, reasoning, tool, notice, error or
+answered.
 
-The chief's chat with an agent is shared by every client. New Session sends
-`/new` through `say` and moves to a new numbered conversation while the old
-one finishes its queue. History comes from `read history`; Read opens a
-numbered past conversation read-only, and Resume sends `/resume <n>`.
-Every conversation is kept. Search matches its title and who began it.
+The chief's chat with an agent is shared by every client. `/new` moves to a
+new numbered conversation while the old one finishes its queue. History
+comes from `read history`; Read opens a numbered past conversation
+read-only, and Resume sends `/resume <n>`. Every conversation is kept.
 
-AGENT CHATS in the inspector lists the selected agent's conversations with
-other agents, with their counts and last activity. Choosing letters or
-questions opens a reference with `from` and `kind`; without a kind the
-server selects letters. These watches have paging and live updates, but no
-input field, stop control or rewind. CHIEF CHAT returns to the chief's own
-conversation. The server also refuses edits of peer conversations.
+The session menu of the Hub's chat lists the agent's sessions, its
+conversations with other agents and the workers it started. Choosing a
+sender's letters or questions opens a reference with `from` and `kind`;
+without a kind the server selects letters. These watches have paging and
+live updates, but no input field, stop control or rewind. The first entry
+returns to the chief's own conversation. The server also refuses edits of
+peer conversations.
 
 A peer input carries `author`, its sender's address, rather than `chief`.
 The client keeps it as an agent entry, including a letter's reply arriving
@@ -55,7 +55,8 @@ Sending a line triggers `ChiefMessage`, which the client sends as `say` to
 the selected address. Typed slash lines are refused locally with directions
 to use the window's controls; those controls send commands to the server.
 Unaddressed server faults and error replies to the chat's own requests show
-under the field and play the Error sound. Fault waits stay in Needs You.
+under the field and play the Error sound. Fault waits stay on the realm's page
+in the Hub.
 
 ## Links
 
@@ -71,16 +72,16 @@ A web address or a file named in the chat can be clicked.
 path must exist there. A relative path is looked for under the selected
 hamlet's received work folder, and becomes a link only if its canonical
 path stays under that folder. `..` and symlinks are followed before that
-check. The optional received `houses` folder is excluded after resolving
-links, for absolute and relative paths alike. No file under an agent's
-house becomes a link or a local picture. The work folder is a path on the
-server's machine; with `hamlet dev` it is local too. Nothing downloads a
-server file. House-relative paths such as an agent's `NOTES.md` or
-`skills/` stay plain text unless they name a file in the local work folder.
+check. The received realm folder is excluded after resolving links, for
+absolute and relative paths alike. No file under an agent's lodge becomes a
+link or a local picture. The work folder is a path on the server's machine;
+with `hamlet dev` it is local too. Nothing downloads a server file.
+Lodge-relative paths such as an agent's `memory/` or `skills/` stay plain
+text unless they name a file in the local work folder.
 
 **When the disk is asked.** Once for each distinct path when a paragraph
 is built, never while reading. The answer is kept until a turn ends or the
-selected chat, work folder or received houses folder changes.
+selected chat, work folder or received realm folder changes.
 
 **A click.** A web address goes to the system's browser. A file is checked
 once more and then shown by the system's own program, given the path as
@@ -92,14 +93,14 @@ unopened.
 
 An `edit` or `write` call can show its change in place of the tool row:
 the path, the count of lines added and removed, and the lines themselves
-in red and green. `crates/hamlet_server/src/change.rs` computes the preview and keeps
+in red and green. `crates/hamlet_server/src/work/cut.rs` computes the preview and keeps
 at most 200 lines, each cut at 240 characters. It arrives in the tool's
 `change` field, both live and when the transcript is read back.
 
 A change is open when it arrives and shows its first `change_lines` lines
 (`[chat]` in `assets/ui.toml`), with a button for the rest. An edit that
 was not applied says so with the reason. An edit that waits for the chief
-in manual mode shows the same view in Needs You. A change made by a shell
+in manual mode shows the same view in its card in the Hub. A change made by a shell
 command is not shown.
 
 ## Replying
@@ -148,7 +149,7 @@ a press and a drag, a double-click for a word, a triple-click for a line.
 `hamlet_app/src/select.rs` holds it. An `Area` is selected as one across
 all its text: the words of a message, and every Markdown document, so a
 drag runs across the paragraphs, lists and code blocks of a reply or of
-the Notes page. Any other text is selected on its own. What a button, a
+a memory file. Any other text is selected on its own. What a button, a
 field, a menu row or anything with a pointer of its own holds is left to
 it, and a field selects its own words as Bevy's text box does.
 
@@ -159,13 +160,13 @@ the pointer and the boxes they fill. Bevy also breaks that layout at
 other widths while it measures, so it is broken again at the width the
 node is drawn at before it is read.
 
-What is selected is lit, in `chosen` of the palette, on one layer over
+What is selected is highlighted, in `chosen` of the palette, on one layer over
 the panels, under a dragged tab, the menus and the tooltips, and cut to
 what clips the text. Selectable text shows the text cursor. Cmd+C copies
 it, Cmd+A selects the whole area and Esc lets it go. The parts of nodes
 on one line, such as a bullet and its item, are joined with a space, and
 those on different lines with a line. The room a bubble keeps for its
-hour is never selected. In the chat, QUOTE, at the end of what is lit,
+hour is never selected. In the chat, QUOTE, at the end of what is highlighted,
 puts the words in the field as `> ` lines with a line after them for the
 chief's own words. A press anywhere else, or another chat, lets the
 selection go. A plain click on a link still follows it.
@@ -183,7 +184,7 @@ reply gives the words back; a reset followed by a transcript replaces the
 shown items. The server refuses a rewind while work is running or queued
 and closes waits raised by the part taken back.
 
-**What is not undone.** Files changed, commands run, notes, skills, gifts
+**What is not undone.** Files changed, commands run, memory, skills, gifts
 and everything spent. The question says so before anything happens.
 
 **In the window.** Each rewindable chief message carries a small mark,
@@ -240,15 +241,15 @@ A call has 1 to 10 questions, and a question at most 6 options with
 titles of its own. `description` is optional on a question and on an
 option. `text_input` lets the chief answer in words of their own and is
 true unless the agent says otherwise; a question with no options always
-takes words. `crates/hamlet_server/src/chats/asking.rs` reads and
+takes words. `crates/hamlet_server/src/talk/asking.rs` reads and
 checks a call, and a call it refuses tells the agent why.
 
 **Where it is answered.** One card, `hamlet_app/src/asking.rs`, is shown
-in Needs You and over the field of the chat with the agent that asked,
+on the realm's page and over the field of the chat with the agent that asked,
 and both read the same answers, so what is begun in one stands in the
 other. The card shows one question at a time, with "1 of 3" and the way
 between them at its head. The options are a list of rows, each with its
-letter, its title and its description, and the one picked is lit. A
+letter, its title and its description, and the one picked is highlighted. A
 line under them, Other, takes words. Each question takes one option or
 words, not both, and picking an option moves on to the next question.
 SUBMIT, on the last question, sends the answers when each question has
@@ -273,7 +274,7 @@ when the log is read back. It has no mark to rewind to, since it is a
 tool's answer and not a message of the log. A card dismissed shows
 nothing.
 
-`[asking] questions` in `limits.toml` counts the calls of one turn, not
+The `asking.questions` limit counts the calls of one turn, not
 the questions in them.
 
 ## What it costs

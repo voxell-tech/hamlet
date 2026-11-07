@@ -1,51 +1,106 @@
-//! Helpers shared by the crate's tests.
+//! Helpers shared by the unit tests.
 
-use anyhow::{Result, ensure};
-use diesel::SqliteConnection;
+use hamlet_store::ids::{Actor, AgentId, ChiefId, HamletId};
+use hamlet_store::{Db, Store};
+use hamlet_testing::Scratch;
 
-use crate::harness::{Config, Pi};
-use crate::{Outcome, Overrides, limits, record};
+use crate::change::{Change, Done, Touched, run};
+use crate::layout::Layout;
+use crate::society::hamlets::{self, Founding};
+use crate::society::hires::{Hired, Hiring};
+use crate::society::refusal::Refusal;
+use crate::society::{chiefs, hand};
 
-/// A harness configuration whose pi never starts, for a test whose
-/// home binds no conversation.
-pub(crate) fn config(overrides: Overrides) -> Config {
-    Config {
-        pi: Pi {
-            node: "node".into(),
-            entry: "unused".into(),
-            faux: None,
-        },
-        tools: Vec::new(),
-        overrides,
-    }
+/// A new realm with its first chief and its Hand.
+pub(crate) struct Realm {
+    dir: Scratch,
+    pub store: Store,
+    pub chief: ChiefId,
+    pub hand: AgentId,
+    pub at: i64,
 }
 
-/// Sets the limits of `hamlet` as its first chief would.
-pub(crate) fn set_limits(
-    db: &mut SqliteConnection,
-    hamlet: &str,
-    limits: limits::Limits,
-) -> Result<()> {
-    let record =
-        record::read(db, hamlet)?.expect("a hamlet to limit");
-    let operation = record::RecordOperation {
-        hamlet: hamlet.into(),
-        actor: record::Actor::Chief(record.chiefs[0].clone()),
-        at: 0,
-        reason: String::new(),
-        task: None,
-        change: record::Change::SetLimits {
-            limits: record::Limits {
-                chief: Box::new(limits),
-                road_budget: record.limits.road_budget,
-            },
-            runs: Vec::new(),
-        },
-    };
-    let outcome = crate::operation::change(db, &operation)?;
-    ensure!(
-        matches!(outcome, Outcome::Done(_)),
-        "the limits were refused"
-    );
-    Ok(())
+impl Realm {
+    pub fn new() -> Self {
+        let dir = Scratch::new("server-realm");
+        let mut store =
+            Store::create(&dir.join("realm.sqlite"), "realm-test", 1)
+                .unwrap();
+        let db = store.connection();
+        let chief = chiefs::ensure(db, "chief", 1).unwrap();
+        let mut cx = Change::new(db, 1, Actor::Realm);
+        let hand = hand::make(&mut cx, "The Hand.").unwrap();
+        Self {
+            dir,
+            store,
+            chief,
+            hand,
+            at: 1,
+        }
+    }
+
+    pub fn db(&mut self) -> &mut Db {
+        self.store.connection()
+    }
+
+    /// The realm's folder, which its database is in.
+    pub fn layout(&self) -> Layout {
+        Layout::new(&self.dir)
+    }
+
+    /// Runs the jobs kept so far.
+    pub fn work(&mut self) {
+        let layout = self.layout();
+        let at = self.at;
+        crate::knowledge::run::due(self.db(), &layout, at).unwrap();
+        let left =
+            hamlet_store::job::due(self.db(), i64::MAX).unwrap();
+        assert!(left.is_empty(), "jobs failed: {left:?}");
+    }
+
+    /// Makes `make` by `actor` a moment after the last change, as one
+    /// committed transaction.
+    pub fn by<T>(
+        &mut self,
+        actor: Actor,
+        make: impl FnOnce(&mut Change<'_>) -> Done<T>,
+    ) -> Result<T, Refusal> {
+        self.at += 1000;
+        let at = self.at;
+        let mut tx = self.store.immediate().unwrap();
+        let (made, _): (_, Touched) =
+            run(&mut tx, at, actor, make).unwrap();
+        tx.commit().unwrap();
+        made
+    }
+
+    /// Makes `make` as the chief.
+    pub fn chief<T>(
+        &mut self,
+        make: impl FnOnce(&mut Change<'_>) -> Done<T>,
+    ) -> Result<T, Refusal> {
+        let chief = Actor::Chief(self.chief);
+        self.by(chief, make)
+    }
+
+    /// Founds `id` under a new mayor named `mayor`.
+    pub fn found(&mut self, id: &str, mayor: &str) -> Hired {
+        let chief = self.chief;
+        let (id, mayor) = (HamletId(id.into()), mayor.to_owned());
+        self.chief(|cx| {
+            hamlets::found(
+                cx,
+                Founding {
+                    id,
+                    chief,
+                    mayor: Hiring::New {
+                        name: mayor,
+                        character: "Careful.".into(),
+                    },
+                    purpose: "Build it".into(),
+                },
+            )
+        })
+        .unwrap()
+    }
 }

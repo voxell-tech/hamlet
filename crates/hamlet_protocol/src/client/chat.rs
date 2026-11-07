@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::client::{Address, AgentRef, RequestId, UsageView};
+use crate::client::{AgentId, RequestId, UsageView};
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -13,7 +13,7 @@ use crate::client::{Address, AgentRef, RequestId, UsageView};
 pub struct Say {
     pub id: RequestId,
     pub text: String,
-    pub to: Address,
+    pub to: AgentId,
 }
 
 #[derive(
@@ -23,8 +23,8 @@ pub struct Say {
 pub struct Stop {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "Address")]
-    pub agent: Option<Address>,
+    #[schemars(with = "AgentId")]
+    pub agent: Option<AgentId>,
     pub id: RequestId,
 }
 
@@ -44,7 +44,7 @@ pub struct Rewind {
 #[serde(deny_unknown_fields)]
 pub struct New {
     pub id: RequestId,
-    pub to: Address,
+    pub to: AgentId,
 }
 
 #[derive(
@@ -54,7 +54,7 @@ pub struct New {
 pub struct Resume {
     pub id: RequestId,
     pub number: i64,
-    pub to: Address,
+    pub to: AgentId,
 }
 
 #[derive(
@@ -63,7 +63,7 @@ pub struct Resume {
 #[serde(deny_unknown_fields)]
 pub struct Retry {
     pub id: RequestId,
-    pub to: Address,
+    pub to: AgentId,
 }
 
 #[derive(
@@ -94,8 +94,8 @@ pub struct Close {
 pub struct ChatRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "AgentRef")]
-    pub from: Option<AgentRef>,
+    #[schemars(with = "AgentId")]
+    pub from: Option<AgentId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "ChatRefKind")]
@@ -104,7 +104,8 @@ pub struct ChatRef {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "i64")]
     pub past: Option<i64>,
-    pub with: Address,
+    /// The agent whose conversation it is.
+    pub with: AgentId,
 }
 
 #[derive(

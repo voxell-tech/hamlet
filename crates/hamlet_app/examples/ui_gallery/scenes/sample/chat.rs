@@ -47,18 +47,33 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                     items.push(item);
                 }
                 for step in 0..3 {
+                    // The first turn shows a call that failed and one
+                    // still running.
+                    let (exit, ms, failure) = match (turn, step) {
+                        (0, 1) => (
+                            Some(2),
+                            Some(1_400),
+                            Some(
+                                "No such file: notes/orchard/1.md"
+                                    .into(),
+                            ),
+                        ),
+                        (0, 2) => (None, None, None),
+                        _ => (Some(0), Some(412), None),
+                    };
                     items.push(Item {
                         id: format!("turn-{turn}-tool-{step}"),
                         at: 0,
                         entry: Entry::Tool {
                             name: "bash".into(),
                             summary: format!(
-                                "grep -n row-{turn} \
-                                 notes/orchard/{step}.md"
+                                "{{\"command\": \"grep -n \
+                                 row-{turn} \
+                                 notes/orchard/{step}.md\"}}"
                             ),
-                            exit: Some(0),
-                            ms: Some(12),
-                            failure: None,
+                            exit,
+                            ms,
+                            failure,
                             change: None,
                         },
                     });

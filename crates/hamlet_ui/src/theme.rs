@@ -273,9 +273,6 @@ pub struct Spacing {
     /// The height of the line that sets the track apart from the
     /// menus.
     pub track_divider: f32,
-    /// How far into a scroll area the fade over an edge with more
-    /// past it reaches.
-    pub scroll_fade: f32,
 }
 
 /// The shadow under what floats over the panels and the world.

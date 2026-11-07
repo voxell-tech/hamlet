@@ -10,7 +10,9 @@ use bevy::ecs::observer::On;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, px};
-use bevy_fynix::views::{BehaviorExt, FrameProps, column, label};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, TooltipExt, column, label,
+};
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_client::realm::{Mode, Works};
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
@@ -99,7 +101,9 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                         .into(),
                 });
             },
-        );
+        )
+        .tooltip(|| note("A path on the server's machine"))
+        .boxed();
         let mut parts =
             vec![heading(Glyph::Folder, "WORKS ON").boxed()];
         match &work.folder {
@@ -159,9 +163,6 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
             .boxed(),
         );
         parts.push(small(work.words.clone()));
-        parts.push(small(
-            "Folders are paths on the server's machine.".into(),
-        ));
         if !work.before.is_empty() {
             let earlier = work
                 .before
@@ -264,13 +265,7 @@ mod tests {
             .iter()
             .filter_map(|message| match message {
                 protocol::ClientMessage::Say(say) => {
-                    assert_eq!(
-                        say.to,
-                        protocol::Address {
-                            hamlet: "home".into(),
-                            agent: "mayor".into()
-                        }
-                    );
+                    assert_eq!(say.to, protocol::AgentId(2));
                     Some(say.text.as_str())
                 }
                 _ => None,

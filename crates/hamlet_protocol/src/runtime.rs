@@ -24,8 +24,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 pub use tools::*;
 
+use crate::Version;
+
 /// The runtime protocol version this server speaks.
-pub const VERSION: u64 = 2;
+pub const VERSION: Version = Version::new(0, 1, 0);
 
 /// A message the server sends a runtime.
 #[derive(
@@ -154,8 +156,7 @@ pub struct ProtocolError {
     #[serde(deserialize_with = "present")]
     #[schemars(with = "String")]
     pub re: Option<String>,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The reason a message could not be handled.

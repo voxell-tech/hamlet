@@ -8,7 +8,7 @@ use super::pose::dice;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Paper {
     File,
-    Notes,
+    Memory,
     Skill,
 }
 
@@ -28,7 +28,7 @@ pub enum Task {
     Fetch,
     /// Using a tool added by hand.
     CustomTool,
-    /// Going over its session to bring its notes up to date.
+    /// Going over its session to bring its memory up to date.
     Reflect,
     /// Waiting for the answer of an agent it asked.
     Await,
@@ -54,9 +54,9 @@ pub enum Chore {
     Stand,
     /// Thinking, up and down its yard.
     Ponder,
-    /// Reading its notes.
+    /// Reading its memory.
     Study,
-    /// Writing its notes.
+    /// Writing its memory.
     Jot,
     /// Writing a file.
     Write,
@@ -75,8 +75,6 @@ pub enum Chore {
     Oops,
     /// Its work is finished.
     Done,
-    /// Casting a ballot.
-    Vote,
     /// Listening at its door for an agent's answer.
     Await,
 }
@@ -147,7 +145,7 @@ impl Chore {
             Task::Read(Paper::Skill) => Self::Recall,
             Task::Read(_) => Self::Study,
             Task::Write(Paper::File) => Self::Write,
-            Task::Write(Paper::Notes) => Self::Jot,
+            Task::Write(Paper::Memory) => Self::Jot,
             Task::Write(Paper::Skill) => Self::Stow,
             Task::Run => Self::Run,
             Task::Fetch => Self::Fetch,
@@ -169,9 +167,7 @@ impl Chore {
             Self::Recall => Station::Rack,
             Self::Run => Station::Engine,
             Self::Fetch | Self::Reflect => Station::Open,
-            Self::Stand | Self::Oops | Self::Done | Self::Vote => {
-                Station::Here
-            }
+            Self::Stand | Self::Oops | Self::Done => Station::Here,
         }
     }
 
@@ -184,7 +180,6 @@ impl Chore {
             | Self::Ponder
             | Self::Await => 0.0,
             Self::Stow => 3.4,
-            Self::Vote => 3.3,
             Self::Oops => 1.9,
             Self::Done => 2.5,
             _ => 2.4,
@@ -193,10 +188,7 @@ impl Chore {
 
     /// True when it cuts short whatever the robot is doing.
     pub(crate) fn is_breaking_in(self) -> bool {
-        matches!(
-            self,
-            Self::Stand | Self::Oops | Self::Done | Self::Vote
-        )
+        matches!(self, Self::Stand | Self::Oops | Self::Done)
     }
 
     /// The motion `x` seconds after reaching the station. `ran` is
@@ -238,7 +230,6 @@ impl Chore {
             Self::Tinker => plain(Act::Tinker),
             Self::Reflect => plain(Act::Reflect),
             Self::Oops => plain(Act::Oops),
-            Self::Vote => plain(Act::Vote),
             Self::Done => {
                 // Most work ends with a tip of the hat, some with a
                 // dance.

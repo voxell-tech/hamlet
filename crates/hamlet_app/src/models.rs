@@ -20,13 +20,14 @@ use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 
-pub(crate) use self::choice::{efforts, of_agent, of_hamlet};
+pub(crate) use self::choice::{efforts, of_hamlet};
 pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
 use crate::PanelSystems;
 use crate::settings::Pane;
 
-const SHOWN: usize = 40;
+/// How many models a page of the catalogue shows.
+const SHOWN: usize = 10;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Shelf>()
@@ -70,10 +71,11 @@ enum Asked {
     Default,
 }
 
-/// The catalogue's search field.
+/// The catalogue's search field, and the page of it shown.
 #[derive(Resource, Default)]
 pub struct Draft {
     narrow: String,
+    page: usize,
 }
 
 fn follow(world: &mut World) {
@@ -215,7 +217,7 @@ mod tests {
     };
 
     #[test]
-    fn the_models_page_reads_the_catalogue_and_shows_the_servers_prices_and_notes()
+    fn the_models_page_reads_the_catalogue_and_shows_the_servers_prices()
      {
         let mut app = welcome_app();
         app.add_plugins(plugin);
@@ -230,17 +232,11 @@ mod tests {
         incoming(
             &mut app,
             json!({"type":"read", "to":requests[0]["id"], "models":[
-                {"name":"far::large", "price":{"input":3.0,"output":15.0}, "priced":"listed", "context":200000, "allowed":true, "note":"For hard questions."}
+                {"name":"far::large", "price":{"input":3.0,"output":15.0}, "priced":"listed", "context":200000, "defaultEffort":null, "efforts":[], "fast":false, "note":"For hard questions."}
             ]}),
         );
         mount::<HamletTheme>(app.world_mut(), shelf());
         let shown = all_words(&mut app);
-        assert!(
-            app.world_mut()
-                .query::<&EditableText>()
-                .iter(app.world())
-                .any(|text| text.value() == "For hard questions.")
-        );
         for text in ["far::large", "3.00", "15.00", "listed", "200k"]
         {
             assert!(shown.contains(text), "{shown}");
@@ -254,7 +250,7 @@ mod tests {
         incoming(
             &mut app,
             json!({"type":"read", "to":read["id"], "models":[
-                {"name":"far::small", "price":null, "priced":"unknown", "context":null, "allowed":true, "note":""}
+                {"name":"far::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":""}
             ]}),
         );
         app
@@ -285,26 +281,12 @@ mod tests {
     #[test]
     fn allowance_refresh_and_a_refused_catalogue_edit_go_through_the_server()
      {
-        use bevy::ecs::query::With;
-        use bevy::ui_widgets::{Checkbox, ValueChange};
-
         let mut app = with_catalogue();
         mount::<HamletTheme>(app.world_mut(), shelf());
-        let toggle = app
-            .world_mut()
-            .query_filtered::<Entity, With<Checkbox>>()
-            .single(app.world())
-            .unwrap();
-        app.world_mut().trigger(ValueChange {
-            source: toggle,
-            value: false,
-            is_final: true,
-        });
-        app.update();
+        type_field(&mut app, "0.00", "0.25");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["doc"], "catalogue");
         assert_eq!(edit["model"], "far::small");
-        assert_eq!(edit["set"], json!({"allowed":false}));
         incoming(
             &mut app,
             json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"The catalogue could not be saved."}),
@@ -320,97 +302,34 @@ mod tests {
     }
 
     #[test]
-    fn the_mayors_model_is_pinned_by_its_office() {
-        let mut app = with_catalogue();
-        let founder =
-            hamlet_client::realm::mayor(app.world_mut()).unwrap();
-        mount::<HamletTheme>(app.world_mut(), of_agent(founder));
-        press_and_update(&mut app, "faux::faux-1");
-        press_and_update(&mut app, "far::small");
-        let edit = sent(&mut app).remove(0);
-        assert_eq!(edit["doc"], "limits");
-        assert_eq!(edit["hamlet"], "home");
-        assert_eq!(
-            edit["set"],
-            json!({"section":"pinned", "key":"mayor", "value":"far::small"})
-        );
-        incoming(
-            &mut app,
-            json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This pin was refused."}),
-        );
-        assert!(
-            all_words(&mut app).contains("This pin was refused.")
-        );
-    }
-
-    #[test]
-    fn an_agents_model_is_pinned_by_its_name() {
-        let mut app = with_catalogue();
-        incoming(
-            &mut app,
-            json!({"type":"change", "epoch":1, "revision":1,
-            "changes":[{"type":"agent", "agent":hamlet_testing::realm::agent("home", 1, "scout")}]}),
-        );
-        let scout =
-            hamlet_client::realm::named(app.world_mut(), "scout")
-                .unwrap();
-        mount::<HamletTheme>(app.world_mut(), of_agent(scout));
-        press_and_update(&mut app, "faux::faux-1");
-        press_and_update(&mut app, "far::small");
-        let edit = sent(&mut app).remove(0);
-        assert_eq!(
-            edit["set"],
-            json!({"section":"pinned", "key":"scout", "value":"far::small"})
-        );
-    }
-
-    #[test]
     fn a_hamlets_list_and_default_keep_the_rest_of_its_received_limits()
      {
-        use bevy::ecs::query::With;
-        use bevy::ui_widgets::{Checkbox, ValueChange};
-
         let mut app = with_catalogue();
-        let founder =
-            hamlet_client::realm::mayor(app.world_mut()).unwrap();
+        let mayor =
+            hamlet_client::realm::first_mayor(app.world()).unwrap();
         let hamlet = app
             .world()
-            .get::<hamlet_client::realm::LivesIn>(founder)
+            .get::<hamlet_client::realm::LivesIn>(mayor)
             .unwrap()
             .0;
         mount::<HamletTheme>(app.world_mut(), of_hamlet(hamlet));
-        let toggle = app
-            .world_mut()
-            .query_filtered::<Entity, With<Checkbox>>()
-            .single(app.world())
-            .unwrap();
-        app.world_mut().trigger(ValueChange {
-            source: toggle,
-            value: true,
-            is_final: true,
-        });
-        app.update();
-        let edit = sent(&mut app).remove(0);
-        assert_eq!(edit["whole"]["models"], json!(["far::small"]));
-        assert_eq!(edit["whole"]["mostAgents"], 12);
-        assert_eq!(edit["whole"]["budget"]["cost"], 5.0);
-        incoming(
-            &mut app,
-            json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This model list was refused."}),
-        );
-        assert!(
-            all_words(&mut app)
-                .contains("This model list was refused.")
-        );
         press_and_update(&mut app, "faux::faux-1");
         press_and_update(&mut app, "far::small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["whole"]["model"], "far::small");
-        assert_eq!(edit["whole"]["mostAgents"], 12);
+        assert_eq!(edit["whole"]["road"]["most"], 24);
+        assert_eq!(edit["whole"]["budget"]["cost"], 5.0);
+        incoming(
+            &mut app,
+            json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This model was refused."}),
+        );
+        assert!(
+            all_words(&mut app).contains("This model was refused.")
+        );
     }
     #[test]
-    fn prices_and_notes_are_catalogue_edits_and_success_reads_the_server_again()
-     {
+    fn prices_are_catalogue_edits_and_success_reads_the_server_again()
+    {
         let mut app = with_catalogue();
         mount::<HamletTheme>(app.world_mut(), shelf());
         type_field(&mut app, "0.00", "0.25");
@@ -426,16 +345,6 @@ mod tests {
         );
         let read = sent(&mut app).remove(0);
         assert_eq!(read["what"], "models");
-        incoming(
-            &mut app,
-            json!({"type":"read", "to":read["id"], "models":[
-                {"name":"far::small", "price":{"input":0.25,"output":0.0}, "priced":"yours", "context":null, "allowed":true, "note":"A small model."}
-            ]}),
-        );
-        type_field(&mut app, "A small model.", "For everyday work.");
-        let note = sent(&mut app).remove(0);
-        assert_eq!(note["set"], json!({"note":"For everyday work."}));
-        assert_eq!(note["model"], "far::small");
         app.world_mut().trigger(Reconnected);
         app.update();
         assert_eq!(sent(&mut app)[0]["what"], "models");

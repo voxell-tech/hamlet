@@ -264,27 +264,6 @@ fn restored() -> Vec<f32> {
     finish(out, 0.32, false)
 }
 
-/// A vote called: two knocks of a gavel, and a small bell.
-fn vote_called() -> Vec<f32> {
-    let mut out = empty(1.1);
-    for (at, gain) in [(0.0, 1.0), (0.16, 0.8)] {
-        knock(&mut out, at, 360.0, gain);
-        strike(&mut out, at, gain * 0.5, &[(130.0, 1.0, 0.04)]);
-    }
-    bell(&mut out, 0.3, pitch(81.0), 0.5);
-    finish(out, 0.35, false)
-}
-
-/// A ballot cast: a slip of paper dropped into a box.
-fn ballot() -> Vec<f32> {
-    let mut out = empty(0.4);
-    let mut hiss = Hiss(241);
-    rustle(&mut out, &mut hiss, (0.0, 0.12), 0.8, 2800.0);
-    knock(&mut out, 0.13, 240.0, 0.9);
-    strike(&mut out, 0.13, 0.5, &[(120.0, 1.0, 0.04)]);
-    finish(out, 0.25, false)
-}
-
 /// A new mayor: tines up the home chord, and a bell on top.
 fn mayor() -> Vec<f32> {
     let mut out = empty(1.6);
@@ -408,8 +387,6 @@ pub(super) fn make(sound: Sound) -> Option<Vec<f32>> {
         Sound::Born => born(),
         Sound::Gone => gone(),
         Sound::Restored => restored(),
-        Sound::VoteCalled => vote_called(),
-        Sound::Ballot => ballot(),
         Sound::Mayor => mayor(),
         Sound::Founded => founded(),
         Sound::Allowed => allowed(),

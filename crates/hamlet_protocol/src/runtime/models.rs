@@ -3,7 +3,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::{Credential, VERSION};
+use crate::Version;
+use crate::runtime::Credential;
 
 /// A model by its provider and id, and the address it is served at
 /// when that is not the provider's own.
@@ -58,6 +59,9 @@ pub struct Selection {
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "crate::Effort")]
     pub effort: Option<crate::Effort>,
+    /// Whether the call asks for the provider's fast tier.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fast: bool,
     #[serde(rename = "maxTokens")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]
@@ -122,12 +126,12 @@ pub struct Attempt {
     #[schemars(length(min = 1))]
     pub key: String,
     pub model: ModelRef,
+    /// The runtime's id of the input the conversation is answering.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
-    pub task: Option<String>,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub submission: Option<String>,
+    pub v: Version,
 }
 
 /// The call may be made with the model the server chose, and the
@@ -146,8 +150,7 @@ pub struct Allowance {
     #[schemars(length(min = 1))]
     pub re: String,
     pub selection: Selection,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The usage of an allowed attempt, before its answer is kept.
@@ -161,8 +164,7 @@ pub struct UsageReport {
     #[schemars(length(min = 1))]
     pub key: String,
     pub usage: Usage,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The usage is charged, once however often it was reported.
@@ -175,6 +177,5 @@ pub struct Charged {
     pub id: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }

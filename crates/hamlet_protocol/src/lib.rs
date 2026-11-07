@@ -6,9 +6,12 @@
 
 pub mod client;
 pub mod runtime;
+mod version;
 
-/// The first hamlet's id.
-pub const HOME: &str = "home";
+pub use version::{BadVersion, Version};
+
+/// The address of the Hand.
+pub const HAND: &str = "hand";
 /// The agent of an address that names a hamlet's mayor, whoever holds
 /// the office.
 pub const MAYOR: &str = "mayor";
@@ -32,4 +35,6 @@ pub enum Effort {
     Low,
     Medium,
     High,
+    XHigh,
+    Max,
 }

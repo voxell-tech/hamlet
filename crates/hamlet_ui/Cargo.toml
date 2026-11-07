@@ -16,5 +16,6 @@ bevy = { workspace = true, features = ["bevy_asset", "bevy_camera", "bevy_color"
 bevy_fynix.workspace = true
 image.workspace = true
 pulldown-cmark.workspace = true
+resvg.workspace = true
 serde.workspace = true
 toml.workspace = true

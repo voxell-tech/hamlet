@@ -51,6 +51,23 @@ pub(crate) fn panel_app() -> App {
     app
 }
 
+/// Points the chat at the fixture's mayor `home#0`, who lives in
+/// the first hamlet, and returns it.
+/// Points the chat at the Hand and returns it.
+pub(crate) fn seat_hand(app: &mut App) -> Entity {
+    let hand =
+        hamlet_client::realm::named(app.world_mut(), "hand").unwrap();
+    crate::convo::seat(app.world_mut(), hand);
+    hand
+}
+
+pub(crate) fn seat_ada(app: &mut App) -> Entity {
+    let ada = hamlet_client::realm::named(app.world_mut(), "home#0")
+        .unwrap();
+    crate::convo::seat(app.world_mut(), ada);
+    ada
+}
+
 /// First-run setup with input and the secret prompt, and a browser
 /// that fails the test if anything opens it. Nothing is received
 /// until [`connect`].

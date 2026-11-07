@@ -1,69 +1,58 @@
-//! Model and road spend, period resets and task caps (H8, H12).
-
-use std::collections::BTreeMap;
+//! What the realm spends (H8, H12): each payer's books for its
+//! period, a task's, an agent's, and whether another model call may
+//! be made.
 
 use anyhow::{Context, Result};
-use chrono::{Datelike, Local, Timelike};
-use diesel::dsl::{max, sql};
+use chrono::{Datelike, Timelike};
+use diesel::dsl::max;
 use diesel::prelude::*;
-use diesel::sql_types::is_nullable::NotNull;
-use diesel::sql_types::{Bool, Nullable, SingleValue, SqlType, Text};
-use hamlet_protocol::client::{
-    self as protocol, Period, Report, ReportCaps, UsageView,
+use hamlet_protocol::client as protocol;
+use hamlet_store::Db;
+use hamlet_store::functions::total;
+use hamlet_store::ids::{AgentId, ChiefId, HamletId, TaskId};
+use hamlet_store::schema::{
+    attempt, budget_reset, road_charge, usage,
 };
-use hamlet_protocol::runtime::{Price, Usage};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-use crate::harness::BindingId;
-use crate::schema::{
-    harness_attempt, harness_binding, harness_usage,
-    record_road_charge, society_binding, spend_reset,
-};
-use crate::service::Service;
+use crate::clock;
+use crate::society::agents::AgentKind;
+use crate::society::limits::{self, Budget, Micros, Period};
+use crate::society::{agents, hires, tree, workers};
 
-define_sql_function! {
-    /// `value` unless it is NULL, else `otherwise`.
-    fn coalesce<T: SqlType<IsNull = NotNull> + SingleValue>(
-        value: Nullable<T>,
-        otherwise: T,
-    ) -> T;
-}
-
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+/// Spend in money, model time and tokens.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Amount {
-    pub tokens: i64,
-    pub micros: i64,
+    pub micros: Micros,
     pub ms: i64,
+    pub tokens: i64,
 }
 
-impl Amount {
-    fn add(&mut self, other: Self) {
-        self.tokens = self.tokens.saturating_add(other.tokens);
-        self.micros = self.micros.saturating_add(other.micros);
-        self.ms = self.ms.saturating_add(other.ms);
+/// The sums of a query over usage: micros, model time and tokens,
+/// none when nothing was used.
+type Sums = (Option<i64>, Option<i64>, Option<i64>);
+
+impl From<Sums> for Amount {
+    fn from((micros, ms, tokens): Sums) -> Self {
+        Self {
+            micros: micros.unwrap_or(0),
+            ms: ms.unwrap_or(0),
+            tokens: tokens.unwrap_or(0),
+        }
     }
-}
-
-pub(crate) struct Books {
-    pub hamlet: Amount,
-    pub agents: BTreeMap<u64, Amount>,
-    pub task: Amount,
-}
-
-/// `dollars` in micros, to the nearest; past an `i64`, its largest.
-pub(crate) fn micros(dollars: f64) -> i64 {
-    (dollars * 1_000_000.0).round() as i64
 }
 
 /// `micros` in dollars to the cent, a half cent rounding up.
-pub(crate) fn money(micros: impl Into<i128>) -> String {
-    let micros = micros.into();
+pub(crate) fn money(micros: Micros) -> String {
     if (1..10_000).contains(&micros) {
         return "<$0.01".into();
     }
-    let cents = (micros + 5_000) / 10_000;
+    let cents = (i128::from(micros) + 5_000) / 10_000;
     format!("${}.{:02}", cents / 100, cents % 100)
+}
+
+/// `dollars` in micros, to the nearest.
+pub(crate) fn micros(dollars: f64) -> Micros {
+    (dollars * 1_000_000.0).round() as i64
 }
 
 fn duration(ms: i64) -> String {
@@ -77,497 +66,448 @@ fn duration(ms: i64) -> String {
     }
 }
 
-/// Reads a hamlet's current period and a task's complete lifetime.
-pub(crate) fn books(
-    db: &mut SqliteConnection,
-    hamlet: &str,
-    period: &Period,
-    task: Option<&str>,
-    at: i64,
-) -> Result<Books> {
-    let date = crate::clock::local(at)?;
-    let today = date.format("%Y-%m-%d").to_string();
-    let first = match period {
-        Period::Month => date.format("%Y-%m-01").to_string(),
-        Period::Day => today.clone(),
-    };
-    let reset = spend_reset::table
-        .filter(spend_reset::hamlet.eq(hamlet))
-        // The local day of `at`, which Diesel has no function for.
-        .filter(
-            sql::<Text>("date(at/1000, 'unixepoch', 'localtime')")
-                .between(&first, &today),
-        )
-        .order(spend_reset::id.desc())
-        .select((spend_reset::models, spend_reset::roads))
-        .first::<(i64, i64)>(db)
-        .optional()?
-        .unwrap_or_default();
-    let mut result = Books {
-        hamlet: Amount::default(),
-        agents: BTreeMap::new(),
-        task: Amount::default(),
-    };
-    let payer = coalesce(
-        society_binding::payer.nullable(),
-        harness_binding::hamlet,
-    );
-    let models = harness_usage::table
-        .inner_join(
-            harness_attempt::table.on(harness_attempt::runtime
-                .eq(harness_usage::runtime)
-                .and(harness_attempt::key.eq(harness_usage::key))),
-        )
-        .inner_join(
-            harness_binding::table
-                .on(harness_binding::id.eq(harness_attempt::binding)),
-        )
-        .left_join(
-            society_binding::table
-                .on(society_binding::binding.eq(harness_binding::id)),
-        )
-        .filter(payer.eq(hamlet).or(harness_attempt::task.eq(task)))
-        .select((
-            harness_binding::number,
-            harness_attempt::task,
-            harness_usage::at,
-            harness_usage::input
-                + harness_usage::output
-                + harness_usage::cache_read
-                + harness_usage::cache_write
-                + harness_usage::estimated,
-            harness_usage::micros,
-            harness_usage::ms,
-            harness_usage::ordinal,
-            false.into_sql::<Bool>(),
-            payer,
-        ));
-    let roads = record_road_charge::table
-        .filter(
-            record_road_charge::hamlet
-                .eq(hamlet)
-                .or(record_road_charge::task.eq(task)),
-        )
-        .select((
-            record_road_charge::agent,
-            record_road_charge::task,
-            record_road_charge::at,
-            record_road_charge::tokens,
-            record_road_charge::micros,
-            record_road_charge::ms,
-            record_road_charge::id,
-            true.into_sql::<Bool>(),
-            record_road_charge::hamlet,
-        ));
-    let rows = models.union_all(roads).load::<(
-        i64,
-        Option<String>,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        bool,
-        String,
-    )>(db)?;
-    for (
-        agent,
-        own_task,
-        time,
-        tokens,
-        micros,
-        ms,
-        ordinal,
-        road,
-        payer,
-    ) in rows
-    {
-        let amount = Amount { tokens, micros, ms };
-        if task.is_some() && own_task.as_deref() == task {
-            result.task.add(amount);
+/// When the period holding `at` began.
+fn period_start(period: Period, at: i64) -> Result<i64> {
+    let local = clock::local(at)?;
+    let midnight = local
+        .with_hour(0)
+        .and_then(|t| t.with_minute(0))
+        .and_then(|t| t.with_second(0))
+        .and_then(|t| t.with_nanosecond(0))
+        .context("local midnight")?;
+    let start = match period {
+        Period::Day => midnight,
+        Period::Month => {
+            midnight.with_day(1).context("the first of the month")?
         }
-        let day =
-            crate::clock::local(time)?.format("%Y-%m-%d").to_string();
-        if payer != hamlet
-            || day < first
-            || day > today
-            || ordinal <= if road { reset.1 } else { reset.0 }
-        {
-            continue;
-        }
-        result.hamlet.add(amount);
-        result
-            .agents
-            .entry(u64::try_from(agent)?)
-            .or_default()
-            .add(amount);
-    }
-    Ok(result)
+    };
+    Ok(start.timestamp_millis())
 }
 
-pub(crate) fn can_spend(
-    db: &mut SqliteConnection,
-    hamlet: &str,
-    task: Option<&str>,
+/// What `payer`, a hamlet or the realm, spent in its period at `at`:
+/// its model calls and its roads, after its last reset.
+pub(crate) fn of_payer(
+    db: &mut Db,
+    payer: Option<&HamletId>,
+    period: Period,
+    at: i64,
+) -> Result<Amount> {
+    let start = period_start(period, at)?;
+    let reset = {
+        let mut query = budget_reset::table
+            .filter(budget_reset::at.ge(start))
+            .order(budget_reset::id.desc())
+            .select((budget_reset::usage, budget_reset::road_charge))
+            .into_boxed();
+        query = match payer {
+            Some(hamlet) => {
+                query.filter(budget_reset::hamlet.eq(hamlet))
+            }
+            None => query.filter(budget_reset::hamlet.is_null()),
+        };
+        query
+            .first::<(i64, i64)>(db)
+            .optional()?
+            .unwrap_or((-1, -1))
+    };
+    let mut query = usage::table
+        .inner_join(
+            attempt::table.on(attempt::runtime
+                .eq(usage::runtime)
+                .and(attempt::key.eq(usage::key))),
+        )
+        .filter(usage::at.ge(start))
+        .filter(usage::ordinal.gt(reset.0))
+        .select((
+            total(usage::micros),
+            total(usage::ms),
+            total(usage::input + usage::output),
+        ))
+        .into_boxed();
+    query = match payer {
+        Some(hamlet) => query.filter(attempt::payer.eq(hamlet)),
+        None => query.filter(attempt::payer.is_null()),
+    };
+    let mut amount = Amount::from(query.first::<Sums>(db)?);
+    if let Some(hamlet) = payer {
+        let roads = road_charge::table
+            .filter(road_charge::hamlet.eq(hamlet))
+            .filter(road_charge::at.ge(start))
+            .filter(road_charge::id.gt(reset.1))
+            .select(total(road_charge::micros))
+            .first::<Option<i64>>(db)?;
+        amount.micros =
+            amount.micros.saturating_add(roads.unwrap_or(0));
+    }
+    Ok(amount)
+}
+
+/// What task `task` spent in its whole life.
+pub(crate) fn of_task(db: &mut Db, task: TaskId) -> Result<Amount> {
+    let mut amount = Amount::from(
+        usage::table
+            .inner_join(
+                attempt::table.on(attempt::runtime
+                    .eq(usage::runtime)
+                    .and(attempt::key.eq(usage::key))),
+            )
+            .filter(attempt::task.eq(task))
+            .select((
+                total(usage::micros),
+                total(usage::ms),
+                total(usage::input + usage::output),
+            ))
+            .first::<Sums>(db)?,
+    );
+    let roads = road_charge::table
+        .filter(road_charge::task.eq(task))
+        .select(total(road_charge::micros))
+        .first::<Option<i64>>(db)?;
+    amount.micros = amount.micros.saturating_add(roads.unwrap_or(0));
+    Ok(amount)
+}
+
+/// What the agents `ids` spent since `since`.
+fn of_agents(
+    db: &mut Db,
+    ids: &[AgentId],
+    since: i64,
+) -> Result<Amount> {
+    Ok(Amount::from(
+        usage::table
+            .inner_join(
+                attempt::table.on(attempt::runtime
+                    .eq(usage::runtime)
+                    .and(attempt::key.eq(usage::key))),
+            )
+            .filter(attempt::agent.eq_any(ids))
+            .filter(usage::at.ge(since))
+            .select((
+                total(usage::micros),
+                total(usage::ms),
+                total(usage::input + usage::output),
+            ))
+            .first::<Sums>(db)?,
+    ))
+}
+
+/// What `agent` spent in its payer's period at `at`.
+pub(crate) fn of_agent(
+    db: &mut Db,
+    agent: AgentId,
+    at: i64,
+) -> Result<Amount> {
+    let payer = crate::talk::tasks::payer_of(db, agent)?;
+    let period = budget_of(db, payer.as_ref())?.period;
+    of_agents(db, &[agent], period_start(period, at)?)
+}
+
+/// The budget of `payer`, a hamlet's or the realm's.
+pub(crate) fn budget_of(
+    db: &mut Db,
+    payer: Option<&HamletId>,
+) -> Result<Budget> {
+    Ok(match payer {
+        Some(hamlet) => limits::of(db, hamlet)?.budget,
+        None => limits::realm(db)?.budget,
+    })
+}
+
+/// Why another model call may not be made, in words for its agent and
+/// its chief, or `None` when it may (H8, H12).
+pub(crate) fn stopped(
+    db: &mut Db,
+    agent: AgentId,
+    payer: Option<&HamletId>,
+    task: Option<TaskId>,
     at: i64,
 ) -> Result<Option<String>> {
-    let limits = crate::limits::of(db, hamlet)?;
-    let period = &limits.budget.period;
-    let books = books(db, hamlet, period, task, at)?;
-    for (kind, spent, cost, minutes) in [
-        (
-            "budget",
-            books.hamlet,
-            limits.budget.cost,
-            limits.budget.minutes,
-        ),
-        ("task", books.task, limits.task.cost, limits.task.minutes),
-    ] {
-        for (amount, cap, time) in meters(spent, cost, minutes) {
-            let Some(cap) = cap else {
-                continue;
-            };
-            if amount < cap {
-                continue;
-            }
-            let reached = format!(
-                "{} of {}",
-                show(amount, time),
-                show(cap, time)
+    let budget = budget_of(db, payer)?;
+    let spent = of_payer(db, payer, budget.period, at)?;
+    let whose = match payer {
+        Some(hamlet) => format!("The hamlet `{hamlet}`'s budget"),
+        None => "The realm's budget".to_owned(),
+    };
+    if let Some(cap) = budget.cost
+        && spent.micros >= cap
+    {
+        return Ok(Some(format!(
+            "{whose} of {} is spent. A chief can raise it, or start \
+             its period again with /reset-budget.",
+            money(cap)
+        )));
+    }
+    if let Some(minutes) = budget.minutes
+        && spent.ms >= clock::minutes(minutes)
+    {
+        return Ok(Some(format!(
+            "{whose} of {} of model time is spent.",
+            duration(clock::minutes(minutes))
+        )));
+    }
+    if let Some(task) = task {
+        let caps = match payer {
+            Some(hamlet) => limits::of(db, hamlet)?.task,
+            None => limits::TaskCaps::default(),
+        };
+        let spent = of_task(db, task)?;
+        if let Some(cap) = caps.cost
+            && spent.micros >= cap
+        {
+            return Ok(Some(format!(
+                "This task may spend at most {}, and has.",
+                money(cap)
+            )));
+        }
+        if let Some(minutes) = caps.minutes
+            && spent.ms >= clock::minutes(minutes)
+        {
+            return Ok(Some(format!(
+                "This task may use at most {} of model time, and \
+                 has.",
+                duration(clock::minutes(minutes))
+            )));
+        }
+    }
+    let start = period_start(budget.period, at)?;
+    for (lead, allowance) in allowances(db, agent)? {
+        let mut under = tree::under(db, lead)?;
+        under.push(lead);
+        let mut ids = under.clone();
+        for hire in &under {
+            ids.extend(
+                workers::of_agent(db, *hire)?.iter().map(|w| w.agent),
             );
-            return Ok(Some(if kind == "task" {
-                format!(
-                    "This task has spent its cap ({reached}). The \
-                     chief can give the rest of the work as a new \
-                     task, or raise the cap under One Task in the \
-                     hamlet's limits."
-                )
-            } else {
-                let (when, again) = match period {
-                    Period::Day => ("today", "at midnight"),
-                    Period::Month => {
-                        ("this month", "on the first of next month")
-                    }
-                };
-                format!(
-                    "The hamlet has spent its budget for {when} \
-                     ({reached}). It starts again {again}. Only the \
-                     chief can raise it in the hamlet's limits."
-                )
-            }));
+        }
+        let spent = of_agents(db, &ids, start)?;
+        if spent.micros >= allowance {
+            let name = crate::society::addresses::name_of(db, lead)?;
+            return Ok(Some(format!(
+                "`{name}`'s allowance of {} is spent. Its lead or a \
+                 chief can raise it.",
+                money(allowance)
+            )));
         }
     }
     Ok(None)
 }
 
-/// What `spent` has of the caps `cost` and `minutes`, in micros and
-/// milliseconds, each with whether it is time.
-fn meters(
-    spent: Amount,
-    cost: Option<f64>,
-    minutes: Option<i64>,
-) -> [(i64, Option<i64>, bool); 2] {
-    [
-        (spent.micros, cost.map(micros), false),
-        (spent.ms, minutes.map(crate::clock::minutes), true),
-    ]
-}
-fn show(value: i64, time: bool) -> String {
-    if time {
-        format!("{} model time", duration(value))
-    } else {
-        money(value)
-    }
-}
-
-/// What `usage` costs: what the endpoint billed, else what pi priced
-/// it at, else `price` with cached tokens at its input rate.
-pub(crate) fn amount(usage: &Usage, price: &Price) -> Amount {
-    let reported = usage.input
-        + usage.output
-        + usage.cache_read
-        + usage.cache_write;
-    let estimate = if reported == 0 {
-        usage.estimated_tokens.unwrap_or(0)
-    } else {
-        0
+/// The allowances bounding what `agent` spends: its own and every
+/// lead's above it; a worker counts as its starter.
+fn allowances(
+    db: &mut Db,
+    agent: AgentId,
+) -> Result<Vec<(AgentId, Micros)>> {
+    let mut at = match agents::get(db, agent)?.kind {
+        AgentKind::Worker => match workers::get(db, agent)?.starter {
+            Some(starter) => starter,
+            None => return Ok(Vec::new()),
+        },
+        AgentKind::Hand => return Ok(Vec::new()),
+        AgentKind::Hire => agent,
     };
-    let priced = (usage.input
-        + usage.cache_read
-        + usage.cache_write
-        + estimate) as f64
-        * price.input
-        + usage.output as f64 * price.output;
-    let micros = match usage.billed {
-        Some(billed) => micros(billed),
-        None if usage.cost > 0.0 => micros(usage.cost),
-        None => priced.round() as i64,
-    };
-    let count = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
-    Amount {
-        tokens: count(reported + estimate),
-        micros,
-        ms: count(usage.ms.unwrap_or(0)),
+    let mut out = Vec::new();
+    loop {
+        let Some(hire) = hires::find(db, at)? else {
+            break;
+        };
+        if let Some(allowance) = hire.allowance {
+            out.push((at, allowance));
+        }
+        match hire.parent {
+            Some(parent) => at = parent,
+            None => break,
+        }
     }
+    Ok(out)
 }
 
-impl Service {
-    pub(crate) fn budget(&mut self, hamlet: &str) -> Result<Report> {
-        self.report(hamlet, None)
-    }
+/// Starts the budget period of `payer` again from now, keeping the
+/// ledger.
+pub(crate) fn reset(
+    db: &mut Db,
+    payer: Option<&HamletId>,
+    chief: ChiefId,
+    at: i64,
+) -> Result<()> {
+    let last_usage = usage::table
+        .select(max(usage::ordinal))
+        .first::<Option<i64>>(db)?
+        .unwrap_or(-1);
+    let last_road = road_charge::table
+        .select(max(road_charge::id))
+        .first::<Option<i64>>(db)?
+        .unwrap_or(-1);
+    diesel::insert_into(budget_reset::table)
+        .values((
+            budget_reset::hamlet.eq(payer),
+            budget_reset::at.eq(at),
+            budget_reset::chief.eq(chief),
+            budget_reset::usage.eq(last_usage),
+            budget_reset::road_charge.eq(last_road),
+        ))
+        .execute(db)?;
+    Ok(())
+}
 
-    /// The hamlet's spend view, `fallback` naming the model of an
-    /// agent that runs the home's default.
-    pub(crate) fn report(
-        &mut self,
-        hamlet: &str,
-        fallback: Option<&str>,
-    ) -> Result<Report> {
-        let home = match fallback {
-            Some(fallback) => fallback.to_owned(),
-            None => self.settings()?.model,
-        };
-        let record = self
-            .home
-            .store()
-            .record(hamlet)?
-            .context("budget hamlet")?;
-        let limits = &record.limits.chief;
-        let at = Local::now();
-        let period = &limits.budget.period;
-        let books = books(
-            self.db(),
-            hamlet,
-            period,
-            None,
-            at.timestamp_millis(),
-        )?;
-        // The first of equally near caps.
-        let caps = meters(
-            books.hamlet,
-            limits.budget.cost,
-            limits.budget.minutes,
-        );
-        let nearest = caps
-            .into_iter()
-            .filter_map(|(spent, cap, time)| {
-                cap.map(|cap| (spent, cap, time))
-            })
-            .rev()
-            .max_by(|a, b| {
-                (a.0 as f64 / a.1.max(1) as f64)
-                    .total_cmp(&(b.0 as f64 / b.1.max(1) as f64))
-            });
-        let period_words = match period {
-            Period::Day => "today",
-            Period::Month => "this month",
-        };
-        let summary = format!(
-            "Hamlet {period_words}: {}",
-            nearest
-                .map(|(spent, cap, time)| format!(
+/// The report of `payer`'s spend in its period at `at`, as the window
+/// shows it.
+pub(crate) fn report(
+    db: &mut Db,
+    payer: Option<&HamletId>,
+    at: i64,
+) -> Result<protocol::Report> {
+    let budget = budget_of(db, payer)?;
+    let spent = of_payer(db, payer, budget.period, at)?;
+    let caps = [
+        (spent.micros, budget.cost, false),
+        (spent.ms, budget.minutes.map(clock::minutes), true),
+    ];
+    let show = |amount: i64, time: bool| {
+        if time {
+            duration(amount)
+        } else {
+            money(amount)
+        }
+    };
+    let nearest = caps
+        .iter()
+        .filter_map(|(spent, cap, time)| {
+            cap.map(|cap| (*spent, cap, *time))
+        })
+        .max_by(|a, b| {
+            (a.0 as f64 / a.1.max(1) as f64)
+                .total_cmp(&(b.0 as f64 / b.1.max(1) as f64))
+        });
+    let period_words = match budget.period {
+        Period::Day => "today",
+        Period::Month => "this month",
+    };
+    let whose = if payer.is_some() { "Hamlet" } else { "Realm" };
+    let summary = format!(
+        "{whose} {period_words}: {}",
+        nearest
+            .map(|(spent, cap, time)| {
+                format!(
                     "{} of {}",
                     show(spent, time),
                     show(cap, time)
-                ))
-                .unwrap_or_else(|| money(books.hamlet.micros))
-        );
-        let mut agents = record.agents.iter().collect::<Vec<_>>();
-        agents.sort_by_key(|a| a.number != record.mayor);
-        let lines = agents
-            .iter()
-            .map(|a| {
-                format!(
-                    "- {}: {}, {}",
-                    if a.number == record.mayor {
-                        "mayor"
-                    } else {
-                        &a.name
-                    },
-                    limits.model_of(
-                        a,
-                        a.number == record.mayor,
-                        &home
-                    ),
-                    money(
-                        books
-                            .agents
-                            .get(&a.number)
-                            .copied()
-                            .unwrap_or_default()
-                            .micros
-                    )
                 )
             })
-            .collect::<Vec<_>>();
-        let day = at.num_seconds_from_midnight() as f64 / 86400.0;
-        let next = if at.month() == 12 {
-            chrono::NaiveDate::from_ymd_opt(at.year() + 1, 1, 1)
-        } else {
-            chrono::NaiveDate::from_ymd_opt(
-                at.year(),
-                at.month() + 1,
-                1,
-            )
+            .unwrap_or_else(|| money(spent.micros))
+    );
+    let local = clock::local(at)?;
+    let day = f64::from(local.num_seconds_from_midnight()) / 86400.0;
+    let gone = match budget.period {
+        Period::Day => day,
+        Period::Month => {
+            let days = days_in_month(local.year(), local.month());
+            (f64::from(local.day()) - 1.0 + day) / f64::from(days)
         }
-        .context("next month")?;
-        let days = next.pred_opt().context("last day")?.day();
-        let gone = ((if *period == Period::Day {
-            day
-        } else {
-            (at.day() as f64 - 1.0 + day) / days as f64
-        }) * 200.0)
-            .floor()
-            / 200.0;
-        let spent = books.hamlet;
-        Ok(Report {
-            caps: ReportCaps {
-                micros: caps[0].1,
-                ms: caps[1].1,
-            },
-            gone,
-            left: nearest.map(|(spent, cap, _)| {
-                (1.0 - spent as f64 / cap.max(1) as f64).max(0.0)
-            }),
-            lines,
-            period: period.clone(),
-            period_words: period_words.into(),
-            remains: nearest.map(|(spent, cap, time)| {
-                show((cap - spent).max(0), time)
-            }),
-            spent: protocol::Amount {
-                micros: spent.micros,
-                ms: spent.ms,
-                tokens: spent.tokens,
-            },
-            summary,
-        })
-    }
-
-    /// Starts the budget period of `hamlet` again from now, keeping
-    /// the ledger; gives the words of `/reset-budget`.
-    pub fn reset_budget(&mut self, hamlet: &str) -> Result<String> {
-        let by = self.chief.clone();
-        diesel::insert_into(spend_reset::table)
-            .values((
-                spend_reset::hamlet.eq(hamlet),
-                spend_reset::at.eq(crate::clock::now()),
-                spend_reset::by.eq(by),
-                spend_reset::models.eq(coalesce(
-                    harness_usage::table
-                        .select(max(harness_usage::ordinal))
-                        .single_value(),
-                    0,
-                )),
-                spend_reset::roads.eq(coalesce(
-                    record_road_charge::table
-                        .select(max(record_road_charge::id))
-                        .single_value(),
-                    0,
-                )),
-            ))
-            .execute(self.db())?;
-        Ok("The budget starts again from here. What was spent \
-            before is kept in the ledger."
-            .into())
-    }
-}
-
-/// The conversation's charged calls, including attempts and
-/// summaries.
-#[cfg(any(test, feature = "harness"))]
-pub fn usage(
-    db: &mut SqliteConnection,
-    binding: BindingId,
-) -> Result<UsageView> {
-    usage_of(db, &[binding])
-}
-
-/// The model usage of `bindings` together, as of a conversation and
-/// the branches it was forked or rewound from.
-pub fn usage_of(
-    db: &mut SqliteConnection,
-    bindings: &[BindingId],
-) -> Result<UsageView> {
-    let rows = harness_usage::table
-        .inner_join(
-            harness_attempt::table.on(harness_attempt::runtime
-                .eq(harness_usage::runtime)
-                .and(harness_attempt::key.eq(harness_usage::key))),
-        )
-        .filter(
-            harness_attempt::binding.eq_any(
-                bindings.iter().map(|b| b.0).collect::<Vec<_>>(),
-            ),
-        )
-        .order(harness_usage::ordinal)
-        .select((
-            harness_usage::input
-                + harness_usage::cache_read
-                + harness_usage::cache_write,
-            harness_usage::output,
-            harness_usage::micros,
-            harness_usage::ms,
-            harness_usage::cache_read,
-            harness_usage::detail,
-        ))
-        .load::<(i64, i64, i64, i64, i64, String)>(db)?;
-    let mut calls = 0;
-    let mut unreported = 0;
-    let mut input = 0;
-    let mut output = 0;
-    let mut micros = 0;
-    let mut ms = 0;
-    let mut cached = 0;
-    let mut reasoning = 0;
-    let mut last_input = 0;
-    for (i, o, c, t, cache, detail) in rows {
-        let detail = serde_json::from_str::<Value>(&detail)?;
-        calls += 1;
-        unreported += i64::from(i + o == 0);
-        input += i;
-        output += o;
-        micros += c;
-        ms += t;
-        cached += cache;
-        reasoning += detail["reasoning"].as_i64().unwrap_or(0);
-        if i > 0 {
-            last_input = i;
-        }
-    }
-    let count = input + output;
-    let tokens = if calls == unreported {
-        "Tokens not reported".into()
-    } else if count < 1000 {
-        format!("{count} tok")
-    } else if count < 1_000_000 {
-        format!("{:.1}k tok", count as f64 / 1000.0)
-    } else {
-        format!("{:.2}M tok", count as f64 / 1_000_000.0)
     };
-    let summary = if calls == 0 {
-        "No model calls yet".into()
-    } else {
-        format!(
-            "{tokens}, {}",
-            if micros > 0 {
-                money(micros)
-            } else {
-                show(ms, true)
-            }
-        )
-    };
-    let count = |n: i64| u64::try_from(n).context("a usage count");
-    Ok(UsageView {
-        cached: count(cached)?,
-        calls: count(calls)?,
-        input: count(input)?,
-        last_input: count(last_input)?,
-        micros: count(micros)?,
-        ms: count(ms)?,
-        output: count(output)?,
-        reasoning: count(reasoning)?,
+    Ok(protocol::Report {
+        caps: protocol::ReportCaps {
+            micros: budget.cost,
+            ms: budget.minutes.map(clock::minutes),
+        },
+        gone: (gone * 200.0).floor() / 200.0,
+        left: nearest.map(|(spent, cap, _)| {
+            (1.0 - spent as f64 / cap.max(1) as f64).max(0.0)
+        }),
+        lines: Vec::new(),
+        period: match budget.period {
+            Period::Day => protocol::Period::Day,
+            Period::Month => protocol::Period::Month,
+        },
+        period_words: period_words.into(),
+        remains: nearest.map(|(spent, cap, time)| {
+            show((cap - spent).max(0), time)
+        }),
+        spent: protocol::Amount {
+            micros: spent.micros,
+            ms: spent.ms,
+            tokens: spent.tokens,
+        },
         summary,
-        unreported: count(unreported)?,
     })
+}
+
+/// What `conversation`'s model calls used, as its transcript shows
+/// it.
+pub(crate) fn usage_view(
+    db: &mut Db,
+    conversation: hamlet_store::ids::ConversationId,
+) -> Result<protocol::UsageView> {
+    let calls = attempt::table
+        .filter(attempt::conversation.eq(conversation))
+        .count()
+        .get_result::<i64>(db)?;
+    let used = usage::table
+        .inner_join(
+            attempt::table.on(attempt::runtime
+                .eq(usage::runtime)
+                .and(attempt::key.eq(usage::key))),
+        )
+        .filter(attempt::conversation.eq(conversation))
+        .order(usage::ordinal)
+        .select((
+            usage::input,
+            usage::output,
+            usage::cache_read,
+            usage::micros,
+            usage::ms,
+        ))
+        .load::<(i64, i64, i64, i64, i64)>(db)?;
+    let total = |pick: fn(&(i64, i64, i64, i64, i64)) -> i64| {
+        u64::try_from(used.iter().map(pick).sum::<i64>()).unwrap_or(0)
+    };
+    let input = total(|u| u.0);
+    let output = total(|u| u.1);
+    let micros = total(|u| u.3);
+    let unreported = u64::try_from(calls)
+        .unwrap_or(0)
+        .saturating_sub(used.len() as u64);
+    Ok(protocol::UsageView {
+        cached: total(|u| u.2),
+        calls: u64::try_from(calls).unwrap_or(0),
+        input,
+        last_input: used
+            .last()
+            .map_or(0, |u| u64::try_from(u.0).unwrap_or(0)),
+        micros,
+        ms: total(|u| u.4),
+        output,
+        reasoning: 0,
+        summary: format!(
+            "{} in, {} out, {}",
+            input,
+            output,
+            money(i64::try_from(micros).unwrap_or(i64::MAX))
+        ),
+        unreported,
+    })
+}
+
+fn days_in_month(year: i32, month: u32) -> u32 {
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1)
+        .and_then(|date| date.pred_opt())
+        .map_or(30, |date| date.day())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn money_rounds_to_the_cent() {
+        assert_eq!(money(0), "$0.00");
+        assert_eq!(money(5_000), "<$0.01");
+        assert_eq!(money(1_234_999), "$1.23");
+        assert_eq!(money(1_235_000), "$1.24");
+    }
 }

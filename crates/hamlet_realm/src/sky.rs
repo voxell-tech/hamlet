@@ -320,8 +320,9 @@ pub struct CameraSettings {
     pub shadow_map: usize,
     /// Distance from the focus before anyone moves it.
     pub distance: f32,
-    /// Distance added for each unit the hamlets lie from their
-    /// middle, so that all of them are in view.
+    /// Distance added for each unit the places of the city and the
+    /// hamlets lie from their middle, so that all of them are in
+    /// view.
     pub spread_distance: f32,
     /// Degrees below the horizon before anyone moves it.
     pub pitch: f32,
@@ -330,7 +331,7 @@ pub struct CameraSettings {
     /// Least and most of the starting distance.
     pub zoom: (f32, f32),
     /// The furthest the camera stands from what it looks at, however
-    /// far apart the hamlets lie.
+    /// far apart the places lie.
     pub reach: f32,
     /// The furthest the focus may slide from the nearest thing
     /// worth looking at.

@@ -15,7 +15,6 @@ use bevy_fynix::{
 
 use crate::theme::{HamletTheme, TextSizes};
 use crate::widgets::effects::Variant;
-use crate::widgets::fade::{FadeSurface, ScrollFade};
 use crate::widgets::icons::{Glyph, glyph};
 use crate::widgets::platform::{DisplayText, Wraps};
 use crate::{AnyView, Cx, View, with_cx};
@@ -353,24 +352,12 @@ pub fn caption(
     })
 }
 
-/// `children` in a column that scrolls, taking the height left. Its
-/// edges fade into the panel while more lies past them.
+/// `children` in a column that scrolls, taking the height left.
 pub fn scroll_area(
     children: impl ViewSeq<Bevy, HamletTheme> + 'static,
 ) -> impl View {
-    scroll_area_on(FadeSurface::default(), children)
-}
-
-/// A [`scroll_area`] on `surface`, its edges fading into it.
-pub fn scroll_area_on(
-    surface: FadeSurface,
-    children: impl ViewSeq<Bevy, HamletTheme> + 'static,
-) -> impl View {
     with_cx(move |cx| {
-        scroll(children)
-            .gap(cx.theme().space.gap)
-            .fills_height()
-            .tagged(ScrollFade { surface })
+        scroll(children).gap(cx.theme().space.gap).fills_height()
     })
 }
 

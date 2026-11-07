@@ -1,0 +1,24 @@
+[package]
+name = "hamlet_sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Commands and file operations confined to a policy, and secrets taken out of what they give back"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_os.workspace = true
+hamlet_workspace_wire.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+hamlet_testing.workspace = true

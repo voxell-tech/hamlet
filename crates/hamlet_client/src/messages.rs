@@ -9,7 +9,7 @@ use hamlet_protocol::client as protocol;
 
 use crate::chats::Chat;
 use crate::outbox::{Outbox, RequestId};
-use crate::realm::address_of;
+use crate::realm::id_of;
 use crate::waits::{Choice, Refused, Waiting};
 
 /// Observers routing the chief's deeds into protocol requests.
@@ -24,7 +24,7 @@ pub fn plugin(app: &mut App) {
                 outbox.send(|id| {
                     protocol::ClientMessage::Say(protocol::Say {
                         id,
-                        to: message.to.clone(),
+                        to: message.to,
                         text: message.text.clone(),
                     })
                 });
@@ -57,11 +57,10 @@ pub fn plugin(app: &mut App) {
         .add_observer(|veto: On<Veto>, mut world: DeferredWorld| {
             let agent = match veto.event().agent {
                 Some(entity) => {
-                    let Some(address) = address_of(&world, entity)
-                    else {
+                    let Some(id) = id_of(&world, entity) else {
                         return;
                     };
-                    Some(address)
+                    Some(id)
                 }
                 None => None,
             };
@@ -97,7 +96,7 @@ pub fn plugin(app: &mut App) {
 /// A chief's typed line addressed to an agent.
 #[derive(Event, Clone, Debug)]
 pub struct ChiefMessage {
-    pub to: protocol::Address,
+    pub to: protocol::AgentId,
     pub text: String,
 }
 

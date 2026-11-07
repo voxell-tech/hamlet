@@ -16,7 +16,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::wire::{
-    self, Bytes, Canonical, Code, Contents, Info, InitHouse, Kind,
+    self, Bytes, Canonical, Code, Contents, Info, InitLodge, Kind,
     LIST_ENTRIES, List, Listed, MAX_BODY, MAX_FILE, Mkdir, Operation,
     Read, Remove, Reply, SetMode, Stat, TREE_BYTES, TREE_ENTRIES,
     TreeEntry, TreeKind, TreeList, TreeWrite, Walk, Walked, Write,
@@ -51,8 +51,8 @@ impl Root {
 
     pub fn perform(&self, operation: Operation) -> Reply {
         match operation {
-            Operation::InitHouse(call) => {
-                answer(self.init_house(call))
+            Operation::InitLodge(call) => {
+                answer(self.init_lodge(call))
             }
             Operation::TreeList(call) => answer(self.tree_list(call)),
             Operation::TreeWrite(call) => {
@@ -131,29 +131,12 @@ impl Root {
             .open(self.real(path))
     }
 
-    fn init_house(&self, _: InitHouse) -> io::Result<()> {
-        let house = folder(&self.dir, "house", false)?;
-        for name in ["skills", "inbox"] {
-            folder(&house, name, true)?;
+    fn init_lodge(&self, _: InitLodge) -> io::Result<()> {
+        let lodge = folder(&self.dir, "lodge", false)?;
+        for name in ["memory", "skills", "inbox"] {
+            folder(&lodge, name, true)?;
         }
-        match openat(
-            &house,
-            "NOTES.md",
-            OFlags::WRONLY
-                | OFlags::CREATE
-                | OFlags::EXCL
-                | OFlags::NOFOLLOW
-                | OFlags::CLOEXEC,
-            Mode::from_raw_mode(0o666),
-        ) {
-            Ok(fd) => {
-                let mut file = File::from(fd);
-                file.write_all(b"# Notes\n")?;
-                file.sync_all()
-            }
-            Err(Errno::EXIST) => Ok(()),
-            Err(error) => Err(error.into()),
-        }
+        Ok(())
     }
 
     fn tree_list(
@@ -698,14 +681,14 @@ mod tests {
 
     use super::*;
 
-    /// A scratch folder holding `house/` and `outside/secret`, with
-    /// `house/link` pointing outside.
+    /// A scratch folder holding `lodge/` and `outside/secret`, with
+    /// `lodge/link` pointing outside.
     fn scratch() -> Scratch {
         let scratch = Scratch::new("files");
-        fs::create_dir_all(scratch.join("house")).unwrap();
+        fs::create_dir_all(scratch.join("lodge")).unwrap();
         fs::create_dir_all(scratch.join("outside")).unwrap();
         fs::write(scratch.join("outside/secret"), "canary").unwrap();
-        symlink(scratch.join("outside"), scratch.join("house/link"))
+        symlink(scratch.join("outside"), scratch.join("lodge/link"))
             .unwrap();
         scratch
     }
@@ -718,32 +701,32 @@ mod tests {
     }
 
     #[test]
-    fn house_operations_refuse_a_link_anywhere_and_tools_follow_it() {
+    fn lodge_operations_refuse_a_link_anywhere_and_tools_follow_it() {
         let scratch = scratch();
         let root = Root::open(&scratch).unwrap();
         let read = |no_follow| {
             root.perform(Operation::Read(Read {
-                path: "/house/link/secret".into(),
+                path: "/lodge/link/secret".into(),
                 no_follow,
             }))
         };
         assert_eq!(code(&read(false)), None);
         assert_eq!(code(&read(true)), Some(Code::Invalid));
         let written = root.perform(Operation::TreeWrite(TreeWrite {
-            path: "/house/link/new/file".into(),
+            path: "/lodge/link/new/file".into(),
             data: Bytes(b"escaped".to_vec()),
             mode: 0o644,
         }));
         assert_eq!(code(&written), Some(Code::Invalid));
         let removed = root.perform(Operation::Remove(Remove {
-            path: "/house/link/secret".into(),
+            path: "/lodge/link/secret".into(),
             recursive: false,
             force: false,
             no_follow: true,
         }));
         assert_eq!(code(&removed), Some(Code::Invalid));
         let mode = root.perform(Operation::SetMode(SetMode {
-            path: "/house/link".into(),
+            path: "/lodge/link".into(),
             mode: 0o700,
         }));
         assert_eq!(code(&mode), Some(Code::Invalid));
@@ -754,13 +737,13 @@ mod tests {
             "canary"
         );
         let removed = root.perform(Operation::Remove(Remove {
-            path: "/house".into(),
+            path: "/lodge".into(),
             recursive: true,
             force: false,
             no_follow: true,
         }));
         assert_eq!(code(&removed), None);
-        assert!(!scratch.join("house").exists());
+        assert!(!scratch.join("lodge").exists());
         assert!(scratch.join("outside/secret").is_file());
     }
 
@@ -770,7 +753,7 @@ mod tests {
         let root = Root::open(&scratch).unwrap();
         let write = || {
             root.perform(Operation::TreeWrite(TreeWrite {
-                path: "/house/a/b/run".into(),
+                path: "/lodge/a/b/run".into(),
                 data: Bytes(vec![0, 255]),
                 mode: 0o751,
             }))
@@ -778,13 +761,13 @@ mod tests {
         assert_eq!(code(&write()), None);
         assert_eq!(code(&write()), Some(Code::AlreadyExists));
         let mode = root.perform(Operation::SetMode(SetMode {
-            path: "/house/a".into(),
+            path: "/lodge/a".into(),
             mode: 0o555,
         }));
         assert_eq!(code(&mode), None);
         let Reply::Ok { value } =
             root.perform(Operation::TreeList(TreeList {
-                path: "/house/a".into(),
+                path: "/lodge/a".into(),
                 entries: 10,
                 bytes: 10,
             }))
@@ -812,7 +795,7 @@ mod tests {
             Some(format!("{:x}", Sha256::digest([0, 255])).as_str())
         );
         fs::set_permissions(
-            scratch.join("house/a"),
+            scratch.join("lodge/a"),
             fs::Permissions::from_mode(0o755),
         )
         .unwrap();

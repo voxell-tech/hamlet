@@ -30,7 +30,7 @@ use bevy_fynix::views::{
 };
 use hamlet_client::realm::{
     Account, Activity, AgentNumber, Busy, Left, LivesIn, Mayor,
-    MergedInto, Mode, Purpose, Roster, Treasury, Works,
+    MergedInto, Mode, Purpose, Roster, Shown, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_realm::chief::{Beside, Look};
@@ -64,7 +64,8 @@ type Doing<'a> = (
 
 /// An agent that lives in a hamlet, that it is at work and that it is
 /// the mayor.
-type Living<'a> = (&'a Name, &'a LivesIn, Has<Busy>, Has<Mayor>);
+type Living<'a> =
+    (Entity, &'a Name, &'a LivesIn, Has<Busy>, Has<Mayor>);
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Card>()
@@ -113,7 +114,7 @@ pub(crate) fn short(text: &str, most: usize) -> String {
 #[derive(SystemParam)]
 pub(crate) struct Told<'w, 's> {
     roster: Roster<'w, 's>,
-    names: Query<'w, 's, &'static Name>,
+    names: Query<'w, 's, (&'static Name, Option<&'static Shown>)>,
     agents: Query<'w, 's, Doing<'static>, With<AgentNumber>>,
     living: Query<
         'w,
@@ -132,7 +133,12 @@ impl Told<'_, '_> {
     fn name(&self, of: Entity) -> String {
         self.names
             .get(of)
-            .map(|name| name.as_str().to_string())
+            .map(|(name, shown)| {
+                shown.map_or_else(
+                    || name.as_str().to_string(),
+                    |shown| shown.0.clone(),
+                )
+            })
             .unwrap_or_default()
     }
 
@@ -140,7 +146,7 @@ impl Told<'_, '_> {
     fn agent_of(&self, thing: Thing) -> Option<(Entity, bool)> {
         match thing {
             Thing::Keeper | Thing::Cottage => {
-                self.roster.mayor().map(|mayor| (mayor, false))
+                self.roster.first_mayor().map(|mayor| (mayor, false))
             }
             Thing::Agent(agent) | Thing::House(agent) => {
                 Some((agent, false))
@@ -150,6 +156,8 @@ impl Told<'_, '_> {
             | Thing::Chief(_)
             | Thing::ChiefPlace(_)
             | Thing::Library
+            | Thing::Hand
+            | Thing::Scholar(_)
             | Thing::Clockwork(_)
             | Thing::Workbench(_) => None,
         }
@@ -178,24 +186,26 @@ impl Told<'_, '_> {
         let people = self
             .living
             .iter()
-            .filter(|(_, lives, ..)| lives.0 == hamlet)
-            .map(|(name, _, busy, mayor)| {
-                (name.as_str(), busy, mayor)
+            .filter(|(_, _, lives, ..)| lives.0 == hamlet)
+            .map(|(agent, name, _, busy, mayor)| {
+                (agent, name.as_str(), busy, mayor)
             })
             .collect::<Vec<_>>();
         let at_work =
-            people.iter().filter(|(_, busy, _)| *busy).count();
+            people.iter().filter(|(_, _, busy, _)| *busy).count();
         let waiting = self
             .waits
             .iter()
-            .filter(|w| people.iter().any(|(n, ..)| *n == w.by))
+            .filter(|w| people.iter().any(|(_, n, ..)| *n == w.by))
             .count();
         let (_, state, tone) =
             standing(people.len(), at_work, waiting);
         let mayor = people
             .iter()
-            .find(|(_, _, mayor)| *mayor)
-            .map(|(name, ..)| format!("Mayor: {name}"))
+            .find(|(_, _, _, mayor)| *mayor)
+            .map(|(agent, ..)| {
+                format!("Mayor: {}", self.name(*agent))
+            })
             .unwrap_or_default();
         Card {
             shown: true,
@@ -293,13 +303,12 @@ impl Told<'_, '_> {
 
     /// The card of a chief's mascot, or of its place.
     fn of_chief(&self, chief: Entity, place: bool) -> Option<Card> {
-        let name =
-            self.names.get(chief).ok()?.as_str().to_uppercase();
+        let name = self.name(chief).to_uppercase();
         let (look, beside) = self.chiefs.get(chief).ok()?;
-        let with =
-            beside.0.and_then(|agent| self.names.get(agent).ok());
-        let (state, tone) = match with {
-            Some(agent) => (format!("With {agent}"), Tone::Accent),
+        let (state, tone) = match beside.0 {
+            Some(agent) => {
+                (format!("With {}", self.name(agent)), Tone::Accent)
+            }
             None => ("At home".to_string(), Tone::Dim),
         };
         Some(Card {
@@ -336,9 +345,9 @@ impl Told<'_, '_> {
             purpose,
             account,
         ) = self.agents.get(agent).ok()?;
-        let name = name.as_str();
+        let address = name.as_str();
         let waiting =
-            self.waits.iter().filter(|w| w.by == name).count();
+            self.waits.iter().filter(|w| w.by == address).count();
         let (state, tone) = match into {
             Some(host) if gone => (
                 format!("Merged into {}", self.name(host.0)),
@@ -361,7 +370,7 @@ impl Told<'_, '_> {
             matches!(hovered, Thing::Keeper | Thing::Agent(_));
         Some(Card {
             shown: true,
-            title: name.to_uppercase(),
+            title: self.name(agent).to_uppercase(),
             state,
             tone,
             purpose: purpose
@@ -407,7 +416,7 @@ impl Told<'_, '_> {
                 let (agent, ruin) = self.agent_of(thing)?;
                 self.of_agent(agent, ruin, thing)
             }
-            Thing::Library => None,
+            Thing::Library | Thing::Hand | Thing::Scholar(_) => None,
         }
     }
 }

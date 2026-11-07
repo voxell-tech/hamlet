@@ -37,10 +37,6 @@ use super::timeline::{Line, People, Who, timeline};
 use super::{AwayFromEnd, ChatScroll, bubble};
 use crate::convo::Convo;
 
-/// Messages are people talking, so they get the width of a readable
-/// line.
-const LINE: f32 = 760.0;
-
 /// The least width the conversation is laid out at. A panel
 /// narrower than this cuts it off.
 const LEAST: f32 = 240.0;
@@ -237,7 +233,11 @@ pub(super) fn fold_view(
     .within(
         column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
     );
-    column((head, inside)).gap(4.0).align(AlignItems::FlexStart)
+    column((head, inside))
+        .gap(4.0)
+        .align(AlignItems::FlexStart)
+        .width(percent(100.0))
+        .min_width(px(0.0))
 }
 
 /// The identity of a row for as long as it is the same row: the agent
@@ -710,8 +710,7 @@ pub fn transcript() -> impl View {
         column(())
             .gap(GAP)
             .width(percent(100.0))
-            .min_width(px(LEAST))
-            .max_width(px(LINE)),
+            .min_width(px(LEAST)),
     );
     let said = scroll((
         note(resource::<Lines, _>(|l| {
@@ -765,9 +764,7 @@ pub fn transcript() -> impl View {
     let corner = overlay((back,))
         .justify(JustifyContent::FlexEnd)
         .align(AlignItems::FlexEnd);
-    column((bubble::header(), column((said, corner)).fills_height()))
-        .fills_height()
-        .gap(6.0)
+    column((said, corner)).fills_height()
 }
 
 /// A row of the chat.

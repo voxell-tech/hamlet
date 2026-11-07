@@ -17,15 +17,13 @@ use bevy::ui::{
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
-    label, number_field, row, scroll, slider,
+    FrameProps, TooltipExt, column, dropdown, frame, label,
+    number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_client::messages::{ChiefMessage, Reconnected, Response};
+use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{
-    Confinement, Grants, HOME, MAYOR, Settings,
-};
+use hamlet_client::realm::{Confinement, Grants, Settings};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::{Effort, client as protocol};
@@ -35,7 +33,6 @@ use hamlet_ui::styles::{
     close, description, hairline, list, nav_list, note, parts,
     section, small_rules, text_input,
 };
-use hamlet_ui::widgets::fade::ScrollFade;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
@@ -55,6 +52,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<CharterRequests>()
     .add_observer(charter_received)
     .add_observer(charter_saved)
+    .add_observer(default_character_saved)
     .add_observer(
         |_: On<Reconnected>,
          pane: Res<Pane>,
@@ -141,14 +139,13 @@ impl Pane {
                 "Where models come from, and their keys."
             }
             Pane::Models => {
-                "The default model, which models are allowed and \
-                 their prices."
+                "The default model and the models' prices."
             }
             Pane::Agents => {
                 "Reflection, network access and keeping awake."
             }
             Pane::Workspace => {
-                "Where agents' commands run and their houses are \
+                "Where agents' commands run and their lodges are \
                  kept."
             }
             Pane::Charter => "What every agent is told.",
@@ -189,8 +186,57 @@ fn not_enforced() -> AnyView {
     .boxed()
 }
 
-const EFFORTS: [(Option<Effort>, &str); 6] =
+const EFFORTS: [(Option<Effort>, &str); 8] =
     crate::models::efforts("Model's own");
+
+/// Who can let a scholar into the city, as the pick shows them.
+const NEWCOMERS: [(protocol::Newcomers, &str); 3] = [
+    (protocol::Newcomers::Open, "Anyone"),
+    (protocol::Newcomers::Chief, "A chief"),
+    (protocol::Newcomers::Hand, "The Hand"),
+];
+
+/// The most letters of the default character shown under its edit.
+const CHARACTER_SHOWN: usize = 90;
+
+/// The longest default character the server takes, in letters.
+const CHARACTER_MOST: usize = 4000;
+
+/// The key of the default character in the editor.
+const CHARACTER_KEY: &str = "default-character";
+
+/// The start of `text` on one line.
+fn start_of(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    match flat.char_indices().nth(CHARACTER_SHOWN) {
+        Some((cut, _)) => format!("{}...", &flat[..cut]),
+        None => flat,
+    }
+}
+
+/// Opens the default character in the editor.
+fn edit_default_character(world: &mut World) {
+    let text = world.resource::<Settings>().0.character.clone();
+    world.trigger(Edit {
+        key: CHARACTER_KEY.into(),
+        text,
+    });
+    world.flush();
+}
+
+/// Sends the default character the editor saved.
+fn default_character_saved(
+    edited: On<Edited>,
+    mut commands: bevy::ecs::system::Commands,
+) {
+    if edited.key != CHARACTER_KEY {
+        return;
+    }
+    let text = edited.text.chars().take(CHARACTER_MOST).collect();
+    commands.queue(move |world: &mut World| {
+        save(world, |set| set.character = Some(text));
+    });
+}
 
 /// The settings of agents. Each applies when changed.
 fn agents() -> impl View {
@@ -241,6 +287,70 @@ fn agents() -> impl View {
                     "How hard models think by default; an agent's \
                      own choice wins.",
                 ),
+            ),
+        ),
+        field(
+            "Newcomers",
+            told(
+                built(|cx| {
+                    cx.build(
+                        dropdown(
+                            NEWCOMERS.map(|(_, name)| name),
+                            resource::<Settings, _>(|s| {
+                                NEWCOMERS
+                                    .iter()
+                                    .position(|(who, _)| {
+                                        *who == s.0.newcomers
+                                    })
+                                    .unwrap_or_default()
+                            }),
+                            Glyph::Chevron.image(ICON),
+                            |world, at| {
+                                save(world, |set| {
+                                    set.newcomers =
+                                        Some(NEWCOMERS[at].0);
+                                });
+                            },
+                        )
+                        .width(px(160.0)),
+                    )
+                }),
+                description(resource::<Settings, _>(|s| {
+                    match s.0.newcomers {
+                        protocol::Newcomers::Open => {
+                            "A scholar an agent makes moves in at \
+                             once."
+                        }
+                        protocol::Newcomers::Chief => {
+                            "A scholar an agent makes waits at the \
+                             harbor until a chief welcomes it."
+                        }
+                        protocol::Newcomers::Hand => {
+                            "The Hand lets a scholar in or turns it \
+                             away. You can undo what it decides."
+                        }
+                    }
+                    .to_string()
+                })),
+            ),
+        ),
+        field(
+            "Default character",
+            told(
+                action(Glyph::Rename, "EDIT", edit_default_character)
+                    .tooltip(|| {
+                        note("Opens the text in your editor")
+                    }),
+                note(resource::<Settings, _>(|s| {
+                    if s.0.character.is_empty() {
+                        "A scholar made blank starts empty.".into()
+                    } else {
+                        format!(
+                            "A scholar made blank starts from: {}",
+                            start_of(&s.0.character)
+                        )
+                    }
+                })),
             ),
         ),
         field(
@@ -299,7 +409,21 @@ fn permissions() -> AnyView {
                     .filter(|grant| {
                         grant.source == protocol::GrantSource::Grant
                     })
-                    .cloned()
+                    .map(|grant| {
+                        let shown = hamlet_client::realm::named(
+                            world,
+                            &grant.name,
+                        )
+                        .map_or_else(
+                            || grant.name.clone(),
+                            |agent| {
+                                hamlet_client::realm::shown_of(
+                                    world, agent,
+                                )
+                            },
+                        );
+                        (grant.clone(), shown)
+                    })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default()
@@ -315,20 +439,15 @@ fn permissions() -> AnyView {
         }
         let rows = held
             .iter()
-            .map(|grant| {
+            .map(|(grant, shown)| {
                 let agent = grant.name.clone();
                 let permission = match grant.permission {
                     protocol::Permission::Network => "network",
                     protocol::Permission::Unconfined => "unconfined",
                 };
                 let by = grant.by.as_deref().unwrap_or("limits");
-                let hamlet = grant
-                    .agent
-                    .as_ref()
-                    .map(|agent| agent.hamlet.clone())
-                    .unwrap_or_else(|| HOME.into());
                 let says = format!(
-                    "{agent} may use: {permission} (given by {by})"
+                    "{shown} may use: {permission} (given by {by})"
                 );
                 with_cx(move |cx| {
                     row((
@@ -337,16 +456,13 @@ fn permissions() -> AnyView {
                             Glyph::Cross,
                             "REVOKE",
                             move |world| {
-                                world.trigger(ChiefMessage {
-                                    to: protocol::Address {
-                                        hamlet: hamlet.clone(),
-                                        agent: MAYOR.into(),
-                                    },
-                                    text: format!(
+                                crate::chat::command(
+                                    world,
+                                    format!(
                                         "/revoke {agent} \
                                          {permission}"
                                     ),
-                                });
+                                );
                                 world.flush();
                             },
                         ),
@@ -367,7 +483,7 @@ fn permissions() -> AnyView {
 #[derive(Resource, Default, PartialEq)]
 pub struct Charter {
     pub text: String,
-    /// The home keeps one of its own.
+    /// The realm keeps one of its own.
     pub own: bool,
 }
 
@@ -517,7 +633,7 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
         ),
         note(resource::<Charter, _>(|charter| {
             if charter.own {
-                "The home's own charter.".to_string()
+                "The realm's own charter.".to_string()
             } else {
                 "The default charter.".to_string()
             }
@@ -540,7 +656,9 @@ fn save(
     let mut set = protocol::EditSettingsSet {
         model: None,
         endpoints: None,
+        character: None,
         effort: None,
+        newcomers: None,
         reflect_every: None,
         allow_net: None,
         workspace: None,
@@ -705,15 +823,10 @@ pub fn screen() -> AnyView {
             page.within(column(()).gap(0.0).max_width(px(width)));
         // It scrolls down only: a page is laid out to the panel's
         // width.
-        cx.build(
-            scroll((page,))
-                .fills_height()
-                .overflow(Overflow {
-                    x: OverflowAxis::Clip,
-                    y: OverflowAxis::Scroll,
-                })
-                .tagged(ScrollFade::default()),
-        )
+        cx.build(scroll((page,)).fills_height().overflow(Overflow {
+            x: OverflowAxis::Clip,
+            y: OverflowAxis::Scroll,
+        }))
     })
 }
 
@@ -812,17 +925,14 @@ mod tests {
         );
     }
     #[test]
-    fn received_grants_show_the_giver_and_revoke_through_the_mayor() {
+    fn received_grants_show_the_giver_and_revoke_through_the_hand() {
         let mut app = settings_page(Pane::Agents);
         assert!(words_and_spans(&mut app).iter().any(|text| text
             == "None yet. Choosing Always Allow on a petition \
                 adds one."));
         let grant = protocol::Grant {
-            agent: Some(protocol::AgentRef {
-                hamlet: "home".into(),
-                number: 0,
-            }),
-            name: "founder".into(),
+            agent: Some(protocol::AgentId(2)),
+            name: "home#0".into(),
             permission: protocol::Permission::Network,
             by: Some("chief".into()),
             source: protocol::GrantSource::Grant,
@@ -838,13 +948,15 @@ mod tests {
             }),
         );
         settle(&mut app);
-        assert!(words_and_spans(&mut app).iter().any(|text| text
-            == "founder may use: network (given by chief)"));
+        assert!(
+            words_and_spans(&mut app).iter().any(|text| text
+                == "ada may use: network (given by chief)")
+        );
         crate::testing::press(&mut app, "REVOKE");
         assert_eq!(
             requests(&mut app),
             [serde_json::json!({
-                "type": "say", "to": {"hamlet": "home", "agent": "mayor"}, "text": "/revoke founder network"
+                "type": "say", "to": 1, "text": "/revoke home#0 network"
             })]
         );
     }
@@ -861,7 +973,7 @@ mod tests {
                 changes: vec![protocol::Update::Grants {
                     grants: vec![protocol::Grant {
                         agent: None,
-                        name: "founder".into(),
+                        name: "home#0".into(),
                         permission: protocol::Permission::Network,
                         by: None,
                         source: protocol::GrantSource::Limits,
@@ -883,7 +995,7 @@ mod tests {
     }
 
     #[test]
-    fn the_charter_page_reads_the_server_text_and_whether_the_home_keeps_its_own()
+    fn the_charter_page_reads_the_server_text_and_whether_the_realm_keeps_its_own()
      {
         let mut app = settings_page(Pane::Charter);
         let sent = app
@@ -918,7 +1030,7 @@ mod tests {
         assert!(
             shown
                 .iter()
-                .any(|text| text == "The home's own charter."),
+                .any(|text| text == "The realm's own charter."),
             "{shown:?}"
         );
         assert!(
@@ -971,7 +1083,7 @@ mod tests {
         assert_eq!(edits[0].key, "charter");
         assert_eq!(edits[0].text, "Keep the orchard kind.");
         app.world_mut().trigger(Edited {
-            key: "founder-character".into(),
+            key: "default-character-other".into(),
             text: "Ignore this save".into(),
         });
         assert!(requests(&mut app).is_empty());

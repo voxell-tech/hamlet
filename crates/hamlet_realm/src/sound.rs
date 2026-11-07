@@ -130,8 +130,7 @@ pub struct SoundSettings {
     pub magic: f32,
     /// Balloons and the thinking light.
     pub talk: f32,
-    /// Agents made, removed and restored, votes, mayors and new
-    /// hamlets.
+    /// Agents made, removed and restored, mayors and new hamlets.
     pub lives: f32,
     /// The chief's answers, and a stop.
     pub answers: f32,

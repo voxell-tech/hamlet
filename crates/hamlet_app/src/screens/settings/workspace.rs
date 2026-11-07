@@ -1,4 +1,4 @@
-//! The Workspace page: where agents' commands run and their houses
+//! The Workspace page: where agents' commands run and their lodges
 //! are kept.
 
 use bevy::app::{App, PreUpdate};
@@ -51,7 +51,7 @@ struct Draft {
     token: String,
     saving: Option<protocol::RequestId>,
     saved: bool,
-    /// The move of the houses asked for and not yet answered.
+    /// The move of the lodges asked for and not yet answered.
     moving: Option<protocol::RequestId>,
     refusal: String,
 }
@@ -88,7 +88,9 @@ fn save(world: &mut World) {
                 workspace: Some(workspace),
                 model: None,
                 endpoints: None,
+                character: None,
                 effort: None,
+                newcomers: None,
                 reflect_every: None,
                 allow_net: None,
             },
@@ -100,11 +102,11 @@ fn save(world: &mut World) {
     draft.refusal.clear();
 }
 
-/// Asks the server to copy the houses to the saved workspace. The
+/// Asks the server to copy the lodges to the saved workspace. The
 /// settings it sends show how far it has come.
-fn move_houses(world: &mut World) {
+fn move_lodges(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        protocol::ClientMessage::MoveHouses(protocol::MoveHouses {
+        protocol::ClientMessage::MoveLodges(protocol::MoveLodges {
             id,
         })
     });
@@ -164,14 +166,14 @@ fn pending(settings: &Settings) -> String {
     }
 }
 
-/// The latest move of the houses, as the server tells it.
+/// The latest move of the lodges, as the server tells it.
 fn move_of(
     settings: &Settings,
 ) -> Option<&protocol::SettingsViewWorkspaceMove> {
     settings.0.workspace.moving.as_ref()
 }
 
-/// What moving the houses does, how far it has come or how it ended.
+/// What moving the lodges does, how far it has come or how it ended.
 /// A failure is the refusal's to tell.
 fn progress(settings: &Settings) -> String {
     use protocol::SettingsViewWorkspaceMoveState as State;
@@ -181,7 +183,7 @@ fn progress(settings: &Settings) -> String {
     match move_of(settings) {
         Some(latest) if latest.state == State::Moving => {
             format!(
-                "Moving houses: {} of {}.",
+                "Moving lodges: {} of {}.",
                 latest.done, latest.of
             )
         }
@@ -195,14 +197,14 @@ fn progress(settings: &Settings) -> String {
                 "this computer"
             };
             format!(
-                "Copies every agent's house to {to}, replacing the \
-                 houses there."
+                "Copies every agent's lodge to {to}, replacing the \
+                 lodges there."
             )
         }
     }
 }
 
-/// The button that moves the houses to the saved workspace, while it
+/// The button that moves the lodges to the saved workspace, while it
 /// waits for a restart and no move runs.
 fn moving() -> AnyView {
     keyed(
@@ -215,7 +217,7 @@ fn moving() -> AnyView {
         }),
         |offered| {
             if *offered {
-                action(Glyph::Move, "MOVE HOUSES", move_houses)
+                action(Glyph::Move, "MOVE LODGES", move_lodges)
             } else {
                 frame().boxed()
             }
@@ -275,10 +277,10 @@ pub(super) fn page() -> impl View {
                 description(resource::<Draft, _>(|draft| {
                     if draft.remote {
                         "Agents' commands run on a remote server, \
-                         and their houses are kept there."
+                         and their lodges are kept there."
                     } else {
                         "Agents' commands run on this computer, and \
-                         their houses are kept here."
+                         their lodges are kept here."
                     }
                     .to_string()
                 })),
@@ -298,7 +300,7 @@ pub(super) fn page() -> impl View {
     ))
 }
 
-/// Moving the houses, once a saved workspace waits for a restart.
+/// Moving the lodges, once a saved workspace waits for a restart.
 fn moved() -> impl View {
     beside((moving(), note(resource::<Settings, _>(progress))))
 }
@@ -517,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn houses_move_to_the_saved_workspace_with_their_progress_and_refusal_shown()
+    fn lodges_move_to_the_saved_workspace_with_their_progress_and_refusal_shown()
      {
         use protocol::SettingsViewWorkspaceMoveState as State;
         let url = Some("https://workspace.example");
@@ -529,24 +531,24 @@ mod tests {
             words_and_spans(app).iter().any(|shown| shown == text)
         };
         // Nothing waits for a restart, so nothing moves.
-        assert!(!said(&mut app, "MOVE HOUSES"));
+        assert!(!said(&mut app, "MOVE LODGES"));
         received(&mut app, 3, url, None);
         assert!(said(
             &mut app,
-            "Copies every agent's house to the remote server, \
-             replacing the houses there."
+            "Copies every agent's lodge to the remote server, \
+             replacing the lodges there."
         ));
         requests(&mut app);
-        press(&mut app, "MOVE HOUSES");
-        let Some(protocol::ClientMessage::MoveHouses(
-            protocol::MoveHouses { id },
+        press(&mut app, "MOVE LODGES");
+        let Some(protocol::ClientMessage::MoveLodges(
+            protocol::MoveLodges { id },
         )) = app.world().resource::<Outbox>().iter().next().cloned()
         else {
             panic!("no move was sent");
         };
         assert_eq!(
             requests(&mut app),
-            [serde_json::json!({"type": "move-houses"})]
+            [serde_json::json!({"type": "move-lodges"})]
         );
         let moving = |done, state, text: &str| {
             Some(protocol::SettingsViewWorkspaceMove {
@@ -563,8 +565,8 @@ mod tests {
             None,
             moving(1, State::Moving, ""),
         );
-        assert!(said(&mut app, "Moving houses: 1 of 2."));
-        let stopped = "The house of agent 1 in home was not moved.";
+        assert!(said(&mut app, "Moving lodges: 1 of 2."));
+        let stopped = "The lodge of home#1 was not moved.";
         received_moving(
             &mut app,
             5,
@@ -589,7 +591,7 @@ mod tests {
                 .count(),
             1
         );
-        let moved = "Moved 2 houses to the remote server.";
+        let moved = "Moved 2 lodges to the remote server.";
         received_moving(
             &mut app,
             6,

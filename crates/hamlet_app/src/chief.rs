@@ -1,6 +1,6 @@
 //! The chief in the panels (docs/chief.md): the company its mascot
 //! keeps, the look kept between launches, and the chief's page of the
-//! Inspector.
+//! Hub.
 
 use bevy::app::{App, PreUpdate, Startup, Update};
 use bevy::color::Color;
@@ -17,11 +17,13 @@ use bevy::math::Vec3;
 use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, frame, label, row,
+    BehaviorExt, FrameProps, button, column, dropdown, frame, label,
+    row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
 use hamlet_client::ViewFolder;
 use hamlet_client::messages::ChiefMessage;
+use hamlet_client::realm::Identity;
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
@@ -29,10 +31,10 @@ use hamlet_realm::generator::society::Ground;
 use hamlet_realm::library::{Library, Stood};
 use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
-use hamlet_realm::pick::{Selected, Thing, focus_on, select};
+use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    Fills, action, breadcrumb, buttons, choice, choices, description,
-    filling, group, note, scroll_area, section, title,
+    Fills, ICON, breadcrumb, choice, description, filling, group,
+    scroll_area, section, title,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
@@ -99,7 +101,7 @@ pub(crate) fn go_home(world: &mut World) {
     };
     let thing = Thing::ChiefPlace(chief);
     select(world, Some(thing));
-    focus_on(world, thing, false);
+    bring_into_view(world, thing);
 }
 
 /// The company of the mascot of a chief who has chosen `selected`,
@@ -146,9 +148,12 @@ pub(crate) fn accompany(
 pub(crate) fn spoke(
     message: On<ChiefMessage>,
     convo: Res<Convo>,
+    identities: Query<&Identity>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
-    if message.to != convo.to {
+    if identities.get(convo.agent).map(|identity| identity.0)
+        != Ok(message.to)
+    {
         return;
     }
     for (chief, mut beside) in &mut chiefs {
@@ -189,8 +194,7 @@ fn facts(world: &World, chief: Entity) -> Option<Facts> {
     let with = world
         .get::<Beside>(chief)
         .and_then(|beside| beside.0)
-        .and_then(|agent| world.get::<Name>(agent))
-        .map(|name| name.as_str().to_string());
+        .map(|agent| hamlet_client::realm::shown_of(world, agent));
     let own;
     let pal = match world.get_resource::<Palette>() {
         Some(pal) => pal,
@@ -279,22 +283,24 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View + use<> {
             })
         })
         .collect::<Vec<_>>();
-    let hats = choices(
+    let hats = dropdown(
         Hat::ALL.map(Hat::name),
         Hat::ALL
             .iter()
             .position(|hat| *hat == look.hat)
             .unwrap_or(0),
+        Glyph::Chevron.image(ICON),
         move |world, at| {
             change(world, chief, |look| look.hat = Hat::ALL[at]);
         },
     );
-    let held = choices(
+    let held = dropdown(
         Holds::ALL.map(Holds::name),
         Holds::ALL
             .iter()
             .position(|holds| *holds == look.holds)
             .unwrap_or(0),
+        Glyph::Chevron.image(ICON),
         move |world, at| {
             change(world, chief, |look| look.holds = Holds::ALL[at]);
         },
@@ -340,7 +346,7 @@ pub fn panel(chief: Entity) -> AnyView {
         };
         let views = (
             breadcrumb(
-                vec!["HAMLETS".into()],
+                vec!["REALM".into()],
                 facts.name.to_uppercase(),
                 |world, _| select(world, None),
             ),
@@ -352,12 +358,6 @@ pub fn panel(chief: Entity) -> AnyView {
                 "This is you. Whoever you talk to knows your mascot \
                  as Wickstep.",
             ),
-            note(facts.look.words()),
-            buttons(vec![action(
-                Glyph::Hearth,
-                "THE HEARTH",
-                go_home,
-            )]),
             scroll_area((wardrobe(chief, facts),)),
         );
         with_cx(move |cx| {
@@ -415,8 +415,7 @@ mod tests {
         library.write_at(&Stood::file(&dir.join("view"))).unwrap();
         let make = || {
             let mut app = App::new();
-            let agent =
-                app.world_mut().spawn(Name::new("founder")).id();
+            let agent = app.world_mut().spawn(Name::new("ada")).id();
             let chat = app.world_mut().spawn_empty().id();
             app.insert_resource(ViewFolder(dir.join("view")))
                 .insert_resource(

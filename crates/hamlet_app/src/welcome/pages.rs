@@ -9,11 +9,10 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_ui::styles::{
     self, back, back_link, bare, beside, description, good_action,
-    group, headed, marked, nav_card, note, pad, parts,
-    scroll_area_on, small_rules, text_input,
+    group, headed, marked, nav_card, note, pad, parts, scroll_area,
+    small_rules, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::fade::FadeSurface;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
@@ -135,9 +134,9 @@ fn offered(id: &str) -> AnyView {
 fn models() -> AnyView {
     let list = keyed(
         resource::<Welcome, _>(|welcome| {
-            narrowed(welcome.models.iter(), &welcome.narrow)
+            narrowed(welcome.models.iter(), &welcome.narrow, 0)
         }),
-        |(ids, more)| {
+        |(ids, _, pages)| {
             let mut rows =
                 ids.iter().map(|id| offered(id)).collect::<Vec<_>>();
             if ids.is_empty() {
@@ -145,11 +144,11 @@ fn models() -> AnyView {
                     "No model has those words in its name.",
                 ));
             }
-            if *more > 0 {
-                rows.push(said(format!(
-                    "{more} more. Type part of a name to narrow \
-                     them."
-                )));
+            if *pages > 1 {
+                rows.push(said(
+                    "There are more. Type part of a name to narrow \
+                     them.",
+                ));
             }
             group(rows).boxed()
         },
@@ -243,12 +242,9 @@ fn screen() -> AnyView {
 fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
-    let card = column((scroll_area_on(
-        FadeSurface::Card,
-        (column((page,))
-            .gap(0.0)
-            .padding(UiRect::all(px(space.overlay_padding))),),
-    ),))
+    let card = column((scroll_area((column((page,))
+        .gap(0.0)
+        .padding(UiRect::all(px(space.overlay_padding))),)),))
     .width(percent(100.0))
     .max_width(px(space.overlay_width))
     .max_height(percent(100.0))

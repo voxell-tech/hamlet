@@ -1,886 +1,477 @@
-//! Connection-owned file uploads and chief skill gifts (H25, H28).
-//! Uploads are staged on this machine; every delivery runs apart from
-//! the service loop on the houses' workspace.
+//! What a chief gives (C14): files sent in parts to an agent's
+//! `inbox/`, and skills committed to a scholar's `main` from a
+//! starter, the library, another scholar or a hire's lodge.
 
-mod rules;
-#[cfg(test)]
-mod tests;
-
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::time::{Duration, Instant};
+use std::collections::HashMap;
 
 use anyhow::Result;
-use hamlet_os::fs::{Missing, Mode};
+use base64::Engine as _;
+use hamlet_git::{Change as GitChange, MAIN, Repository};
 use hamlet_protocol::client::{
-    self as protocol, Address, ClientMessage, Give, GiveFile,
-    GivePart, GiveSkillSource, RequestId, ServerMessage,
+    GiveFile, GivePart, GiveSkillSource, Keeper, RequestId,
+    ServerMessage,
 };
-use hamlet_workspace_wire::{Code, TREE_ENTRIES, TreeKind};
-use rules::{DELIVERY, MAX_BYTES, MISMATCH, STAGING, UNKNOWN};
-use serde_json::Value;
+use hamlet_store::ids::{Actor, AgentId, ScholarId};
 
-use crate::harness::Harnesses;
-use crate::papers::copy::{Snapshot, Stopped, UNSAFE};
-use crate::papers::files::Files;
-use crate::papers::tree::{self, Entry};
-use crate::protocol::{Refusable, Refusal, reply};
-use crate::record::AgentRef;
-use crate::service::Service;
+use crate::clients::check::reply;
+use crate::core::Core;
+use crate::knowledge;
+use crate::knowledge::folder::{Folder, remove_folder};
+use crate::society::refusal::Refusal;
+use crate::society::{addresses, authority, city};
+use crate::talk::chats;
 
-/// The most files and folders a skill gift copies at once.
-const SKILL_ENTRIES: usize = 4096;
+/// The most a file gift may hold, together.
+const MOST_BYTES: u64 = 32 * 1024 * 1024;
+/// The most files one gift may hold.
+const MOST_FILES: usize = 1000;
 
+/// The file gifts being sent.
 #[derive(Default)]
-pub(crate) struct Uploads {
-    pending: HashMap<String, Upload>,
-    pub tasks: tokio::task::JoinSet<Completed>,
-    pub working: HashSet<(u64, RequestId)>,
+pub(crate) struct Gifts {
+    uploads: HashMap<String, Upload>,
 }
 
 struct Upload {
-    connection: u64,
-    to: Address,
-    agent: AgentRef,
+    client: u64,
+    /// The request that began it, which its delivery answers too.
     id: RequestId,
-    bytes: u64,
-    touched: Instant,
-    files: Vec<(GiveFile, u64)>,
-    stage: tree::Stage,
+    to: AgentId,
+    files: Vec<GiveFile>,
+    /// The bytes each file holds so far, by path.
+    received: HashMap<String, u64>,
 }
 
-enum Progress {
-    Pending,
-    Waiting(String),
-    Received,
-    Delivered {
-        id: RequestId,
-        agent: AgentRef,
-        paths: Vec<String>,
-    },
-    Given(String),
-}
-
-/// A skill gift between its steps: whom it is for, and where its
-/// skill comes from.
-pub(crate) struct Skill {
-    to: Address,
-    target: AgentRef,
-    /// The receiver's name in the record.
-    receiver: String,
-    from: Option<(Address, AgentRef)>,
-    giver: Option<String>,
-    name: String,
-    house: Files,
-    source: Option<Files>,
-}
-
-/// A gift step that finished apart from the service loop.
-pub(crate) enum Completed {
-    Began {
-        connection: u64,
-        id: RequestId,
-        token: String,
-        result: Result<()>,
-    },
-    Files {
-        connection: u64,
-        id: RequestId,
-        original: RequestId,
-        agent: AgentRef,
-        result: Result<Vec<String>>,
-    },
-    Prepared {
-        connection: u64,
-        id: RequestId,
-        gift: Skill,
-        snapshot: Refusable<Snapshot>,
-    },
-    Delivered {
-        connection: u64,
-        id: RequestId,
-        gift: Skill,
-        result: Result<Vec<String>>,
-    },
-}
-
-impl Uploads {
-    pub fn gone(&mut self, connection: u64) {
-        self.pending.retain(|_, u| u.connection != connection);
-        self.working.retain(|(client, _)| *client != connection);
-    }
-
-    pub fn expire(&mut self) {
-        self.pending.retain(|_, u| {
-            self.working.contains(&(u.connection, u.id.clone()))
-                || u.touched.elapsed() < Duration::from_secs(60)
+impl Gifts {
+    /// Drops what the connection `client` was sending.
+    pub fn disconnect(
+        &mut self,
+        client: u64,
+        staging: &std::path::Path,
+    ) {
+        self.uploads.retain(|upload, found| {
+            let keep = found.client != client;
+            if !keep {
+                let _ = remove_folder(&staging.join(upload));
+            }
+            keep
         });
     }
 }
 
-fn refused(words: impl Into<String>) -> Refusal {
-    Refusal::Invalid(words.into())
+/// Whether `path` is a plain relative path of names.
+fn is_plain(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains('\\')
+        && path.split('/').all(|part| {
+            !part.is_empty() && part != "." && part != ".."
+        })
 }
 
-/// The chief's words for a delivery that failed: the copy's own where
-/// it may have changed the target, else that nothing was handed over.
-fn undelivered(error: &anyhow::Error) -> Refusal {
-    match error.downcast_ref::<Stopped>() {
-        Some(stopped) => refused(stopped.0),
-        None => refused(DELIVERY),
-    }
-}
-
-/// Handles the gift protocol, including admission of its completed
-/// file letter.
-pub(crate) async fn request(
-    service: &mut Service,
-    harnesses: &mut Harnesses,
-    connection: u64,
-    message: &ClientMessage,
-) -> Result<Option<ServerMessage>> {
-    let (id, progress) = match message {
-        ClientMessage::Give(Give::Skill { id, to, skill }) => {
-            let (name, from) = match skill {
-                GiveSkillSource::Starter { starter } => {
-                    (starter, None)
-                }
-                GiveSkillSource::From { from, name } => {
-                    (name, Some(from))
-                }
-            };
-            (id, service.gift_skill(connection, id, to, name, from)?)
-        }
-        ClientMessage::Give(Give::Files { id, to, files }) => {
-            (id, service.gift_begin(connection, id, to, files)?)
-        }
-        ClientMessage::GivePart(part) => {
-            (&part.id, service.gift_part(connection, part)?)
-        }
-        _ => return Ok(None),
-    };
-    receipt(service, harnesses, id, progress).await
-}
-
-/// Starts the chief's gift of the skill `name` to `to`, from `from`'s
-/// house or the starters; the answer comes once it is delivered.
-pub(crate) fn skill(
-    service: &mut Service,
-    connection: u64,
-    id: &RequestId,
-    to: &Address,
-    name: &str,
-    from: Option<&Address>,
-) -> Result<Option<ServerMessage>> {
-    Ok(match service.gift_skill(connection, id, to, name, from)? {
-        Err(error) => Some(reply(id, Err(error))),
-        Ok(_) => None,
-    })
-}
-
-async fn receipt(
-    service: &mut Service,
-    harnesses: &mut Harnesses,
-    id: &RequestId,
-    progress: Refusable<Progress>,
-) -> Result<Option<ServerMessage>> {
-    let progress = match progress {
-        Ok(progress) => progress,
-        Err(error) => return Ok(Some(reply(id, Err(error)))),
-    };
-    let mut upload = None;
-    let text = match progress {
-        Progress::Pending => return Ok(None),
-        Progress::Waiting(token) => {
-            upload = Some(token);
-            "Ready for the gift's file parts.".into()
-        }
-        Progress::Received => "Received the gift part.".into(),
-        Progress::Delivered { id, agent, paths } => {
-            let paths = paths
-                .iter()
-                .map(|p| format!("`inbox/{p}`"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let mut line = Value::String(format!(
-                "I handed you {paths} in your workspace. Read it \
-                 and do what it asks. If it asks for nothing, tell \
-                 me in a few lines what it is."
-            ));
-            service.credentials.scrub(&mut line);
-            crate::chats::admit_line(
-                service,
-                harnesses,
-                &id,
-                &agent,
-                line.as_str().unwrap_or_default(),
-            )
-            .await?;
-            format!("Handed over {paths}.")
-        }
-        Progress::Given(text) => text,
-    };
-    let mut answer = reply(id, Ok(text));
-    if let ServerMessage::Reply(answer) = &mut answer {
-        answer.upload = upload;
-    }
-    Ok(Some(answer))
-}
-
-/// The folder `name` of `house`, made where it is missing, whose
-/// `roots` are not links.
-async fn shelf(
-    house: &Files,
-    name: &str,
-    roots: &[String],
-) -> Result<Files> {
-    let shelf = house.directory(name, true).await?;
-    for root in roots {
-        anyhow::ensure!(
-            shelf.kind(root).await? != Some(TreeKind::Link),
-            "linked gift target"
-        );
-    }
-    Ok(shelf)
-}
-
-impl Service {
-    pub(crate) fn prepare_gifts(&self) -> Result<()> {
-        tree::sweep(self.houses.root())
-    }
-
-    fn gift_begin(
+impl Core {
+    /// Begins a gift of `files` to `to`'s inbox; its reply names the
+    /// upload its parts are sent under.
+    pub(crate) fn give_files(
         &mut self,
-        connection: u64,
+        client: u64,
         id: &RequestId,
-        to: &Address,
-        files: &[GiveFile],
-    ) -> Result<Refusable<Progress>> {
-        use std::io::Write;
-        let target = match self.agent(to, "give")? {
-            Ok(a) => a,
-            Err(e) => return Ok(Err(e)),
-        };
-        let bytes = match rules::manifest(files) {
-            Ok(n) => n,
-            Err(unfit) => return Ok(Err(refused(unfit.to_string()))),
-        };
-        for file in files {
-            if let Err(words) = self.houses.admits(file.size) {
-                return Ok(Err(refused(words.to_string())));
-            }
+        to: AgentId,
+        files: Vec<GiveFile>,
+    ) -> Result<ServerMessage> {
+        if let Err(refusal) = self.reaches(to)? {
+            return Ok(reply(id, Err(refusal)));
         }
-        let agent = AgentRef {
-            hamlet: to.hamlet.clone(),
-            number: target.number,
-        };
-        self.gifts.expire();
-        if self
-            .gifts
-            .pending
-            .values()
-            .filter(|u| u.connection == connection)
-            .count()
-            >= 3
-        {
-            return Ok(Err(refused(
-                "This connection already has three file gifts \
-                 waiting. Finish one before starting another.",
-            )));
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        if knowledge::lodging(db, &layout, to).is_err() {
+            return Ok(reply(
+                id,
+                Err(Refusal::Usage {
+                    words: "Only the Hand and hires keep an inbox."
+                        .into(),
+                }),
+            ));
         }
-        let reserved = self
-            .gifts
-            .pending
-            .values()
-            .filter(|u| u.agent == agent)
-            .map(|u| u.bytes)
-            .sum::<u64>();
-        if reserved + bytes > MAX_BYTES {
-            return Ok(Err(refused(
-                "This agent already has 32 MB of file gifts \
-                 waiting. Finish or discard one before starting \
-                 another.",
-            )));
-        }
-        let house = self.houses.house(&agent.hamlet, agent.number)?;
-        let stage = (|| -> Result<_> {
-            let stage = tree::Stage::new(self.houses.root())?;
-            for file in files {
-                stage
-                    .file(&file.path, Missing::Make(Mode::FOLDER))?
-                    .flush()?;
-            }
-            Ok(stage)
-        })();
-        let Ok(stage) = stage else {
-            return Ok(Err(refused(STAGING)));
+        let total = files.iter().map(|file| file.size).sum::<u64>();
+        let bad = files.iter().find(|file| !is_plain(&file.path));
+        let words = if files.is_empty() {
+            Some("Give at least one file.".to_owned())
+        } else if files.len() > MOST_FILES {
+            Some(format!("A gift holds at most {MOST_FILES} files."))
+        } else if total > MOST_BYTES {
+            Some("A gift holds at most 32 MiB.".into())
+        } else {
+            bad.map(|file| {
+                format!(
+                    "`{}` is not a plain relative path.",
+                    file.path
+                )
+            })
         };
-        let roots = roots(files.iter().map(|f| f.path.as_str()));
-        let token = uuid::Uuid::new_v4().to_string();
-        self.gifts.pending.insert(
-            token.clone(),
+        if let Some(words) = words {
+            return Ok(reply(id, Err(Refusal::Usage { words })));
+        }
+        let upload = uuid::Uuid::new_v4().simple().to_string();
+        Folder::make(&layout.staging().join(&upload))?;
+        self.gifts.uploads.insert(
+            upload.clone(),
             Upload {
-                connection,
-                to: to.clone(),
-                agent,
+                client,
                 id: id.clone(),
-                bytes,
-                touched: Instant::now(),
-                files: files
+                to,
+                received: files
                     .iter()
-                    .cloned()
-                    .map(|f| (f, 0))
+                    .map(|file| (file.path.clone(), 0))
                     .collect(),
-                stage,
+                files,
             },
         );
-        self.gifts.working.insert((connection, id.clone()));
-        let id = id.clone();
-        self.gifts.tasks.spawn(async move {
-            let result =
-                shelf(&house, "inbox", &roots).await.map(drop);
-            Completed::Began {
-                connection,
-                id,
-                token,
-                result,
-            }
-        });
-        Ok(Ok(Progress::Pending))
+        let mut answer = reply(
+            id,
+            Ok::<_, Refusal>(
+                "Ready for the gift's file parts.".into(),
+            ),
+        );
+        if let ServerMessage::Reply(answer) = &mut answer {
+            answer.upload = Some(upload);
+        }
+        Ok(answer)
     }
 
-    fn gift_part(
+    /// Takes a part of a file gift, and delivers the gift once whole.
+    pub(crate) async fn give_part(
         &mut self,
-        connection: u64,
-        part: &GivePart,
-    ) -> Result<Refusable<Progress>> {
-        use std::io::Write;
-
-        use base64::Engine;
-        use base64::engine::general_purpose::STANDARD;
-        self.gifts.expire();
-        if self
+        client: u64,
+        part: GivePart,
+    ) -> Result<ServerMessage> {
+        let refuse = |words: &str| {
+            reply(
+                &part.id,
+                Err(Refusal::Usage {
+                    words: words.into(),
+                }),
+            )
+        };
+        let Some(upload) = self
             .gifts
-            .pending
-            .get(&part.upload)
-            .is_none_or(|u| u.connection != connection)
-        {
-            return Ok(Err(refused(UNKNOWN)));
-        }
-        let Some(mut upload) =
-            self.gifts.pending.remove(&part.upload)
+            .uploads
+            .get_mut(&part.upload)
+            .filter(|upload| upload.client == client)
         else {
-            return Ok(Err(refused(UNKNOWN)));
+            return Ok(refuse(
+                "No gift of yours is being sent under that upload.",
+            ));
         };
-        let Some((file, offset)) = upload
-            .files
-            .iter_mut()
-            .find(|(f, _)| f.path == part.path)
-        else {
-            return Ok(Err(refused(MISMATCH)));
-        };
-        let Ok(bytes) = STANDARD.decode(&part.data) else {
-            return Ok(Err(refused(MISMATCH)));
-        };
-        if bytes.is_empty()
-            || part.offset != *offset
-            || *offset + bytes.len() as u64 > file.size
-            || STANDARD.encode(&bytes) != part.data
-        {
-            return Ok(Err(refused(MISMATCH)));
-        }
-        if upload
-            .stage
-            .file(&part.path, Missing::Fail)
-            .and_then(|mut f| Ok(f.write_all(&bytes)?))
-            .is_err()
-        {
-            return Ok(Err(refused(STAGING)));
-        }
-        *offset += bytes.len() as u64;
-        if upload
+        let Some(size) = upload
             .files
             .iter()
-            .all(|(file, offset)| *offset == file.size)
-        {
-            return self.gift_finish(upload, &part.id);
-        }
-        upload.touched = Instant::now();
-        self.gifts.pending.insert(part.upload.clone(), upload);
-        Ok(Ok(Progress::Received))
-    }
-
-    /// Delivers the complete `upload` into its agent's inbox, for the
-    /// request `request`.
-    fn gift_finish(
-        &mut self,
-        upload: Upload,
-        request: &RequestId,
-    ) -> Result<Refusable<Progress>> {
-        let target = match self.agent(&upload.to, "give")? {
-            Ok(a) => a,
-            Err(e) => return Ok(Err(e)),
+            .find(|file| file.path == part.path)
+            .map(|file| file.size)
+        else {
+            return Ok(refuse("That file is not part of the gift."));
         };
-        if target.number != upload.agent.number {
-            return Ok(Err(refused(
-                "The receiving agent is no longer present.",
+        let Ok(bytes) = base64::engine::general_purpose::STANDARD
+            .decode(&part.data)
+        else {
+            return Ok(refuse("A part's data is base64."));
+        };
+        let received =
+            upload.received.get(&part.path).copied().unwrap_or(0);
+        if part.offset != received {
+            return Ok(refuse(&format!(
+                "`{}` continues at byte {received}.",
+                part.path
             )));
         }
-        let house = self
-            .houses
-            .house(&upload.agent.hamlet, upload.agent.number)?;
-        let roots =
-            roots(upload.files.iter().map(|(f, _)| f.path.as_str()));
-        let connection = upload.connection;
-        let id = request.clone();
-        self.gifts.working.insert((connection, id.clone()));
-        self.gifts.tasks.spawn(async move {
-            let result = async {
-                let source = Files::Local(upload.stage.dir()?);
-                let snapshot = Snapshot::read(
-                    &source,
-                    MAX_BYTES,
-                    TREE_ENTRIES as usize,
-                    false,
-                )
-                .await?;
-                drop(source);
-                drop(upload.stage);
-                let inbox = shelf(&house, "inbox", &roots).await?;
-                snapshot.deliver(&inbox, &roots, true).await
-            }
-            .await;
-            Completed::Files {
-                connection,
-                id,
-                original: upload.id,
-                agent: upload.agent,
-                result,
-            }
-        });
-        Ok(Ok(Progress::Pending))
-    }
-
-    /// Starts the gift of the skill `name` to `to`, from `from`'s
-    /// house or the starters.
-    fn gift_skill(
-        &mut self,
-        connection: u64,
-        id: &RequestId,
-        to: &Address,
-        name: &str,
-        from: Option<&Address>,
-    ) -> Result<Refusable<Progress>> {
-        let gift = match self.resolve_skill(to, name, from)? {
-            Ok(gift) => gift,
-            Err(error) => return Ok(Err(error)),
-        };
-        let id = id.clone();
-        self.gifts.working.insert((connection, id.clone()));
-        self.gifts.tasks.spawn(async move {
-            let snapshot = gift.snapshot().await;
-            Completed::Prepared {
-                connection,
-                id,
-                gift,
-                snapshot,
-            }
-        });
-        Ok(Ok(Progress::Pending))
-    }
-
-    /// The gift of the skill `name` to `to`, or why it cannot be.
-    fn resolve_skill(
-        &mut self,
-        to: &Address,
-        name: &str,
-        from: Option<&Address>,
-    ) -> Result<Refusable<Skill>> {
-        if name.is_empty()
-            || !name.bytes().all(|b| {
-                b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
-            })
-        {
-            return Ok(Err(refused(
-                "a skill is named in letters, digits and hyphens",
+        let end = received + bytes.len() as u64;
+        if end > size {
+            return Ok(refuse(&format!(
+                "`{}` is longer than declared.",
+                part.path
             )));
         }
-        let receiver = match self.agent(to, "give")? {
-            Ok(agent) => agent,
-            Err(error) => return Ok(Err(error)),
+        let staging =
+            self.realm.layout().staging().join(&part.upload);
+        let folder = Folder::make(&staging)?;
+        let mut whole = if received == 0 {
+            Vec::new()
+        } else {
+            folder.read(&part.path)?
         };
-        let mut giver = None;
-        let mut source = None;
-        let from = if let Some(from) = from {
-            let agent = match self.agent(from, "give")? {
-                Ok(agent) => agent,
-                Err(error) => return Ok(Err(error)),
-            };
-            giver = Some(format!(
-                "{}{}",
-                agent.name,
-                if from.hamlet == to.hamlet {
-                    String::new()
-                } else {
-                    format!("@{}", from.hamlet)
-                }
+        whole.extend_from_slice(&bytes);
+        folder.write(&part.path, &whole, false)?;
+        upload.received.insert(part.path.clone(), end);
+        let done = upload.files.iter().all(|file| {
+            upload.received.get(&file.path) == Some(&file.size)
+        });
+        if !done {
+            return Ok(reply(
+                &part.id,
+                Ok::<_, Refusal>("Received the gift part.".into()),
             ));
-            source =
-                Some(self.houses.house(&from.hamlet, agent.number)?);
-            Some((
-                from.clone(),
-                AgentRef {
-                    hamlet: from.hamlet.clone(),
-                    number: agent.number,
-                },
+        }
+        let upload = self
+            .gifts
+            .uploads
+            .remove(&part.upload)
+            .expect("the upload was found above");
+        let words = self.hand_over(&part.upload, upload).await?;
+        Ok(reply(&part.id, words))
+    }
+
+    /// Moves a whole gift into its agent's inbox and tells the agent.
+    async fn hand_over(
+        &mut self,
+        name: &str,
+        upload: Upload,
+    ) -> Result<Result<String, Refusal>> {
+        let layout = self.realm.layout().clone();
+        let staging = layout.staging().join(name);
+        let source = Folder::open(&staging)?;
+        let db = self.realm.store().connection();
+        let lodge = knowledge::lodging(db, &layout, upload.to)?.path;
+        let inbox = Folder::make(&lodge)?;
+        let mut paths = Vec::new();
+        for file in &upload.files {
+            let bytes = if file.size == 0 {
+                Vec::new()
+            } else {
+                source.read(&file.path)?
+            };
+            inbox.write(
+                &format!("inbox/{}", file.path),
+                &bytes,
+                false,
+            )?;
+            paths.push(format!("`inbox/{}`", file.path));
+        }
+        remove_folder(&staging)?;
+        self.push_lodge(upload.to).await?;
+        let paths = paths.join(", ");
+        let line = self.credentials.scrub_text(&format!(
+            "I handed you {paths} in your lodge. Read it and do \
+             what it asks. If it asks for nothing, tell me in a few \
+             lines what it is."
+        ));
+        let chief = self.realm.chief();
+        let request = format!("gift:{}", upload.id.as_str());
+        let to = upload.to;
+        self.change(Actor::Chief(chief), |cx, env| {
+            chats::say(cx, env, to, chief, &request, &line)
+        })
+        .await?;
+        Ok(Ok(format!("Handed over {paths}.")))
+    }
+
+    /// Gives the skill `source` to the scholar `to`'s `main`, as this
+    /// server's chief.
+    pub(crate) async fn give_skill(
+        &mut self,
+        to: ScholarId,
+        source: GiveSkillSource,
+    ) -> Result<Result<String, Refusal>> {
+        let chief = self.realm.chief();
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        let Some(scholar) = city::find(db, to)? else {
+            return Ok(Err(Refusal::NoScholar {
+                address: addresses::scholar_address(to),
+            }));
+        };
+        if !authority::may_keep(db, Actor::Chief(chief), to)? {
+            return Ok(Err(Refusal::ScholarNotOwn {
+                name: scholar.label(),
+            }));
+        }
+        let GiveSkillSource { from, name } = source;
+        let files = match from {
+            Keeper::Scholar(other) => {
+                let other = ScholarId(i64::try_from(other.0)?);
+                if !authority::may_keep(
+                    db,
+                    Actor::Chief(chief),
+                    other,
+                )? {
+                    let name = city::get(db, other)?.label();
+                    return Ok(Err(Refusal::ScholarNotOwn { name }));
+                }
+                main_skill(&layout.repository(other), &name)?
+            }
+            Keeper::Agent(agent) => {
+                let agent = AgentId(i64::try_from(agent.0)?);
+                if let Err(refusal) = self.reaches(agent)? {
+                    return Ok(Err(refusal));
+                }
+                let db = self.realm.store().connection();
+                let lodge =
+                    knowledge::lodging(db, &layout, agent)?.path;
+                lodge_skill(&lodge, &name)?
+            }
+        };
+        if files.is_empty() {
+            return Ok(Err(Refusal::NoSkill { name }));
+        }
+        if !is_plain(&name) || name.contains('/') {
+            return Ok(Err(Refusal::NoSkill { name }));
+        }
+        let changes = files
+            .into_iter()
+            .map(|(path, bytes)| GitChange::Write {
+                path: format!("skills/{name}/{path}"),
+                bytes,
+            })
+            .collect::<Vec<_>>();
+        self.commit_main(
+            Actor::Chief(chief),
+            to,
+            &changes,
+            &format!("Gave the skill {name}"),
+        )
+        .await?;
+        let db = self.realm.store().connection();
+        let scholar = city::get(db, to)?.label();
+        Ok(Ok(format!(
+            "Gave {name} to {scholar}; its hires take it in once \
+             idle."
+        )))
+    }
+
+    /// `/give <scholar#id|address> <skill> from <scholar#id|address>`
+    pub(crate) async fn give_command(
+        &mut self,
+        here: Option<&hamlet_store::ids::HamletId>,
+        words: &[&str],
+    ) -> Result<Result<String, Refusal>> {
+        let [target, skill, "from", from] = words else {
+            return Ok(Err(Refusal::Usage {
+                words: "Use /give <scholar#id|address> <skill> from \
+                        <scholar#id|address>"
+                    .into(),
+            }));
+        };
+        let to = match self.scholar_of(here, target)? {
+            Ok(to) => to,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let db = self.realm.store().connection();
+        let keeper = if from.starts_with("scholar#") {
+            let found = match addresses::parse_scholar(from) {
+                Ok(id) => city::living(db, id)?,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            let Some(found) = found else {
+                return Ok(Err(Refusal::NoScholar {
+                    address: (*from).into(),
+                }));
+            };
+            Keeper::Scholar(hamlet_protocol::client::ScholarId(
+                u64::try_from(found.id.0)?,
             ))
         } else {
-            if crate::starters::files(name).is_none() {
-                return Ok(Err(refused(format!(
-                    "no starter skill named `{name}`. Say whose it \
-                     is: /give {} {name} from <agent>",
-                    receiver.name
-                ))));
-            }
-            None
-        };
-        Ok(Ok(Skill {
-            house: self.houses.house(&to.hamlet, receiver.number)?,
-            target: AgentRef {
-                hamlet: to.hamlet.clone(),
-                number: receiver.number,
-            },
-            receiver: receiver.name,
-            to: to.clone(),
-            from,
-            giver,
-            name: name.into(),
-            source,
-        }))
-    }
-}
-
-impl Skill {
-    /// The skill's tree under its name, once the receiver is known
-    /// not to have one.
-    async fn snapshot(&self) -> Refusable<Snapshot> {
-        let name = &self.name;
-        let shelf = self
-            .house
-            .directory("skills", true)
-            .await
-            .map_err(|_| refused(DELIVERY))?;
-        if shelf
-            .kind(name)
-            .await
-            .map_err(|_| refused(DELIVERY))?
-            .is_some()
-        {
-            return Err(refused(format!(
-                "`{}` already has a skill named `{name}`",
-                self.receiver
-            )));
-        }
-        let Some((from, source)) =
-            self.from.as_ref().zip(self.source.as_ref())
-        else {
-            let files = crate::starters::files(name)
-                .unwrap_or_default()
-                .iter()
-                .map(|(path, text)| {
-                    let entry = Entry {
-                        bytes: text.as_bytes().to_vec(),
-                        mode: 0o644,
-                    };
-                    (format!("{name}/{path}"), entry)
-                })
-                .collect::<BTreeMap<_, _>>();
-            return Ok(Snapshot::of(files));
-        };
-        let missing = || {
-            refused(format!(
-                "`{}` has no skill named `{name}`",
-                from.0.agent
-            ))
-        };
-        let skills = source
-            .directory("skills", false)
-            .await
-            .map_err(|_| refused(DELIVERY))?;
-        match skills
-            .kind(name)
-            .await
-            .map_err(|_| refused(DELIVERY))?
-        {
-            Some(TreeKind::Directory) => {}
-            Some(TreeKind::Link | TreeKind::Special) => {
-                return Err(refused(UNSAFE));
-            }
-            _ => return Err(missing()),
-        }
-        let skill = skills
-            .directory(name, false)
-            .await
-            .map_err(|_| refused(UNSAFE))?;
-        if skill.kind("SKILL.md").await.ok().flatten()
-            != Some(TreeKind::File)
-        {
-            return Err(missing());
-        }
-        let snapshot =
-            Snapshot::read(&skill, MAX_BYTES, SKILL_ENTRIES, false)
-                .await
-                .map_err(|error| {
-                    if crate::workspace::has_code(
-                        &error,
-                        Code::TooMany,
-                    ) {
-                        refused(
-                            "A skill gift takes at most 4096 files \
-                             and folders at once.",
-                        )
-                    } else if crate::workspace::has_code(
-                        &error,
-                        Code::TooLarge,
-                    ) {
-                        refused(
-                            "The skill gift is larger than 32 MB.",
-                        )
-                    } else {
-                        undelivered(&error)
-                    }
-                })?;
-        Ok(snapshot.under(name))
-    }
-
-    /// Whether the receiver and the giver are still the agents the
-    /// gift was asked for.
-    fn allowed(
-        &self,
-        service: &mut Service,
-    ) -> Result<Refusable<()>> {
-        for (address, expected) in
-            std::iter::once((&self.to, &self.target)).chain(
-                self.from
-                    .as_ref()
-                    .map(|(address, agent)| (address, agent)),
-            )
-        {
-            match service.agent(address, "give")? {
-                Ok(agent) if agent.number == expected.number => {}
-                Ok(_) => {
-                    return Ok(Err(refused(
-                        "The gift's agent is no longer present at \
-                         that address.",
-                    )));
-                }
-                Err(error) => return Ok(Err(error)),
-            }
-        }
-        Ok(Ok(()))
-    }
-
-    /// Delivers `snapshot` onto the receiver's shelf.
-    async fn deliver(
-        &self,
-        snapshot: &Snapshot,
-    ) -> Result<Vec<String>> {
-        let roots = std::slice::from_ref(&self.name);
-        let skills = shelf(&self.house, "skills", roots).await?;
-        snapshot.deliver(&skills, roots, false).await
-    }
-
-    /// Keeps the gift in the record.
-    fn record(self, service: &mut Service) -> Result<String> {
-        let chief = service.chief.clone();
-        crate::record::give_skill(
-            service.db(),
-            &chief,
-            &self.target.hamlet,
-            self.target.number,
-            &self.name,
-            self.giver,
-        )?;
-        Ok(format!(
-            "Gave `{}` the skill `{}`.",
-            self.to.agent, self.name
-        ))
-    }
-}
-
-/// Answers the connection a finished gift step was for, unless it is
-/// gone.
-pub(crate) async fn complete(
-    service: &mut Service,
-    harnesses: &mut Harnesses,
-    completed: Completed,
-) -> Result<Option<(u64, ServerMessage)>> {
-    let Some((connection, id, progress)) = step(service, completed)?
-    else {
-        return Ok(None);
-    };
-    Ok(receipt(service, harnesses, &id, progress)
-        .await?
-        .map(|answer| (connection, answer)))
-}
-
-/// The gift's next step after `completed`: its connection, its
-/// request and how it stands, unless the connection is gone.
-fn step(
-    service: &mut Service,
-    completed: Completed,
-) -> Result<Option<(u64, RequestId, Refusable<Progress>)>> {
-    Ok(Some(match completed {
-        Completed::Began {
-            connection,
-            id,
-            token,
-            result,
-        } => {
-            if !service
-                .gifts
-                .working
-                .remove(&(connection, id.clone()))
-            {
-                return Ok(None);
-            }
-            let Some(mut upload) =
-                service.gifts.pending.remove(&token)
-            else {
-                return Ok(Some((
-                    connection,
-                    id,
-                    Err(refused(UNKNOWN)),
-                )));
+            let address = match addresses::parse(from) {
+                Ok(address) => address,
+                Err(refusal) => return Ok(Err(refusal)),
             };
-            let progress = match result {
-                Err(error) => Err(undelivered(&error)),
-                Ok(()) => match service.agent(&upload.to, "give")? {
-                    Err(error) => Err(error),
-                    Ok(agent)
-                        if agent.number != upload.agent.number =>
-                    {
-                        Err(refused(
-                            "The receiving agent is no longer \
-                             present.",
-                        ))
-                    }
-                    Ok(_) if upload.bytes == 0 => {
-                        service.gift_finish(upload, &id)?
-                    }
-                    Ok(_) => {
-                        upload.touched = Instant::now();
-                        service
-                            .gifts
-                            .pending
-                            .insert(token.clone(), upload);
-                        Ok(Progress::Waiting(token))
-                    }
+            match addresses::resolve(
+                db,
+                &address,
+                here,
+                addresses::Reach::Living,
+            )? {
+                Ok(agent) => Keeper::Agent(
+                    crate::clients::state::wire_agent(agent),
+                ),
+                Err(refusal) => return Ok(Err(refusal)),
+            }
+        };
+        let source = GiveSkillSource {
+            from: keeper,
+            name: (*skill).into(),
+        };
+        self.give_skill(to, source).await
+    }
+
+    /// The scholar `text` addresses: a scholar's address, else an
+    /// agent's address, whose scholar it is.
+    fn scholar_of(
+        &mut self,
+        here: Option<&hamlet_store::ids::HamletId>,
+        text: &str,
+    ) -> Result<Result<ScholarId, Refusal>> {
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        if text.starts_with("scholar#") {
+            return Ok(match addresses::parse_scholar(text) {
+                Ok(id) => match city::living(db, id)? {
+                    Some(found) => Ok(found.id),
+                    None => Err(Refusal::NoScholar {
+                        address: text.into(),
+                    }),
                 },
-            };
-            (connection, id, progress)
-        }
-        Completed::Files {
-            connection,
-            id,
-            original,
-            agent,
-            result,
-        } => {
-            service.gifts.working.remove(&(connection, id.clone()));
-            let progress = result
-                .map(|paths| Progress::Delivered {
-                    id: original,
-                    agent,
-                    paths,
-                })
-                .map_err(|error| undelivered(&error));
-            (connection, id, progress)
-        }
-        Completed::Prepared {
-            connection,
-            id,
-            gift,
-            snapshot,
-        } => {
-            if !service
-                .gifts
-                .working
-                .contains(&(connection, id.clone()))
-            {
-                return Ok(None);
-            }
-            let allowed = gift.allowed(service)?;
-            let snapshot = match snapshot
-                .and_then(|snapshot| allowed.map(|()| snapshot))
-            {
-                Ok(snapshot) => snapshot,
-                Err(error) => {
-                    service
-                        .gifts
-                        .working
-                        .remove(&(connection, id.clone()));
-                    return Ok(Some((connection, id, Err(error))));
-                }
-            };
-            service.gifts.tasks.spawn(async move {
-                let result = gift.deliver(&snapshot).await;
-                Completed::Delivered {
-                    connection,
-                    id,
-                    gift,
-                    result,
-                }
+                Err(refusal) => Err(refusal),
             });
-            return Ok(None);
         }
-        Completed::Delivered {
-            connection,
-            id,
-            gift,
-            result,
-        } => {
-            service.gifts.working.remove(&(connection, id.clone()));
-            let progress = match result {
-                Err(error) => Err(undelivered(&error)),
-                Ok(_) => Ok(Progress::Given(gift.record(service)?)),
-            };
-            (connection, id, progress)
-        }
-    }))
-}
-
-fn roots<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
-    let mut roots = Vec::new();
-    for path in paths {
-        let root =
-            path.split('/').next().unwrap_or_default().to_owned();
-        if !roots.contains(&root) {
-            roots.push(root);
-        }
+        let address = match addresses::parse(text) {
+            Ok(address) => address,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let agent = match addresses::resolve(
+            db,
+            &address,
+            here,
+            addresses::Reach::Living,
+        )? {
+            Ok(agent) => agent,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        Ok(match knowledge::lodging(db, &layout, agent) {
+            Ok(lodging) => Ok(lodging.scholar),
+            Err(_) => Err(Refusal::NoScholar {
+                address: text.into(),
+            }),
+        })
     }
-    roots
 }
 
-pub(crate) fn starters() -> Vec<protocol::Skill> {
-    let mut names = crate::starters::names().collect::<Vec<_>>();
-    names.sort();
-    names
+/// The files of the skill `name` at the `main` of the repository at
+/// `path`.
+fn main_skill(
+    path: &std::path::Path,
+    name: &str,
+) -> Result<Vec<(String, Vec<u8>)>> {
+    let repo = Repository::open(path)?;
+    let Some(tip) = repo.tip(MAIN)? else {
+        return Ok(Vec::new());
+    };
+    let prefix = format!("skills/{name}/");
+    repo.entries(tip)?
         .into_iter()
-        .map(|name| {
-            let description = crate::starters::files(name)
-                .into_iter()
-                .flatten()
-                .find(|(path, _)| *path == "SKILL.md")
-                .and_then(|(_, text)| {
-                    text.lines().find_map(|line| {
-                        line.strip_prefix("description: ")
-                    })
-                })
-                .unwrap_or_default();
-            protocol::Skill {
-                description: description.into(),
-                name: name.into(),
-            }
+        .filter_map(|entry| {
+            let path = entry.path.strip_prefix(&prefix)?.to_owned();
+            Some((path, entry.blob))
+        })
+        .map(|(path, blob)| Ok((path, repo.blob(blob)?)))
+        .collect()
+}
+
+/// The files of the skill `name` in the lodge at `lodge`.
+fn lodge_skill(
+    lodge: &std::path::Path,
+    name: &str,
+) -> Result<Vec<(String, Vec<u8>)>> {
+    let Ok(folder) = Folder::open(lodge) else {
+        return Ok(Vec::new());
+    };
+    let prefix = format!("skills/{name}/");
+    folder
+        .list_under(&format!("skills/{name}"))?
+        .into_iter()
+        .map(|entry| {
+            Ok((
+                entry.path[prefix.len()..].to_owned(),
+                folder.read(&entry.path)?,
+            ))
         })
         .collect()
 }

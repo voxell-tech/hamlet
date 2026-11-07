@@ -56,9 +56,9 @@ pub struct Kit {
     pub(super) lamp: Handle<Mesh>,
     pub(super) lamp_glass: Handle<Mesh>,
     pub(super) ring: Handle<Mesh>,
-    pub(super) props: [Handle<Mesh>; 9],
+    pub(super) props: [Handle<Mesh>; 8],
     /// The part of each prop that shows the robot's light.
-    pub(super) glints: [Option<Handle<Mesh>>; 9],
+    pub(super) glints: [Option<Handle<Mesh>>; 8],
     pub(super) mantle: Handle<Mesh>,
     pub(super) pennant: Handle<Mesh>,
     /// True when each robot's carried lantern lights the ground

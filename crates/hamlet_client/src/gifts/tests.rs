@@ -7,7 +7,6 @@ use hamlet_testing::{Scratch, realm};
 
 use super::*;
 use crate::ClientPlugin;
-use crate::realm::HOME;
 
 /// The runtime every test's gifts are read on.
 static RUNTIME: LazyLock<tokio::runtime::Runtime> =
@@ -23,7 +22,8 @@ fn app() -> (App, Entity) {
         app.world_mut(),
         protocol::ServerMessage::State(state),
     );
-    let founder = crate::realm::mayor(app.world_mut()).unwrap();
+    let founder =
+        crate::realm::mayor_of(app.world_mut(), "home").unwrap();
     (app, founder)
 }
 
@@ -69,9 +69,10 @@ fn reply(
 fn research() -> Offer {
     Offer {
         skill: "research".into(),
-        from: None,
-        source: protocol::GiveSkillSource::Starter {
-            starter: "research".into(),
+        from: "scout".into(),
+        source: protocol::GiveSkillSource {
+            from: protocol::Keeper::Agent(protocol::AgentId(3)),
+            name: "research".into(),
         },
     }
 }
@@ -94,13 +95,7 @@ fn a_file_gift_begins_with_its_manifest_and_waits_for_acceptance() {
     else {
         panic!("one manifest: {messages:?}");
     };
-    assert_eq!(
-        to,
-        &protocol::Address {
-            hamlet: HOME.into(),
-            agent: "founder".into()
-        }
-    );
+    assert_eq!(to, &protocol::AgentId(2));
     assert_eq!(
         files,
         &[protocol::GiveFile {
@@ -230,48 +225,31 @@ fn a_refused_folder_shows_the_servers_words_and_sends_no_parts() {
 }
 
 #[test]
-fn skill_offers_use_received_starters_and_other_houses_without_local_files()
- {
+fn skill_offers_use_other_houses_without_local_files() {
     let (mut app, founder) = app();
     let mut state = realm::state();
     state.deeds = realm::deeds(&["give"]);
-    state.starters = vec![protocol::Skill {
-        name: "research".into(),
-        description: "Find sources".into(),
-    }];
-    state.agents[0].skills = vec!["own".into()];
-    let mut scout = realm::agent("home", 1, "scout");
+    state.agents[1].skills = vec!["own".into()];
+    let mut scout = realm::agent(3, "home", 1);
     scout.skills = vec!["maps".into(), "own".into()];
     state.agents.push(scout.clone());
+    state.scholars.push(realm::scholar(3, "scout", &[3]));
     let message = protocol::ServerMessage::State(state);
     crate::receive(app.world_mut(), message);
     let offered = offers(app.world(), founder);
     assert_eq!(
         offered
             .iter()
-            .map(|offer| (
-                offer.skill.as_str(),
-                offer.from.as_deref()
-            ))
+            .map(|offer| (offer.skill.as_str(), offer.from.as_str()))
             .collect::<Vec<_>>(),
-        [("research", None), ("maps", Some("scout"))]
+        [("maps", "scout (home#1)")]
     );
-    for (index, expected) in [
-        protocol::GiveSkillSource::Starter {
-            starter: "research".into(),
-        },
-        protocol::GiveSkillSource::From {
-            from: protocol::Address {
-                hamlet: HOME.into(),
-                agent: "scout".into(),
-            },
-            name: "maps".into(),
-        },
-    ]
-    .into_iter()
-    .enumerate()
     {
-        give(app.world_mut(), founder, &offered[index]);
+        let expected = protocol::GiveSkillSource {
+            from: protocol::Keeper::Agent(protocol::AgentId(3)),
+            name: "maps".into(),
+        };
+        give(app.world_mut(), founder, &offered[0]);
         let messages = sent(&mut app);
         let [
             protocol::ClientMessage::Give(protocol::Give::Skill {
@@ -284,7 +262,7 @@ fn skill_offers_use_received_starters_and_other_houses_without_local_files()
             panic!("skill gift: {messages:?}");
         };
         assert_eq!(skill, &expected);
-        assert_eq!(to.agent, "founder");
+        assert_eq!(to, &realm::state().agents[1].scholar.unwrap());
     }
     scout.skills = vec!["compass".into()];
     let message =
@@ -294,7 +272,7 @@ fn skill_offers_use_received_starters_and_other_houses_without_local_files()
             changes: vec![protocol::Update::Agent { agent: scout }],
         });
     crate::receive(app.world_mut(), message);
-    assert_eq!(offers(app.world(), founder)[1].skill, "compass");
+    assert_eq!(offers(app.world(), founder)[0].skill, "compass");
 }
 
 #[test]

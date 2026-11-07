@@ -127,7 +127,7 @@ pub(super) fn setup(
     let patch = meshes.add(patch::grid(patch::QUADS));
     let flat_patch = meshes.add(patch::grid(1));
     // The deep sea's floor under it, where the ground has yet to
-    // come and all about the island.
+    // come and all about the islands.
     commands.spawn((
         Bed,
         Mesh3d(plane),

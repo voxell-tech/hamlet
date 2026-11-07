@@ -7,12 +7,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
+use hamlet_sandbox::scrub;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-
-use crate::scrub;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,7 +35,7 @@ pub(crate) struct WorkspaceAddress {
     pub token: String,
 }
 
-/// The home's credential file and its in-memory secret history.
+/// The realm's credential file and its in-memory secret history.
 pub struct Credentials {
     file: PathBuf,
     stored: Stored,
@@ -47,7 +46,7 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    /// Opens the credential owner for a home held by this process.
+    /// Opens the credential owner for a realm held by this process.
     pub fn open(root: &Path) -> Result<Self> {
         let file = root.join("credentials.json");
         let stored = match fs::read(&file) {

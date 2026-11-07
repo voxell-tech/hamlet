@@ -163,7 +163,7 @@ fn add(app: &mut App) -> AgentId {
 
 #[test]
 fn houses_there_from_the_start_do_not_move() {
-    let mut app = app(GeneratorSettings::default());
+    let mut app = app(testing::still());
     assert_eq!(shifting(&mut app), 0);
     let society = app.world().resource::<Society>().clone();
     for agent in &society.agents {
@@ -185,7 +185,7 @@ fn houses_there_from_the_start_do_not_move() {
 
 #[test]
 fn a_new_house_rises_and_its_yard_and_robot_follow() {
-    let mut app = app(GeneratorSettings::default());
+    let mut app = app(testing::still());
     let set = app.world().resource::<HouseMotion>().clone();
     let agent = add(&mut app);
     let house = held(&app, agent);
@@ -226,7 +226,7 @@ fn a_new_house_rises_and_its_yard_and_robot_follow() {
 
 #[test]
 fn a_removed_house_shudders_and_falls_to_its_ruin() {
-    let mut set = GeneratorSettings::default();
+    let mut set = testing::still();
     set.house.removed = Remains::Ruin;
     let mut app = app(set);
     let set = app.world().resource::<HouseMotion>().clone();
@@ -269,7 +269,7 @@ fn a_removed_house_shudders_and_falls_to_its_ruin() {
 
 #[test]
 fn a_house_stands_until_its_robot_has_taken_its_leave() {
-    let mut app = app(GeneratorSettings::default());
+    let mut app = app(testing::still());
     let agent = AgentId(2);
     let old = held(&app, agent);
     let stood = at(&app, old);
@@ -291,7 +291,7 @@ fn a_house_stands_until_its_robot_has_taken_its_leave() {
 
 #[test]
 fn a_restored_house_rises_from_its_ruin() {
-    let mut app = app(GeneratorSettings::default());
+    let mut app = app(testing::still());
     let set = app.world().resource::<HouseMotion>().clone();
     let ruin = held(&app, RUIN);
     change(&mut app, |society, land| {
@@ -317,7 +317,7 @@ fn a_restored_house_rises_from_its_ruin() {
 
 #[test]
 fn the_garden_tree_stands_through_a_house_going_and_coming() {
-    let mut app = app(GeneratorSettings::default());
+    let mut app = app(testing::still());
     let set = app.world().resource::<HouseMotion>().clone();
     let land = app.world().resource::<Land>().clone();
     let society = app.world().resource::<Society>().clone();
@@ -366,7 +366,7 @@ fn a_town_set_down_elsewhere_goes_house_by_house_with_its_roads() {
 
     use crate::generator::society::{Ground, TownId};
 
-    let mut app = app(GeneratorSettings::default());
+    let mut app = app(testing::still());
     // Three more towns, one of them with houses.
     let (mut land, mut society) = (
         app.world().resource::<Land>().clone(),
@@ -397,7 +397,9 @@ fn a_town_set_down_elsewhere_goes_house_by_house_with_its_roads() {
     let was = land.sites[society.town(moved).unwrap().site].at;
     let to = (0..900)
         .map(|i| {
-            Vec2::from_angle(i as f32) * (700.0 + i as f32 * 3.0)
+            land.hamlet_centre()
+                + Vec2::from_angle(i as f32)
+                    * (700.0 + i as f32 * 3.0)
         })
         .find(|&p| {
             society.fits(&land, Ground::Town(moved), p).is_ok()

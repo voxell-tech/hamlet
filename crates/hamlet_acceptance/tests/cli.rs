@@ -1,6 +1,6 @@
 //! The `hamlet` command against a served home: chat on stdin and
-//! stdout, approvals, switching agents and hamlets, documents in
-//! EDITOR, and models.
+//! stdout, approvals, switching agents and hamlets, and documents in
+//! EDITOR.
 
 #[path = "cli/processes.rs"]
 mod processes;
@@ -9,7 +9,6 @@ use std::path::PathBuf;
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
-use hamlet_testing::{Script, call, openai, words};
 use serde_json::json;
 
 /// An EDITOR that copies what it was given to `seen`, then runs
@@ -39,20 +38,6 @@ impl Editor {
     }
 }
 
-/// An EDITOR that changes the budget's cost from `from` to `to`.
-fn cost_editor(
-    s: &Session,
-    name: &str,
-    from: i32,
-    to: i32,
-) -> Editor {
-    let code = format!(
-        "sed -E 's/\"cost\": {from}(\\.0)?,/\"cost\": {to},/' \
-         \"$1\" > \"$1.next\" && mv \"$1.next\" \"$1\""
-    );
-    editor(s, name, &code)
-}
-
 async fn edit(s: &Session, doc: &[&str], editor: &Editor) -> Ended {
     let args = [&["edit"], doc].concat();
     Cli::run(s.home.path(), &args, "", &[("EDITOR", &editor.command)])
@@ -61,7 +46,7 @@ async fn edit(s: &Session, doc: &[&str], editor: &Editor) -> Ended {
 
 #[tokio::test]
 async fn chats_with_answers_on_stdout_and_the_rest_on_stderr() {
-    let mut s = Session::start(Script::new().responses([
+    let mut s = Session::start(Faux::new().responses([
         call("bash", json!({"command": "echo hi"})),
         words("It says hi."),
         words("Nothing else."),
@@ -85,7 +70,7 @@ async fn chats_with_answers_on_stdout_and_the_rest_on_stderr() {
 
 #[tokio::test]
 async fn ends_with_a_failure_when_its_agent_does_not_exist() {
-    let mut s = Session::start(Script::new()).await;
+    let mut s = Session::start(Faux::new()).await;
     for input in ["", "Hello.\n"] {
         let chat = Cli::run(
             s.home.path(),
@@ -97,7 +82,7 @@ async fn ends_with_a_failure_when_its_agent_does_not_exist() {
         assert_eq!(chat.code(), Some(1), "{chat:?}");
         assert_eq!(chat.out, "");
         assert!(
-            chat.err.contains("no agent named `nobody`"),
+            chat.err.contains("no agent is at `nobody`"),
             "{chat:?}"
         );
     }
@@ -105,57 +90,77 @@ async fn ends_with_a_failure_when_its_agent_does_not_exist() {
 }
 
 #[tokio::test]
-async fn asks_for_approvals_and_keeps_them_across_a_crash() {
-    let script = Script::new().responses([
-        call("write", json!({"path": "a.txt", "content": "one"})),
-        words("Done."),
-        call("bash", json!({"command": "echo started; sleep 30"})),
-        call(
-            "write",
-            json!({"path": "b.txt", "content": "after restart"}),
-        ),
-    ]);
-    let mut s = Session::start(script).await;
-    let folder = s.home.side().join("work");
-    std::fs::create_dir_all(&folder).unwrap();
-    let mut chat = Cli::start(s.home.path(), &["chat"], &[]);
-    chat.write(&format!(
-        "/folder {}\n/mode manual\nMake a file.\n",
-        folder.display()
-    ))
+async fn starts_at_another_hamlet_and_switches_agents_and_hamlets() {
+    let mut s = Session::start(
+        Faux::new()
+            .agent(1, [words("Hand answer.")])
+            .agent(2, [words("Ada answer."), words("Ada again.")])
+            .agent(3, [words("Bo answer.")]),
+    )
     .await;
+    s.found("docs", "ada", "keep the docs").await;
+    s.found("mill", "bo", "grind").await;
+    let home = s.home.path();
+    let chat = Cli::run(
+        home,
+        &["chat", "--to", "mayor@mill"],
+        "Mill?\n/hamlet docs\nDocs?\n/hand\nHand?\n",
+        &[],
+    )
+    .await;
+    assert_eq!(chat.code(), Some(0), "{chat:?}");
+    assert_eq!(
+        chat.out, "Bo answer.\nAda answer.\nHand answer.\n",
+        "{chat:?}"
+    );
+    let switched = Cli::run(
+        home,
+        &["chat"],
+        "/agent docs#0\nAgain?\n/agent missing\n",
+        &[],
+    )
+    .await;
+    assert_eq!(switched.code(), Some(0), "{switched:?}");
+    assert!(switched.out.contains("Ada again.\n"), "{switched:?}");
+    assert!(
+        switched.err.contains("no agent is at `missing`"),
+        "{switched:?}"
+    );
+}
+
+#[tokio::test]
+async fn asks_for_approvals_and_keeps_them_across_a_crash() {
+    let faux = Faux::new().agent(
+        1,
+        [
+            call("bash", json!({"command": "echo curl one > one"})),
+            words("Done."),
+            call("bash", json!({"command": "echo curl two > two"})),
+        ],
+    );
+    let mut s = Session::start(faux).await;
+    let mut chat = Cli::start(s.home.path(), &["chat"], &[]);
+    chat.write("Fetch the first.\n").await;
     chat.err_shows(
-        "NEEDS YOU: [approval] mayor wants to edit `a.txt`",
+        "NEEDS YOU: [approval] hand wants the network for",
     )
     .await;
     chat.write("/allow\n").await;
     chat.out_shows("Done.\n").await;
-    assert_eq!(
-        std::fs::read_to_string(folder.join("a.txt")).unwrap(),
-        "one"
-    );
-    chat.write("/budget\n").await;
-    chat.err_shows("Hamlet today:").await;
     assert_eq!(chat.err().matches("NEEDS YOU:").count(), 1);
-    chat.write("/mode auto\nRun a long command.\n").await;
-    chat.err_shows("[bash] {\"command\":\"echo started; sleep 30\"}")
-        .await;
-    chat.write("/stop\n").await;
-    chat.err_shows("Stopped: stopped by chief").await;
-    chat.write("/mode manual\nMake another file.\n").await;
-    chat.err_shows(
-        "NEEDS YOU: [approval] mayor wants to edit `b.txt`",
-    )
+    chat.write("/budget\n").await;
+    chat.err_shows("Realm today:").await;
+    chat.write("Fetch the second.\n").await;
+    chat.until("the second ask", |c| {
+        c.err().matches("NEEDS YOU:").count() == 2
+    })
     .await;
-    s.chief
-        .until("the wait for b.txt", |c| {
-            let waits = c.waits();
-            waits.len() == 1
-                && matches!(&waits[0].detail, WaitDetail::Approval { says, .. } if says == "wants to edit")
-                && format!("{waits:?}").contains("b.txt")
+    let wait = s
+        .chief
+        .wait_for("the second approval", |w| {
+            w.subject.contains("two")
         })
         .await;
-    let wait = s.chief.waits().remove(0);
     let Session {
         mut home,
         mut server,
@@ -167,291 +172,129 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
     assert_eq!(chat.wait().await.code(), Some(1));
     let again = home
         .serve(
-            &Script::new().responses([words("After restart.")]),
+            &Faux::new().agent(1, [words("After restart.")]),
             QUIET,
         )
         .await;
     let chief = Client::join(&again).await;
-    assert_eq!(chief.waits(), [wait]);
+    assert_eq!(chief.waits(), std::slice::from_ref(&wait));
     let mut next = Cli::start(home.path(), &["chat"], &[]);
     next.err_shows(
-        "NEEDS YOU: [approval] mayor wants to edit `b.txt`",
+        "NEEDS YOU: [approval] hand wants the network for",
     )
     .await;
     next.write("/allow\n").await;
     next.out_shows("After restart.\n").await;
-    assert_eq!(next.end().await.code(), Some(0));
-    assert_eq!(
-        std::fs::read_to_string(folder.join("b.txt")).unwrap(),
-        "after restart"
-    );
-}
-
-/// A home whose mayor makes a scout and then says `home`, and a
-/// mill whose mayor says `mill`.
-fn two_hamlets(home: &[&str], mill: &[&str]) -> Script {
-    let made = call(
-        "create_agent",
-        json!({"name": "scout", "purpose": "Scout", "reason": "Explore"}),
-    );
-    let home = [made, words("Scout made")]
-        .into_iter()
-        .chain(home.iter().map(|w| words(w)));
-    Script::new()
-        .agent("home:0", home.collect::<Vec<_>>())
-        .agent(
-            "mill:0",
-            mill.iter().map(|w| words(w)).collect::<Vec<_>>(),
-        )
-}
-
-async fn found_mill(s: &mut Session) {
-    s.chief.say(mayor(), "Make a scout").await;
-    s.chief
-        .until("scout created", |c| {
-            c.agent("home", "scout").is_some()
-        })
-        .await;
-    s.chief.idle("home", "founder").await;
-    s.chief.say(mayor(), "/found mill miller Grind flour").await;
-}
-
-#[tokio::test]
-async fn starts_at_another_hamlet_and_switches_agents_and_hamlets() {
-    let script = two_hamlets(
-        &["Home answer."],
-        &["Mill answer.", "Named answer."],
-    );
-    let mut s = Session::start(script).await;
-    found_mill(&mut s).await;
-    let home = s.home.path();
-    let chat = Cli::run(
-        home,
-        &["chat", "--to", "mayor@mill"],
-        "Mill?\n/hamlet home\nHome?\n",
-        &[],
-    )
-    .await;
-    assert_eq!(chat.code(), Some(0), "{chat:?}");
-    for words in ["Mill answer.\n", "Home answer.\n"] {
-        assert!(chat.out.contains(words), "{words}: {chat:?}");
-    }
-    assert!(
-        chat.err.contains("talking to the mayor of home"),
-        "{chat:?}"
-    );
-    let named =
-        Cli::run(home, &["chat", "--to", "miller"], "Named?\n", &[])
-            .await;
-    assert!(named.out.contains("Named answer.\n"), "{named:?}");
-    let switched = Cli::run(
-        home,
-        &["chat"],
-        "/agent scout\n/agent miller\n/hamlet mill\n/agent missing\n",
-        &[],
-    )
-    .await;
-    assert_eq!(switched.code(), Some(0), "{switched:?}");
-    for words in [
-        "talking to the agent scout",
-        "talking to the agent miller",
-        "error: no agent named `missing`",
-    ] {
-        assert!(
-            switched.err.contains(words),
-            "{words}: {switched:?}"
+    let read = std::fs::read_to_string(home.file("hand/two"));
+    let Ok(two) = read else {
+        let mut chief = chief;
+        let hand = hamlet_acceptance::chat(chief.hand());
+        let tools = chief
+            .open(&hand)
+            .await
+            .items
+            .into_iter()
+            .filter_map(|item| item.tool)
+            .collect::<Vec<_>>();
+        panic!(
+            "hand/two: {read:?}\ntools: {tools:#?}\nerr: {}\nlog: {}",
+            next.err(),
+            again.log()
         );
-    }
-    assert!(!switched.err.contains("error: no agent named `miller`"));
-}
-
-#[tokio::test]
-async fn follows_the_realm_as_hamlets_close_and_come_back() {
-    let script = two_hamlets(
-        &["Home again"],
-        &["Flour from mill", "Back in mill"],
-    );
-    let mut s = Session::start(script).await;
-    found_mill(&mut s).await;
-    let mut chat = Cli::start(
-        s.home.path(),
-        &["chat", "--to", "mayor@mill"],
-        &[],
-    );
-    chat.write("How is the mill?\n").await;
-    chat.out_shows("Flour from mill").await;
-    chat.write("/hamlet home\nHello home\n").await;
-    chat.out_shows("Home again").await;
-    s.chief.say(mayor(), "/remove-hamlet mill Finished").await;
-    chat.write("/hamlets\n").await;
-    chat.err_shows("- home (`home`)").await;
-    assert!(
-        !chat.err().contains("- mill (`mill`)"),
-        "{}",
-        chat.err()
-    );
-    chat.write("/hamlet mill\n").await;
-    chat.err_shows("error: no hamlet named `mill`").await;
-    s.chief.say(mayor(), "/restore-hamlet mill").await;
-    chat.write("/hamlets\n").await;
-    chat.err_shows("- mill (`mill`)").await;
-    chat.write("/hamlet mill\nWelcome back\n").await;
-    chat.out_shows("Back in mill").await;
-    assert_eq!(chat.end().await.code(), Some(0));
+    };
+    assert_eq!(two, "curl two\n");
+    assert_eq!(next.end().await.code(), Some(0));
 }
 
 #[tokio::test]
 async fn edits_limits_in_editor_and_reports_a_refusal() {
-    let s = Session::start(Script::new()).await;
-    let good = cost_editor(&s, "good", 5, 8);
-    let saved = edit(&s, &["limits"], &good).await;
+    let mut s = Session::start(Faux::new()).await;
+    s.found("docs", "ada", "keep the docs").await;
+    let cost = |from: i32, to: i32| {
+        format!(
+            "sed -E 's/\"cost\": {from}(\\.0)?,/\"cost\": {to},/' \
+             \"$1\" > \"$1.next\" && mv \"$1.next\" \"$1\""
+        )
+    };
+    let good = editor(&s, "good", &cost(5, 8));
+    let saved =
+        edit(&s, &["limits", "--hamlet", "docs"], &good).await;
     assert_eq!(saved.code(), Some(0), "{saved:?}");
-    assert!(saved.err.contains("Saved."), "{saved:?}");
+    assert!(saved.err.contains("saved"), "{saved:?}");
     let seen =
         serde_json::from_str::<serde_json::Value>(&good.seen())
             .unwrap();
-    let number = |v: &serde_json::Value| v.as_f64();
-    assert_eq!(
-        (number(&seen["budget"]["cost"]), &seen["budget"]["period"]),
-        (Some(5.0), &json!("day"))
-    );
-    assert_eq!(
-        (
-            number(&seen["task"]["cost"]),
-            number(&seen["task"]["messages"])
-        ),
-        (Some(1.0), Some(12.0))
-    );
-    let bad = cost_editor(&s, "bad", 8, -1);
-    let refused = edit(&s, &["limits"], &bad).await;
-    assert_eq!(refused.code(), Some(1), "{refused:?}");
-    assert!(
-        refused.err.contains(
-            "budget.cost: a cost is a number of zero or more"
-        ),
-        "{refused:?}"
-    );
-    let report =
-        Cli::run(s.home.path(), &["chat"], "/budget\n", &[]).await;
-    assert!(
-        report.err.contains("Hamlet today: $0.00 of $8.00"),
-        "{report:?}"
-    );
-}
-
-#[tokio::test]
-async fn edits_whole_documents_in_editor_and_reads_them_back() {
-    let s = Session::start(Script::new()).await;
-    let text = format!("  {}\n\n", "x".repeat(7000));
-    let file = s.home.side().join("text");
-    std::fs::write(&file, &text).unwrap();
-    let write = editor(
-        &s,
-        "write",
-        &format!("cp '{}' \"$1\"", file.display()),
-    );
-    let look = editor(&s, "look", "");
-    let first = edit(&s, &["notes"], &look).await;
-    assert_eq!(first.code(), Some(0), "{first:?}");
-    assert_eq!(look.seen(), "# Notes\n");
-    for doc in ["notes", "charter", "character"] {
-        assert_eq!(edit(&s, &[doc], &write).await.code(), Some(0));
-        assert_eq!(edit(&s, &[doc], &look).await.code(), Some(0));
-        assert_eq!(look.seen(), text, "{doc}");
-    }
-    let failing =
-        editor(&s, "failing", "echo 'not saved' > \"$1\"; exit 2");
-    let failed = edit(&s, &["notes"], &failing).await;
-    assert_eq!(failed.code(), Some(1));
-    assert!(
-        failed
-            .err
-            .contains("The editor ended with 2. Nothing was saved."),
-        "{failed:?}"
-    );
-    edit(&s, &["notes"], &look).await;
-    assert_eq!(look.seen(), text);
-}
-
-#[tokio::test]
-async fn edits_settings_as_whole_json_without_credentials() {
-    let s = Session::start(Script::new()).await;
-    let look = editor(&s, "look", "");
-    edit(&s, &["settings"], &look).await;
-    let seen =
-        serde_json::from_str::<serde_json::Value>(&look.seen())
-            .unwrap();
-    assert_eq!(
-        seen,
-        json!({
-            "model": "faux::faux-1",
-            "reflectEvery": 0,
-            "allowNet": false,
-            "effort": null,
-            "endpoints": [
-                {"name": "local", "baseUrl": "http://localhost:11434/v1"}
-            ],
-        })
-    );
-    let wrong = editor(
-        &s,
-        "wrong",
-        "sed 's/\"allowNet\"/\"allowNte\"/' \"$1\" > \"$1.next\" && \
-         mv \"$1.next\" \"$1\"",
-    );
-    let refused = edit(&s, &["settings"], &wrong).await;
-    assert_eq!(refused.code(), Some(1));
-    assert!(refused.err.contains("nothing was saved"), "{refused:?}");
-}
-
-#[tokio::test]
-async fn edits_another_hamlets_limits_alone() {
-    let mut s = Session::start(two_hamlets(&[], &[])).await;
-    found_mill(&mut s).await;
-    let nine = cost_editor(&s, "nine", 5, 9);
-    let saved =
-        edit(&s, &["limits", "--hamlet", "mill"], &nine).await;
-    assert_eq!(saved.code(), Some(0), "{saved:?}");
+    assert_eq!(seen["budget"]["period"], "day");
+    assert_eq!(seen["task"]["messages"], 12);
     s.chief
-        .until("the mill's limits", |c| {
-            let cost = |id: &str| {
-                c.realm()
-                    .hamlets
-                    .into_iter()
-                    .find(|h| h.id == id)
-                    .and_then(|h| h.limits.budget.cost)
-            };
-            cost("mill") == Some(9.0) && cost("home") == Some(5.0)
+        .until("the new cost", |c| {
+            c.hamlet("docs").unwrap().limits.budget.cost == Some(8.0)
         })
         .await;
+    // The realm's own limits are another document.
+    let realm = editor(&s, "realm", "");
+    let seen = edit(&s, &["limits"], &realm).await;
+    assert_eq!(seen.code(), Some(0), "{seen:?}");
+    assert!(
+        realm.seen().contains("roadsBetween"),
+        "{}",
+        realm.seen()
+    );
+    let broken = editor(&s, "broken", "echo '{' > \"$1\"");
+    let refused =
+        edit(&s, &["limits", "--hamlet", "docs"], &broken).await;
+    assert_eq!(refused.code(), Some(1), "{refused:?}");
+    assert_eq!(
+        s.chief.hamlet("docs").unwrap().limits.budget.cost,
+        Some(8.0)
+    );
 }
 
 #[tokio::test]
-async fn signs_in_with_a_key_lists_models_and_tries_a_hello() {
-    let endpoint = openai::Endpoint::start().await;
-    let s = Session::with_endpoint(&endpoint).await;
-    let key = "sk-terminal-private-key";
-    let login = Cli::run(
-        s.home.path(),
-        &["login", "openai", "--key"],
-        &format!("{key}\n"),
-        &[],
+async fn edits_a_scholars_character_and_memory_in_editor() {
+    let mut s = Session::start(Faux::new()).await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
+    let scholar = s.chief.scholar("ada").unwrap().id;
+    let write =
+        editor(&s, "write", "echo 'Brave and plain.' > \"$1\"");
+    let saved = edit(
+        &s,
+        &["character", &format!("scholar#{}", scholar.0)],
+        &write,
     )
     .await;
-    assert_eq!(login.code(), Some(0), "{login:?}");
-    assert!(!login.out.contains(key) && !login.err.contains(key));
-    assert!(login.err.contains("Signed in to openai."), "{login:?}");
-    let stored =
-        std::fs::read_to_string(s.home.file("credentials.json"))
-            .unwrap();
-    let stored =
-        serde_json::from_str::<serde_json::Value>(&stored).unwrap();
-    assert_eq!(stored["models"]["openai"]["key"], key);
-    let models = Cli::run(s.home.path(), &["models"], "", &[]).await;
-    assert_eq!(models.code(), Some(0));
-    assert!(models.out.contains("local::org/large"), "{models:?}");
-    let hello =
-        Cli::run(s.home.path(), &["models", "try"], "", &[]).await;
-    assert_eq!(hello.code(), Some(0));
-    assert_eq!(hello.out, "Hello.\n");
+    assert_eq!(saved.code(), Some(0), "{saved:?}");
+    let note = editor(
+        &s,
+        "note",
+        "printf -- '---\\ndescription: Tea\\n---\\nEarl grey.\\n' > \
+         \"$1\"",
+    );
+    let saved =
+        edit(&s, &["memory", "docs#0", "tea.md"], &note).await;
+    assert_eq!(saved.code(), Some(0), "{saved:?}");
+    let papers = s.chief.papers(Keeper::Agent(ada)).await;
+    assert_eq!(papers.character.trim(), "Brave and plain.");
+    assert_eq!(papers.memory[0].path, "tea.md");
+    // The scholar's own memory is another file than the hire's.
+    assert!(
+        s.chief
+            .papers(Keeper::Scholar(scholar))
+            .await
+            .memory
+            .is_empty()
+    );
+    let failing =
+        editor(&s, "failing", "echo 'not saved' > \"$1\"; exit 2");
+    let failed = edit(
+        &s,
+        &["character", &format!("scholar#{}", scholar.0)],
+        &failing,
+    )
+    .await;
+    assert_eq!(failed.code(), Some(1), "{failed:?}");
+    assert!(
+        failed.err.contains("The editor ended with 2"),
+        "{failed:?}"
+    );
 }

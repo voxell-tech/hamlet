@@ -21,14 +21,28 @@ use self::Shape::{
 const GRID: f32 = 16.0;
 
 /// The sizes an icon is drawn for, in the interface's pixels.
-const SIZES: [f32; 4] = [12.0, 14.0, 16.0, 20.0];
+pub(super) const SIZES: [f32; 4] = [12.0, 14.0, 16.0, 20.0];
 
 /// The pixels of an image to one of the interface's, so that an icon
 /// is sharp on a display of twice the density.
-const DENSITY: f32 = 2.0;
+pub(super) const DENSITY: f32 = 2.0;
 
 /// The handles of the icons' images start here.
 const FIRST: u128 = 0x6861_6d6c_6574_5f69_636f_6e73_0000_0000;
+
+/// The points of a five-pointed star, outer and inner by turns.
+const STAR: [[f32; 2]; 10] = [
+    [8.0, 2.0],
+    [9.55, 6.2],
+    [13.95, 6.35],
+    [10.5, 9.1],
+    [11.7, 13.4],
+    [8.0, 10.9],
+    [4.3, 13.4],
+    [5.5, 9.1],
+    [2.05, 6.35],
+    [6.45, 6.2],
+];
 
 pub fn plugin(app: &mut App) {
     app.insert_resource(dock()).add_systems(Startup, draw);
@@ -84,8 +98,6 @@ pub enum Glyph {
     Coins,
     /// A dial with a needle: the budget.
     Meter,
-    /// A ticked ballot.
-    Ballot,
     Signpost,
     /// A robot's head: an agent.
     Robot,
@@ -130,6 +142,10 @@ pub enum Glyph {
     Drop,
     /// An arrow rising from the ground.
     Rise,
+    /// A five-pointed star: something that could be a favourite.
+    Star,
+    /// The star filled: a favourite.
+    Starred,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -158,7 +174,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 53] = [
+    pub const ALL: [Glyph; 54] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -184,7 +200,6 @@ impl Glyph {
         Glyph::Signal,
         Glyph::Coins,
         Glyph::Meter,
-        Glyph::Ballot,
         Glyph::Signpost,
         Glyph::Robot,
         Glyph::Sliders,
@@ -212,6 +227,8 @@ impl Glyph {
         Glyph::Scatter,
         Glyph::Drop,
         Glyph::Rise,
+        Glyph::Star,
+        Glyph::Starred,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -410,10 +427,6 @@ impl Glyph {
                 Line(8.0, 10.5, 11.25, 6.25),
                 Dot(8.0, 10.5, 1.2),
             ],
-            Glyph::Ballot => &[
-                Round(2.5, 2.5, 13.5, 13.5, 2.0),
-                Path(&[[5.25, 8.25], [7.25, 10.25], [10.75, 5.75]]),
-            ],
             Glyph::Signpost => &[
                 Line(8.0, 7.5, 8.0, 14.25),
                 Loop(&[
@@ -590,6 +603,8 @@ impl Glyph {
                 Path(&[[4.75, 5.5], [8.0, 2.25], [11.25, 5.5]]),
                 Line(3.0, 13.75, 13.0, 13.75),
             ],
+            Glyph::Star => &[Loop(&STAR)],
+            Glyph::Starred => &[Loop(&STAR), Fill(&STAR)],
         }
     }
 }

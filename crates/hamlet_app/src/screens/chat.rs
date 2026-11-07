@@ -6,7 +6,7 @@
 //! them (`rewind`). A message can `reply` to another, and `quote`
 //! lines as chat apps do.
 
-mod bubble;
+pub(crate) mod bubble;
 mod change;
 mod entry;
 mod field;
@@ -49,7 +49,7 @@ use hamlet_client::messages::{
     ChiefMessage, Response, Rewind, ServerFault,
 };
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::MAYOR;
+use hamlet_client::realm as agents;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders::{Decree, Tell};
 use hamlet_ui::styles::{note, text_input};
@@ -58,6 +58,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
+pub use self::entry::OpenTools;
 pub(crate) use self::entry::entry_view;
 pub use self::field::{
     FieldBar, Placeholder, bar, grow, keep_typed, scroll_field,
@@ -99,6 +100,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(remember_said)
         .add_observer(remember_rewind)
         .add_observer(response)
+        .init_resource::<OpenTools>()
         .add_plugins((rewind::plugin, lines::plugin, reply::plugin))
         // The rows are folded before fynix mounts them, so a received
         // reply shows in the update it arrives.
@@ -257,7 +259,7 @@ pub fn send(world: &mut World, text: String) {
     }
     if matches!(
         text.split_whitespace().next(),
-        Some("/agent" | "/hamlet")
+        Some("/hand" | "/agent" | "/hamlet")
     ) {
         return;
     }
@@ -268,28 +270,44 @@ pub fn send(world: &mut World, text: String) {
     {
         return;
     }
-    let to = convo.to.clone();
+    let Some(to) = convo.to(world) else {
+        return;
+    };
     // What is sent is at the end of the chat.
     to_end(world);
     world.trigger(ChiefMessage { to, text });
 }
 
-/// A chief's command addressed to a hamlet's mayor.
+/// A chief's command about a hamlet, addressed to its mayor.
 pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
-    world.trigger(ChiefMessage {
-        to: protocol::Address {
-            hamlet: hamlet.into(),
-            agent: MAYOR.into(),
-        },
-        text,
-    });
+    if let Some(mayor) = agents::mayor_of(world, hamlet) {
+        command_to(world, mayor, text);
+    }
 }
 
-/// Gives a decree of the world's as [`decree`] does.
+/// A chief's command about the realm, addressed to the Hand.
+pub(crate) fn command(world: &mut World, text: String) {
+    if let Some(hand) = agents::hand(world) {
+        command_to(world, hand, text);
+    }
+}
+
+/// Sends a command the window made, not one typed in a chat, so its
+/// refusal is toasted rather than said only in a chat.
+fn command_to(world: &mut World, agent: Entity, text: String) {
+    if let Some(to) = agents::id_of(world, agent) {
+        world.trigger(ChiefMessage { to, text });
+        crate::toasts::watch_last(world);
+    }
+}
+
+/// Gives a decree of the world's as [`decree`] does, or as
+/// [`command`] does when it is about no hamlet.
 pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
     let Decree { hamlet, text } = decree.event().clone();
-    commands.queue(move |world: &mut World| {
-        self::decree(world, &hamlet, text);
+    commands.queue(move |world: &mut World| match hamlet {
+        Some(hamlet) => self::decree(world, &hamlet, text),
+        None => command(world, text),
     });
 }
 
@@ -297,7 +315,7 @@ pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
 fn told(tell: On<Tell>, mut commands: Commands) {
     let Tell { agent, text } = tell.event().clone();
     commands.queue(move |world: &mut World| {
-        let Some((to, _)) = convo::address(world, agent) else {
+        let Some((to, _)) = convo::id_and_shown(world, agent) else {
             return;
         };
         world.trigger(ChiefMessage { to, text });
@@ -559,7 +577,7 @@ mod tests {
             .init_resource::<crate::menu::OpenMenu>()
             .init_resource::<crate::world_menu::Open>()
             .init_resource::<bevy_fynix::dock::DockDrag>()
-            .init_resource::<crate::inspector::Section>()
+            .init_resource::<crate::hub::Showing>()
             .init_resource::<crate::hover::Card>()
             .add_plugins((plugin, crate::sounds::plugin));
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
@@ -827,7 +845,7 @@ mod tests {
             .query_filtered::<Entity, With<EditableText>>()
             .single(world)
             .unwrap();
-        for command in ["/new", "/agent founder", "/hamlet home"] {
+        for command in ["/new", "/agent ada", "/hamlet home"] {
             app.world_mut()
                 .resource_mut::<InputFocus>()
                 .set(input, FocusCause::Pressed);
@@ -852,7 +870,7 @@ mod tests {
                         or right-click an agent or a hamlet."
             ));
         }
-        send(app.world_mut(), "/agent founder".into());
+        send(app.world_mut(), "/agent ada".into());
         send(app.world_mut(), "/hamlet home".into());
         assert!(!app.world().resource::<Outbox>().iter().any(
             |message| matches!(
@@ -863,29 +881,45 @@ mod tests {
     }
 
     fn paging_pages() -> Vec<protocol::Transcript> {
-        include_str!("../../../hamlet_protocol/frames/paging.jsonl")
-            .lines()
-            .filter_map(|line| {
-                let frame =
-                    serde_json::from_str::<serde_json::Value>(line)
-                        .unwrap();
-                (frame["from"] == "server")
-                    .then(|| {
-                        serde_json::from_value::<
-                            protocol::ServerMessage,
-                        >(
-                            frame["message"].clone()
-                        )
-                        .unwrap()
-                    })
-                    .and_then(|message| match message {
-                        protocol::ServerMessage::Transcript(page) => {
-                            Some(page)
-                        }
-                        _ => None,
-                    })
-            })
-            .collect::<Vec<_>>()
+        let mut pages = include_str!(
+            "../../../hamlet_protocol/frames/paging.jsonl"
+        )
+        .lines()
+        .filter_map(|line| {
+            let frame =
+                serde_json::from_str::<serde_json::Value>(line)
+                    .unwrap();
+            (frame["from"] == "server")
+                .then(|| {
+                    serde_json::from_value::<protocol::ServerMessage>(
+                        frame["message"].clone(),
+                    )
+                    .unwrap()
+                })
+                .and_then(|message| match message {
+                    protocol::ServerMessage::Transcript(page) => {
+                        Some(page)
+                    }
+                    _ => None,
+                })
+        })
+        .collect::<Vec<_>>();
+        // The recorded latest page holds 100 items; the window under
+        // test is built for a page of 40, with six older items before
+        // it.
+        let latest = &mut pages[0];
+        let keep = latest.items.len() - 40;
+        latest.items.drain(..keep);
+        latest.earlier = Some(latest.items[0].id.clone());
+        pages[1].items.truncate(6);
+        // The fixture state names its chief "chief".
+        for item in pages.iter_mut().flat_map(|page| &mut page.items)
+        {
+            if item.chief.is_some() {
+                item.chief = Some("chief".into());
+            }
+        }
+        pages
     }
 
     #[test]
@@ -893,6 +927,7 @@ mod tests {
      {
         use hamlet_client::outbox::Outbox;
         let mut app = crate::testing::panel_app();
+        crate::testing::seat_hand(&mut app);
         app.add_plugins(plugin);
         app.update();
         let pages = paging_pages();
@@ -957,6 +992,7 @@ mod tests {
 
         use crate::testing::{panel_app, words};
         let mut app = panel_app();
+        crate::testing::seat_hand(&mut app);
         app.add_plugins(plugin);
         // A window wide enough that one turn reaches the first row.
         app.insert_resource(Reach {
@@ -1174,18 +1210,24 @@ mod tests {
         press(&mut app, "+  Working, 1 step so far");
         press(&mut app, "+  Thought it over");
         app.update();
+        // Each call is a row of its request; a finished one says how
+        // long it took, and the failed one opens to its exit.
         let shown = words(&mut app);
-        for text in [
-            "Done",
-            "Failed (exit 7)",
-            "Running",
-            "A received notice",
-        ] {
-            assert!(
-                shown.iter().any(|shown| shown == text),
-                "missing {text}: {shown:?}"
-            );
-        }
+        let count =
+            |text: &str| shown.iter().filter(|s| *s == text).count();
+        assert_eq!(count("pwd"), 3, "{shown:?}");
+        assert_eq!(count("0.0s"), 2, "{shown:?}");
+        assert_eq!(count("A received notice"), 1, "{shown:?}");
+        app.world_mut()
+            .resource_mut::<OpenTools>()
+            .0
+            .push((session, "failed:0".into()));
+        app.update();
+        app.update();
+        assert!(
+            words(&mut app).contains(&"Failed (exit 7)".to_string()),
+            "the failed call opened"
+        );
     }
 
     #[test]

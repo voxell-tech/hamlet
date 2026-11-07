@@ -3,8 +3,9 @@
 
 use bevy::prelude::*;
 use bevy::ui::UiSystems;
+use hamlet_client::realm::Shown;
 
-use super::{Footprint, Hovered, PickSettings, Thing};
+use super::{Footprint, Hovered, Names, PickSettings, Thing};
 use crate::label::{self, Lens};
 
 pub(super) fn plugin(app: &mut App) {
@@ -85,7 +86,7 @@ fn spawn(mut commands: Commands) {
 /// Keeps a sign over every `Named` thing.
 fn signs(
     mut commands: Commands,
-    names: Query<&Name>,
+    names: Names,
     lens: Lens,
     pick: Res<PickSettings>,
     new: Query<
@@ -155,7 +156,7 @@ fn signs(
 fn words(
     thing: Thing,
     reads: Option<&Reads>,
-    names: &Query<&Name>,
+    names: &Names,
 ) -> String {
     match reads {
         Some(reads) => reads.0.clone(),
@@ -165,13 +166,15 @@ fn words(
 
 /// Writes on each sign the name it shows.
 fn write_signs(
-    names: Query<&Name>,
-    renamed: Query<(), Changed<Name>>,
+    names: Names,
+    renamed: Query<(), Or<(Changed<Name>, Changed<Shown>)>>,
+    mut unnicknamed: RemovedComponents<Shown>,
     named: Query<(Ref<Thing>, &Signed, Option<Ref<Reads>>)>,
     signs: Query<&Children, With<Sign>>,
     mut texts: Query<&mut Text, With<SignText>>,
 ) {
-    let every = !renamed.is_empty();
+    let every =
+        !renamed.is_empty() || unnicknamed.read().next().is_some();
     for (thing, signed, reads) in &named {
         let rewritten =
             reads.as_ref().is_some_and(DetectChanges::is_changed);
@@ -195,7 +198,7 @@ fn write_signs(
 fn name_tag(
     quiet: Option<Res<NoNameTag>>,
     hovered: Res<Hovered>,
-    names: Query<&Name>,
+    names: Names,
     lens: Lens,
     things: Query<
         (Entity, &Thing, &Footprint, &GlobalTransform),

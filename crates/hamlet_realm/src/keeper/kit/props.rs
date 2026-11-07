@@ -103,31 +103,6 @@ pub(super) fn prop(which: Prop, pal: &Palette) -> Meshing {
                 0.25,
             );
         }
-        Prop::Ballot => {
-            let c = Vec3::new(0.0, -0.39, 0.02);
-            meshing.rbox(
-                c,
-                Vec3::new(0.06, 0.075, 0.006),
-                0.004,
-                Quat::IDENTITY,
-                pal.parchment,
-                0.0,
-            );
-            // A tick.
-            for (x, y, len, turn) in [
-                (-0.018, -0.012, 0.016, -0.8f32),
-                (0.012, 0.004, 0.034, 0.9),
-            ] {
-                meshing.rbox(
-                    c + Vec3::new(x, y, 0.008),
-                    Vec3::new(len, 0.006, 0.002),
-                    0.001,
-                    Quat::from_rotation_z(turn),
-                    pal.ink,
-                    0.0,
-                );
-            }
-        }
         Prop::Book => {
             let c = Vec3::new(0.0, -0.37, 0.02);
             meshing.rbox(

@@ -1,5 +1,7 @@
 //! The overview and hamlet gallery scenes.
 
+use bevy::ecs::resource::Resource;
+use bevy::ecs::system::{Commands, ResMut};
 use bevy::ecs::world::World;
 use hamlet_client::realm::HamletId;
 use hamlet_protocol::client as protocol;
@@ -10,7 +12,14 @@ use crate::scenes::Scene;
 pub(super) fn setup(world: &mut World, scene: Scene) {
     if !matches!(
         scene,
-        Scene::Overview | Scene::Hamlet | Scene::Bylaws
+        Scene::Overview
+            | Scene::Hamlet
+            | Scene::Bylaws
+            | Scene::Hub
+            | Scene::Scholar
+            | Scene::Realm
+            | Scene::Desk
+            | Scene::Toasts
     ) {
         return;
     }
@@ -18,38 +27,46 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     state.chief = "chief".into();
     state.deeds = hamlet_testing::realm::deeds(&[
         "record",
-        "overturn",
         "restore-hamlet",
         "erase-hamlet",
         "found",
+        "tag",
+        "pin",
+        "revert",
+        "fork",
+        "purge",
+        "dream",
+        "remove-scholar",
+        "name-scholar",
+        "restore-scholar",
+        "welcome",
+        "turn-away",
     ]);
     state.closed = vec![protocol::ClosedHamlet {
         id: "press".into(),
         name: "The Old Press".into(),
         at: 1000,
         by: "chief".into(),
-        reason: "The harvest is finished. Its houses are kept."
+        reason: "The harvest is finished. Its lodges are kept."
             .into(),
     }];
+    let mut next = 10;
+    // The scholar of each hire has the hire's id.
+    let mut scholars = vec![(2, "ada")];
     for (id, title, mayor, others) in [
-        ("home", "Pear Tree Hollow", "founder", 3),
-        ("mill", "mill", "miller", 2),
-        ("quay", "The Quay", "harbourmaster", 1),
+        (
+            "home",
+            "Pear Tree Hollow",
+            "ada",
+            &["scout", "pip", "wren"][..],
+        ),
+        ("mill", "mill", "miller", &["sorrel", "fen"][..]),
+        ("quay", "The Quay", "harbourmaster", &["tansy"][..]),
     ] {
-        let mut hamlet = hamlet_testing::realm::hamlet(id);
+        let first = if id == "home" { 2 } else { next };
+        let mut hamlet = hamlet_testing::realm::hamlet(id, first);
         hamlet.name = title.into();
         if id == "home" {
-            hamlet.votes = vec![protocol::VoteView {
-                id: 3,
-                motion: "scout for mayor".into(),
-                by: "chief".into(),
-                open: false,
-                overturnable: true,
-                report: "Vote 3: scout for mayor. Two yes of three; \
-                         passed."
-                    .into(),
-                voters: vec![],
-            }];
             hamlet.folder = Some("/projects/orchard-almanac".into());
             hamlet.mode_words = "Agents ask before each edit and \
                                  command on the server."
@@ -71,20 +88,112 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         if id != "home" {
             state
                 .agents
-                .push(hamlet_testing::realm::agent(id, 0, mayor));
+                .push(hamlet_testing::realm::agent(first, id, 0));
+            scholars.push((first, mayor));
+            next += 1;
         }
-        for number in 1..=others {
-            let mut agent = hamlet_testing::realm::agent(
-                id,
-                number,
-                &format!("{id}-hand-{number}"),
-            );
-            agent.purpose = "Keeps a row of the orchard.".into();
+        // In the hollow scout is a lead, with pip and wren under it;
+        // elsewhere every hire is under the mayor.
+        let lead = next;
+        for (number, name) in (1..).zip(others) {
+            let mut agent =
+                hamlet_testing::realm::agent(next, id, number);
+            scholars.push((next, name));
+            agent.parent = Some(protocol::AgentId(
+                if id == "home" && number > 1 {
+                    lead
+                } else {
+                    first
+                },
+            ));
+            if *name == "pip" {
+                agent.nickname = Some("Pippin".into());
+            }
+            agent.purpose = match *name {
+                "scout" => "Reads the orchard's records.",
+                "pip" => "Counts the pears in each row.",
+                "wren" => "Mends the fences.",
+                "sorrel" => "Keeps the millstones.",
+                "fen" => "Weighs the flour.",
+                _ => "Keeps the boats.",
+            }
+            .into();
             agent.busy = number == 2;
             agent.activity.doing_words =
                 "Reading the orchard's notes".into();
             state.agents.push(agent);
+            next += 1;
         }
+    }
+    busy_realm(&mut state);
+    state.scholars = scholars
+        .into_iter()
+        .map(|(id, name)| {
+            hamlet_testing::realm::scholar(id, name, &[id])
+        })
+        .collect();
+    let mut moss = hamlet_testing::realm::scholar(90, "moss", &[]);
+    moss.arrival = protocol::Arrival::Waiting;
+    moss.house = None;
+    let mut burr = hamlet_testing::realm::scholar(91, "burr", &[]);
+    burr.arrival = protocol::Arrival::Turned;
+    burr.house = None;
+    state.scholars.extend([moss, burr]);
+    if scene != Scene::Toasts {
+        // The chief holds the door, so moss waits on a petition.
+        let mut wait = hamlet_testing::realm::wait("moss");
+        wait.agent = None;
+        wait.by = "home#1".into();
+        wait.about =
+            "scout made moss, who waits to be let in.".into();
+        // It came in a few minutes ago.
+        wait.since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+            - 5 * 60_000;
+        wait.detail = protocol::WaitDetail::Newcomer {
+            scholar: protocol::ScholarId(90),
+        };
+        state.waits.push(wait);
+    }
+    if scene == Scene::Toasts {
+        // The Hand holds the door. Once the realm is on show it
+        // lets moss in and a hire raises a petition.
+        state.settings.newcomers = protocol::Newcomers::Hand;
+        let mut next = state.clone();
+        next.revision += 1;
+        for scholar in &mut next.scholars {
+            if scholar.name == "moss" {
+                scholar.arrival = protocol::Arrival::Housed;
+                scholar.house = Some(protocol::HouseAt {
+                    turn: 0.0,
+                    x: 40.0,
+                    z: 12.0,
+                });
+            }
+        }
+        let mut wait = hamlet_testing::realm::wait("toast");
+        wait.since = 1000;
+        next.waits.push(wait);
+        world.insert_resource(Later(next, 0));
+    }
+    if let Some(ada) =
+        state.scholars.iter_mut().find(|s| s.name == "ada")
+    {
+        ada.versions = vec![
+            protocol::VersionView {
+                at: 1000,
+                name: "v1".into(),
+                note: "Learned the rows".into(),
+            },
+            protocol::VersionView {
+                at: 2000,
+                name: "v2".into(),
+                note: "Learned the press".into(),
+            },
+        ];
+        ada.skills = vec!["orchard".into()];
     }
     hamlet_client::receive(
         world,
@@ -106,10 +215,83 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
          chief restored smith, whose house and notes returned."
             .into(),
     ));
-    if scene == Scene::Hamlet {
-        world.insert_resource(hamlet_app::overview::Page::Record);
+    if matches!(scene, Scene::Hamlet | Scene::Bylaws) {
+        world
+            .insert_resource(hamlet_app::hub::Showing::Hamlet(first));
     }
     if scene == Scene::Bylaws {
         world.insert_resource(hamlet_app::overview::Page::Bylaws);
+    }
+}
+
+/// A state to receive a few frames after the first, and the frames
+/// counted so far.
+#[derive(Resource)]
+pub(in crate::scenes) struct Later(protocol::State, u32);
+
+/// Frames to wait before the later state comes in.
+const AFTER: u32 = 10;
+
+/// Receives the later state once the first has been on show.
+pub(in crate::scenes) fn later(
+    mut commands: Commands,
+    mut state: Option<ResMut<Later>>,
+) {
+    let Some(state) = state.as_mut() else {
+        return;
+    };
+    state.1 += 1;
+    if state.1 == AFTER {
+        let next = state.0.clone();
+        commands.queue(move |world: &mut World| {
+            hamlet_client::receive(
+                world,
+                protocol::ServerMessage::State(next),
+            );
+        });
+    }
+}
+
+/// Makes the realm one at work: a hire that waits on a worker,
+/// another that waits for the chief, and the Hand at its desk.
+fn busy_realm(state: &mut protocol::State) {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    if let Some(hand) =
+        state.agents.iter_mut().find(|agent| agent.name == "hand")
+    {
+        hand.activity.doing_words = "Founding a hamlet".into();
+        hand.busy = true;
+    }
+    let Some(lead) =
+        state.agents.iter_mut().find(|agent| agent.name == "home#2")
+    else {
+        return;
+    };
+    lead.busy = true;
+    lead.activity.doing = protocol::Doing::Await;
+    lead.activity.doing_words = "Waiting for a worker".into();
+    let lead = lead.id;
+    let mut worker = hamlet_testing::realm::agent(40, "home", 9);
+    worker.kind = protocol::AgentKind::Worker;
+    worker.name = "worker#40".into();
+    worker.number = None;
+    worker.scholar = None;
+    worker.parent = Some(lead);
+    worker.busy = true;
+    worker.purpose = "Count the pears in row four.".into();
+    worker.activity.doing_words =
+        "Reading the orchard's notes".into();
+    state.agents.push(worker);
+    if let Some(waiting) =
+        state.agents.iter().find(|agent| agent.name == "mill#1")
+    {
+        let mut wait = hamlet_testing::realm::wait("ask");
+        wait.agent = Some(waiting.id);
+        wait.by = waiting.name.clone();
+        wait.since = since;
+        state.waits.push(wait);
     }
 }

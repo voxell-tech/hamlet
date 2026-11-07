@@ -144,6 +144,74 @@ pub fn focus_on(world: &mut World, thing: Thing, stay: bool) {
     let Some(at) = at else {
         return;
     };
+    glide_to(world, at);
+    world.resource_mut::<Following>().0 = stay.then_some(thing);
+}
+
+/// The share of the view's width and height kept clear at each edge:
+/// a thing chosen nearer an edge than this is brought in.
+const VIEW_MARGIN: f32 = 0.12;
+
+/// Brings `thing` into view, chosen from a panel: where it is already
+/// well inside the view nothing moves, and otherwise the view slides
+/// only as far as brings it inside the margin, at the height it is
+/// at, without coming in close. A thing behind the camera is brought
+/// to the middle. F and Focus come in close with [`focus_on`].
+pub fn bring_into_view(world: &mut World, thing: Thing) {
+    let at = world
+        .query::<(&Thing, &GlobalTransform)>()
+        .iter(world)
+        .find(|(of, _)| **of == thing)
+        .map(|(_, at)| at.translation());
+    let Some(at) = at else {
+        return;
+    };
+    // How far the ground must slide for the thing to stand at the
+    // nearest point inside the margin, or none to bring it to the
+    // middle.
+    let slide = world
+        .query_filtered::<(&Camera, &GlobalTransform), With<crate::WorldCamera>>()
+        .iter(world)
+        .next()
+        .and_then(|(camera, view)| {
+            let size = camera.logical_viewport_size()?;
+            let point = camera.world_to_viewport(view, at).ok()?;
+            let inset = size * VIEW_MARGIN;
+            let inside = point.clamp(inset, size - inset);
+            if inside == point {
+                return Some(Vec2::ZERO);
+            }
+            // Where the ground at the thing's height shows at that
+            // point now: the thing must come to stand there.
+            let ray = camera.viewport_to_world(view, inside).ok()?;
+            let down = ray.direction.y;
+            if down.abs() < 1e-4 {
+                return None;
+            }
+            let reach = (at.y - ray.origin.y) / down;
+            if reach <= 0.0 {
+                return None;
+            }
+            Some(at.xz() - ray.get_point(reach).xz())
+        });
+    if slide == Some(Vec2::ZERO) {
+        return;
+    }
+    let centre = world.resource::<Centre>().0;
+    // From where the camera stands now, as the view is drawn there.
+    let now = world.resource::<Glide>().0.pan;
+    let wanted = match slide {
+        Some(slide) => now + slide,
+        None => at.xz() - centre,
+    };
+    let set = world.resource::<CameraSettings>();
+    let pan = world.resource::<Leash>().held(set, centre, wanted);
+    world.resource_mut::<Orbit>().pan = pan;
+}
+
+/// Brings the place `at` on the ground to the middle of the view and
+/// comes in close.
+pub fn glide_to(world: &mut World, at: Vec2) {
     if let Some(mut played) =
         world.get_resource_mut::<Messages<Played>>()
     {
@@ -163,7 +231,6 @@ pub fn focus_on(world: &mut World, thing: Thing, stay: bool) {
     let mut orbit = world.resource_mut::<Orbit>();
     orbit.pan = pan;
     orbit.zoom = orbit.zoom.min(close);
-    world.resource_mut::<Following>().0 = stay.then_some(thing);
 }
 
 /// F brings the selected thing to the middle and comes in close,

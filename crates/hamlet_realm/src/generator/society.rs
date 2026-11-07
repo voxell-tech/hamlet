@@ -52,7 +52,7 @@ pub struct Agent {
     pub id: AgentId,
     pub town: TownId,
     /// The plot its house stands on. Changes only when it moves
-    /// town.
+    /// town, or trades houses with the mayor on becoming one.
     pub plot: u32,
     pub state: KeeperState,
     /// Its task while it works.
@@ -283,6 +283,35 @@ impl Society {
         });
         self.agents.retain(|a| a.town != id);
         self.towns.retain(|t| t.id != id);
+        Outcome::Changed
+    }
+
+    /// Makes `agent` its town's mayor: it and the mayor before it
+    /// trade houses, so the mayor lives in the hall. Unchanged when
+    /// it is the mayor already or lives in another town.
+    pub fn seat(&mut self, agent: AgentId) -> Outcome {
+        let Some(new) = self.agent(agent).cloned() else {
+            return Outcome::Unchanged;
+        };
+        let Some(old) = self
+            .town(new.town)
+            .map(|town| town.mayor)
+            .filter(|old| *old != agent)
+            .and_then(|old| self.agent(old).cloned())
+        else {
+            return Outcome::Unchanged;
+        };
+        if let Some(was) = self.agent_mut(old.id) {
+            was.plot = new.plot;
+        }
+        if let Some(now) = self.agent_mut(agent) {
+            now.plot = old.plot;
+        }
+        if let Some(town) =
+            self.towns.iter_mut().find(|town| town.id == new.town)
+        {
+            town.mayor = agent;
+        }
         Outcome::Changed
     }
 

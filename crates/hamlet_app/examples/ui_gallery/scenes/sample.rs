@@ -2,10 +2,10 @@
 
 mod chat;
 mod history;
-mod inspector;
+mod hub;
 mod menu;
 mod needs;
-mod overview;
+pub(super) mod overview;
 mod settings;
 mod welcome;
 
@@ -32,11 +32,9 @@ pub(super) fn setup(world: &mut World) {
         world,
         protocol::ServerMessage::State(state),
     );
-    let agent = realm::mayor(world).expect("the received founder");
-    let to = protocol::Address {
-        hamlet: "home".into(),
-        agent: "mayor".into(),
-    };
+    let agent =
+        realm::first_mayor(world).expect("the received mayor");
+    let to = protocol::AgentId(2);
     let talk = chat::setup(world, scene);
     let usage = serde_json::json!({
         "calls": 3,
@@ -57,7 +55,7 @@ pub(super) fn setup(world: &mut World) {
             Chat(protocol::ChatRef {
                 kind: None,
                 from: None,
-                with: to.clone(),
+                with: to,
                 past: None,
             }),
             talk,
@@ -65,24 +63,33 @@ pub(super) fn setup(world: &mut World) {
             Usage(usage),
         ))
         .id();
+    if scene == Scene::Chat {
+        // The first turn's steps open, with one call opened in them.
+        world.insert_resource(hamlet_app::chat::Unfolded(vec![(
+            session,
+            "turn-0-tool-0".into(),
+        )]));
+        world.insert_resource(hamlet_app::chat::OpenTools(vec![(
+            session,
+            "turn-0-tool-1".into(),
+        )]));
+    }
     world.insert_resource(Convo {
         session,
-        to,
         name: "chief".into(),
         agent,
-        with: None,
+        with: Some("home#0".into()),
     });
     world.init_resource::<Also>();
     world.insert_resource(Selected(Some(Thing::Agent(agent))));
     world.insert_resource(ViewFolder(scratch().join("window")));
     menu::setup(world, scene);
     settings::setup(world, scene);
-    inspector::setup(world, scene);
     overview::setup(world, scene);
+    hub::setup(world, scene);
     needs::setup(world, scene);
     if matches!(scene, Scene::History | Scene::Reading) {
-        world
-            .insert_resource(hamlet_app::inspector::Section::History);
+        world.insert_resource(hamlet_app::hub::Showing::Sessions);
         history::setup(world, scene == Scene::Reading);
     }
     if scene == Scene::Chief {

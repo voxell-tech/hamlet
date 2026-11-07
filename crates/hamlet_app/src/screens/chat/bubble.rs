@@ -12,13 +12,11 @@ use bevy::ui::{
 use bevy_fynix::patch::Paint;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    label, row,
+    BehaviorExt, FrameProps, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
+use bevy_fynix::{ViewExt, component, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::markdown::Area;
-use hamlet_ui::styles::{Fills, bare, hairline};
 use hamlet_ui::theme::{Palette, contrast};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
@@ -32,7 +30,6 @@ use super::timeline::{Kind, Line, Who};
 use crate::convo::Convo;
 use crate::markdown;
 use crate::select::{self, Quotable};
-use crate::world_menu::{self, Deed};
 
 /// The room at the left of the chat that a speaker's picture stands
 /// in, and the width of the picture.
@@ -114,7 +111,7 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
     .fill(who.paint);
     match who.kind {
         Kind::Agent => face.radius(size / 2.0),
-        Kind::Mayor => face
+        Kind::Mayor | Kind::Hand => face
             .radius(size / 2.0)
             .border(1.5)
             .border_color(theme.palette.gold_3),
@@ -233,7 +230,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             let tag = if line.by == 0 { "" } else { &who.tag };
             let tag = label(tag.to_string()).size(10.0).wrap(false);
             head.push(match who.kind {
-                Kind::Mayor => tag
+                Kind::Mayor | Kind::Hand => tag
                     .bold(true)
                     .tone(Tone::Faint)
                     .tagged(DisplayText)
@@ -464,105 +461,4 @@ pub(super) fn line_view(line: &Line) -> AnyView {
                 .boxed()
         }
     }
-}
-
-/// The most pictures the head of the chat shows.
-const FACES: usize = 6;
-
-/// The names of everyone in `cast`, the chief at this window last.
-fn names(cast: &[Who]) -> String {
-    let mut names = cast
-        .iter()
-        .filter(|who| who.kind != Kind::Me)
-        .map(|who| who.name.clone())
-        .collect::<Vec<_>>();
-    if cast.iter().any(|who| who.kind == Kind::Me) {
-        names.push("you".to_string());
-    }
-    match names.split_last() {
-        Some((last, rest)) if !rest.is_empty() => {
-            format!("{} and {last}", rest.join(", "))
-        }
-        _ => names.concat(),
-    }
-}
-
-/// The way to a new session: a small mark with no plate at the chat's
-/// head, which asks before it acts.
-fn fresh() -> impl View {
-    button(hamlet_ui::styles::raised(
-        hamlet_ui::widgets::icons::glyph(
-            hamlet_ui::widgets::icons::Glyph::NewSession,
-            hamlet_ui::styles::ICON,
-        ),
-    ))
-    .padding(UiRect::axes(px(8.0), px(0.0)))
-    .min_height(px(hamlet_ui::styles::CONTROL))
-    .tooltip(|| {
-        hamlet_ui::styles::note(
-            "Start a new session. This one goes to the Archive.",
-        )
-    })
-    .rules(hamlet_ui::styles::back_link)
-    .tagged(hamlet_ui::widgets::effects::Variant::Text)
-    .on_activate(|world| world_menu::ask(world, Deed::NewSession))
-}
-
-/// The head of the chat: the house it is and everyone who speaks in
-/// it.
-pub(super) fn header() -> AnyView {
-    keyed(
-        resource::<Lines, _>(|lines| lines.cast().to_vec()),
-        |cast| {
-            let cast = cast.clone();
-            with_cx(move |cx| head(cx, &cast)).boxed()
-        },
-    )
-    .within(bare())
-    .boxed()
-}
-
-/// The house `cast` speaks in and everyone in it.
-fn head(cx: &Cx, cast: &[Who]) -> AnyView {
-    let Some(owner) = cast.first() else {
-        return frame().boxed();
-    };
-    let title = match owner.kind {
-        Kind::Mayor => "THE MAYOR'S HALL".to_string(),
-        _ => format!("{}'S HOUSE", owner.name.to_uppercase()),
-    };
-    let me = |who: &&Who| who.kind == Kind::Me;
-    let faces = cast
-        .iter()
-        .filter(|who| !me(who))
-        .chain(cast.iter().filter(me))
-        .take(FACES)
-        .map(|who| face(cx, who, 20.0))
-        .collect::<Vec<_>>();
-    column((
-        row((
-            row(faces).gap(3.0).shrink(0.0),
-            column((
-                label(title)
-                    .size(11.0)
-                    .bold(true)
-                    .wrap(false)
-                    .tone(Tone::Faint)
-                    .tagged(DisplayText),
-                label(names(cast))
-                    .size(12.0)
-                    .wrap(false)
-                    .tone(Tone::Dim),
-            ))
-            .gap(1.0)
-            .fills_width(),
-            fresh(),
-        ))
-        .gap(10.0)
-        .align(AlignItems::Center)
-        .padding(UiRect::axes(px(0.0), px(7.0))),
-        hairline(cx.theme().palette.border),
-    ))
-    .gap(0.0)
-    .boxed()
 }

@@ -17,5 +17,5 @@ python3 skills/call-api/scripts/api.py GET "https://api.example.com/items" --pic
 - `--pick a.b.0.c` prints only that part of the response (dots walk into objects and list indexes).
 - Prints the HTTP status first, then the body (pretty-printed when it is JSON, cut at 6000 characters).
 
-Never put a secret in a skill file or in NOTES.md. If an API needs a key, ask the
-user how they want to provide it.
+Never put a secret in a skill file or in memory/. If an API needs a key, ask the
+chief how they want to provide it.

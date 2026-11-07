@@ -8,38 +8,41 @@ The contract is the Rust types in
 module per area: `state`, `chat`, `waits`, `gifts`, `documents`, `limits`
 and `settings`.
 The names below, such as `Hello` and `ClientMessage`, are their type names.
-The handshake's `v` is the protocol's version, `V`; it moves whenever the
-schema does: a message's shape or a type's name.
+The handshake's `v` is the protocol's version, `VERSION`, in semver. A
+server takes a client whose version is compatible with its own by
+semver's caret. It stays at 0.1.0 until Hamlet's first release.
 `?` means optional; `null` is an explicit value. Objects reject extra fields.
 
 ## Transport and handshake
 
 The server listens on `127.0.0.1` only, over plain `ws://`. Local clients
-read the URL from `server.json` in the home and `connection.token` from
-`credentials.json` there. The home is `HAMLET_HOME`, else `~/.hamlet`.
+read the URL from `server.json` in the realm's folder and
+`connection.token` from `credentials.json` there. The folder is
+`HAMLET_HOME`, else `~/.hamlet`.
 
 For a server on another machine, forward its loopback port through SSH.
 Set `HAMLET_SERVER` to the tunnel's local `ws://127.0.0.1:<port>` URL and
-`HAMLET_TOKEN` to that remote home's token. `HAMLET_SERVER` requires
+`HAMLET_TOKEN` to that server's connection token. `HAMLET_SERVER` requires
 `HAMLET_TOKEN`; it bypasses local discovery. The server itself still binds
 to loopback. Keep the token private; plain WebSocket supplies no encryption.
 
 Send `Hello` first, within 10 seconds:
 
 ```json
-{"type":"hello","v":2,"token":"<home token>"}
+{"type":"hello","v":"0.1.0","token":"<connection token>"}
 ```
 
 A successful hello receives a full `state` before live changes. The
-server answers only a hello whose `v` is its own, so a client that
-receives that `state` knows the server speaks its version. The window
-says so in its connection words.
+server answers only a hello whose `v` is compatible with its own, so a
+client that receives that `state` knows the server speaks its version.
+The window says so in its connection words.
 
 | Failure | Answer and connection |
 |---|---|
-| No hello in time, or another message first | `fault`: `A connection begins with hello and the home's token.`; close **1008** |
-| Wrong token | `fault`: `That is not this server's token.`; close **1008** |
-| Malformed hello, including the wrong `v` | Validation `fault`; close **1008** |
+| No hello in time | `fault`: `No hello came in time.`; close **1008** |
+| Another message first, or a malformed one | `fault`: `The first message is a hello.`; close **1008** |
+| Wrong token | `fault`: `That token is not this server's.`; close **4001** |
+| A `v` not compatible with the server's | `fault` naming both versions; close **4002** |
 | A second hello | `fault`: `This connection said hello already.`; stays open |
 | Unexpected connection failure | `fault`; close **1011** |
 
@@ -49,40 +52,40 @@ The server applies no matching outbound limit to state or transcript pages.
 File gifts have a separate
 **32 MiB** limit and travel in chunks (`Give`, `GivePart`). A server shutdown
 closes clients with **1001**. These rules are in
-[`crates/hamlet_server/src/connection.rs`](../crates/hamlet_server/src/connection.rs).
+[`crates/hamlet_server/src/clients/connection.rs`](../crates/hamlet_server/src/clients/connection.rs).
 
 ## Shared shapes
 
 | Schema | Shape and meaning |
 |---|---|
-| `Address` | `{hamlet: string, agent: string}`. An agent's name, with `agent: "mayor"` for the office's current holder. |
-| `AgentRef` | `{hamlet: string, number: integer}`. Stable identity, independent of name or office. |
-| `ChatRef` | `{with: Address, past?: integer, from?: AgentRef, kind?: "letters" \| "questions"}`. |
+| `AgentId` | An integer naming one agent of the realm (the Hand, a hire or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `mayor@<hamlet>`, `<hamlet>#<number>`, `worker#<id>`) in chief commands; messages carry ids. |
+| `ScholarId` | An integer naming one scholar of the city. Commands address a scholar as `scholar#<id>`; its name is a label that may change and repeat. |
+| `Keeper` | `{scholar: ScholarId}` or `{agent: AgentId}`: whose knowledge a document is of, a scholar's `main` or an agent's lodge. |
+| `ChatRef` | `{with: AgentId, past?: integer, from?: AgentId, kind?: "letters" \| "questions"}`. |
 | `RequestId` | A UUID in its 36-character hyphenated form, in either case, such as `0f8fad5b-d9cb-469f-a165-70867728950e`. The braced, URN and 32-digit forms are refused. |
-| `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`. Use the choices advertised by the wait. |
+| `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`, `welcome`. Use the choices advertised by the wait. |
 | `Endpoint` | `{name: string, baseUrl: string}`. |
 | `Price` | `{input: number, output: number}`: dollars per million tokens. |
 | `Amount` | `{tokens: integer, micros: integer, ms: integer}`: tokens, millionths of a dollar, milliseconds. |
 
 `ChatRef.with` selects the agent the chief talks to. Without `past`, it
 selects the current chief conversation; `past` selects a stable conversation
-number. A current watch addressed to `mayor` follows the office when its
-holder changes. `from` selects a peer conversation with that stable agent;
+number. `from` selects a peer conversation with that stable agent;
 `kind` selects its letters or questions lane, defaulting to letters.
 `from` and `past` together are refused.
 
 Every client message except `hello` and `close` carries `id: RequestId`.
 The answer's `to` matches it. Do not confuse that with `Say.to`, which is an
-`Address`. An opening `transcript` has `to`; live updates need no request ID.
+`AgentId`. An opening `transcript` has `to`; live updates need no request ID.
 A `reply` settles the request, not necessarily all work in a conversation.
 
 The durable conversation inputs have separate request IDs. A chief's line
 uses `chief:<say id>` to admit it once in that conversation.
 A retry uses `retry:<UUID>`; this UUID is independent of the wire
 `retry` request's `id`. A reflection uses
-`reflect:<conversation number>:<ordinal>`. Clients send UUIDs, not these
-internal IDs. The server constructs them in `chats/say.rs`,
-`chats/deeds.rs` and `chats/follow.rs`.
+`reflection:<conversation>:<number>`. Clients send UUIDs, not these
+internal IDs. The server constructs them in `talk/chats.rs` and
+`talk/reflections.rs`.
 
 `State.epoch` identifies the running state watcher, using the server clock
 at its start. Revision starts at zero and increases when the realm state
@@ -102,18 +105,17 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
-| `hello` (`Hello`) | `v: 2`, `token: string`; no `id` | Authenticate; full `state`. |
-| `say` (`Say`) | `to: Address`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
-| `give` (`Give`) | `to: Address`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
-| `give` (`Give`) | `to: Address`, `skill: {starter: string}` | Give an installed starter skill; `reply`. |
-| `give` (`Give`) | `to: Address`, `skill: {from: Address, name: string}` | Copy another agent's named skill; `reply`. |
+| `hello` (`Hello`) | `v: Version`, `token: string`; no `id` | Authenticate; full `state`. |
+| `say` (`Say`) | `to: AgentId`, `text: string` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. |
+| `give` (`Give`) | `to: AgentId`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
+| `give` (`Give`) | `to: ScholarId`, `skill: {from: Keeper, name: string}` | Copy a named skill of a scholar or a hire's lodge; `reply`. |
 | `give-part` (`GivePart`) | `upload: string`, `path: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset in a declared file. `reply` acknowledges the chunk or completed gift. |
 | `answer` (`Answer`) | `wait: string`, `choice: Choice`, `text?: string`, `picks?: Pick[]` | Answer a wait; `reply`. |
-| `stop` (`Stop`) | `agent?: Address` | Stop that agent's work, or all work if omitted; `reply`. |
+| `stop` (`Stop`) | `agent?: AgentId` | Stop that agent's work, or all work if omitted; `reply`. |
 | `rewind` (`Rewind`) | `chat: ChatRef`, `item: string` | Take back a chief input and what followed. `reply` with kind `rewound` returns its words; watchers get a reset and replacement transcript. Refused while work is running or queued. |
-| `new` (`New`) | `to: Address` | Start a new numbered chief conversation; the previous queue can finish. `reply`. |
-| `resume` (`Resume`) | `to: Address`, `number: integer` | Make that saved chief conversation current; `reply`. |
-| `retry` (`Retry`) | `to: Address` | Ask the agent to carry on; `reply`. |
+| `new` (`New`) | `to: AgentId` | Start a new numbered chief conversation; the previous queue can finish. `reply`. |
+| `resume` (`Resume`) | `to: AgentId`, `number: integer` | Make that saved chief conversation current; `reply`. |
+| `retry` (`Retry`) | `to: AgentId` | Ask the agent to carry on; `reply`. |
 | `edit` (`Edit`) | `doc` and fields below | Edit a chief-owned document or model setting; `reply`. |
 | `open` (`Open`) | `chat: ChatRef`, `before?: string` | Watch and fetch a page; `transcript` with `to`, or `fault`. |
 | `close` (`Close`) | `chat: ChatRef`; no `id` | End that connection's watch; no answer. |
@@ -121,7 +123,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `check` (`Check`) | `what: "model"`, `model?: string` | Check that model, or the selected model; `reply`. |
 | `check` (`Check`) | `what: "connection"` | Check the configured model connection; `reply`. Connection state also changes through `change`. |
 | `read` (`Read`) | `what` and fields below | Fetch one document or list; `read` with `to`, or failure `reply`. |
-| `move-houses` (`MoveHouses`) | none | Copy every agent's house from the workspace the server works in to the one chosen in Settings, replacing the houses there; `reply` once done. Progress also changes through `change`. |
+| `move-lodges` (`MoveLodges`) | none | Copy every hire's lodge from the workspace the server works in to the one chosen in Settings, replacing the lodges there; `reply` once done. Progress also changes through `change`. |
 
 `/new` and `/resume <number>` also exist as typed commands sent through
 `say`. They perform the same conversation changes as the `new` and `resume`
@@ -156,12 +158,12 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 | `doc` | Fields | Meaning |
 |---|---|---|
 | `charter` | `text: string \| null` | Replace the charter; `null` restores the built-in charter. |
-| `character` | `agent: Address`, `text: string` | Replace the agent's character. |
-| `notes` | `agent: Address`, `text: string` | Replace the agent's notes. |
-| `limits` | `hamlet: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
-| `limits` | `hamlet: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
-| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| null, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; the `efforts` limit sets it for one agent. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
-| `catalogue` | `model: string`, `set: {allowed?: boolean, price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. |
+| `character` | `scholar: ScholarId`, `text: string` | Replace the scholar's character, as a commit on its `main`. |
+| `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a scholar's `main` or a hire's lodge, by its path under `memory/`; empty text removes it. |
+| `limits` | `hamlet?: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
+| `limits` | `hamlet?: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
+| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; an agent's own effort, set with `/effort`, overrides it. `newcomers` says who lets a scholar an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank scholar starts from, at most 4000 characters. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
+| `catalogue` | `model: string`, `set: {price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. |
 
 ### Read documents
 
@@ -169,10 +171,10 @@ Each row is a `Read` form with `type: "read"` and `id`.
 
 | `what` | Fields | `ReadResult` payload |
 |---|---|---|
-| `prompt` | `agent: Address` | `prompt: string`: the composed prompt. |
-| `history` | `agent: Address` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
-| `models` | `refresh?: boolean` | `models: Listed[]`: name, price, price source, context size, allowed flag and note. `refresh` refreshes discovery. |
-| `papers` | `agent: Address`, `full?: boolean` | `papers: Papers`: notes, character and skill names/descriptions. By default, notes and character are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
+| `prompt` | `agent: AgentId` | `prompt: string`: the composed prompt. |
+| `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
+| `models` | `refresh?: boolean` | `models: Listed[]`: name, price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown) and `fast` (whether its provider has a fast tier). `refresh` refreshes discovery. |
+| `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's lodge `learned` against its scholar, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
 
 ### Login steps
@@ -193,7 +195,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 
 | Type (schema) | Fields | Meaning | Who receives it |
 |---|---|---|---|
-| `state` (`State`) | `epoch`, `revision`, `chief: string`, `confinement: Confinement`, `hamlets: Hamlet[]`, `agents: Agent[]`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `houses: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `starters: {name: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
+| `state` (`State`) | `epoch`, `revision`, `chief: string`, `confinement: Confinement`, `hand: AgentId`, `hamlets: Hamlet[]`, `agents: Agent[]`, `scholars: Scholar[]`, `limits: RealmLimits`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `realm: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
 | `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
 | `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: TranscriptOperation[]` | Live transcript operations, in order. | Only clients watching that chat. |
@@ -203,7 +205,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 | `fault` (`Fault`) | `text: string`, `to?: RequestId` | Protocol, watch or connection failure. | Only the affected connection. |
 
 `Update` replaces the named view or removes it. Its `type` is `hamlet`
-(`hamlet`), `agent` (`agent`), `agent-gone` (`ref`), `wait` (`wait`),
+(`hamlet`), `agent` (`agent`), `agent-gone` (`id`), `scholar` (`scholar`), `scholar-gone` (`id`), `wait` (`wait`),
 `wait-closed` (`id`, `how`), `grants` (`grants`), `settings` (`settings`) or
 `providers` (`providers`). Library and closed-hamlet list changes, and hamlet
 removal, send a whole `state` instead.
@@ -214,16 +216,16 @@ the machine. It is discriminated by `kind`: `sandbox` with the sandbox's
 full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
-`Agent` is a summary: identity, name, purpose, model, mayor flag, busy and
-fault flags, activity, short saying, spend, skills, consultation and peer
-conversation summaries, and `left?` once it has left. It contains no
+`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `<hamlet>#<number>`, `worker#<id>`), a hire's `nickname` (`null` while it goes by its scholar's name), `purpose`, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), `mayor`, `busy` and
+`faulted` flags, `activity`, `saying`, `spent`, `since`, `skills`, `consulting` and
+`conversations` (the peer conversations it holds), and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`
 is `{url, running, move?}`: the remote workspace chosen and the
 one the server works in until it restarts, each `null` for the local one. It
-never holds the token. `move` is the latest move of the houses to the chosen
+never holds the token. `move` is the latest move of the lodges to the chosen
 workspace since the server started: `state` (`moving`, `moved` or `failed`),
-houses `done` of `of`, and its outcome as `text`.
+lodges `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
 `chief`, `author`, `rewindable` and `tool`. Its kind is `user`, `assistant`,
@@ -260,8 +262,8 @@ one conversation and returns the newest page first. A connection can keep
 several watches. It receives live `turn` operations only for those chats.
 `close {chat}` ends that connection's watch; disconnect ends all its watches.
 
-A page holds at most **40 items**, not 40 turns or durable entries.
-`chats/watch.rs` takes the last 40 folded items before the
+A page holds at most **100 items**, not 100 turns or durable entries.
+`clients/requests.rs` takes the last 100 folded items before the
 cursor, or before the end when `before` is omitted. Pages are fetched newest
 first, but **items inside each page stay in entry and content-block order,
 oldest to newest**, not reverse timestamp order. Harness history batches
@@ -274,8 +276,8 @@ watch leaves its live subscription running, even if the page request fails.
 
 Peer conversations (`from` and `kind`) are read-only. `say`, `stop`,
 `rewind`, `new`, `resume` and `retry` cannot edit a peer conversation.
-`rewind` explicitly refuses a peer or past `ChatRef` through
-`chats/deeds.rs`. The other five messages take an agent `Address`, not a
+`rewind` explicitly refuses a peer or past `ChatRef` in
+`clients/requests.rs`. The other five messages take an `AgentId`, not a
 peer `ChatRef`, and act on the chief conversation or agent. Adding peer chat
 fields to them is malformed. Opening a peer watch does not retarget writes.
 
@@ -297,8 +299,10 @@ A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
 `subject`, `change`, `answers`, `since`, `asked`, `chat`) and a `detail`
 discriminated by `kind`: `approval` with its `danger`, the agent's wish as
 `says` and how long `always` lasts (`session`, `grant`, or `null` when it is
-not offered); `fault`; `question` with its `questions`; or
-`objection`. `subject` is the line of `about` a one-line view quotes. A
+not offered); `fault`; `question` with its `questions`; `objection`; or
+`newcomer` with the `scholar` waiting at the harbor, whose answers are
+`welcome` and `dismiss`, which leaves it waiting. `subject` is the line of
+`about` a one-line view quotes. A
 refused `edit` changes nothing and replies with an error. `check` replies in words and changes the connection status in
 settings; a model check waits at most 90 s.
 
@@ -309,16 +313,21 @@ Every state and change carries the society and realm in full:
 - `Agent.consulting` and `conversations` describe library work and incoming
   peer conversations. `Agent.left` describes a departure, and only an agent
   that left has one.
-- `Hamlet.roads` and `votes` carry resolved road ends and traffic, and
-  ready-made vote reports. `Hamlet.at` is the town's position, or `null`
-  for a town never set down, which stands on the first free site.
+- `Hamlet.roads` carry road ends by `AgentId`, their kind and traffic.
+  `Hamlet.mayor` is the hire at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
+  for a hamlet never set down, which stands on the first free site.
+- `Scholar.arrival` is `housed`, `waiting` at the harbor, or `turned`
+  away. `Scholar.arrivalBy` names who last changed it, a chief or
+  `hand`, and is `null` while it is as it was made. `Scholar.house` is a housed scholar's spot from the city's
+  middle, `{x, z, turn}`, its door facing `turn` radians about the
+  vertical, and `null` for one at the harbor. The server chooses the spot
+  of a scholar let in; `/move-house` sets it elsewhere.
 - `State.library` and `closed` carry the shared shelf and removed hamlets.
-- `Limits.votes` is per hamlet. `Limits.hamlets` is governed by `home`.
-- `State.houses` names the houses folder on the server's machine so local
+- `State.limits` are the realm's own limits; `Limits` are a hamlet's.
+- `State.realm` names the realm's folder on the server's machine so local
   links and pictures can exclude it, including through symlinks.
 
-Archived agents remain in state with `left` until erased. Office road ends
-are resolved to the current mayor. Peer turns contribute to activity and
+Archived agents remain in state with `left` until erased. Peer turns contribute to activity and
 spend even when no chief watches their conversation.
 
 `hamlet_client` reconciles state and changes into entities, keeping the
@@ -334,15 +343,15 @@ readable `text`; neither carries a machine error code.
 
 | Envelope | Use |
 |---|---|
-| `reply`, kind `error`, with `to` | An ordinary requested operation is refused: an edit, read, answer, gift, check or conversation action. Some typed command refusals are rendered as kind `notice` instead (`chats/say.rs`). |
+| `reply`, kind `error`, with `to` | An ordinary requested operation is refused: an edit, read, answer, gift, check or conversation action, or a typed command. |
 | `fault` with `to` | A malformed request with a recoverable UUID, an open/page refusal, a watch failure still associated with its opening request, or an unexpected request-handler failure, a panic included. |
 | `fault` without `to` | A handshake or connection failure, input with no valid request ID, or a watch failure after its opening request has been answered. |
 
 A fault does not itself imply disconnect. Malformed input after hello,
 second hello and request-handler failures leave the connection open.
 Handshake refusals, message size violations and unexpected connection
-failures close it as described above. The server's `protocol.rs`,
-`connection.rs` and `requests.rs` own these paths. Watch failures use
+failures close it as described above. The server's
+`clients/connection.rs` and `clients/requests.rs` own these paths. Watch failures use
 the `fault` envelope, even when their cause is an ordinary access
 refusal.
 
@@ -355,13 +364,12 @@ refusal.
    cannot check, such as a list's length, goes in a `#[schemars(...)]`
    attribute: the server checks every client message against the JSON
    Schema derived from these types.
-2. Move `V` in `crates/hamlet_protocol/src/client.rs` when a message's
-   shape or a type's name changes.
-   `cargo test -p hamlet_protocol` keeps a sha256 of the client schema
-   with `V` in `crates/hamlet_protocol/client_schema.fingerprint`. It
-   fails while the shapes differ from the recorded ones and `V` has not
-   moved. Once `V` moves, it rewrites the file and fails once: commit
-   the file. Doc comments are not part of the fingerprint.
+2. `cargo test -p hamlet_protocol` keeps a sha256 of the client schema
+   with `VERSION` in `crates/hamlet_protocol/client_schema.fingerprint`.
+   When the shapes change it rewrites the file and fails once: commit
+   the file. Doc comments are not part of the fingerprint. `VERSION`
+   stays at 0.1.0 until Hamlet's first release; after it, a change that
+   breaks a peer moves it by semver.
 3. Re-record `crates/hamlet_protocol/frames/` when the wire sessions
    change. The offline Rust recorder's command is in the
    [acceptance README](../crates/hamlet_acceptance/README.md#recording-protocol-frames).

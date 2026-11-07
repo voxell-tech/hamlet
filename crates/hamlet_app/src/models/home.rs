@@ -15,7 +15,6 @@ use hamlet_ui::styles::{
     good_action, group, list, note, section, text_input,
 };
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::choice::{chooser, home_default};
@@ -41,7 +40,9 @@ fn remove(world: &mut World, name: &str) {
         set: protocol::EditSettingsSet {
             endpoints: Some(endpoints),
             model: None,
+            character: None,
             effort: None,
+            newcomers: None,
             reflect_every: None,
             allow_net: None,
             workspace: None,
@@ -104,6 +105,7 @@ pub fn endpoints() -> impl View {
              endpoint::model. Credentials stay on the server.",
         ),
         known,
+        super::problem(),
         providers,
         row((good_action(
             Glyph::Plus,
@@ -166,7 +168,6 @@ fn price(name: &str, output: bool) -> AnyView {
                     &name,
                     protocol::EditCatalogueSet {
                         price: Some(Some(price)),
-                        allowed: None,
                         note: None,
                     },
                 );
@@ -185,8 +186,6 @@ fn price(name: &str, output: bool) -> AnyView {
 
 fn entry(model: &protocol::Listed) -> AnyView {
     let name = model.name.clone();
-    let allow = name.clone();
-    let describe = name.clone();
     let source = match model.priced {
         protocol::ListedPriced::Unknown => "no price",
         protocol::ListedPriced::Listed => "listed",
@@ -207,56 +206,39 @@ fn entry(model: &protocol::Listed) -> AnyView {
         .gap(cx.theme().space.gap)
         .align(AlignItems::Center)
     });
-    close((
-        labelled_switch(
-            model.name.clone(),
-            model.allowed,
-            move |world, allowed| {
-                catalogue(
-                    world,
-                    &allow,
-                    protocol::EditCatalogueSet {
-                        allowed: Some(allowed),
-                        price: None,
-                        note: None,
-                    },
-                );
-            },
-        ),
-        prices,
-        text_field(model.note.clone(), move |world, note| {
-            catalogue(
-                world,
-                &describe,
-                protocol::EditCatalogueSet {
-                    note: Some(note),
-                    allowed: None,
-                    price: None,
-                },
-            );
-        })
-        .rules(text_input),
-    ))
-    .boxed()
+    close((section(model.name.clone()), prices)).boxed()
 }
 
+/// The names holding every word of `narrow`, as the `page`th page of
+/// them, the last when there are fewer, with that page's number and
+/// how many pages there are.
 pub(crate) fn narrowed<N: AsRef<str>>(
     names: impl Iterator<Item = N>,
     narrow: &str,
-) -> (Vec<String>, usize) {
+    page: usize,
+) -> (Vec<String>, usize, usize) {
     let words = narrow.to_lowercase();
-    let mut names = names
+    let names = names
         .filter(|name| {
             let name = name.as_ref().to_lowercase();
             words.split_whitespace().all(|word| name.contains(word))
         })
         .map(|name| name.as_ref().to_string())
         .collect::<Vec<_>>();
-    let more = names.len().saturating_sub(SHOWN);
-    names.truncate(SHOWN);
-    (names, more)
+    let pages = names.len().div_ceil(SHOWN).max(1);
+    let page = page.min(pages - 1);
+    let shown = names.into_iter().skip(page * SHOWN).take(SHOWN);
+    (shown.collect(), page, pages)
 }
 
+/// Turns the catalogue `by` pages on, within its pages.
+fn turn(world: &mut World, by: isize, pages: usize) {
+    let mut draft = world.resource_mut::<Draft>();
+    let page = draft.page.saturating_add_signed(by).min(pages - 1);
+    draft.page = page;
+}
+
+/// Makes `model` the realm's default, which the Hand speaks with.
 fn save_default(world: &mut World, model: &str) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Edit(protocol::Edit::Settings {
@@ -264,7 +246,9 @@ fn save_default(world: &mut World, model: &str) {
             set: protocol::EditSettingsSet {
                 model: Some(model.into()),
                 endpoints: None,
+                character: None,
                 effort: None,
+                newcomers: None,
                 reflect_every: None,
                 allow_net: None,
                 workspace: None,
@@ -280,9 +264,11 @@ fn save_default(world: &mut World, model: &str) {
 pub fn shelf() -> AnyView {
     let shown = bevy_fynix::derived(|world: &World| {
         let shelf = world.resource::<Shelf>();
-        let (names, more) = narrowed(
+        let draft = world.resource::<Draft>();
+        let (names, page, pages) = narrowed(
             shelf.models.iter().map(|model| &model.name),
-            &world.resource::<Draft>().narrow,
+            &draft.narrow,
+            draft.page,
         );
         (
             shelf
@@ -291,11 +277,12 @@ pub fn shelf() -> AnyView {
                 .filter(|model| names.contains(&model.name))
                 .cloned()
                 .collect::<Vec<_>>(),
-            more,
+            page,
+            pages,
         )
     })
     .when(either(moved::<Shelf>(), moved::<Draft>()));
-    let models = keyed(shown, |(models, more)| {
+    let models = keyed(shown, |(models, page, pages)| {
         if models.is_empty() {
             return description(
                 "No models yet. Choose List Models to ask the \
@@ -304,11 +291,17 @@ pub fn shelf() -> AnyView {
             .boxed();
         }
         let mut rows = models.iter().map(entry).collect::<Vec<_>>();
-        if *more > 0 {
+        let (page, pages) = (*page, *pages);
+        if pages > 1 {
             rows.push(
-                description(format!(
-                    "{more} more. Type part of a name to narrow \
-                     them."
+                beside((
+                    action(Glyph::Back, "PREVIOUS", move |world| {
+                        turn(world, -1, pages);
+                    }),
+                    note(format!("Page {} of {pages}", page + 1)),
+                    action(Glyph::ToEnd, "NEXT", move |world| {
+                        turn(world, 1, pages);
+                    }),
                 ))
                 .boxed(),
             );
@@ -320,15 +313,11 @@ pub fn shelf() -> AnyView {
         close((
             section("DEFAULT MODEL"),
             chooser(home_default, save_default),
-            description(
-                "Used wherever nobody chose a model. It is always \
-                 allowed.",
-            ),
+            description("Used wherever nobody chose a model."),
         )),
         description(
-            "Switch a model on to allow it. Prices are dollars per \
-             million tokens in and out, used when the endpoint does \
-             not bill a call.",
+            "Prices are dollars per million tokens in and out, used \
+             when the endpoint does not bill a call.",
         ),
         beside((
             action(Glyph::Restore, "LIST MODELS", |world| {
@@ -338,7 +327,9 @@ pub fn shelf() -> AnyView {
             text_field(
                 resource::<Draft, _>(|draft| draft.narrow.clone()),
                 |world, text| {
-                    world.resource_mut::<Draft>().narrow = text;
+                    let mut draft = world.resource_mut::<Draft>();
+                    draft.narrow = text;
+                    draft.page = 0;
                 },
             )
             .grow(1.0)

@@ -29,7 +29,7 @@ const FIRST: &str = "Main";
 /// The most characters a desk's name may have.
 const LONGEST_NAME: usize = 40;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<DeskSettings>()
         .init_resource::<Desks>()
         .init_resource::<Shown>()
@@ -246,7 +246,8 @@ impl Desks {
     }
 
     /// These, with at least one desk, one of them shown, and every
-    /// one named.
+    /// one named. A desk that names a panel the window no longer has
+    /// starts again from the dock the window starts with.
     pub(crate) fn cleaned(mut self) -> Self {
         if self.list.is_empty() {
             return Self::default();
@@ -255,6 +256,13 @@ impl Desks {
         for (at, desk) in self.list.iter_mut().enumerate() {
             if desk.name.trim().is_empty() {
                 desk.name = format!("Desk {}", at + 1);
+            }
+            let tabs = desk.dock.iter().flat_map(|part| match part {
+                Part::Tabs { tabs, .. } => tabs.clone(),
+                Part::Split { .. } => Vec::new(),
+            });
+            if dock::is_stale(tabs) {
+                desk.dock = Vec::new();
             }
         }
         self
@@ -557,24 +565,15 @@ impl<F: Fn(&str) -> bool> Laying<'_, F> {
 
 #[cfg(test)]
 mod tests {
-    use bevy_fynix::dock::Edge;
-
     use super::*;
 
     fn dock() -> DockTree {
         let mut tree = DockTree::new();
-        let centre = tree.set_root_leaf(
-            DockLeaf::new("centre", DockAreaStyle::TabBar)
-                .with_windows(vec!["world".into()]),
-        );
-        let (queue, _) =
-            tree.split(centre, Edge::Left, "needs".into()).unwrap();
-        let parent = tree.parent_of(queue).unwrap();
-        tree.set_fraction(parent, 0.2);
-        let (side, agent) =
-            tree.split(centre, Edge::Right, "agent".into()).unwrap();
-        tree.add_tab(side, "skills");
-        tree.set_active(side, agent);
+        dock::designed(&mut tree);
+        let side = tree.find_leaf_with_window("hub").unwrap();
+        let hub = tree.active(side).unwrap();
+        tree.add_tab(side, "settings");
+        tree.set_active(side, hub);
         tree
     }
 
@@ -582,15 +581,15 @@ mod tests {
     fn a_dock_comes_back_as_it_was_noted_and_keeps_its_tabs() {
         let parts = noted(&dock());
         let mut tree = dock();
-        let agent = tree.find_leaf_with_window("agent").unwrap();
-        let tabs = tree.leaf(agent).unwrap().windows.clone();
+        let hub = tree.find_leaf_with_window("hub").unwrap();
+        let tabs = tree.leaf(hub).unwrap().windows.clone();
         assert!(lay_out(&mut tree, &parts, &|_| true));
         assert_eq!(noted(&tree), parts);
         // The same area and tabs, so their views are kept.
-        assert_eq!(tree.leaf(agent).unwrap().windows, tabs);
-        let leaf = tree.leaf(agent).unwrap();
+        assert_eq!(tree.leaf(hub).unwrap().windows, tabs);
+        let leaf = tree.leaf(hub).unwrap();
         assert_eq!(
-            leaf.tab_index(tree.active(agent).unwrap()),
+            leaf.tab_index(tree.active(hub).unwrap()),
             Some(0)
         );
     }
@@ -600,10 +599,10 @@ mod tests {
         let parts = noted(&dock());
         let mut tree = DockTree::new();
         assert!(lay_out(&mut tree, &parts, &|id| {
-            id != "needs" && id != "agent"
+            id != "needs" && id != "hub"
         }));
         assert!(tree.find_leaf_with_window("needs").is_none());
-        let side = tree.find_leaf_with_window("skills").unwrap();
+        let side = tree.find_leaf_with_window("settings").unwrap();
         assert_eq!(tree.leaf(side).unwrap().tabs().count(), 1);
         assert!(tree.find_leaf_with_window("world").is_some());
         assert!(!lay_out(&mut tree, &parts, &|_| false));

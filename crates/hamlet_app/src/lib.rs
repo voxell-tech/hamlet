@@ -7,9 +7,10 @@ mod chief;
 pub mod chrome;
 mod convo;
 pub mod cursor;
-mod desk;
+pub mod desk;
 mod dock;
 mod folder;
+mod forms;
 pub mod history;
 mod hover;
 pub mod limits;
@@ -29,10 +30,11 @@ mod sounds;
 mod status;
 #[cfg(test)]
 mod testing;
+pub mod toasts;
 mod tuning;
 pub mod welcome;
 mod window;
-mod world_menu;
+pub mod world_menu;
 mod world_view;
 
 use bevy::app::{App, Plugin, PreUpdate};
@@ -53,7 +55,7 @@ pub use self::remember::Remembered;
 pub use self::roll::Roll;
 pub use self::root::toolbar;
 pub use self::screens::{
-    chat, inspector, links, overview, petition, pictures, settings,
+    chat, hub, links, overview, petition, pictures, settings,
 };
 pub use self::status::{Bar, status_bar};
 pub use self::window::window_plugin;
@@ -123,6 +125,7 @@ impl Plugin for UiPlugin {
                 select::plugin,
                 history::plugin,
                 welcome::plugin,
+                toasts::plugin,
             ),
             (
                 world_view::plugin,
@@ -144,9 +147,9 @@ impl Plugin for UiPlugin {
             PreUpdate,
             (
                 convo::reseat.run_if(convo::roster_moved),
-                inspector::follow_selection
+                hub::follow_selection
                     .run_if(resource_changed::<Selected>),
-                inspector::tell_page,
+                hub::tell_page,
                 chief::accompany,
             )
                 .chain()
@@ -220,7 +223,7 @@ mod tests {
         use hamlet_assets::Tuning;
         use hamlet_client::Tokio;
         use hamlet_client::connection::Wake;
-        use hamlet_client::realm::{HOME, hamlet, mayor, name_of};
+        use hamlet_client::realm::{first_mayor, hamlet, name_of};
         use hamlet_protocol::client as protocol;
         use hamlet_protocol::client::discovery::ServerAddress;
 
@@ -253,7 +256,7 @@ mod tests {
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             label(roll::rolled(|world| {
-                mayor(world)
+                first_mayor(world)
                     .map(|agent| name_of(world, agent))
                     .unwrap_or_default()
             })),
@@ -267,11 +270,11 @@ mod tests {
         wakes.recv_timeout(wait).unwrap();
         wakes.recv_timeout(wait).unwrap();
         app.update();
-        assert!(hamlet(app.world(), HOME).is_some());
+        assert!(hamlet(app.world(), "home").is_some());
         assert_ne!(*app.world().resource::<Roll>(), before);
         let shown = testing::words(&mut app);
         assert!(
-            shown.iter().any(|text| text == "founder"),
+            shown.iter().any(|text| text == "home#0"),
             "{shown:?}"
         );
     }

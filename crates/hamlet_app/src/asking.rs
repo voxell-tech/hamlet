@@ -544,7 +544,7 @@ mod tests {
             app.world().get::<Chat>(session).unwrap().0.clone();
         let question = |id: &str, since, chat: &protocol::ChatRef| {
             serde_json::from_value::<protocol::Wait>(json!({
-                "id": id, "agent": null, "by": "founder",
+                "id": id, "agent": null, "by": "ada",
                 "about": "Choose", "subject": "Choose",
                 "change": null, "answers": ["reply", "dismiss"],
                 "since": since, "asked": 1, "chat": chat,
@@ -559,7 +559,7 @@ mod tests {
             })).unwrap()
         };
         let mut other = chat.clone();
-        other.with.agent = "scout".into();
+        other.with = protocol::AgentId(3);
         let mut state = hamlet_testing::realm::state();
         state.waits = vec![
             question("later", 20, &chat),
@@ -601,7 +601,7 @@ mod tests {
         app.update();
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            crate::petition::screen(),
+            crate::petition::waiting(),
         );
         app.update();
         let shown = words(&mut app);

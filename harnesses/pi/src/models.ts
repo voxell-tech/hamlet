@@ -80,6 +80,32 @@ function withEffort<O extends StreamOptions>(
     return (effort === "off" ? rest : { ...rest, reasoning: effort }) as O;
 }
 
+/** The APIs whose requests carry a `service_tier`. */
+const FAST_APIS: readonly string[] = [
+    "openai-responses",
+    "openai-codex-responses",
+];
+
+/** `options` whose request asks for the provider's priority tier, when `fast` is on and the model's `api` has one. */
+export function withFast<O extends StreamOptions>(
+    options: O,
+    fast: boolean | undefined,
+    api: Api,
+): O {
+    if (fast !== true || !FAST_APIS.includes(api)) return options;
+    const previous = options.onPayload;
+    return {
+        ...options,
+        onPayload: async (payload: unknown, model: Model<Api>) => {
+            const own = await previous?.(payload, model);
+            const body = own ?? payload;
+            return typeof body === "object" && body !== null
+                ? { ...body, service_tier: "priority" }
+                : own;
+        },
+    };
+}
+
 function allowed<O extends StreamOptions>(
     stream: StreamFunction<Api, O>,
     gate: Gate,
@@ -168,7 +194,11 @@ function allowed<O extends StreamOptions>(
                 options === undefined
                     ? options
                     : {
-                          ...withEffort(options, permit.selection?.effort),
+                          ...withFast(
+                              withEffort(options, permit.selection?.effort),
+                              permit.selection?.fast,
+                              selected.api,
+                          ),
                           ...(permit.apiKey === undefined
                               ? {}
                               : { apiKey: permit.apiKey }),

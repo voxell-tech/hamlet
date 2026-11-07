@@ -32,6 +32,7 @@ use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
+use crate::world_menu::Favorites;
 use crate::world_view::{NorthTarget, TimeOfDay};
 
 /// Seconds a change waits before it is written, so that dragging a
@@ -46,6 +47,7 @@ const PATIENCE: Duration = Duration::from_secs(10);
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pending>()
         .init_resource::<Kept>()
+        .init_resource::<Favorites>()
         .add_systems(
             PreUpdate,
             reselect
@@ -119,6 +121,9 @@ pub struct View {
     desks: Option<Desks>,
     /// The selection when the window closed.
     selected: Option<Chosen>,
+    /// The models the chief starred.
+    #[serde(default)]
+    favorite_models: Favorites,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -156,12 +161,12 @@ pub enum Chosen {
     /// The first hamlet's mayor, and its hall.
     Mayor,
     Hall,
-    /// An agent and its house, by the agent's name.
+    /// An agent and its house, by the agent's address.
     Agent(String),
     House(String),
     /// The ruin of one that is gone.
     Ruin(String),
-    /// A hamlet's common, by the hamlet's own name.
+    /// A hamlet's common, by the hamlet's id.
     Hamlet(String),
     /// This window's chief, and its Hearth.
     Chief,
@@ -185,7 +190,8 @@ impl Pending {
 }
 
 impl Chosen {
-    /// `thing` by the names it will still have at the next launch.
+    /// `thing` by the addresses and ids it will still have at the
+    /// next launch.
     fn of(
         names: &Query<&Name>,
         hamlets: &Query<&HamletId>,
@@ -206,6 +212,8 @@ impl Chosen {
             Thing::Chief(_) => Chosen::Chief,
             Thing::ChiefPlace(_) => Chosen::Hearth,
             Thing::Library
+            | Thing::Hand
+            | Thing::Scholar(_)
             | Thing::Clockwork(_)
             | Thing::Workbench(_) => {
                 return None;
@@ -215,7 +223,7 @@ impl Chosen {
 
     /// The thing it names, once the world has it.
     fn thing(&self, world: &mut World) -> Option<Thing> {
-        // An agent by its name, living or gone as asked.
+        // An agent by its address, living or gone as asked.
         let agent = |world: &mut World, name: &str, gone: bool| {
             world
                 .query_filtered::<(Entity, &Name, Has<Left>), With<AgentNumber>>()
@@ -311,9 +319,10 @@ pub fn restore(world: &mut World) {
     });
     let desks = match view.desks {
         Some(desks) => desks.cleaned(),
-        None => Desks::first(view.dock),
+        None => Desks::first(view.dock).cleaned(),
     };
     world.insert_resource(desks);
+    world.insert_resource(view.favorite_models);
 }
 
 /// The selection, by the names it is kept under.
@@ -344,10 +353,11 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north): (
+    (pending, kept, north, favorites): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
+        Res<Favorites>,
     ),
     (fog, far, wind): (
         Res<VolumetricFogSettings>,
@@ -368,6 +378,7 @@ pub fn keep(
         || far.is_changed()
         || wind.is_changed()
         || north.is_changed()
+        || favorites.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -393,6 +404,7 @@ pub fn keep(
         dock: Vec::new(),
         desks: Some(desks.clone()),
         selected: kept.0.clone(),
+        favorite_models: favorites.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -407,27 +419,18 @@ pub fn keep(
 
 #[cfg(test)]
 mod tests {
-    use bevy_fynix::dock::{
-        DockAreaStyle, DockLeaf, DockRegistry, DockTree, Edge,
-    };
+    use bevy_fynix::dock::{DockRegistry, DockTree};
     use hamlet_ui::theme::HamletTheme;
 
     use super::*;
 
     fn dock() -> DockTree {
         let mut tree = DockTree::new();
-        let centre = tree.set_root_leaf(
-            DockLeaf::new("centre", DockAreaStyle::TabBar)
-                .with_windows(vec!["world".into()]),
-        );
-        let (queue, _) =
-            tree.split(centre, Edge::Left, "needs".into()).unwrap();
-        let parent = tree.parent_of(queue).unwrap();
-        tree.set_fraction(parent, 0.2);
-        let (side, agent) =
-            tree.split(centre, Edge::Right, "agent".into()).unwrap();
-        tree.add_tab(side, "skills");
-        tree.set_active(side, agent);
+        crate::dock::designed(&mut tree);
+        let side = tree.find_leaf_with_window("hub").unwrap();
+        let hub = tree.active(side).unwrap();
+        tree.add_tab(side, "settings");
+        tree.set_active(side, hub);
         tree
     }
 
@@ -456,6 +459,7 @@ mod tests {
             dock: Vec::new(),
             desks,
             selected: Some(Chosen::House("juniper".into())),
+            favorite_models: Favorites(vec!["faux::faux-1".into()]),
         }
     }
 
@@ -486,10 +490,11 @@ mod tests {
                 .init_resource::<KeepAwake>()
                 .init_resource::<DockRegistry<HamletTheme>>()
                 .init_resource::<Desks>()
+                .init_resource::<Favorites>()
                 .init_resource::<desk::Shown>()
                 .add_systems(Update, desk::capture)
                 .add_plugins(plugin);
-            for name in ["world", "needs", "agent", "skills"] {
+            for name in ["world", "needs", "hub", "settings"] {
                 app.world_mut()
                     .resource_mut::<DockRegistry<HamletTheme>>()
                     .register(
@@ -548,23 +553,14 @@ mod tests {
             .run_system_cached(desk::show)
             .unwrap();
         let tree = relaunched.world().resource::<DockTree>();
-        let needs = tree.find_leaf_with_window("needs").unwrap();
-        assert_eq!(
-            tree.get(tree.parent_of(needs).unwrap())
-                .unwrap()
-                .as_split()
-                .unwrap()
-                .fraction,
-            0.2
-        );
-        let side = tree.find_leaf_with_window("agent").unwrap();
+        let side = tree.find_leaf_with_window("hub").unwrap();
         assert_eq!(
             tree.leaf(side)
                 .unwrap()
                 .tabs()
                 .map(|(name, _)| name)
                 .collect::<Vec<_>>(),
-            ["agent", "skills"]
+            ["hub", "settings"]
         );
     }
 
