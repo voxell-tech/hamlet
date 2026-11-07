@@ -213,6 +213,7 @@ impl Client {
         let id = RequestId::new();
         self.send(ClientMessage::Say(Say {
             id: id.clone(),
+            images: Vec::new(),
             to,
             text: text.into(),
         }))

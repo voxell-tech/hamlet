@@ -72,9 +72,14 @@ impl Layout {
         self.hamlet(hamlet).join(hire.to_string())
     }
 
+    /// The folder of the workers' scratch folders.
+    pub fn workers(&self) -> PathBuf {
+        self.root.join("workers")
+    }
+
     /// A worker's scratch folder while it runs.
     pub fn worker(&self, worker: AgentId) -> PathBuf {
-        self.root.join("workers").join(worker.to_string())
+        self.workers().join(worker.to_string())
     }
 
     /// The library's repository.
@@ -90,6 +95,12 @@ impl Layout {
     /// Tools a chief adds by hand (C17).
     pub fn tools(&self) -> PathBuf {
         self.root.join("tools")
+    }
+
+    /// The images chiefs sent and those the agents read, each kept
+    /// once under the hash of its bytes, out of agents' reach (S29).
+    pub fn images(&self) -> PathBuf {
+        self.root.join("images")
     }
 
     /// Uploads and work in flight, out of agents' reach.

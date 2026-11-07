@@ -56,6 +56,7 @@ impl Core {
                 self.providers.disconnect(client);
                 let staging = self.realm.layout().staging();
                 self.gifts.disconnect(client, &staging);
+                self.images.disconnect(client);
                 self.send_providers().await
             }
         }
@@ -200,6 +201,15 @@ impl Core {
                 };
                 let text = say.text.trim();
                 if text.starts_with('/') {
+                    if !say.images.is_empty() {
+                        return self.answer(
+                            client,
+                            reply(
+                                &say.id,
+                                Err(Refusal::CommandImages),
+                            ),
+                        );
+                    }
                     let answer = self.command(agent, text).await?;
                     // A command may write what no change publishes,
                     // such as a revoked grant.
@@ -215,12 +225,23 @@ impl Core {
                         reply(&say.id, Err(Refusal::NoModelSetUp)),
                     );
                 }
+                let attached =
+                    match self.attach(agent, &say.images).await? {
+                        Ok(attached) => attached,
+                        Err(refusal) => {
+                            return self.answer(
+                                client,
+                                reply(&say.id, Err(refusal)),
+                            );
+                        }
+                    };
                 let request = say.id.as_str().to_owned();
                 let line = self.credentials.scrub_text(&say.text);
                 let said = self
                     .change(Actor::Chief(chief), |cx, env| {
-                        chats::say(
+                        chats::say_with(
                             cx, env, agent, chief, &request, &line,
+                            &attached,
                         )
                     })
                     .await?;
@@ -384,6 +405,14 @@ impl Core {
                 let answer = self.give_part(client, part).await?;
                 self.answer(client, answer)
             }
+            ClientMessage::PutImage(put) => {
+                let answer = self.put_image(client, put);
+                self.answer(client, answer)
+            }
+            ClientMessage::PutImagePart(part) => {
+                let answer = self.put_image_part(client, part)?;
+                self.answer(client, answer)
+            }
             ClientMessage::Rewind(rewind) => {
                 if rewind.chat.from.is_some()
                     || rewind.chat.past.is_some()
@@ -419,8 +448,11 @@ impl Core {
                     .await?;
                 self.rewatch(agent).await?;
                 let answer = match done {
-                    Ok(text) => {
+                    Ok((text, images)) => {
+                        self.keep_images(&images);
                         ServerMessage::Reply(protocol::Reply {
+                            image: None,
+                            images,
                             kind: protocol::ReplyKind::Rewound,
                             text,
                             to: rewind.id.clone(),

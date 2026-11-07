@@ -327,5 +327,6 @@ pub(crate) async fn run(
             ("degraded".into(), env.degraded()),
         ])),
         diagnostics,
+        images: Vec::new(),
     }
 }

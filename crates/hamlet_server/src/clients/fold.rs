@@ -141,6 +141,7 @@ impl Fold {
                     Item {
                         id: format!("{}:0", entry.entry),
                         at: entry.at,
+                        images: Vec::new(),
                         kind: ItemKind::Answered,
                         text: text.into(),
                         author: None,
@@ -274,6 +275,7 @@ pub(crate) fn items_of(
         author: None,
         chief: None,
         id: id.clone(),
+        images: Vec::new(),
         kind,
         rewindable: None,
         text,
@@ -289,11 +291,20 @@ pub(crate) fn items_of(
         None => entry.at,
     };
     match mark {
-        Some(Mark::Chief { chief, text, .. }) => {
+        Some(Mark::Chief {
+            chief,
+            text,
+            images,
+            ..
+        }) => {
             return Ok(vec![(
                 0,
                 Item {
                     chief: Some(chief),
+                    images: images
+                        .iter()
+                        .filter_map(|image| image.parse().ok())
+                        .collect(),
                     rewindable: Some(true),
                     ..item(ItemKind::User, text, at)
                 },
@@ -365,6 +376,7 @@ fn blocks_of(
         author: None,
         chief: None,
         id: id(index),
+        images: Vec::new(),
         kind,
         rewindable: None,
         text: text.into(),

@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use hamlet_os::fs::path::{self, text};
+use hamlet_protocol::client::ImageId;
 use hamlet_protocol::runtime::{
     Diagnostic, DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
@@ -30,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 pub(crate) use self::shell::{Dialect, Shells};
+use crate::images::Limits;
 
 const FILE_TOOLS: [&str; 5] =
     ["read", "write", "edit", "search", "find"];
@@ -64,6 +66,29 @@ pub struct Outcome {
     pub details: Option<Map<String, Value>>,
     /// Remarks on the result, in the order pi gives them.
     pub diagnostics: Vec<Diagnostic>,
+    /// The images the result holds, kept in the realm's folder of
+    /// them (C34).
+    #[serde(default)]
+    pub images: Vec<ImageId>,
+}
+
+/// The images the model of an agent takes, and where the realm
+/// keeps them.
+#[derive(Clone, Debug)]
+pub(crate) struct Sight {
+    pub folder: PathBuf,
+    /// None when the model takes no images.
+    pub limits: Option<Limits>,
+}
+
+impl Sight {
+    /// A sight of no images.
+    pub fn blind() -> Self {
+        Self {
+            folder: PathBuf::new(),
+            limits: None,
+        }
+    }
 }
 
 impl Outcome {
@@ -73,6 +98,7 @@ impl Outcome {
             error: false,
             details: None,
             diagnostics: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -292,11 +318,13 @@ pub(crate) enum ToolSession {
         sandbox: Sandbox,
         shells: Shells,
         leftovers: Leftovers,
+        sight: Sight,
     },
     Remote {
         place: Place,
         session: crate::workspace::Session,
         shells: Shells,
+        sight: Sight,
     },
 }
 
@@ -314,6 +342,7 @@ impl ToolSession {
             sandbox,
             shells,
             leftovers,
+            sight: Sight::blind(),
         }
     }
 
@@ -326,7 +355,16 @@ impl ToolSession {
             place,
             session,
             shells: Shells::remote(),
+            sight: Sight::blind(),
         }
+    }
+
+    /// The same tools, reading images as `seen` says.
+    pub fn seeing(mut self, seen: Sight) -> Self {
+        let (Self::Local { sight, .. } | Self::Remote { sight, .. }) =
+            &mut self;
+        *sight = seen;
+        self
     }
 
     /// The text of the file a `write` to `path` would replace, as its
@@ -401,6 +439,7 @@ impl ToolSession {
                 sandbox,
                 shells,
                 leftovers,
+                sight,
             } if is_built_in(shells, tool) => {
                 let net = *net && shells.named(tool).is_some();
                 match environment::Local::open(
@@ -413,8 +452,8 @@ impl ToolSession {
                 {
                     Ok(mut env) => {
                         reach_run(
-                            &mut env, shells, place, secrets, tool,
-                            arguments,
+                            &mut env, shells, place, sight, secrets,
+                            tool, arguments,
                         )
                         .await
                     }
@@ -446,6 +485,7 @@ impl ToolSession {
                 place,
                 session,
                 shells,
+                sight,
             } => {
                 // The library is read once for all the call's
                 // requests.
@@ -458,8 +498,8 @@ impl ToolSession {
                         let mut env =
                             environment::Remote::new(session);
                         reach_run(
-                            &mut env, shells, place, secrets, tool,
-                            arguments,
+                            &mut env, shells, place, sight, secrets,
+                            tool, arguments,
                         )
                         .await
                     }
@@ -486,6 +526,7 @@ async fn reach_run(
     env: &mut impl environment::Reach,
     shells: &Shells,
     place: &Place,
+    sight: &Sight,
     secrets: &[String],
     tool: &str,
     arguments: &Map<String, Value>,
@@ -495,7 +536,9 @@ async fn reach_run(
             .await;
     }
     match tool {
-        "read" => files::read(env, arguments, shells.dialect()).await,
+        "read" => {
+            files::read(env, arguments, shells.dialect(), sight).await
+        }
         "write" => files::write(env, arguments).await,
         "edit" => files::edit(env, arguments).await,
         "search" => search::run(env, arguments).await,

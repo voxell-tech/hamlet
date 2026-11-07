@@ -12,8 +12,10 @@ use super::truncate::{
     MAX_BYTES, character_end, format_size, truncate_head,
 };
 use super::{
-    Arguments, Dialect, Outcome, diagnostic, diff, number_words,
+    Arguments, Dialect, Outcome, Sight, diagnostic, diff,
+    number_words,
 };
+use crate::images::{self, Format};
 
 /// The failure of a file call, in pi's words.
 #[derive(Debug, thiserror::Error)]
@@ -122,10 +124,13 @@ fn tool_path(env: &impl Reach, path: &str) -> String {
 /// pi's `read`: a text file's lines, at most 2000 or 50KB from
 /// `offset`, with remarks on what was left out. Where a line is too
 /// long it tells how to read the rest in the language of `shell`.
+/// An image file is given as an image when `sight` says the model
+/// takes them (C34).
 pub(super) async fn read(
     env: &mut impl Reach,
     arguments: &Map<String, Value>,
     shell: Option<Dialect>,
+    sight: &Sight,
 ) -> Outcome {
     let args = Arguments::new("read", arguments);
     let (path, offset, limit) = match (
@@ -143,7 +148,7 @@ pub(super) async fn read(
     outcome(
         async {
             let path = env.footing(path).await?;
-            read_text(env, &path, offset, limit, shell).await
+            read_text(env, &path, offset, limit, shell, sight).await
         }
         .await,
     )
@@ -155,6 +160,7 @@ async fn read_text(
     offset: Option<f64>,
     limit: Option<f64>,
     shell: Option<Dialect>,
+    sight: &Sight,
 ) -> Result<Outcome, CallError> {
     let resolved = tool_path(env, path);
     let decomposed = resolved.nfd().collect::<String>();
@@ -178,18 +184,8 @@ async fn read_text(
         tried.push(variant);
     }
     let bytes = env.read_file(&absolute).await?;
-    if let Some(mime) = image_type(&bytes) {
-        return Ok(Outcome {
-            diagnostics: vec![diagnostic(
-                DiagnosticSeverity::Error,
-                "unsupported_image",
-                format!(
-                    "{path} is an image ({mime}) that cannot be \
-                     prepared for the model"
-                ),
-            )],
-            ..Outcome::failed("")
-        });
+    if let Some(format) = Format::detect(&bytes) {
+        return Ok(seen(path, format, bytes, sight).await);
     }
     let text = String::from_utf8_lossy(&bytes);
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
@@ -339,53 +335,63 @@ fn narrow_meridiem(path: &str) -> String {
     out
 }
 
-/// The image type pi sends a file as, by its first bytes.
-fn image_type(bytes: &[u8]) -> Option<&'static str> {
-    const PNG: [u8; 8] =
-        [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-    let at = |offset: usize, text: &[u8]| {
-        bytes.get(offset..offset + text.len()) == Some(text)
+/// The result of reading the image file `path`: the image, made to
+/// fit the model's limits, when the model takes images, else words.
+async fn seen(
+    path: &str,
+    format: Format,
+    bytes: Vec<u8>,
+    sight: &Sight,
+) -> Outcome {
+    let Some(limits) = sight.limits else {
+        return Outcome::text(format!(
+            "{path} is an image ({}) and the model takes no images. \
+             Hand the file to a tool that can read it.",
+            format.mime()
+        ));
     };
-    if at(0, &[0xff, 0xd8, 0xff]) {
-        return (bytes.get(3) != Some(&0xf7)).then_some("image/jpeg");
-    }
-    if at(0, &PNG) {
-        let header = bytes.len() >= 16
-            && at(12, b"IHDR")
-            && be32(bytes, 8) == 13;
-        return (header && !is_animated_png(bytes))
-            .then_some("image/png");
-    }
-    if at(0, b"GIF87a") || at(0, b"GIF89a") {
-        return Some("image/gif");
-    }
-    if at(0, b"RIFF") && at(8, b"WEBP") {
-        return Some("image/webp");
-    }
-    None
-}
-
-fn be32(bytes: &[u8], offset: usize) -> usize {
-    bytes.get(offset..offset + 4).map_or(0, |b| {
-        u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize
-    })
-}
-
-fn is_animated_png(bytes: &[u8]) -> bool {
-    let mut offset = 8;
-    while offset + 8 <= bytes.len() {
-        match &bytes[offset + 4..offset + 8] {
-            b"acTL" => return true,
-            b"IDAT" => return false,
-            _ => {}
+    let made = images::keep_fitted(
+        sight.folder.clone(),
+        bytes,
+        format,
+        limits,
+    )
+    .await;
+    let (id, fitted) = match made {
+        Ok(Ok(made)) => made,
+        Ok(Err(unusable)) => {
+            return Outcome::thrown(
+                "unsupported_image",
+                format!(
+                    "{path} cannot be prepared for the model: \
+                     {unusable}"
+                ),
+            );
         }
-        let next = offset + 8 + be32(bytes, offset) + 4;
-        if next <= offset || next > bytes.len() {
-            return false;
+        Err(error) => {
+            return Outcome::thrown(
+                "unsupported_image",
+                format!("{path} could not be kept: {error:#}"),
+            );
         }
-        offset = next;
+    };
+    let mut out = Outcome::text(format!(
+        "Read image file [{}]",
+        fitted.format.mime()
+    ));
+    out.images.push(id);
+    if let Some((width, height)) = fitted.from {
+        out.diagnostics.push(diagnostic(
+            DiagnosticSeverity::Info,
+            "resized",
+            format!(
+                "The image is {width}x{height} and was shown at \
+                 {}x{}.",
+                fitted.size.0, fitted.size.1
+            ),
+        ));
     }
-    false
+    out
 }
 
 /// The policy's check of a file a write or an edit changes, as pi's

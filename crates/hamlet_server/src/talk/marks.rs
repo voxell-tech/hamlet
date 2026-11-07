@@ -2,6 +2,7 @@
 //! transcript shows it. The runtime protocol carries it untyped.
 
 use anyhow::{Context, Result};
+use hamlet_protocol::client::ImageId;
 use hamlet_protocol::runtime;
 use hamlet_store::ids::AgentId;
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,9 @@ pub(crate) enum Mark {
         chief: String,
         text: String,
         at: i64,
+        /// The images the line carried, by their ids.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<String>,
     },
     /// A failed or stopped turn carried on.
     #[serde(rename = "hamlet.retry")]
@@ -70,6 +74,17 @@ impl Mark {
                 .expect("a mark has only string keys"),
         )
         .expect("each mark's data is an object")
+    }
+
+    /// The images a chief's line carried.
+    pub fn images(&self) -> Vec<ImageId> {
+        match self {
+            Self::Chief { images, .. } => images
+                .iter()
+                .filter_map(|image| image.parse().ok())
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 
     /// Whether its turn is one a chief asked for.

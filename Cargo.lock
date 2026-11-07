@@ -4569,6 +4569,7 @@ dependencies = [
  "hamlet_store",
  "hamlet_testing",
  "hamlet_workspace_wire",
+ "image",
  "interprocess",
  "jsonschema",
  "regex",

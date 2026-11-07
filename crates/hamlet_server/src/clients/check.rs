@@ -24,6 +24,8 @@ pub(crate) fn reply(
         Err(refusal) => (ReplyKind::Error, refusal.to_string()),
     };
     ServerMessage::Reply(Reply {
+        image: None,
+        images: Vec::new(),
         to: id.clone(),
         kind,
         text,

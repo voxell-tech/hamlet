@@ -27,6 +27,7 @@ use self::objections::OBJECTING;
 pub(crate) use self::society::library::LIBRARIAN;
 pub(crate) use self::society::welcome;
 use crate::core::Core;
+use crate::images::{Limits, kept_pictures};
 use crate::knowledge::CHARACTER;
 use crate::oversight::gate::{
     self, Asked, Session, Standing, Verdict,
@@ -34,9 +35,9 @@ use crate::oversight::gate::{
 use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
-use crate::talk::{asking, conversations, inputs};
+use crate::talk::{asking, conversations, inputs, models};
 use crate::work::cut::change_between;
-use crate::work::tools::{Outcome, ToolSession};
+use crate::work::tools::{Outcome, Sight, ToolSession};
 
 /// The words of a call that waits for a chief.
 const WAITING: &str = "This call waits for a chief's answer.";
@@ -285,6 +286,7 @@ pub(crate) fn said(text: impl Into<String>, error: bool) -> Outcome {
         error,
         details: None,
         diagnostics: Vec::new(),
+        images: Vec::new(),
     }
 }
 
@@ -332,6 +334,7 @@ impl Core {
         }
         let re = reply.re.clone();
         let key = key.to_owned();
+        let images_folder = self.realm.layout().images();
         self.runtimes
             .send(reply.index, |v, id| match answer {
                 Answer::Allowed => {
@@ -359,10 +362,15 @@ impl Core {
                     })
                 }
                 Answer::Result(outcome) => {
+                    let images = kept_pictures(
+                        images_folder.clone(),
+                        &outcome.images,
+                    );
                     ServerMessage::Result(runtime::Result {
                         details: outcome
                             .details
                             .map(|d| d.into_iter().collect()),
+                        images,
                         diagnostics: (!outcome
                             .diagnostics
                             .is_empty())
@@ -668,6 +676,7 @@ impl Core {
                 Ok(found) => found,
                 Err(words) => return Ok(Some(said(words, true))),
             };
+        let session = session.seeing(self.sight_of(agent)?);
         let secrets = self.credentials.secrets();
         let arguments =
             call.arguments.clone().into_iter().collect::<Map<_, _>>();
@@ -732,6 +741,26 @@ impl Core {
                 false,
             ),
         }))
+    }
+
+    /// The images the model `agent` runs now takes.
+    fn sight_of(&mut self, agent: AgentId) -> Result<Sight> {
+        let folder = self.realm.layout().images();
+        let db = self.realm.store().connection();
+        let model = models::choose(
+            db,
+            &self.env.settings,
+            &self.env.overrides,
+            agent,
+        )?
+        .model;
+        Ok(Sight {
+            folder,
+            limits: self
+                .providers
+                .images(db, &model)?
+                .map(|takes| Limits::of(&takes)),
+        })
     }
 
     /// Whether `tool` may not run twice: what writes, runs or is

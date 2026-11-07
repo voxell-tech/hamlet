@@ -506,6 +506,7 @@ pub(super) async fn run(
         error: exit_code != 0,
         details: details.as_object().cloned(),
         diagnostics,
+        images: Vec::new(),
     }
 }
 
