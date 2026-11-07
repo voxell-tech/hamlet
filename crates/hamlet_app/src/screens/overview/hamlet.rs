@@ -30,6 +30,7 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
@@ -349,6 +350,7 @@ pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
         row(parts)
             .gap(cx.theme().space.gap)
             .align(AlignItems::Center)
+            .tagged(Wraps)
     })
     .boxed()
 }
