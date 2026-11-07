@@ -52,7 +52,7 @@ const STAYS: f32 = 8.0;
 const FADES: f32 = 1.2;
 
 /// The width of the stack, in logical pixels.
-const WIDTH: f32 = 340.0;
+const WIDTH: f32 = 380.0;
 
 /// How the server names the Hand as the one who decided an arrival.
 const HAND: &str = "hand";

@@ -20,10 +20,11 @@ use hamlet_protocol::client::{
     Change, ChangeLines as Line, ChangeLinesMark as Mark,
 };
 use hamlet_ui::styles::{Fills, bare, note};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::{Mono, MonoText};
 use hamlet_ui::{AnyView, Cx, View};
 
-use super::entry::state;
+use super::entry::{Underway, state};
 
 /// The tuning of the chat.
 #[derive(Resource, Clone, PartialEq, serde::Deserialize)]
@@ -199,11 +200,12 @@ fn ended(entry: Option<&Entry>) -> (Option<i64>, Option<String>) {
 }
 
 /// The change of the edit at entry `id` of `session`: its file, its
-/// count and how the call ended, over its lines.
+/// count and how the call stands, over its lines.
 pub(crate) fn change_view(
     session: Entity,
     id: String,
     change: Change,
+    underway: Underway,
 ) -> AnyView {
     let key = (session, id.clone());
     let entry_id = id.clone();
@@ -217,16 +219,19 @@ pub(crate) fn change_view(
     let fold_key = key.clone();
     let toggle_key = key.clone();
     let fold = button(
-        label(resource::<Changes, _>(move |changes| {
-            let mark = match changes.extent(&fold_key) {
-                Extent::Shut => "+",
-                _ => "-",
-            };
-            format!("{mark}  {verb}")
-        }))
-        .size(12.0)
-        .wrap(false)
-        .tone(Tone::Dim),
+        row((
+            glyph(Glyph::Chevron, 10.0).tone(Tone::Faint).rotation(
+                resource::<Changes, _>(move |changes| match changes
+                    .extent(&fold_key)
+                {
+                    Extent::Shut => 90.0,
+                    _ => 180.0,
+                }),
+            ),
+            label(verb).size(12.0).wrap(false).tone(Tone::Dim),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center),
     )
     .rules(ghost)
     .on_activate(move |world| {
@@ -248,7 +253,7 @@ pub(crate) fn change_view(
         },
     )
     .within(bare().fills_width().min_width(px(0.0)));
-    let head = row((fold, file, state(session, id)))
+    let head = row((fold, file, state(session, id, underway)))
         .gap(10.0)
         .align(AlignItems::Center);
 

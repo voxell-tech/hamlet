@@ -451,35 +451,13 @@ mod server_tests {
         );
     }
 
-    #[test]
-    fn a_providers_key_uses_the_servers_secret_prompt_and_answers() {
-        let mut app = welcome_app();
-        connect(&mut app, true);
-        providers(&mut app);
-        mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I have a key");
-        press_and_update(&mut app, "OpenRouter");
-        let requests = sent(&mut app);
-        let start = &requests[0];
-        assert_eq!(start["type"], "login");
-        assert_eq!(
-            start["start"],
-            serde_json::json!({"provider":"openrouter", "method":"key"})
-        );
-        incoming(
-            &mut app,
-            serde_json::json!({"type":"login", "to":start["id"], "login":"key-login", "step":{"prompt":"Paste your key", "secret":true}}),
-        );
-        assert!(all_words(&mut app).contains("Paste your key"));
-        let (input, ink) = app
+    /// Types `key` in the key page's field and presses Continue.
+    fn send_key(app: &mut App, key: &str) {
+        let input = app
             .world_mut()
-            .query::<(Entity, &EditableText, &bevy::text::TextColor)>(
-            )
-            .iter(app.world())
-            .map(|(entity, _, color)| (entity, color.0))
-            .next()
-            .expect("secret field");
-        assert_eq!(ink.alpha(), 0.0);
+            .query_filtered::<Entity, With<EditableText>>()
+            .single(app.world())
+            .expect("one field");
         app.world_mut()
             .resource_mut::<InputFocus>()
             .set(input, bevy::input_focus::FocusCause::Pressed);
@@ -488,10 +466,44 @@ mod server_tests {
             .get_mut::<EditableText>(input)
             .unwrap()
             .editor_mut()
-            .set_text("fake-key");
+            .set_text(key);
         // The field's text is committed and sent in the same frame.
-        press(&mut app, "Send");
+        press(app, "Continue");
         app.update();
+    }
+
+    #[test]
+    fn a_providers_key_uses_the_servers_secret_prompt_and_answers() {
+        let mut app = welcome_app();
+        connect(&mut app, true);
+        providers(&mut app);
+        mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "I have a key");
+        // The field, its provider and the button are there before
+        // anything is sent.
+        assert!(sent(&mut app).is_empty());
+        press_and_update(&mut app, "OpenRouter");
+        let ink = app
+            .world_mut()
+            .query::<(&EditableText, &bevy::text::TextColor)>()
+            .iter(app.world())
+            .map(|(_, color)| color.0)
+            .next()
+            .expect("secret field");
+        assert_eq!(ink.alpha(), 0.0);
+        send_key(&mut app, "fake-key");
+        let requests = sent(&mut app);
+        let start = &requests[0];
+        assert_eq!(start["type"], "login");
+        assert_eq!(
+            start["start"],
+            serde_json::json!({"provider":"openrouter", "method":"key"})
+        );
+        // The key typed answers the server's secret prompt.
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"login", "to":start["id"], "login":"key-login", "step":{"prompt":"Paste your key", "secret":true}}),
+        );
         let requests = sent(&mut app);
         assert_eq!(
             requests[0]["reply"],
@@ -501,10 +513,16 @@ mod server_tests {
             &mut app,
             serde_json::json!({"type":"login", "to":start["id"], "login":"key-login", "step":{"failed":"That key was refused."}}),
         );
-        assert!(
-            all_words(&mut app).contains("That key was refused.")
+        let shown = all_words(&mut app);
+        assert!(shown.contains("That key was refused."));
+        assert!(!shown.contains("fake-key"));
+        // Tried again, with the same provider.
+        send_key(&mut app, "other-key");
+        let requests = sent(&mut app);
+        assert_eq!(
+            requests.last().unwrap()["start"],
+            serde_json::json!({"provider":"openrouter", "method":"key"})
         );
-        assert!(!all_words(&mut app).contains("fake-key"));
     }
 
     #[derive(Resource, Default)]
@@ -676,6 +694,7 @@ mod server_tests {
         mount::<HamletTheme>(app.world_mut(), view());
         press_and_update(&mut app, "I have a key");
         press_and_update(&mut app, "OpenRouter");
+        send_key(&mut app, "fake-key");
         let start = sent(&mut app).remove(0);
         incoming(
             &mut app,

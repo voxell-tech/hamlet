@@ -4600,6 +4600,7 @@ dependencies = [
  "bevy_fynix",
  "hamlet_assets",
  "image",
+ "parley",
  "pulldown-cmark",
  "resvg",
  "serde",

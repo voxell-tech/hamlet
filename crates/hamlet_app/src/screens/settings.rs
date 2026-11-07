@@ -33,6 +33,7 @@ use hamlet_ui::styles::{
     close, description, hairline, list, nav_list, note, parts,
     section, small_rules, text_input,
 };
+use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
@@ -205,15 +206,6 @@ const CHARACTER_MOST: usize = 4000;
 /// The key of the default character in the editor.
 const CHARACTER_KEY: &str = "default-character";
 
-/// The start of `text` on one line.
-fn start_of(text: &str) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    match flat.char_indices().nth(CHARACTER_SHOWN) {
-        Some((cut, _)) => format!("{}...", &flat[..cut]),
-        None => flat,
-    }
-}
-
 /// Opens the default character in the editor.
 fn edit_default_character(world: &mut World) {
     let text = world.resource::<Settings>().0.character.clone();
@@ -347,7 +339,7 @@ fn agents() -> impl View {
                     } else {
                         format!(
                             "A scholar made blank starts from: {}",
-                            start_of(&s.0.character)
+                            cut(&s.0.character, CHARACTER_SHOWN)
                         )
                     }
                 })),

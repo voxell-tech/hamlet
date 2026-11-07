@@ -370,15 +370,14 @@ fn waits(agent: Entity) -> impl View {
             if cards.is_empty() {
                 return frame().boxed();
             }
-            // Never more than part of the page, so the chat stays in
-            // view; the rest scrolls.
             column((scroll_area((column(cards).gap(8.0),)),))
-                .max_height(percent(40.0))
                 .min_height(px(0.0))
                 .boxed()
         },
     )
-    .within(bare())
+    // As tall as the cards, but never more than part of the page, so
+    // the chat stays in view; the rest scrolls.
+    .within(bare().shrink(0.0).max_height(percent(40.0)))
 }
 
 /// The state shown for `agent`: its waits first, then work or rest.

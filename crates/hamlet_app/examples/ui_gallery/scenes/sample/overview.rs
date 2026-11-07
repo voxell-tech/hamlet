@@ -174,7 +174,12 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             }
         }
         let mut wait = hamlet_testing::realm::wait("toast");
-        wait.since = 1000;
+        // It came in a moment ago.
+        wait.since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+            - 2 * 60_000;
         next.waits.push(wait);
         world.insert_resource(Later(next, 0));
     }

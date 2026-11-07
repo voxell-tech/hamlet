@@ -13,6 +13,7 @@ use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
 use hamlet_ui::markdown::document;
 use hamlet_ui::styles::note;
+use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, Cx, View};
@@ -20,15 +21,6 @@ use hamlet_ui::{AnyView, Cx, View};
 use super::change::change_view;
 use crate::convo::Convo;
 use crate::markdown;
-
-/// A single line cut to its first `most` characters.
-pub(super) fn clip_start(text: &str, most: usize) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    match flat.char_indices().nth(most) {
-        Some((cut, _)) => format!("{}...", &flat[..cut]),
-        None => flat,
-    }
-}
 
 fn clip(s: &str, max: usize) -> String {
     let flat: String =
@@ -50,11 +42,23 @@ fn tool_text(summary: &str) -> String {
     let command = serde_json::from_str::<serde_json::Value>(summary)
         .ok()
         .and_then(|v| v["command"].as_str().map(str::to_string));
-    clip_start(command.as_deref().unwrap_or(summary), 90)
+    cut(command.as_deref().unwrap_or(summary), 90)
+}
+
+/// What a tool call that has not ended is doing.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Underway {
+    Running,
+    /// Held until the chief answers.
+    Waiting,
 }
 
 /// How the tool call at entry `id` of `session` stands.
-pub(super) fn state(session: Entity, id: String) -> impl View {
+pub(super) fn state(
+    session: Entity,
+    id: String,
+    underway: Underway,
+) -> impl View {
     let status_id = id.clone();
     label(component::<Transcript, _>(session, move |t| {
         match t
@@ -67,7 +71,10 @@ pub(super) fn state(session: Entity, id: String) -> impl View {
             Some(Entry::Tool {
                 exit: Some(code), ..
             }) => format!("Failed (exit {code})"),
-            _ => "Running".to_string(),
+            _ => match underway {
+                Underway::Running => "Running".to_string(),
+                Underway::Waiting => "Waiting".to_string(),
+            },
         }
     }))
     .size(12.0)
@@ -181,13 +188,14 @@ fn tool_row(session: Entity, id: String) -> impl View {
             .bold(true)
             .wrap(false)
             .tagged(MonoText),
-            column((label(read(|e| match e {
-                Entry::Tool { summary, .. } => tool_text(summary),
-                _ => String::new(),
-            }))
-            .size(12.0)
-            .wrap(false)
-            .tone(Tone::Dim)
+            column((one_line(
+                label(read(|e| match e {
+                    Entry::Tool { summary, .. } => tool_text(summary),
+                    _ => String::new(),
+                }))
+                .size(12.0)
+                .tone(Tone::Dim),
+            )
             .tagged(MonoText),))
             .grow(1.0)
             .min_width(px(0.0))
@@ -331,10 +339,15 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             Some(Entry::Tool {
                 change: Some(change),
                 ..
-            }) => column((change_view(session, id, change),))
-                .width(percent(100.0))
-                .padding(UiRect::axes(px(24.0), px(0.0)))
-                .boxed(),
+            }) => column((change_view(
+                session,
+                id,
+                change,
+                Underway::Running,
+            ),))
+            .width(percent(100.0))
+            .padding(UiRect::axes(px(24.0), px(0.0)))
+            .boxed(),
             Some(Entry::Tool { .. }) => {
                 column((tool_row(session, id),))
                     .width(percent(100.0))

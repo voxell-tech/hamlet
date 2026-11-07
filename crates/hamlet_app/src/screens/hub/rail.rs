@@ -47,12 +47,14 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::{Showing, show};
+use crate::age::Age;
 use crate::convo::{Convo, talk_to, talk_to_hand};
 use crate::status::now_ms;
 
@@ -380,30 +382,19 @@ struct Agent {
     age: String,
 }
 
-/// The seconds between `then` and `now`, in the shortest word.
+/// How long ago `then` was at `now`, short, or nothing for a time
+/// never set.
 fn age(now: u64, then: u64) -> String {
     if then == 0 {
         return String::new();
     }
-    match now.saturating_sub(then) / 1000 {
-        0..=59 => "now".into(),
-        s @ 60..=3599 => format!("{}m", s / 60),
-        s @ 3600..=86399 => format!("{}h", s / 3600),
-        s => format!("{}d", s / 86400),
-    }
+    Age::of(now, then).short()
 }
 
 /// The first line of `text` that has words, cut at `most` letters.
 fn first_line(text: &str, most: usize) -> String {
-    let line = text
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("")
-        .trim();
-    match line.char_indices().nth(most) {
-        Some((cut, _)) => format!("{}...", &line[..cut]),
-        None => line.to_string(),
-    }
+    let line = text.lines().find(|line| !line.trim().is_empty());
+    cut(line.unwrap_or(""), most)
 }
 
 /// The last thing the chief said to the agent, and when the chat
@@ -1451,14 +1442,13 @@ fn expanded(line: &Line) -> AnyView {
     let content = row((
         glyph(line.glyph, ICON).tone(Tone::Dim),
         column((
-            label(line.name.clone())
-                .tone(name_tone)
-                .bold(true)
-                .wrap(false),
+            one_line(
+                label(line.name.clone()).tone(name_tone).bold(true),
+            ),
             // A row with nothing more to say is one line.
-            column((label(line.title.clone())
-                .tone(Tone::Dim)
-                .wrap(false),))
+            column((one_line(
+                label(line.title.clone()).tone(Tone::Dim),
+            ),))
             .display(if line.title.is_empty() {
                 Display::None
             } else {

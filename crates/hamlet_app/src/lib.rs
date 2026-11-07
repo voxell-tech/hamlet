@@ -2,6 +2,7 @@
 //! bar and its menus, the foot and the pointer, on the client's
 //! state and built from the widgets of `hamlet_ui`.
 
+mod age;
 pub mod asking;
 mod chief;
 pub mod chrome;

@@ -22,7 +22,7 @@ use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, ghost,
-    label, overlay, scroll,
+    label, overlay, row, scroll,
 };
 use bevy_fynix::{ScopedExt, ViewExt, each, resource};
 use hamlet_client::chats::{self, Entry, Transcript};
@@ -31,6 +31,7 @@ use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::View;
 use hamlet_ui::styles::{Fills, note};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 
 use super::entry::entry_view;
 use super::timeline::{Line, People, Who, timeline};
@@ -207,10 +208,34 @@ pub(super) fn fold_view(
     // builds neither the row nor its button again.
     let heading_key = key.clone();
     let tone_key = key.clone();
+    let turn_key = key.clone();
+    let shown_key = key.clone();
     let head = button(
-        label(resource::<Lines, _>(move |l| l.heading(&heading_key)))
+        row((
+            glyph(Glyph::Chevron, 10.0)
+                .tone(Tone::Faint)
+                .rotation(resource::<Lines, _>(move |l| {
+                    if l.is_open(&turn_key) == Some(true) {
+                        180.0
+                    } else {
+                        90.0
+                    }
+                }))
+                .opacity(resource::<Lines, _>(move |l| {
+                    if l.is_open(&shown_key).is_some() {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                })),
+            label(resource::<Lines, _>(move |l| {
+                l.heading(&heading_key)
+            }))
             .size(12.0)
             .tone(resource::<Lines, _>(move |l| l.tone(&tone_key))),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center),
     )
     .rules(ghost)
     .on_activate(move |world| {
@@ -364,8 +389,6 @@ impl Lines {
             failed,
             running,
             helpers,
-            open,
-            steps,
             ..
         }) = self.fold(key)
         else {
@@ -387,13 +410,20 @@ impl Lines {
         if !helpers.is_empty() {
             text.push_str(&format!(", with {}", helpers.join(", ")));
         }
-        // Nothing to open in a fold of another agent's work alone.
-        let mark = match (steps.is_empty(), *open) {
-            (true, _) => " ",
-            (false, true) => "-",
-            (false, false) => "+",
-        };
-        format!("{mark}  {text}")
+        text
+    }
+
+    /// Whether a fold is open, or nothing when it has nothing to
+    /// open, as a fold of another agent's work alone.
+    fn is_open(&self, key: &RowKey) -> Option<bool> {
+        match self.fold(key) {
+            Some(Row::Fold { steps, open, .. })
+                if !steps.is_empty() =>
+            {
+                Some(*open)
+            }
+            _ => None,
+        }
     }
 
     fn tone(&self, key: &RowKey) -> Tone {
@@ -746,12 +776,10 @@ pub fn transcript() -> impl View {
         }),
         |_: &()| 0u8,
         |_| {
-            button(hamlet_ui::styles::raised(
-                hamlet_ui::widgets::icons::glyph(
-                    hamlet_ui::widgets::icons::Glyph::ToEnd,
-                    hamlet_ui::styles::ICON,
-                ),
-            ))
+            button(hamlet_ui::styles::raised(glyph(
+                Glyph::ToEnd,
+                hamlet_ui::styles::ICON,
+            )))
             .padding(UiRect::all(px(8.0)))
             .tooltip(|| note("Scroll to the latest"))
             .rules(hamlet_ui::styles::back_link)

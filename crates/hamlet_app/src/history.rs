@@ -1,7 +1,5 @@
 //! The Hub's sessions page: the selected agent's past sessions.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
@@ -30,10 +28,12 @@ use hamlet_ui::styles::{
     hairline, hidden, note, scroll_area, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, built, with_cx};
 use protocol::Past;
 
+use crate::age::Age;
 use crate::convo::Convo;
 use crate::dock::{HUB, show_tab};
 use crate::hub::{self, Showing};
@@ -103,30 +103,6 @@ struct Requests {
     open: bool,
 }
 
-fn since(t: i64) -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64;
-    let s = now.saturating_sub(t).max(0) / 1000;
-    match s {
-        0..=59 => "just now".into(),
-        60..=3599 => format!("{} min ago", s / 60),
-        3600..=86399 => format!("{} h ago", s / 3600),
-        _ => format!("{} d ago", s / 86400),
-    }
-}
-
-/// `title`, cut to what a row shows.
-fn shortened(title: &str) -> String {
-    let mut shown =
-        title.chars().take(TITLE_SHOWN).collect::<String>();
-    if title.chars().count() > TITLE_SHOWN {
-        shown.push_str("...");
-    }
-    shown
-}
-
 /// The detail line of a past session's row.
 fn detail(past: &Past) -> String {
     let count = match past.messages {
@@ -136,7 +112,8 @@ fn detail(past: &Past) -> String {
     let mut detail = if past.current {
         "In use now".to_string()
     } else {
-        since(past.modified)
+        Age::of(crate::status::now_ms(), past.modified.max(0) as u64)
+            .ago()
     };
     detail.push_str(&format!(", {count}"));
     if past.tokens > 0 {
@@ -162,7 +139,7 @@ impl History {
             })
             .map(|past| Line {
                 number: past.number,
-                title: shortened(&past.title),
+                title: cut(&past.title, TITLE_SHOWN),
                 detail: detail(past),
                 live: past.current,
             })
@@ -469,7 +446,9 @@ fn reader() -> impl View {
         let holder = reading.holder;
         let past = history.read().cloned();
         let (title, detail) = match &past {
-            Some(past) => (shortened(&past.title), detail(past)),
+            Some(past) => {
+                (cut(&past.title, TITLE_SHOWN), detail(past))
+            }
             None => Default::default(),
         };
         let hint = format!(

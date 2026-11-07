@@ -34,6 +34,7 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
+use crate::age::Age;
 use crate::convo::talk_at;
 use crate::dock::{HUB, show_tab};
 use crate::hub::Showing;
@@ -84,17 +85,8 @@ pub(crate) struct Need {
 
 impl Need {
     pub(crate) fn of(entity: Entity, waiting: &Waiting) -> Self {
-        let seconds =
-            waiting.waited(crate::status::now_ms()).as_secs();
-        let waited = match seconds {
-            0..=59 => "under a minute".into(),
-            60..=3599 => format!("{} min", seconds / 60),
-            _ => format!(
-                "{} h {:02} min",
-                seconds / 3600,
-                seconds % 3600 / 60
-            ),
-        };
+        let waited =
+            Age::of(crate::status::now_ms(), waiting.since).waited();
         Self {
             entity,
             detail: waiting.detail.clone(),
@@ -332,9 +324,12 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             (Some(asked), _) => {
                 asking::card(need.entity, asked.clone()).boxed()
             }
-            (None, Some((session, id, change))) => {
-                chat::change_view(session, id, change)
-            }
+            (None, Some((session, id, change))) => chat::change_view(
+                session,
+                id,
+                change,
+                chat::Underway::Waiting,
+            ),
             // The exact text, which a tag in the world may cut.
             (None, None) => {
                 note(need.about.clone()).tagged(MonoText).boxed()
@@ -362,19 +357,27 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             n => format!(", asked {n} times"),
         };
         let head = format!(
-            "{what} from {}  (waited {}{asked})",
+            "{what} from {}  ({}{asked})",
             need.shown, need.waited
         );
         let tone = match need.detail {
             WaitDetail::Fault {} => Tone::Critical,
             _ => Tone::Accent,
         };
-        // A form says its questions itself.
-        let line = match questions {
-            Some(_) => frame().boxed(),
-            None => label(need.line.clone())
-                .size(cx.theme().text.heading)
-                .boxed(),
+        // A form says its questions itself, and an approval's
+        // subject is shown once, in full, under its line.
+        let line = match &need.detail {
+            WaitDetail::Question { .. } => None,
+            WaitDetail::Approval { says, .. } => {
+                Some(format!("{} {says}", need.shown))
+            }
+            _ => Some(need.line.clone()),
+        };
+        let line = match line {
+            Some(line) => {
+                label(line).size(cx.theme().text.heading).boxed()
+            }
+            None => frame().boxed(),
         };
         cx.build(framed((caption(head, tone), line, about, answers)))
     })

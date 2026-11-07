@@ -8,17 +8,18 @@ use bevy::ui::AlignItems;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, label, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    bare, buttons, close, good_action, group, lettered, note, parts,
-    text_input,
+    bare, buttons, choice, close, description, good_action, group,
+    lettered, note, parts, text_input,
 };
-use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 
 use super::pages::{head, news, said};
@@ -50,6 +51,9 @@ pub(super) struct Login {
     prompt: Option<(String, bool)>,
     progress: String,
     answer: String,
+    /// Whether `answer` is a key typed before the sign-in asked for
+    /// it, to be its answer once it does.
+    held: bool,
 }
 
 pub(super) fn start(world: &mut World, provider: &str, key: bool) {
@@ -124,11 +128,46 @@ pub(super) fn reconnected(world: &mut World) {
     }
 }
 
+/// The provider a key is for: the one chosen, else the only one that
+/// takes a key.
+fn keyed_provider(world: &World) -> Option<String> {
+    if let Some(chosen) = &world.resource::<Login>().provider {
+        return Some(chosen.clone());
+    }
+    let mut keyed =
+        world.resource::<Providers>().0.iter().filter(|p| {
+            p.methods.contains(&protocol::LoginMethod::Key)
+        });
+    match (keyed.next(), keyed.next()) {
+        (Some(only), None) => Some(only.id.clone()),
+        _ => None,
+    }
+}
+
+/// Starts a sign-in with the chosen provider that answers its prompt
+/// with the key typed.
+fn send_key(world: &mut World) {
+    let answer = world.resource::<Login>().answer.clone();
+    let Some(provider) = keyed_provider(world) else {
+        return;
+    };
+    if answer.trim().is_empty() {
+        return;
+    }
+    start(world, &provider, true);
+    let mut login = world.resource_mut::<Login>();
+    login.answer = answer;
+    login.held = true;
+}
+
 pub(super) fn reply(world: &mut World) {
     let mut login = world.resource_mut::<Login>();
     let Some(id) =
         login.id.clone().filter(|_| login.prompt.is_some())
     else {
+        if world.resource::<Welcome>().step == Step::Key {
+            send_key(world);
+        }
         return;
     };
     let answer = std::mem::take(&mut login.answer);
@@ -230,8 +269,14 @@ pub(super) fn receive(
         protocol::LoginStep::Prompt { prompt, secret } => {
             let mut login = world.resource_mut::<Login>();
             login.prompt = Some((prompt, secret));
-            login.answer.clear();
-            world.resource_mut::<Welcome>().asking = false;
+            // A key typed before the sign-in asked answers it.
+            if login.held && secret {
+                login.held = false;
+                reply(world);
+            } else {
+                login.answer.clear();
+                world.resource_mut::<Welcome>().asking = false;
+            }
         }
         protocol::LoginStep::Progress { progress } => {
             world.resource_mut::<Login>().progress = progress;
@@ -249,10 +294,13 @@ pub(super) fn receive(
             read_models(world, true);
         }
         protocol::LoginStep::Failed { failed } => {
+            // The provider stays chosen, to try again with.
+            let provider = world.resource::<Login>().provider.clone();
             let abandoned = std::mem::take(
                 &mut world.resource_mut::<Login>().abandoned,
             );
             *world.resource_mut::<Login>() = Login {
+                provider,
                 abandoned,
                 ..Default::default()
             };
@@ -314,10 +362,19 @@ fn prompt() -> AnyView {
     .boxed()
 }
 
+/// The page for a key: the provider it is for, its field, why the
+/// last one failed under it, and the button that sends it, all there
+/// whatever has been tried.
 pub(super) fn key_page() -> AnyView {
     let names = keyed(
-        resource::<Providers, _>(|providers| providers.0.clone()),
-        |providers| {
+        derived(|world: &World| {
+            (
+                world.resource::<Providers>().0.clone(),
+                keyed_provider(world),
+            )
+        })
+        .when(every_frame()),
+        |(providers, chosen)| {
             let choices = providers
                 .iter()
                 .filter(|provider| {
@@ -326,12 +383,20 @@ pub(super) fn key_page() -> AnyView {
                         .contains(&protocol::LoginMethod::Key)
                 })
                 .map(|provider| {
-                    let id = provider.id.clone();
+                    let (id, name) =
+                        (provider.id.clone(), provider.name.clone());
                     close((
                         lettered(provider.name.clone())
-                            .tagged(Variant::Default)
+                            .rules(choice(
+                                chosen.as_ref() == Some(&id),
+                            ))
                             .on_activate(move |world| {
-                                start(world, &id, true);
+                                world
+                                    .resource_mut::<Login>()
+                                    .provider = Some(id.clone());
+                                world
+                                    .resource_mut::<Welcome>()
+                                    .from = name.clone();
                             }),
                         note(provider.label.clone()),
                     ))
@@ -342,11 +407,32 @@ pub(super) fn key_page() -> AnyView {
         },
     )
     .within(bare());
+    let field = secret_field(
+        resource::<Login, _>(|login| login.answer.clone()),
+        |world: &mut World, answer| {
+            world.resource_mut::<Login>().answer = answer;
+        },
+    );
     parts((
         head(Glyph::Globe, "Use a key"),
         names,
-        prompt(),
+        group((
+            // The sign-in's own words once it asks.
+            description(resource::<Login, _>(|login| {
+                login.prompt.as_ref().map_or_else(
+                    || {
+                        "Paste the API key from your provider's site."
+                            .into()
+                    },
+                    |(words, _)| words.clone(),
+                )
+            })),
+            field,
+            note("The key goes only to the server, which keeps it."),
+        )),
         news("Waiting for the provider..."),
+        row((good_action(Glyph::Check, "Continue", commit),))
+            .align(AlignItems::Center),
     ))
     .boxed()
 }

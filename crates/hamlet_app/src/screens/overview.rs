@@ -25,7 +25,7 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, beside, close, framed,
+    Fills, ICON, action, bad_action, bare, buttons, close, framed,
     group, note, raised, scroll_area, section, status_label_large,
     title,
 };
@@ -74,30 +74,36 @@ pub fn overview() -> impl View {
         column((
             title("Realm"),
             today(),
-            // What waits for the chief comes first, in full.
-            scroll_area((crate::petition::waiting(), closed())),
-            beside((
+            // Under the day's figures, where it stays in reach and
+            // wraps in a narrow panel.
+            buttons(vec![
                 action(
                     Glyph::Hearth,
                     "Your hearth",
                     crate::chief::go_home,
-                ),
+                )
+                .boxed(),
                 action(
                     Glyph::Signpost,
                     "Harbor",
                     glide_to_other_pier,
                 )
-                .tooltip(|| note("Cross to the other island")),
+                .tooltip(|| note("Cross to the other island"))
+                .boxed(),
                 action(
                     Glyph::Notes,
                     "New scholar",
                     world_menu::ask_new_scholar,
-                ),
+                )
+                .boxed(),
                 bad_action(Glyph::Stop, "Stop all", |world| {
                     world.trigger(Veto { agent: None });
                     world.flush();
-                }),
-            )),
+                })
+                .boxed(),
+            ]),
+            // What waits for the chief comes first, in full.
+            scroll_area((crate::petition::waiting(), closed())),
         ))
         .fills_height()
         .gap(cx.theme().space.section)
@@ -300,7 +306,7 @@ fn closed() -> AnyView {
                     close((
                         note(hamlet.name.clone()),
                         note(hamlet.reason.clone()),
-                        hamlet_ui::styles::buttons(actions),
+                        buttons(actions),
                     ))
                     .boxed(),
                 );
@@ -320,7 +326,7 @@ fn closed() -> AnyView {
                                 "Every archived lodge is deleted. \
                                  This cannot be undone.",
                             ),
-                            hamlet_ui::styles::buttons(vec![
+                            buttons(vec![
                                 bad_action(
                                     Glyph::Gone,
                                     "Delete",

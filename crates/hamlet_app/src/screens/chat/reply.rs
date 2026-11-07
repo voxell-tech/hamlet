@@ -26,6 +26,7 @@ use hamlet_ui::styles::{
     Fills, ICON, back_link, bare, close_button, note,
 };
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
@@ -238,10 +239,11 @@ pub(super) fn answered(answers: &Answers) -> impl View + use<> {
             .bold(true)
             .wrap(false)
             .tone(Tone::Dim),
-        label(super::entry::clip_start(&answers.text, SHOWN))
-            .size(11.0)
-            .wrap(false)
-            .tone(Tone::Dim),
+        one_line(
+            label(cut(&answers.text, SHOWN))
+                .size(11.0)
+                .tone(Tone::Dim),
+        ),
     ))
     .gap(5.0)
     .align(AlignItems::Center)
@@ -282,10 +284,11 @@ fn shown(cx: &Cx, answers: &Answers) -> AnyView {
                 .bold(true)
                 .wrap(false)
                 .tone(Tone::Faint),
-            label(super::entry::clip_start(&answers.text, SHOWN))
-                .size(12.0)
-                .wrap(false)
-                .tone(Tone::Dim),
+            one_line(
+                label(cut(&answers.text, SHOWN))
+                    .size(12.0)
+                    .tone(Tone::Dim),
+            ),
         ))
         .gap(1.0)
         .fills_width()
