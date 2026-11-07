@@ -1,7 +1,5 @@
 //! The things waiting for a chief and their presentation.
 
-use std::time::Duration;
-
 use bevy_ecs::prelude::*;
 use hamlet_protocol::client as protocol;
 pub use protocol::Choice;
@@ -78,11 +76,6 @@ impl Waiting {
                 )
             }
         }
-    }
-
-    /// The elapsed time since this need was raised.
-    pub fn waited(&self, now_ms: u64) -> Duration {
-        Duration::from_millis(now_ms.saturating_sub(self.since))
     }
 }
 

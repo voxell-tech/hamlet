@@ -138,10 +138,6 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
                         1
                     );
                 }
-                assert_eq!(
-                    wait.waited(wait.since + 65_000).as_secs(),
-                    65
-                );
                 entity
             })
             .next();
