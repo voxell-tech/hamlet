@@ -21,7 +21,9 @@ decides admission and `calls.rs` checks permissions at execution, including
 after approval or replay.
 
 Without a folder, commands write in their own lodge and a private temporary
-space. Other lodges, credentials and the database are not readable. Network
+space. They run the system's programs and Homebrew's (`/opt/homebrew` on
+macOS, `/home/linuxbrew/.linuxbrew` on Linux). Other lodges, credentials and
+the database are not readable. Network
 use is separately gated by the settings and permissions. A shell request that
 needs the network while it is off can wait for the chief's grant. An approval
 does not remove filesystem confinement.

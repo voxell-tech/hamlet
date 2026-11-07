@@ -184,6 +184,20 @@ async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_le
     assert_eq!(open.text, "reached\n");
 }
 
+// A shared folder not made yet has nothing to read, and stops no
+// command: bubblewrap mounts only what is there, as Seatbelt does.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_command_runs_with_a_shared_folder_not_made_yet() {
+    let scratch = Scratch::new("tools-unmade-shared");
+    let mut place = lodge(&scratch);
+    place.shared.push(scratch.join("tools"));
+    let ran =
+        call(&place, false, "bash", json!({"command": "echo ran"}))
+            .await;
+    assert_eq!((ran.error, ran.text.as_str()), (false, "ran\n"));
+}
+
 /// The size of `path`, which a command left running would grow.
 fn size(path: &std::path::Path) -> u64 {
     fs::metadata(path).map_or(0, |meta| meta.len())

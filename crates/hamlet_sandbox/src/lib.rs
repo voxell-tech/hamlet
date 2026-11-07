@@ -168,7 +168,13 @@ impl Sandbox {
 pub fn base_env() -> BTreeMap<String, String> {
     if cfg!(target_os = "linux") {
         BTreeMap::from([
-            ("PATH".into(), "/usr/local/bin:/usr/bin:/bin".into()),
+            (
+                "PATH".into(),
+                format!(
+                    "/usr/local/bin:/usr/bin:/bin:{}/bin",
+                    bwrap::LINUXBREW
+                ),
+            ),
             ("HOME".into(), "/tmp".into()),
             ("LANG".into(), "C.UTF-8".into()),
         ])

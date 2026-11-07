@@ -11,6 +11,9 @@ use super::policy::{
     temp_root, write_roots,
 };
 
+/// Where Homebrew installs on Linux.
+pub(super) const LINUXBREW: &str = "/home/linuxbrew/.linuxbrew";
+
 pub(super) const PROBE: [&str; 6] =
     ["bwrap", "--unshare-all", "--ro-bind", "/", "/", "true"];
 
@@ -41,7 +44,9 @@ pub(super) fn command(
         push(&["--ro-bind", "/", "/"]);
     } else {
         push(&["--ro-bind", "/usr", "/usr"]);
-        for path in ["/bin", "/sbin", "/lib", "/lib64"] {
+        // The system's programs, and Homebrew's Linux prefix as
+        // Seatbelt reads /opt/homebrew.
+        for path in ["/bin", "/sbin", "/lib", "/lib64", LINUXBREW] {
             push(&["--ro-bind-try", path, path]);
         }
         let mut etc = vec![
@@ -76,9 +81,11 @@ pub(super) fn command(
             push(&["--tmpfs", path]);
         }
     }
+    // A root that is missing has nothing to read, as under Seatbelt,
+    // and stops no command.
     for path in &policy.ro {
         let path = text(path);
-        push(&["--ro-bind", &path, &path]);
+        push(&["--ro-bind-try", &path, &path]);
     }
     let writes = write_roots(policy, tmp);
     for path in &writes {
