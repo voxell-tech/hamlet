@@ -5,7 +5,6 @@ use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, frame, label, number_field, row,
-    text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::outbox::Outbox;
@@ -19,7 +18,7 @@ use hamlet_ui::styles::{
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_ui::{AnyView, View, built, with_cx};
 
 use super::choice::home_default;
 use super::{
@@ -395,17 +394,22 @@ pub fn shelf() -> AnyView {
             action(Glyph::Restore, "List models", |world| {
                 read_models(world, true);
             }),
-            section("Find"),
-            text_field(
-                resource::<Draft, _>(|draft| draft.narrow.clone()),
-                |world, text| {
-                    let mut draft = world.resource_mut::<Draft>();
-                    draft.narrow = text;
-                    draft.page = 0;
-                },
-            )
-            .grow(1.0)
-            .rules(text_input),
+            row((built(|cx| {
+                let narrow =
+                    cx.world.resource::<Draft>().narrow.clone();
+                cx.build(crate::search::search(
+                    "Search models",
+                    narrow,
+                    |world, text| {
+                        let mut draft = world.resource_mut::<Draft>();
+                        if draft.narrow != text {
+                            draft.narrow = text;
+                            draft.page = 0;
+                        }
+                    },
+                ))
+            }),))
+            .grow(1.0),
         )),
         note(resource::<Shelf, _>(|shelf| {
             if shelf.asking {

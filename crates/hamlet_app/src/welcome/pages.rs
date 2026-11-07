@@ -9,6 +9,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::Settings;
+use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
     self, ICON, back, back_link, bare, beside, description,
     good_action, group, headed, marked, nav_card, note, parts,
@@ -18,7 +19,7 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
-use super::{Step, Welcome, close, go, look, pick};
+use super::{NOTHING_LOCAL, Step, Welcome, close, go, look, pick};
 use crate::models::{
     Detail, ModelRow, mark, model_row, narrowed, provider_of,
 };
@@ -41,6 +42,7 @@ pub(super) fn news(waiting: &'static str) -> AnyView {
         }),
         move |(asking, problem)| match problem {
             _ if *asking => said(waiting).boxed(),
+            Some(why) if why == NOTHING_LOCAL => install_hint(),
             Some(why) => label(why.clone())
                 .tone(Tone::Critical)
                 .rules(small_rules)
@@ -49,6 +51,38 @@ pub(super) fn news(waiting: &'static str) -> AnyView {
         },
     )
     .within(bare())
+    .boxed()
+}
+
+/// No local model server yet, said as the way to start one, with
+/// Ollama's site as a link: the usual first state, not a failure.
+fn install_hint() -> AnyView {
+    const SITE: &str = "ollama.com";
+    let (before, after) = NOTHING_LOCAL
+        .split_once(SITE)
+        .unwrap_or((NOTHING_LOCAL, ""));
+    let span = |text: &str, link| Span {
+        text: text.into(),
+        style: Style::default(),
+        link,
+    };
+    with_cx(move |cx| {
+        rich(
+            &[
+                span(before, None),
+                span(
+                    SITE,
+                    Some(Target::Web(format!("https://{SITE}"))),
+                ),
+                span(after, None),
+            ],
+            Ink {
+                size: Some(cx.theme().text.small),
+                tone: Tone::Body,
+                face: Face::Body,
+            },
+        )
+    })
     .boxed()
 }
 
@@ -358,7 +392,7 @@ const TALL: f32 = 520.0;
 
 /// How much of what is left of the window the scrim under the card
 /// takes away, over what the theme's shadow does.
-const SCRIM: f32 = 0.55;
+const SCRIM: f32 = 0.7;
 
 fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();

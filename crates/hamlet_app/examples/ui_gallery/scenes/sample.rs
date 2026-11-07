@@ -37,7 +37,11 @@ pub(super) fn setup(world: &mut World) {
     };
     state.providers = vec![
         provider("anthropic", "Anthropic"),
-        provider("faux", "Faux"),
+        // Named for its models; it takes no key.
+        protocol::ProviderView {
+            methods: Vec::new(),
+            ..provider("faux", "Faux")
+        },
         provider("google", "Google"),
         provider("groq", "Groq"),
         provider("openai", "OpenAI"),

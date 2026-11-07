@@ -16,7 +16,7 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    action, bare, beside, description, good_action, note, parts,
+    bad_action, bare, beside, description, good_action, note, parts,
     segmented_words, text_input,
 };
 use hamlet_ui::widgets::hint::hinted;
@@ -26,6 +26,7 @@ use hamlet_ui::{AnyView, View};
 use super::{Pane, field, told};
 use crate::PanelSystems;
 use crate::secret::secret_field;
+use crate::world_menu::{self, Deed};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -105,7 +106,7 @@ fn save(world: &mut World) {
 
 /// Asks the server to copy the lodges to the saved workspace. The
 /// settings it sends show how far it has come.
-fn move_lodges(world: &mut World) {
+pub(crate) fn move_lodges(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::MoveLodges(protocol::MoveLodges {
             id,
@@ -218,7 +219,9 @@ fn moving() -> AnyView {
         }),
         |offered| {
             if *offered {
-                action(Glyph::Move, "Move lodges", move_lodges)
+                bad_action(Glyph::Send, "Move lodges", |world| {
+                    world_menu::ask(world, Deed::MoveLodges);
+                })
             } else {
                 frame().boxed()
             }
@@ -330,6 +333,7 @@ mod tests {
         control, press, requests, settings_page, settle,
         words_and_spans,
     };
+    use crate::world_menu;
 
     fn received(
         app: &mut App,
@@ -550,7 +554,15 @@ mod tests {
              replacing the lodges there."
         ));
         requests(&mut app);
+        app.init_resource::<world_menu::Open>();
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+            app.world_mut(),
+            world_menu::view(),
+        );
         press(&mut app, "Move lodges");
+        settle(&mut app);
+        assert!(requests(&mut app).is_empty(), "asked first");
+        press(&mut app, "Replace them");
         let Some(protocol::ClientMessage::MoveLodges(
             protocol::MoveLodges { id },
         )) = app.world().resource::<Outbox>().iter().next().cloned()

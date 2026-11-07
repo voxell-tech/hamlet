@@ -2,6 +2,7 @@
 //! scenes.
 
 use bevy::ecs::world::World;
+use chrono::Timelike;
 use hamlet_app::settings;
 use hamlet_assets::Tuning;
 use hamlet_client::realm::Settings;
@@ -65,9 +66,15 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.init_resource::<SkySettings>();
         world.init_resource::<VolumetricFogSettings>();
         world.init_resource::<DistanceFogSettings>();
-        world.init_resource::<Sky>();
         world.init_resource::<WindChoice>();
-        world.insert_resource(North(30.0));
+        // Settled: the sky at the clock's hour and north where it
+        // is set, as they are but for a moment after a change.
+        let now = chrono::Local::now();
+        world.insert_resource(Sky {
+            hour: now.hour() as f32 + now.minute() as f32 / 60.0,
+            ..Sky::default()
+        });
+        world.insert_resource(North::default());
         world.insert_resource(settings::Pane::Sight);
     }
     if let Scene::Appearance(shade) = scene {

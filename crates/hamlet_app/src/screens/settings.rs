@@ -3,7 +3,7 @@
 
 mod appearance;
 mod sight;
-mod workspace;
+pub(crate) mod workspace;
 
 use bevy::app::{App, Update};
 use bevy::ecs::observer::On;
@@ -29,7 +29,7 @@ use hamlet_protocol::{Effort, client as protocol};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
-    close, description, hairline, list, nav_list, note, parts,
+    close, description, framed, list, nav_list, note, parts, pill,
     section, small_rules, text_input,
 };
 use hamlet_ui::widgets::ellipsis::cut;
@@ -604,6 +604,9 @@ pub(crate) fn default_charter(world: &mut World) {
     requests.edit = Some(id);
 }
 
+/// The widest the charter is set, for lines of about seventy letters.
+const READING: f32 = 560.0;
+
 /// The words every agent's prompt opens with, and the ways to change
 /// them and to have the built-in ones again.
 fn charter_page(cx: &Cx) -> impl View + use<> {
@@ -628,23 +631,25 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
         })
         .within(bare());
     parts((
-        description(
-            "Every agent reads this at the start of each turn.",
-        ),
-        note(resource::<Charter, _>(|charter| {
-            if charter.own {
-                "The realm's own charter.".to_string()
-            } else {
-                "The default charter.".to_string()
-            }
-        })),
+        row((
+            column((description(
+                "Every agent reads this at the start of each turn.",
+            ),))
+            .grow(1.0),
+            pill(resource::<Charter, _>(|charter| {
+                if charter.own { "Edited" } else { "Default" }
+                    .to_string()
+            })),
+        ))
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::Center)
+        .max_width(px(READING)),
         actions,
         label(resource::<CharterRequests, _>(|requests| {
             requests.error.clone()
         }))
         .tone(Tone::Critical),
-        hairline(cx.theme().palette.gold_6),
-        shown,
+        column((framed((shown,)),)).max_width(px(READING)),
     ))
 }
 
@@ -1026,9 +1031,7 @@ mod tests {
             "{shown:?}"
         );
         assert!(
-            shown
-                .iter()
-                .any(|text| text == "The realm's own charter."),
+            shown.iter().any(|text| text == "Edited"),
             "{shown:?}"
         );
         assert!(
@@ -1187,9 +1190,7 @@ mod tests {
         );
         settle(&mut app);
         let shown = words_and_spans(&mut app);
-        assert!(
-            shown.iter().any(|text| text == "The default charter.")
-        );
+        assert!(shown.iter().any(|text| text == "Default"));
         assert!(
             shown
                 .iter()

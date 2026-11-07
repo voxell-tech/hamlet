@@ -13,7 +13,7 @@ use bevy::text::EditableText;
 use bevy::ui::{AlignItems, InteractionDisabled};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, frame, label, row, text_field,
+    BehaviorExt, FrameProps, button, frame, label, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
@@ -24,8 +24,8 @@ use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    ICON, Refused, bare, close, good_action, group, note, parts,
-    section, segmented, small_rules, text_input,
+    ICON, Refused, bare, buttons, choice, close, good_action, group,
+    note, parts, section, small_rules, text_input,
 };
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
@@ -396,35 +396,38 @@ pub(super) fn key_page() -> AnyView {
                     Some(&provider.id) == chosen.as_ref()
                 })
                 .unwrap_or_default();
-            let options = keyed.iter().map(|provider| {
-                row((
-                    mark(&provider.id, ICON),
-                    label(provider.name.clone()).wrap(false),
-                ))
-                .gap(6.0)
-                .align(AlignItems::Center)
-                .boxed()
-            });
-            let picks = keyed.clone();
-            let choice =
-                segmented(options, picked, move |world, at| {
-                    let provider = &picks[at];
-                    world.resource_mut::<Login>().provider =
-                        Some(provider.id.clone());
-                    world.resource_mut::<Welcome>().from =
-                        provider.name.clone();
-                });
-            // A provider's own words, where they say more than its
-            // name.
-            let says = keyed
-                .get(picked)
-                .filter(|provider| provider.label != provider.name)
-                .map(|provider| note(provider.label.clone()).boxed())
-                .unwrap_or_else(|| frame().boxed());
-            close((choice, says)).boxed()
+            // As many as a provider's list may hold, so they wrap
+            // into rows rather than share one track.
+            let options = keyed
+                .iter()
+                .enumerate()
+                .map(|(at, provider)| {
+                    let (id, name) =
+                        (provider.id.clone(), provider.name.clone());
+                    button(
+                        row((
+                            mark(&provider.id, ICON),
+                            label(provider.name.clone()).wrap(false),
+                        ))
+                        .gap(6.0)
+                        .align(AlignItems::Center),
+                    )
+                    .rules(choice(at == picked))
+                    .on_activate(move |world| {
+                        world.resource_mut::<Login>().provider =
+                            Some(id.clone());
+                        world.resource_mut::<Welcome>().from =
+                            name.clone();
+                    })
+                    .boxed()
+                })
+                .collect();
+            close((section("Provider"), buttons(options))).boxed()
         },
     )
     .within(bare());
+    // The key's name, and under it the provider's own words where
+    // they say more than its name.
     let named = keyed(
         derived(|world: &World| {
             let chosen = keyed_provider(world);
@@ -435,12 +438,20 @@ pub(super) fn key_page() -> AnyView {
                 .find(|provider| {
                     Some(&provider.id) == chosen.as_ref()
                 })
-                .map(|provider| provider.name.clone())
+                .map(|provider| {
+                    (provider.name.clone(), provider.label.clone())
+                })
         })
         .when(every_frame()),
-        |name| {
-            let name = name.as_deref().unwrap_or("Your provider's");
-            section(format!("{name} API key")).boxed()
+        |named| {
+            let Some((name, says)) = named else {
+                return section("Your provider's API key").boxed();
+            };
+            let says = match says != name {
+                true => note(says.clone()).boxed(),
+                false => frame().boxed(),
+            };
+            close((section(format!("{name} API key")), says)).boxed()
         },
     )
     .within(bare());

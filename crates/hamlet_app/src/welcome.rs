@@ -394,7 +394,7 @@ mod server_tests {
     use super::*;
     use crate::testing::{
         all_words, connect, incoming, press, press_and_update, sent,
-        welcome_app,
+        welcome_app, words_and_spans,
     };
 
     #[test]
@@ -669,9 +669,10 @@ mod server_tests {
             &mut app,
             serde_json::json!({"type":"read", "to":requests[1]["id"], "models":[]}),
         );
-        assert!(all_words(&mut app).contains(
-            "No model server answered on the server's machine."
-        ));
+        // Set as a paragraph of spans, for its link.
+        assert!(words_and_spans(&mut app).iter().any(|words| {
+            words.contains("No model server answered on the server's")
+        }));
         press_and_update(&mut app, "Look again");
         let requests = sent(&mut app);
         app.world_mut().resource_mut::<Settings>().0.endpoints.push(

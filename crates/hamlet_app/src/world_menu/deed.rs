@@ -57,6 +57,9 @@ pub(crate) enum Deed {
     },
     /// Ends the realm's own charter, so the built-in one stands.
     DefaultCharter,
+    /// Copies every lodge to the saved workspace, over the lodges
+    /// there.
+    MoveLodges,
 }
 
 impl Deed {
@@ -108,6 +111,9 @@ impl Deed {
             Deed::DefaultCharter => {
                 crate::settings::default_charter(world);
             }
+            Deed::MoveLodges => {
+                crate::settings::workspace::move_lodges(world);
+            }
             Deed::Rewind { session, entry, .. } => {
                 world.trigger(Rewind {
                     chat: *session,
@@ -128,6 +134,7 @@ impl Deed {
             Self::Mayor(_) => "mayor",
             Self::NewSession
             | Self::DefaultCharter
+            | Self::MoveLodges
             | Self::Rewind { .. } => return true,
         };
         Deeds::is_allowed(world, command)
@@ -159,6 +166,7 @@ impl Deed {
             Deed::DefaultCharter => {
                 "Go back to the default charter?".to_string()
             }
+            Deed::MoveLodges => "Move every lodge?".to_string(),
         }
     }
 
@@ -214,6 +222,11 @@ impl Deed {
                                      from disk. This cannot be \
                                      undone."
                 .to_string(),
+            Deed::MoveLodges => "Each agent's lodge is copied to \
+                                 the saved workspace, and the \
+                                 lodges already there are replaced. \
+                                 This cannot be undone."
+                .to_string(),
         }
     }
 
@@ -228,6 +241,7 @@ impl Deed {
             Deed::Mayor(_) => "Make mayor",
             Deed::Rewind { .. } => "Rewind",
             Deed::DefaultCharter => "Use the default",
+            Deed::MoveLodges => "Replace them",
         }
     }
 
@@ -250,7 +264,8 @@ impl Deed {
             | Deed::NewSession
             | Deed::Mayor(_)
             | Deed::Rewind { .. }
-            | Deed::DefaultCharter => Vec::new(),
+            | Deed::DefaultCharter
+            | Deed::MoveLodges => Vec::new(),
             Deed::Close(hamlet) => {
                 let mut living =
                     world.query_filtered::<(Entity, &LivesIn), (

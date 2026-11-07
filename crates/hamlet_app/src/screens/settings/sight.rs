@@ -7,7 +7,7 @@ use bevy::app::App;
 use bevy::ecs::component::Mutable;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, percent, px};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     FrameProps, TooltipExt, column, dropdown, label, row, slider,
@@ -153,6 +153,27 @@ fn north() -> impl View {
 /// The side of the icon that names a slider.
 const AMOUNT_ICON: f32 = 16.0;
 
+/// How a slider's number is written.
+#[derive(Clone, Copy)]
+enum Unit {
+    /// A distance in the world.
+    Metres,
+    /// A share of a whole.
+    Share,
+    /// A number to two places.
+    Plain,
+}
+
+impl Unit {
+    fn write(self, amount: f32) -> String {
+        match self {
+            Unit::Metres => format!("{amount:.0} m"),
+            Unit::Share => format!("{:.0}%", amount * 100.0),
+            Unit::Plain => format!("{amount:.2}"),
+        }
+    }
+}
+
 /// One number of `R`: an icon named by its tooltip, a slider from
 /// `least` to `most` and the number itself.
 fn amount<R: Resource<Mutability = Mutable>>(
@@ -161,23 +182,24 @@ fn amount<R: Resource<Mutability = Mutable>>(
     at: fn(&R) -> f32,
     set: fn(&mut R, f32),
     (least, most): (f32, f32),
+    unit: Unit,
 ) -> impl View {
     track(
         glyph(which, AMOUNT_ICON)
             .tone(Tone::Dim)
             .tooltip(move || note(name)),
-        number(at, set, (least, most)),
+        number(at, set, (least, most), unit),
     )
 }
 
 /// A slider of one number of `R` from `least` to `most`, and the
-/// number itself: none for a distance, two places for a share.
+/// number itself in `unit`.
 fn number<R: Resource<Mutability = Mutable>>(
     at: fn(&R) -> f32,
     set: fn(&mut R, f32),
     (least, most): (f32, f32),
+    unit: Unit,
 ) -> (AnyView, AnyView) {
-    let places = if most >= 100.0 { 0 } else { 2 };
     (
         slider(resource::<R, _>(at))
             .range(least, most)
@@ -191,7 +213,7 @@ fn number<R: Resource<Mutability = Mutable>>(
             .grow(1.0)
             .boxed(),
         value(label(resource::<R, _>(move |settings| {
-            format!("{:.*}", places, at(settings))
+            unit.write(at(settings))
         }))),
     )
 }
@@ -218,7 +240,8 @@ fn track(
 const WIND_NAMES: f32 = 84.0;
 
 /// How hard the wind blows at its calmest and at its strongest, both
-/// on one track, and how unevenly, each named beside its slider.
+/// on one track, and how unevenly, each named beside its slider and
+/// told under it.
 fn wind() -> impl View {
     let named = |name: &'static str| {
         row((label(name).tone(Tone::Faint).wrap(false),))
@@ -226,41 +249,68 @@ fn wind() -> impl View {
             .shrink(0.0)
     };
     with_cx(move |cx| {
+        let space = &cx.theme().space;
+        let indent = WIND_NAMES + space.gap;
+        // Under its track, past the name beside it.
+        let under = move |words: &'static str| {
+            column((description(words),))
+                .padding(UiRect::left(px(indent)))
+        };
         column((
-            track(
-                named("Strength"),
-                (
-                    range(
-                        resource::<WindChoice, _>(|wind| wind.least),
-                        resource::<WindChoice, _>(|wind| wind.most),
-                        WindChoice::STRENGTH,
-                        |world, least, most| {
-                            let mut wind =
-                                world.resource_mut::<WindChoice>();
-                            if (wind.least, wind.most)
-                                != (least, most)
-                            {
-                                wind.least = least;
-                                wind.most = most;
-                            }
-                        },
-                    )
-                    .boxed(),
-                    value(label(resource::<WindChoice, _>(|wind| {
-                        format!("{:.2}-{:.2}", wind.least, wind.most)
-                    }))),
+            close((
+                track(
+                    named("Strength"),
+                    (
+                        range(
+                            resource::<WindChoice, _>(|wind| {
+                                wind.least
+                            }),
+                            resource::<WindChoice, _>(|wind| {
+                                wind.most
+                            }),
+                            WindChoice::STRENGTH,
+                            |world, least, most| {
+                                let mut wind = world
+                                    .resource_mut::<WindChoice>();
+                                if (wind.least, wind.most)
+                                    != (least, most)
+                                {
+                                    wind.least = least;
+                                    wind.most = most;
+                                }
+                            },
+                        )
+                        .boxed(),
+                        value(label(resource::<WindChoice, _>(
+                            |wind| {
+                                format!(
+                                    "{:.0}-{}",
+                                    wind.least * 100.0,
+                                    Unit::Share.write(wind.most)
+                                )
+                            },
+                        ))),
+                    ),
                 ),
-            ),
-            track(
-                named("Unevenness"),
-                number::<WindChoice>(
-                    |wind| wind.turbulence,
-                    |wind, to| wind.turbulence = to,
-                    (0.0, 1.0),
+                under(
+                    "How hard it blows at its calmest and its \
+                     strongest, as a share of the usual wind.",
                 ),
-            ),
+            )),
+            close((
+                track(
+                    named("Unevenness"),
+                    number::<WindChoice>(
+                        |wind| wind.turbulence,
+                        |wind, to| wind.turbulence = to,
+                        (0.0, 1.0),
+                        Unit::Share,
+                    ),
+                ),
+                under("How differently plants side by side sway."),
+            )),
         ))
-        .gap(cx.theme().space.gap / 2.0)
+        .gap(space.section)
         .width(percent(100.0))
     })
 }
@@ -281,6 +331,7 @@ fn volumetric_fog() -> impl View {
             |f| f.visibility,
             |f, v| f.visibility = v,
             (100.0, 4000.0),
+            Unit::Metres,
         ),
         amount::<Fog>(
             Glyph::Rise,
@@ -288,6 +339,7 @@ fn volumetric_fog() -> impl View {
             |f| f.height,
             |f, v| f.height = v,
             (5.0, 200.0),
+            Unit::Metres,
         ),
         amount::<Fog>(
             Glyph::Rays,
@@ -295,6 +347,7 @@ fn volumetric_fog() -> impl View {
             |f| f.strength,
             |f, v| f.strength = v,
             (0.0, 6.0),
+            Unit::Plain,
         ),
         amount::<Fog>(
             Glyph::Halo,
@@ -302,6 +355,7 @@ fn volumetric_fog() -> impl View {
             |f| f.glow,
             |f, v| f.glow = v,
             (0.0, 0.95),
+            Unit::Plain,
         ),
         amount::<Fog>(
             Glyph::Scatter,
@@ -309,6 +363,7 @@ fn volumetric_fog() -> impl View {
             |f| f.scattering,
             |f, v| f.scattering = v,
             (0.0, 1.0),
+            Unit::Plain,
         ),
         amount::<Fog>(
             Glyph::Drop,
@@ -316,6 +371,7 @@ fn volumetric_fog() -> impl View {
             |f| f.absorption,
             |f, v| f.absorption = v,
             (0.0, 0.5),
+            Unit::Plain,
         ),
         action(Glyph::Restore, "Reset", |world: &mut World| {
             world.insert_resource(Fog::default());
@@ -370,21 +426,12 @@ pub(super) fn page() -> impl View {
                     |f| f.distance,
                     |f, v| f.distance = v,
                     (200.0, 2000.0),
+                    Unit::Metres,
                 ),
                 description("Further draws more land."),
             ),
         ),
-        field(
-            "Wind",
-            told(
-                wind(),
-                description(
-                    "How hard it blows, at its calmest and its \
-                     strongest, and how unevenly from plant to \
-                     plant.",
-                ),
-            ),
-        ),
+        field("Wind", wind()),
         disclosure(
             "Volumetric fog",
             |open: &FogOpen| open.0,
