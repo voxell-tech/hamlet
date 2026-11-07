@@ -105,6 +105,9 @@ pub fn plugin(app: &mut App) {
         .add_observer(remember_rewind)
         .add_observer(response)
         .init_resource::<OpenTools>()
+        // A row fades while a rewind that would forget it is asked
+        // about.
+        .init_resource::<crate::world_menu::Open>()
         .add_plugins((rewind::plugin, lines::plugin, reply::plugin))
         // The rows are folded before fynix mounts them, so a received
         // reply shows in the update it arrives.
@@ -1300,8 +1303,7 @@ mod tests {
 
         use crate::testing::{panel_app, press};
         let mut app = panel_app();
-        app.add_plugins(plugin)
-            .init_resource::<crate::world_menu::Open>();
+        app.add_plugins(plugin);
         let session = app.world().resource::<Convo>().session;
         app.world_mut().entity_mut(session).insert(
             Transcript::from_items(vec![Item {
@@ -1367,6 +1369,38 @@ mod tests {
                 .query::<&EditableText>()
                 .iter(app.world())
                 .any(|field| field.value() == "Change these words")
+        );
+    }
+
+    #[test]
+    fn a_starter_of_a_quiet_chat_goes_into_the_field() {
+        use hamlet_client::chats::Transcript;
+
+        use crate::testing::{panel_app, press};
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let session = app.world().resource::<Convo>().session;
+        app.world_mut()
+            .entity_mut(session)
+            .insert(Transcript::default());
+        app.update();
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            column((
+                transcript(),
+                message_bar(bevy_fynix::views::frame()),
+            )),
+        );
+        app.update();
+        press(&mut app, "Tell me about yourself.");
+        app.update();
+        app.update();
+        assert!(
+            app.world_mut()
+                .query::<&EditableText>()
+                .iter(app.world())
+                .any(|field| field.value()
+                    == "Tell me about yourself.")
         );
     }
 }

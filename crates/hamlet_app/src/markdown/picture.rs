@@ -12,15 +12,15 @@ use bevy::ui::{
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{Frame, FrameProps, column, frame, label};
+use bevy_fynix::views::{
+    Frame, FrameProps, column, frame, label, row,
+};
 use bevy_fynix::{
     EntityCursor, ScopedExt, ViewExt, derived, keyed, resource,
 };
-use hamlet_ui::markdown::{
-    Face, Ink, Span, Style, Target, picture_words as words, rich,
-};
-use hamlet_ui::styles::{action, bare, note, small_rules};
-use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
+use hamlet_ui::styles::{ICON, action, bare, note, small_rules};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use crate::chat::ChatSettings;
@@ -102,7 +102,6 @@ fn card(
     caption: &str,
     state: &State,
 ) -> impl View {
-    let theme = cx.theme();
     let said = if caption.is_empty() {
         "A picture"
     } else {
@@ -140,10 +139,15 @@ fn card(
             })
         }
     });
-    column(parts)
-        .gap(6.0)
+    card_of(cx, column(parts).gap(6.0).align(AlignItems::FlexStart))
+}
+
+/// `content` on a card the window draws, set apart from what an agent
+/// writes around it.
+fn card_of<V: View + FrameProps>(cx: &Cx, content: V) -> impl View {
+    let theme = cx.theme();
+    content
         .padding(UiRect::axes(px(10.0), px(8.0)))
-        .align(AlignItems::FlexStart)
         .min_width(px(0.0))
         .max_width(percent(100.0))
         .fill(theme.palette.code)
@@ -152,13 +156,47 @@ fn card(
         .radius(theme.space.round)
 }
 
+/// The card of a picture that cannot be shown: its caption, or the
+/// name it was written by, and the path as a link.
+fn missing(cx: &Cx, caption: &str, target: &Target) -> impl View {
+    let written = match target {
+        Target::Web(address) => address,
+        Target::Path(path) => path,
+    };
+    let said = if caption.is_empty() { written } else { caption };
+    let why = [
+        plain("Could not show "),
+        Span {
+            link: Some(target.clone()),
+            ..plain(written)
+        },
+        plain("."),
+    ];
+    let small = Ink {
+        size: Some(12.0),
+        tone: Tone::Dim,
+        face: Face::Body,
+    };
+    card_of(
+        cx,
+        row((
+            glyph(Glyph::Mountains, ICON).tone(Tone::Faint),
+            column((label(said.to_string()), rich(&why, small)))
+                .gap(2.0)
+                .min_width(px(0.0)),
+        ))
+        .gap(10.0)
+        .align(AlignItems::Center),
+    )
+}
+
 /// The picture written as `target` with the words `caption`: the
-/// picture itself once it is read, and its words as a link if it is
+/// picture itself once it is read, and a card that says so if it is
 /// none that can be drawn.
 pub(crate) fn picture_view(
     caption: &str,
     target: &Target,
-    ink: Ink,
+    _: Ink,
 ) -> AnyView {
     let (caption, target) = (caption.to_string(), target.clone());
     keyed(
@@ -170,7 +208,8 @@ pub(crate) fn picture_view(
             let (caption, target) = (caption.clone(), target.clone());
             AnyView::new(move |cx: &mut Cx| {
                 let Some(source) = find(cx.world, &target) else {
-                    return cx.build(words(&caption, &target, ink));
+                    let card = missing(cx, &caption, &target);
+                    return cx.build(card);
                 };
                 cx.world.init_resource::<Pictures>();
                 let settings = cx
@@ -207,7 +246,13 @@ pub(crate) fn picture_view(
                             })
                         }
                         (Source::File(_), State::Failed) => {
-                            words(&caption, &target, ink)
+                            let (caption, target) =
+                                (caption.clone(), target.clone());
+                            AnyView::new(move |cx: &mut Cx| {
+                                let card =
+                                    missing(cx, &caption, &target);
+                                cx.build(card)
+                            })
                         }
                         (Source::File(_), _) => {
                             let (wide, tall) =

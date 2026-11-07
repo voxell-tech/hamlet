@@ -25,14 +25,16 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, ghost,
     label, overlay, row, scroll,
 };
-use bevy_fynix::{ScopedExt, ViewExt, each, resource};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, each, every_frame, resource,
+};
 use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
-use hamlet_ui::View;
-use hamlet_ui::styles::{Fills, note, small_rules};
+use hamlet_ui::styles::{Fills, lettered, note, small_rules};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{View, with_cx};
 
 use super::entry::entry_view;
 use super::timeline::{Line, People, Who, timeline};
@@ -43,8 +45,12 @@ use crate::convo::Convo;
 /// narrower than this cuts it off.
 const LEAST: f32 = 240.0;
 
-const EMPTY: &str = "Nothing has been said here yet. Agents can \
-                     make mistakes, so check anything important.";
+/// What can be said first in a chat nothing has been said in.
+const STARTERS: [&str; 3] = [
+    "What can you help me with?",
+    "What do you remember so far?",
+    "Tell me about yourself.",
+];
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Reading>()
@@ -836,8 +842,6 @@ pub fn transcript() -> impl View {
         note(resource::<Lines, _>(|l| {
             if l.more {
                 "Earlier lines. Scroll up to read them.".to_string()
-            } else if l.rows.is_empty() {
-                EMPTY.to_string()
             } else {
                 String::new()
             }
@@ -882,7 +886,73 @@ pub fn transcript() -> impl View {
     let corner = overlay((back,))
         .justify(JustifyContent::FlexEnd)
         .align(AlignItems::FlexEnd);
-    column((said, corner)).fills_height()
+    column((said, quiet(), corner)).fills_height()
+}
+
+/// The window's words over a chat nothing has been said in: whom to
+/// say hello to and what could be said first, which a press puts in
+/// the field.
+fn quiet() -> impl View {
+    let empty = each(
+        derived(|world: &World| {
+            let lines = world.resource::<Lines>();
+            let convo = world.resource::<Convo>();
+            let own = world
+                .get::<chats::Chat>(convo.session)
+                .is_some_and(|chat| chat.0.from.is_none());
+            match (
+                lines.rows.is_empty() && !lines.more,
+                lines.cast.first(),
+            ) {
+                (true, Some(agent)) => {
+                    vec![(agent.name.clone(), own)]
+                }
+                _ => Vec::new(),
+            }
+        })
+        .when(every_frame()),
+        |shown: &(String, bool)| shown.clone(),
+        |(name, own)| {
+            let (name, own) = (name.clone(), *own);
+            with_cx(move |cx| {
+                let theme = cx.theme();
+                let starters = STARTERS
+                    .iter()
+                    .filter(|_| own)
+                    .map(|said| {
+                        lettered(*said)
+                            .rules(hamlet_ui::styles::button)
+                            .on_activate(move |world| {
+                                let mut draft = world
+                                    .resource_mut::<super::Draft>();
+                                draft.text = said.to_string();
+                                draft.step = 2;
+                            })
+                            .boxed()
+                    })
+                    .collect::<Vec<_>>();
+                column((
+                    label(format!("Say hello to {name}"))
+                        .size(theme.text.heading)
+                        .bold(true),
+                    column(starters)
+                        .gap(theme.space.gap)
+                        .align(AlignItems::Center),
+                    note(
+                        "Agents can make mistakes, so check \
+                         anything important.",
+                    ),
+                ))
+                .gap(theme.space.section)
+                .align(AlignItems::Center)
+                .padding(UiRect::all(px(theme.space.section)))
+            })
+            .boxed()
+        },
+    );
+    overlay((empty,))
+        .justify(JustifyContent::Center)
+        .align(AlignItems::Center)
 }
 
 /// The column the rows of a conversation stand in.

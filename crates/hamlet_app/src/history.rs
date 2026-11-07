@@ -577,7 +577,7 @@ mod tests {
     fn history_reads_received_rows_searches_and_opens_a_numbered_chat()
      {
         let mut app = panel_app();
-        app.add_plugins((hub::plugin, plugin));
+        app.add_plugins((hub::plugin, chat::plugin, plugin));
         *app.world_mut().resource_mut::<Showing>() =
             Showing::Sessions;
         app.update();
