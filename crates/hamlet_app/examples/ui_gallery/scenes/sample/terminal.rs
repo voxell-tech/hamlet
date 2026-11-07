@@ -120,7 +120,9 @@ fn view(
     .expect("a terminal")
 }
 
-/// Adds the hamlets, the agent and the terminals to `state`.
+/// Adds the hamlets, the agents and the terminals to `state`: the
+/// mayor of `home` with a hire under it, and a worker the hire
+/// started, so the list shows its tree.
 pub(super) fn state(state: &mut protocol::State, scene: Scene) {
     if !matches!(
         scene,
@@ -131,9 +133,15 @@ pub(super) fn state(state: &mut protocol::State, scene: Scene) {
         return;
     }
     state.hamlets.push(hamlet_testing::realm::hamlet("mill", 3));
-    state
-        .agents
-        .push(hamlet_testing::realm::agent(3, "mill", true));
+    let mut worker = hamlet_testing::realm::agent(5, "home", false);
+    worker.kind = protocol::AgentKind::Worker;
+    worker.name = "worker#5".into();
+    worker.parent = Some(protocol::AgentId(4));
+    state.agents.extend([
+        hamlet_testing::realm::agent(3, "mill", true),
+        hamlet_testing::realm::agent(4, "home", false),
+        worker,
+    ]);
     state.terminals = vec![
         view(
             "t1",
@@ -154,7 +162,17 @@ pub(super) fn state(state: &mut protocol::State, scene: Scene) {
         ),
         view("t4", "bash", Some("mill"), None, "shell", Some(0)),
         view("t5", "login", None, None, "shell", None),
+        view("t6", "vite", Some("home"), Some(4), "shell", None),
+        view(
+            "t7",
+            "commands",
+            Some("home"),
+            Some(5),
+            "commands",
+            None,
+        ),
     ];
+    state.terminals[5].last = Some("npm run dev".into());
     state.terminals[1].last = Some("git log --oneline -3".into());
 }
 

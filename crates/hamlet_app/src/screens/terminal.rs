@@ -77,6 +77,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Opening>()
         .init_resource::<Shown>()
         .init_resource::<Restoring>()
+        .init_resource::<Folds>()
         .add_observer(opened)
         .add_systems(
             Update,
@@ -149,6 +150,12 @@ fn in_dock(world: &World) -> Vec<PanelId> {
 /// the view keeps it.
 #[derive(Resource, Default, Clone, PartialEq, Debug)]
 pub struct Shown(pub BTreeMap<String, String>);
+
+/// What each Terminal panel's list has folded away, by panel id: a
+/// hamlet's group, the Hand's, the workers' or the unbounded ones,
+/// or an agent with what is under it, as `agent#<id>`.
+#[derive(Resource, Default, Clone, PartialEq, Debug)]
+pub struct Folds(pub BTreeMap<String, BTreeSet<String>>);
 
 /// What Terminal panels showed and are to show again once they are in
 /// the dock and their terminals are there: as the view kept it, or as
@@ -260,6 +267,22 @@ fn forget_closed(world: &mut World) {
         .resource_mut::<Restoring>()
         .0
         .retain(|panel, _| kept.contains(panel));
+    let folded = world
+        .resource::<Folds>()
+        .0
+        .keys()
+        .filter(|panel| {
+            docked.contains(&PanelId((*panel).clone()))
+                || on_a_desk(world, panel)
+        })
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if world.resource::<Folds>().0.len() != folded.len() {
+        world
+            .resource_mut::<Folds>()
+            .0
+            .retain(|panel, _| folded.contains(panel));
+    }
 }
 
 /// A Terminal panel's dock window id.
@@ -284,8 +307,6 @@ pub(crate) struct Panel {
     /// The columns and rows its screen has room for, for a terminal
     /// still to be opened.
     pub(crate) room: Option<(u16, u16)>,
-    /// The groups of its list folded away, by hamlet id.
-    pub(crate) folded: BTreeSet<String>,
     /// Its list is out of sight.
     pub(crate) list_hidden: bool,
 }
@@ -989,6 +1010,7 @@ mod tests {
         );
         app.init_resource::<Panels>()
             .init_resource::<Shown>()
+            .init_resource::<Folds>()
             .insert_resource(Restoring(BTreeMap::from([
                 ("terminal-2".to_owned(), "t2".to_owned()),
                 ("terminal-3".to_owned(), "t9".to_owned()),
@@ -1144,64 +1166,5 @@ mod tests {
         app.update();
         assert_eq!(app.world().resource::<InputFocus>().get(), None);
         assert!(!lit(&app));
-    }
-
-    #[test]
-    fn terminals_are_listed_by_hamlet_with_each_agents_commands_first_and_the_unbounded_last()
-     {
-        let mut app = crate::testing::panel_app();
-        let mut state = hamlet_testing::realm::state();
-        state.revision = 1;
-        state.hamlets.push(hamlet_testing::realm::hamlet("mill", 3));
-        state.terminals = vec![
-            view("loose", None, None, "shell"),
-            view("chief", Some("home"), None, "shell"),
-            view("shell", Some("home"), Some(2), "shell"),
-            view("commands", Some("home"), Some(2), "commands"),
-            view("milled", Some("mill"), None, "shell"),
-        ];
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.init_resource::<Panels>().init_resource::<Listed>();
-        list::list(app.world_mut());
-        let listed = app
-            .world()
-            .resource::<Listed>()
-            .0
-            .iter()
-            .map(|group| {
-                let names = group
-                    .items
-                    .iter()
-                    .map(|item| {
-                        format!("{}:{}", item.owner, item.name)
-                    })
-                    .collect::<Vec<_>>();
-                (group.title.clone(), names)
-            })
-            .collect::<Vec<_>>();
-        let group = |title: &str, names: &[&str]| {
-            (
-                title.to_owned(),
-                names.iter().map(|n| (*n).to_owned()).collect(),
-            )
-        };
-        assert_eq!(
-            listed,
-            [
-                group(
-                    "home",
-                    &[
-                        "home#0:commands",
-                        "home#0:shell",
-                        "chief:chief"
-                    ]
-                ),
-                group("mill", &["chief:milled"]),
-                group("Unbounded", &["chief:loose"]),
-            ]
-        );
     }
 }

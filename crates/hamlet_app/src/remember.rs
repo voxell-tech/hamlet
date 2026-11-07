@@ -1,7 +1,7 @@
 //! The view kept between launches: the desks, the sky as the Sight
 //! page sets it, the appearance and the selection.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -147,6 +147,9 @@ pub struct View {
     /// The terminal each Terminal panel showed, by panel id.
     #[serde(default)]
     terminals: BTreeMap<String, String>,
+    /// What each Terminal panel's list had folded away, by panel id.
+    #[serde(default)]
+    terminal_folds: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -348,6 +351,7 @@ pub fn restore(world: &mut World) {
     world.insert_resource(view.favorite_models);
     world.insert_resource(view.model_side);
     world.insert_resource(terminal::Restoring(view.terminals));
+    world.insert_resource(terminal::Folds(view.terminal_folds));
 }
 
 /// Puts back the kept appearance and zoom.
@@ -390,13 +394,14 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north, favorites, side, terminals): (
+    (pending, kept, north, favorites, side, terminals, folds): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
         Res<Favorites>,
         Res<LastSide>,
         Res<terminal::Shown>,
+        Res<terminal::Folds>,
     ),
     (fog, far, wind, appearance, zoom): (
         Res<VolumetricFogSettings>,
@@ -424,6 +429,7 @@ pub fn keep(
         || appearance.is_changed()
         || zoom.is_changed()
         || terminals.is_changed()
+        || folds.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -454,6 +460,7 @@ pub fn keep(
         appearance: appearance.0.clone(),
         zoom: *zoom,
         terminals: terminals.0.clone(),
+        terminal_folds: folds.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -515,6 +522,10 @@ mod tests {
             terminals: BTreeMap::from([(
                 "terminal-2".into(),
                 "t-3f2a".into(),
+            )]),
+            terminal_folds: BTreeMap::from([(
+                "terminal".into(),
+                BTreeSet::from(["home".into(), "agent#3".into()]),
             )]),
         }
     }
