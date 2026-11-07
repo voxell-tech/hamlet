@@ -348,7 +348,7 @@ mod tests {
             all_words(&mut app)
                 .contains("The catalogue could not be saved.")
         );
-        press_and_update(&mut app, "List models");
+        press_and_update(&mut app, "Refresh");
         let read = sent(&mut app).remove(0);
         assert_eq!(read["what"], "models");
         assert_eq!(read["refresh"], true);

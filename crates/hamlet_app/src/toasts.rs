@@ -36,7 +36,7 @@ use hamlet_protocol::client::{
     ServerMessage, WaitDetail,
 };
 use hamlet_ui::styles::{
-    ICON, action, buttons, caption, close_button, note, quoted,
+    ICON, action, buttons, card_name, close_button, note, quoted,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -45,6 +45,7 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 use crate::convo::Convo;
 use crate::hub::Showing;
 use crate::screens::petition::{Need, answers};
+use crate::standing::Standing;
 use crate::{PanelSystems, chat};
 
 /// The most toasts on show at once.
@@ -428,7 +429,10 @@ fn card(toast: &Toast) -> AnyView {
                 let answers = answers(&need);
                 (
                     // The bell of NEEDS YOU.
-                    Some((Glyph::Bell, Tone::Critical)),
+                    Some((
+                        Standing::Waits.glyph(),
+                        Standing::Waits.tone(),
+                    )),
                     need.shown.clone(),
                     from,
                     tone,
@@ -484,7 +488,7 @@ fn card(toast: &Toast) -> AnyView {
             }
             None => frame().boxed(),
         };
-        let head = row((mark, caption(head, tone), note(from)))
+        let head = row((mark, card_name(head, tone), note(from)))
             .gap(6.0)
             .align(AlignItems::Center);
         let dismissed = what.clone();
@@ -499,20 +503,28 @@ fn card(toast: &Toast) -> AnyView {
         let words =
             column((top, opening(what.clone(), quoted(&line))))
                 .gap(2.0);
-        let space = &cx.theme().space;
-        let palette = &cx.theme().palette;
+        let theme = cx.theme();
+        let space = &theme.space;
+        // Edged in the accent while it calls for the chief, and its
+        // shadow doubled, so it stands off the world and the panels.
+        let edge = match tone {
+            Tone::Accent => theme.palette.accent,
+            _ => theme.palette.gold_5,
+        };
+        let mut shadow = theme.shadow();
+        shadow.0.extend(theme.shadow().0);
         let card = column((words, answers))
             .gap(space.gap)
-            .fill(palette.card)
+            .fill(theme.palette.card)
             .border(space.border)
-            .border_color(palette.gold_5)
+            .border_color(edge)
             .radius(space.round)
             .padding(UiRect::axes(
                 px(space.card_padding_x),
                 px(space.card_padding_y),
             ))
             .rules(fading(id))
-            .tagged(cx.theme().shadow());
+            .tagged(shadow);
         let node = cx.build(card);
         cx.world
             .entity_mut(node)

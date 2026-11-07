@@ -19,10 +19,10 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, keyed, resource, style,
 };
 use hamlet_client::realm::Deeds;
-use hamlet_realm::orders::{self, Decree};
+use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    self, Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
+    self, CONTROL, Fills, ICON, action, bare, breadcrumb, buttons,
     group, lettered, note, note_rules, primary_button, raised,
     scroll_area, status_label, text_input, title,
 };
@@ -38,10 +38,10 @@ use super::heading;
 use super::record::record_of;
 use super::rows::{AgentRow, agent_rows, hamlet_rows, stale};
 use crate::convo::talk_to;
+use crate::dock::{HUB, show_tab};
 use crate::forms::{self, Asking};
 use crate::roll::{either, moved};
 use crate::world_menu;
-use crate::world_menu::Deed;
 
 /// The field a hamlet's new name is typed in.
 #[derive(Component)]
@@ -50,6 +50,14 @@ pub(crate) struct NameField;
 /// The hamlet that is being given a new name, if one is.
 #[derive(Resource, Default, PartialEq)]
 pub struct Naming(pub(super) Option<Entity>);
+
+/// Brings the Hub to the front at the page of `hamlet`, with the
+/// field its new name is typed in.
+pub(crate) fn rename(world: &mut World, hamlet: Entity) {
+    crate::hub::show(world, crate::hub::Showing::Hamlet(hamlet));
+    show_tab(world, HUB);
+    world.resource_mut::<Naming>().0 = Some(hamlet);
+}
 
 /// The words typed in the field under a root marked `M`.
 pub(crate) fn typed<M: Component>(world: &mut World) -> String {
@@ -384,7 +392,6 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         else {
             return column(()).boxed();
         };
-        let id = facts.id.clone();
         let mut actions = Vec::new();
         if *hires {
             // Under its mayor; under another hire from that hire's
@@ -413,28 +420,25 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 },
             ));
         }
-        if *rename {
-            actions.push(action(
-                Glyph::Rename,
-                "Rename",
-                move |world| {
-                    world.resource_mut::<Naming>().0 = Some(hamlet);
-                },
-            ));
-        }
-        if *carry {
-            actions.push(action(Glyph::Move, "Move", move |world| {
-                orders::carry(world, hamlet);
-            }));
-        }
-        if *close {
-            actions.push(bad_action(
-                Glyph::Gone,
-                "Close down",
-                move |world| {
-                    world_menu::ask(world, Deed::Close(id.clone()));
-                },
-            ));
+        // Everything else done to it, as a right click on its common
+        // in the world offers: renaming, moving, closing it down.
+        if *rename || *carry || *close {
+            actions.push(
+                button(glyph(Glyph::More, ICON))
+                    .padding(UiRect::axes(px(8.0), px(4.0)))
+                    // As tall as the buttons beside it.
+                    .height(px(CONTROL))
+                    .rules(styles::button)
+                    .tagged(Variant::Default)
+                    .tooltip(|| note("Rename, move or close it down"))
+                    .on_activate(move |world| {
+                        world_menu::open_for(
+                            world,
+                            Thing::Common(hamlet),
+                        );
+                    })
+                    .boxed(),
+            );
         }
         // What commands call it, when its name says otherwise.
         let name = if facts.title == facts.id {

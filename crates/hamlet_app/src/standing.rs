@@ -55,10 +55,13 @@ impl Standing {
         }
     }
 
+    /// Its colour: the accent for what waits on the chief, red for a
+    /// fault, and plain or dim for the rest.
     pub(crate) fn tone(self) -> Tone {
         match self {
-            Self::Waits | Self::Stopped => Tone::Critical,
-            Self::Works => Tone::Accent,
+            Self::Waits => Tone::Accent,
+            Self::Stopped => Tone::Critical,
+            Self::Works => Tone::Body,
             Self::Rests | Self::Gone => Tone::Dim,
         }
     }

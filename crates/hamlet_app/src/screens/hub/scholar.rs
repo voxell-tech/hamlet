@@ -33,6 +33,7 @@ use super::{Showing, memory, rail, show};
 use crate::chat;
 use crate::convo::talk_to;
 use crate::overview::{heading, typed};
+use crate::standing::Standing;
 
 /// The deeds a scholar's page offers, in the names the server
 /// advertises them by.
@@ -340,12 +341,12 @@ fn is_of_header(act: &Act) -> bool {
 /// the harbor or archived.
 fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
     match (&scholar.left, scholar.arrival) {
-        (Some(_), _) => ("Archived", Tone::Critical),
+        (Some(_), _) => ("Archived", Tone::Dim),
         (None, protocol::Arrival::Housed) => {
             ("In the city", Tone::Dim)
         }
         (None, protocol::Arrival::Waiting) => {
-            ("Waits at the harbor", Tone::Critical)
+            ("Waits at the harbor", Standing::Waits.tone())
         }
         (None, protocol::Arrival::Turned) => {
             ("Turned away at the harbor", Tone::Dim)
@@ -622,35 +623,43 @@ fn hires(shown: &Shown) -> AnyView {
 fn knowledge(shown: &Shown) -> [AnyView; 3] {
     [
         memory::character_section(),
-        card(Glyph::Notes, "Memory", dream(shown), memory::view()),
+        card(
+            Glyph::Notes,
+            "Memory",
+            None,
+            memory::view(dream(shown)),
+        ),
         card(Glyph::Book, "Skills", None, memory::skills()),
     ]
 }
 
-/// A dream, which brings home what its hires learned.
-fn dream(shown: &Shown) -> Option<AnyView> {
-    if shown.scholar.left.is_some()
-        || !shown.allowed.contains(&"dream")
-    {
-        return None;
-    }
+/// What makes the button of a dream, which brings home what its hires
+/// learned, while the scholar may have one.
+fn dream(
+    shown: &Shown,
+) -> impl Fn() -> Option<AnyView> + Send + Sync + 'static {
+    let may = shown.scholar.left.is_none()
+        && shown.allowed.contains(&"dream");
     let address = scholar_address(shown.scholar.id);
-    Some(
-        action(
-            Glyph::Moon,
-            "Note what its hires learned",
-            move |world| {
-                tell_hand(world, format!("/dream {address}"));
-            },
-        )
-        .tooltip(|| {
-            note(
-                "Brings home what its hires learned, and tidies its \
-                 memory",
+    move || {
+        let address = address.clone();
+        may.then(|| {
+            action(
+                Glyph::Rename,
+                "Note what its hires learned",
+                move |world| {
+                    tell_hand(world, format!("/dream {address}"));
+                },
             )
+            .tooltip(|| {
+                note(
+                    "Brings home what its hires learned, and tidies \
+                     its memory",
+                )
+            })
+            .boxed()
         })
-        .boxed(),
-    )
+    }
 }
 
 /// What changes the scholar for good, kept at the foot of its page
@@ -684,14 +693,11 @@ fn careful(shown: &Shown) -> AnyView {
         );
     }
     if living && can("purge") {
+        // Plain, so that red is only on the one that ends it.
         acts.push(
-            bad_action(
-                Glyph::Delete,
-                "Erase a file from its history",
-                |world| {
-                    ask(world, Act::Purge);
-                },
-            )
+            action(Glyph::Delete, "Erase a file", |world| {
+                ask(world, Act::Purge);
+            })
             .tooltip(|| {
                 note(
                     "Removes one file, like memory/notes.md, from \

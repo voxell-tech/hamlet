@@ -403,8 +403,11 @@ pub fn shelf() -> AnyView {
              when the endpoint does not bill a call.",
         ),
         beside((
-            action(Glyph::Restore, "List models", |world| {
+            action(Glyph::Restore, "Refresh", |world| {
                 read_models(world, true);
+            })
+            .tooltip(|| {
+                note("Asks every endpoint for its models again")
             }),
             row((built(|cx| {
                 let narrow =

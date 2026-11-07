@@ -39,8 +39,8 @@ use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use self::hamlet::budget;
-pub(crate) use self::hamlet::typed;
 pub use self::hamlet::{Naming, Page, hamlet};
+pub(crate) use self::hamlet::{rename, typed};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
 use self::rows::{agent_rows, hamlet_rows, pressable, stale};
@@ -722,59 +722,6 @@ mod tests {
         assert!(
             !words(&mut app)
                 .contains(&"Delete Mill for good?".into())
-        );
-    }
-
-    #[test]
-    fn only_a_server_that_lists_the_deed_offers_to_move_a_town() {
-        use bevy::ecs::query::With;
-        use hamlet_client::realm::Deeds;
-        use hamlet_realm::generator::GeneratorSettings;
-        use hamlet_realm::generator::land::Land;
-        use hamlet_realm::generator::society::{Ground, Society};
-        use hamlet_realm::hamlet::Sited;
-        use hamlet_realm::moving::Carrying;
-        use hamlet_realm::palette::Palette;
-        use hamlet_realm::play::Played;
-
-        use crate::testing::press;
-
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        let hamlet = app
-            .world_mut()
-            .query_filtered::<Entity, With<HamletId>>()
-            .single(app.world())
-            .unwrap();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            self::hamlet(hamlet),
-        );
-        app.update();
-        assert!(!words(&mut app).iter().any(|text| text == "Move"));
-        assert!(!words(&mut app).iter().any(|text| text == "Rename"));
-        app.world_mut()
-            .resource_mut::<Deeds>()
-            .0
-            .push("move-hamlet".into());
-        app.update();
-        assert!(words(&mut app).iter().any(|text| text == "Move"));
-        let mut land = Land::new(
-            1,
-            GeneratorSettings::default(),
-            Palette::default(),
-        );
-        let mut society = Society::default();
-        let town = society.found_town(&mut land);
-        app.insert_resource(land)
-            .insert_resource(society)
-            .init_resource::<Carrying>()
-            .add_message::<Played>();
-        app.world_mut().entity_mut(hamlet).insert(Sited(town));
-        press(&mut app, "Move");
-        assert_eq!(
-            app.world().resource::<Carrying>().0.unwrap().place,
-            Ground::Town(town)
         );
     }
 

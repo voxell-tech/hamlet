@@ -483,8 +483,8 @@ pub(super) fn sheet(agent: Entity) -> impl View {
             card(
                 Glyph::Notes,
                 "Memory",
-                Some(reflect()),
-                memory::view(),
+                None,
+                memory::view(|| Some(reflect())),
             ),
             card(Glyph::Book, "Skills", None, memory::skills()),
             prompt(),

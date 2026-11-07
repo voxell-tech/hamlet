@@ -14,8 +14,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    ICON, action, bad_action, bare, good_action, inset, lettered,
-    note, text_input,
+    ICON, action, bad_action, bare, buttons, good_action, inset,
+    lettered, note, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
@@ -234,15 +234,20 @@ fn folder(folder: &Folder, open: Option<&str>) -> AnyView {
     column(parts).gap(6.0).boxed()
 }
 
-/// The button that opens the field a new file is named in, or that
-/// field with the buttons that add it and that close it.
-fn add() -> impl View {
-    keyed(resource::<Opened, _>(|o| o.adding), |adding| {
+/// The button that opens the field a new file is named in, with what
+/// `learn` gives beside it, or that field with the buttons that add
+/// it and that close it.
+fn add(
+    learn: impl Fn() -> Option<AnyView> + Send + Sync + 'static,
+) -> impl View {
+    keyed(resource::<Opened, _>(|o| o.adding), move |adding| {
         if !*adding {
-            return row((action(Glyph::Plus, "Add file", |world| {
-                world.resource_mut::<Opened>().adding = true;
-            }),))
-            .boxed();
+            let mut parts =
+                vec![action(Glyph::Plus, "Add file", |world| {
+                    world.resource_mut::<Opened>().adding = true;
+                })];
+            parts.extend(learn());
+            return buttons(parts).boxed();
         }
         with_cx(|cx| {
             let gap = cx.theme().space.gap;
@@ -335,8 +340,11 @@ fn character() -> impl View {
     .within(bare())
 }
 
-/// The memory, with the failure of the last save under it.
-pub(super) fn view() -> impl View {
+/// The memory, with the button that adds a file and the one `learn`
+/// gives under it, then the failure of the last save.
+pub(super) fn view(
+    learn: impl Fn() -> Option<AnyView> + Send + Sync + 'static,
+) -> impl View {
     let shown = keyed(
         resource::<Papers, _>(|p| {
             (p.memory.clone(), p.learned.clone())
@@ -378,5 +386,5 @@ pub(super) fn view() -> impl View {
         },
     )
     .within(bare());
-    column((shown, add(), failed)).gap(8.0)
+    column((shown, add(learn), failed)).gap(8.0)
 }

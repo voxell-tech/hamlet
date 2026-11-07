@@ -42,6 +42,7 @@ use hamlet_ui::{View, built};
 
 use crate::overview::standing;
 use crate::roll::Roll;
+use crate::standing::Standing;
 use crate::world_menu::Open;
 
 /// The layer of the card in the window's stack: over the panels,
@@ -351,15 +352,22 @@ impl Told<'_, '_> {
                 Tone::Dim,
             ),
             _ if gone || ruin => {
-                ("Removed".to_string(), Tone::Critical)
+                ("Removed".to_string(), Standing::Gone.tone())
             }
-            _ if waiting > 0 => {
-                (format!("Waits for you ({waiting})"), Tone::Critical)
-            }
+            _ if waiting > 0 => (
+                format!("Waits for you ({waiting})"),
+                Standing::Waits.tone(),
+            ),
             _ => {
-                let tone =
-                    if busy { Tone::Accent } else { Tone::Dim };
-                (activity.cloned().unwrap_or_default().words, tone)
+                let standing = if busy {
+                    Standing::Works
+                } else {
+                    Standing::Rests
+                };
+                (
+                    activity.cloned().unwrap_or_default().words,
+                    standing.tone(),
+                )
             }
         };
         let followed = self.following.0 == Some(hovered);

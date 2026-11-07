@@ -431,13 +431,15 @@ mod tests {
         let home = world.query_filtered::<Entity, bevy::ecs::query::With<HamletId>>()
             .single(world).unwrap();
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
-        assert!(
-            !words(&mut app)
-                .iter()
-                .any(|text| text == "Move home...")
-        );
+        for absent in ["Move home...", "Rename home..."] {
+            assert!(
+                !words(&mut app).iter().any(|text| text == absent),
+                "unsupported: {absent}"
+            );
+        }
 
-        state.deeds = realm::deeds(&["found", "move-hamlet"]);
+        state.deeds =
+            realm::deeds(&["found", "move-hamlet", "name-hamlet"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -449,9 +451,12 @@ mod tests {
                 .any(|text| text == "Found a Hamlet...")
         );
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
-        assert!(
-            words(&mut app).iter().any(|text| text == "Move home...")
-        );
+        for offered in ["Move home...", "Rename home..."] {
+            assert!(
+                words(&mut app).iter().any(|text| text == offered),
+                "supported: {offered}"
+            );
+        }
     }
     #[test]
     fn roads_are_offered_only_when_supported_and_sent_to_the_mayor() {

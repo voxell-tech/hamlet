@@ -18,7 +18,7 @@ use bevy::time::Time;
 use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, row,
+    BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, each};
 use hamlet_client::chats::{Entry, Transcript};
@@ -29,8 +29,8 @@ use hamlet_protocol::client::{
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::styles::{
-    self, buttons, caption, close, command_block, danger_button,
-    framed, marked, note, primary_button,
+    self, buttons, caption, command_block, danger_button, framed,
+    marked, note, primary_button,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -213,22 +213,11 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
     }
 }
 
-/// The buttons of the answers `need` takes, with what the lasting
-/// one lets go under them.
+/// The buttons of the answers `need` takes, the lasting one telling
+/// what it lets go in its tooltip.
 pub(crate) fn answers(need: &Need) -> AnyView {
-    let scope = match scope(need) {
-        Some(words) => note(words).boxed(),
-        None => frame().boxed(),
-    };
-    close((
-        buttons(vec![
-            button(need, 0),
-            button(need, 1),
-            button(need, 2),
-        ]),
-        scope,
-    ))
-    .boxed()
+    buttons(vec![button(need, 0), button(need, 1), button(need, 2)])
+        .boxed()
 }
 
 /// The button for the answer at `at` of `need`, or nothing.
@@ -286,14 +275,22 @@ fn button(need: &Need, at: usize) -> AnyView {
                 Variant::Primary,
             ),
         };
+    let scope = matches!(choice, Choice::Always)
+        .then(|| scope(need))
+        .flatten();
     let need = need.clone();
-    marked(which, text)
+    let button = marked(which, text)
         .rules(rules)
         .tagged(variant)
         .on_activate(move |world| {
             answer(world, &need, choice.clone());
-        })
-        .boxed()
+        });
+    match scope {
+        Some(words) => {
+            button.tooltip(move || note(words.clone())).boxed()
+        }
+        None => button.boxed(),
+    }
 }
 
 /// The button of the lasting answer of `need`.
@@ -332,7 +329,7 @@ fn scope(need: &Need) -> Option<String> {
             format!("{who} may leave the sandbox until you revoke it")
         }
     };
-    Some(format!("{}: {lets}.", lasting_words(need)))
+    Some(format!("{lets}."))
 }
 
 /// The edit that waits as `need`: its entry in the conversation
