@@ -185,15 +185,23 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
     .await;
     next.write("/allow\n").await;
     next.out_shows("After restart.\n").await;
-    let two = std::fs::read_to_string(home.file("hand/two"))
-        .unwrap_or_else(|error| {
-            panic!(
-                "hand/two: {error}\nout: {}\nerr: {}\nlog: {}",
-                next.out(),
-                next.err(),
-                again.log()
-            )
-        });
+    let read = std::fs::read_to_string(home.file("hand/two"));
+    let Ok(two) = read else {
+        let mut chief = chief;
+        let hand = hamlet_acceptance::chat(chief.hand());
+        let tools = chief
+            .open(&hand)
+            .await
+            .items
+            .into_iter()
+            .filter_map(|item| item.tool)
+            .collect::<Vec<_>>();
+        panic!(
+            "hand/two: {read:?}\ntools: {tools:#?}\nerr: {}\nlog: {}",
+            next.err(),
+            again.log()
+        );
+    };
     assert_eq!(two, "curl two\n");
     assert_eq!(next.end().await.code(), Some(0));
 }
