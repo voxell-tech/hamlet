@@ -16,7 +16,7 @@ use bevy_fynix::{
     Bevy, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
 };
 
-use crate::theme::{HamletTheme, Palette, TextSizes};
+use crate::theme::{HamletTheme, TextSizes};
 use crate::widgets::effects::Variant;
 use crate::widgets::ellipsis::one_line;
 use crate::widgets::icons::{Glyph, glyph};
@@ -1057,14 +1057,6 @@ pub fn radio(on: bool) -> impl View {
 /// amber letters on a filled amber plate with no border, so it does
 /// not read as a button.
 pub fn pill(text: impl Into<Prop<String>>) -> impl View {
-    pill_on(text, |palette| palette.primary_low)
-}
-
-/// A [`pill`] on the fill `fill` picks from the palette.
-pub fn pill_on(
-    text: impl Into<Prop<String>>,
-    fill: fn(&Palette) -> Color,
-) -> impl View {
     let text = text.into();
     with_cx(move |cx| {
         let theme = cx.theme();
@@ -1075,7 +1067,7 @@ pub fn pill_on(
             .wrap(false),))
         .padding(UiRect::axes(px(8.0), px(2.0)))
         .shrink(0.0)
-        .fill(fill(&theme.palette))
+        .fill(theme.palette.primary_low)
         .radius(theme.space.round)
     })
 }

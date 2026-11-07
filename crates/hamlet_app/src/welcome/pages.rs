@@ -1,6 +1,5 @@
 //! The pages of first-run setup.
 
-use bevy::color::Alpha;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
@@ -397,16 +396,13 @@ fn screen() -> AnyView {
 /// next while the card is only as tall as its step.
 const TALL: f32 = 520.0;
 
-/// How much of what is left of the window the scrim under the card
-/// takes away, over what the theme's shadow does.
-const SCRIM: f32 = 0.7;
-
 fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
-    let shadow = theme.palette.shadow;
-    let scrim = shadow
-        .with_alpha(shadow.alpha() + (1.0 - shadow.alpha()) * SCRIM);
+    // The window's own colour, opaque: colours mix in linear light,
+    // so any scrim thin enough to show the realm leaves its words
+    // readable behind the card.
+    let scrim = theme.background();
     let card = column((scroll_area((column((page,))
         .gap(0.0)
         .padding(UiRect::all(px(space.overlay_padding))),)),))

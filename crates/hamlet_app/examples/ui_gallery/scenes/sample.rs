@@ -60,6 +60,10 @@ pub(super) fn setup(world: &mut World) {
         world,
         protocol::ServerMessage::State(state),
     );
+    if let Scene::Welcome(_) = scene {
+        world.resource_mut::<hamlet_app::models::Shelf>().models =
+            welcome::catalogue();
+    }
     // The key that was not accepted, still in its field.
     if scene == Scene::Welcome(hamlet_app::welcome::Step::Key) {
         hamlet_app::welcome::type_key(

@@ -1,6 +1,5 @@
 //! The one row a model is listed by, wherever models are listed.
 
-use bevy::color::Color;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::{Motion, Tone};
@@ -10,14 +9,18 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{Focused, ScopedExt, ViewExt, derived, style};
 use hamlet_client::realm::Providers;
-use hamlet_ui::styles::{ICON, note_rules, pill, pill_on};
+use hamlet_protocol::client as protocol;
+use hamlet_ui::styles::{ICON, note_rules, small_rules};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::providers::provider_mark;
 use hamlet_ui::{AnyView, Cx, with_cx};
 
-use super::{model_name, provider_of, source_of};
+use super::{
+    Shelf, context_words, model_name, provider_of, source_of,
+};
+use crate::roll::moved;
 
 /// The side of a provider's mark in a row.
 const MARK: f32 = 16.0;
@@ -46,10 +49,8 @@ pub(crate) enum Detail {
     /// Its provider's mark, and its provider and id under its name,
     /// for a list that mixes providers.
     Source,
-    /// Its provider's mark alone.
-    Mark,
-    /// Its provider's mark, and its id under its name where that says
-    /// more, for a list of one provider's models.
+    /// Its id under its name where that says more, for a list of one
+    /// provider's models, whose provider is named beside the list.
     Id,
 }
 
@@ -82,9 +83,51 @@ pub(crate) fn mark(id: &str, size: f32) -> AnyView {
     .boxed()
 }
 
+/// A quiet word beside a model's name, such as "Default".
+pub(crate) fn tag(text: &'static str) -> AnyView {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        row((label(text)
+            .tone(Tone::Dim)
+            .wrap(false)
+            .rules(small_rules),))
+        .padding(UiRect::axes(px(5.0), px(0.0)))
+        .shrink(0.0)
+        .border(theme.space.border)
+        .border_color(theme.palette.gold_6)
+        .radius(theme.space.round)
+    })
+    .boxed()
+}
+
+/// What `model` costs per million tokens in and out, and how many
+/// tokens it holds, as far as the catalogue knows.
+fn hint(model: &protocol::Listed) -> String {
+    let dollars = |value: f64| match value.fract() == 0.0 {
+        true => format!("${value:.0}"),
+        false => format!("${value:.2}"),
+    };
+    let price = model
+        .price
+        .as_ref()
+        .filter(|_| model.priced != protocol::ListedPriced::Unknown)
+        .map(|price| match (price.input, price.output) {
+            (0.0, 0.0) => "Free".to_string(),
+            (input, output) => {
+                format!("{}/{}", dollars(input), dollars(output))
+            }
+        });
+    price
+        .into_iter()
+        .chain(model.context.map(context_words))
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 /// `model` as one row that `pick` chooses: its name with a check
-/// after it while picked, as much of where it comes from as its
-/// [`Detail`] says, its tag and its end.
+/// after it while picked and its tag, and under it as much of where
+/// it comes from as its [`Detail`] says, with its price and context
+/// at the right.
 pub(crate) fn model_row(
     model: ModelRow,
     pick: impl Fn(&mut World) + Send + Sync + 'static,
@@ -92,7 +135,7 @@ pub(crate) fn model_row(
     let ModelRow {
         name,
         picked,
-        tag,
+        tag: word,
         end,
         detail,
     } = model;
@@ -104,80 +147,83 @@ pub(crate) fn model_row(
     } else {
         frame().boxed()
     };
-    let title =
-        row((one_line(label(model_name(&name).to_string())), check))
-            .gap(6.0)
-            .align(AlignItems::Center)
-            .min_width(px(0.0));
+    let title = row((
+        one_line(label(model_name(&name).to_string())),
+        check,
+        word.map_or_else(|| frame().boxed(), tag),
+    ))
+    .gap(6.0)
+    .align(AlignItems::Center)
+    .min_width(px(0.0));
     let id = name.clone();
-    let under = match detail {
+    let source = match detail {
         Detail::Source => one_line(label(
             derived(move |world: &World| source_of(world, &id))
-                .when(crate::roll::moved::<Providers>()),
+                .when(moved::<Providers>()),
         ))
-        .rules(note_rules)
         .boxed(),
         Detail::Id => {
             let at =
                 id.split_once("::").map_or(id.as_str(), |(_, at)| at);
             match at == model_name(&id) {
                 true => frame().boxed(),
-                false => one_line(label(at.to_string()))
-                    .rules(note_rules)
-                    .boxed(),
+                false => one_line(label(at.to_string())).boxed(),
             }
         }
-        Detail::Mark => frame().boxed(),
     };
+    let card = name.clone();
+    let costs = label(
+        derived(move |world: &World| {
+            world
+                .get_resource::<Shelf>()
+                .and_then(|shelf| {
+                    shelf
+                        .models
+                        .iter()
+                        .find(|model| model.name == card)
+                })
+                .map(hint)
+                .unwrap_or_default()
+        })
+        .when(moved::<Shelf>()),
+    )
+    .wrap(false);
+    let under = row((
+        row((source,)).grow(1.0).min_width(px(0.0)),
+        row((costs,)).shrink(0.0),
+    ))
+    .gap(6.0)
+    .align(AlignItems::Center)
+    .rules(note_rules);
     let words =
         column((title, under)).gap(1.0).grow(1.0).min_width(px(0.0));
-    let tag = match tag {
-        // A pill is lit as the row picked is, so on that row it
-        // stands on the panel's own colour.
-        Some(tag) if picked => {
-            pill_on(tag, |palette| palette.surface).boxed()
-        }
-        Some(tag) => pill(tag).boxed(),
-        None => frame().boxed(),
+    let lead = match detail {
+        Detail::Source => mark(provider_of(&name), MARK),
+        Detail::Id => frame().boxed(),
     };
     menu_item(
-        row((
-            mark(provider_of(&name), MARK),
-            words,
-            tag,
-            end.unwrap_or_else(|| frame().boxed()),
-        ))
-        .gap(GAP)
-        .align(AlignItems::Center)
-        .width(percent(100.0)),
+        row((lead, words, end.unwrap_or_else(|| frame().boxed())))
+            .gap(GAP)
+            .align(AlignItems::Center)
+            .width(percent(100.0)),
     )
     .padding(UiRect::axes(px(PAD), px(5.0)))
-    .rules(row_look(picked))
+    .rules(row_look)
     .on_activate(pick)
     .boxed()
 }
 
 /// A row's icons left unset are hidden until the row is under the
-/// pointer or has the focus, which also lights it. The row picked
-/// is lit at rest.
-fn row_look(picked: bool) -> impl FnOnce(&mut Cx) {
-    move |cx| {
-        style::<HamletTheme>()
-            .frame(move |f, t| {
-                f.fill(if picked {
-                    t.palette.primary_low
-                } else {
-                    Color::NONE
-                })
-                .radius(t.space.round)
-            })
-            .icon(|i, _| i.opacity(0.0))
-            .hovered(|s| s.icon(|i, _| i.opacity(1.0)))
-            .when::<Focused>(|s| {
-                s.icon(|i, _| i.opacity(1.0))
-                    .fill(|t| t.palette.button_hover)
-            })
-            .transition(Motion::Interact)
-            .apply(cx);
-    }
+/// pointer or has the focus, which also lights it.
+fn row_look(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, t| f.radius(t.space.round))
+        .icon(|i, _| i.opacity(0.0))
+        .hovered(|s| s.icon(|i, _| i.opacity(1.0)))
+        .when::<Focused>(|s| {
+            s.icon(|i, _| i.opacity(1.0))
+                .fill(|t| t.palette.button_hover)
+        })
+        .transition(Motion::Interact)
+        .apply(cx);
 }

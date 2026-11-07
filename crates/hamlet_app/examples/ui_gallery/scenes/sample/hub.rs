@@ -105,22 +105,21 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
 /// A catalogue of a few models over several providers.
 pub(super) fn catalogue() -> Vec<protocol::Listed> {
     use hamlet_protocol::Effort;
-    let card = |name: &str, efforts: &[Effort], fast: bool| {
-        protocol::Listed {
-            context: Some(200_000),
-            default_effort: efforts
-                .contains(&Effort::Medium)
-                .then_some(Effort::Medium),
-            efforts: efforts.to_vec(),
-            fast,
-            name: name.into(),
-            note: String::new(),
-            price: Some(protocol::Price {
-                input: 3.0,
-                output: 15.0,
-            }),
-            priced: protocol::ListedPriced::Listed,
-        }
+    let card = |name: &str,
+                efforts: &[Effort],
+                fast: bool,
+                (input, output): (f64, f64),
+                context: i64| protocol::Listed {
+        context: Some(context),
+        default_effort: efforts
+            .contains(&Effort::Medium)
+            .then_some(Effort::Medium),
+        efforts: efforts.to_vec(),
+        fast,
+        name: name.into(),
+        note: String::new(),
+        price: Some(protocol::Price { input, output }),
+        priced: protocol::ListedPriced::Listed,
     };
     let thinks = [
         Effort::Low,
@@ -130,15 +129,63 @@ pub(super) fn catalogue() -> Vec<protocol::Listed> {
         Effort::Max,
     ];
     vec![
-        card("faux::faux-1", &[], false),
-        card("openai::wren-large", &thinks, true),
-        card("openai::wren-small", &thinks[..3], true),
-        card("openai::wren-mini", &thinks[..2], false),
-        card("openai::sparrow-4", &thinks, false),
-        card("openai::sparrow-4-turbo", &thinks[..3], true),
-        card("google::wren-flash", &[Effort::Off], false),
-        card("anthropic::finch-pro", &thinks[..4], false),
-        card("groq::finch-lite", &thinks[..3], false),
+        card("faux::faux-1", &[], false, (0.0, 0.0), 32_000),
+        card(
+            "openai::wren-large",
+            &thinks,
+            true,
+            (3.0, 15.0),
+            200_000,
+        ),
+        card(
+            "openai::wren-small",
+            &thinks[..3],
+            true,
+            (0.4, 1.6),
+            128_000,
+        ),
+        card(
+            "openai::wren-mini",
+            &thinks[..2],
+            false,
+            (0.15, 0.6),
+            128_000,
+        ),
+        card(
+            "openai::sparrow-4",
+            &thinks,
+            false,
+            (2.5, 10.0),
+            128_000,
+        ),
+        card(
+            "openai::sparrow-4-turbo",
+            &thinks[..3],
+            true,
+            (10.0, 30.0),
+            128_000,
+        ),
+        card(
+            "google::wren-flash",
+            &[Effort::Off],
+            false,
+            (0.3, 2.5),
+            1_000_000,
+        ),
+        card(
+            "anthropic::finch-pro",
+            &thinks[..4],
+            false,
+            (15.0, 75.0),
+            200_000,
+        ),
+        card(
+            "groq::finch-lite",
+            &thinks[..3],
+            false,
+            (0.8, 4.0),
+            200_000,
+        ),
     ]
 }
 

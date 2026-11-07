@@ -158,8 +158,8 @@ fn root() -> impl View {
 pub fn layout(cx: &Cx) -> impl View {
     column((
         toolbar(cx),
-        // First run dims the status bar too, and leaves the toolbar
-        // lit for the window's own buttons.
+        // First run covers the status bar too, and leaves the
+        // toolbar lit for the window's own buttons.
         column((
             dock::<HamletTheme>(),
             status_bar(),

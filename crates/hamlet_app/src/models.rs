@@ -25,7 +25,7 @@ use hamlet_protocol::client as protocol;
 pub(crate) use self::choice::{efforts, of_hamlet};
 pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
-pub(crate) use self::row::{Detail, ModelRow, mark, model_row};
+pub(crate) use self::row::{Detail, ModelRow, mark, model_row, tag};
 use crate::PanelSystems;
 use crate::settings::Pane;
 
@@ -120,6 +120,14 @@ pub(crate) fn source_of(world: &World, model: &str) -> String {
         provider
     } else {
         format!("{provider} · {id}")
+    }
+}
+
+/// How many tokens a model holds, in thousands or millions.
+fn context_words(context: i64) -> String {
+    match context >= 1_000_000 {
+        true => format!("{}M", context / 1_000_000),
+        false => format!("{}k", context / 1000),
     }
 }
 

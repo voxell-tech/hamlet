@@ -23,8 +23,8 @@ use hamlet_ui::{AnyView, View, built, with_cx};
 
 use super::choice::home_default;
 use super::{
-    Asked, Draft, SHOWN, Shelf, catalogue, edit, mark, model_name,
-    provider_name, provider_of, read_models,
+    Asked, Draft, SHOWN, Shelf, catalogue, context_words, edit, mark,
+    model_name, provider_name, provider_of, read_models,
 };
 use crate::roll::{either, moved};
 
@@ -266,9 +266,7 @@ fn entry(model: &protocol::Listed, default: &str) -> AnyView {
     ))
     .rules(note_rules);
     let context =
-        note(model.context.map_or("-".to_string(), |context| {
-            format!("{}k", context / 1000)
-        }));
+        note(model.context.map_or("-".to_string(), context_words));
     let chosen = model.name.clone();
     let end = if model.name == default {
         radio(true).boxed()

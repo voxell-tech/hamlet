@@ -55,11 +55,11 @@ use super::{Open, close};
 use crate::menu::rect_of;
 use crate::models::{
     Detail, ModelRow, Shelf, mark, model_name, model_row,
-    provider_name, provider_of,
+    provider_name, provider_of, tag,
 };
 
 /// The width of the providers down the side.
-const RAIL: f32 = 118.0;
+const RAIL: f32 = 108.0;
 
 /// The least width of the search and its models, which take what the
 /// popup has over the rest.
@@ -757,10 +757,11 @@ fn rail() -> impl View {
 
 /// A star that adds `name` to the favourites, or takes it off:
 /// filled while it is the favourite at `at`, else hollow and faint.
+/// It is never gold, the check's colour for the model in use.
 fn star(name: String, at: Option<usize>) -> AnyView {
     let starred = at.is_some();
     let face = if starred {
-        glyph(Glyph::Starred, ICON).tone(Tone::Accent).opacity(1.0)
+        glyph(Glyph::Starred, ICON).tone(Tone::Body).opacity(1.0)
     } else {
         glyph(Glyph::Star, ICON).tone(Tone::Dim).opacity(0.5)
     };
@@ -870,7 +871,7 @@ fn models(agent: Entity, search: String) -> impl View {
             }
             // One provider's models need not say whose they are.
             let detail = match side {
-                Some(Side::Provider(_)) => Detail::Mark,
+                Some(Side::Provider(_)) => Detail::Id,
                 _ => Detail::Source,
             };
             // A search runs over every provider, whichever is
@@ -975,12 +976,8 @@ fn reasoning(agent: Entity) -> impl View {
                 .into_iter()
                 .map(|effort| {
                     let is_fallback = fallback == Some(effort);
-                    let tag = if is_fallback {
-                        label("Default")
-                            .tone(Tone::Faint)
-                            .wrap(false)
-                            .rules(small_rules)
-                            .boxed()
+                    let default = if is_fallback {
+                        tag("Default")
                     } else {
                         frame().boxed()
                     };
@@ -988,7 +985,7 @@ fn reasoning(agent: Entity) -> impl View {
                         row((
                             radio(on == Some(effort)),
                             label(words(effort)).wrap(false),
-                            tag,
+                            default,
                         ))
                         .gap(8.0)
                         .align(AlignItems::Center)
@@ -1051,18 +1048,24 @@ fn tier(agent: Entity) -> impl View {
                     .wrap(false)
                     .rules(small_rules),))
                 .padding(UiRect::axes(px(8.0), px(0.0))),
-                row((labelled_switch(
-                    "Fast",
-                    fast,
-                    move |world, on| {
-                        let to = address(world, agent);
-                        let on = if on { "on" } else { "off" };
-                        crate::chat::command(
-                            world,
-                            format!("/fast {to} {on}"),
-                        );
-                    },
-                ),))
+                column((
+                    labelled_switch(
+                        "Fast",
+                        fast,
+                        move |world, on| {
+                            let to = address(world, agent);
+                            let on = if on { "on" } else { "off" };
+                            crate::chat::command(
+                                world,
+                                format!("/fast {to} {on}"),
+                            );
+                        },
+                    ),
+                    description(
+                        "Quicker replies, at a higher price.",
+                    ),
+                ))
+                .gap(4.0)
                 .padding(UiRect::horizontal(px(8.0))),
             ))
             .gap(8.0)

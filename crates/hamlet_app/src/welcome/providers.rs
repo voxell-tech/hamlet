@@ -13,7 +13,7 @@ use bevy::text::EditableText;
 use bevy::ui::{AlignItems, InteractionDisabled};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, frame, label, row, text_field,
+    BehaviorExt, FrameProps, frame, label, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
@@ -24,8 +24,8 @@ use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    ICON, Refused, bare, buttons, choice, close, good_action, group,
-    note, parts, section, small_rules, text_input,
+    ICON, Refused, bare, close, good_action, group, note, parts,
+    section, segmented, small_rules, text_input,
 };
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
@@ -396,33 +396,29 @@ pub(super) fn key_page() -> AnyView {
                     Some(&provider.id) == chosen.as_ref()
                 })
                 .unwrap_or_default();
-            // As many as a provider's list may hold, so they wrap
-            // into rows rather than share one track.
             let options = keyed
                 .iter()
-                .enumerate()
-                .map(|(at, provider)| {
-                    let (id, name) =
-                        (provider.id.clone(), provider.name.clone());
-                    button(
-                        row((
-                            mark(&provider.id, ICON),
-                            label(provider.name.clone()).wrap(false),
-                        ))
-                        .gap(6.0)
-                        .align(AlignItems::Center),
-                    )
-                    .rules(choice(at == picked))
-                    .on_activate(move |world| {
-                        world.resource_mut::<Login>().provider =
-                            Some(id.clone());
-                        world.resource_mut::<Welcome>().from =
-                            name.clone();
-                    })
+                .map(|provider| {
+                    row((
+                        mark(&provider.id, ICON),
+                        label(provider.name.clone()).wrap(false),
+                    ))
+                    .gap(6.0)
+                    .align(AlignItems::Center)
                     .boxed()
                 })
-                .collect();
-            close((section("Provider"), buttons(options))).boxed()
+                .collect::<Vec<_>>();
+            let options =
+                segmented(options, picked, move |world, at| {
+                    let Some(provider) = keyed.get(at) else {
+                        return;
+                    };
+                    world.resource_mut::<Login>().provider =
+                        Some(provider.id.clone());
+                    world.resource_mut::<Welcome>().from =
+                        provider.name.clone();
+                });
+            close((section("Provider"), options)).boxed()
         },
     )
     .within(bare());

@@ -261,6 +261,13 @@ fn answered(response: On<Response>, mut commands: Commands) {
                     .clone();
                 let local =
                     world.resource::<Welcome>().step == Step::Local;
+                // The rows read the models' prices from the
+                // catalogue, which this answer is the newest of.
+                if let Some(mut shelf) =
+                    world.get_resource_mut::<crate::models::Shelf>()
+                {
+                    shelf.models.clone_from(&models);
+                }
                 let endpoints =
                     &world.resource::<Settings>().0.endpoints;
                 let names = models
