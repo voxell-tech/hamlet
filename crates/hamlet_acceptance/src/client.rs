@@ -301,6 +301,61 @@ impl Client {
         .await
     }
 
+    /// Uploads an image in parts of `part` bytes. Gives the first
+    /// refusal, else the reply that names the kept image.
+    pub async fn put_image(
+        &mut self,
+        bytes: &[u8],
+        part: usize,
+    ) -> Reply {
+        let size = bytes.len() as u64;
+        let mut reply = self
+            .request(|id| {
+                ClientMessage::PutImage(PutImage { id, size })
+            })
+            .await;
+        let Some(upload) = reply.upload.clone() else {
+            return reply;
+        };
+        for (n, bytes) in bytes.chunks(part).enumerate() {
+            let data = BASE64_STANDARD.encode(bytes);
+            let offset = (n * part) as u64;
+            reply = self
+                .request(|id| {
+                    ClientMessage::PutImagePart(PutImagePart {
+                        data,
+                        id,
+                        offset,
+                        upload: upload.clone(),
+                    })
+                })
+                .await;
+            if reply.kind == ReplyKind::Error {
+                return reply;
+            }
+        }
+        reply
+    }
+
+    /// Sends a chief's line with `images` and waits for its reply.
+    pub async fn say_with(
+        &mut self,
+        to: AgentId,
+        text: &str,
+        images: Vec<ImageId>,
+    ) -> Reply {
+        let text = text.to_owned();
+        self.request(|id| {
+            ClientMessage::Say(Say {
+                id,
+                images,
+                to,
+                text,
+            })
+        })
+        .await
+    }
+
     /// Gives the skill `skill` to the scholar `to`.
     pub async fn give_skill(
         &mut self,
