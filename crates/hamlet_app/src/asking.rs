@@ -232,7 +232,7 @@ fn picked(cx: &mut Cx) {
                 .border_color(t.palette.gold_4)
                 .radius(t.space.round)
         })
-        .hovered(|s| s.frame(|f, t| f.border_color(t.palette.glow)))
+        .hovered(|s| s.frame(|f, t| f.border_color(t.palette.accent)))
         .transition(Motion::Interact)
         .apply(cx);
 }

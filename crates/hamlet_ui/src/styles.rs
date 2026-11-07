@@ -76,7 +76,7 @@ pub fn primary_button(cx: &mut Cx) {
         .hovered(|s| {
             s.frame(|f, t| {
                 f.fill(t.palette.primary_low)
-                    .border_color(t.palette.glow)
+                    .border_color(t.palette.accent)
             })
         })
         .pressed(|s| {
@@ -117,7 +117,7 @@ pub fn text_input(cx: &mut Cx) {
         .frame(|f, t| {
             f.fill(t.palette.input)
                 .border(t.space.border)
-                .border_color(t.palette.gold_6)
+                .border_color(t.palette.gold_5)
                 .radius(t.space.round)
         })
         .hovered(|s| {
@@ -516,7 +516,7 @@ pub fn choice(
         .hovered(|s| {
             s.frame(|f, t| {
                 f.fill(t.palette.primary_low)
-                    .border_color(t.palette.glow)
+                    .border_color(t.palette.accent)
             })
         })
     } else {

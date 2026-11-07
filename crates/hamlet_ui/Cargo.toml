@@ -19,4 +19,5 @@ parley.workspace = true
 pulldown-cmark.workspace = true
 resvg.workspace = true
 serde.workspace = true
+thiserror.workspace = true
 toml.workspace = true

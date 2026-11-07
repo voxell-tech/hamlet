@@ -3,7 +3,7 @@
 
 mod art;
 
-use bevy::app::{App, PostUpdate};
+use bevy::app::{App, First, PostUpdate};
 use bevy::asset::{Assets, Handle};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::Add;
@@ -11,13 +11,14 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::schedule::common_conditions::resource_exists;
+use bevy::ecs::schedule::common_conditions::{
+    on_message, resource_exists,
+};
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::image::Image;
 use bevy::input::ButtonInput;
 use bevy::input::mouse::MouseButton;
-use bevy::state::state::OnEnter;
 use bevy::time::{Real, Time};
 use bevy::window::{
     CursorIcon, CustomCursor, CustomCursorImage, PrimaryWindow,
@@ -26,7 +27,7 @@ use bevy::window::{
 use bevy_fynix::{EntityCursor, Theme};
 use hamlet_realm::hand::{Grip, Hand};
 use hamlet_realm::pick::{Hovered, Pressable, Steer, Taken, Thing};
-use hamlet_ui::theme::{HamletTheme, ThemeState};
+use hamlet_ui::theme::{HamletTheme, ThemeChanged};
 
 pub use self::art::{Inks, face, frames, hot, side};
 use crate::welcome::Welcome;
@@ -36,7 +37,7 @@ use crate::welcome::Welcome;
 const FAINT: f32 = 0.4;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(OnEnter(ThemeState::Ready), draw)
+    app.add_systems(First, draw.run_if(on_message::<ThemeChanged>))
         .add_observer(lend)
         .add_systems(
             PostUpdate,
@@ -198,7 +199,7 @@ pub(crate) struct Cursors(Vec<(Mode, [Vec<Handle<Image>>; 2])>);
 
 impl Cursors {
     /// The picture of `mode` at `seconds`, the faint one if `faint`.
-    fn at(
+    pub(crate) fn at(
         &self,
         mode: Mode,
         seconds: f32,
@@ -218,7 +219,7 @@ fn fade(image: &mut Image) {
     }
 }
 
-/// Draws every cursor.
+/// Draws every cursor in the shown theme.
 pub fn draw(world: &mut World) {
     let inks = inks(&world.resource::<Theme<HamletTheme>>().0);
     let mut images = world.resource_mut::<Assets<Image>>();

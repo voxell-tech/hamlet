@@ -391,7 +391,6 @@ mod server_tests {
     use bevy::color::Alpha;
     use bevy::ecs::entity::Entity;
     use bevy_fynix::{FynixPlugin, mount};
-    use hamlet_assets::Tuning;
     use hamlet_client::ClientPlugin;
     use hamlet_protocol::client as protocol;
     use hamlet_ui::theme::{self, HamletTheme};
@@ -820,7 +819,7 @@ mod server_tests {
             ClientPlugin { server: None },
             FynixPlugin::<HamletTheme>::default(),
         ));
-        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        theme::show(app.world_mut(), HamletTheme::designed());
         app.insert_resource(Welcome {
             open: true,
             step: Step::Key,

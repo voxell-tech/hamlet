@@ -18,7 +18,6 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{Bevy, Focused, ScopedExt, View, ViewExt};
 use hamlet_app::{chat, lists, menu};
-use hamlet_assets::Tuning;
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::Cx;
 use hamlet_ui::styles::{

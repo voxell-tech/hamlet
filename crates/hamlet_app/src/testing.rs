@@ -12,7 +12,6 @@ use bevy::ui::widget::Text;
 use bevy::ui_widgets::{Activate, Button, MenuItem};
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockTree;
-use hamlet_assets::Tuning;
 use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Connection, receive};
@@ -35,7 +34,7 @@ pub(crate) fn panel_app() -> App {
         FynixPlugin::<HamletTheme>::default(),
         crate::panel_sets,
     ));
-    theme::insert_theme(app.world_mut(), HamletTheme::designed());
+    theme::show(app.world_mut(), HamletTheme::designed());
     receive(
         app.world_mut(),
         protocol::ServerMessage::State(hamlet_testing::realm::state()),
@@ -84,7 +83,7 @@ pub(crate) fn welcome_app() -> App {
         crate::secret::plugin,
         crate::panel_sets,
     ));
-    theme::insert_theme(app.world_mut(), HamletTheme::designed());
+    theme::show(app.world_mut(), HamletTheme::designed());
     app.insert_resource(Browser(|_, url| {
         panic!("unexpected browser URL: {url}")
     }));

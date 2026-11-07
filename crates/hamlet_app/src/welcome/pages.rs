@@ -262,5 +262,5 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
         .padding(UiRect::all(px(space.panel)))
         .align(AlignItems::Center)
         .justify(JustifyContent::Center)
-        .fill(theme.shadow.color)
+        .fill(theme.palette.shadow)
 }

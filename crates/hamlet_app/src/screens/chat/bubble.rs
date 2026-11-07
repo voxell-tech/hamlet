@@ -1,7 +1,7 @@
 //! The chat drawn as a group chat: a bubble for each message, each
 //! speaker's picture and name by its run of them, and who is in it.
 
-use bevy::color::{Color, Oklcha};
+use bevy::color::Color;
 use bevy::ecs::entity::Entity;
 use bevy::picking::hover::Hovered;
 use bevy::text::TextColor;
@@ -17,7 +17,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, component, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::markdown::Area;
-use hamlet_ui::theme::{Palette, contrast};
+use hamlet_ui::theme::Palette;
+use hamlet_ui::theme::contrast::{self, TEXT};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::entry::entry_view;
@@ -51,20 +52,6 @@ const TAIL: f32 = 3.0;
 const RESERVE: &str =
     "\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}";
 
-/// `colour` made lighter, its hue kept, until it reads on
-/// `surface`, or `parchment` if it never does.
-fn legible(colour: Color, surface: Color, parchment: Color) -> Color {
-    let paint = Oklcha::from(colour);
-    (0..=12)
-        .map(|step| {
-            let lightness =
-                (paint.lightness + 0.05 * step as f32).min(1.0);
-            Color::from(Oklcha { lightness, ..paint })
-        })
-        .find(|lighter| contrast(*lighter, surface) >= 4.5)
-        .unwrap_or(parchment)
-}
-
 /// A line of text in a colour that is not one of the theme's tones.
 fn inked(text: String, colour: Color, size: f32) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
@@ -91,23 +78,18 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
         .next()
         .map(|first| first.to_uppercase().collect::<String>())
         .unwrap_or_default();
-    let ground = who.paint;
-    let tone = if contrast(theme.palette.gold_1, ground) >= 3.0 {
-        Tone::Body
-    } else {
-        Tone::OnAccent
-    };
-    let face = row((label(letter)
-        .size(size * 0.5)
-        .bold(true)
-        .wrap(false)
-        .tone(tone),))
-    .width(px(size))
-    .height(px(size))
-    .shrink(0.0)
-    .justify(JustifyContent::Center)
-    .align(AlignItems::Center)
-    .fill(who.paint);
+    let ink = contrast::clearer(
+        theme.palette.gold_1,
+        theme.palette.surface,
+        who.paint,
+    );
+    let face = row((inked(letter, ink, size * 0.5),))
+        .width(px(size))
+        .height(px(size))
+        .shrink(0.0)
+        .justify(JustifyContent::Center)
+        .align(AlignItems::Center)
+        .fill(who.paint);
     match who.kind {
         Kind::Agent => face.radius(size / 2.0),
         Kind::Mayor | Kind::Hand => face
@@ -211,7 +193,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
         if line.named && !mine {
             let mut head = vec![inked(
                 who.name.clone(),
-                legible(who.paint, fill(palette), palette.gold_1),
+                contrast::reach(who.paint, &[fill(palette)], TEXT),
                 12.0,
             )];
             if let Some(to) = to {

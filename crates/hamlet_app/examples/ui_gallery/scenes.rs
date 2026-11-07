@@ -20,7 +20,6 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
 use hamlet_app::history::History;
 use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
-use hamlet_assets::Tuning;
 use hamlet_realm::sound::{Cue, SoundSettings};
 use hamlet_ui::theme::{self, HamletTheme};
 
@@ -41,7 +40,7 @@ impl Plugin for GalleryPlugin {
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
         ));
-        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        theme::show(app.world_mut(), HamletTheme::designed());
         app.insert_resource(self.0)
             // No pointer moves here, so a held hover stays held.
             .insert_resource(PickingSettings {

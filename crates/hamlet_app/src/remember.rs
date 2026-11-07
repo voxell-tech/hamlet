@@ -1,11 +1,11 @@
 //! The view kept between launches: the desks, the sky as the Sight
-//! page sets it, and the selection.
+//! page sets it, the look and the selection.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bevy::app::{App, PreUpdate, Update};
+use bevy::app::{App, PreUpdate, Startup, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
+use crate::look::{Look, Pick};
 use crate::roll::Roll;
 use crate::world_menu::Favorites;
 use crate::world_view::{NorthTarget, TimeOfDay};
@@ -48,6 +49,8 @@ pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pending>()
         .init_resource::<Kept>()
         .init_resource::<Favorites>()
+        // Before the first theme is shown.
+        .add_systems(Startup, restore_look)
         .add_systems(
             PreUpdate,
             reselect
@@ -124,6 +127,13 @@ pub struct View {
     /// The models the chief starred.
     #[serde(default)]
     favorite_models: Favorites,
+    /// The look as the chief picked it; none until a pick.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "kept_or_designed"
+    )]
+    look: Option<Pick>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -325,6 +335,16 @@ pub fn restore(world: &mut World) {
     world.insert_resource(view.favorite_models);
 }
 
+/// Puts back the kept look.
+pub(crate) fn restore_look(
+    remembered: Res<Remembered>,
+    mut look: ResMut<Look>,
+) {
+    if let Some(view) = &remembered.0 {
+        look.0.clone_from(&view.look);
+    }
+}
+
 /// The selection, by the names it is kept under.
 #[derive(Resource, Default)]
 pub(crate) struct Kept(Option<Chosen>);
@@ -359,10 +379,11 @@ pub fn keep(
         Res<NorthTarget>,
         Res<Favorites>,
     ),
-    (fog, far, wind): (
+    (fog, far, wind, look): (
         Res<VolumetricFogSettings>,
         Res<DistanceFogSettings>,
         Res<WindChoice>,
+        Res<Look>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -379,6 +400,7 @@ pub fn keep(
         || wind.is_changed()
         || north.is_changed()
         || favorites.is_changed()
+        || look.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -405,6 +427,7 @@ pub fn keep(
         desks: Some(desks.clone()),
         selected: kept.0.clone(),
         favorite_models: favorites.clone(),
+        look: look.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -460,6 +483,7 @@ mod tests {
             desks,
             selected: Some(Chosen::House("juniper".into())),
             favorite_models: Favorites(vec!["faux::faux-1".into()]),
+            look: None,
         }
     }
 
@@ -491,6 +515,8 @@ mod tests {
                 .init_resource::<DockRegistry<HamletTheme>>()
                 .init_resource::<Desks>()
                 .init_resource::<Favorites>()
+                .init_resource::<Look>()
+                .init_resource::<Remembered>()
                 .init_resource::<desk::Shown>()
                 .add_systems(Update, desk::capture)
                 .add_plugins(plugin);

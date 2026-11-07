@@ -16,6 +16,7 @@ pub mod history;
 mod hover;
 pub mod limits;
 pub mod lists;
+mod look;
 mod markdown;
 pub mod menu;
 pub mod models;
@@ -130,6 +131,7 @@ impl Plugin for UiPlugin {
             ),
             (
                 world_view::plugin,
+                look::plugin,
                 world_menu::plugin,
                 hover::plugin,
                 hamlet_ui::plugin,
@@ -221,7 +223,6 @@ mod tests {
         use std::time::Duration;
 
         use bevy_fynix::views::label;
-        use hamlet_assets::Tuning;
         use hamlet_client::Tokio;
         use hamlet_client::connection::Wake;
         use hamlet_client::realm::{first_mayor, hamlet, name_of};
@@ -253,7 +254,7 @@ mod tests {
         .insert_resource(Wake::new(move || {
             let _ = woke.send(());
         }));
-        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        theme::show(app.world_mut(), HamletTheme::designed());
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             label(roll::rolled(|world| {
