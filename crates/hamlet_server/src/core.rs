@@ -1155,7 +1155,7 @@ mod tests {
         let faux = dir.join("faux.json");
         std::fs::write(&faux, script).unwrap();
         let realm =
-            Realm::open(&dir.join("realm"), "nixon", clock::now())
+            Realm::open(&dir.join("realm"), "chief", clock::now())
                 .unwrap();
         let chief_id = realm.chief();
         let env = Env {

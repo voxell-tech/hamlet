@@ -72,7 +72,7 @@ async fn the_hand_makes_a_scholar_founds_a_hamlet_and_hires_into_it()
     assert_eq!(s.chief.hamlet("bog").unwrap().mayor, bo);
     assert_eq!(s.chief.agent("bog#0").unwrap().parent, Some(hand));
     let scholar = s.chief.scholar("bo").unwrap();
-    assert_eq!(scholar.chief, "nixon");
+    assert_eq!(scholar.chief, "chief");
     let papers = s.chief.papers(Keeper::Scholar(scholar.id)).await;
     assert_eq!(papers.character, "Careful.");
 

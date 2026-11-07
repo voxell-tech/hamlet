@@ -3,7 +3,9 @@
 The server keeps one realm, `~/.hamlet` unless `HAMLET_HOME` or
 `hamlet_server --home` selects another folder for it. Use a fresh scratch
 folder for development. `crates/hamlet_server/src/realm.rs` defines `Realm`
-and `layout.rs` defines `Layout`.
+and `layout.rs` defines `Layout`. The server's chief is named by
+`HAMLET_USER`, else the account it runs as (`USER`, `USERNAME` or
+`LOGNAME`), else "chief".
 
 | Path under the realm | Owner and contents |
 |---|---|

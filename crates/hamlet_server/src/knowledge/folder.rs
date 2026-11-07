@@ -252,7 +252,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["memory/notes.md", "skills/a/run.sh"]
         );
-        assert!(listed[1].executable);
+        // Windows keeps no executable bit.
+        if cfg!(unix) {
+            assert!(listed[1].executable);
+        }
         assert_eq!(listed[0].blob, blob_id(b"n"));
         lodge.remove("skills/a/run.sh").unwrap();
         assert!(!dir.join("lodge/skills").exists());

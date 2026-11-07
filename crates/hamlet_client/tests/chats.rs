@@ -140,7 +140,7 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     let said = world.get::<Transcript>(chat).unwrap();
     assert_eq!(said.items().len(), 4);
     assert!(
-        matches!(&said.items()[0].entry, Entry::Chief { name, text } if name == "nixon" && text == "Hello, Hand.")
+        matches!(&said.items()[0].entry, Entry::Chief { name, text } if name == "chief" && text == "Hello, Hand.")
     );
     assert!(
         matches!(&said.items()[1].entry, Entry::Reasoning(text) if text == "I will greet the chief.")

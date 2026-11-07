@@ -28,6 +28,7 @@ pub use server::{
 pub const OVERRIDES: &[&str] = &[
     "HAMLET_SERVER",
     "HAMLET_TOKEN",
+    "HAMLET_USER",
     "HAMLET_MODEL",
     "HAMLET_BASE_URL",
     "HAMLET_API_KEY",

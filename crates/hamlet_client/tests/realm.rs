@@ -35,7 +35,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     assert_eq!(account.summary(), "faux::faux-1, $0.00");
     assert_eq!(activity.doing, Doing::Unknown);
     assert_eq!(world.get::<Lived>(hand).unwrap().until, None);
-    assert_eq!(world.resource::<Chief>().0, "nixon");
+    assert_eq!(world.resource::<Chief>().0, "chief");
     assert_eq!(world.resource::<Confinement>().0, confinement);
     assert_eq!(
         world.resource::<Settings>().0.model,

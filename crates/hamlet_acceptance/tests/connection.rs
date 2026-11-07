@@ -187,7 +187,7 @@ async fn sends_every_connection_the_realms_changes() {
     let late = s.join().await;
     let realm = late.realm();
     assert_eq!(realm.scholars, first.scholars);
-    assert_eq!(realm.chief, "nixon");
+    assert_eq!(realm.chief, "chief");
     let revisions = other
         .messages()
         .iter()

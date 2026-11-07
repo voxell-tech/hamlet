@@ -493,7 +493,7 @@ fn agent_wire() -> Value {
 fn scholar_wire() -> Value {
     json!({
         "id": 1, "name": "founder", "chief": "chief", "since": 0,
-        "arrival": "waiting", "arrivalBy": "nixon", "house": null,
+        "arrival": "waiting", "arrivalBy": "chief", "house": null,
         "skills": ["release"], "versions": [{"at": 5, "name": "v1", "note": "First"}], "hires": [2]
     })
 }

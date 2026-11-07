@@ -27,7 +27,7 @@ impl Realm {
             Store::create(&dir.join("realm.sqlite"), "realm-test", 1)
                 .unwrap();
         let db = store.connection();
-        let chief = chiefs::ensure(db, "nixon", 1).unwrap();
+        let chief = chiefs::ensure(db, "chief", 1).unwrap();
         let mut cx = Change::new(db, 1, Actor::Realm);
         let hand = hand::make(&mut cx, "The Hand.").unwrap();
         Self {

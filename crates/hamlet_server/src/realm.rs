@@ -114,18 +114,18 @@ mod tests {
     fn a_realm_is_made_once_with_its_hand_and_refused_when_broken() {
         let dir = Scratch::new("server-realm-open");
         let at = 1;
-        let mut realm = Realm::open(&dir, "nixon", at).unwrap();
+        let mut realm = Realm::open(&dir, "chief", at).unwrap();
         let db = realm.store().connection();
         let hand = hand::id(db).unwrap();
         assert!(agents::get(db, hand).unwrap().is_living());
         drop(realm);
         assert!(
-            Realm::open(&dir, "nixon", at).is_ok(),
+            Realm::open(&dir, "chief", at).is_ok(),
             "it opens again"
         );
         std::fs::write(dir.join("realm.id"), "another").unwrap();
-        assert!(Realm::open(&dir, "nixon", at).is_err());
+        assert!(Realm::open(&dir, "chief", at).is_err());
         std::fs::remove_file(dir.join("realm.sqlite")).unwrap();
-        assert!(Realm::open(&dir, "nixon", at).is_err());
+        assert!(Realm::open(&dir, "chief", at).is_err());
     }
 }

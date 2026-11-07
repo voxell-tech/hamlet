@@ -33,7 +33,7 @@ async fn founds_a_hamlet_under_a_new_scholar_then_an_existing_one() {
     let realm = s.chief.realm();
     let hamlet = s.chief.hamlet("docs").unwrap();
     assert_eq!(hamlet.mayor, ada);
-    assert_eq!(hamlet.chiefs, ["nixon"]);
+    assert_eq!(hamlet.chiefs, ["chief"]);
     assert_eq!(hamlet.mode, HamletMode::Manual);
     let mayor = s.chief.agent("docs#0").unwrap();
     assert!(mayor.mayor);
@@ -95,7 +95,7 @@ async fn hires_form_a_tree_and_ending_one_can_be_undone() {
     let ended = s.chief.agent("docs#2").unwrap();
     let left = ended.left.unwrap();
     assert_eq!(left.how, LeftHow::Ended);
-    assert_eq!(left.by, "nixon");
+    assert_eq!(left.by, "chief");
     assert_eq!(left.reason, "restructure");
     assert_eq!(s.chief.agent("docs#3").unwrap().parent, Some(ada));
     assert_eq!(s.chief.scholar("bob").unwrap().hires, [bob]);

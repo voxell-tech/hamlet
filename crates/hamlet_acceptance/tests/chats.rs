@@ -34,7 +34,7 @@ async fn the_hand_answers_and_a_second_connection_sees_the_chat() {
         .await;
     let items = s.chief.items(&hand_chat);
     assert_eq!(items[0].kind, ItemKind::User);
-    assert_eq!(items[0].chief.as_deref(), Some("nixon"));
+    assert_eq!(items[0].chief.as_deref(), Some("chief"));
     assert_eq!(items[1].kind, ItemKind::Assistant);
     s.chief.idle("hand").await;
     assert!(s.chief.agent("hand").unwrap().spent.tokens > 0);

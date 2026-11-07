@@ -100,10 +100,10 @@ impl Drop for Published {
     }
 }
 
-/// The name of the account the server runs as, which is its chief's
-/// (C7).
+/// The chief's name (C7): `HAMLET_USER` when set, else the account
+/// the server runs as, else "chief".
 fn chief_name() -> String {
-    ["USER", "USERNAME", "LOGNAME"]
+    ["HAMLET_USER", "USER", "USERNAME", "LOGNAME"]
         .iter()
         .find_map(|name| {
             std::env::var(name).ok().filter(|v| !v.is_empty())
