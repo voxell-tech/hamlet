@@ -273,15 +273,20 @@ A named arrangement of the window's panels. A chief keeps several and shows
 one at a time.
 _Avoid_: workspace, layout
 
-**Look**:
+**Appearance**:
 How a chief has the window's panels drawn: a theme, and light, dark or as
-the computer is. Kept with the window, not the realm.
-_Avoid_: skin, appearance setting
+the computer's color scheme is. Picked on its Settings page and kept with
+the window, not the realm.
+_Avoid_: look, skin
+
+**Color scheme**:
+Whether the computer is set light or dark, as its desktop says.
+_Avoid_: system appearance
 
 **Theme**:
 A family of colours for the panels, one file under `assets/themes/`, with a
 light variant, a dark one or both.
-_Avoid_: skin, color scheme
+_Avoid_: skin
 
 **Variant**:
 A theme's light or dark palette. Lamplight is Hamlet's dark variant.

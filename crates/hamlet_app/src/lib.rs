@@ -3,6 +3,7 @@
 //! state and built from the widgets of `hamlet_ui`.
 
 mod age;
+pub mod appearance;
 pub mod asking;
 mod chief;
 pub mod chrome;
@@ -16,7 +17,6 @@ pub mod history;
 mod hover;
 pub mod limits;
 pub mod lists;
-mod look;
 mod markdown;
 pub mod menu;
 pub mod models;
@@ -132,7 +132,7 @@ impl Plugin for UiPlugin {
             ),
             (
                 world_view::plugin,
-                look::plugin,
+                appearance::plugin,
                 world_menu::plugin,
                 hover::plugin,
                 search::plugin,

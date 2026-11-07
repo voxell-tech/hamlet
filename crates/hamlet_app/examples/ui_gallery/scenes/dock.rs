@@ -99,6 +99,7 @@ pub(super) fn open_settings(
                 | Scene::Charter
                 | Scene::Workspace
                 | Scene::Sight
+                | Scene::Appearance(_)
         )
     {
         return;

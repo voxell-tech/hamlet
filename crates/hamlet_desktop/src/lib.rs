@@ -3,12 +3,12 @@
 //! (`open`), temporary documents watched for saves (`editor`), its
 //! dialog a folder is chosen in (`folder`), the app's icon
 //! (`app_icon`), whether the computer is light or dark
-//! (`appearance`) and the window's drag by its title bar
+//! (`color_scheme`) and the window's drag by its title bar
 //! (`title_bar`).
 
 pub mod app_icon;
-pub mod appearance;
 pub mod awake;
+pub mod color_scheme;
 pub mod editor;
 pub mod folder;
 pub mod open;
@@ -29,7 +29,7 @@ impl Plugin for DesktopPlugin {
         if self.window {
             app.add_plugins((
                 app_icon::plugin,
-                appearance::plugin,
+                color_scheme::plugin,
                 folder::plugin,
                 title_bar::plugin,
             ));

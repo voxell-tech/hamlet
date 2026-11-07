@@ -775,29 +775,48 @@ pub fn crumb_here(text: impl Into<Prop<String>>) -> impl View {
 /// A card that is pressed whole: its border brightens under the
 /// pointer.
 pub fn card_button(cx: &mut Cx) {
-    style::<HamletTheme>()
-        .frame(|f, t| {
-            f.fill(t.palette.card)
-                .border(t.space.border)
-                .border_color(t.palette.gold_6)
-                .radius(t.space.round)
-                .justify(JustifyContent::FlexStart)
-                .align(AlignItems::FlexStart)
-                .padding(UiRect::axes(
-                    px(t.space.card_padding_x),
-                    px(t.space.card_padding_y),
-                ))
-        })
-        .hovered(|s| {
-            s.frame(|f, t| {
-                f.fill(t.palette.card).border_color(t.palette.gold_4)
+    card_choice(false)(cx);
+}
+
+/// A [`card_button`] that is one answer of several, its border lit
+/// while it is the one picked.
+pub fn card_choice(
+    picked: bool,
+) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
+    move |cx| {
+        style::<HamletTheme>()
+            .frame(move |f, t| {
+                f.fill(t.palette.card)
+                    .border(t.space.border)
+                    .border_color(if picked {
+                        t.palette.accent
+                    } else {
+                        t.palette.gold_6
+                    })
+                    .radius(t.space.round)
+                    .justify(JustifyContent::FlexStart)
+                    .align(AlignItems::FlexStart)
+                    .padding(UiRect::axes(
+                        px(t.space.card_padding_x),
+                        px(t.space.card_padding_y),
+                    ))
             })
-        })
-        .pressed(|s| {
-            s.frame(|f, t| {
-                f.fill(t.palette.card).border_color(t.palette.gold_5)
+            .hovered(|s| {
+                s.frame(move |f, t| {
+                    f.fill(t.palette.card).border_color(if picked {
+                        t.palette.accent
+                    } else {
+                        t.palette.gold_4
+                    })
+                })
             })
-        })
-        .transition(Motion::Interact)
-        .apply(cx);
+            .pressed(|s| {
+                s.frame(|f, t| {
+                    f.fill(t.palette.card)
+                        .border_color(t.palette.gold_5)
+                })
+            })
+            .transition(Motion::Interact)
+            .apply(cx);
+    }
 }

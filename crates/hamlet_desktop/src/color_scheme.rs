@@ -24,9 +24,9 @@ const PATIENCE: Duration = Duration::from_millis(500);
 
 pub(crate) fn plugin(app: &mut App) {
     // An answer main inserted before the app stands.
-    app.init_resource::<SystemAppearance>().add_systems(
+    app.init_resource::<ColorScheme>().add_systems(
         Update,
-        tell.run_if(resource_changed::<SystemAppearance>),
+        tell.run_if(resource_changed::<ColorScheme>),
     );
     #[cfg(target_os = "linux")]
     app.add_systems(bevy_app::Startup, portal::listen)
@@ -37,7 +37,7 @@ pub(crate) fn plugin(app: &mut App) {
 
 /// What the computer has said.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum SystemAppearance {
+pub enum ColorScheme {
     /// Asked, no answer yet.
     #[default]
     Asking,
@@ -46,7 +46,7 @@ pub enum SystemAppearance {
     Silent,
 }
 
-impl SystemAppearance {
+impl ColorScheme {
     /// Asks the computer once, before the app is built, so the first
     /// frame is right. Asking where only the window can answer.
     pub async fn ask() -> Self {
@@ -59,13 +59,13 @@ impl SystemAppearance {
     }
 }
 
-fn tell(said: Res<SystemAppearance>) {
+fn tell(said: Res<ColorScheme>) {
     match *said {
-        SystemAppearance::Asking => {}
-        SystemAppearance::Says(theme) => {
+        ColorScheme::Asking => {}
+        ColorScheme::Says(theme) => {
             info!("The computer is {theme:?}");
         }
-        SystemAppearance::Silent => {
+        ColorScheme::Silent => {
             info!(
                 "The computer does not say whether it is light or \
                  dark"
@@ -81,28 +81,24 @@ fn tell(said: Res<SystemAppearance>) {
 fn hear(
     window: Query<&Window, With<PrimaryWindow>>,
     mut changed: MessageReader<WindowThemeChanged>,
-    mut said: ResMut<SystemAppearance>,
+    mut said: ResMut<ColorScheme>,
 ) {
     if let Some(change) = changed.read().last() {
-        said.set_if_neq(SystemAppearance::Says(change.theme));
-    } else if !matches!(*said, SystemAppearance::Says(_))
+        said.set_if_neq(ColorScheme::Says(change.theme));
+    } else if !matches!(*said, ColorScheme::Says(_))
         && let Ok(window) = window.single()
         && let Some(theme) = window.window_theme
     {
-        *said = SystemAppearance::Says(theme);
+        *said = ColorScheme::Says(theme);
     }
 }
 
 /// Asking becomes Silent after `PATIENCE`. A later answer still comes
 /// in through `hear`.
 #[cfg(not(target_os = "linux"))]
-fn give_up(
-    time: Res<Time<Real>>,
-    mut said: ResMut<SystemAppearance>,
-) {
-    if *said == SystemAppearance::Asking && time.elapsed() >= PATIENCE
-    {
-        *said = SystemAppearance::Silent;
+fn give_up(time: Res<Time<Real>>, mut said: ResMut<ColorScheme>) {
+    if *said == ColorScheme::Asking && time.elapsed() >= PATIENCE {
+        *said = ColorScheme::Silent;
     }
 }
 
@@ -118,26 +114,26 @@ mod portal {
     use tokio::sync::watch;
     use zbus::{Connection, OwnedVariant, Proxy, Variant};
 
-    use super::SystemAppearance;
+    use super::ColorScheme;
 
     const NAMESPACE: &str = "org.freedesktop.appearance";
     const KEY: &str = "color-scheme";
 
     /// The latest the portal said, sent by the listening task.
     #[derive(Resource)]
-    pub(super) struct Heard(watch::Receiver<SystemAppearance>);
+    pub(super) struct Heard(watch::Receiver<ColorScheme>);
 
-    pub(super) async fn read() -> SystemAppearance {
+    pub(super) async fn read() -> ColorScheme {
         match settings().await {
             Ok(settings) => scheme(&settings).await,
-            Err(_) => SystemAppearance::Silent,
+            Err(_) => ColorScheme::Silent,
         }
     }
 
     /// Spawns the task that hears each change of the scheme.
     pub(super) fn listen(
         tokio: Option<Res<Tokio>>,
-        said: Res<SystemAppearance>,
+        said: Res<ColorScheme>,
         mut commands: Commands,
     ) {
         let Some(tokio) = tokio else {
@@ -160,7 +156,7 @@ mod portal {
             };
             // Read again for a change made before the subscription.
             // Only an answer counts: a failed read keeps main's.
-            if let said @ SystemAppearance::Says(_) =
+            if let said @ ColorScheme::Says(_) =
                 scheme(&settings).await
             {
                 tx.send_replace(said);
@@ -172,7 +168,7 @@ mod portal {
                 else {
                     continue;
                 };
-                if tx.send(appearance(&value)).is_err() {
+                if tx.send(color_scheme(&value)).is_err() {
                     return;
                 }
             }
@@ -181,7 +177,7 @@ mod portal {
 
     pub(super) fn hear(
         heard: Option<ResMut<Heard>>,
-        mut said: ResMut<SystemAppearance>,
+        mut said: ResMut<ColorScheme>,
     ) {
         if let Some(mut heard) = heard
             && heard.0.has_changed().unwrap_or(false)
@@ -200,7 +196,7 @@ mod portal {
         .await
     }
 
-    async fn scheme(settings: &Proxy<'_>) -> SystemAppearance {
+    async fn scheme(settings: &Proxy<'_>) -> ColorScheme {
         let key = (NAMESPACE, KEY);
         let value = match settings
             .call::<_, _, OwnedVariant>("ReadOne", &key)
@@ -210,25 +206,23 @@ mod portal {
             // Portals before version 2 have only Read.
             Err(_) => match settings.call("Read", &key).await {
                 Ok(value) => value,
-                Err(_) => return SystemAppearance::Silent,
+                Err(_) => return ColorScheme::Silent,
             },
         };
-        appearance(&value)
+        color_scheme(&value)
     }
 
     /// 1 is dark and 2 light. 0, no preference, is light, as GNOME's
     /// default style reports it.
-    fn appearance(value: &Variant<'_>) -> SystemAppearance {
+    fn color_scheme(value: &Variant<'_>) -> ColorScheme {
         match value {
             // Read wraps the value in one more variant.
-            Variant::Variant(inner) => appearance(inner),
-            Variant::U32(1) => {
-                SystemAppearance::Says(WindowTheme::Dark)
-            }
+            Variant::Variant(inner) => color_scheme(inner),
+            Variant::U32(1) => ColorScheme::Says(WindowTheme::Dark),
             Variant::U32(0 | 2) => {
-                SystemAppearance::Says(WindowTheme::Light)
+                ColorScheme::Says(WindowTheme::Light)
             }
-            _ => SystemAppearance::Silent,
+            _ => ColorScheme::Silent,
         }
     }
 }

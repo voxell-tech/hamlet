@@ -15,13 +15,16 @@ use bevy::ecs::world::World;
 use bevy::image::Image;
 use bevy::math::Rect;
 use bevy::picking::PickingSettings;
+use bevy::window::WindowTheme;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
+use hamlet_app::appearance::Appearance;
 use hamlet_app::history::History;
 use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
+use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_realm::sound::{Cue, SoundSettings};
-use hamlet_ui::theme::{self, HamletTheme};
+use hamlet_ui::theme::{self, HamletTheme, Themes};
 
 use self::dock::{open_settings, panels, seed_dock};
 use self::sample::{first_run, setup};
@@ -66,6 +69,9 @@ impl Plugin for GalleryPlugin {
             .init_resource::<menu::OpenMenu>()
             .insert_resource(first_run(self.0))
             .init_resource::<chrome::ChromeSettings>()
+            .insert_resource(Themes::shipped())
+            .init_resource::<ColorScheme>()
+            .init_resource::<Appearance>()
             .add_message::<Cue>()
             // `theme::plugin` owns it; the gallery sets its theme by
             // hand instead.
@@ -177,6 +183,9 @@ pub enum Scene {
     Workspace,
     /// The Settings panel at its Sight page, with its dials.
     Sight,
+    /// The Settings panel at its Appearance page, the computer and
+    /// the panels light or dark.
+    Appearance(WindowTheme),
     /// Every icon, at each size it is drawn for.
     Icons,
     /// The panels with the HAMLET menu open.

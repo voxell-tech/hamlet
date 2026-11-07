@@ -37,8 +37,9 @@ In `hamlet_ui/src/`:
   `assets/measures.toml`. `theme/themes.rs` reads the families, and
   `theme/contrast.rs` measures how well one colour reads on another.
   The panels are built once the first theme is shown.
-- `hamlet_app/src/look.rs` picks the theme to show from the chief's
-  look and the computer's light or dark.
+- `hamlet_app/src/appearance.rs` picks the theme to show from the
+  chief's appearance and the computer's color scheme. The Appearance
+  page of Settings is `screens/settings/appearance.rs`.
 - `styles.rs` holds the styles of each kind of button and field.
 - `widgets/effects/` holds the behaviour: a control's warmth, press, flame and
   sparks, the light that falls into a panel and the light its tab

@@ -1,13 +1,19 @@
-//! The settings, charter, workspace and sight gallery scenes.
+//! The settings, charter, workspace, sight and appearance gallery
+//! scenes.
 
 use bevy::ecs::world::World;
 use hamlet_app::settings;
+use hamlet_assets::Tuning;
 use hamlet_client::realm::Settings;
+use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::sky::{
     DistanceFogSettings, SkySettings, VolumetricFogSettings,
 };
 use hamlet_realm::{North, Sky};
+use hamlet_ui::theme::{
+    self, HamletTheme, Measures, ThemeId, Themes,
+};
 use hamlet_vfx::wind::WindChoice;
 
 use crate::scenes::Scene;
@@ -20,6 +26,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Charter
             | Scene::Workspace
             | Scene::Sight
+            | Scene::Appearance(_)
     ) {
         return;
     }
@@ -62,5 +69,21 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.init_resource::<WindChoice>();
         world.insert_resource(North(30.0));
         world.insert_resource(settings::Pane::Sight);
+    }
+    if let Scene::Appearance(shade) = scene {
+        // The computer's, which the panels follow by default.
+        world.insert_resource(ColorScheme::Says(shade));
+        let themes = world.resource::<Themes>();
+        let palette = themes
+            .get(&ThemeId::default())
+            .variants
+            .get(shade)
+            .palette
+            .clone();
+        theme::show(
+            world,
+            HamletTheme::new(palette, &Measures::designed()),
+        );
+        world.insert_resource(settings::Pane::Appearance);
     }
 }

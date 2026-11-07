@@ -20,6 +20,7 @@ use std::time::Duration;
 use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use bevy::window::WindowTheme;
 use hamlet_app::pictures::Pictures;
 use hamlet_app::welcome::Step;
 
@@ -41,7 +42,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 38] = [
+const SHOTS: [Shot; 40] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -213,6 +214,18 @@ const SHOTS: [Shot; 38] = [
     Shot {
         name: "sight",
         scene: Scene::Sight,
+        size: UVec2::new(1440, 1100),
+        scale: 1.0,
+    },
+    Shot {
+        name: "appearance",
+        scene: Scene::Appearance(WindowTheme::Dark),
+        size: UVec2::new(1440, 1100),
+        scale: 1.0,
+    },
+    Shot {
+        name: "appearance-light",
+        scene: Scene::Appearance(WindowTheme::Light),
         size: UVec2::new(1440, 1100),
         scale: 1.0,
     },

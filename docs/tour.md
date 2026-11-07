@@ -103,7 +103,7 @@ now.
 state; the other panels live beside that folder, and `tuning.rs` loads
 their sizes and limits from `assets/ui.toml`. They are built from
 `hamlet_ui`, which reads no client state: `theme.rs` and `styles.rs`
-define the appearance, and `widgets/` holds the shared controls:
+define how the panels look, and `widgets/` holds the shared controls:
 `effects/`, `icons.rs`, `tabs.rs` and `platform.rs`. `markdown/` parses
 Markdown and draws it. A control asks for a sound with `ControlSound`
 and lights its panel from `Attention`; the app plays the one and keeps
@@ -245,7 +245,7 @@ built-in ones.
 | The city: the Hand's tower, scholars' houses, newcomers | `hamlet_realm/src/city.rs`, `city/`; the spots in `hamlet_server/src/society/city.rs` |
 | The piers, boats and the sea route | `hamlet_realm/src/harbor.rs`, `harbor/` |
 | What things are called in the world | `pick::Names` in `hamlet_realm/src/pick.rs`, the signs in `pick/signs.rs` |
-| Panels' colors, sizes, controls and icons | `assets/themes/`, `measures.toml`, `effects.toml`; `hamlet_app/src/look.rs`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
+| Panels' colors, sizes, controls and icons | `assets/themes/`, `measures.toml`, `effects.toml`; `hamlet_app/src/appearance.rs`, `screens/settings/appearance.rs`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
 | Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |

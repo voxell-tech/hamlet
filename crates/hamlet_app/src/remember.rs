@@ -1,5 +1,5 @@
 //! The view kept between launches: the desks, the sky as the Sight
-//! page sets it, the look and the selection.
+//! page sets it, the appearance and the selection.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -29,9 +29,9 @@ use hamlet_vfx::wind::WindChoice;
 use serde::{Deserialize, Serialize};
 
 use crate::PanelSystems;
+use crate::appearance::{Appearance, Pick};
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
-use crate::look::{Look, Pick};
 use crate::roll::Roll;
 use crate::world_menu::Favorites;
 use crate::world_view::{NorthTarget, TimeOfDay};
@@ -50,7 +50,7 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Kept>()
         .init_resource::<Favorites>()
         // Before the first theme is shown.
-        .add_systems(Startup, restore_look)
+        .add_systems(Startup, restore_appearance)
         .add_systems(
             PreUpdate,
             reselect
@@ -127,13 +127,13 @@ pub struct View {
     /// The models the chief starred.
     #[serde(default)]
     favorite_models: Favorites,
-    /// The look as the chief picked it; none until a pick.
+    /// The appearance as the chief picked it; none until a pick.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "kept_or_designed"
     )]
-    look: Option<Pick>,
+    appearance: Option<Pick>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -335,13 +335,13 @@ pub fn restore(world: &mut World) {
     world.insert_resource(view.favorite_models);
 }
 
-/// Puts back the kept look.
-pub(crate) fn restore_look(
+/// Puts back the kept appearance.
+pub(crate) fn restore_appearance(
     remembered: Res<Remembered>,
-    mut look: ResMut<Look>,
+    mut appearance: ResMut<Appearance>,
 ) {
     if let Some(view) = &remembered.0 {
-        look.0.clone_from(&view.look);
+        appearance.0.clone_from(&view.appearance);
     }
 }
 
@@ -379,11 +379,11 @@ pub fn keep(
         Res<NorthTarget>,
         Res<Favorites>,
     ),
-    (fog, far, wind, look): (
+    (fog, far, wind, appearance): (
         Res<VolumetricFogSettings>,
         Res<DistanceFogSettings>,
         Res<WindChoice>,
-        Res<Look>,
+        Res<Appearance>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -400,7 +400,7 @@ pub fn keep(
         || wind.is_changed()
         || north.is_changed()
         || favorites.is_changed()
-        || look.is_changed()
+        || appearance.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -427,7 +427,7 @@ pub fn keep(
         desks: Some(desks.clone()),
         selected: kept.0.clone(),
         favorite_models: favorites.clone(),
-        look: look.0.clone(),
+        appearance: appearance.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -483,7 +483,7 @@ mod tests {
             desks,
             selected: Some(Chosen::House("juniper".into())),
             favorite_models: Favorites(vec!["faux::faux-1".into()]),
-            look: None,
+            appearance: None,
         }
     }
 
@@ -492,34 +492,13 @@ mod tests {
         use bevy_fynix::ViewExt;
         use bevy_fynix::dock::DockWindowKind;
         use bevy_fynix::views::column;
-        use hamlet_client::ViewFolder;
         use hamlet_testing::Scratch;
 
         let dir = Scratch::new("view-dock");
         let make = || {
             let mut app = App::new();
-            app.insert_resource(ViewFolder(dir.join("view")))
-                .init_resource::<Time>()
-                .init_resource::<Selected>()
-                .init_resource::<Roll>()
-                .init_resource::<DockTree>()
-                .init_resource::<TimeOfDay>()
-                .init_resource::<SoundSettings>()
-                .init_resource::<Quality>()
-                .init_resource::<VolumetricFogSettings>()
-                .init_resource::<DistanceFogSettings>()
-                .init_resource::<WindChoice>()
-                .init_resource::<North>()
-                .init_resource::<NorthTarget>()
-                .init_resource::<KeepAwake>()
-                .init_resource::<DockRegistry<HamletTheme>>()
-                .init_resource::<Desks>()
-                .init_resource::<Favorites>()
-                .init_resource::<Look>()
-                .init_resource::<Remembered>()
-                .init_resource::<desk::Shown>()
-                .add_systems(Update, desk::capture)
-                .add_plugins(plugin);
+            app.init_resource::<Time>();
+            crate::testing::keeping(&mut app, dir.join("view"));
             for name in ["world", "needs", "hub", "settings"] {
                 app.world_mut()
                     .resource_mut::<DockRegistry<HamletTheme>>()
@@ -588,6 +567,23 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["hub", "settings"]
         );
+    }
+
+    #[test]
+    fn a_window_that_never_picked_its_appearance_keeps_none() {
+        let dir = hamlet_testing::Scratch::new("view-unpicked");
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        crate::testing::keeping(&mut app, dir.join("view"));
+        app.update();
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.update();
+        let kept =
+            std::fs::read_to_string(dir.join("view/view.toml"))
+                .unwrap();
+        assert!(!kept.contains("appearance"), "{kept}");
     }
 
     #[test]

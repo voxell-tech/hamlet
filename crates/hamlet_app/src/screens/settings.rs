@@ -1,6 +1,7 @@
 //! The settings screen: a front page of its parts, each on a page
 //! of its own.
 
+mod appearance;
 mod sight;
 mod workspace;
 
@@ -15,8 +16,8 @@ use bevy::ui::{AlignItems, Overflow, OverflowAxis, percent, px};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    FrameProps, TooltipExt, column, dropdown, frame, label,
-    number_field, row, scroll, slider,
+    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
+    label, number_field, row, scroll, slider,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::messages::{Reconnected, Response};
@@ -37,6 +38,7 @@ use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use crate::dock::{PanelAppExt, panel};
+use crate::root::Lasting;
 use crate::world_menu::{self, Deed};
 
 pub fn plugin(app: &mut App) {
@@ -89,10 +91,12 @@ pub enum Pane {
     Sound,
     /// How the world is drawn: quality, the hour and the fog.
     Sight,
+    /// Light or dark, and the theme of the panels.
+    Appearance,
 }
 
 impl Pane {
-    const PAGES: [Pane; 8] = [
+    const PAGES: [Pane; 9] = [
         Pane::Endpoints,
         Pane::Models,
         Pane::Agents,
@@ -101,6 +105,7 @@ impl Pane {
         Pane::Realm,
         Pane::Sound,
         Pane::Sight,
+        Pane::Appearance,
     ];
 
     fn title(self) -> &'static str {
@@ -114,6 +119,7 @@ impl Pane {
             Pane::Realm => "Realm",
             Pane::Sound => "Sound",
             Pane::Sight => "Sight",
+            Pane::Appearance => "Appearance",
         }
     }
 
@@ -128,6 +134,7 @@ impl Pane {
             Pane::Realm => Glyph::Signpost,
             Pane::Sound => Glyph::Bell,
             Pane::Sight => Glyph::Sun,
+            Pane::Appearance => Glyph::Eye,
         }
     }
 
@@ -151,6 +158,9 @@ impl Pane {
             Pane::Realm => "Limits that apply to every hamlet.",
             Pane::Sound => "Sound, music and the land's noises.",
             Pane::Sight => "Quality, the time of day and the fog.",
+            Pane::Appearance => {
+                "Light or dark, and the colours of the panels."
+            }
         }
     }
 }
@@ -790,6 +800,7 @@ pub fn screen() -> AnyView {
             Pane::Charter => with_cx(charter_page).boxed(),
             Pane::Realm => crate::limits::realm().boxed(),
             Pane::Sight => sight::page().boxed(),
+            Pane::Appearance => appearance::page().boxed(),
             Pane::Front | Pane::Sound => sound().boxed(),
         };
         let head = breadcrumb(
@@ -808,10 +819,15 @@ pub fn screen() -> AnyView {
             page.within(column(()).gap(0.0).max_width(px(width)));
         // It scrolls down only: a page is laid out to the panel's
         // width.
-        cx.build(scroll((page,)).fills_height().overflow(Overflow {
-            x: OverflowAxis::Clip,
-            y: OverflowAxis::Scroll,
-        }))
+        cx.build(
+            scroll((page,))
+                .fills_height()
+                .overflow(Overflow {
+                    x: OverflowAxis::Clip,
+                    y: OverflowAxis::Scroll,
+                })
+                .tagged(Lasting("settings".into())),
+        )
     })
 }
 
