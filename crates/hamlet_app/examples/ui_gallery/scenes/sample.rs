@@ -104,6 +104,7 @@ pub(super) fn setup(world: &mut World) {
         world.insert_resource(Selected(Some(Thing::ChiefPlace(
             chief,
         ))));
+        world.insert_resource(hamlet_app::hub::Showing::Chief(chief));
     }
 }
 
