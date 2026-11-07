@@ -15,7 +15,7 @@ use bevy_fynix::views::{
     frame, icon, label, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+    ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
 };
 use hamlet_client::realm::{
     Activity, Busy, Kind, Left, LivesIn, Parent, PeerChats, Works,
@@ -29,12 +29,13 @@ use hamlet_ui::styles::{
     crumb_here, crumb_slash, crumbs, danger_button, filling,
     hairline, note, primary_button, scroll_area,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
-use hamlet_ui::{AnyView, View, built, with_cx};
+use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{Showing, conversations, details, show};
 use crate::convo::Convo;
@@ -378,7 +379,7 @@ fn waits(agent: Entity) -> impl View {
                 .iter()
                 .copied()
                 .map(|wait| {
-                    AnyView::new(move |cx: &mut hamlet_ui::Cx| {
+                    AnyView::new(move |cx: &mut Cx| {
                         match cx.world.get::<Waiting>(wait) {
                             Some(waiting) => {
                                 let need = Need::of(wait, waiting);
@@ -509,7 +510,7 @@ fn model_chip(agent: Entity) -> impl View {
                 .align(AlignItems::Center),
             )
             .padding(UiRect::axes(px(8.0), px(0.0)))
-            .rules(choice(*open))
+            .rules(chip_look(*open))
             .tagged(Variant::Text)
             .tagged(world_menu::Hook::Chip)
             .on_activate(move |world| {
@@ -519,6 +520,19 @@ fn model_chip(agent: Entity) -> impl View {
         },
     )
     .within(bare())
+}
+
+/// The look of a chip of the composer: a choice, outlined at rest so
+/// it reads as one.
+fn chip_look(open: bool) -> impl FnOnce(&mut Cx) {
+    move |cx| {
+        choice(open)(cx);
+        if !open {
+            style::<HamletTheme>()
+                .frame(|f, t| f.border_color(t.palette.gold_6))
+                .apply(cx);
+        }
+    }
 }
 
 /// The chip of the hamlet's mode, which a press turns over.
@@ -534,8 +548,10 @@ fn mode_chip(agent: Entity) -> impl View {
                 return frame().boxed();
             };
             let words = match mode {
-                hamlet_client::realm::Mode::Manual => "Manual",
-                hamlet_client::realm::Mode::Auto => "Auto",
+                hamlet_client::realm::Mode::Manual => {
+                    "Approvals: Manual"
+                }
+                hamlet_client::realm::Mode::Auto => "Approvals: Auto",
             };
             button(
                 row((
@@ -546,7 +562,7 @@ fn mode_chip(agent: Entity) -> impl View {
                 .align(AlignItems::Center),
             )
             .padding(UiRect::axes(px(8.0), px(0.0)))
-            .rules(choice(false))
+            .rules(chip_look(false))
             .tagged(Variant::Text)
             .tooltip(|| {
                 note(
@@ -995,10 +1011,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            living(),
-        );
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), living());
         app.update();
         assert!(words(&mut app).iter().any(
             |text| text == "Reading the received orchard ledger"
@@ -1047,7 +1060,7 @@ mod tests {
         .insert_resource(Showing::Thread)
         .insert_resource(Sheet::Details);
         app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             crate::hub::screen(),
         );

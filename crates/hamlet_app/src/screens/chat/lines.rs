@@ -36,7 +36,7 @@ use hamlet_ui::styles::{Fills, lettered, note, small_rules};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{View, with_cx};
 
-use super::entry::entry_view;
+use super::entry::{edit_view, entry_view};
 use super::timeline::{Line, People, Who, timeline};
 use super::{AwayFromEnd, ChatScroll, bubble};
 use crate::convo::Convo;
@@ -210,6 +210,10 @@ pub(super) fn rows(
 /// and how far from that line its steps are.
 const GUIDE: f32 = 5.0;
 
+/// How far in from a fold's edge its chevron is, as a bubble's words
+/// are from its edge.
+pub(super) const INSET: f32 = 10.0;
+
 /// The steps of a turn as one line that opens, as board `B` holds
 /// them.
 pub(super) fn fold_view<B: Board>(
@@ -253,6 +257,7 @@ pub(super) fn fold_view<B: Board>(
         .gap(6.0)
         .align(AlignItems::Center),
     )
+    .padding(UiRect::axes(px(INSET), px(4.0)))
     .rules(ghost)
     .on_activate(move |world| {
         let unfolded = &mut world.resource_mut::<Unfolded>().0;
@@ -264,6 +269,7 @@ pub(super) fn fold_view<B: Board>(
             None => unfolded.push(fold),
         }
     });
+    let kept_key = key.clone();
     let inside = each(
         resource::<B, _>(move |b| b.lines().shown(&key)),
         |id: &String| id.clone(),
@@ -274,8 +280,8 @@ pub(super) fn fold_view<B: Board>(
     .within(
         column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
     );
-    // A line down from the chevron holds what is shown inside, open
-    // or shut, under its heading.
+    // A line down from the chevron holds what is shown inside, under
+    // its heading.
     let inside = with_cx(move |cx| {
         let guide = frame()
             .width(px(1.0))
@@ -288,7 +294,15 @@ pub(super) fn fold_view<B: Board>(
             .width(percent(100.0))
             .min_width(px(0.0))
     });
-    column((head, inside))
+    let kept = each(
+        resource::<B, _>(move |b| b.lines().kept(&kept_key)),
+        |id: &String| id.clone(),
+        move |id| edit_view(session, id.clone()),
+    )
+    .within(
+        column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
+    );
+    column((head, inside, kept))
         .gap(4.0)
         .align(AlignItems::FlexStart)
         .width(percent(100.0))
@@ -451,14 +465,13 @@ impl Lines {
     }
 
     /// Whether a fold is open, or nothing when it has nothing to
-    /// open, as a fold of another agent's work alone.
+    /// open: as a fold of another agent's work alone, or of edits
+    /// alone, which are shown shut.
     fn is_open(&self, key: &RowKey) -> Option<bool> {
         match self.fold(key) {
-            Some(Row::Fold { steps, open, .. })
-                if !steps.is_empty() =>
-            {
-                Some(*open)
-            }
+            Some(Row::Fold {
+                steps, edits, open, ..
+            }) if steps.len() > edits.len() => Some(*open),
             _ => None,
         }
     }
@@ -471,14 +484,23 @@ impl Lines {
         }
     }
 
-    /// The steps of a fold that is open, and the edits of one that
-    /// is shut.
+    /// The steps of a fold that is open.
     fn shown(&self, key: &RowKey) -> Vec<String> {
-        match self.fold(key) {
-            Some(Row::Fold {
-                steps, open: true, ..
-            }) => steps.clone(),
-            Some(Row::Fold { edits, .. }) => edits.clone(),
+        match (self.fold(key), self.is_open(key)) {
+            (Some(Row::Fold { steps, .. }), Some(true)) => {
+                steps.clone()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The edits of a fold that is shut, which stand under its
+    /// heading as their own cards.
+    fn kept(&self, key: &RowKey) -> Vec<String> {
+        match (self.fold(key), self.is_open(key)) {
+            (Some(Row::Fold { edits, .. }), None | Some(false)) => {
+                edits.clone()
+            }
             _ => Vec::new(),
         }
     }

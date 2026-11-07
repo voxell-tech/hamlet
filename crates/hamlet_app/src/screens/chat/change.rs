@@ -12,19 +12,22 @@ use bevy::text::{
 use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, ghost, label, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, ghost,
+    label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_protocol::client::{
     Change, ChangeLines as Line, ChangeLinesMark as Mark,
 };
-use hamlet_ui::styles::{Fills, bare, note, small_rules};
+use hamlet_ui::styles::{bare, note, small_rules};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::{Mono, MonoText};
-use hamlet_ui::{AnyView, Cx, View};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
+use super::bubble::inked;
 use super::entry::{Underway, state};
+use super::lines::INSET;
 
 /// The tuning of the chat.
 #[derive(Resource, Clone, PartialEq, serde::Deserialize)]
@@ -146,11 +149,7 @@ fn block(lines: &[Line]) -> AnyView {
 }
 
 /// The size of a change's lines.
-const SIZE: f32 = 12.5;
-
-/// The room at the left of what is under a change's head, which
-/// sets it under the name of its file.
-const INSET: f32 = 12.0;
+const SIZE: f32 = 13.0;
 
 /// The lines of `change` on their plate, the first `most` of them,
 /// with a count of the rest.
@@ -178,6 +177,41 @@ fn plate(
         .border(1.0)
         .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
+}
+
+/// The lines a change adds in green and takes out in red, its count
+/// in words under the pointer; the words alone when it changed none.
+fn counted(change: &Change) -> AnyView {
+    let words = change.count.clone();
+    if change.added == 0 && change.removed == 0 {
+        return note(words).boxed();
+    }
+    let (added, removed) = (change.added, change.removed);
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let size = theme.text.small;
+        let mut parts = Vec::new();
+        if added > 0 {
+            parts.push(inked(
+                format!("+{added}"),
+                theme.palette.green,
+                size,
+            ));
+        }
+        if removed > 0 {
+            parts.push(inked(
+                format!("-{removed}"),
+                theme.tone(Tone::Critical),
+                size,
+            ));
+        }
+        let words = words.clone();
+        row(parts)
+            .gap(6.0)
+            .shrink(0.0)
+            .tooltip(move || note(words.clone()))
+    })
+    .boxed()
 }
 
 /// The end of a tool call's entry, and the words for an edit that
@@ -236,6 +270,7 @@ pub(crate) fn change_view(
         .gap(6.0)
         .align(AlignItems::Center),
     )
+    .padding(UiRect::axes(px(INSET), px(4.0)))
     .rules(ghost)
     .on_activate(move |world| {
         flip(
@@ -255,8 +290,9 @@ pub(crate) fn change_view(
                 .unwrap_or_else(|| label(path.clone()).boxed())
         },
     )
-    .within(bare().fills_width().min_width(px(0.0)));
-    let mut parts = vec![fold.boxed(), file.boxed()];
+    .within(bare().shrink(1.0).min_width(px(0.0)));
+    let mut parts =
+        vec![fold.boxed(), file.boxed(), counted(&change)];
     // A held call's card says that it waits, so its head does not.
     if underway == Underway::Running {
         parts.push(state(session, id).boxed());
@@ -291,7 +327,7 @@ pub(crate) fn change_view(
         },
     );
     let body = keyed(drawn, move |(extent, refused)| {
-        let mut parts = vec![note(change.count.clone()).boxed()];
+        let mut parts = Vec::new();
         if let Some(refused) = refused {
             parts.push(
                 label(refused.clone())
@@ -303,10 +339,7 @@ pub(crate) fn change_view(
         if *extent != Extent::Shut && !change.lines.is_empty() {
             parts.push(lines_view(key.clone(), &change, *extent));
         }
-        column(parts)
-            .gap(4.0)
-            .padding(UiRect::left(px(INSET)))
-            .boxed()
+        column(parts).gap(4.0).boxed()
     })
     .within(bare());
     column((head, body)).gap(2.0).width(percent(100.0)).boxed()

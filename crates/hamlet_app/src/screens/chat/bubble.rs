@@ -55,7 +55,11 @@ const RESERVE: &str =
     "\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}";
 
 /// A line of text in a colour that is not one of the theme's tones.
-fn inked(text: String, colour: Color, size: f32) -> AnyView {
+pub(super) fn inked(
+    text: String,
+    colour: Color,
+    size: f32,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let node =
             cx.build(label(text).size(size).bold(true).wrap(false));
@@ -349,11 +353,12 @@ fn said<B: Board>(
             .max_width(percent(100.0))
             .fill(fill(palette))
             .border(1.0)
-            .border_color(if mine {
-                palette.gold_6
-            } else {
-                palette.border
-            })
+            .border_color(rewind::ringed(
+                session,
+                id.clone(),
+                if mine { palette.gold_6 } else { palette.border },
+                palette.accent,
+            ))
             .corners({
                 let tail = px(if line.named { TAIL } else { ROUND });
                 let round = BorderRadius::all(px(ROUND));
@@ -387,7 +392,9 @@ fn said<B: Board>(
                 ),
                 false => (frame().boxed(), 0.0),
             };
-            row((replying, mark, bubble))
+            let marks = row((replying, mark))
+                .rules(rewind::hiding(session, id.clone()));
+            row((marks, bubble))
                 .gap(0.0)
                 .justify(JustifyContent::FlexEnd)
                 .padding(UiRect::new(

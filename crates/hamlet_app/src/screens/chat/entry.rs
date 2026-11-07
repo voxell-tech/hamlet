@@ -292,6 +292,33 @@ fn request(summary: &str) -> String {
     }
 }
 
+/// The change of the edit at entry `id` of `session`, at the edge of
+/// what holds it.
+pub(super) fn edit_view(session: Entity, id: String) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let change = cx
+            .world
+            .get::<Transcript>(session)
+            .and_then(|t| t.item(&id))
+            .and_then(|item| match &item.entry {
+                Entry::Tool {
+                    change: Some(change),
+                    ..
+                } => Some(change.clone()),
+                _ => None,
+            });
+        match change {
+            Some(change) => cx.build(change_view(
+                session,
+                id,
+                change,
+                Underway::Running,
+            )),
+            None => cx.build(frame()),
+        }
+    })
+}
+
 pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let kind = cx

@@ -883,6 +883,14 @@ fn models(agent: Entity, search: String) -> impl View {
                 Some(Side::Provider(_)) => Detail::Mark,
                 _ => Detail::Source,
             };
+            // A search runs over every provider, whichever is
+            // chosen down the side.
+            let over = match side {
+                None => column((note("From every provider"),))
+                    .padding(UiRect::horizontal(px(8.0)))
+                    .boxed(),
+                Some(_) => frame().boxed(),
+            };
             let rows = models
                 .iter()
                 .map(|name| {
@@ -908,7 +916,10 @@ fn models(agent: Entity, search: String) -> impl View {
                     )
                 })
                 .collect::<Vec<_>>();
-            column(rows).gap(2.0).width(percent(100.0)).boxed()
+            column((over, column(rows).gap(2.0)))
+                .gap(4.0)
+                .width(percent(100.0))
+                .boxed()
         },
     )
     .within(column(()).width(percent(100.0)));
@@ -963,8 +974,11 @@ fn reasoning(agent: Entity) -> impl View {
                     .bold(true)
                     .wrap(false)
                     .rules(small_rules),
-                one_line(label(model_name(&now.model).to_string()))
-                    .rules(hamlet_ui::styles::note_rules),
+                one_line(label(format!(
+                    "for {}",
+                    model_name(&now.model)
+                )))
+                .rules(hamlet_ui::styles::note_rules),
             ))
             .gap(1.0)
             .padding(UiRect::axes(px(8.0), px(4.0)));
@@ -1003,7 +1017,6 @@ fn reasoning(agent: Entity) -> impl View {
                         row((
                             radio(on == Some(effort)),
                             label(words(effort)).wrap(false),
-                            frame().grow(1.0),
                             tag,
                         ))
                         .gap(8.0)
@@ -1153,14 +1166,10 @@ pub(super) fn picker(agent: Entity) -> impl View {
                 rail(),
                 models(agent, search),
                 upright(),
-                column((
-                    reasoning(agent),
-                    frame().grow(1.0),
-                    tier(agent),
-                ))
-                .gap(GAP)
-                .width(px(LEVELS))
-                .shrink(0.0),
+                column((reasoning(agent), tier(agent)))
+                    .gap(GAP)
+                    .width(px(LEVELS))
+                    .shrink(0.0),
             ))
             .gap(GAP)
             .align(AlignItems::Stretch)

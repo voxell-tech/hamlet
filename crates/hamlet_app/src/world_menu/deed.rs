@@ -20,9 +20,7 @@ use hamlet_client::realm::{
     self as agents, AgentNumber, Busy, Deeds, HamletId, Left, LivesIn,
 };
 use hamlet_realm::orders;
-use hamlet_ui::styles::{
-    button, danger_button, description, lettered,
-};
+use hamlet_ui::styles::{button, danger_button, lettered};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{View, built};
 
@@ -299,13 +297,13 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
             (
                 theme.space.gap,
                 theme.space.section,
-                theme.space.overlay_padding,
+                theme.space.panel,
                 theme.text.heading,
             )
         };
         let body = column((
             label(deed.question(cx.world)).size(heading).bold(true),
-            description(deed.outcome(cx.world)),
+            label(deed.outcome(cx.world)).wrap(true),
             warning,
             row((
                 lettered(deed.verb())

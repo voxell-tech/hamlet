@@ -1,5 +1,6 @@
 //! The one row a model is listed by, wherever models are listed.
 
+use bevy::color::Color;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::{Motion, Tone};
@@ -152,21 +153,32 @@ pub(crate) fn model_row(
         .width(percent(100.0)),
     )
     .padding(UiRect::axes(px(PAD), px(5.0)))
-    .rules(row_look)
+    .rules(row_look(picked))
     .on_activate(pick)
     .boxed()
 }
 
 /// A row's icons left unset are hidden until the row is under the
-/// pointer or has the focus, which also lights it.
-fn row_look(cx: &mut Cx) {
-    style::<HamletTheme>()
-        .icon(|i, _| i.opacity(0.0))
-        .hovered(|s| s.icon(|i, _| i.opacity(1.0)))
-        .when::<Focused>(|s| {
-            s.icon(|i, _| i.opacity(1.0))
-                .fill(|t| t.palette.button_hover)
-        })
-        .transition(Motion::Interact)
-        .apply(cx);
+/// pointer or has the focus, which also lights it. The row picked
+/// is lit at rest.
+fn row_look(picked: bool) -> impl FnOnce(&mut Cx) {
+    move |cx| {
+        style::<HamletTheme>()
+            .frame(move |f, t| {
+                f.fill(if picked {
+                    t.palette.primary_low
+                } else {
+                    Color::NONE
+                })
+                .radius(t.space.round)
+            })
+            .icon(|i, _| i.opacity(0.0))
+            .hovered(|s| s.icon(|i, _| i.opacity(1.0)))
+            .when::<Focused>(|s| {
+                s.icon(|i, _| i.opacity(1.0))
+                    .fill(|t| t.palette.button_hover)
+            })
+            .transition(Motion::Interact)
+            .apply(cx);
+    }
 }

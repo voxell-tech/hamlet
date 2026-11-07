@@ -4,6 +4,7 @@
 
 use bevy::app::App;
 use bevy::camera::visibility::Visibility;
+use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
@@ -20,7 +21,7 @@ use bevy::ui::{
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column,
 };
-use bevy_fynix::{ScopedExt, Visual, resource};
+use bevy_fynix::{ScopedExt, Signal, Visual, resource};
 use hamlet_client::chats::{Chat, Status};
 use hamlet_client::messages::Rewound;
 use hamlet_ui::styles::{ICON, back_link, note};
@@ -117,8 +118,25 @@ pub fn ask(world: &mut World, session: Entity, entry: &str) {
     world_menu::ask_against(world, deed, anchor);
 }
 
-/// Rules that fade a row of `session` said at `at` while a rewind it
-/// would forget is asked about.
+/// The message of `session` a rewind is asked about, and when it was
+/// said.
+fn asked(open: &Open, session: Entity) -> Option<(&str, u64)> {
+    match open {
+        Open::Question(
+            Deed::Rewind {
+                session: of,
+                entry,
+                at,
+            },
+            _,
+        ) if *of == session => Some((entry.as_str(), *at)),
+        _ => None,
+    }
+}
+
+/// Rules that fade a row of `session` said at `at` while a rewind
+/// that would forget it is asked about. The message asked about is
+/// kept clear, as what the question is against.
 pub(super) fn fading(
     session: Entity,
     at: u64,
@@ -126,20 +144,46 @@ pub(super) fn fading(
     move |cx| {
         cx.set::<Visual>(move |visual, _| {
             visual.opacity(resource::<Open, _>(
-                move |open| match open {
-                    Open::Question(
-                        Deed::Rewind {
-                            session: of,
-                            at: from,
-                            ..
-                        },
-                        _,
-                    ) if *of == session && at >= *from => FORGOTTEN,
+                move |open| match asked(open, session) {
+                    Some((_, from)) if at > from => FORGOTTEN,
                     _ => 1.0,
                 },
             ))
         });
     }
+}
+
+/// Rules that hide the marks of the message `entry` of `session`
+/// while a rewind to it is asked about.
+pub(super) fn hiding(
+    session: Entity,
+    entry: String,
+) -> impl FnOnce(&mut Cx) {
+    move |cx| {
+        cx.set::<Visual>(move |visual, _| {
+            let entry = entry.clone();
+            visual.opacity(resource::<Open, _>(
+                move |open| match asked(open, session) {
+                    Some((of, _)) if of == entry => 0.0,
+                    _ => 1.0,
+                },
+            ))
+        });
+    }
+}
+
+/// `ring` while a rewind to the message `entry` of `session` is asked
+/// about, else `rest`.
+pub(super) fn ringed(
+    session: Entity,
+    entry: String,
+    rest: Color,
+    ring: Color,
+) -> Signal<Color> {
+    resource::<Open, _>(move |open| match asked(open, session) {
+        Some((of, _)) if of == entry => ring,
+        _ => rest,
+    })
 }
 
 /// Shows the mark of a row while the pointer is on the row and no
