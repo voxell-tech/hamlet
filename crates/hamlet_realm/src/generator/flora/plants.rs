@@ -102,8 +102,8 @@ fn shrub(meshing: &mut Meshing, land: &Land, p: Vec2, h: u32) {
     let near_home = land.site_dist(p) < land.set.town.radius + HOMELY
         || land.is_held(p, HOMELY);
     let share = if near_home { 1.0 } else { WILD_SHARE };
-    let chance = (0.06 + 0.5 * edge) * share
-        + if near_home { 0.2 } else { 0.0 };
+    let chance = (0.03 + 0.25 * edge) * share
+        + if near_home { 0.06 } else { 0.0 };
     if roll(h, 2) > level(land, p) * chance {
         return;
     }
