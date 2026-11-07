@@ -14,14 +14,13 @@ use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
-use bevy::picking::Pickable;
 use bevy::picking::events::{
     PointerDrag, PointerDragEnd, PointerDragStart,
 };
 use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, ComputedNode, Display, JustifyContent, Overflow,
-    PositionType, UiGlobalTransform, UiRect, Val, percent, px,
+    UiGlobalTransform, UiRect, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, Tone};
@@ -48,6 +47,7 @@ use hamlet_ui::styles::{
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
+use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::widgets::tabs;
@@ -1175,28 +1175,12 @@ fn tool(
 /// empty, and at its end the filter of the hamlets shown and a way to
 /// make what the tab lists.
 fn search_row() -> impl View {
-    let field = column((
+    let field = search(
         text_field(String::new(), |_, _| {})
-            .width(percent(100.0))
             .rules(text_input)
             .tagged(Search),
-        // The word that stands in an empty field, which the pointer
-        // passes through to the field.
-        column((label("Search").tone(Tone::Faint).wrap(false),))
-            .position(PositionType::Absolute)
-            .inset(UiRect::new(px(8.0), Val::Auto, px(0.0), px(0.0)))
-            .justify(JustifyContent::Center)
-            .display(resource::<Rail, _>(|rail| {
-                if rail.search.is_empty() {
-                    Display::Flex
-                } else {
-                    Display::None
-                }
-            }))
-            .tagged(Pickable::IGNORE),
-    ))
-    .grow(1.0)
-    .min_width(px(0.0));
+        "Search",
+    );
     // Every tab's tools are built once and only shown on their tab,
     // so that a change of tab does not make them anew.
     let on = |shown: Tab, view: AnyView| {
@@ -1237,13 +1221,9 @@ fn search_row() -> impl View {
     ))
     .gap(2.0);
     with_cx(move |cx| {
-        row((
-            glyph(Glyph::Lens, ICON).tone(Tone::Faint),
-            field,
-            tools,
-        ))
-        .gap(cx.theme().space.gap)
-        .align(AlignItems::Center)
+        row((field, tools))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
     })
 }
 

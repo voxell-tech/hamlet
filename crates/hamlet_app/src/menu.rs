@@ -14,7 +14,7 @@ use bevy::ui::{
     AlignItems, ComputedNode, UiGlobalTransform, UiRect, percent, px,
 };
 use bevy::window::Window;
-use bevy_fynix::shortcut::Scope;
+use bevy_fynix::shortcut::{Chord, Scope};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, POPUP, button, frame, label, menu_item,
@@ -29,6 +29,8 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
+use crate::desk::{NEW, new_desk};
+use crate::dock::show_tab;
 use crate::window;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -184,19 +186,27 @@ pub fn titles() -> impl View {
     })
 }
 
+/// An item of a menu: its icon, its name and the keys that do the
+/// same, if any.
 fn item(
     which: Glyph,
     name: &'static str,
+    keys: Option<Chord>,
     act: fn(&mut World),
 ) -> AnyView {
     with_cx(move |cx| {
+        let keys =
+            keys.map_or_else(String::new, |keys| keys.to_string());
         menu_item(
             row((
                 glyph(which, ICON).tone(Tone::Faint),
                 label(name).wrap(false),
+                frame().grow(1.0).min_width(px(16.0)),
+                label(keys).tone(Tone::Faint).wrap(false),
             ))
             .gap(cx.theme().space.menu_gap)
-            .align(AlignItems::Center),
+            .align(AlignItems::Center)
+            .width(percent(100.0)),
         )
         .on_activate(move |world| {
             world.resource_mut::<OpenMenu>().0 = None;
@@ -206,18 +216,39 @@ fn item(
     .boxed()
 }
 
+/// Brings the Settings panel forward.
+fn settings(world: &mut World) {
+    show_tab(world, "settings");
+}
+
 fn items(menu: Menu, found: bool) -> Vec<AnyView> {
     match menu {
         Menu::App => {
-            let mut items = Vec::new();
+            let mut items = vec![
+                item(Glyph::Sliders, "Settings", None, settings),
+                item(Glyph::Plus, "New desk", Some(NEW), new_desk),
+                item(
+                    Glyph::Hearth,
+                    "Your hearth",
+                    None,
+                    crate::chief::go_home,
+                ),
+            ];
             if found {
                 items.push(item(
-                    Glyph::Plus,
+                    Glyph::Hamlet,
                     "Found a Hamlet...",
+                    None,
                     crate::world_menu::ask_found,
                 ));
             }
-            items.push(item(Glyph::Power, "Close", window::quit));
+            // The server and its agents carry on without the window.
+            items.push(item(
+                Glyph::Power,
+                "Close window",
+                None,
+                window::quit,
+            ));
             items
         }
     }
@@ -273,7 +304,7 @@ mod tests {
         );
         app.update();
         let shown = crate::testing::all_words(&mut app);
-        assert!(shown.contains("Close"), "{shown}");
+        assert!(shown.contains("Close window"), "{shown}");
         assert!(!shown.contains("Run in Background"));
         assert!(!shown.contains("Quit Hamlet"));
         assert!(!shown.contains("Found a Hamlet..."));
@@ -286,7 +317,7 @@ mod tests {
                 .iter()
                 .any(|text| text == "Found a Hamlet...")
         );
-        crate::testing::press(&mut app, "Close");
+        crate::testing::press(&mut app, "Close window");
         assert!(app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy::app::AppExit>>().drain().any(|exit| exit == bevy::app::AppExit::Success));
     }
 }

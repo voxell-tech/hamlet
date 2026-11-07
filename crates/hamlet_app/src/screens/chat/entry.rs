@@ -11,6 +11,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
+use hamlet_client::realm::shown_of;
 use hamlet_ui::markdown::document;
 use hamlet_ui::styles::note;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
@@ -281,9 +282,23 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .get::<Transcript>(session)
             .and_then(|t| t.item(&id).map(|item| &item.entry))
             .cloned();
-        let speaker = match &cx.world.resource::<Convo>().with {
-            Some(name) => name.clone(),
-            None => "Mayor".to_string(),
+        // Named as the chat names them: the agent by what it is
+        // shown by, and the chief by "You".
+        let convo = cx.world.resource::<Convo>();
+        let speaker = match &convo.with {
+            Some(address) => Some(shown_of(cx.world, convo.agent))
+                .filter(|shown| !shown.is_empty())
+                .unwrap_or_else(|| address.clone()),
+            None => "The Hand".to_string(),
+        };
+        let chief = match &kind {
+            Some(Entry::Chief { name, .. })
+                if *name == convo.name =>
+            {
+                "You".to_string()
+            }
+            Some(Entry::Chief { name, .. }) => name.clone(),
+            _ => String::new(),
         };
         let meta = cx.theme().text.small;
         let text_id = id.clone();
@@ -297,13 +312,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
         };
         let view: AnyView = match kind {
             Some(Entry::Chief { .. }) => column((
-                label(text(|e| match e {
-                    Entry::Chief { name, .. } => name.clone(),
-                    _ => String::new(),
-                }))
-                .size(meta)
-                .bold(true)
-                .tone(Tone::Faint),
+                label(chief).size(meta).bold(true).tone(Tone::Faint),
                 label(text(|e| match e {
                     Entry::Chief { text, .. } => text.clone(),
                     _ => String::new(),

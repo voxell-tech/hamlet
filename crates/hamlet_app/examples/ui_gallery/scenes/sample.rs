@@ -28,16 +28,30 @@ pub(super) fn setup(world: &mut World) {
     state.agents[0].purpose =
         "Keeps the orchard's notes in order.".into();
     state.agents[0].spent.cost = "$0.10".into();
-    state.providers = vec![protocol::ProviderView {
-        configured: false,
-        id: "openrouter".into(),
-        label: "Many makers' models, paid as you go".into(),
-        methods: vec![
-            protocol::LoginMethod::Key,
-            protocol::LoginMethod::Subscription,
-        ],
-        name: "OpenRouter".into(),
-    }];
+    let provider = |id: &str, name: &str| protocol::ProviderView {
+        configured: true,
+        id: id.into(),
+        label: name.into(),
+        methods: vec![protocol::LoginMethod::Key],
+        name: name.into(),
+    };
+    state.providers = vec![
+        provider("anthropic", "Anthropic"),
+        provider("faux", "Faux"),
+        provider("google", "Google"),
+        provider("groq", "Groq"),
+        provider("openai", "OpenAI"),
+        protocol::ProviderView {
+            configured: false,
+            id: "openrouter".into(),
+            label: "Many makers' models, paid as you go".into(),
+            methods: vec![
+                protocol::LoginMethod::Key,
+                protocol::LoginMethod::Subscription,
+            ],
+            name: "OpenRouter".into(),
+        },
+    ];
     hamlet_client::receive(
         world,
         protocol::ServerMessage::State(state),

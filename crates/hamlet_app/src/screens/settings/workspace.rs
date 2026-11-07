@@ -19,6 +19,7 @@ use hamlet_ui::styles::{
     action, bare, beside, choices, description, note, parts,
     text_input,
 };
+use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View};
 
@@ -246,11 +247,17 @@ fn remote() -> AnyView {
             ),
             field(
                 "Access token",
-                secret_field(
-                    resource::<Draft, _>(|draft| draft.token.clone()),
-                    |world, token| {
-                        world.resource_mut::<Draft>().token = token;
-                    },
+                hinted(
+                    secret_field(
+                        resource::<Draft, _>(|draft| {
+                            draft.token.clone()
+                        }),
+                        |world, token| {
+                            world.resource_mut::<Draft>().token =
+                                token;
+                        },
+                    ),
+                    "The token set on the remote server",
                 ),
             ),
         ))

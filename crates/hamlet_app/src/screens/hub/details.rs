@@ -22,6 +22,7 @@ use hamlet_ui::styles::{
     scroll_area, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
@@ -42,7 +43,7 @@ struct Facts {
     pin: Option<String>,
     /// Its address, and what it is called in the world.
     address: String,
-    nickname: Option<String>,
+    called: String,
     roads: Vec<(Entity, String)>,
     spent: String,
 }
@@ -71,9 +72,7 @@ fn facts(world: &World, agent: Entity) -> Facts {
             .get::<hamlet_client::realm::Pin>(agent)
             .map(|pin| pin.0.clone()),
         address: name_of(world, agent),
-        nickname: world
-            .get::<hamlet_client::realm::Nickname>(agent)
-            .map(|nickname| nickname.0.clone()),
+        called: shown_of(world, agent),
         roads,
         spent: world
             .get::<Account>(agent)
@@ -103,7 +102,7 @@ fn setting(
 /// nickname, and a field left empty its own name again.
 fn nickname_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
-    let had = facts.nickname.clone().unwrap_or_default();
+    let had = facts.called.clone();
     text_field(had.clone(), move |world, typed| {
         let typed = typed.trim().to_string();
         if typed != had {
@@ -122,21 +121,27 @@ fn nickname_field(facts: &Facts) -> AnyView {
 }
 
 /// A field that gives the command `/<command> <address> <typed>` on
-/// Enter, and empties itself after.
-fn command_field(address: &str, command: &'static str) -> AnyView {
+/// Enter, and empties itself after. `hint` says what to type while it
+/// is empty.
+fn command_field(
+    address: &str,
+    command: &'static str,
+    hint: &'static str,
+) -> AnyView {
     let address = address.to_string();
-    text_field(String::new(), move |world, typed| {
-        let typed = typed.trim();
-        if !typed.is_empty() {
-            crate::chat::command(
-                world,
-                format!("/{command} {address} {typed}"),
-            );
-        }
-    })
-    .grow(1.0)
-    .min_width(px(0.0))
-    .rules(text_input)
+    hinted(
+        text_field(String::new(), move |world, typed| {
+            let typed = typed.trim();
+            if !typed.is_empty() {
+                crate::chat::command(
+                    world,
+                    format!("/{command} {address} {typed}"),
+                );
+            }
+        })
+        .rules(text_input),
+        hint,
+    )
     .boxed()
 }
 
@@ -163,18 +168,32 @@ fn settings(facts: &Facts) -> AnyView {
             "The version of its scholar it works from",
             label(match &facts.pin {
                 Some(pin) => pin.clone(),
-                None => "main".to_string(),
+                None => "Latest".to_string(),
             }),
         ));
         parts.push(setting(
             "Allowance",
-            "Dollars it may spend a day, or none",
-            command_field(&facts.address, "allowance"),
+            "Dollars it may spend in its hamlet's budget period",
+            row((
+                label("$").tone(Tone::Faint),
+                command_field(
+                    &facts.address,
+                    "allowance",
+                    "Dollars a period, or none",
+                ),
+            ))
+            .gap(6.0)
+            .align(AlignItems::Center)
+            .grow(1.0),
         ));
         parts.push(setting(
             "Tools",
             "-bash turns a tool off, +bash on again",
-            command_field(&facts.address, "tools"),
+            command_field(
+                &facts.address,
+                "tools",
+                "-bash turns a tool off, +bash on",
+            ),
         ));
     }
     if !facts.spent.is_empty() {
@@ -238,13 +257,17 @@ fn agent_section(agent: Entity) -> impl View {
     .within(bare())
 }
 
-/// Its own skills and its character, which a chief may edit.
-fn skills_and_character() -> impl View {
+/// Its own skills.
+fn skills() -> impl View {
+    column((heading(Glyph::Book, "Skills"), memory::skills()))
+        .gap(6.0)
+}
+
+/// Its character, which a chief may edit.
+fn character() -> impl View {
     let edit =
         action(Glyph::Rename, "Edit", super::papers::edit_character);
     column((
-        heading(Glyph::Book, "Skills"),
-        memory::skills(),
         heading(Glyph::Robot, "Character"),
         memory::character(),
         row((edit,)),
@@ -285,7 +308,9 @@ pub(super) fn sheet(agent: Entity) -> impl View {
             heading(Glyph::Notes, "Memory"),
             memory::view(),
             hairline(line),
-            skills_and_character(),
+            skills(),
+            hairline(line),
+            character(),
         ))
         .gap(gap)
         .width(percent(100.0)),)),))

@@ -244,7 +244,7 @@ pub(super) fn agent_rows(
                     busy,
                     gone,
                     account: account
-                        .map(Account::summary)
+                        .map(crate::models::account_words)
                         .unwrap_or_default(),
                     depth: 0,
                 }

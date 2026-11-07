@@ -90,7 +90,8 @@ pub(crate) fn update_status(
             "Running, idle".into()
         },
         running_tone: if busy { Tone::Accent } else { Tone::Dim },
-        model: settings.0.model.clone(),
+        model: crate::models::model_name(&settings.0.model)
+            .to_string(),
         link: if connection.state == Contact::Connected {
             settings.0.link.words.clone().unwrap_or_default()
         } else {
@@ -189,7 +190,7 @@ fn confinement() -> AnyView {
         |confinement| match confinement {
             protocol::Confinement::Sandbox { name } => pair(
                 mark(Glyph::Shield, Tone::Dim),
-                note(name.clone()),
+                note(format!("Sandbox: {name}")),
             )
             .tooltip(|| note("The sandbox agents' commands run in"))
             .boxed(),
@@ -258,8 +259,17 @@ pub fn status_bar() -> impl View {
                     confinement(),
                     fact(
                         Glyph::Chip,
-                        |bar| bar.model.clone(),
-                        "Model",
+                        |bar| {
+                            if bar.model.is_empty() {
+                                String::new()
+                            } else {
+                                format!(
+                                    "Default model: {}",
+                                    bar.model
+                                )
+                            }
+                        },
+                        "The model agents use unless given another",
                     ),
                     pair(
                         mark(

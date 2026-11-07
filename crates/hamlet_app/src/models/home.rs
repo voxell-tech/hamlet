@@ -206,7 +206,7 @@ fn entry(model: &protocol::Listed) -> AnyView {
         .gap(cx.theme().space.gap)
         .align(AlignItems::Center)
     });
-    close((section(model.name.clone()), prices)).boxed()
+    close((super::named(&model.name), prices)).boxed()
 }
 
 /// The names holding every word of `narrow`, as the `page`th page of

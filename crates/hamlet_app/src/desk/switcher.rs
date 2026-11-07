@@ -74,7 +74,7 @@ const CTRL: Mods = if cfg!(target_os = "macos") {
 };
 
 /// The key that adds a desk.
-const NEW: Chord = Chord {
+pub(crate) const NEW: Chord = Chord {
     key: KeyCode::KeyT,
     mods: Mods::PRIMARY,
 };
@@ -655,7 +655,7 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
 }
 
 /// Adds a desk and opens its name to be typed.
-fn new_desk(world: &mut World) {
+pub(crate) fn new_desk(world: &mut World) {
     let at = world.resource_mut::<Desks>().add();
     start_rename(world, at);
 }

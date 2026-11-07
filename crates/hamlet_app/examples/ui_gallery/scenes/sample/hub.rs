@@ -31,6 +31,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Pictures
             | Scene::Rewind
             | Scene::Quiet
+            | Scene::Field
     ) {
         world.insert_resource(Showing::Thread);
     }

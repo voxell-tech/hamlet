@@ -9,7 +9,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
 use bevy::math::{Rect, Vec2};
-use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, Invoke, Layer, Mods, Scope,
     ScopeId, ScopeSpec, ShortcutAppExt,
@@ -34,10 +34,13 @@ use hamlet_ui::{AnyView, View, with_cx};
 use serde::{Deserialize, Serialize};
 
 use super::{Open, close};
-use crate::models::Shelf;
+use crate::models::{Shelf, model_name, provider_name, provider_of};
 
 /// How many models a list shows before "Show more".
 const FIRST: usize = 8;
+
+/// How wide the providers down the side are.
+const SIDE: f32 = 120.0;
 
 /// How tall the lists grow before they scroll.
 const TALL: f32 = 300.0;
@@ -127,16 +130,6 @@ pub fn open(world: &mut World, agent: Entity, at: Vec2) {
         ..Picking::default()
     };
     *world.resource_mut::<Open>() = Open::Model(agent, at);
-}
-
-/// The provider a model's name starts with.
-fn provider(name: &str) -> &str {
-    name.split_once("::").map_or("", |(provider, _)| provider)
-}
-
-/// A model's name without its provider.
-pub(crate) fn short(name: &str) -> &str {
-    name.split_once("::").map_or(name, |(_, model)| model)
 }
 
 /// Every effort, weakest first.
@@ -229,7 +222,7 @@ pub(crate) fn chip_words(world: &World, agent: Entity) -> String {
     let mut words = if now.model.is_empty() {
         "Default model".to_string()
     } else {
-        short(&now.model).to_string()
+        model_name(&now.model).to_string()
     };
     if let Some(effort) = now.effort.or(now.realm_effort) {
         words = format!("{words} · {}", words_lower(effort));
@@ -255,7 +248,7 @@ fn listed(world: &World, picking: &Picking) -> Vec<protocol::Listed> {
         .filter(|model| match &picking.side {
             Side::All => true,
             Side::Favorites => favorites.contains(&model.name),
-            Side::Provider(name) => provider(&model.name) == name,
+            Side::Provider(name) => provider_of(&model.name) == name,
         })
         .filter(|model| model.name.to_lowercase().contains(&search))
         .cloned()
@@ -291,7 +284,7 @@ fn pick_at<const N: usize>(world: &mut World, _: Invoke) {
 }
 
 /// The favourites and each provider of the catalogue, one above
-/// another.
+/// another, each by its mark and its name.
 fn side() -> impl View {
     keyed(
         derived(|world: &World| {
@@ -299,28 +292,38 @@ fn side() -> impl View {
                 .get_resource::<Shelf>()
                 .into_iter()
                 .flat_map(|shelf| shelf.models.iter())
-                .map(|model| provider(&model.name).to_string())
+                .map(|model| provider_of(&model.name).to_string())
                 .filter(|provider| !provider.is_empty())
                 .collect::<Vec<_>>();
             providers.sort();
             providers.dedup();
+            let providers = providers
+                .into_iter()
+                .map(|id| {
+                    let name = provider_name(world, &id);
+                    (id, name)
+                })
+                .collect::<Vec<_>>();
             (providers, world.resource::<Picking>().side.clone())
         })
         .when(every_frame()),
         |(providers, on)| {
-            let tab = |side: Side, face: AnyView, says: String| {
+            let tab = |side: Side, face: AnyView, name: String| {
                 let picked = *on == side;
-                button(face)
-                    .width(px(30.0))
-                    .rules(choice(picked))
-                    .tooltip(move || note(says.clone()))
-                    .on_activate(move |world| {
-                        let mut picking =
-                            world.resource_mut::<Picking>();
-                        picking.side = side.clone();
-                        picking.more = false;
-                    })
-                    .boxed()
+                button(
+                    row((face, label(name).wrap(false)))
+                        .gap(6.0)
+                        .align(AlignItems::Center)
+                        .width(percent(100.0)),
+                )
+                .width(percent(100.0))
+                .rules(choice(picked))
+                .on_activate(move |world| {
+                    let mut picking = world.resource_mut::<Picking>();
+                    picking.side = side.clone();
+                    picking.more = false;
+                })
+                .boxed()
             };
             let mut tabs = vec![
                 tab(
@@ -334,29 +337,19 @@ fn side() -> impl View {
                     "Every model".into(),
                 ),
             ];
-            for name in providers {
-                // Its mark, or the first letter of an endpoint that
-                // has none.
-                let face = match provider_mark(name, ICON) {
+            for (id, name) in providers {
+                // Its mark, or none for an endpoint that has none.
+                let face = match provider_mark(id, ICON) {
                     Some(mark) => icon(mark).size(ICON).boxed(),
-                    None => label(
-                        name.chars()
-                            .next()
-                            .map(|first| {
-                                first.to_uppercase().to_string()
-                            })
-                            .unwrap_or_default(),
-                    )
-                    .bold(true)
-                    .boxed(),
+                    None => frame().width(px(ICON)).boxed(),
                 };
                 tabs.push(tab(
-                    Side::Provider(name.clone()),
+                    Side::Provider(id.clone()),
                     face,
                     name.clone(),
                 ));
             }
-            column(tabs).gap(4.0).boxed()
+            column(tabs).gap(4.0).width(px(SIDE)).boxed()
         },
     )
     .within(column(()))
@@ -413,17 +406,14 @@ fn line(
 /// The search and the models it finds, the first nine with their
 /// keys.
 fn models(agent: Entity) -> impl View {
-    let search = super::search::search(
-        "Search models",
-        |world| world.resource::<Picking>().search.clone(),
-        |world, text| {
+    let search =
+        super::search::search("Search models", |world, text| {
             let mut picking = world.resource_mut::<Picking>();
             if picking.search != text {
                 picking.search = text;
                 picking.more = false;
             }
-        },
-    );
+        });
     let list = keyed(
         derived(move |world: &World| {
             let (models, all) = shown(world);
@@ -440,21 +430,19 @@ fn models(agent: Entity) -> impl View {
         .when(every_frame()),
         move |(models, all, now, favorites, whole)| {
             let mut lines = Vec::new();
+            // Following the default is no model of its own, so it
+            // stands apart from them.
             if *whole {
-                let fallback = if now.fallback.is_empty() {
-                    String::new()
-                } else {
-                    short(&now.fallback).to_string()
-                };
                 lines.push(line(
                     now.own.is_none(),
-                    label("Default").wrap(false).boxed(),
-                    label(fallback)
+                    label("Default model").wrap(false).boxed(),
+                    label(model_name(&now.fallback).to_string())
                         .tone(Tone::Faint)
                         .wrap(false)
                         .boxed(),
                     move |world| choose(world, agent, None),
                 ));
+                lines.push(divider().boxed());
             }
             for (at, model) in models.iter().enumerate() {
                 let name = model.name.clone();
@@ -480,7 +468,7 @@ fn models(agent: Entity) -> impl View {
                 let picked = now.own.as_deref() == Some(&name);
                 lines.push(line(
                     picked,
-                    label(short(&name).to_string())
+                    label(model_name(&name).to_string())
                         .wrap(false)
                         .boxed(),
                     end,
@@ -543,7 +531,7 @@ fn reasoning(agent: Entity) -> impl View {
                     .tone(Tone::Faint)
                     .bold(true)
                     .boxed(),
-                label(short(&now.model).to_string())
+                label(model_name(&now.model).to_string())
                     .tone(Tone::Dim)
                     .wrap(false)
                     .boxed(),
@@ -604,27 +592,33 @@ fn tier(agent: Entity) -> impl View {
         .when(every_frame()),
         move |(offered, fast)| {
             if !*offered {
-                return label("No fast tier for this model")
-                    .tone(Tone::Faint)
-                    .wrap(false)
-                    .boxed();
+                return frame().boxed();
             }
-            choices(
-                ["Standard", "Fast"],
-                usize::from(*fast),
-                move |world, at| {
-                    let to = address(world, agent);
-                    let on = if at == 1 { "on" } else { "off" };
-                    crate::chat::command(
-                        world,
-                        format!("/fast {to} {on}"),
-                    );
-                },
-            )
+            column((
+                label("Speed").tone(Tone::Faint).bold(true),
+                choices(
+                    ["Standard", "Fast"],
+                    usize::from(*fast),
+                    move |world, at| {
+                        let to = address(world, agent);
+                        let on = if at == 1 { "on" } else { "off" };
+                        crate::chat::command(
+                            world,
+                            format!("/fast {to} {on}"),
+                        );
+                    },
+                ),
+            ))
+            .gap(4.0)
             .boxed()
         },
     )
-    .within(row(()))
+    .within(column(()))
+}
+
+/// A line between the parts of a list.
+fn divider() -> impl View {
+    with_cx(|cx| hairline(cx.theme().palette.gold_6))
 }
 
 /// The popup of `agent`'s model at `at`.
@@ -635,20 +629,15 @@ pub(super) fn picker(agent: Entity, at: Vec2) -> impl View {
             (theme.palette.gold_6, theme.space.overlay_padding)
         };
         let upright = || frame().width(px(1.0)).fill(line);
-        let body = column((
-            row((
-                side(),
-                upright(),
-                models(agent),
-                upright(),
-                reasoning(agent),
-            ))
-            .gap(10.0)
-            .align(AlignItems::Stretch),
-            hairline(line),
-            row((tier(agent),)).justify(JustifyContent::FlexStart),
+        let body = row((
+            side(),
+            upright(),
+            models(agent),
+            upright(),
+            column((reasoning(agent), tier(agent))).gap(12.0),
         ))
         .gap(10.0)
+        .align(AlignItems::Stretch)
         .tagged(Scope(MODELS));
         popup(Rect::from_corners(at, at), (body,))
             .on_dismiss(|world, _| close(world))

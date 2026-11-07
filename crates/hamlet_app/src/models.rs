@@ -14,10 +14,12 @@ use bevy::ecs::schedule::common_conditions::{
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Commands, ResMut};
 use bevy::ecs::world::World;
+use bevy_fynix::views::{FrameProps, column, label};
 use hamlet_client::Connection;
 use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
+use hamlet_client::realm::{Account, Providers};
 use hamlet_protocol::client as protocol;
 
 pub(crate) use self::choice::{efforts, of_hamlet};
@@ -76,6 +78,73 @@ enum Asked {
 pub struct Draft {
     narrow: String,
     page: usize,
+}
+
+/// The provider of the catalogue's model `model`, which names it
+/// `provider::id`.
+pub(crate) fn provider_of(model: &str) -> &str {
+    model.split_once("::").map_or("", |(provider, _)| provider)
+}
+
+/// The name `model` is shown by. The catalogue gives a model no name
+/// but `provider::id`, so it is the last part of its id: `large` for
+/// `openrouter::maker/large`.
+pub(crate) fn model_name(model: &str) -> &str {
+    let id = model.split_once("::").map_or(model, |(_, id)| id);
+    id.rsplit('/').next().unwrap_or(id)
+}
+
+/// The name of the provider `id`, as the server lists it, else its
+/// id.
+pub(crate) fn provider_name(world: &World, id: &str) -> String {
+    world
+        .get_resource::<Providers>()
+        .and_then(|providers| {
+            providers.0.iter().find(|provider| provider.id == id)
+        })
+        .map_or_else(
+            || id.to_string(),
+            |provider| provider.name.clone(),
+        )
+}
+
+/// Where `model` comes from: its provider's name, and its id where
+/// that says more than its name.
+pub(crate) fn source_of(world: &World, model: &str) -> String {
+    let Some((provider, id)) = model.split_once("::") else {
+        return String::new();
+    };
+    let provider = provider_name(world, provider);
+    if id == model_name(model) {
+        provider
+    } else {
+        format!("{provider} · {id}")
+    }
+}
+
+/// An agent's model by its name, and what it spent.
+pub(crate) fn account_words(account: &Account) -> String {
+    if account.model.is_empty() {
+        account.cost.clone()
+    } else {
+        format!("{} · {}", model_name(&account.model), account.cost)
+    }
+}
+
+/// `model` by its name, with where it comes from in small words
+/// under it.
+pub(crate) fn named(model: &str) -> impl hamlet_ui::View {
+    let id = model.to_string();
+    column((
+        label(model_name(model).to_string()),
+        hamlet_ui::styles::description(
+            bevy_fynix::derived(move |world: &World| {
+                source_of(world, &id)
+            })
+            .when(crate::roll::moved::<Providers>()),
+        ),
+    ))
+    .gap(2.0)
 }
 
 fn follow(world: &mut World) {
@@ -237,8 +306,7 @@ mod tests {
         );
         mount::<HamletTheme>(app.world_mut(), shelf());
         let shown = all_words(&mut app);
-        for text in ["far::large", "3.00", "15.00", "listed", "200k"]
-        {
+        for text in ["large", "3.00", "15.00", "listed", "200k"] {
             assert!(shown.contains(text), "{shown}");
         }
     }
@@ -313,8 +381,8 @@ mod tests {
             .unwrap()
             .0;
         mount::<HamletTheme>(app.world_mut(), of_hamlet(hamlet));
-        press_and_update(&mut app, "faux::faux-1");
-        press_and_update(&mut app, "far::small");
+        press_and_update(&mut app, "faux-1");
+        press_and_update(&mut app, "small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["whole"]["model"], "far::small");
         assert_eq!(edit["whole"]["road"]["most"], 24);

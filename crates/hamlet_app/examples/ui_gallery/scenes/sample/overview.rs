@@ -140,12 +140,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     burr.house = None;
     state.scholars.extend([moss, burr]);
     if scene != Scene::Toasts {
-        // The chief holds the door, so moss waits on a petition.
+        // The chief holds the door, so moss waits on a petition
+        // raised by scout, who made it.
         let mut wait = hamlet_testing::realm::wait("moss");
-        wait.agent = None;
+        wait.agent = Some(protocol::AgentId(10));
         wait.by = "home#1".into();
-        wait.about =
-            "scout made moss, who waits to be let in.".into();
+        wait.about = "scholar#90 (moss)".into();
+        wait.subject = wait.about.clone();
+        wait.chat = None;
         // It came in a few minutes ago.
         wait.since = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

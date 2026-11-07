@@ -383,9 +383,7 @@ pub(super) fn hold(
     let typed = line
         .iter()
         .flat_map(|children| children.iter().copied())
-        .filter(|child| texts.contains(*child))
-        // The field made last, of the two that are shown.
-        .max();
+        .find(|child| texts.contains(*child));
     if let Some(typed) = typed
         && focus.get() != Some(typed)
     {

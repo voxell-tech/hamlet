@@ -19,7 +19,7 @@ use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 use hamlet_ui::styles::{
-    CONTROL, action, bad_action, bare, button, buttons, choices, note,
+    CONTROL, action, bare, button, buttons, choices, note,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -112,9 +112,9 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                 parts.push(
                     buttons(vec![
                         choose,
-                        bad_action(
+                        action(
                             Glyph::Cross,
-                            "None",
+                            "No folder",
                             move |world| {
                                 tell(
                                     world,
@@ -122,7 +122,11 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                                     "/folder none".to_string(),
                                 );
                             },
-                        ),
+                        )
+                        .tooltip(|| {
+                            note("Stop working on this folder")
+                        })
+                        .boxed(),
                     ])
                     .boxed(),
                 );
@@ -134,32 +138,35 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
         }
         let mode = work.mode;
         parts.push(
-            choices(
-                ["Manual", "Auto"],
-                match mode {
-                    Mode::Manual => 0,
-                    Mode::Auto => 1,
-                },
-                move |world, chosen| {
-                    let to = match chosen {
-                        0 => Mode::Manual,
-                        _ => Mode::Auto,
-                    };
-                    if to != mode {
-                        tell(
-                            world,
-                            hamlet,
-                            format!(
-                                "/mode {}",
-                                match to {
-                                    Mode::Manual => "manual",
-                                    Mode::Auto => "auto",
-                                }
-                            ),
-                        );
-                    }
-                },
-            )
+            hamlet_ui::styles::beside((
+                hamlet_ui::styles::section("Approvals"),
+                choices(
+                    ["Manual", "Auto"],
+                    match mode {
+                        Mode::Manual => 0,
+                        Mode::Auto => 1,
+                    },
+                    move |world, chosen| {
+                        let to = match chosen {
+                            0 => Mode::Manual,
+                            _ => Mode::Auto,
+                        };
+                        if to != mode {
+                            tell(
+                                world,
+                                hamlet,
+                                format!(
+                                    "/mode {}",
+                                    match to {
+                                        Mode::Manual => "manual",
+                                        Mode::Auto => "auto",
+                                    }
+                                ),
+                            );
+                        }
+                    },
+                ),
+            ))
             .boxed(),
         );
         parts.push(small(work.words.clone()));
@@ -258,7 +265,7 @@ mod tests {
             folder: "/chosen/on-the-server/with spaces".into(),
         });
         app.world_mut().flush();
-        press(&mut app, "None");
+        press(&mut app, "No folder");
         let sent = app
             .world()
             .resource::<Outbox>()

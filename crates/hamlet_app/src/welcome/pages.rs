@@ -13,11 +13,12 @@ use hamlet_ui::styles::{
     small_rules, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{Narrowing, Step, Welcome, close, go, look, pick};
-use crate::models::narrowed;
+use crate::models::{named, narrowed};
 
 fn title(which: Glyph, text: &'static str) -> impl View {
     headed(which, styles::title(text))
@@ -119,16 +120,21 @@ pub(super) fn head(which: Glyph, text: &'static str) -> impl View {
     ))
 }
 
-/// One model, as a button that chooses it.
+/// One model, as a button that chooses it: its name, and where it
+/// comes from under it.
 fn offered(id: &str) -> AnyView {
     let chosen = id.to_string();
-    button(row((label(id.to_string()),)).grow(1.0))
-        .padding(pad())
-        .min_height(px(styles::CONTROL))
-        .rules(styles::button)
-        .tagged(Variant::Default)
-        .on_activate(move |world| pick(world, &chosen))
-        .boxed()
+    button(
+        row((named(id),))
+            .grow(1.0)
+            .padding(UiRect::vertical(px(4.0))),
+    )
+    .padding(pad())
+    .min_height(px(styles::CONTROL))
+    .rules(styles::button)
+    .tagged(Variant::Default)
+    .on_activate(move |world| pick(world, &chosen))
+    .boxed()
 }
 
 fn models() -> AnyView {
@@ -163,14 +169,19 @@ fn models() -> AnyView {
                 welcome.from
             )
         })),
-        text_field(
-            resource::<Welcome, _>(|welcome| welcome.narrow.clone()),
-            |world, text| {
-                world.resource_mut::<Welcome>().narrow = text;
-            },
-        )
-        .rules(text_input)
-        .tagged(Narrowing),
+        search(
+            text_field(
+                resource::<Welcome, _>(|welcome| {
+                    welcome.narrow.clone()
+                }),
+                |world, text| {
+                    world.resource_mut::<Welcome>().narrow = text;
+                },
+            )
+            .rules(text_input)
+            .tagged(Narrowing),
+            "Search models",
+        ),
         news("Asking it to say hello..."),
         list,
     ))

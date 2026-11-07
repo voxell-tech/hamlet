@@ -14,7 +14,7 @@ use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, row,
+    BehaviorExt, FrameProps, TooltipExt, column, label, row,
 };
 use bevy_fynix::{ViewExt, derived, keyed};
 use hamlet_client::messages::Veto;
@@ -26,8 +26,7 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, close, framed,
-    group, note, raised, scroll_area, section, status_label_large,
-    title,
+    group, note, raised, scroll_area, status_label_large, title,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::tabs;
@@ -52,17 +51,24 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, tabs::mark::<Page>);
 }
 
-/// A heading over a part of the panel, behind its icon.
+/// A heading over a part of the panel, behind its icon: larger than
+/// the names of the settings under it.
 pub(crate) fn heading(
     which: Glyph,
     text: impl Into<String>,
 ) -> AnyView {
-    row((
-        raised(glyph(which, ICON).tone(Tone::Faint)),
-        section(text.into()),
-    ))
-    .gap(6.0)
-    .align(AlignItems::Center)
+    let text = text.into();
+    with_cx(move |cx| {
+        row((
+            raised(glyph(which, ICON).tone(Tone::Dim)),
+            label(text.clone())
+                .size(cx.theme().text.heading)
+                .bold(true)
+                .wrap(false),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center)
+    })
     .boxed()
 }
 

@@ -112,7 +112,7 @@ pub enum Scene {
     Panels,
     /// The panels while something waits for the chief.
     Waiting,
-    /// The panels while the command line is typed in.
+    /// The panels while the chat's field is typed in.
     Field,
     /// A long chat with a turn's steps unfolded.
     Chat,

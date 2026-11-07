@@ -121,13 +121,9 @@ pub(super) fn road(agent: Entity, at: Vec2) -> impl View {
             label(format!("A road from {}", from))
                 .size(heading)
                 .bold(true),
-            super::search::search(
-                "Search hires",
-                |world| world.resource::<Roading>().search.clone(),
-                |world, text| {
-                    world.resource_mut::<Roading>().search = text;
-                },
-            ),
+            super::search::search("Search hires", |world, text| {
+                world.resource_mut::<Roading>().search = text;
+            }),
             column((scroll_area((list(agent),)),))
                 .max_height(px(LIST)),
             lettered("Cancel")

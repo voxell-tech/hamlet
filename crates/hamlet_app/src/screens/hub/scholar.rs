@@ -19,9 +19,9 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, ICON, action, back_link, bad_action, bare, breadcrumb,
-    buttons, good_action, hairline, note, scroll_area,
-    status_label_large, text_input, title,
+    Fills, ICON, action, back_link, bad_action, bare, beside,
+    breadcrumb, buttons, description, good_action, hairline, note,
+    scroll_area, text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -305,26 +305,27 @@ fn form_view(address: String, name: String) -> impl View {
     .within(bare())
 }
 
-/// What its arrival says, and the deeds that change it.
+/// Where the scholar stands, said beside its name: in the city, at
+/// the harbor or archived.
+fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
+    match (&scholar.left, scholar.arrival) {
+        (Some(_), _) => ("Archived", Tone::Critical),
+        (None, protocol::Arrival::Housed) => {
+            ("In the city", Tone::Dim)
+        }
+        (None, protocol::Arrival::Waiting) => {
+            ("Waits at the harbor", Tone::Critical)
+        }
+        (None, protocol::Arrival::Turned) => {
+            ("Turned away at the harbor", Tone::Dim)
+        }
+    }
+}
+
+/// The deeds that change where the scholar stands.
 fn arrival(shown: &Shown) -> AnyView {
     let address = scholar_address(shown.scholar.id);
     let can = |deed| shown.allowed.contains(&deed);
-    // Living in the city is what a scholar does, so only the rest
-    // is said.
-    let said = match (&shown.scholar.left, shown.scholar.arrival) {
-        (Some(_), _) => {
-            Some((Glyph::Gone, "Archived", Tone::Critical))
-        }
-        (None, protocol::Arrival::Housed) => None,
-        (None, protocol::Arrival::Waiting) => {
-            Some((Glyph::Bell, "Waits at the harbor", Tone::Critical))
-        }
-        (None, protocol::Arrival::Turned) => Some((
-            Glyph::Gone,
-            "Turned away at the harbor",
-            Tone::Dim,
-        )),
-    };
     let mut buttons_row = Vec::new();
     match (&shown.scholar.left, shown.scholar.arrival) {
         (Some(_), _) => {
@@ -379,14 +380,7 @@ fn arrival(shown: &Shown) -> AnyView {
             }
         }
     }
-    let mut parts = said
-        .map(|(glyph, words, tone)| {
-            status_label_large(glyph, words, tone).boxed()
-        })
-        .into_iter()
-        .collect::<Vec<_>>();
-    parts.push(buttons(buttons_row).boxed());
-    column(parts).gap(6.0).boxed()
+    buttons(buttons_row).boxed()
 }
 
 /// The versions, each with what can be done from it.
@@ -497,7 +491,10 @@ fn versions(shown: &Shown) -> AnyView {
 
 /// Its hires, each led to and pinned to a version from here.
 fn hires(shown: &Shown) -> AnyView {
-    let mut parts = vec![heading(Glyph::Robot, "Hires")];
+    let mut parts = vec![
+        heading(Glyph::Robot, "Hires"),
+        note("Agents at work in hamlets as this scholar.").boxed(),
+    ];
     if shown.hires.is_empty() {
         parts.push(note("Nobody works as it now.").boxed());
     }
@@ -506,6 +503,14 @@ fn hires(shown: &Shown) -> AnyView {
     names.extend(
         shown.scholar.versions.iter().map(|v| v.name.clone()),
     );
+    // `main` is what the scholar knows now.
+    let words = names
+        .iter()
+        .map(|name| match name.as_str() {
+            "main" => "Latest".to_string(),
+            version => version.to_string(),
+        })
+        .collect::<Vec<_>>();
     for shown_hire in &shown.hires {
         let hire = shown_hire.entity;
         let address = shown_hire.address.clone();
@@ -532,10 +537,20 @@ fn hires(shown: &Shown) -> AnyView {
         ];
         if pins {
             let picked = choices.clone();
-            line.push(label("Follows").tone(Tone::Faint).boxed());
+            line.push(
+                label("Works from")
+                    .tone(Tone::Faint)
+                    .tooltip(|| {
+                        note(
+                            "The version of what the scholar knows \
+                             that this hire works from",
+                        )
+                    })
+                    .boxed(),
+            );
             line.push(
                 dropdown(
-                    choices,
+                    words.clone(),
                     now,
                     Glyph::Chevron.image(ICON),
                     move |world, chosen| {
@@ -614,11 +629,19 @@ fn deeds(shown: &Shown) -> AnyView {
     {
         return frame().boxed();
     }
-    action(Glyph::Moon, "Dream", move |world| {
-        tell_hand(world, format!("/dream {address}"));
-    })
-    .tooltip(|| {
-        note("Bring home what its hires learned, and tidy its memory")
+    with_cx(move |cx| {
+        let address = address.clone();
+        row((
+            action(Glyph::Moon, "Dream now", move |world| {
+                tell_hand(world, format!("/dream {address}"));
+            }),
+            description(
+                "Brings home what its hires learned, and tidies its \
+                 memory.",
+            ),
+        ))
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::Center)
     })
     .boxed()
 }
@@ -688,14 +711,15 @@ fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
     let rename = renaming(shown);
-    // The field it is renamed in shows its name, in place of a title.
-    let renamed = shown.scholar.left.is_none()
-        && shown.allowed.contains(&"name-scholar");
-    let heading = if renamed {
-        frame().boxed()
-    } else {
-        title(name.clone()).boxed()
-    };
+    let (stands, tone) = standing(&shown.scholar);
+    let heading = column((
+        beside((title(name.clone()), label(stands).tone(tone))),
+        description(
+            "A scholar is who its hires are when they are not at \
+             work: its character, memory and skills.",
+        ),
+    ))
+    .gap(4.0);
     let (head, versions_part, hires_part, deeds_part, careful_part) = (
         arrival(shown),
         versions(shown),

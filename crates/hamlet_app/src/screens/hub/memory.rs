@@ -5,7 +5,7 @@
 
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, label, row,
@@ -14,10 +14,10 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    action, bad_action, bare, lettered, note, text_input,
+    ICON, action, bad_action, bare, lettered, note, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, View, with_cx};
 
@@ -105,18 +105,45 @@ fn toggle(world: &mut World, path: String) {
     };
 }
 
+/// How big `text` is, in the words a file browser uses.
+fn size(text: &str) -> String {
+    match text.len() {
+        1 => "1 byte".to_string(),
+        n if n < 1000 => format!("{n} bytes"),
+        n => format!("{:.1} KB", n as f64 / 1000.0),
+    }
+}
+
+/// A file as a row: its name, its size and the way to open it, then
+/// its text and what changes it while it is open.
 fn file(entry: &Entry, open: bool) -> AnyView {
     let path = entry.path.clone();
     let name =
         entry.path.rsplit('/').next().unwrap_or("").to_string();
     let mark = if entry.learned { " (learned)" } else { "" };
-    let head = lettered(format!("{name}{mark}"))
+    let named = lettered(format!("{name}{mark}"))
+        .padding(UiRect::all(px(0.0)))
         .rules(hamlet_ui::styles::back_link)
         .tagged(Variant::Text)
         .on_activate({
             let path = path.clone();
             move |world| toggle(world, path.clone())
         });
+    let head = row((
+        glyph(Glyph::Notes, ICON).tone(Tone::Faint),
+        column((named, note(size(&entry.text))))
+            .gap(2.0)
+            .grow(1.0)
+            .min_width(px(0.0))
+            .align(AlignItems::FlexStart),
+        action(
+            Glyph::Into,
+            if open { "Close" } else { "Open" },
+            move |world| toggle(world, path.clone()),
+        ),
+    ))
+    .gap(8.0)
+    .align(AlignItems::Center);
     let mut parts = vec![head.boxed()];
     if !entry.description.is_empty() {
         parts.push(note(entry.description.clone()).boxed());
@@ -126,7 +153,7 @@ fn file(entry: &Entry, open: bool) -> AnyView {
             hamlet_ui::markdown::fixed(&entry.text, Tone::Body)
                 .boxed(),
         );
-        let (edit, remove) = (path.clone(), path);
+        let (edit, remove) = (entry.path.clone(), entry.path.clone());
         parts.push(
             row((
                 action(Glyph::Rename, "Edit", move |world| {

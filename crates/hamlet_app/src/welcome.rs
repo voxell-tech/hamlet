@@ -658,7 +658,7 @@ mod server_tests {
             ]}),
         );
         assert!(!all_words(&mut app).contains("unconfigured::far"));
-        press_and_update(&mut app, "local::small");
+        press_and_update(&mut app, "small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["doc"], "settings");
         assert_eq!(
@@ -709,7 +709,7 @@ mod server_tests {
             ]}),
         );
         assert!(!all_words(&mut app).contains("other::large"));
-        press_and_update(&mut app, "openrouter::small");
+        press_and_update(&mut app, "small");
         let edit = sent(&mut app).remove(0);
         incoming(
             &mut app,
@@ -731,7 +731,7 @@ mod server_tests {
         app.world_mut().resource_mut::<Welcome>().models =
             vec!["local::small".into()];
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "local::small");
+        press_and_update(&mut app, "small");
         let edit = sent(&mut app).remove(0);
         app.world_mut().resource_mut::<Settings>().0.unset = false;
         app.update();
@@ -756,7 +756,7 @@ mod server_tests {
         app.world_mut().resource_mut::<Welcome>().models =
             vec!["local::small".into()];
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "local::small");
+        press_and_update(&mut app, "small");
         let edit = sent(&mut app).remove(0);
         incoming(
             &mut app,

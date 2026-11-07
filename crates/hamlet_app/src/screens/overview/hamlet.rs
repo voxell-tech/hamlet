@@ -12,17 +12,17 @@ use bevy::text::EditableText;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, dropdown, frame, label, row,
-    text_field,
+    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
+    label, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::Deeds;
 use hamlet_realm::orders::{self, Decree};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    self, Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
-    group, lettered, note, primary_button, scroll_area, text_input,
-    title,
+    self, Fills, ICON, action, bad_action, bare, beside, breadcrumb,
+    buttons, group, lettered, note, primary_button, scroll_area,
+    small_rules, text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -400,10 +400,11 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             return column(()).boxed();
         };
         let id = facts.id.clone();
+        // What commands call it, when its name says otherwise.
         let known = if facts.title == facts.id {
             String::new()
         } else {
-            format!("Known to the server as {}", facts.id)
+            facts.id.clone()
         };
         let mut actions = Vec::new();
         if *hires {
@@ -468,9 +469,14 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                     );
                 },
             ),
-            title(facts.title.clone()),
+            beside((
+                title(facts.title.clone()),
+                label(known)
+                    .tone(Tone::Faint)
+                    .rules(small_rules)
+                    .tooltip(|| note("What the server calls it")),
+            )),
             note(facts.account.clone()),
-            note(known),
             buttons(actions),
             size(*tier, facts.id.clone()),
             worker_form(hamlet, facts.id.clone()),

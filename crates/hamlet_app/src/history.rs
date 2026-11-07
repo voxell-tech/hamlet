@@ -12,7 +12,7 @@ use bevy::ui::{AlignItems, percent};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, button, column, frame,
-    label, menu_item, text_field,
+    label, menu_item, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, derived, each, every_frame, keyed,
@@ -29,6 +29,7 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::cut;
+use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, built, with_cx};
 use protocol::Past;
@@ -103,44 +104,45 @@ struct Requests {
     open: bool,
 }
 
-/// The detail line of a past session's row.
-fn detail(past: &Past) -> String {
-    let count = match past.messages {
-        1 => "1 message".to_string(),
-        n => format!("{n} messages"),
-    };
-    let mut detail = if past.current {
+/// The detail line of a past session's row: when, how long and who
+/// began it, when that was not `chief`.
+fn detail(past: &Past, chief: &str) -> String {
+    let mut parts = vec![if past.current {
         "In use now".to_string()
     } else {
         Age::of(crate::status::now_ms(), past.modified.max(0) as u64)
             .ago()
-    };
-    detail.push_str(&format!(", {count}"));
+    }];
+    parts.push(match past.messages {
+        1 => "1 message".to_string(),
+        n => format!("{n} messages"),
+    });
     if past.tokens > 0 {
-        detail.push_str(&format!(", {}", format_tokens(past.tokens)));
+        parts.push(format_tokens(past.tokens));
     }
-    if !past.by.is_empty() {
-        detail.push_str(&format!(", begun by {}", past.by));
+    if !past.by.is_empty() && past.by != chief {
+        parts.push(format!("begun by {}", past.by));
     }
-    detail
+    parts.join(" · ")
 }
 
 impl History {
-    fn lines(&self) -> Vec<Line> {
-        self.pasts
-            .iter()
-            .filter(|past| {
-                let words = format!("{} {}", past.title, past.by)
-                    .to_lowercase();
-                self.query
-                    .to_lowercase()
-                    .split_whitespace()
-                    .all(|word| words.contains(word))
-            })
+    /// The sessions that hold every word searched for.
+    fn found(&self) -> impl Iterator<Item = &Past> {
+        let query = self.query.to_lowercase();
+        self.pasts.iter().filter(move |past| {
+            let words =
+                format!("{} {}", past.title, past.by).to_lowercase();
+            query.split_whitespace().all(|word| words.contains(word))
+        })
+    }
+
+    fn lines(&self, chief: &str) -> Vec<Line> {
+        self.found()
             .map(|past| Line {
                 number: past.number,
                 title: cut(&past.title, TITLE_SHOWN),
-                detail: detail(past),
+                detail: detail(past, chief),
                 live: past.current,
             })
             .collect()
@@ -149,7 +151,7 @@ impl History {
     /// The count line over the list.
     fn count(&self) -> String {
         let all = self.pasts.len();
-        let found = self.lines().len();
+        let found = self.found().count();
         match (all, self.query.trim().is_empty()) {
             (0, _) => "No sessions yet.".to_string(),
             (1, true) => "1 session".to_string(),
@@ -192,9 +194,9 @@ pub fn said(transcript: &Transcript) -> Vec<String> {
 
 fn format_tokens(n: u64) -> String {
     match n {
-        0..=999 => format!("{n} tok"),
-        1000..=999_999 => format!("{:.1}k tok", n as f64 / 1e3),
-        _ => format!("{:.2}M tok", n as f64 / 1e6),
+        0..=999 => format!("{n} tokens"),
+        1000..=999_999 => format!("{:.1}k tokens", n as f64 / 1e3),
+        _ => format!("{:.2}M tokens", n as f64 / 1e6),
     }
 }
 
@@ -404,17 +406,30 @@ fn list() -> impl View {
     with_cx(|cx| {
         let space = &cx.theme().space;
         column((
-            text_field(
-                resource::<History, _>(|h| h.query.clone()),
-                |world, text| {
-                    world.resource_mut::<History>().query = text;
-                },
-            )
-            .rules(text_input),
-            note(resource::<History, _>(History::count)),
+            row((
+                search(
+                    text_field(
+                        resource::<History, _>(|h| h.query.clone()),
+                        |world, text| {
+                            world.resource_mut::<History>().query =
+                                text;
+                        },
+                    )
+                    .rules(text_input),
+                    "Search sessions",
+                ),
+                note(resource::<History, _>(History::count)),
+            ))
+            .gap(space.section)
+            .align(AlignItems::Center),
             failed(),
             scroll_area((each(
-                resource::<History, _>(History::lines),
+                derived(|world: &World| {
+                    world
+                        .resource::<History>()
+                        .lines(&world.resource::<Convo>().name)
+                })
+                .when(every_frame()),
                 |line: &Line| {
                     (
                         line.number,
@@ -445,9 +460,10 @@ fn reader() -> impl View {
         };
         let holder = reading.holder;
         let past = history.read().cloned();
+        let chief = &cx.world.resource::<Convo>().name;
         let (title, detail) = match &past {
             Some(past) => {
-                (cut(&past.title, TITLE_SHOWN), detail(past))
+                (cut(&past.title, TITLE_SHOWN), detail(past, chief))
             }
             None => Default::default(),
         };
@@ -603,9 +619,10 @@ mod tests {
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "2 sessions"));
         assert!(shown.iter().any(|text| text
-            == "In use now, 3 messages, 1.2k tok, begun by alice"));
+            == "In use now · 3 messages · 1.2k tokens · begun by \
+                alice"));
         assert!(shown.iter().any(|text| text
-            == "5 min ago, 2 messages, 800 tok, begun by bob"));
+            == "5 min ago · 2 messages · 800 tokens · begun by bob"));
         app.world_mut().resource_mut::<History>().query =
             "hives".into();
         app.update();

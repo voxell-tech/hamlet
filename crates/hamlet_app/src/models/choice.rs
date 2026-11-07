@@ -11,7 +11,7 @@ use hamlet_ui::styles::{bare, close, description, group, section};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, built};
 
-use super::{Shelf, edit};
+use super::{Shelf, edit, model_name};
 use crate::roll::{agents_moved, either, hamlets_moved, moved};
 
 pub(super) fn home_default(world: &World) -> String {
@@ -64,7 +64,10 @@ pub(super) fn chooser(
         let (names, write, was) =
             (names.clone(), write.clone(), now.clone());
         dropdown(
-            names.clone(),
+            names
+                .iter()
+                .map(|name| model_name(name).to_string())
+                .collect::<Vec<_>>(),
             at,
             Glyph::Chevron.image(hamlet_ui::styles::ICON),
             move |world, chosen| {

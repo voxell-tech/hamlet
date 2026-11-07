@@ -240,7 +240,6 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
                 .bold(true),
             super::search::search(
                 "Search scholars",
-                |world| world.resource::<Hiring>().search.clone(),
                 |world, text| {
                     world.resource_mut::<Hiring>().search = text;
                 },

@@ -34,7 +34,7 @@ use hamlet_realm::palette::Palette;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
     Fills, ICON, breadcrumb, choice, description, filling, group,
-    scroll_area, section, title,
+    note, scroll_area, section, title,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
@@ -257,9 +257,20 @@ fn swatches(swatches: Vec<AnyView>) -> impl View {
     })
 }
 
-/// A part of the wardrobe: its name over its choices.
-fn part(name: &'static str, choices: impl View) -> impl View {
-    group((section(name), choices))
+/// A part of the wardrobe: its name, and the name of the colour
+/// chosen where its choices are colours, over its choices.
+fn part(
+    name: &'static str,
+    colour: Option<&'static str>,
+    choices: impl View,
+) -> impl View {
+    group((
+        hamlet_ui::styles::beside((
+            section(name),
+            note(colour.unwrap_or_default()),
+        )),
+        choices,
+    ))
 }
 
 /// The choices of a look, each pressed to take it.
@@ -307,10 +318,13 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View + use<> {
     );
     with_cx(move |cx| {
         column((
-            part("Cloak, and the roof at home", swatches(cloaks)),
-            part("The light of the wick", swatches(lights)),
-            part("On the head", hats),
-            part("In the Hand", held),
+            part("Cloak", Some(look.cloak.name()), swatches(cloaks)),
+            part("Light", Some(look.light.name()), swatches(lights)),
+            part("Hat", None, hats),
+            part("Hand", None, held),
+            note(
+                "Your cloak is the colour of your roof at home too.",
+            ),
         ))
         .gap(cx.theme().space.section)
     })
@@ -355,8 +369,8 @@ pub fn panel(chief: Entity) -> AnyView {
                 label(place).tone(tone).wrap(false),
             )),
             description(
-                "This is you. Whoever you talk to knows your mascot \
-                 as Wickstep.",
+                "This is you, the chief. You appear in the world as \
+                 Wickstep, in the look you choose here.",
             ),
             scroll_area((wardrobe(chief, facts),)),
         );

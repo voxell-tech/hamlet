@@ -11,9 +11,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{
-    AlignItems, Overflow, OverflowAxis, UiRect, percent, px,
-};
+use bevy::ui::{AlignItems, Overflow, OverflowAxis, percent, px};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -762,32 +760,27 @@ fn nav_item(pane: Pane) -> AnyView {
     )
 }
 
-/// The way back to the first-run screen.
-fn again() -> impl View {
-    with_cx(|cx| {
-        let gap = cx.theme().space.gap;
-        column((
-            description("Choose again where your model comes from."),
-            action(
-                Glyph::Restore,
-                "Set up again",
-                crate::welcome::again,
-            ),
-        ))
-        .gap(gap / 2.0)
-        .padding(UiRect::top(px(gap)))
-        .align(AlignItems::FlexStart)
-    })
+/// The way back to the first-run screen, as a row of the index.
+fn again() -> AnyView {
+    hamlet_ui::styles::nav_row(
+        Glyph::Restore,
+        "First-run setup",
+        "Choose again where your models come from.",
+        crate::welcome::again,
+    )
 }
 
 /// The Settings panel's contents.
 pub fn screen() -> AnyView {
     let page = keyed(resource::<Pane, _>(|pane| *pane), |pane| {
         if *pane == Pane::Front {
-            let (pages, foot) =
-                (Pane::PAGES.map(nav_item).into(), again().boxed());
-            return with_cx(move |cx| nav_list(cx, pages, foot))
-                .boxed();
+            let mut pages: Vec<AnyView> =
+                Pane::PAGES.map(nav_item).into();
+            pages.push(again());
+            return with_cx(move |cx| {
+                nav_list(cx, pages, frame().boxed())
+            })
+            .boxed();
         }
         let body = match pane {
             Pane::Endpoints => crate::models::endpoints().boxed(),

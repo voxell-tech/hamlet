@@ -23,7 +23,7 @@ use hamlet_ui::{Cx, View};
 
 use super::{Scene, Stand, Ui};
 
-/// The picture of the world over the command line.
+/// The picture of the world, with its toasts over it.
 fn world_stand() -> Ui {
     AnyView::new(|cx: &mut Cx| {
         let picture =
@@ -34,18 +34,12 @@ fn world_stand() -> Ui {
                 ..ImageNode::default()
             });
         cx.build(
-            column((
-                column((hamlet_app::toasts::stack(),))
-                    .grow(1.0)
-                    .min_height(px(0.0))
-                    .width(percent(100.0))
-                    .with(picture.unwrap_or_default()),
-                chat::message_bar(),
-            ))
-            .grow(1.0)
-            .min_width(px(0.0))
-            .min_height(px(0.0))
-            .gap(0.0),
+            column((hamlet_app::toasts::stack(),))
+                .grow(1.0)
+                .min_width(px(0.0))
+                .min_height(px(0.0))
+                .width(percent(100.0))
+                .with(picture.unwrap_or_default()),
         )
     })
 }

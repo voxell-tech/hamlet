@@ -330,6 +330,15 @@ pub(crate) fn strip(need: &Need) -> AnyView {
                 change,
                 chat::Underway::Waiting,
             ),
+            // A newcomer's line says it all.
+            (None, None)
+                if matches!(
+                    need.detail,
+                    WaitDetail::Newcomer { .. }
+                ) =>
+            {
+                frame().boxed()
+            }
             // The exact text, which a tag in the world may cut.
             (None, None) => {
                 note(need.about.clone()).tagged(MonoText).boxed()
@@ -356,10 +365,15 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             1 => String::new(),
             n => format!(", asked {n} times"),
         };
-        let head = format!(
-            "{what} from {}  ({}{asked})",
-            need.shown, need.waited
-        );
+        let head = match need.detail {
+            WaitDetail::Newcomer { .. } => {
+                format!("{what}  ({}{asked})", need.waited)
+            }
+            _ => format!(
+                "{what} from {}  ({}{asked})",
+                need.shown, need.waited
+            ),
+        };
         let tone = match need.detail {
             WaitDetail::Fault {} => Tone::Critical,
             _ => Tone::Accent,
@@ -370,6 +384,25 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             WaitDetail::Question { .. } => None,
             WaitDetail::Approval { says, .. } => {
                 Some(format!("{} {says}", need.shown))
+            }
+            WaitDetail::Newcomer { scholar } => {
+                let name =
+                    hamlet_client::realm::scholar(cx.world, *scholar)
+                        .and_then(|scholar| {
+                            cx.world
+                                .get::<hamlet_client::realm::Scholar>(
+                                    scholar,
+                                )
+                        })
+                        .map_or_else(
+                            || "A new scholar".to_string(),
+                            |scholar| scholar.0.name.clone(),
+                        );
+                Some(format!(
+                    "{name}, made by {}, waits at the harbor to be \
+                     let into the city.",
+                    need.shown
+                ))
             }
             _ => Some(need.line.clone()),
         };

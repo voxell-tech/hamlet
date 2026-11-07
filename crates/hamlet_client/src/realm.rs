@@ -251,17 +251,6 @@ pub struct Account {
     pub spent: protocol::Amount,
 }
 
-impl Account {
-    /// The received model and cost words for an agent.
-    pub fn summary(&self) -> String {
-        if self.model.is_empty() {
-            self.cost.clone()
-        } else {
-            format!("{}, {}", self.model, self.cost)
-        }
-    }
-}
-
 /// The chief's name supplied by the server.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Chief(pub String);
