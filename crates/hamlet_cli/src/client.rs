@@ -1,10 +1,14 @@
 //! Authenticated protocol connections, without the window's ECS.
 
+use std::path::Path;
+
 use anyhow::{Context, Result, bail};
+use base64::Engine as _;
 use futures::{SinkExt, StreamExt};
 pub use hamlet_protocol::client::discovery::ServerAddress;
 use hamlet_protocol::client::{
-    ClientMessage, Hello, RequestId, ServerMessage, State, VERSION,
+    ClientMessage, Hello, ImageId, PutImage, PutImagePart, Reply,
+    ReplyKind, RequestId, ServerMessage, State, VERSION,
 };
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -89,5 +93,76 @@ impl Client {
     pub async fn close(&mut self) -> Result<()> {
         self.0.close(None).await?;
         Ok(())
+    }
+}
+
+/// The most bytes of an image one part carries.
+const PART: usize = 512 * 1024;
+
+/// Sends the image file at `path` over a connection of its own, so
+/// the stream of a chat is left alone, and gives the id it is kept
+/// under.
+pub async fn upload_image(
+    address: &ServerAddress,
+    path: &Path,
+) -> Result<ImageId> {
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("Cannot read {}", path.display()))?;
+    let (mut client, _) = connect(address).await?;
+    let id = RequestId::new();
+    let begun = client
+        .request(
+            &id,
+            ClientMessage::PutImage(PutImage {
+                id: id.clone(),
+                size: bytes.len() as u64,
+            }),
+        )
+        .await?;
+    let upload = match begun {
+        ServerMessage::Reply(Reply {
+            kind: ReplyKind::Notice,
+            upload: Some(upload),
+            ..
+        }) => upload,
+        other => bail!("{}", refusal(&other)),
+    };
+    let mut image = None;
+    let mut offset = 0;
+    for part in bytes.chunks(PART) {
+        let id = RequestId::new();
+        let answer = client
+            .request(
+                &id,
+                ClientMessage::PutImagePart(PutImagePart {
+                    data: base64::engine::general_purpose::STANDARD
+                        .encode(part),
+                    id: id.clone(),
+                    offset,
+                    upload: upload.clone(),
+                }),
+            )
+            .await?;
+        match answer {
+            ServerMessage::Reply(Reply {
+                kind: ReplyKind::Notice,
+                image: kept,
+                ..
+            }) => image = kept.or(image),
+            other => bail!("{}", refusal(&other)),
+        }
+        offset += part.len() as u64;
+    }
+    client.close().await?;
+    image.context("The server kept no image.")
+}
+
+/// The words of a refusal or a fault, or of an answer that is
+/// neither.
+fn refusal(message: &ServerMessage) -> String {
+    match message {
+        ServerMessage::Reply(reply) => reply.text.clone(),
+        ServerMessage::Fault(fault) => fault.text.clone(),
+        _ => "The server answered with something else.".into(),
     }
 }

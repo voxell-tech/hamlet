@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{IsTerminal, Write};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use hamlet_protocol::client::{transcript, *};
@@ -57,10 +58,19 @@ pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
 }
 
 /// Chats until EOF has received every submitted line's reply;
-/// disconnecting stops no agent.
-pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
+/// disconnecting stops no agent. The first line carries the `images`
+/// (C33).
+pub async fn run(
+    address: &ServerAddress,
+    to: &str,
+    images: &[PathBuf],
+) -> Result<()> {
     let (client, state) = client::connect(address).await?;
     let target = resolve(&state, to)?;
+    let mut attached = Vec::new();
+    for path in images {
+        attached.push(client::upload_image(address, path).await?);
+    }
     let mut screen = Screen::default();
     screen.show(&ServerMessage::State(state.clone()))?;
     eprintln!(
@@ -81,6 +91,8 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
         );
     }
     let mut session = Session {
+        address: address.clone(),
+        attached,
         client,
         state,
         target,
@@ -116,6 +128,9 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
 
 /// A terminal chat with one agent at a time.
 struct Session {
+    address: ServerAddress,
+    /// The images the next line carries.
+    attached: Vec<ImageId>,
     client: Client,
     state: State,
     target: AgentId,
@@ -158,6 +173,9 @@ impl Session {
     /// Takes a line the chief typed, or the end of input.
     async fn on_line(&mut self, line: Option<String>) -> Result<()> {
         let Some(line) = line else {
+            if !self.attached.is_empty() {
+                self.say(String::new()).await?;
+            }
             let barrier = RequestId::new();
             self.open(barrier.clone(), chat_ref(self.target)).await?;
             self.last = Some(barrier);
@@ -170,14 +188,27 @@ impl Session {
         let (command, name) = trimmed
             .split_once(char::is_whitespace)
             .unwrap_or((trimmed, ""));
+        if command == "/image" {
+            match client::upload_image(
+                &self.address,
+                Path::new(name.trim()),
+            )
+            .await
+            {
+                Ok(image) => {
+                    self.attached.push(image);
+                    eprintln!(
+                        "  (attached {}; {} with the next line)",
+                        name.trim(),
+                        self.attached.len()
+                    );
+                }
+                Err(error) => eprintln!("error: {error:#}"),
+            }
+            return prompt(&mut self.screen, self.interactive);
+        }
         if !matches!(command, "/agent" | "/hamlet" | "/hand") {
-            let id = RequestId::new();
-            self.pending.insert(id.clone());
-            let to = self.target;
-            return self
-                .client
-                .send(ClientMessage::Say(Say { id, to, text: line }))
-                .await;
+            return self.say(line).await;
         }
         let name = name.trim();
         match switch(&self.state, command, name) {
@@ -202,6 +233,22 @@ impl Session {
             Err(error) => eprintln!("error: {error}"),
         }
         prompt(&mut self.screen, self.interactive)
+    }
+
+    /// Says `text` with the images attached so far.
+    async fn say(&mut self, text: String) -> Result<()> {
+        let id = RequestId::new();
+        self.pending.insert(id.clone());
+        let to = self.target;
+        let images = std::mem::take(&mut self.attached);
+        self.client
+            .send(ClientMessage::Say(Say {
+                id,
+                images,
+                to,
+                text,
+            }))
+            .await
     }
 
     /// Takes a server message. True once the chat is over.

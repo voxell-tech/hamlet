@@ -45,7 +45,7 @@ starts only the window.
 | `hamlet stop` | Stops the realm's server and waits for it to close in order |
 | `hamlet status` | Reports whether the realm's server runs, with its address, process ID, start time and log path |
 | `hamlet server [--port <n>] [--faux <script.json>] [--insecure]` | Starts a server on a realm; a faux script answers offline for tests and demos |
-| `hamlet chat [--to <hand\|hire#<id>\|mayor@<hamlet>>]` | Chats with the Hand or the named agent and answers what waits, in the terminal |
+| `hamlet chat [--to <hand\|hire#<id>\|mayor@<hamlet>>] [--image <path>]...` | Chats with the Hand or the named agent and answers what waits, in the terminal; each `--image` (PNG, JPEG, WebP or GIF) goes with the first line |
 | `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot]` | Serves a scratch realm on a free port unless given one, and opens its window; `--hot` builds a window that reloads saved shaders and tuning files |
 | `hamlet window` | Opens a window connected to a running server |
 | `hamlet edit <charter\|limits\|settings> [--hamlet <id>]` | Opens the chief's document in `$EDITOR` and saves through the server; limits and settings are JSON, and `--hamlet` selects a hamlet's limits in place of the realm's |
@@ -79,7 +79,9 @@ The server advertises its supported deeds in the state it sends, and
 `commands.rs` carries them out: hamlets and hires, the tree and its roads,
 versions of a scholar, the library, the record, the budget and what waits.
 The server parses commands; the terminal handles only `/hand`, `/hamlet` and
-`/agent` as address changes. `/hand` talks to the Hand, `/hamlet <hamlet>` to
+`/agent` as address changes, and `/image <path>`, which uploads an image over a
+connection of its own and attaches it to the next line (C33). Images still
+attached when input ends go in a line of their own. `/hand` talks to the Hand, `/hamlet <hamlet>` to
 that hamlet's mayor, and `/agent` finds an agent anywhere in the realm by its
 address (`hand`, `hire#<id>`, `mayor@<hamlet>`, `worker#<id>`). The
 CLI replaces its realm view on whole states as well as applying changes. See [`society.md`](society.md) for the society and realm's
