@@ -782,26 +782,26 @@ pub fn link_row(cx: &mut Cx) {
 pub fn nav_card(
     which: Glyph,
     title: &'static str,
-    holds: &'static str,
+    holds: impl Into<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, holds, button, act).boxed()
+    nav_item(which, title, holds.into(), button, act).boxed()
 }
 
 /// The same as a row of a list, with no border about it.
 pub fn nav_row(
     which: Glyph,
     title: &'static str,
-    holds: &'static str,
+    holds: impl Into<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, holds, link_row, act).boxed()
+    nav_item(which, title, holds.into(), link_row, act).boxed()
 }
 
 fn nav_item(
     which: Glyph,
     title: &'static str,
-    holds: &'static str,
+    holds: Prop<String>,
     rules: fn(&mut Cx),
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
@@ -968,4 +968,23 @@ pub fn card_choice(
             .transition(Motion::Interact)
             .apply(cx);
     }
+}
+
+/// A word that marks a state, such as "In use" or "Default": small
+/// amber letters on a filled amber plate with no border, so it does
+/// not read as a button.
+pub fn pill(text: impl Into<Prop<String>>) -> impl View {
+    let text = text.into();
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        row((label(text)
+            .size(theme.text.small)
+            .bold(true)
+            .tone(Tone::Accent)
+            .wrap(false),))
+        .padding(UiRect::axes(px(8.0), px(2.0)))
+        .shrink(0.0)
+        .fill(theme.palette.primary_low)
+        .radius(theme.space.round)
+    })
 }

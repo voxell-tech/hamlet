@@ -25,7 +25,7 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bare, caption, choice, close, crumb,
+    Fills, ICON, action, back, bare, caption, choice, close, crumb,
     crumb_here, crumb_slash, crumbs, danger_button, filling,
     hairline, note, primary_button, scroll_area,
 };
@@ -247,20 +247,20 @@ fn session_menu() -> impl View {
 }
 
 /// A page under the thread, as the path to it names it.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum Under {
     Prompt,
     Sessions,
-    /// The past session of that number, read from the sessions.
-    Session(i64),
+    /// A past session, read from the sessions, by when it began.
+    Session(String),
 }
 
 impl Under {
-    fn name(self) -> String {
+    fn name(&self) -> String {
         match self {
             Under::Prompt => "Prompt".into(),
             Under::Sessions => "Sessions".into(),
-            Under::Session(number) => format!("Session {number}"),
+            Under::Session(title) => title.clone(),
         }
     }
 }
@@ -324,17 +324,11 @@ fn above(world: &World, agent: Entity) -> Vec<AnyView> {
     parts
 }
 
-/// The path to the thread, then the pages `under` it. A page under
-/// the thread starts at the agent, as its thread shows the steps
-/// above.
+/// The path to the thread, then the pages `under` it.
 fn path(agent: Entity, under: Vec<Under>) -> impl View {
     built(move |cx| {
         let world = &*cx.world;
-        let mut parts = if under.is_empty() {
-            above(world, agent)
-        } else {
-            Vec::new()
-        };
+        let mut parts = above(world, agent);
         let address = name_of(world, agent);
         let name = called(world, agent);
         parts.push(if under.is_empty() {
@@ -750,7 +744,7 @@ pub(super) fn leave_prompt(
 }
 
 /// A page about the agent the chat is with, under the path to it and
-/// the pages `under` names.
+/// the pages `under` names, with the way back to the page above.
 fn aside(
     under: fn(&World) -> Vec<Under>,
     body: impl View + 'static,
@@ -760,7 +754,26 @@ fn aside(
             (world.resource::<Convo>().agent, under(world))
         })
         .when(every_frame()),
-        |(agent, under)| path(*agent, under.clone()).boxed(),
+        |(agent, under)| {
+            let back = match under.as_slice() {
+                [Under::Prompt] => back("Details", |world| {
+                    *world.resource_mut::<Sheet>() = Sheet::Details;
+                    show(world, Showing::Thread);
+                }),
+                [Under::Sessions] => back("Chat", |world| {
+                    *world.resource_mut::<Sheet>() = Sheet::Chat;
+                    show(world, Showing::Thread);
+                }),
+                _ => back("Sessions", crate::history::close),
+            };
+            let path = path(*agent, under.clone());
+            with_cx(move |cx| {
+                column((path, back))
+                    .gap(cx.theme().space.gap / 2.0)
+                    .align(AlignItems::FlexStart)
+            })
+            .boxed()
+        },
     )
     .within(bare());
     with_cx(move |cx| {
@@ -932,11 +945,22 @@ pub(super) fn prompt_page() -> impl View {
 /// The past sessions of the agent the chat is with.
 pub(super) fn sessions() -> impl View {
     aside(
-        |world| match &world.resource::<History>().reading {
-            Some(reading) => {
-                vec![Under::Sessions, Under::Session(reading.number)]
+        |world| {
+            let history = world.resource::<History>();
+            match (&history.reading, history.read()) {
+                (Some(_), Some(past)) => vec![
+                    Under::Sessions,
+                    Under::Session(crate::history::began(past)),
+                ],
+                (Some(reading), None) => vec![
+                    Under::Sessions,
+                    Under::Session(format!(
+                        "Session {}",
+                        reading.number
+                    )),
+                ],
+                (None, _) => vec![Under::Sessions],
             }
-            None => vec![Under::Sessions],
         },
         crate::history::screen(),
     )
@@ -1109,7 +1133,7 @@ mod tests {
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "orchard"));
         assert!(shown.iter().any(|text| text == "Tends trees"));
-        press(&mut app, "Reflect now");
+        press(&mut app, "Note what it learned");
         let sent = app
             .world()
             .resource::<Outbox>()

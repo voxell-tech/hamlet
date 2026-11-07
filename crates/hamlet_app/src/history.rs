@@ -23,13 +23,13 @@ use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::id_of;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, buttons, card_button, command, filling, good_action,
-    hairline, hidden, note, scroll_area, section, text_input,
+    Fills, ICON, buttons, card_button, command, filling, good_action,
+    hairline, hidden, note, pill, scroll_area, section, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::hint::search;
-use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, built, with_cx};
 use protocol::Past;
 
@@ -124,19 +124,15 @@ struct Requests {
     open: bool,
 }
 
-/// The detail line of a past session's row: when, unless it is in
-/// use, how long and who began it, when that was not `chief`.
+/// The detail line of a past session's row: when, "now" for the one
+/// in use, how long and who began it, when that was not `chief`.
 fn detail(past: &Past, chief: &str) -> String {
-    let mut parts = Vec::new();
-    if !past.current {
-        parts.push(
-            Age::of(
-                crate::status::now_ms(),
-                past.modified.max(0) as u64,
-            )
-            .ago(),
-        );
-    }
+    let mut parts = vec![if past.current {
+        "now".to_string()
+    } else {
+        Age::of(crate::status::now_ms(), past.modified.max(0) as u64)
+            .ago()
+    }];
     parts.push(match past.messages {
         1 => "1 message".to_string(),
         n => format!("{n} messages"),
@@ -148,6 +144,24 @@ fn detail(past: &Past, chief: &str) -> String {
         parts.push(format!("begun by {}", past.by));
     }
     parts.join(" · ")
+}
+
+/// When `past` began, as its page's path names it: "Today, 18:00",
+/// or its date for an earlier day.
+pub(crate) fn began(past: &Past) -> String {
+    let now = crate::status::now_ms() as i64;
+    let at = chrono::DateTime::from_timestamp_millis(past.began)
+        .unwrap_or_default()
+        .with_timezone(&chrono::Local);
+    let day = match Day::of(now, past.began) {
+        day @ (Day::Today | Day::Yesterday) => {
+            day.heading().to_string()
+        }
+        Day::PastWeek | Day::Earlier => {
+            at.format("%-d %b").to_string()
+        }
+    };
+    format!("{day}, {}", at.format("%H:%M"))
 }
 
 impl History {
@@ -199,7 +213,7 @@ impl History {
         }
     }
 
-    fn read(&self) -> Option<&Past> {
+    pub(crate) fn read(&self) -> Option<&Past> {
         let reading = self.reading.as_ref()?;
         self.pasts.iter().find(|past| past.number == reading.number)
     }
@@ -373,23 +387,6 @@ fn choices(line: &Line) -> Vec<AnyView> {
     ]
 }
 
-/// The mark on the row of the session in use.
-fn in_use() -> impl View {
-    with_cx(|cx| {
-        let theme = cx.theme();
-        row((label("In use")
-            .size(theme.text.small)
-            .bold(true)
-            .tone(Tone::Accent)
-            .wrap(false),))
-        .padding(UiRect::axes(px(8.0), px(2.0)))
-        .shrink(0.0)
-        .border(1.0)
-        .border_color(theme.palette.gold_4)
-        .radius(theme.space.round)
-    })
-}
-
 fn line_view(line: &Line) -> AnyView {
     let number = line.number;
     let menu = line.clone();
@@ -403,15 +400,22 @@ fn line_view(line: &Line) -> AnyView {
         .grow(1.0)
         .min_width(px(0.0));
         let head = match live {
-            true => row((name, in_use()))
+            true => row((name, pill("In use")))
                 .gap(cx.theme().space.gap)
                 .align(AlignItems::FlexStart)
                 .boxed(),
             false => row((name,)).boxed(),
         };
-        column((head, note(detail.clone())))
-            .gap(cx.theme().space.gap / 2.0)
-            .fills_width()
+        row((
+            column((head, note(detail.clone())))
+                .gap(cx.theme().space.gap / 2.0)
+                .grow(1.0)
+                .min_width(px(0.0)),
+            glyph(Glyph::Into, ICON).tone(Tone::Dim),
+        ))
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::Center)
+        .fills_width()
     }))
     .width(percent(100.0))
     .rules(card_button)
@@ -515,7 +519,7 @@ fn reader() -> impl View {
         cx.build(
             column((
                 label(title).size(heading).bold(true),
-                note(detail),
+                note(format!("Past session, read only · {detail}")),
                 actions(),
                 hairline(line),
                 scroll_area((
@@ -606,7 +610,7 @@ mod tests {
         assert!(shown.iter().any(|text| text == "2 sessions"));
         assert!(shown.iter().any(|text| text == "In use"));
         assert!(shown.iter().any(|text| text
-            == "3 messages · 1.2k tokens · begun by alice"));
+            == "now · 3 messages · 1.2k tokens · begun by alice"));
         assert!(shown.iter().any(|text| text
             == "5 min ago · 2 messages · 800 tokens · begun by bob"));
         app.world_mut().resource_mut::<History>().query =

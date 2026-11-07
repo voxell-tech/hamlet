@@ -10,30 +10,32 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
 use bevy::ui::{AlignItems, UiRect, px};
-use bevy_fynix::tokens::Tone;
+use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
+    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
     label, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, keyed, resource, style,
+};
 use hamlet_client::realm::Deeds;
 use hamlet_realm::orders::{self, Decree};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    self, Fills, ICON, action, bad_action, bare, beside, breadcrumb,
-    buttons, group, lettered, note, primary_button, scroll_area,
-    small_rules, text_input, title,
+    self, Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
+    group, lettered, note, note_rules, primary_button, raised,
+    scroll_area, status_label, text_input, title,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::ellipsis::one_line;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::tabs;
-use hamlet_ui::{AnyView, View, built, with_cx};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::heading;
 use super::record::record_of;
-use super::rows::{
-    AgentRow, agent_rows, hamlet_rows, pressable, stale,
-};
+use super::rows::{AgentRow, agent_rows, hamlet_rows, stale};
 use crate::convo::talk_to;
 use crate::forms::{self, Asking};
 use crate::roll::{either, moved};
@@ -118,10 +120,7 @@ fn decree(world: &mut World, id: &str, text: String) {
 const TIERS: [&str; 4] = ["50", "100", "200", "500"];
 
 /// How many hires the hamlet `id` may hold, chosen from its tiers.
-fn size(allowed: bool, id: String) -> AnyView {
-    if !allowed {
-        return column(()).boxed();
-    }
+fn size(id: String) -> AnyView {
     let names = TIERS
         .iter()
         .map(|tier| format!("Holds up to {tier} hires"))
@@ -181,82 +180,30 @@ const PAGES: [(Page, Glyph, &str); 3] = [
     (Page::Record, Glyph::History, "Record"),
 ];
 
-/// Everyone in `hamlet`, each pressed to talk to.
+/// Everyone in `hamlet`, each pressed to talk to, its hires a step
+/// in from it as the rail shows them.
 fn list_of(hamlet: Entity) -> impl View {
     let people =
         derived(move |world: &World| agent_rows(world, Some(hamlet)))
             .when(stale());
     keyed(people, |rows| {
-        let card = |row: &AgentRow| {
-            let agent = row.agent;
-            let title = if row.mayor {
-                format!("{} (mayor)", row.name)
-            } else {
-                row.name.clone()
-            };
-            let standing = row.standing;
-            let beside = (
-                standing.glyph(),
-                standing.word().to_string(),
-                standing.tone(),
-            );
-            let gone = row.gone;
-            let thing = if gone {
-                Thing::Ruin(agent)
-            } else {
-                Thing::Agent(agent)
-            };
-            pressable(
-                thing,
-                title,
-                beside,
-                vec![
-                    row.doing.clone(),
-                    row.purpose.clone(),
-                    row.account.clone(),
-                ],
-                move |world| {
-                    if gone {
-                        select(world, Some(thing));
-                    } else {
-                        talk_to(world, agent);
-                    }
-                },
-            )
-        };
-        // Each lead's hires stand a step in from it, joined to it by
-        // the tree's lines.
         let living = rows
             .iter()
             .filter(|row| !row.gone)
-            .cloned()
-            .collect::<Vec<_>>();
-        let living = branches(&living)
-            .into_iter()
-            .zip(&living)
-            .enumerate()
-            .map(|(at, (lines, row))| {
-                with_lines(lines, card(row).boxed(), at > 0).boxed()
-            })
+            .map(person)
             .collect::<Vec<_>>();
         let gone = rows
             .iter()
             .filter(|row| row.gone)
-            .map(|row| {
-                column((card(row),)).padding(UiRect::left(px(
-                    row.depth as f32 * STEP,
-                )))
-            })
+            .map(person)
             .collect::<Vec<_>>();
-        // Under the tab that names them. The rows hold the gap over
-        // them, so the lines run on through it.
         let mut parts = vec![column(living).gap(0.0).boxed()];
         if !gone.is_empty() {
             parts.push(heading(
                 Glyph::Gone,
                 format!("Gone ({})", gone.len()),
             ));
-            parts.push(group(gone).boxed());
+            parts.push(column(gone).gap(0.0).boxed());
         }
         group(parts).boxed()
     })
@@ -264,109 +211,87 @@ fn list_of(hamlet: Entity) -> impl View {
 }
 
 /// How far a hire stands in from its lead.
-const STEP: f32 = 18.0;
+const STEP: f32 = 16.0;
 
-/// The tree's lines in front of one agent's card.
-struct Branch {
-    /// For each level between the top and its lead's, whether a
-    /// guide runs down it past this card.
-    rails: Vec<bool>,
-    /// Whether it is the last of its lead's hires.
-    last: bool,
-    /// Whether it is under a lead at all.
-    nested: bool,
-}
-
-/// The lines in front of each of `rows`, which are in the tree's
-/// order.
-fn branches(rows: &[AgentRow]) -> Vec<Branch> {
-    // Whether the agent last seen at each depth has more after it.
-    let mut more = Vec::<bool>::new();
-    rows.iter()
-        .enumerate()
-        .map(|(at, row)| {
-            let depth = row.depth;
-            let last = rows[at + 1..]
-                .iter()
-                .take_while(|after| after.depth >= depth)
-                .all(|after| after.depth > depth);
-            let rails =
-                more.get(1..depth).unwrap_or_default().to_vec();
-            more.resize(depth + 1, false);
-            more[depth] = !last;
-            Branch {
-                rails,
-                last,
-                nested: depth > 0,
+/// One agent as a row of the list: its kind, its name and state, what
+/// it does under them and its model and spending at the end.
+fn person(row_of: &AgentRow) -> AnyView {
+    let agent = row_of.agent;
+    let gone = row_of.gone;
+    let thing = if gone {
+        Thing::Ruin(agent)
+    } else {
+        Thing::Agent(agent)
+    };
+    let kind = if row_of.mayor {
+        Glyph::Mayor
+    } else {
+        Glyph::Robot
+    };
+    let standing = row_of.standing;
+    let under = if row_of.doing.is_empty() {
+        row_of.purpose.clone()
+    } else {
+        row_of.doing.clone()
+    };
+    let (name, account, depth) =
+        (row_of.name.clone(), row_of.account.clone(), row_of.depth);
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        let words = column((
+            row((
+                label(name).bold(true).wrap(false),
+                status_label(
+                    standing.glyph(),
+                    standing.word(),
+                    standing.tone(),
+                ),
+            ))
+            .gap(space.gap)
+            .align(AlignItems::Center),
+            one_line(label(under).tone(Tone::Dim)),
+        ))
+        .gap(1.0)
+        .grow(1.0)
+        .min_width(px(0.0));
+        button(
+            row((
+                raised(glyph(kind, ICON).tone(Tone::Dim)),
+                words,
+                label(account).wrap(false).rules(note_rules),
+            ))
+            .gap(space.gap)
+            .grow(1.0)
+            .align(AlignItems::Center),
+        )
+        .padding(UiRect::new(
+            px(6.0 + depth as f32 * STEP),
+            px(6.0),
+            px(5.0),
+            px(5.0),
+        ))
+        .rules(row_look)
+        .tagged(Variant::Default)
+        .tagged(world_menu::Asks(thing))
+        .on_activate(move |world| {
+            if gone {
+                select(world, Some(thing));
+            } else {
+                talk_to(world, agent);
             }
         })
-        .collect()
+    })
+    .boxed()
 }
 
-/// `card` behind the tree's lines, with the gap to the card before it
-/// over it when there is one, so that the lines run on through it up
-/// to the lead. Each guide runs down the middle of a step, and the
-/// elbow meets the card at its title.
-fn with_lines(
-    branch: Branch,
-    card: AnyView,
-    after: bool,
-) -> impl View {
-    built(move |cx| {
-        let theme = cx.theme();
-        let colour = theme.palette.gold_6;
-        let over = if after { theme.space.gap } else { 0.0 };
-        let elbow = over
-            + theme.space.border
-            + theme.space.card_padding_y
-            + theme.text.heading * 0.6;
-        let line = |on: bool| {
-            frame().width(px(1.0)).fill(if on {
-                colour
-            } else {
-                Color::NONE
-            })
-        };
-        let guide = |on: bool| {
-            row((frame().width(px(STEP / 2.0)), line(on)))
-                .width(px(STEP))
-                .align(AlignItems::Stretch)
-                .boxed()
-        };
-        let mut parts = branch
-            .rails
-            .iter()
-            .map(|on| guide(*on))
-            .collect::<Vec<_>>();
-        if branch.nested {
-            parts.push(
-                row((
-                    frame().width(px(STEP / 2.0)),
-                    column((
-                        line(true).height(px(elbow)),
-                        line(!branch.last).grow(1.0),
-                    ))
-                    .gap(0.0),
-                    column((frame()
-                        .width(px(STEP / 2.0 - 1.0))
-                        .height(px(1.0))
-                        .fill(colour),))
-                    .padding(UiRect::top(px(elbow))),
-                ))
-                .gap(0.0)
-                .align(AlignItems::Stretch)
-                .boxed(),
-            );
-        }
-        parts.push(
-            column((card,))
-                .grow(1.0)
-                .min_width(px(0.0))
-                .padding(UiRect::top(px(over)))
-                .boxed(),
-        );
-        cx.build(row(parts).gap(0.0).align(AlignItems::Stretch))
-    })
+/// A row of the list: bare at rest, a faint fill under the pointer.
+fn row_look(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, t| f.fill(Color::NONE).radius(t.space.round))
+        .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
+        .pressed(|s| s.frame(|f, t| f.fill(t.palette.input)))
+        .transition(Motion::Interact)
+        .apply(cx);
 }
 
 /// One hamlet: what it is, what can be done to it, and its pages.
@@ -399,12 +324,6 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             return column(()).boxed();
         };
         let id = facts.id.clone();
-        // What commands call it, when its name says otherwise.
-        let known = if facts.title == facts.id {
-            String::new()
-        } else {
-            facts.id.clone()
-        };
         let mut actions = Vec::new();
         if *hires {
             // Under its mayor; under another hire from that hire's
@@ -456,7 +375,18 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 },
             ));
         }
-        group((
+        // What commands call it, when its name says otherwise.
+        let name = if facts.title == facts.id {
+            title(facts.title.clone()).boxed()
+        } else {
+            let id = facts.id.clone();
+            title(facts.title.clone())
+                .tooltip(move || {
+                    note(format!("Commands call it {id}"))
+                })
+                .boxed()
+        };
+        let mut top = vec![
             breadcrumb(
                 vec!["Realm".into()],
                 facts.title.clone(),
@@ -467,21 +397,30 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                         crate::hub::Showing::Realm,
                     );
                 },
-            ),
-            beside((
-                title(facts.title.clone()),
-                label(known)
-                    .tone(Tone::Faint)
-                    .rules(small_rules)
-                    .tooltip(|| note("What the server calls it")),
-            )),
-            note(facts.account.clone()),
-            buttons(actions),
-            size(*tier, facts.id.clone()),
-            worker_form(hamlet, facts.id.clone()),
-            naming(hamlet, facts.id.clone()),
-            crate::folder::section(hamlet),
-        ))
+            )
+            .boxed(),
+            name,
+            note(facts.account.clone()).boxed(),
+        ];
+        // The forms open only from these buttons, so without them
+        // nothing stands under the account.
+        if !actions.is_empty() {
+            top.push(
+                group((
+                    buttons(actions),
+                    worker_form(hamlet, facts.id.clone()),
+                    naming(hamlet, facts.id.clone()),
+                ))
+                .boxed(),
+            );
+        }
+        if *tier {
+            top.push(size(facts.id.clone()));
+        }
+        with_cx(move |cx| {
+            column((group(top), crate::folder::section(hamlet)))
+                .gap(cx.theme().space.section)
+        })
         .boxed()
     })
     .within(bare());

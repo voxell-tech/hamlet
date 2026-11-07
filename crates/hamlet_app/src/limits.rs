@@ -524,7 +524,21 @@ pub fn panel(hamlet: Entity) -> AnyView {
                                 nav_row(
                                     part.glyph(),
                                     part.title(),
-                                    part.holds(),
+                                    resource::<Book, _>(
+                                        move |book| {
+                                            book.limits
+                                                .as_ref()
+                                                .map_or(
+                                                    part.holds()
+                                                        .to_string(),
+                                                    |limits| {
+                                                        part.now(
+                                                            limits,
+                                                        )
+                                                    },
+                                                )
+                                        },
+                                    ),
                                     move |world| {
                                         *world
                                             .resource_mut::<Part>() =
@@ -607,6 +621,61 @@ impl Part {
             Part::Budget => Glyph::Meter,
             Part::Models => Glyph::Chip,
             Part::Leads => Glyph::Mayor,
+        }
+    }
+
+    /// What the part holds now, as its row on the front says it.
+    fn now(self, limits: &Limits) -> String {
+        let dollars = |cost: Option<f64>| match cost {
+            Some(cost) if cost > 0.0 => format!("${cost:.2}"),
+            _ => "No limit".to_string(),
+        };
+        match self {
+            Part::Front => String::new(),
+            Part::Budget => format!(
+                "{} {}, {} a task",
+                dollars(limits.budget.cost),
+                match limits.budget.period {
+                    Period::Day => "a day",
+                    Period::Month => "a month",
+                },
+                dollars(limits.task.cost).to_lowercase(),
+            ),
+            Part::Models => match &limits.model {
+                Some(model) => {
+                    format!(
+                        "Runs {}",
+                        crate::models::model_name(model)
+                    )
+                }
+                None => "Runs the realm's default model".to_string(),
+            },
+            Part::Leads => {
+                let kept = [
+                    (limits.reserved.hire, "hire"),
+                    (limits.reserved.end, "end a hire"),
+                    (limits.reserved.merge, "merge"),
+                    (limits.reserved.roads, "lay roads"),
+                ]
+                .into_iter()
+                .filter(|(kept, _)| *kept)
+                .map(|(_, what)| what)
+                .collect::<Vec<_>>();
+                let asks = match kept.split_last() {
+                    None => "Leads ask you for nothing".to_string(),
+                    Some((last, [])) => {
+                        format!("Leads ask you before they {last}")
+                    }
+                    Some((last, rest)) => format!(
+                        "Leads ask you before they {} or {last}",
+                        rest.join(", ")
+                    ),
+                };
+                format!(
+                    "{asks}. A tree {} deep, {} roads at most.",
+                    limits.depth, limits.road.most
+                )
+            }
         }
     }
 

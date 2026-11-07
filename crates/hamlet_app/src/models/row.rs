@@ -9,7 +9,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{Focused, ScopedExt, ViewExt, derived, style};
 use hamlet_client::realm::Providers;
-use hamlet_ui::styles::{ICON, note_rules, small_rules};
+use hamlet_ui::styles::{ICON, note_rules, pill};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -24,10 +24,6 @@ const MARK: f32 = 16.0;
 /// The room between a row's edge and its mark, and between its parts.
 const PAD: f32 = 8.0;
 const GAP: f32 = 10.0;
-
-/// How far in from a row's edge its name starts, for what is laid
-/// under a row to line up with it.
-pub(crate) const WORDS_AT: f32 = PAD + MARK + GAP;
 
 /// A model as a row shows it.
 pub(crate) struct ModelRow {
@@ -135,19 +131,7 @@ pub(crate) fn model_row(
     let words =
         column((title, under)).gap(1.0).grow(1.0).min_width(px(0.0));
     let tag = match tag {
-        Some(tag) => with_cx(move |cx| {
-            let theme = cx.theme();
-            column((label(tag)
-                .tone(Tone::Accent)
-                .bold(true)
-                .wrap(false)
-                .rules(small_rules),))
-            .padding(UiRect::axes(px(6.0), px(1.0)))
-            .border(theme.space.border)
-            .border_color(theme.palette.gold_5)
-            .radius(theme.space.round)
-        })
-        .boxed(),
+        Some(tag) => pill(tag).boxed(),
         None => frame().boxed(),
     };
     let face = match detail {

@@ -4,23 +4,27 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    FrameProps, label, number_field, row, text_field,
+    BehaviorExt, FrameProps, frame, label, number_field, row,
+    text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, action, bad_action, bare, beside, close, description,
-    good_action, group, list, note, section, small_rules, text_input,
+    Fills, action, bad_action, bare, beside, button, close,
+    description, good_action, group, lettered, list, note,
+    note_rules, pill, section, small_rules, text_input,
 };
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::choice::home_default;
 use super::{
-    Asked, Detail, Draft, ModelRow, SHOWN, Shelf, WORDS_AT,
-    catalogue, edit, model_row, read_models,
+    Asked, Draft, SHOWN, Shelf, catalogue, edit, mark, model_name,
+    provider_name, provider_of, read_models,
 };
 use crate::roll::{either, moved};
 
@@ -185,44 +189,94 @@ fn price(name: &str, output: bool) -> AnyView {
     .boxed()
 }
 
-fn entry(model: &protocol::Listed, default: &str) -> AnyView {
-    let name = model.name.clone();
-    let source = match model.priced {
-        protocol::ListedPriced::Unknown => "no price",
-        protocol::ListedPriced::Listed => "listed",
-        protocol::ListedPriced::Assigned => "assigned",
-        protocol::ListedPriced::Yours => "yours",
-    };
-    let detail = model.context.map_or(source.into(), |context| {
-        format!("{source}, holds {}k", context / 1000)
-    });
-    let prices = with_cx(move |cx| {
+/// The widths of the table's columns after the model's name: its
+/// provider, its context and what stands at the row's end.
+const PROVIDER_WIDE: f32 = 96.0;
+/// The side of a provider's mark, and the room after it.
+const MARK: f32 = 16.0;
+const MARK_GAP: f32 = 8.0;
+const CONTEXT_WIDE: f32 = 60.0;
+const END_WIDE: f32 = 112.0;
+
+/// The table's columns, `name` first, each as wide as its column.
+fn columns(
+    name: impl View + 'static,
+    provider: impl View + 'static,
+    prices: (AnyView, AnyView),
+    context: impl View + 'static,
+    end: impl View + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        let cell = |content: AnyView, wide: f32| {
+            row((content,)).width(px(wide)).shrink(0.0).boxed()
+        };
         row((
-            section("In"),
-            price(&name, false),
-            section("Out"),
-            price(&name, true),
-            note(detail),
+            row((name,)).grow(1.0).min_width(px(0.0)),
+            cell(provider.boxed(), PROVIDER_WIDE),
+            cell(prices.0, PRICE_WIDE),
+            cell(prices.1, PRICE_WIDE),
+            cell(context.boxed(), CONTEXT_WIDE),
+            cell(end.boxed(), END_WIDE),
         ))
         .gap(cx.theme().space.gap)
         .align(AlignItems::Center)
-        .padding(UiRect::left(px(WORDS_AT)))
-    });
-    let chosen = model.name.clone();
-    let is_default = model.name == default;
-    close((
-        model_row(
-            ModelRow {
-                name: model.name.clone(),
-                picked: is_default,
-                tag: is_default.then_some("Default"),
-                end: None,
-                detail: Detail::Source,
-            },
-            move |world| save_default(world, &chosen),
-        ),
-        prices,
+    })
+}
+
+/// The names over the table's columns.
+fn header() -> AnyView {
+    columns(
+        row((section("Model"),))
+            .padding(UiRect::left(px(MARK + MARK_GAP))),
+        section("Provider"),
+        (section("In $/M").boxed(), section("Out $/M").boxed()),
+        section("Context"),
+        frame(),
+    )
+    .boxed()
+}
+
+/// A model as a row of the table: its mark and name, its provider,
+/// its prices, how much it holds, and the way to make it the default
+/// or the mark that it is.
+fn entry(model: &protocol::Listed, default: &str) -> AnyView {
+    let name = model.name.clone();
+    let id = model.name.clone();
+    let words = row((
+        mark(provider_of(&name), MARK),
+        one_line(label(model_name(&name).to_string())),
     ))
+    .gap(MARK_GAP)
+    .align(AlignItems::Center)
+    .min_width(px(0.0));
+    let provider = one_line(label(
+        derived(move |world: &World| {
+            provider_name(world, provider_of(&id))
+        })
+        .when(moved::<Providers>()),
+    ))
+    .rules(note_rules);
+    let context =
+        note(model.context.map_or("-".to_string(), |context| {
+            format!("{}k", context / 1000)
+        }));
+    let chosen = model.name.clone();
+    let end = if model.name == default {
+        pill("Default").boxed()
+    } else {
+        lettered("Make default")
+            .rules(button)
+            .tagged(Variant::Default)
+            .on_activate(move |world| save_default(world, &chosen))
+            .boxed()
+    };
+    columns(
+        words,
+        provider,
+        (price(&name, false), price(&name, true)),
+        context,
+        end,
+    )
     .boxed()
 }
 
@@ -279,7 +333,7 @@ fn save_default(world: &mut World, model: &str) {
 }
 
 pub fn shelf() -> AnyView {
-    let shown = bevy_fynix::derived(|world: &World| {
+    let shown = derived(|world: &World| {
         let shelf = world.resource::<Shelf>();
         let draft = world.resource::<Draft>();
         let (names, page, pages) = narrowed(
@@ -311,10 +365,8 @@ pub fn shelf() -> AnyView {
             )
             .boxed();
         }
-        let mut rows = models
-            .iter()
-            .map(|model| entry(model, default))
-            .collect::<Vec<_>>();
+        let mut rows = vec![header()];
+        rows.extend(models.iter().map(|model| entry(model, default)));
         let (page, pages) = (*page, *pages);
         if pages > 1 {
             rows.push(
@@ -336,9 +388,8 @@ pub fn shelf() -> AnyView {
     group((
         description(
             "The default model is used wherever nobody chose one. \
-             Choose a model to make it the default. Prices are \
-             dollars per million tokens in and out, used when the \
-             endpoint does not bill a call.",
+             Prices are dollars per million tokens in and out, used \
+             when the endpoint does not bill a call.",
         ),
         beside((
             action(Glyph::Restore, "List models", |world| {

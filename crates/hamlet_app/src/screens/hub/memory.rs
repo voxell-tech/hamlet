@@ -8,29 +8,32 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, label, row,
+    BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
     text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    ICON, action, bad_action, bare, lettered, note, text_input,
+    ICON, action, bad_action, bare, good_action, lettered, note,
+    text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, View, with_cx};
 
+use super::details::card;
 use super::papers::{self, Papers};
 use super::thread::dim;
-use crate::overview::heading;
 
 /// The memory file whose text is open, and the name typed for a new
-/// one.
+/// one while its field is open.
 #[derive(Resource, Default, PartialEq)]
 pub struct Opened {
     pub path: Option<String>,
     pub name: String,
+    pub adding: bool,
 }
 
 /// A file of the memory, as the folder view lists it.
@@ -132,11 +135,9 @@ fn file(entry: &Entry, open: bool) -> AnyView {
         });
     let head = row((
         glyph(Glyph::Notes, ICON).tone(Tone::Faint),
-        column((named, note(size(&entry.text))))
-            .gap(2.0)
-            .grow(1.0)
-            .min_width(px(0.0))
-            .align(AlignItems::FlexStart),
+        named,
+        note(size(&entry.text)),
+        frame().grow(1.0),
         action(
             Glyph::Into,
             if open { "Close" } else { "Open" },
@@ -176,8 +177,7 @@ fn file(entry: &Entry, open: bool) -> AnyView {
 fn folder(folder: &Folder, open: Option<&str>) -> AnyView {
     let mut parts = Vec::new();
     if folder.name.is_empty() {
-        parts
-            .push(label("In every prompt").tone(Tone::Faint).boxed());
+        parts.push(note("Shown to the agent every turn.").boxed());
     } else {
         parts.push(
             label(format!("{}/", folder.name))
@@ -195,34 +195,49 @@ fn folder(folder: &Folder, open: Option<&str>) -> AnyView {
     column(parts).gap(6.0).boxed()
 }
 
-/// The add field and the button that opens the new file.
+/// The button that opens the field a new file is named in, or that
+/// field with the buttons that add it and that close it.
 fn add() -> impl View {
-    with_cx(|cx| {
-        let gap = cx.theme().space.gap;
-        row((
-            column(
-                (label("New file").tone(Tone::Faint).wrap(false),),
-            )
-            .tooltip(|| {
-                note(
-                    "A name like people.md, or a folder and name \
-                     like orchard/rows.md",
-                )
-            }),
-            text_field(String::new(), |world, text| {
-                world.resource_mut::<Opened>().name = text;
-            })
-            .grow(1.0)
-            .min_width(px(0.0))
-            .rules(text_input),
-            action(Glyph::Plus, "Add file", |world| {
-                let name = world.resource::<Opened>().name.clone();
-                papers::add_memory(world, &name);
-            }),
-        ))
-        .gap(gap)
-        .align(AlignItems::Center)
+    keyed(resource::<Opened, _>(|o| o.adding), |adding| {
+        if !*adding {
+            return row((action(Glyph::Plus, "Add file", |world| {
+                world.resource_mut::<Opened>().adding = true;
+            }),))
+            .boxed();
+        }
+        with_cx(|cx| {
+            let gap = cx.theme().space.gap;
+            row((
+                hinted(
+                    text_field(String::new(), |world, text| {
+                        world.resource_mut::<Opened>().name = text;
+                    })
+                    .grow(1.0)
+                    .min_width(px(0.0))
+                    .rules(text_input),
+                    "people.md, or orchard/rows.md",
+                ),
+                good_action(Glyph::Plus, "Add", |world| {
+                    let mut opened = world.resource_mut::<Opened>();
+                    if opened.name.trim().is_empty() {
+                        return;
+                    }
+                    let name = std::mem::take(&mut opened.name);
+                    opened.adding = false;
+                    papers::add_memory(world, &name);
+                }),
+                action(Glyph::Cross, "Cancel", |world| {
+                    let mut opened = world.resource_mut::<Opened>();
+                    opened.adding = false;
+                    opened.name.clear();
+                }),
+            ))
+            .gap(gap)
+            .align(AlignItems::Center)
+        })
+        .boxed()
     })
+    .within(bare())
 }
 
 /// The skills of an agent or a scholar, each with what it does.
@@ -249,26 +264,24 @@ pub(super) fn skills() -> impl View {
     .within(bare())
 }
 
-/// The character of an agent or a scholar under its heading, with the
-/// way to edit it.
-pub(super) fn character_section() -> impl View {
-    column((
-        row((
-            heading(Glyph::Face, "Character"),
-            column(()).grow(1.0),
+/// The character of an agent or a scholar on its card, with the way
+/// to edit it.
+pub(super) fn character_section() -> AnyView {
+    card(
+        Glyph::Face,
+        "Character",
+        Some(
             action(Glyph::Rename, "Edit", papers::edit_character)
                 .tooltip(|| {
                     note(
                         "Opens it in your text editor. It is saved \
                          here when you save it there.",
                     )
-                }),
-        ))
-        .gap(8.0)
-        .align(AlignItems::Center),
+                })
+                .boxed(),
+        ),
         character(),
-    ))
-    .gap(6.0)
+    )
 }
 
 /// The character of an agent or a scholar.

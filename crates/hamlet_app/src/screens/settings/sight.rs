@@ -12,9 +12,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     FrameProps, TooltipExt, column, dropdown, label, row, slider,
 };
-use bevy_fynix::{
-    ModifierExt, ViewExt, derived, every_frame, resource,
-};
+use bevy_fynix::{ViewExt, derived, every_frame, resource};
 use hamlet_realm::pick::Orbit;
 use hamlet_realm::sky::{
     DistanceFogSettings, Quality, SkySettings, VolumetricFogSettings,
@@ -26,7 +24,7 @@ use hamlet_ui::widgets::disclosure::disclosure;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::range::range;
 use hamlet_ui::widgets::switch::labelled_switch;
-use hamlet_ui::{View, built, with_cx};
+use hamlet_ui::{AnyView, View, built, with_cx};
 use hamlet_vfx::wind::WindChoice;
 
 use super::{field, told};
@@ -164,71 +162,102 @@ fn amount<R: Resource<Mutability = Mutable>>(
     set: fn(&mut R, f32),
     (least, most): (f32, f32),
 ) -> impl View {
+    track(
+        glyph(which, AMOUNT_ICON)
+            .tone(Tone::Dim)
+            .tooltip(move || note(name)),
+        number(at, set, (least, most)),
+    )
+}
+
+/// A slider of one number of `R` from `least` to `most`, and the
+/// number itself: none for a distance, two places for a share.
+fn number<R: Resource<Mutability = Mutable>>(
+    at: fn(&R) -> f32,
+    set: fn(&mut R, f32),
+    (least, most): (f32, f32),
+) -> (AnyView, AnyView) {
+    let places = if most >= 100.0 { 0 } else { 2 };
+    (
+        slider(resource::<R, _>(at))
+            .range(least, most)
+            .on_change(move |world, to| {
+                set(&mut world.resource_mut::<R>(), to);
+            })
+            // From nothing, so it takes the room the row has rather
+            // than pushing the row past the page.
+            .width(px(0.0))
+            .min_width(px(0.0))
+            .grow(1.0)
+            .boxed(),
+        value(label(resource::<R, _>(move |settings| {
+            format!("{:.*}", places, at(settings))
+        }))),
+    )
+}
+
+/// A slider's value, in a column as wide on every row.
+fn value(shown: impl View + 'static) -> AnyView {
+    row((shown,)).width(px(72.0)).shrink(0.0).boxed()
+}
+
+/// A slider's row: what names it, the slider and its value.
+fn track(
+    name: impl View + 'static,
+    (slider, value): (AnyView, AnyView),
+) -> impl View {
     with_cx(move |cx| {
-        row((
-            glyph(which, AMOUNT_ICON)
-                .tone(Tone::Dim)
-                .tooltip(move || note(name)),
-            slider(resource::<R, _>(at))
-                .range(least, most)
-                .on_change(move |world, to| {
-                    set(&mut world.resource_mut::<R>(), to);
-                })
-                // From nothing, so it takes the room the row has
-                // rather than pushing the row past the page.
-                .width(px(0.0))
-                .min_width(px(0.0))
-                .grow(1.0),
-            // As many places as the range needs: none for a
-            // distance, three for a share.
-            label(resource::<R, _>(move |settings| {
-                let places = if most >= 100.0 { 0 } else { 3 };
-                format!("{:.*}", places, at(settings))
-            }))
-            .wide(px(48.0)),
-        ))
-        .gap(cx.theme().space.gap)
-        .width(percent(100.0))
-        .align(AlignItems::Center)
+        row((name, slider, value))
+            .gap(cx.theme().space.gap)
+            .width(percent(100.0))
+            .align(AlignItems::Center)
     })
 }
 
+/// The width of the words that name a wind's slider.
+const WIND_NAMES: f32 = 84.0;
+
 /// How hard the wind blows at its calmest and at its strongest, both
-/// on one track, and how turbulent it is.
+/// on one track, and how unevenly, each named beside its slider.
 fn wind() -> impl View {
-    with_cx(|cx| {
+    let named = |name: &'static str| {
+        row((label(name).tone(Tone::Faint).wrap(false),))
+            .width(px(WIND_NAMES))
+            .shrink(0.0)
+    };
+    with_cx(move |cx| {
         column((
-            row((
-                glyph(Glyph::Meter, AMOUNT_ICON)
-                    .tone(Tone::Dim)
-                    .tooltip(|| note("Strength")),
-                range(
-                    resource::<WindChoice, _>(|wind| wind.least),
-                    resource::<WindChoice, _>(|wind| wind.most),
-                    WindChoice::STRENGTH,
-                    |world, least, most| {
-                        let mut wind =
-                            world.resource_mut::<WindChoice>();
-                        if (wind.least, wind.most) != (least, most) {
-                            wind.least = least;
-                            wind.most = most;
-                        }
-                    },
+            track(
+                named("Strength"),
+                (
+                    range(
+                        resource::<WindChoice, _>(|wind| wind.least),
+                        resource::<WindChoice, _>(|wind| wind.most),
+                        WindChoice::STRENGTH,
+                        |world, least, most| {
+                            let mut wind =
+                                world.resource_mut::<WindChoice>();
+                            if (wind.least, wind.most)
+                                != (least, most)
+                            {
+                                wind.least = least;
+                                wind.most = most;
+                            }
+                        },
+                    )
+                    .boxed(),
+                    value(label(resource::<WindChoice, _>(|wind| {
+                        format!("{:.2}-{:.2}", wind.least, wind.most)
+                    }))),
                 ),
-                label(resource::<WindChoice, _>(|wind| {
-                    format!("{:.2}-{:.2}", wind.least, wind.most)
-                }))
-                .wide(px(72.0)),
-            ))
-            .gap(cx.theme().space.gap)
-            .width(percent(100.0))
-            .align(AlignItems::Center),
-            amount::<WindChoice>(
-                Glyph::Scatter,
-                "Turbulence",
-                |wind| wind.turbulence,
-                |wind, to| wind.turbulence = to,
-                (0.0, 1.0),
+            ),
+            track(
+                named("Unevenness"),
+                number::<WindChoice>(
+                    |wind| wind.turbulence,
+                    |wind, to| wind.turbulence = to,
+                    (0.0, 1.0),
+                ),
             ),
         ))
         .gap(cx.theme().space.gap / 2.0)

@@ -26,9 +26,11 @@ use crate::root::Lasting;
 
 /// The width of a theme's small painted panel.
 const SWATCH: f32 = 128.0;
+/// The width of what a mode's card holds.
+const CHOICE: f32 = 150.0;
 
 pub(super) fn page() -> impl View {
-    parts((field("Light or dark", modes()), field("Theme", themes())))
+    parts((field("Light or dark", modes()), themes()))
 }
 
 /// The three modes, each with what it does, and why the panels stay
@@ -38,18 +40,32 @@ fn modes() -> AnyView {
         let appearance = world.resource::<Appearance>();
         let scheme = *world.resource::<ColorScheme>();
         let missing = missing(appearance, scheme, world);
-        (appearance.pick().mode, scheme, missing)
+        let theme =
+            world.resource::<Themes>().get(&appearance.pick().theme);
+        let palette =
+            |shade| theme.variants.get(shade).palette.clone();
+        let palettes =
+            (palette(WindowTheme::Light), palette(WindowTheme::Dark));
+        (appearance.pick().mode, scheme, missing, palettes)
     })
     .when(either(
         either(moved::<Appearance>(), moved::<ColorScheme>()),
         moved::<Themes>(),
     ));
-    keyed(picked, |(picked, scheme, missing)| {
+    keyed(picked, |(picked, scheme, missing, palettes)| {
         let options = [Mode::System, Mode::Light, Mode::Dark]
             .into_iter()
-            .map(|mode| mode_card(mode, *picked == mode, *scheme))
+            .map(|mode| {
+                mode_card(mode, *picked == mode, *scheme, palettes)
+            })
             .collect::<Vec<_>>();
-        let mut shown = vec![group(options).boxed()];
+        let options = with_cx(move |cx| {
+            row(options)
+                .gap(cx.theme().space.gap)
+                .align(AlignItems::Stretch)
+                .tagged(Wraps)
+        });
+        let mut shown = vec![options.boxed()];
         if let Some(missing) = missing {
             shown.push(note(missing.clone()).boxed());
         }
@@ -80,10 +96,13 @@ fn missing(
     ))
 }
 
+/// A mode as a card: how the panels look in it, its name and what it
+/// does.
 fn mode_card(
     mode: Mode,
     picked: bool,
     scheme: ColorScheme,
+    (light, dark): &(Palette, Palette),
 ) -> AnyView {
     let (name, does) = match mode {
         Mode::System => ("Match system", system_words(scheme)),
@@ -94,11 +113,25 @@ fn mode_card(
             ("Dark", "Always dark, however your computer is set.")
         }
     };
+    // Match system looks as the computer says now, else dark, as
+    // the panels then stay.
+    let shade = match (mode, scheme) {
+        (Mode::Light, _)
+        | (Mode::System, ColorScheme::Says(WindowTheme::Light)) => {
+            light
+        }
+        _ => dark,
+    };
     picked_card(
         format!("mode {mode:?}"),
         picked,
-        column((card_name(name, Tone::Body), description(does)))
-            .gap(4.0),
+        column((
+            row((swatch(shade),)).width(percent(100.0)),
+            card_name(name, Tone::Body),
+            description(does),
+        ))
+        .gap(6.0)
+        .width(px(CHOICE)),
         move |world| {
             world.resource_mut::<Appearance>().pick_mode(mode);
         },
@@ -131,7 +164,8 @@ fn shade_name(shade: WindowTheme) -> &'static str {
     }
 }
 
-/// A card for each theme, the one picked marked.
+/// A card for each theme, the one picked marked, where there is more
+/// than one to pick.
 fn themes() -> AnyView {
     let shown = derived(|world: &World| {
         let picked = world.resource::<Appearance>().pick().theme;
@@ -143,16 +177,22 @@ fn themes() -> AnyView {
     })
     .when(either(moved::<Appearance>(), moved::<Themes>()));
     keyed(shown, |themes| {
+        if themes.len() < 2 {
+            return frame().boxed();
+        }
         let cards = themes
             .iter()
             .map(|(picked, theme)| theme_card(theme, *picked))
             .collect::<Vec<_>>();
-        with_cx(move |cx| {
-            row(cards)
-                .gap(cx.theme().space.gap)
-                .align(AlignItems::FlexStart)
-                .tagged(Wraps)
-        })
+        field(
+            "Theme",
+            with_cx(move |cx| {
+                row(cards)
+                    .gap(cx.theme().space.gap)
+                    .align(AlignItems::FlexStart)
+                    .tagged(Wraps)
+            }),
+        )
         .boxed()
     })
     .within(bare())
@@ -168,7 +208,7 @@ fn theme_card(theme: &Theme, picked: bool) -> AnyView {
         .iter()
         .map(|(shade, variant)| {
             column((
-                swatch(&variant.palette),
+                row((swatch(&variant.palette),)).width(px(SWATCH)),
                 note(format!(
                     "{}, {}",
                     variant.name,
@@ -265,7 +305,7 @@ fn swatch(palette: &Palette) -> impl View {
         .align(AlignItems::Center),
     ))
     .gap(8.0)
-    .width(px(SWATCH))
+    .width(percent(100.0))
     .padding(UiRect::all(px(8.0)))
     .radius(6.0)
     .border(1.0)

@@ -16,8 +16,8 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    action, bare, beside, description, note, parts, segmented_words,
-    text_input,
+    action, bare, beside, description, good_action, note, parts,
+    segmented_words, text_input,
 };
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
@@ -299,12 +299,12 @@ pub(super) fn page() -> impl View {
         ),
         remote(),
         beside((
-            action(Glyph::Check, "Save", save),
+            good_action(Glyph::Check, "Save", save),
             note(resource::<Draft, _>(|draft| {
                 if draft.saved { "Saved." } else { "" }.to_string()
             })),
+            note(resource::<Settings, _>(pending)),
         )),
-        note(resource::<Settings, _>(pending)),
         moved(),
         label(resource::<Draft, _>(|draft| draft.refusal.clone()))
             .tone(Tone::Critical),

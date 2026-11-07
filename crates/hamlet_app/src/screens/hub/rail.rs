@@ -564,15 +564,18 @@ fn is_current(world: &World, target: Target) -> bool {
     let showing = world.get_resource::<Showing>().copied();
     let seated = world.get_resource::<Convo>().map(|c| c.agent);
     match (target, showing) {
-        (Target::Hand | Target::Agent(_), Some(Showing::Thread)) => {
-            match target {
-                Target::Agent(agent) => seated == Some(agent),
-                _ => seated.is_some_and(|agent| {
-                    world.get::<Kind>(agent).map(|kind| kind.0)
-                        == Some(protocol::AgentKind::Hand)
-                }),
-            }
-        }
+        (
+            Target::Hand | Target::Agent(_),
+            Some(
+                Showing::Thread | Showing::Sessions | Showing::Prompt,
+            ),
+        ) => match target {
+            Target::Agent(agent) => seated == Some(agent),
+            _ => seated.is_some_and(|agent| {
+                world.get::<Kind>(agent).map(|kind| kind.0)
+                    == Some(protocol::AgentKind::Hand)
+            }),
+        },
         (Target::Scholar(a), Some(Showing::Scholar(b)))
         | (Target::Gone(a), Some(Showing::Gone(b)))
         | (Target::Hamlet(a), Some(Showing::Hamlet(b))) => a == b,

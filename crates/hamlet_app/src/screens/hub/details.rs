@@ -5,22 +5,22 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, percent, px};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
-    text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
+    frame, label, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{
-    Account, Allowance, Bylaws, Deeds, Kind, LivesIn, Road, ToolsOff,
-    name_of, roads_of, shown_of,
+    Account, Allowance, Bylaws, Deeds, Kind, LivesIn, Road, Scholar,
+    ToolsOff, id_of, name_of, roads_of, shown_of,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    Fills, ICON, action, back_link, bare, hairline, lettered, note,
-    scroll_area, text_input,
+    CONTROL, Fills, ICON, action, back_link, bare, buttons, framed,
+    lettered, note, scroll_area, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
@@ -44,6 +44,9 @@ struct Facts {
     purpose: String,
     /// The version it is pinned to, none for its scholar's `main`.
     pin: Option<String>,
+    /// Its scholar's named versions, when the chief may pin it to
+    /// one.
+    versions: Option<Vec<String>>,
     /// Its address, and what it is called in the world.
     address: String,
     called: String,
@@ -81,6 +84,9 @@ fn facts(world: &World, agent: Entity) -> Facts {
         pin: world
             .get::<hamlet_client::realm::Pin>(agent)
             .map(|pin| pin.0.clone()),
+        versions: Deeds::is_allowed(world, "pin")
+            .then(|| versions_of(world, agent))
+            .flatten(),
         address: name_of(world, agent),
         called: shown_of(world, agent),
         roads,
@@ -102,6 +108,23 @@ fn facts(world: &World, agent: Entity) -> Facts {
             .map(|off| off.0.clone())
             .unwrap_or_default(),
     }
+}
+
+/// The named versions of the scholar `agent` is a hire of.
+fn versions_of(world: &World, agent: Entity) -> Option<Vec<String>> {
+    let id = id_of(world, agent)?;
+    let mut scholars = world.try_query::<&Scholar>()?;
+    scholars
+        .iter(world)
+        .find(|scholar| scholar.0.hires.contains(&id))
+        .map(|scholar| {
+            scholar
+                .0
+                .versions
+                .iter()
+                .map(|v| v.name.clone())
+                .collect()
+        })
 }
 
 /// A setting: its name, which says more on hover, and its value.
@@ -169,6 +192,48 @@ fn allowance_field(facts: &Facts) -> AnyView {
     .boxed()
 }
 
+/// The version of its scholar it works from, chosen from the
+/// scholar's versions where it may be pinned.
+fn version(facts: &Facts) -> AnyView {
+    let now = facts.pin.clone().unwrap_or_else(|| "main".into());
+    let Some(versions) = &facts.versions else {
+        return label(shown_version(&now)).boxed();
+    };
+    let mut names = vec!["main".to_string()];
+    names.extend(versions.iter().cloned());
+    let at = names.iter().position(|name| *name == now).unwrap_or(0);
+    let words = names
+        .iter()
+        .map(|name| shown_version(name))
+        .collect::<Vec<_>>();
+    let address = facts.address.clone();
+    row((dropdown(
+        words,
+        at,
+        Glyph::Chevron.image(ICON),
+        move |world, chosen| {
+            if chosen != at
+                && let Some(to) = names.get(chosen)
+            {
+                crate::chat::command(
+                    world,
+                    format!("/pin {address} {to}"),
+                );
+            }
+        },
+    ),))
+    .boxed()
+}
+
+/// A version as the chief reads it: `main` is what its scholar knows
+/// now.
+fn shown_version(name: &str) -> String {
+    match name {
+        "main" => "Latest".to_string(),
+        version => version.to_string(),
+    }
+}
+
 /// The built-in tools a hire can be kept from, each with what it
 /// does.
 const TOOLS: [(&str, &str); 6] = [
@@ -188,10 +253,6 @@ fn tools(facts: &Facts) -> AnyView {
             let on = !facts.tools_off.iter().any(|off| off == tool);
             let address = facts.address.clone();
             row((
-                label(tool).bold(true).wrap(false),
-                column((label(does).tone(Tone::Faint),))
-                    .grow(1.0)
-                    .min_width(px(0.0)),
                 switch(on, move |world, on| {
                     let sign = if on { '+' } else { '-' };
                     crate::chat::command(
@@ -199,15 +260,17 @@ fn tools(facts: &Facts) -> AnyView {
                         format!("/tools {address} {sign}{tool}"),
                     );
                 }),
+                label(tool).bold(true).wrap(false),
+                column((label(does).tone(Tone::Faint),))
+                    .grow(1.0)
+                    .min_width(px(0.0)),
             ))
             .gap(8.0)
             .align(AlignItems::Center)
             .boxed()
         })
         .collect::<Vec<_>>();
-    column((heading(Glyph::Power, "Tools"), column(rows).gap(6.0)))
-        .gap(6.0)
-        .boxed()
+    card(Glyph::Key, "Tools", None, column(rows).gap(6.0))
 }
 
 /// An agent's name that leads to its thread.
@@ -219,9 +282,12 @@ fn link(entity: Entity, name: String) -> AnyView {
         .boxed()
 }
 
-/// Its settings, which a chief changes here.
-fn settings(facts: &Facts) -> AnyView {
+/// Who it is and what it may spend, which a chief changes here.
+fn about(facts: &Facts) -> Option<AnyView> {
     let mut parts = Vec::new();
+    if !facts.purpose.is_empty() && !facts.hand {
+        parts.push(said(facts.purpose.clone()));
+    }
     if !facts.hand {
         parts.push(setting(
             "Called",
@@ -231,10 +297,7 @@ fn settings(facts: &Facts) -> AnyView {
         parts.push(setting(
             "Version",
             "The version of its scholar it works from",
-            label(match &facts.pin {
-                Some(pin) => pin.clone(),
-                None => "Latest".to_string(),
-            }),
+            version(facts),
         ));
         parts.push(setting(
             "Allowance",
@@ -257,16 +320,23 @@ fn settings(facts: &Facts) -> AnyView {
             label(facts.spent.clone()),
         ));
     }
-    column(parts).gap(6.0).boxed()
+    (!parts.is_empty()).then(|| {
+        card(
+            Glyph::Robot,
+            "Identity and budget",
+            None,
+            column(parts).gap(6.0),
+        )
+    })
 }
 
 /// The agents it has a road to, each to take up, and a way to build
 /// another.
 fn roads(agent: Entity, facts: &Facts) -> AnyView {
-    let mut parts = vec![heading(Glyph::Signpost, "Roads")];
+    let mut parts = Vec::new();
     for (other, name) in facts.roads.iter().cloned() {
         let cut = button(glyph(Glyph::Cross, ICON).tone(Tone::Faint))
-            .padding(bevy::ui::UiRect::all(px(2.0)))
+            .padding(UiRect::all(px(2.0)))
             .rules(bevy_fynix::views::tint)
             .tooltip(|| note("Take up the road"))
             .on_activate(move |world| {
@@ -285,10 +355,15 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
         }),))
         .boxed(),
     );
-    column(parts).gap(6.0).boxed()
+    card(Glyph::Signpost, "Roads", None, column(parts).gap(6.0))
 }
 
-fn agent_section(agent: Entity) -> impl View {
+/// The cards of the agent's own facts that `build` makes, kept in
+/// step with the world.
+fn facts_cards(
+    agent: Entity,
+    build: fn(Entity, &Facts, bool) -> Vec<AnyView>,
+) -> impl View {
     keyed(
         derived(move |world: &World| {
             let roads = Deeds::is_allowed(world, "road")
@@ -297,34 +372,69 @@ fn agent_section(agent: Entity) -> impl View {
         })
         .when(every_frame()),
         move |(facts, may_road)| {
-            let mut parts = Vec::new();
-            if !facts.purpose.is_empty() {
-                parts.push(said(facts.purpose.clone()));
-            }
-            parts.push(settings(facts));
-            if !facts.hand && !facts.worker {
-                parts.push(tools(facts));
-            }
-            if *may_road && !facts.hand {
-                parts.push(roads(agent, facts));
-            }
-            column(parts).gap(12.0).boxed()
+            let parts = build(agent, facts, *may_road);
+            with_cx(move |cx| {
+                column(parts).gap(cx.theme().space.section)
+            })
+            .boxed()
         },
     )
     .within(bare())
 }
 
-/// Its own skills.
-fn skills() -> impl View {
-    column((heading(Glyph::Book, "Skills"), memory::skills()))
-        .gap(6.0)
+/// Who it is and what it may spend.
+fn head(_: Entity, facts: &Facts, _: bool) -> Vec<AnyView> {
+    about(facts).into_iter().collect()
 }
 
-/// Its prompt in full, and a reflection asked now.
+/// What it may do: its tools and its roads.
+fn powers(
+    agent: Entity,
+    facts: &Facts,
+    may_road: bool,
+) -> Vec<AnyView> {
+    let mut parts = Vec::new();
+    if !facts.hand && !facts.worker {
+        parts.push(tools(facts));
+    }
+    if may_road && !facts.hand {
+        parts.push(roads(agent, facts));
+    }
+    parts
+}
+
+/// A part of the sheet on its card: its name under `which`, the one
+/// thing done to it at the end of that line, and `body` under it.
+pub(super) fn card(
+    which: Glyph,
+    name: &'static str,
+    end: Option<AnyView>,
+    body: impl View + 'static,
+) -> AnyView {
+    let end = end.unwrap_or_else(|| frame().boxed());
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        framed((
+            row((heading(which, name), frame().grow(1.0), end))
+                .gap(gap)
+                .align(AlignItems::Center)
+                .min_height(px(CONTROL)),
+            column((body,)).padding(UiRect::top(px(gap / 2.0))),
+        ))
+    })
+    .boxed()
+}
+
+/// Its whole prompt, and a reflection asked now: what acts on the
+/// whole agent, over its parts.
 fn pages() -> impl View {
-    row((
-        action(Glyph::Notes, "Prompt", super::thread::show_prompt),
-        action(Glyph::Moon, "Reflect now", |world| {
+    buttons(vec![
+        action(Glyph::Notes, "Prompt", super::thread::show_prompt)
+            .tooltip(|| {
+                note("Everything it is told at a turn's start")
+            })
+            .boxed(),
+        action(Glyph::Moon, "Note what it learned", |world| {
             if let Some(to) = super::papers::selected(world) {
                 world.trigger(
                     hamlet_client::messages::ChiefMessage {
@@ -334,28 +444,25 @@ fn pages() -> impl View {
                 );
             }
         })
-        .tooltip(|| note("Write down what it learned so far")),
-    ))
-    .gap(8.0)
-    .tagged(hamlet_ui::widgets::platform::Wraps)
+        .tooltip(|| {
+            note("It writes what it learned so far to its memory")
+        })
+        .boxed(),
+    ])
 }
 
 /// The sheet that takes the place of the thread of `agent` while it
 /// is open.
 pub(super) fn sheet(agent: Entity) -> impl View {
     with_cx(move |cx| {
-        let line = cx.theme().palette.gold_6;
         let gap = cx.theme().space.section;
         column((scroll_area((column((
-            agent_section(agent),
             pages(),
-            hairline(line),
-            heading(Glyph::Notes, "Memory"),
-            memory::view(),
-            hairline(line),
-            skills(),
-            hairline(line),
+            facts_cards(agent, head),
             memory::character_section(),
+            card(Glyph::Notes, "Memory", None, memory::view()),
+            card(Glyph::Book, "Skills", None, memory::skills()),
+            facts_cards(agent, powers),
         ))
         .gap(gap)
         .width(percent(100.0)),)),))

@@ -9,9 +9,9 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, label,
+    BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_client::realm::{Mode, Works};
@@ -19,11 +19,12 @@ use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 use hamlet_ui::styles::{
-    CONTROL, action, bare, button, buttons, note, segmented_words,
+    action, bare, buttons, link_row, note, segmented_words,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::{View, with_cx};
+use hamlet_ui::widgets::platform::MonoText;
+use hamlet_ui::{AnyView, View, with_cx};
 
 use crate::overview::{heading, tell};
 use crate::roll::hamlets_moved;
@@ -175,25 +176,17 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
                 .before
                 .iter()
                 .take(EARLIER)
-                .map(|folder| {
-                    let folder = folder.clone();
-                    bevy_fynix::views::button(label(folder.clone()))
-                        .padding(hamlet_ui::styles::pad())
-                        .min_height(px(CONTROL))
-                        .rules(button)
-                        .tagged(Variant::Default)
-                        .on_activate(move |world| {
-                            work_on(
-                                world,
-                                hamlet,
-                                Path::new(&folder),
-                            );
-                        })
-                        .boxed()
-                })
+                .map(|folder| earlier_row(hamlet, folder.clone()))
                 .collect::<Vec<_>>();
-            parts.push(small("Worked on before:".to_string()));
-            parts.push(buttons(earlier).boxed());
+            parts.push(
+                column((
+                    hamlet_ui::styles::section("Worked on before"),
+                    column(earlier).gap(0.0).width(percent(100.0)),
+                ))
+                .gap(2.0)
+                .width(percent(100.0))
+                .boxed(),
+            );
         }
         with_cx(move |cx| {
             column(parts)
@@ -203,6 +196,28 @@ pub(crate) fn section(hamlet: Entity) -> impl View {
         .boxed()
     })
     .within(bare())
+}
+
+/// A folder worked on before, as a quiet row whose press works on it
+/// again.
+fn earlier_row(hamlet: Entity, folder: String) -> AnyView {
+    bevy_fynix::views::button(
+        row((
+            label(folder.clone()).tagged(MonoText),
+            frame().grow(1.0),
+            label("Use").wrap(false),
+        ))
+        .gap(8.0)
+        .grow(1.0)
+        .align(AlignItems::Center),
+    )
+    .padding(UiRect::axes(px(6.0), px(3.0)))
+    .rules(link_row)
+    .tagged(Variant::Text)
+    .on_activate(move |world| {
+        work_on(world, hamlet, Path::new(&folder));
+    })
+    .boxed()
 }
 
 #[cfg(test)]

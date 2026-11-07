@@ -21,12 +21,13 @@ use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bad_action, bare, beside,
     breadcrumb, buttons, description, framed, good_action, note,
-    scroll_area, section, text_input, title,
+    scroll_area, text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, with_cx};
 
+use super::details::card;
 use super::thread::dim;
 use super::{Showing, memory, show};
 use crate::chat;
@@ -420,19 +421,6 @@ fn versions(shown: &Shown) -> AnyView {
     // it, named in full there.
     for version in shown.scholar.versions.iter().rev() {
         let name = version.name.clone();
-        let mut choices = Vec::<(String, Act)>::new();
-        if can("fork") {
-            choices.push((
-                format!("Make a new scholar from {name}"),
-                Act::Fork(Some(name.clone())),
-            ));
-        }
-        if can("revert") {
-            choices.push((
-                format!("Undo the change {name} named"),
-                Act::Revert(name.clone()),
-            ));
-        }
         let followers = shown
             .hires
             .iter()
@@ -454,28 +442,39 @@ fn versions(shown: &Shown) -> AnyView {
             );
         }
         line.push(frame().grow(1.0).boxed());
-        if !choices.is_empty() {
-            let names = choices
-                .iter()
-                .map(|(n, _)| n.clone())
-                .collect::<Vec<_>>();
-            let acts = choices
-                .into_iter()
-                .map(|(_, a)| a)
-                .collect::<Vec<_>>();
-            let none = names.len();
+        if can("fork") {
+            let from = name.clone();
             line.push(
-                dropdown(
-                    names,
-                    none,
-                    Glyph::Chevron.image(ICON),
-                    move |world, chosen| {
-                        if let Some(act) = acts.get(chosen) {
-                            ask(world, act.clone());
-                        }
+                action(
+                    Glyph::NewSession,
+                    "New scholar",
+                    move |world| {
+                        ask(world, Act::Fork(Some(from.clone())));
                     },
                 )
-                .placeholder("Actions")
+                .tooltip({
+                    let name = name.clone();
+                    move || {
+                        note(format!(
+                            "Make a new scholar from {name}"
+                        ))
+                    }
+                })
+                .boxed(),
+            );
+        }
+        if can("revert") {
+            let to = name.clone();
+            line.push(
+                action(Glyph::Restore, "Undo", move |world| {
+                    ask(world, Act::Revert(to.clone()));
+                })
+                .tooltip({
+                    let name = name.clone();
+                    move || {
+                        note(format!("Undo the change {name} named"))
+                    }
+                })
                 .boxed(),
             );
         }
@@ -568,7 +567,7 @@ fn hires(shown: &Shown) -> AnyView {
         if pins {
             let picked = choices.clone();
             line.push(
-                label("Works from")
+                label("Version")
                     .tone(Tone::Faint)
                     .tooltip(|| {
                         note(
@@ -604,31 +603,14 @@ fn hires(shown: &Shown) -> AnyView {
     framed(parts).boxed()
 }
 
-/// What it knows on its card: the character a chief may edit, its
-/// memory and its skills, and a dream that tidies them.
-fn knowledge(shown: &Shown) -> AnyView {
-    let dream = dream(shown);
-    with_cx(move |cx| {
-        let space = &cx.theme().space;
-        framed((
-            row((
-                heading(Glyph::Notes, "What it knows"),
-                frame().grow(1.0),
-                dream,
-            ))
-            .gap(space.gap)
-            .align(AlignItems::Center),
-            column((
-                memory::character_section(),
-                column((section("Memory"), memory::view()))
-                    .gap(space.gap / 2.0),
-                column((section("Skills"), memory::skills()))
-                    .gap(space.gap / 2.0),
-            ))
-            .gap(space.section),
-        ))
-    })
-    .boxed()
+/// What it knows, each part on its card: the character a chief may
+/// edit, its memory with a dream that tidies it, and its skills.
+fn knowledge(shown: &Shown) -> [AnyView; 3] {
+    [
+        memory::character_section(),
+        card(Glyph::Notes, "Memory", dream(shown), memory::view()),
+        card(Glyph::Book, "Skills", None, memory::skills()),
+    ]
 }
 
 /// What the scholar is called, typed over: Enter gives it the name.
@@ -665,23 +647,25 @@ fn renaming(shown: &Shown) -> AnyView {
 }
 
 /// A dream, which brings home what its hires learned.
-fn dream(shown: &Shown) -> AnyView {
+fn dream(shown: &Shown) -> Option<AnyView> {
     if shown.scholar.left.is_some()
         || !shown.allowed.contains(&"dream")
     {
-        return frame().boxed();
+        return None;
     }
     let address = scholar_address(shown.scholar.id);
-    action(Glyph::Moon, "Dream now", move |world| {
-        tell_hand(world, format!("/dream {address}"));
-    })
-    .tooltip(|| {
-        note(
-            "Brings home what its hires learned, and tidies its \
-             memory",
-        )
-    })
-    .boxed()
+    Some(
+        action(Glyph::Moon, "Dream now", move |world| {
+            tell_hand(world, format!("/dream {address}"));
+        })
+        .tooltip(|| {
+            note(
+                "Brings home what its hires learned, and tidies its \
+                 memory",
+            )
+        })
+        .boxed(),
+    )
 }
 
 /// What changes the scholar for good, kept at the foot of its page
@@ -744,10 +728,10 @@ fn body(shown: &Shown) -> AnyView {
     let (stands, tone) = standing(&shown.scholar);
     let heading = column((
         beside((title(name.clone()), label(stands).tone(tone))),
-        description(
-            "A scholar is who its hires are when they are not at \
-             work: its character, memory and skills.",
-        ),
+        description(format!(
+            "What {name}'s hires share: character, memory and \
+             skills."
+        )),
     ))
     .gap(4.0);
     let parts = (
@@ -761,7 +745,7 @@ fn body(shown: &Shown) -> AnyView {
         let (
             head,
             hires_part,
-            knowledge_part,
+            [character_part, memory_part, skills_part],
             versions_part,
             careful_part,
         ) = parts;
@@ -775,7 +759,9 @@ fn body(shown: &Shown) -> AnyView {
             head,
             rename,
             hires_part,
-            knowledge_part,
+            character_part,
+            memory_part,
+            skills_part,
             versions_part,
             careful_part,
         ))
