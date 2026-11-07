@@ -57,11 +57,11 @@ pub use self::convo::Convo;
 pub use self::dock::{highlight_panel, panel};
 pub use self::remember::Remembered;
 pub use self::roll::Roll;
-pub use self::root::toolbar;
+pub use self::root::layout;
 pub use self::screens::{
     chat, hub, links, overview, petition, pictures, settings,
 };
-pub use self::status::{Bar, status_bar};
+pub use self::status::Bar;
 pub use self::window::window_plugin;
 
 /// The panels' steps before fynix mounts the views, in order, after

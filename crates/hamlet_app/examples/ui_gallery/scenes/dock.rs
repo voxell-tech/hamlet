@@ -6,12 +6,11 @@ use bevy::ui::{percent, px};
 use bevy_fynix::AnyView;
 use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockRegistry, DockTree, DockWindowKind,
-    Edge, dock,
+    Edge,
 };
 use bevy_fynix::views::{FrameProps, column};
 use hamlet_app::{
-    highlight_panel, hub, menu, panel, settings, status_bar, toolbar,
-    welcome,
+    highlight_panel, hub, layout, menu, panel, settings,
 };
 use hamlet_ui::styles::ICON;
 use hamlet_ui::theme::HamletTheme;
@@ -119,12 +118,7 @@ pub(super) fn panels() -> Ui {
 /// The window's panels as the app lays them out.
 fn shown(cx: &Cx) -> impl View {
     column((
-        toolbar(cx),
-        column((dock::<HamletTheme>(), welcome::view()))
-            .grow(1.0)
-            .min_height(px(0.0))
-            .gap(0.0),
-        status_bar(),
+        layout(cx),
         hamlet_app::toasts::stack(),
         menu::open_menu(),
     ))

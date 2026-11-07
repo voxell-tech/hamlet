@@ -1,19 +1,20 @@
 //! The server's endpoints and model catalogue in Settings.
 
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, px};
+use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, frame, label, number_field, row,
+    self, BehaviorExt, FrameProps, TooltipExt, label, number_field,
+    row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, action, bad_action, bare, beside, button, close,
-    description, good_action, group, lettered, list, note,
-    note_rules, pill, section, small_rules, text_input,
+    Fills, action, bad_action, bare, beside, close, description,
+    good_action, group, link_row, list, note, note_rules, radio,
+    section, small_rules, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -148,6 +149,7 @@ fn price(name: &str, output: bool) -> AnyView {
                     .tone(Tone::Faint)
                     .rules(small_rules),))
                 .width(px(PRICE_WIDE))
+                .justify(JustifyContent::FlexEnd)
                 .boxed();
             }
             let name = name.clone();
@@ -195,9 +197,10 @@ const PROVIDER_WIDE: f32 = 96.0;
 const MARK: f32 = 16.0;
 const MARK_GAP: f32 = 8.0;
 const CONTEXT_WIDE: f32 = 60.0;
-const END_WIDE: f32 = 112.0;
+const END_WIDE: f32 = 64.0;
 
-/// The table's columns, `name` first, each as wide as its column.
+/// The table's columns, `name` first, each as wide as its column, the
+/// numbers set to its right edge and the default mark centred.
 fn columns(
     name: impl View + 'static,
     provider: impl View + 'static,
@@ -206,16 +209,23 @@ fn columns(
     end: impl View + 'static,
 ) -> impl View {
     with_cx(move |cx| {
-        let cell = |content: AnyView, wide: f32| {
-            row((content,)).width(px(wide)).shrink(0.0).boxed()
-        };
+        let cell =
+            |content: AnyView, wide: f32, at: JustifyContent| {
+                row((content,))
+                    .width(px(wide))
+                    .shrink(0.0)
+                    .justify(at)
+                    .boxed()
+            };
+        let (left, right) =
+            (JustifyContent::FlexStart, JustifyContent::FlexEnd);
         row((
             row((name,)).grow(1.0).min_width(px(0.0)),
-            cell(provider.boxed(), PROVIDER_WIDE),
-            cell(prices.0, PRICE_WIDE),
-            cell(prices.1, PRICE_WIDE),
-            cell(context.boxed(), CONTEXT_WIDE),
-            cell(end.boxed(), END_WIDE),
+            cell(provider.boxed(), PROVIDER_WIDE, left),
+            cell(prices.0, PRICE_WIDE, right),
+            cell(prices.1, PRICE_WIDE, right),
+            cell(context.boxed(), CONTEXT_WIDE, right),
+            cell(end.boxed(), END_WIDE, JustifyContent::Center),
         ))
         .gap(cx.theme().space.gap)
         .align(AlignItems::Center)
@@ -230,7 +240,7 @@ fn header() -> AnyView {
         section("Provider"),
         (section("In $/M").boxed(), section("Out $/M").boxed()),
         section("Context"),
-        frame(),
+        section("Default"),
     )
     .boxed()
 }
@@ -261,11 +271,13 @@ fn entry(model: &protocol::Listed, default: &str) -> AnyView {
         }));
     let chosen = model.name.clone();
     let end = if model.name == default {
-        pill("Default").boxed()
+        radio(true).boxed()
     } else {
-        lettered("Make default")
-            .rules(button)
-            .tagged(Variant::Default)
+        views::button(radio(false))
+            .padding(UiRect::all(px(4.0)))
+            .rules(link_row)
+            .tagged(Variant::Text)
+            .tooltip(|| note("Make default"))
             .on_activate(move |world| save_default(world, &chosen))
             .boxed()
     };

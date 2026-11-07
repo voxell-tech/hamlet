@@ -136,7 +136,7 @@ fn root() -> impl View {
     built(|cx| {
         cx.build(
             column((
-                full(cx),
+                layout(cx),
                 crate::toasts::stack(),
                 menu::open_menu(),
                 desk::popups(),
@@ -154,13 +154,19 @@ fn root() -> impl View {
     })
 }
 
-fn full(cx: &Cx) -> impl View {
+/// The window's bars and dock, with first-run setup over them.
+pub fn layout(cx: &Cx) -> impl View {
     column((
         toolbar(cx),
-        column((dock::<HamletTheme>(), welcome::view()))
-            .fills_height()
-            .gap(0.0),
-        status_bar(),
+        // First run dims the status bar too, and leaves the toolbar
+        // lit for the window's own buttons.
+        column((
+            dock::<HamletTheme>(),
+            status_bar(),
+            welcome::view(),
+        ))
+        .fills_height()
+        .gap(0.0),
     ))
     .fills_height()
     .gap(0.0)
@@ -168,7 +174,7 @@ fn full(cx: &Cx) -> impl View {
 
 /// The bar across the top: the menus and the desks, on a surface
 /// that warms toward its foot.
-pub fn toolbar(cx: &Cx) -> impl View {
+fn toolbar(cx: &Cx) -> impl View {
     let palette = &cx.theme().palette;
     column((
         row((

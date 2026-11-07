@@ -16,8 +16,8 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    bad_action, bare, beside, description, good_action, note, parts,
-    segmented_words, text_input,
+    bad_action, bare, beside, description, framed, good_action, note,
+    parts, segmented_words, text_input,
 };
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
@@ -25,6 +25,7 @@ use hamlet_ui::{AnyView, View};
 
 use super::{Pane, field, told};
 use crate::PanelSystems;
+use crate::overview::heading;
 use crate::secret::secret_field;
 use crate::world_menu::{self, Deed};
 
@@ -314,9 +315,23 @@ pub(super) fn page() -> impl View {
     ))
 }
 
-/// Moving the lodges, once a saved workspace waits for a restart.
+/// Moving the lodges, apart in a card of what is done for good, once
+/// a saved workspace waits for a restart.
 fn moved() -> impl View {
-    beside((moving(), note(resource::<Settings, _>(progress))))
+    keyed(resource::<Settings, _>(is_waiting_for_restart), |waits| {
+        if !*waits {
+            return frame().boxed();
+        }
+        framed((
+            heading(Glyph::Stop, "Careful"),
+            beside((
+                moving(),
+                note(resource::<Settings, _>(progress)),
+            )),
+        ))
+        .boxed()
+    })
+    .within(bare())
 }
 
 #[cfg(test)]

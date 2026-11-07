@@ -29,8 +29,8 @@ use hamlet_protocol::{Effort, client as protocol};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
-    close, description, framed, list, nav_list, note, parts, pill,
-    section, small_rules, text_input,
+    close, crumb_here, description, framed, list, nav_list, note,
+    parts, pill, section, small_rules, text_input,
 };
 use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::Glyph;
@@ -91,7 +91,7 @@ pub enum Pane {
     Sound,
     /// How the world is drawn: quality, the hour and the fog.
     Sight,
-    /// Light or dark, and the theme of the panels.
+    /// Light, dark, or as the computer is set.
     Appearance,
 }
 
@@ -159,7 +159,7 @@ impl Pane {
             Pane::Sound => "Sound, music and the land's noises.",
             Pane::Sight => "Quality, the time of day and the fog.",
             Pane::Appearance => {
-                "Light or dark, and the colours of the panels."
+                "Light, dark, or as your computer is set."
             }
         }
     }
@@ -785,6 +785,10 @@ fn again() -> AnyView {
     )
 }
 
+/// The width of the index of pages, kept short so each row's mark is
+/// near its words.
+const INDEX_WIDTH: f32 = 480.0;
+
 /// The Settings panel's contents.
 pub fn screen() -> AnyView {
     let page = keyed(resource::<Pane, _>(|pane| *pane), |pane| {
@@ -792,7 +796,16 @@ pub fn screen() -> AnyView {
             let mut pages: Vec<AnyView> =
                 Pane::PAGES.map(nav_item).into();
             pages.push(again());
-            return with_cx(move |cx| nav_list(cx, pages)).boxed();
+            return with_cx(move |cx| {
+                column((
+                    crumb_here(Pane::Front.title()),
+                    column((nav_list(cx, pages),))
+                        .gap(0.0)
+                        .max_width(px(INDEX_WIDTH)),
+                ))
+                .gap(cx.theme().space.panel)
+            })
+            .boxed();
         }
         let body = match pane {
             Pane::Endpoints => crate::models::endpoints().boxed(),

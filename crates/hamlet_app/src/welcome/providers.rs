@@ -30,7 +30,7 @@ use hamlet_ui::styles::{
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
 
-use super::pages::{head, news, said};
+use super::pages::{head, linked, news, said};
 use super::{Step, Welcome, commit, go, read_models};
 use crate::models::mark;
 use crate::secret::secret_field;
@@ -426,8 +426,7 @@ pub(super) fn key_page() -> AnyView {
         },
     )
     .within(bare());
-    // The key's name, and under it the provider's own words where
-    // they say more than its name.
+    // The key's name, and under it where the provider hands keys out.
     let named = keyed(
         derived(|world: &World| {
             let chosen = keyed_provider(world);
@@ -439,19 +438,23 @@ pub(super) fn key_page() -> AnyView {
                     Some(&provider.id) == chosen.as_ref()
                 })
                 .map(|provider| {
-                    (provider.name.clone(), provider.label.clone())
+                    (provider.id.clone(), provider.name.clone())
                 })
         })
         .when(every_frame()),
         |named| {
-            let Some((name, says)) = named else {
+            let Some((id, name)) = named else {
                 return section("Your provider's API key").boxed();
             };
-            let says = match says != name {
-                true => note(says.clone()).boxed(),
-                false => frame().boxed(),
+            let found = match keys_at(id) {
+                Some((site, url)) => linked(
+                    &format!("No key yet? Get one at {site}."),
+                    site,
+                    url,
+                ),
+                None => frame().boxed(),
             };
-            close((section(format!("{name} API key")), says)).boxed()
+            close((section(format!("{name} API key")), found)).boxed()
         },
     )
     .within(bare());
@@ -496,6 +499,40 @@ pub(super) fn key_page() -> AnyView {
         send,
     ))
     .boxed()
+}
+
+/// Where the provider `id` hands out keys: the address as shown, and
+/// as opened.
+fn keys_at(id: &str) -> Option<(&'static str, &'static str)> {
+    Some(match id {
+        "openrouter" => {
+            ("openrouter.ai/keys", "https://openrouter.ai/keys")
+        }
+        "openai" => (
+            "platform.openai.com/api-keys",
+            "https://platform.openai.com/api-keys",
+        ),
+        "anthropic" => (
+            "console.anthropic.com",
+            "https://console.anthropic.com/settings/keys",
+        ),
+        "google" => (
+            "aistudio.google.com/apikey",
+            "https://aistudio.google.com/apikey",
+        ),
+        "groq" => {
+            ("console.groq.com/keys", "https://console.groq.com/keys")
+        }
+        "deepseek" => (
+            "platform.deepseek.com",
+            "https://platform.deepseek.com/api_keys",
+        ),
+        "mistral" => (
+            "console.mistral.ai",
+            "https://console.mistral.ai/api-keys",
+        ),
+        _ => return None,
+    })
 }
 
 /// The field a key is pasted in.

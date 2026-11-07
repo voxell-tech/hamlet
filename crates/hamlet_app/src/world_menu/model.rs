@@ -42,7 +42,7 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{
-    ICON, description, hairline, note, small_rules,
+    ICON, description, hairline, note, radio, small_rules,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -926,30 +926,6 @@ fn models(agent: Entity, search: String) -> impl View {
     .width(px(LIST))
     .grow(1.0)
     .min_width(px(LIST))
-}
-
-/// A ring, filled while it is the one chosen, as a radio button's.
-fn radio(on: bool) -> impl View {
-    with_cx(move |cx| {
-        let palette = &cx.theme().palette;
-        let dot = frame()
-            .width(px(6.0))
-            .height(px(6.0))
-            .radius(3.0)
-            .fill(if on { palette.accent } else { Color::NONE });
-        column((dot,))
-            .width(px(14.0))
-            .height(px(14.0))
-            .radius(7.0)
-            .border(1.5)
-            .border_color(if on {
-                palette.accent
-            } else {
-                palette.gold_5
-            })
-            .align(AlignItems::Center)
-            .justify(bevy::ui::JustifyContent::Center)
-    })
 }
 
 /// The efforts the model can think at, under a head naming it, the

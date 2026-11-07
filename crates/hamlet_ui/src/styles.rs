@@ -800,7 +800,29 @@ pub fn nav_card(
     holds: impl Into<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, holds.into(), button, act).boxed()
+    nav_item(which, title, None, holds.into(), button, act).boxed()
+}
+
+/// A [`nav_card`] for the way most should take: outlined in gold,
+/// with `tag` as a [`pill`] after its name.
+pub fn lead_card(
+    which: Glyph,
+    title: &'static str,
+    tag: &'static str,
+    holds: impl Into<Prop<String>>,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    nav_item(which, title, Some(tag), holds.into(), lead_button, act)
+        .boxed()
+}
+
+/// A [`button`] outlined in gold.
+fn lead_button(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .with(button)
+        .frame(|f, t| f.border_color(t.palette.gold_4))
+        .hovered(|s| s.frame(|f, t| f.border_color(t.palette.accent)))
+        .apply(cx);
 }
 
 /// The same as a row of a list, with no border about it.
@@ -810,12 +832,13 @@ pub fn nav_row(
     holds: impl Into<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, holds.into(), link_row, act).boxed()
+    nav_item(which, title, None, holds.into(), link_row, act).boxed()
 }
 
 fn nav_item(
     which: Glyph,
     title: &'static str,
+    tag: Option<&'static str>,
     holds: Prop<String>,
     rules: fn(&mut Cx),
     act: impl Fn(&mut World) + Send + Sync + 'static,
@@ -825,19 +848,27 @@ fn nav_item(
         views::button(
             row((
                 column((
-                    headed(
-                        which,
-                        label(title).wrap(false).rules(
-                            |cx: &mut Cx| {
-                                style::<HamletTheme>()
-                                    .label(|l, t| {
-                                        l.size(t.text.heading)
-                                            .bold(true)
-                                    })
-                                    .apply(cx);
-                            },
+                    row((
+                        headed(
+                            which,
+                            label(title).wrap(false).rules(
+                                |cx: &mut Cx| {
+                                    style::<HamletTheme>()
+                                        .label(|l, t| {
+                                            l.size(t.text.heading)
+                                                .bold(true)
+                                        })
+                                        .apply(cx);
+                                },
+                            ),
                         ),
-                    ),
+                        match tag {
+                            Some(tag) => pill(tag).boxed(),
+                            None => frame().boxed(),
+                        },
+                    ))
+                    .gap(space.gap)
+                    .align(AlignItems::Center),
                     description(holds),
                 ))
                 .gap(space.gap / 2.0)
@@ -978,6 +1009,30 @@ pub fn card_choice(
             .transition(Motion::Interact)
             .apply(cx);
     }
+}
+
+/// A ring, filled while it is the one chosen, as a radio button's.
+pub fn radio(on: bool) -> impl View {
+    with_cx(move |cx| {
+        let palette = &cx.theme().palette;
+        let dot = frame()
+            .width(px(6.0))
+            .height(px(6.0))
+            .radius(3.0)
+            .fill(if on { palette.accent } else { Color::NONE });
+        column((dot,))
+            .width(px(14.0))
+            .height(px(14.0))
+            .radius(7.0)
+            .border(1.5)
+            .border_color(if on {
+                palette.accent
+            } else {
+                palette.gold_5
+            })
+            .align(AlignItems::Center)
+            .justify(JustifyContent::Center)
+    })
 }
 
 /// A word that marks a state, such as "In use" or "Default": small

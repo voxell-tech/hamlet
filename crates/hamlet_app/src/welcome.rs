@@ -23,10 +23,9 @@ pub use self::pages::view;
 pub use self::providers::Browser;
 use crate::PanelSystems;
 
-/// The empty local-model search, referring to the server's machine.
-pub const NOTHING_LOCAL: &str = "No model server answered on the \
-                                 server's machine. Install Ollama \
-                                 from ollama.com there, download a \
+/// What the local-model search says when nothing answered.
+pub const NOTHING_LOCAL: &str = "Nothing answered yet. Install \
+                                 Ollama from ollama.com, download a \
                                  model, then choose Look again.";
 
 pub(crate) fn plugin(app: &mut App) {
@@ -671,7 +670,7 @@ mod server_tests {
         );
         // Set as a paragraph of spans, for its link.
         assert!(words_and_spans(&mut app).iter().any(|words| {
-            words.contains("No model server answered on the server's")
+            words.contains("Nothing answered yet. Install Ollama")
         }));
         press_and_update(&mut app, "Look again");
         let requests = sent(&mut app);

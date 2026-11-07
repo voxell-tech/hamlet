@@ -12,8 +12,8 @@ use hamlet_client::realm::Settings;
 use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
     self, ICON, back, back_link, bare, beside, description,
-    good_action, group, headed, marked, nav_card, note, parts,
-    scroll_area, small_rules,
+    good_action, group, headed, lead_card, marked, nav_card, note,
+    parts, scroll_area, small_rules,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -42,7 +42,11 @@ pub(super) fn news(waiting: &'static str) -> AnyView {
         }),
         move |(asking, problem)| match problem {
             _ if *asking => said(waiting).boxed(),
-            Some(why) if why == NOTHING_LOCAL => install_hint(),
+            Some(why) if why == NOTHING_LOCAL => linked(
+                NOTHING_LOCAL,
+                "ollama.com",
+                "https://ollama.com",
+            ),
             Some(why) => label(why.clone())
                 .tone(Tone::Critical)
                 .rules(small_rules)
@@ -54,28 +58,26 @@ pub(super) fn news(waiting: &'static str) -> AnyView {
     .boxed()
 }
 
-/// No local model server yet, said as the way to start one, with
-/// Ollama's site as a link: the usual first state, not a failure.
-fn install_hint() -> AnyView {
-    const SITE: &str = "ollama.com";
-    let (before, after) = NOTHING_LOCAL
-        .split_once(SITE)
-        .unwrap_or((NOTHING_LOCAL, ""));
+/// `text` with `site` in it as a link to `url`.
+pub(super) fn linked(
+    text: &str,
+    site: &'static str,
+    url: &'static str,
+) -> AnyView {
+    let (before, after) = text.split_once(site).unwrap_or((text, ""));
     let span = |text: &str, link| Span {
         text: text.into(),
         style: Style::default(),
         link,
     };
+    let spans = [
+        span(before, None),
+        span(site, Some(Target::Web(url.into()))),
+        span(after, None),
+    ];
     with_cx(move |cx| {
         rich(
-            &[
-                span(before, None),
-                span(
-                    SITE,
-                    Some(Target::Web(format!("https://{SITE}"))),
-                ),
-                span(after, None),
-            ],
+            &spans,
             Ink {
                 size: Some(cx.theme().text.small),
                 tone: Tone::Body,
@@ -111,11 +113,12 @@ fn choice(adding: bool) -> AnyView {
             counted(1),
         )),
         said(says),
-        nav_card(
+        lead_card(
             Glyph::Globe,
             "Sign in with OpenRouter",
-            "Recommended, and the quickest way. You sign in with \
-             your browser and pay OpenRouter for what you use.",
+            "Recommended",
+            "The quickest way. You sign in with your browser and \
+             pay OpenRouter for what you use.",
             |world| {
                 super::providers::start(world, "openrouter", false);
             },
@@ -138,8 +141,8 @@ fn choice(adding: bool) -> AnyView {
         nav_card(
             Glyph::Chip,
             "I run my own model",
-            "Use a model served on the server's machine, with \
-             Ollama or LM Studio.",
+            "Use a model running on this computer, with Ollama or \
+             LM Studio.",
             look,
         ),
         beside((
@@ -328,11 +331,14 @@ fn local() -> AnyView {
     parts((
         head(Glyph::Chip, "Your own model", 2),
         said(
-            "Hamlet asks the endpoints configured on the server. \
-             Ollama or LM Studio must run on the server's machine.",
+            "Hamlet looks for Ollama or LM Studio on this computer.",
         ),
         news("Looking..."),
         row((good_action(Glyph::Restore, "Look again", look),)),
+        note(
+            "A model server at another address can be added later \
+             in Settings, under Endpoints.",
+        ),
     ))
     .boxed()
 }
@@ -386,8 +392,9 @@ fn screen() -> AnyView {
     .boxed()
 }
 
-/// The height of every step's card, the tallest step's, so neither
-/// its head nor its buttons move from one step to the next.
+/// The height of the tallest step's card. Every card hangs from the
+/// top of a box this tall, so its head stays put from one step to the
+/// next while the card is only as tall as its step.
 const TALL: f32 = 520.0;
 
 /// How much of what is left of the window the scrim under the card
@@ -404,8 +411,6 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
         .gap(0.0)
         .padding(UiRect::all(px(space.overlay_padding))),)),))
     .width(percent(100.0))
-    .max_width(px(space.overlay_width))
-    .height(px(TALL))
     .max_height(percent(100.0))
     .gap(0.0)
     .fill(theme.palette.card)
@@ -413,7 +418,14 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     .border_color(theme.palette.gold_5)
     .radius(space.soft)
     .tagged(theme.shadow());
-    row((card,))
+    let hung = column((card,))
+        .width(percent(100.0))
+        .max_width(px(space.overlay_width))
+        .height(px(TALL))
+        .max_height(percent(100.0))
+        .gap(0.0)
+        .justify(JustifyContent::FlexStart);
+    row((hung,))
         .width(percent(100.0))
         .height(percent(100.0))
         .padding(UiRect::all(px(space.panel)))

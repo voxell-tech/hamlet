@@ -7,7 +7,7 @@ use bevy::app::App;
 use bevy::ecs::component::Mutable;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, percent, px};
+use bevy::ui::{AlignItems, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     FrameProps, TooltipExt, column, dropdown, label, row, slider,
@@ -141,9 +141,12 @@ fn north() -> impl View {
                     world.resource_mut::<NorthTarget>().0 = degrees;
                 },
             ),
-            column((description("Where the sun rises."),))
-                .grow(1.0)
-                .min_width(px(0.0)),
+            column((description(
+                "Which way north lies, and so where the sun rises \
+                 and sets.",
+            ),))
+            .grow(1.0)
+            .min_width(px(0.0)),
         ))
         .gap(cx.theme().space.section)
         .align(AlignItems::Center)
@@ -184,12 +187,17 @@ fn amount<R: Resource<Mutability = Mutable>>(
     (least, most): (f32, f32),
     unit: Unit,
 ) -> impl View {
-    track(
-        glyph(which, AMOUNT_ICON)
-            .tone(Tone::Dim)
-            .tooltip(move || note(name)),
-        number(at, set, (least, most), unit),
-    )
+    with_cx(move |cx| {
+        row((
+            glyph(which, AMOUNT_ICON)
+                .tone(Tone::Dim)
+                .tooltip(move || note(name)),
+            track(number(at, set, (least, most), unit)),
+        ))
+        .gap(cx.theme().space.gap)
+        .width(percent(100.0))
+        .align(AlignItems::Center)
+    })
 }
 
 /// A slider of one number of `R` from `least` to `most`, and the
@@ -223,96 +231,41 @@ fn value(shown: impl View + 'static) -> AnyView {
     row((shown,)).width(px(72.0)).shrink(0.0).boxed()
 }
 
-/// A slider's row: what names it, the slider and its value.
-fn track(
-    name: impl View + 'static,
-    (slider, value): (AnyView, AnyView),
-) -> impl View {
+/// A slider's row: the slider and its value.
+fn track((slider, value): (AnyView, AnyView)) -> impl View {
     with_cx(move |cx| {
-        row((name, slider, value))
+        row((slider, value))
             .gap(cx.theme().space.gap)
             .width(percent(100.0))
             .align(AlignItems::Center)
     })
 }
 
-/// The width of the words that name a wind's slider.
-const WIND_NAMES: f32 = 84.0;
-
-/// How hard the wind blows at its calmest and at its strongest, both
-/// on one track, and how unevenly, each named beside its slider and
-/// told under it.
-fn wind() -> impl View {
-    let named = |name: &'static str| {
-        row((label(name).tone(Tone::Faint).wrap(false),))
-            .width(px(WIND_NAMES))
-            .shrink(0.0)
-    };
-    with_cx(move |cx| {
-        let space = &cx.theme().space;
-        let indent = WIND_NAMES + space.gap;
-        // Under its track, past the name beside it.
-        let under = move |words: &'static str| {
-            column((description(words),))
-                .padding(UiRect::left(px(indent)))
-        };
-        column((
-            close((
-                track(
-                    named("Strength"),
-                    (
-                        range(
-                            resource::<WindChoice, _>(|wind| {
-                                wind.least
-                            }),
-                            resource::<WindChoice, _>(|wind| {
-                                wind.most
-                            }),
-                            WindChoice::STRENGTH,
-                            |world, least, most| {
-                                let mut wind = world
-                                    .resource_mut::<WindChoice>();
-                                if (wind.least, wind.most)
-                                    != (least, most)
-                                {
-                                    wind.least = least;
-                                    wind.most = most;
-                                }
-                            },
-                        )
-                        .boxed(),
-                        value(label(resource::<WindChoice, _>(
-                            |wind| {
-                                format!(
-                                    "{:.0}-{}",
-                                    wind.least * 100.0,
-                                    Unit::Share.write(wind.most)
-                                )
-                            },
-                        ))),
-                    ),
-                ),
-                under(
-                    "How hard it blows at its calmest and its \
-                     strongest, as a share of the usual wind.",
-                ),
-            )),
-            close((
-                track(
-                    named("Unevenness"),
-                    number::<WindChoice>(
-                        |wind| wind.turbulence,
-                        |wind, to| wind.turbulence = to,
-                        (0.0, 1.0),
-                        Unit::Share,
-                    ),
-                ),
-                under("How differently plants side by side sway."),
-            )),
-        ))
-        .gap(space.section)
-        .width(percent(100.0))
-    })
+/// How hard the wind blows at its calmest and at its strongest,
+/// both on one track.
+fn wind_strength() -> impl View {
+    track((
+        range(
+            resource::<WindChoice, _>(|wind| wind.least),
+            resource::<WindChoice, _>(|wind| wind.most),
+            WindChoice::STRENGTH,
+            |world, least, most| {
+                let mut wind = world.resource_mut::<WindChoice>();
+                if (wind.least, wind.most) != (least, most) {
+                    wind.least = least;
+                    wind.most = most;
+                }
+            },
+        )
+        .boxed(),
+        value(label(resource::<WindChoice, _>(|wind| {
+            format!(
+                "{:.0}-{}",
+                wind.least * 100.0,
+                Unit::Share.write(wind.most)
+            )
+        }))),
+    ))
 }
 
 /// The volumetric fog's switch, its numbers and the way back to the
@@ -389,7 +342,7 @@ pub(super) fn page() -> impl View {
             ),
         ),
         field(
-            "Vsync",
+            "Screen sync",
             told(
                 labelled_switch(
                     "On",
@@ -420,18 +373,39 @@ pub(super) fn page() -> impl View {
         field(
             "Distance fog",
             told(
-                amount::<DistanceFogSettings>(
-                    Glyph::Mountains,
-                    "Distance",
+                track(number::<DistanceFogSettings>(
                     |f| f.distance,
                     |f, v| f.distance = v,
                     (200.0, 2000.0),
                     Unit::Metres,
-                ),
+                )),
                 description("Further draws more land."),
             ),
         ),
-        field("Wind", wind()),
+        field(
+            "Wind strength",
+            told(
+                wind_strength(),
+                description(
+                    "How hard it blows at its calmest and its \
+                     strongest, as a share of the usual wind.",
+                ),
+            ),
+        ),
+        field(
+            "Wind unevenness",
+            told(
+                track(number::<WindChoice>(
+                    |wind| wind.turbulence,
+                    |wind, to| wind.turbulence = to,
+                    (0.0, 1.0),
+                    Unit::Share,
+                )),
+                description(
+                    "How differently plants side by side sway.",
+                ),
+            ),
+        ),
         disclosure(
             "Volumetric fog",
             |open: &FogOpen| open.0,
