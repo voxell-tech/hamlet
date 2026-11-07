@@ -15,8 +15,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 
 pub use self::draw::{
-    Face, Ink, document, fixed, heading_size, picture_words, rich,
-    typed, unsettle,
+    Face, Ink, document, fixed, picture_words, rich, typed, unsettle,
 };
 pub use self::parse::{Reading, hashed, parse};
 use crate::AnyView;

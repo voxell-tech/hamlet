@@ -25,9 +25,10 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bare, choice, close, crumb, crumb_here,
-    crumb_slash, crumbs, danger_button, filling, framed, hairline,
-    note, page_head, primary_button, scroll_area, title,
+    Fills, ICON, action, bare, card_name, choice, close, crumb,
+    crumb_here, crumb_slash, crumbs, danger_button, filling, framed,
+    hairline, more_button, note, page_head, primary_button,
+    scroll_area, title,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -442,17 +443,9 @@ fn header(agent: Entity) -> impl View {
         // Everything else that can be done to it, as a right click on
         // it in the world offers: a new session, gifts, its prompt,
         // stopping, roads, merging, ending.
-        let more = button(glyph(Glyph::More, ICON))
-            .padding(UiRect::axes(px(8.0), px(4.0)))
-            .rules(hamlet_ui::styles::button)
-            .tagged(Variant::Default)
-            .tooltip(|| {
-                note(
-                    "A new session, its prompt, gifts, roads, \
-                     ending it",
-                )
-            })
-            .on_activate(move |world| {
+        let more = more_button(
+            "A new session, its prompt, gifts, roads, ending it",
+            move |world| {
                 let hall = hamlet_client::realm::first_mayor(world);
                 let thing = if hall == Some(agent) {
                     Thing::Keeper
@@ -460,7 +453,8 @@ fn header(agent: Entity) -> impl View {
                     Thing::Agent(agent)
                 };
                 world_menu::open_for(world, thing);
-            });
+            },
+        );
         // Which of its chats the chat tab shows: this session, an
         // earlier one, its letters and questions, its workers. It is
         // there on both tabs, so that the tabs keep their place.
@@ -882,15 +876,9 @@ fn prompt_sections(
                 Tone::Body,
             )
             .boxed();
-            column((
-                label(name)
-                    .size(hamlet_ui::markdown::heading_size(2))
-                    .bold(true)
-                    .wrap(false),
-                text,
-            ))
-            .gap(6.0)
-            .boxed()
+            column((card_name(name, Tone::Body), text))
+                .gap(6.0)
+                .boxed()
         })
         .collect::<Vec<_>>();
     // One read-only page, a line between each part and the next,

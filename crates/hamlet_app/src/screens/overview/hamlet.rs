@@ -22,8 +22,8 @@ use hamlet_client::realm::Deeds;
 use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    self, CONTROL, Fills, ICON, action, bare, breadcrumb, buttons,
-    group, lettered, note, note_rules, primary_button, raised,
+    self, Fills, ICON, action, bare, breadcrumb, buttons, group,
+    lettered, more_button, note, note_rules, primary_button, raised,
     scroll_area, status_label, text_input, title,
 };
 use hamlet_ui::theme::HamletTheme;
@@ -423,22 +423,15 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         // Everything else done to it, as a right click on its common
         // in the world offers: renaming, moving, closing it down.
         if *rename || *carry || *close {
-            actions.push(
-                button(glyph(Glyph::More, ICON))
-                    .padding(UiRect::axes(px(8.0), px(4.0)))
-                    // As tall as the buttons beside it.
-                    .height(px(CONTROL))
-                    .rules(styles::button)
-                    .tagged(Variant::Default)
-                    .tooltip(|| note("Rename, move or close it down"))
-                    .on_activate(move |world| {
-                        world_menu::open_for(
-                            world,
-                            Thing::Common(hamlet),
-                        );
-                    })
-                    .boxed(),
-            );
+            actions.push(more_button(
+                "Rename, move or close it down",
+                move |world| {
+                    world_menu::open_for(
+                        world,
+                        Thing::Common(hamlet),
+                    );
+                },
+            ));
         }
         // What commands call it, when its name says otherwise.
         let name = if facts.title == facts.id {

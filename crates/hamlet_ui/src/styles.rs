@@ -9,8 +9,8 @@ use bevy::ui::{
 };
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    self, BehaviorExt, Frame, FrameProps, Icon, Stack, column, frame,
-    label, row, scroll, tinted_icon,
+    self, BehaviorExt, Frame, FrameProps, Icon, Stack, TooltipExt,
+    column, frame, label, row, scroll, tinted_icon,
 };
 use bevy_fynix::{
     Bevy, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
@@ -760,6 +760,22 @@ pub fn action(
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
     acting(which, text, (button, Variant::Default), act).boxed()
+}
+
+/// A "..." button, as tall as a standard one, that runs `act`, with
+/// `tip`, what it offers, as its tooltip.
+pub fn more_button(
+    tip: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    views::button(glyph(Glyph::More, ICON))
+        .padding(UiRect::axes(px(8.0), px(4.0)))
+        .min_height(px(CONTROL))
+        .rules(button)
+        .tagged(Variant::Default)
+        .tooltip(move || note(tip))
+        .on_activate(act)
+        .boxed()
 }
 
 /// The button for the one action a screen is for, that runs `act`.
