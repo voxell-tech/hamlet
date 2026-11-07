@@ -20,8 +20,8 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bad_action, bare, beside,
-    breadcrumb, buttons, description, good_action, hairline, note,
-    scroll_area, text_input, title,
+    breadcrumb, buttons, description, framed, good_action, note,
+    scroll_area, section, text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -246,7 +246,7 @@ fn form(address: String, name: String, act: Act) -> AnyView {
             None,
         ),
     };
-    let remove = matches!(act, Act::Remove | Act::Purge | Act::Erase);
+    let remove = is_careful(&act);
     let go = {
         let act = act.clone();
         move |world: &mut World| run(world, &address, &name, &act)
@@ -293,16 +293,27 @@ fn form(address: String, name: String, act: Act) -> AnyView {
     .boxed()
 }
 
-fn form_view(address: String, name: String) -> impl View {
+/// The form of the deed asked for, where `here` says it belongs to
+/// the part of the page this stands in.
+fn form_view(
+    address: String,
+    name: String,
+    here: fn(&Act) -> bool,
+) -> impl View {
     keyed(resource::<Form, _>(|form| form.act.clone()), move |act| {
         match act {
-            Some(act) => {
+            Some(act) if here(act) => {
                 form(address.clone(), name.clone(), act.clone())
             }
-            None => column(()).boxed(),
+            _ => column(()).boxed(),
         }
     })
     .within(bare())
+}
+
+/// Whether `act` changes the scholar for good.
+fn is_careful(act: &Act) -> bool {
+    matches!(act, Act::Purge | Act::Remove | Act::Erase)
 }
 
 /// Where the scholar stands, said beside its name: in the city, at
@@ -343,8 +354,8 @@ fn arrival(shown: &Shown) -> AnyView {
                 ));
             }
         }
-        // Picked up and set down in the world; sending it back is
-        // among the careful acts at the foot.
+        // Picked up and set down in the world, or sent back to wait
+        // at the harbor.
         (None, protocol::Arrival::Housed) => {
             if can("move-house") {
                 let scholar = shown.entity;
@@ -362,6 +373,18 @@ fn arrival(shown: &Shown) -> AnyView {
                     })
                     .boxed(),
                 );
+            }
+            if can("turn-away") {
+                buttons_row.push(action(
+                    Glyph::Anchor,
+                    "Send to the harbor",
+                    move |world| {
+                        tell_hand(
+                            world,
+                            format!("/turn-away {address}"),
+                        );
+                    },
+                ));
             }
         }
         (None, _) => {
@@ -383,9 +406,12 @@ fn arrival(shown: &Shown) -> AnyView {
     buttons(buttons_row).boxed()
 }
 
-/// The versions, each with what can be done from it.
+/// The versions on their card, each with what can be done from it,
+/// and the form of what was asked for from them.
 fn versions(shown: &Shown) -> AnyView {
     let can = |deed| shown.allowed.contains(&deed);
+    let address = scholar_address(shown.scholar.id);
+    let scholar = shown.scholar.name.clone();
     let mut parts = vec![heading(Glyph::History, "Versions")];
     if shown.scholar.versions.is_empty() {
         parts.push(note("No version is named yet.").boxed());
@@ -486,10 +512,14 @@ fn versions(shown: &Shown) -> AnyView {
         );
     }
     parts.push(buttons(acts).boxed());
-    column(parts).gap(6.0).boxed()
+    parts.push(
+        form_view(address, scholar, |act| !is_careful(act)).boxed(),
+    );
+    framed(parts).boxed()
 }
 
-/// Its hires, each led to and pinned to a version from here.
+/// Its hires on their card, each led to and pinned to a version from
+/// here.
 fn hires(shown: &Shown) -> AnyView {
     let mut parts = vec![
         heading(Glyph::Robot, "Hires"),
@@ -571,19 +601,34 @@ fn hires(shown: &Shown) -> AnyView {
             row(line).gap(8.0).align(AlignItems::Center).boxed(),
         );
     }
-    column(parts).gap(6.0).boxed()
+    framed(parts).boxed()
 }
 
-/// Its skills and the character a chief may edit.
-fn knowledge() -> impl View {
-    column((
-        memory::character_section(),
-        heading(Glyph::Notes, "Memory"),
-        memory::view(),
-        heading(Glyph::Book, "Skills"),
-        memory::skills(),
-    ))
-    .gap(6.0)
+/// What it knows on its card: the character a chief may edit, its
+/// memory and its skills, and a dream that tidies them.
+fn knowledge(shown: &Shown) -> AnyView {
+    let dream = dream(shown);
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        framed((
+            row((
+                heading(Glyph::Notes, "What it knows"),
+                frame().grow(1.0),
+                dream,
+            ))
+            .gap(space.gap)
+            .align(AlignItems::Center),
+            column((
+                memory::character_section(),
+                column((section("Memory"), memory::view()))
+                    .gap(space.gap / 2.0),
+                column((section("Skills"), memory::skills()))
+                    .gap(space.gap / 2.0),
+            ))
+            .gap(space.section),
+        ))
+    })
+    .boxed()
 }
 
 /// What the scholar is called, typed over: Enter gives it the name.
@@ -619,50 +664,34 @@ fn renaming(shown: &Shown) -> AnyView {
     .boxed()
 }
 
-/// What it is good to do to the scholar now and then.
-fn deeds(shown: &Shown) -> AnyView {
-    let address = scholar_address(shown.scholar.id);
+/// A dream, which brings home what its hires learned.
+fn dream(shown: &Shown) -> AnyView {
     if shown.scholar.left.is_some()
         || !shown.allowed.contains(&"dream")
     {
         return frame().boxed();
     }
-    with_cx(move |cx| {
-        let address = address.clone();
-        row((
-            action(Glyph::Moon, "Dream now", move |world| {
-                tell_hand(world, format!("/dream {address}"));
-            }),
-            description(
-                "Brings home what its hires learned, and tidies its \
-                 memory.",
-            ),
-        ))
-        .gap(cx.theme().space.gap)
-        .align(AlignItems::Center)
+    let address = scholar_address(shown.scholar.id);
+    action(Glyph::Moon, "Dream now", move |world| {
+        tell_hand(world, format!("/dream {address}"));
+    })
+    .tooltip(|| {
+        note(
+            "Brings home what its hires learned, and tidies its \
+             memory",
+        )
     })
     .boxed()
 }
 
-/// What changes the scholar for good or sends it away, kept at the
-/// foot of its page under its own heading.
+/// What changes the scholar for good, kept at the foot of its page
+/// on its own card.
 fn careful(shown: &Shown) -> AnyView {
+    let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
     let can = |deed| shown.allowed.contains(&deed);
     let living = shown.scholar.left.is_none();
     let mut acts = Vec::new();
-    if living
-        && shown.scholar.arrival == protocol::Arrival::Housed
-        && can("turn-away")
-    {
-        acts.push(action(
-            Glyph::Anchor,
-            "Send to the harbor",
-            move |world| {
-                tell_hand(world, format!("/turn-away {address}"));
-            },
-        ));
-    }
     if living && can("purge") {
         acts.push(
             bad_action(
@@ -698,16 +727,19 @@ fn careful(shown: &Shown) -> AnyView {
     if acts.is_empty() {
         return frame().boxed();
     }
-    column((heading(Glyph::Stop, "Careful"), buttons(acts)))
-        .gap(6.0)
-        .boxed()
+    framed((
+        heading(Glyph::Stop, "Careful"),
+        buttons(acts),
+        form_view(address, name, is_careful),
+    ))
+    .boxed()
 }
 
-/// The scholar's page: where it stands, its hires, what it knows, its
-/// versions, then what changes it for good.
+/// The scholar's page: where it stands and what it is called, then a
+/// card each for its hires, what it knows, its versions and what
+/// changes it for good.
 fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
-    let address = scholar_address(shown.scholar.id);
     let rename = renaming(shown);
     let (stands, tone) = standing(&shown.scholar);
     let heading = column((
@@ -718,16 +750,21 @@ fn body(shown: &Shown) -> AnyView {
         ),
     ))
     .gap(4.0);
-    let (head, versions_part, hires_part, deeds_part, careful_part) = (
+    let parts = (
         arrival(shown),
-        versions(shown),
         hires(shown),
-        deeds(shown),
+        knowledge(shown),
+        versions(shown),
         careful(shown),
     );
     with_cx(move |cx| {
-        let line = cx.theme().palette.gold_6;
-        let section = cx.theme().space.section;
+        let (
+            head,
+            hires_part,
+            knowledge_part,
+            versions_part,
+            careful_part,
+        ) = parts;
         column((
             breadcrumb(
                 vec!["Realm".into()],
@@ -737,18 +774,12 @@ fn body(shown: &Shown) -> AnyView {
             heading,
             head,
             rename,
-            deeds_part,
-            form_view(address, name),
-            hairline(line),
             hires_part,
-            hairline(line),
-            knowledge(),
-            hairline(line),
+            knowledge_part,
             versions_part,
-            hairline(line),
             careful_part,
         ))
-        .gap(section)
+        .gap(cx.theme().space.section)
     })
     .boxed()
 }

@@ -11,12 +11,12 @@ use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
-use bevy::ui::AlignItems;
+use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, label, row,
+    BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
-use bevy_fynix::{ViewExt, derived, keyed};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::messages::Veto;
 use hamlet_client::realm::{
     Busy, Closed, Deeds, HamletId, Identity, Left, Scholar,
@@ -24,11 +24,13 @@ use hamlet_client::realm::{
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
+use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, buttons, close, framed,
-    group, note, raised, scroll_area, status_label_large, title,
+    Fills, ICON, action, bad_action, bare, buttons, card_name, close,
+    framed, group, note, raised, scroll_area, small_rules, title,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, View, with_cx};
 
@@ -36,6 +38,7 @@ pub(crate) use self::hamlet::typed;
 pub use self::hamlet::{Naming, Page, hamlet};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
+use self::rows::{agent_rows, hamlet_rows, pressable, stale};
 use crate::standing::Standing;
 use crate::{chat, world_menu};
 
@@ -73,16 +76,31 @@ pub(crate) fn heading(
     .boxed()
 }
 
-/// The realm at a glance: how it stands today, what waits for the
-/// chief in full, and the hamlets closed down. The hamlets and the
-/// Hand are in the rail beside it.
+/// The size of a figure of the day.
+const FIGURE: f32 = 22.0;
+/// The width of a figure's card, the same for each, so that those a
+/// narrow page wraps on to a second line stand under the first.
+const FIGURE_WIDTH: f32 = 108.0;
+
+/// The realm at a glance: its figures, what waits for the chief in
+/// full, then the hamlets, open and closed down. The hamlets and the
+/// Hand are in the rail beside it too.
 pub fn overview() -> impl View {
     with_cx(move |cx| {
         column((
-            title("Realm"),
+            // Stopping every agent stands apart, at the far end.
+            row((
+                title("Realm"),
+                frame().grow(1.0),
+                bad_action(Glyph::Stop, "Stop all", |world| {
+                    world.trigger(Veto { agent: None });
+                    world.flush();
+                }),
+            ))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center),
             today(),
-            // Under the day's figures, where it stays in reach and
-            // wraps in a narrow panel.
+            // Ways about the world, under the figures they lead to.
             buttons(vec![
                 action(
                     Glyph::Hearth,
@@ -99,14 +117,9 @@ pub fn overview() -> impl View {
                     world_menu::ask_new_scholar,
                 )
                 .boxed(),
-                bad_action(Glyph::Stop, "Stop all", |world| {
-                    world.trigger(Veto { agent: None });
-                    world.flush();
-                })
-                .boxed(),
             ]),
-            // What waits for the chief comes first, in full.
-            scroll_area((crate::petition::waiting(), closed())),
+            scroll_area((column((needs(), hamlets(), closed()))
+                .gap(cx.theme().space.section),)),
         ))
         .fills_height()
         .gap(cx.theme().space.section)
@@ -161,65 +174,182 @@ fn today_of(world: &World) -> Today {
     }
 }
 
-/// A card of the day's figures: what waits, what works and who lives
-/// in the city.
+/// One figure of the day on a card of its own: its mark and how
+/// many, large, over what they are, all in `tone`.
+fn figure(
+    count: usize,
+    which: Glyph,
+    words: &'static str,
+    tone: Tone,
+) -> AnyView {
+    column((framed((
+        row((
+            glyph(which, ICON).tone(tone),
+            label(count.to_string())
+                .size(FIGURE)
+                .bold(true)
+                .tone(tone)
+                .wrap(false),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center),
+        label(words).tone(tone).wrap(false).rules(small_rules),
+    )),))
+    .width(px(FIGURE_WIDTH))
+    .boxed()
+}
+
+/// The day's figures, side by side: what waits, what works and rests,
+/// and who lives in the city or waits at its harbor.
 fn today() -> AnyView {
     keyed(
         derived(today_of).when(bevy_fynix::every_frame()),
         |today| {
-            let waits = Standing::Waits;
-            let (mark, words, tone) = match today.needs {
-                0 => (
-                    Glyph::Check,
-                    "Nothing waits for you".into(),
-                    Tone::Dim,
-                ),
-                1 => (
+            let (waits, works, rests) =
+                (Standing::Waits, Standing::Works, Standing::Rests);
+            let mut figures = vec![
+                figure(
+                    today.needs,
                     waits.glyph(),
-                    "1 waits for you".into(),
-                    waits.tone(),
+                    if today.needs == 1 {
+                        "waits for you"
+                    } else {
+                        "wait for you"
+                    },
+                    if today.needs == 0 {
+                        Tone::Dim
+                    } else {
+                        waits.tone()
+                    },
                 ),
-                n => (
-                    waits.glyph(),
-                    format!("{n} wait for you"),
-                    waits.tone(),
-                ),
-            };
-            let (works, rests) = (Standing::Works, Standing::Rests);
-            let mut lines = vec![
-                status_label_large(mark, words, tone).boxed(),
-                status_label_large(
+                figure(
+                    today.working,
                     works.glyph(),
-                    format!("{} at work", today.working),
+                    "at work",
                     works.tone(),
-                )
-                .boxed(),
-                status_label_large(
+                ),
+                figure(
+                    today.resting,
                     rests.glyph(),
-                    format!("{} at rest", today.resting),
+                    "at rest",
                     rests.tone(),
-                )
-                .boxed(),
-                status_label_large(
+                ),
+                figure(
+                    today.scholars,
                     Glyph::Scholar,
-                    format!("{} in the city", today.scholars),
+                    "in the city",
                     Tone::Body,
-                )
-                .boxed(),
+                ),
             ];
             if today.harbor > 0 {
-                lines.push(
-                    status_label_large(
-                        Glyph::Anchor,
-                        format!("{} at the harbor", today.harbor),
-                        Tone::Body,
-                    )
-                    .boxed(),
-                );
+                figures.push(figure(
+                    today.harbor,
+                    Glyph::Anchor,
+                    "at the harbor",
+                    Tone::Body,
+                ));
             }
-            framed(lines).boxed()
+            with_cx(move |cx| {
+                row(figures).gap(cx.theme().space.gap).tagged(Wraps)
+            })
+            .boxed()
         },
     )
+    .within(bare())
+    .boxed()
+}
+
+/// What waits for the chief, in full, under its heading while there
+/// is any.
+fn needs() -> AnyView {
+    let head =
+        keyed(resource(crate::petition::Queue::len), |count| {
+            match count {
+                0 => column(()).boxed(),
+                n => heading(
+                    Standing::Waits.glyph(),
+                    format!("Needs you ({n})"),
+                ),
+            }
+        })
+        .within(bare());
+    group((head, crate::petition::waiting())).boxed()
+}
+
+/// A hamlet as its card on the realm's page.
+#[derive(Clone, PartialEq)]
+struct HamletCard {
+    hamlet: Entity,
+    title: String,
+    standing: (Glyph, String, Tone),
+    lines: Vec<String>,
+}
+
+fn hamlet_cards(world: &World) -> Vec<HamletCard> {
+    hamlet_rows(world)
+        .into_iter()
+        .map(|facts| {
+            let agents = agent_rows(world, Some(facts.hamlet));
+            let living = agents
+                .iter()
+                .filter(|row| !row.gone)
+                .collect::<Vec<_>>();
+            let how_many = |standing| {
+                living
+                    .iter()
+                    .filter(|row| row.standing == standing)
+                    .count()
+            };
+            let mayor = living
+                .iter()
+                .find(|row| row.mayor)
+                .map(|row| format!("Mayor: {}", row.name))
+                .unwrap_or_default();
+            HamletCard {
+                hamlet: facts.hamlet,
+                title: facts.title,
+                standing: standing(
+                    living.len(),
+                    how_many(Standing::Works),
+                    how_many(Standing::Waits),
+                ),
+                lines: vec![mayor, facts.account],
+            }
+        })
+        .collect()
+}
+
+/// Each hamlet on a card that opens its page.
+fn hamlets() -> AnyView {
+    keyed(derived(hamlet_cards).when(stale()), |cards| {
+        if cards.is_empty() {
+            return column(()).boxed();
+        }
+        let mut parts = vec![heading(
+            Glyph::Hamlet,
+            format!("Hamlets ({})", cards.len()),
+        )];
+        parts.extend(cards.iter().cloned().map(|card| {
+            let hamlet = card.hamlet;
+            pressable(
+                Thing::Common(hamlet),
+                card.title,
+                card.standing,
+                card.lines,
+                move |world| {
+                    crate::hub::show(
+                        world,
+                        crate::hub::Showing::Hamlet(hamlet),
+                    );
+                    if world.contains_resource::<Selected>() {
+                        select(world, Some(Thing::Common(hamlet)));
+                    }
+                },
+            )
+            .boxed()
+        }));
+        group(parts).boxed()
+    })
     .within(bare())
     .boxed()
 }
@@ -295,6 +425,8 @@ fn closed() -> AnyView {
                         },
                     ));
                 }
+                // Deleting for good stands apart, at the far end.
+                actions.push(frame().grow(1.0).boxed());
                 if *erase {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
@@ -307,21 +439,19 @@ fn closed() -> AnyView {
                         },
                     ));
                 }
-                parts.push(
-                    close((
-                        note(hamlet.name.clone()),
-                        note(hamlet.reason.clone()),
-                        buttons(actions),
-                    ))
-                    .boxed(),
-                );
+                let mut card = vec![
+                    card_name(hamlet.name.clone(), Tone::Body)
+                        .boxed(),
+                    note(hamlet.reason.clone()).boxed(),
+                    row(actions).align(AlignItems::Center).boxed(),
+                ];
                 if *erase
                     && asking.as_ref()
                         == Some(&(hamlet.id.clone(), hamlet.at))
                 {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
-                    parts.push(
+                    card.push(
                         close((
                             note(format!(
                                 "Delete {} for good?",
@@ -377,6 +507,7 @@ fn closed() -> AnyView {
                         .boxed(),
                     );
                 }
+                parts.push(framed(card).boxed());
             }
             group(parts).boxed()
         },

@@ -75,16 +75,20 @@ const LEFT_SHOWN: usize = 6;
 const LINE_SHOWN: usize = 90;
 
 /// How tall a row is, so that the lines of a branch meet.
-const ROW: f32 = 40.0;
+const ROW: f32 = 42.0;
 
 /// The room before a row for a lead's chevron.
 const CHEVRON: f32 = 14.0;
 
-/// How far each step down a tree is set in: a chevron's room and a
-/// little more, so a guide under a chevron leads to the next one.
-const STEP_IN: f32 = 18.0;
+/// How far each step down a tree is set in: under the middle of the
+/// chevron above, and a little more, so a guide leads to the next
+/// one.
+const STEP_IN: f32 = 12.0;
 /// The deepest a row is set in; deeper rows line up with it.
 const DEEPEST: u8 = 6;
+
+/// The room inside a row's ends.
+const ROW_INSET: f32 = 6.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Rail>()
@@ -434,7 +438,7 @@ fn agents(world: &World) -> Vec<Agent> {
             )| {
                 let address = name_of(world, entity);
                 let (said, last) = thread(world, id.0);
-                let mark = Some(Standing::of(world, entity));
+                let standing = Standing::of(world, entity);
                 // Its work while it works, else what it was asked.
                 let title = if busy {
                     Some(activity.words.clone())
@@ -448,6 +452,13 @@ fn agents(world: &World) -> Vec<Agent> {
                         .filter(|line| !line.is_empty())
                 })
                 .unwrap_or_else(|| activity.words.clone());
+                // Its mark already says the word of its standing.
+                let title =
+                    if title.eq_ignore_ascii_case(standing.word()) {
+                        String::new()
+                    } else {
+                        title
+                    };
                 Agent {
                     entity,
                     id: id.0,
@@ -455,7 +466,7 @@ fn agents(world: &World) -> Vec<Agent> {
                     parent: parent.map(|parent| parent.0),
                     hamlet: lives.map(|lives| lives.0),
                     mayor,
-                    mark,
+                    mark: Some(standing),
                     called: called(&address, shown),
                     address,
                     title,
@@ -764,7 +775,7 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
             target,
             glyph,
             name,
-            title: said.to_string(),
+            title: capitalised(said),
             age: age(now, wait.since),
             mark: Some(Standing::Waits),
             address: wait.by.clone(),
@@ -782,6 +793,15 @@ fn needs(world: &World, all: &[Agent]) -> Vec<Line> {
         }
     }
     lines
+}
+
+/// `text` with its first letter a capital, as every row's line
+/// starts.
+fn capitalised(text: &str) -> String {
+    let mut letters = text.chars();
+    letters.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(letters).collect()
+    })
 }
 
 /// The city's scholars, the harbor, the library and those that left.
@@ -1293,7 +1313,7 @@ fn row_rules(cx: &mut Cx) {
                 .radius(4.0)
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::Stretch)
-                .padding(UiRect::axes(px(6.0), px(0.0)))
+                .padding(UiRect::axes(px(ROW_INSET), px(0.0)))
         })
         .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
         .pressed(|s| s.frame(|f, t| f.fill(t.palette.input)))
@@ -1308,7 +1328,7 @@ fn current_rules(cx: &mut Cx) {
                 .radius(4.0)
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::Stretch)
-                .padding(UiRect::axes(px(6.0), px(0.0)))
+                .padding(UiRect::axes(px(ROW_INSET), px(0.0)))
         })
         .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
         .transition(Motion::Interact)
@@ -1362,6 +1382,8 @@ fn branch(line: &Line) -> impl View {
     })
 }
 
+/// The mark at the end of a row or a header, in its place whether or
+/// not there is one, so that marks line up from row to row.
 fn mark_icon(mark: Option<Standing>) -> AnyView {
     match mark {
         Some(standing) => glyph(standing.glyph(), ICON)
@@ -1382,16 +1404,18 @@ fn expanded(line: &Line) -> AnyView {
     let content = row((
         glyph(line.glyph, ICON).tone(Tone::Dim),
         column((
-            // Its state right after its name.
+            // How long ago at the end of its name's line, against
+            // the column of marks.
             row((
                 column((one_line(
                     label(line.name.clone())
                         .tone(name_tone)
                         .bold(true),
                 ),))
+                .grow(1.0)
                 .min_width(px(0.0))
                 .overflow(Overflow::clip()),
-                mark_icon(line.mark),
+                label(line.age.clone()).tone(Tone::Faint).wrap(false),
             ))
             .gap(6.0)
             .align(AlignItems::Center),
@@ -1413,7 +1437,7 @@ fn expanded(line: &Line) -> AnyView {
         .grow(1.0)
         .min_width(px(0.0))
         .overflow(Overflow::clip()),
-        label(line.age.clone()).tone(Tone::Faint).wrap(false),
+        mark_icon(line.mark),
     ))
     .gap(8.0)
     .align(AlignItems::Center)
@@ -1516,14 +1540,22 @@ fn header(section: &Section) -> AnyView {
         label(section.count.to_string()).tone(Tone::Dim).boxed(),
     );
     if matches!(group, Group::Hamlet(_)) {
+        parts.push(frame().grow(1.0).boxed());
         parts.push(mark_icon(section.mark));
     }
     // From the rail's edge, so its chevron stands in the same column
-    // as the chevrons of the rows under it.
+    // as the chevrons of the rows under it, and its mark in the same
+    // column as theirs.
     row(parts)
         .gap(6.0)
         .align(AlignItems::Center)
-        .padding(UiRect::new(px(0.0), px(8.0), px(10.0), px(2.0)))
+        .padding(UiRect::new(
+            px(0.0),
+            px(ROW_INSET),
+            px(10.0),
+            px(2.0),
+        ))
+        .width(percent(100.0))
         .boxed()
 }
 
