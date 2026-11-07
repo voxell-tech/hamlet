@@ -40,6 +40,20 @@ pub(crate) struct ModelRow {
     /// What stands at its end. An icon there shows only under the
     /// pointer or the focus, unless it sets its own opacity.
     pub end: Option<AnyView>,
+    pub detail: Detail,
+}
+
+/// What a row shows of where its model comes from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Detail {
+    /// Its provider's mark, and its provider and id under its name,
+    /// for a list that mixes providers.
+    Source,
+    /// Its provider's mark alone.
+    Mark,
+    /// Its id under its name where that says more, for a list of
+    /// one provider's models that names the provider once above them.
+    Id,
 }
 
 /// The mark of the provider `id` at `size`, or its first letter in a
@@ -71,9 +85,9 @@ pub(crate) fn mark(id: &str, size: f32) -> AnyView {
     .boxed()
 }
 
-/// `model` as one row that `pick` chooses: its provider's mark, its
-/// name with a check after it while picked, its provider under it,
-/// its tag and its end.
+/// `model` as one row that `pick` chooses: its name with a check
+/// after it while picked, as much of where it comes from as its
+/// [`Detail`] says, its tag and its end.
 pub(crate) fn model_row(
     model: ModelRow,
     pick: impl Fn(&mut World) + Send + Sync + 'static,
@@ -83,6 +97,7 @@ pub(crate) fn model_row(
         picked,
         tag,
         end,
+        detail,
     } = model;
     let check = if picked {
         glyph(Glyph::Check, ICON)
@@ -98,26 +113,52 @@ pub(crate) fn model_row(
             .align(AlignItems::Center)
             .min_width(px(0.0));
     let id = name.clone();
-    let source = one_line(label(
-        derived(move |world: &World| source_of(world, &id))
-            .when(crate::roll::moved::<Providers>()),
-    ))
-    .rules(note_rules);
-    let words = column((title, source))
-        .gap(1.0)
-        .grow(1.0)
-        .min_width(px(0.0));
+    let under = match detail {
+        Detail::Source => one_line(label(
+            derived(move |world: &World| source_of(world, &id))
+                .when(crate::roll::moved::<Providers>()),
+        ))
+        .rules(note_rules)
+        .boxed(),
+        Detail::Id => {
+            let at =
+                id.split_once("::").map_or(id.as_str(), |(_, at)| at);
+            match at == model_name(&id) {
+                true => frame().boxed(),
+                false => one_line(label(at.to_string()))
+                    .rules(note_rules)
+                    .boxed(),
+            }
+        }
+        Detail::Mark => frame().boxed(),
+    };
+    let words =
+        column((title, under)).gap(1.0).grow(1.0).min_width(px(0.0));
     let tag = match tag {
-        Some(tag) => label(tag)
-            .tone(Tone::Faint)
-            .wrap(false)
-            .rules(small_rules)
-            .boxed(),
+        Some(tag) => with_cx(move |cx| {
+            let theme = cx.theme();
+            column((label(tag)
+                .tone(Tone::Accent)
+                .bold(true)
+                .wrap(false)
+                .rules(small_rules),))
+            .padding(UiRect::axes(px(6.0), px(1.0)))
+            .border(theme.space.border)
+            .border_color(theme.palette.gold_5)
+            .radius(theme.space.round)
+        })
+        .boxed(),
         None => frame().boxed(),
+    };
+    let face = match detail {
+        Detail::Id => frame().boxed(),
+        Detail::Source | Detail::Mark => {
+            mark(provider_of(&name), MARK)
+        }
     };
     menu_item(
         row((
-            mark(provider_of(&name), MARK),
+            face,
             words,
             tag,
             end.unwrap_or_else(|| frame().boxed()),

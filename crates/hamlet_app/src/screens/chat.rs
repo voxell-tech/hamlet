@@ -12,7 +12,7 @@ mod entry;
 mod field;
 mod lines;
 mod quote;
-mod reply;
+pub(crate) mod reply;
 mod rewind;
 mod timeline;
 
@@ -591,7 +591,8 @@ fn message_bar_in(
     let card = column((reply::preview(), row((field,)), tools))
         .gap(gap / 2.0)
         .padding(UiRect::all(px(gap / 2.0)))
-        .rules(card_look);
+        .rules(card_look)
+        .tagged(crate::world_menu::Hook::Composer);
     column((
         crate::asking::in_chat(),
         card,

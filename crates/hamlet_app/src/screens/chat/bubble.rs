@@ -175,10 +175,15 @@ fn said<B: Board>(
             Some(Entry::Error(_)) => (Words::Fault, ""),
             _ => (Words::Markdown, ""),
         };
-        // The message a reply answers is drawn on its own.
-        let (answers, typed) = match reply::unreplied(typed) {
-            Some((answers, words)) => (Some(answers), words),
-            None => (None, typed),
+        // The message a reply answers is drawn on its own, with what
+        // the reply quotes of it.
+        let (answers, selected, typed) = match reply::unreplied(typed)
+        {
+            Some((answers, _)) => {
+                let (selected, own) = reply::own_words(typed);
+                (Some(answers), selected, own)
+            }
+            None => (None, None, typed.to_string()),
         };
         // A past session is only read.
         let past = cx
@@ -260,11 +265,11 @@ fn said<B: Board>(
                 .boxed(),
         };
         // Words with a link in them are set once, span by span.
-        let linked = match quote::has_quote(typed) {
+        let linked = match quote::has_quote(&typed) {
             true => {
-                Some(quote::drawn(typed, reserve, palette.gold_4))
+                Some(quote::drawn(&typed, reserve, palette.gold_4))
             }
-            false => hamlet_ui::markdown::typed(typed, reserve),
+            false => hamlet_ui::markdown::typed(&typed, reserve),
         };
         let hour = label(time)
             .wrap(false)
@@ -275,7 +280,10 @@ fn said<B: Board>(
             // last line.
             Words::Plain => {
                 if let Some(answers) = &answers {
-                    inside.push(reply::answered(answers).boxed());
+                    inside.push(
+                        reply::answered(answers, selected.clone())
+                            .boxed(),
+                    );
                 }
                 let said = linked.unwrap_or_else(|| {
                     label(component::<Transcript, _>(
@@ -286,7 +294,7 @@ fn said<B: Board>(
                             Some(Entry::Chief { text, .. }) => {
                                 format!(
                                     "{}{reserve}",
-                                    reply::rest(text)
+                                    reply::own_words(text).1
                                 )
                             }
                             Some(Entry::Answered(said)) => {

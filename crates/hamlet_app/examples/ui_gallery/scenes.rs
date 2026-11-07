@@ -104,6 +104,7 @@ impl Plugin for GalleryPlugin {
                 hamlet_app::desk::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
+                welcome::hold_plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_app::screens::plugin,
                 asking::plugin,

@@ -36,10 +36,10 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
-pub(crate) use self::model::chip;
 pub use self::model::{
     Favorites, open as open_model, search as search_models,
 };
+pub(crate) use self::model::{Hook, chip, is_open as is_picking};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(model::plugin)
@@ -73,7 +73,7 @@ pub(crate) enum Open {
     /// The skills an agent could be given.
     Skills(Entity, Vec2),
     /// The model an agent runs, its effort and its tier.
-    Model(Entity, Vec2),
+    Model(Entity),
 }
 
 /// On a row of a panel: the thing it stands for, whose menu the
@@ -218,10 +218,9 @@ pub(crate) fn ask_road(world: &mut World, agent: Entity) {
     *world.resource_mut::<Open>() = Open::Road(agent, at);
 }
 
-/// Opens the popup of `agent`'s model, at the pointer.
+/// Opens the popup of `agent`'s model, over its chip.
 pub(crate) fn ask_model(world: &mut World, agent: Entity) {
-    let at = pointer(world);
-    model::open(world, agent, at);
+    model::open(world, agent);
 }
 
 /// Asks before `deed` is done, at the pointer.
@@ -306,9 +305,7 @@ fn menus() -> AnyView {
             }
             Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
             Open::Road(agent, at) => road::road(agent, at).boxed(),
-            Open::Model(agent, at) => {
-                model::picker(agent, at).boxed()
-            }
+            Open::Model(agent) => model::picker(agent).boxed(),
             Open::Skills(agent, at) => {
                 AnyView::new(move |cx: &mut Cx| {
                     let items = items::skills(cx.world, agent);

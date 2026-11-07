@@ -19,8 +19,8 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::choice::home_default;
 use super::{
-    Asked, Draft, ModelRow, SHOWN, Shelf, WORDS_AT, catalogue, edit,
-    model_row, read_models,
+    Asked, Detail, Draft, ModelRow, SHOWN, Shelf, WORDS_AT,
+    catalogue, edit, model_row, read_models,
 };
 use crate::roll::{either, moved};
 
@@ -217,6 +217,7 @@ fn entry(model: &protocol::Listed, default: &str) -> AnyView {
                 picked: is_default,
                 tag: is_default.then_some("Default"),
                 end: None,
+                detail: Detail::Source,
             },
             move |world| save_default(world, &chosen),
         ),

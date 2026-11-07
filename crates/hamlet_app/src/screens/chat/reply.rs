@@ -15,10 +15,10 @@ use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::picking::hover::Hovered;
 use bevy::ui::{AlignItems, JustifyContent, Overflow, UiRect, px};
-use bevy_fynix::tokens::Tone;
+use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    label, row,
+    BehaviorExt, FrameProps, Span, TooltipExt, button, column, frame,
+    label, rich, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
@@ -109,6 +109,39 @@ pub fn unreplied(text: &str) -> Option<(Answers, &str)> {
 /// The words of `text` after any reply line it opens with.
 pub(super) fn rest(text: &str) -> &str {
     unreplied(text).map_or(text, |(_, words)| words)
+}
+
+/// `text` as its sender typed it, after any reply line it opens with,
+/// and the words it quotes of the message it replies to, which that
+/// message shows in place of a quote of its own. The words stay
+/// whole when the quote is of anything else.
+pub fn own_words(text: &str) -> (Option<String>, String) {
+    let Some((answers, words)) = unreplied(text) else {
+        return (None, text.to_string());
+    };
+    let parts = super::quote::parts(words);
+    let quoted = parts
+        .iter()
+        .filter(|(quoted, _)| *quoted)
+        .map(|(_, said)| squashed(said))
+        .collect::<Vec<_>>();
+    match quoted.as_slice() {
+        [said] if squashed(&answers.text).contains(said.as_str()) => {
+            let own = parts
+                .into_iter()
+                .filter(|(quoted, _)| !quoted)
+                .map(|(_, words)| words)
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            (Some(said.clone()), own)
+        }
+        _ => (None, words.to_string()),
+    }
+}
+
+/// `text` with every run of white space one space.
+fn squashed(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// The words of an entry a message can reply to or select.
@@ -229,23 +262,50 @@ fn reveal(
     }
 }
 
-/// The message a reply answers, as one line at the head of the
-/// reply: who said it and the start of its words.
-pub(super) fn answered(answers: &Answers) -> impl View + use<> {
-    row((
-        glyph(Glyph::Talk, 11.0).tone(Tone::Dim),
-        label(answers.by.clone())
-            .bold(true)
-            .wrap(false)
-            .tone(Tone::Dim)
-            .rules(small_rules),
-        one_line(label(cut(&answers.text, SHOWN)).tone(Tone::Dim))
-            .rules(small_rules),
-    ))
-    .gap(5.0)
-    .align(AlignItems::Center)
-    .overflow(Overflow::clip())
-    .padding(UiRect::bottom(px(2.0)))
+/// The message a reply answers, as a quote at the head of the reply:
+/// who said it over its words, with `selected` of them lit where the
+/// reply quoted them.
+pub(super) fn answered(
+    answers: &Answers,
+    selected: Option<String>,
+) -> impl View + use<> {
+    let answers = answers.clone();
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let said = squashed(&answers.text);
+        let lit = selected
+            .as_deref()
+            .and_then(|lit| Some((said.find(lit)?, lit.len())));
+        let spans = match lit {
+            Some((at, len)) => vec![
+                Span::new(&said[..at]),
+                Span::new(&said[at..at + len])
+                    .color(theme.tone(Tone::Body))
+                    .background(theme.palette.text_selection),
+                Span::new(&said[at + len..]),
+            ],
+            None => vec![Span::new(said.clone())],
+        };
+        row((
+            frame()
+                .width(px(3.0))
+                .shrink(0.0)
+                .fill(theme.palette.gold_4),
+            column((
+                label(format!("Replying to {}", answers.by))
+                    .bold(true)
+                    .wrap(false)
+                    .tone(Tone::Faint)
+                    .rules(small_rules),
+                rich(spans).tone(Tone::Dim).size(theme.text.small),
+            ))
+            .gap(1.0)
+            .fills_width(),
+        ))
+        .gap(8.0)
+        .align(AlignItems::Stretch)
+        .padding(UiRect::bottom(px(4.0)))
+    })
 }
 
 /// The message the next one answers, over the field, and the way to

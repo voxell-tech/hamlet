@@ -151,11 +151,7 @@ fn offer_models(world: &mut World) {
     {
         account.model = "openai::wren-large".into();
     }
-    hamlet_app::world_menu::open_model(
-        world,
-        agent,
-        bevy::math::Vec2::new(1200.0, 780.0),
-    );
+    hamlet_app::world_menu::open_model(world, agent);
     // Starred after it opens, so it opens on the agent's provider.
     world.resource_mut::<hamlet_app::world_menu::Favorites>().0 =
         vec!["openai::wren-large".into()];

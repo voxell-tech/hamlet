@@ -22,8 +22,8 @@ use bevy::ui::{
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, ghost,
-    label, overlay, row, scroll,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    ghost, label, overlay, row, scroll,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, each, every_frame, resource,
@@ -206,6 +206,10 @@ pub(super) fn rows(
     rows
 }
 
+/// How far in from a fold's edge the line down from its chevron is,
+/// and how far from that line its steps are.
+const GUIDE: f32 = 5.0;
+
 /// The steps of a turn as one line that opens, as board `B` holds
 /// them.
 pub(super) fn fold_view<B: Board>(
@@ -270,6 +274,20 @@ pub(super) fn fold_view<B: Board>(
     .within(
         column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
     );
+    // A line down from the chevron holds what is shown inside, open
+    // or shut, under its heading.
+    let inside = with_cx(move |cx| {
+        let guide = frame()
+            .width(px(1.0))
+            .shrink(0.0)
+            .margin(UiRect::left(px(GUIDE)))
+            .fill(cx.theme().palette.gold_6);
+        row((guide, inside))
+            .gap(GUIDE)
+            .align(AlignItems::Stretch)
+            .width(percent(100.0))
+            .min_width(px(0.0))
+    });
     column((head, inside))
         .gap(4.0)
         .align(AlignItems::FlexStart)

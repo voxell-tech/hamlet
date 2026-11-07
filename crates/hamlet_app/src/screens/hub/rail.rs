@@ -391,7 +391,9 @@ fn thread(
     let said =
         items.iter().rev().find_map(|item| match &item.entry {
             Entry::Chief { text, .. } => {
-                Some(first_line(text, LINE_SHOWN))
+                let (_, own) =
+                    crate::screens::chat::reply::own_words(text);
+                Some(first_line(&own, LINE_SHOWN))
             }
             _ => None,
         });

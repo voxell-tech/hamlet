@@ -24,8 +24,13 @@ use crate::theme::HamletTheme;
 /// character is missing from some.
 const DOTS: &str = "...";
 
-/// The share of the room the start of a text cut in its middle takes.
+/// The share of the room the start of a text cut in its middle takes
+/// when the words before its last do not fit in [`MOST_HEAD`].
 const HEAD: f32 = 0.4;
+
+/// The most of the room the words before a text's last may take, for
+/// the cut to fall in its last word, as at the start of a path.
+const MOST_HEAD: f32 = 0.6;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(PostUpdate, fit.after(UiSystems::PostLayout));
@@ -43,7 +48,8 @@ pub enum Keep {
     #[default]
     Start,
     /// Its start and its end, with the ellipsis between them, for a
-    /// text whose end tells it apart, as a path does.
+    /// text whose end tells it apart, as a path does. The cut falls
+    /// in its last word where the words before it fit.
     Ends,
 }
 
@@ -115,20 +121,33 @@ impl Ellipsis {
         }
         // Before the ellipsis is laid out, a guess wider than it.
         let room = room - self.dots.unwrap_or(tall);
-        let head_room = match self.keep {
-            Keep::Start => room,
-            Keep::Ends => room * HEAD,
+        let within = |most: f32| {
+            self.stops.iter().take_while(move |&&(_, x)| x <= most)
         };
-        let (head, head_x) = self
-            .stops
-            .iter()
-            .take_while(|&&(_, x)| x <= head_room)
-            .last()
-            .copied()
-            .unwrap_or_default();
-        let head = self.full[..head].trim_end();
+        let (head, head_x) = match self.keep {
+            Keep::Start => within(room).last(),
+            // The words before the last whole where they leave it
+            // room, else up to a space, else up to a letter.
+            Keep::Ends => {
+                let last_word = self.full.rfind(' ').map(|at| at + 1);
+                within(room * MOST_HEAD)
+                    .find(|&&(end, _)| Some(end) == last_word)
+                    .or_else(|| {
+                        within(room * HEAD)
+                            .filter(|&&(end, _)| {
+                                self.full[..end].ends_with(' ')
+                            })
+                            .last()
+                    })
+                    .or_else(|| within(room * HEAD).last())
+            }
+        }
+        .copied()
+        .unwrap_or_default();
         match self.keep {
-            Keep::Start => format!("{head}{DOTS}"),
+            Keep::Start => {
+                format!("{}{DOTS}", self.full[..head].trim_end())
+            }
             Keep::Ends => {
                 let from = whole - (room - head_x);
                 let tail = self
@@ -137,7 +156,8 @@ impl Ellipsis {
                     .find(|&&(_, x)| x >= from)
                     .map_or(self.full.len(), |&(at, _)| at);
                 format!(
-                    "{head}{DOTS}{}",
+                    "{}{DOTS}{}",
+                    &self.full[..head],
                     self.full[tail..].trim_start()
                 )
             }
@@ -254,7 +274,11 @@ mod tests {
         };
         assert_eq!(
             ellipsis.fitted(200.0, 0.0),
-            "grep -...rchard/1.md"
+            "grep ...orchard/1.md"
+        );
+        assert_eq!(
+            ellipsis.fitted(280.0, 0.0),
+            "grep -n row-0 ...rchard/1.md"
         );
         assert_eq!(ellipsis.fitted(400.0, 0.0), full);
     }

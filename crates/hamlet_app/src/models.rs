@@ -25,7 +25,9 @@ use hamlet_protocol::client as protocol;
 pub(crate) use self::choice::{efforts, of_hamlet};
 pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
-pub(crate) use self::row::{ModelRow, WORDS_AT, mark, model_row};
+pub(crate) use self::row::{
+    Detail, ModelRow, WORDS_AT, mark, model_row,
+};
 use crate::PanelSystems;
 use crate::settings::Pane;
 

@@ -17,7 +17,7 @@ use hamlet_ui::styles::{note, small_rules};
 use hamlet_ui::widgets::ellipsis::{Keep, cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
-use hamlet_ui::{AnyView, Cx, View};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::change::change_view;
 use crate::convo::Convo;
@@ -228,21 +228,26 @@ fn tool_row(session: Entity, id: String) -> impl View {
                     _ => String::new(),
                 }))
                 .tagged(MonoText),
-                label(read(|e| match e {
-                    Entry::Tool {
-                        exit: Some(code),
-                        failure,
-                        ..
-                    } if *code != 0 => match failure {
-                        Some(why) => {
-                            format!("Failed (exit {code}): {why}")
-                        }
-                        None => format!("Failed (exit {code})"),
+                keyed(
+                    read(|e| match e {
+                        Entry::Tool {
+                            exit: Some(code),
+                            failure,
+                            ..
+                        } if *code != 0 => match failure {
+                            Some(why) => {
+                                format!("Failed (exit {code}): {why}")
+                            }
+                            None => format!("Failed (exit {code})"),
+                        },
+                        _ => String::new(),
+                    }),
+                    |why| match why.is_empty() {
+                        true => frame().boxed(),
+                        false => failed(why.clone()).boxed(),
                     },
-                    _ => String::new(),
-                }))
-                .tone(Tone::Critical)
-                .rules(small_rules),
+                )
+                .within(column(()).width(percent(100.0))),
             ))
             .gap(4.0)
             .width(percent(100.0))
@@ -254,6 +259,22 @@ fn tool_row(session: Entity, id: String) -> impl View {
         .width(percent(100.0))
         .min_width(px(0.0))
         .gap(0.0)
+}
+
+/// Why a tool call failed, in a red block under its request.
+fn failed(why: String) -> impl View {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        column((label(why.clone())
+            .tone(Tone::Critical)
+            .rules(small_rules),))
+        .width(percent(100.0))
+        .padding(UiRect::axes(px(8.0), px(4.0)))
+        .fill(theme.palette.danger)
+        .border(theme.space.border)
+        .border_color(theme.palette.danger_border)
+        .radius(theme.space.round)
+    })
 }
 
 /// The whole request to a tool: the shell command when the arguments

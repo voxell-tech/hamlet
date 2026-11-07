@@ -498,17 +498,33 @@ fn header(agent: Entity) -> impl View {
 }
 
 /// The chip of the model, its effort and its tier, which opens the
-/// popup they are chosen in.
+/// popup they are chosen in and is lit while it is open.
 fn model_chip(agent: Entity) -> impl View {
-    button(
-        row((world_menu::chip(agent), glyph(Glyph::Chevron, 12.0)))
-            .gap(6.0)
-            .align(AlignItems::Center),
+    keyed(
+        derived(move |world: &World| {
+            world_menu::is_picking(world, agent)
+        })
+        .when(every_frame()),
+        move |open| {
+            button(
+                row((
+                    world_menu::chip(agent),
+                    glyph(Glyph::Chevron, 12.0),
+                ))
+                .gap(6.0)
+                .align(AlignItems::Center),
+            )
+            .padding(UiRect::axes(px(8.0), px(0.0)))
+            .rules(choice(*open))
+            .tagged(Variant::Text)
+            .tagged(world_menu::Hook::Chip)
+            .on_activate(move |world| {
+                world_menu::ask_model(world, agent);
+            })
+            .boxed()
+        },
     )
-    .padding(UiRect::axes(px(8.0), px(0.0)))
-    .rules(choice(false))
-    .tagged(Variant::Text)
-    .on_activate(move |world| world_menu::ask_model(world, agent))
+    .within(bare())
 }
 
 /// The chip of the hamlet's mode, which a press turns over.
@@ -527,24 +543,31 @@ fn mode_chip(agent: Entity) -> impl View {
                 hamlet_client::realm::Mode::Manual => "Manual",
                 hamlet_client::realm::Mode::Auto => "Auto",
             };
-            button(label(words).wrap(false))
-                .padding(UiRect::axes(px(8.0), px(0.0)))
-                .rules(choice(false))
-                .tagged(Variant::Text)
-                .tooltip(|| {
-                    note(
-                        "How this hamlet's work is overseen. Press \
-                         to turn it over.",
-                    )
-                })
-                .on_activate(move |world| {
-                    let to = match mode {
-                        hamlet_client::realm::Mode::Manual => "auto",
-                        hamlet_client::realm::Mode::Auto => "manual",
-                    };
-                    tell(world, hamlet, format!("/mode {to}"));
-                })
-                .boxed()
+            button(
+                row((
+                    glyph(Glyph::Shield, 12.0),
+                    label(words).wrap(false),
+                ))
+                .gap(6.0)
+                .align(AlignItems::Center),
+            )
+            .padding(UiRect::axes(px(8.0), px(0.0)))
+            .rules(choice(false))
+            .tagged(Variant::Text)
+            .tooltip(|| {
+                note(
+                    "How this hamlet's work is overseen. Press to \
+                     turn it over.",
+                )
+            })
+            .on_activate(move |world| {
+                let to = match mode {
+                    hamlet_client::realm::Mode::Manual => "auto",
+                    hamlet_client::realm::Mode::Auto => "manual",
+                };
+                tell(world, hamlet, format!("/mode {to}"));
+            })
+            .boxed()
         },
     )
     .within(bare())

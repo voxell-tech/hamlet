@@ -4,10 +4,10 @@ use std::collections::BTreeSet;
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::Children;
+use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Commands, Query};
+use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
 use bevy::ui::{AlignItems, InteractionDisabled};
@@ -24,8 +24,8 @@ use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    ICON, bare, close, good_action, group, note, parts, section,
-    segmented, small_rules, text_input,
+    ICON, Refused, bare, close, good_action, group, note, parts,
+    section, segmented, small_rules, text_input,
 };
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
@@ -479,7 +479,7 @@ pub(super) fn key_page() -> AnyView {
         row((good_action(Glyph::Check, "Continue", commit)
             .tagged(KeySend),));
     parts((
-        head(Glyph::Key, "Use a key"),
+        head(Glyph::Key, "Use a key", 2),
         names,
         close((named, field, under)),
         send,
@@ -496,20 +496,45 @@ pub(super) struct KeyField;
 pub(super) struct KeySend;
 
 /// Holds back the button that sends a key while its field, as it is
-/// typed in, is empty.
+/// typed in, is empty or still holds the key that was refused, and
+/// marks the field [`Refused`] until it is changed.
 pub(super) fn hold_send(
     mut commands: Commands,
     sends: Query<(Entity, Has<InteractionDisabled>), With<KeySend>>,
     fields: Query<Entity, With<KeyField>>,
     under: Query<&Children>,
-    texts: Query<&EditableText>,
+    texts: Query<(&EditableText, &ChildOf)>,
+    refusals: Query<Has<Refused>>,
+    welcome: Res<Welcome>,
+    login: Option<Res<Login>>,
 ) {
-    let empty = fields.iter().all(|field| {
-        under
-            .iter_descendants(field)
-            .filter_map(|part| texts.get(part).ok())
-            .all(|text| text.value().to_string().trim().is_empty())
-    });
+    let refused = welcome.problem.is_some() && !welcome.asking;
+    let sent = login.map(|login| login.answer.clone());
+    let mut empty = true;
+    for field in &fields {
+        for part in under.iter_descendants(field) {
+            let Ok((text, frame)) = texts.get(part) else {
+                continue;
+            };
+            // The look is the field's frame's, over its text.
+            let frame = frame.parent();
+            let marked = refusals.get(frame).unwrap_or_default();
+            let typed = text.value().to_string();
+            let still = refused
+                && !typed.trim().is_empty()
+                && Some(&typed) == sent.as_ref();
+            match (still, marked) {
+                (true, false) => {
+                    commands.entity(frame).insert(Refused);
+                }
+                (false, true) => {
+                    commands.entity(frame).remove::<Refused>();
+                }
+                _ => {}
+            }
+            empty &= typed.trim().is_empty() || still;
+        }
+    }
     for (send, held) in &sends {
         match (empty, held) {
             (true, false) => {
@@ -548,7 +573,7 @@ pub(super) fn sign_in_page() -> AnyView {
     )
     .within(bare());
     parts((
-        head(Glyph::Signal, "Sign in"),
+        head(Glyph::Globe, "Sign in", 2),
         steps,
         prompt(),
         news("Waiting for sign-in..."),

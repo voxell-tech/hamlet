@@ -1,5 +1,6 @@
 //! The pages of first-run setup.
 
+use bevy::color::Alpha;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
@@ -9,16 +10,18 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::Settings;
 use hamlet_ui::styles::{
-    self, back, back_link, bare, beside, description, good_action,
-    group, headed, marked, nav_card, note, parts, scroll_area,
-    small_rules,
+    self, ICON, back, back_link, bare, beside, description,
+    good_action, group, headed, marked, nav_card, note, parts,
+    scroll_area, small_rules,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{Step, Welcome, close, go, look, pick};
-use crate::models::{ModelRow, model_row, narrowed};
+use crate::models::{
+    Detail, ModelRow, mark, model_row, narrowed, provider_of,
+};
 use crate::roll::{either, moved};
 
 fn title(which: Glyph, text: &'static str) -> impl View {
@@ -68,19 +71,23 @@ fn choice(adding: bool) -> AnyView {
         )
     };
     parts((
-        title(Glyph::Hearth, name),
+        beside((
+            title(Glyph::Hearth, name),
+            frame().grow(1.0),
+            counted(1),
+        )),
         said(says),
         nav_card(
-            Glyph::Signal,
+            Glyph::Globe,
             "Sign in with OpenRouter",
-            "The quickest way. You sign in with your browser and \
-             pay OpenRouter for what you use.",
+            "Recommended, and the quickest way. You sign in with \
+             your browser and pay OpenRouter for what you use.",
             |world| {
                 super::providers::start(world, "openrouter", false);
             },
         ),
         nav_card(
-            Glyph::Signal,
+            Glyph::Talk,
             "Continue with ChatGPT",
             "Use your ChatGPT plan, with no key. You sign in with \
              your browser, and what your hamlet does counts toward \
@@ -113,12 +120,28 @@ fn choice(adding: bool) -> AnyView {
     .boxed()
 }
 
-/// The head of a step: the way back to the first, and its name.
-pub(super) fn head(which: Glyph, text: &'static str) -> impl View {
+/// The head of a step after the first: the way back to the first,
+/// its name, and where it stands among the steps.
+pub(super) fn head(
+    which: Glyph,
+    text: &'static str,
+    step: usize,
+) -> impl View {
     beside((
         back("Back", |world| go(world, Step::Choice)),
         title(which, text),
+        frame().grow(1.0),
+        counted(step),
     ))
+}
+
+/// Where the step `step` stands among them: two while a place for
+/// models is added, as its models go to Settings, else three.
+fn counted(step: usize) -> impl View {
+    note(resource::<Welcome, _>(move |welcome| {
+        let of = if welcome.adding { 2 } else { 3 };
+        format!("Step {step} of {of}")
+    }))
 }
 
 /// The model a new hamlet is offered first: the realm's default
@@ -131,15 +154,40 @@ fn recommended(models: &[String], default: &str) -> Option<String> {
         .cloned()
 }
 
+/// The model recommended of those listed.
+fn best(world: &World) -> Option<String> {
+    let default = world
+        .get_resource::<Settings>()
+        .map(|settings| settings.0.model.clone())
+        .unwrap_or_default();
+    recommended(&world.resource::<Welcome>().models, &default)
+}
+
+/// The model Continue tries: the one picked, else the one
+/// recommended.
+fn chosen(world: &World) -> Option<String> {
+    let welcome = world.resource::<Welcome>();
+    welcome
+        .chosen
+        .clone()
+        .filter(|name| welcome.models.contains(name))
+        .or_else(|| best(world))
+}
+
+/// The provider every listed model comes from, when they share one.
+fn one_provider(models: &[String]) -> Option<String> {
+    let first = provider_of(models.first()?);
+    models
+        .iter()
+        .all(|name| provider_of(name) == first)
+        .then(|| first.to_string())
+}
+
 fn models() -> AnyView {
     let list = keyed(
         derived(|world: &World| {
             let welcome = world.resource::<Welcome>();
-            let default = world
-                .get_resource::<Settings>()
-                .map(|settings| settings.0.model.clone())
-                .unwrap_or_default();
-            let best = recommended(&welcome.models, &default);
+            let best = best(world);
             // The one recommended leads the list until a search.
             let mut order = welcome.models.clone();
             if welcome.narrow.trim().is_empty()
@@ -152,23 +200,31 @@ fn models() -> AnyView {
             }
             let (ids, _, pages) =
                 narrowed(order.iter(), &welcome.narrow, 0);
-            (ids, pages, best)
+            let detail = match one_provider(&welcome.models) {
+                Some(_) => Detail::Id,
+                None => Detail::Source,
+            };
+            (ids, pages, best, chosen(world), detail)
         })
         .when(either(moved::<Welcome>(), moved::<Settings>())),
-        |(ids, pages, best)| {
+        |(ids, pages, best, chosen, detail)| {
             let mut rows = ids
                 .iter()
                 .map(|id| {
-                    let chosen = id.clone();
+                    let picked = id.clone();
                     model_row(
                         ModelRow {
                             name: id.clone(),
-                            picked: false,
+                            picked: Some(id) == chosen.as_ref(),
                             tag: (Some(id) == best.as_ref())
                                 .then_some("Recommended"),
                             end: None,
+                            detail: *detail,
                         },
-                        move |world| pick(world, &chosen),
+                        move |world| {
+                            world.resource_mut::<Welcome>().chosen =
+                                Some(picked.clone());
+                        },
                     )
                 })
                 .collect::<Vec<_>>();
@@ -198,21 +254,34 @@ fn models() -> AnyView {
             },
         ))
     });
+    // The provider's mark leads what it listed, once for every row.
+    let from = keyed(
+        resource::<Welcome, _>(|welcome| {
+            (welcome.from.clone(), one_provider(&welcome.models))
+        }),
+        |(from, provider)| {
+            let says = description(format!(
+                "{from} listed these models. Pick the one your \
+                 hamlet will think with."
+            ));
+            match provider {
+                Some(id) => beside((mark(id, ICON), says)).boxed(),
+                None => says.boxed(),
+            }
+        },
+    )
+    .within(bare());
+    let send =
+        row((good_action(Glyph::Check, "Continue", |world| {
+            if let Some(model) = chosen(world) {
+                pick(world, &model);
+            }
+        }),));
     parts((
-        beside((
-            back("Back", |world| go(world, Step::Choice)),
-            title(Glyph::Chip, "Pick a model"),
-            frame().grow(1.0),
-            note("Step 3 of 3"),
-        )),
-        description(resource::<Welcome, _>(|welcome| {
-            format!(
-                "{} listed these models. Pick the one your hamlet \
-                 will think with.",
-                welcome.from
-            )
-        })),
+        head(Glyph::Chip, "Pick a model", 3),
+        from,
         group((search, news("Asking it to say hello..."), list)),
+        send,
         note(
             "You can change it later in Settings, under Models, and \
              for one agent from the model under its chat.",
@@ -223,13 +292,13 @@ fn models() -> AnyView {
 
 fn local() -> AnyView {
     parts((
-        head(Glyph::Chip, "Your own model"),
+        head(Glyph::Chip, "Your own model", 2),
         said(
             "Hamlet asks the endpoints configured on the server. \
              Ollama or LM Studio must run on the server's machine.",
         ),
         news("Looking..."),
-        good_action(Glyph::Restore, "Look again", look),
+        row((good_action(Glyph::Restore, "Look again", look),)),
     ))
     .boxed()
 }
@@ -283,14 +352,26 @@ fn screen() -> AnyView {
     .boxed()
 }
 
+/// The height of every step's card, the tallest step's, so neither
+/// its head nor its buttons move from one step to the next.
+const TALL: f32 = 520.0;
+
+/// How much of what is left of the window the scrim under the card
+/// takes away, over what the theme's shadow does.
+const SCRIM: f32 = 0.55;
+
 fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
+    let shadow = theme.palette.shadow;
+    let scrim = shadow
+        .with_alpha(shadow.alpha() + (1.0 - shadow.alpha()) * SCRIM);
     let card = column((scroll_area((column((page,))
         .gap(0.0)
         .padding(UiRect::all(px(space.overlay_padding))),)),))
     .width(percent(100.0))
     .max_width(px(space.overlay_width))
+    .height(px(TALL))
     .max_height(percent(100.0))
     .gap(0.0)
     .fill(theme.palette.card)
@@ -298,13 +379,11 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     .border_color(theme.palette.gold_5)
     .radius(space.soft)
     .tagged(theme.shadow());
-    // A row, so the card is as tall as its words once they wrap to
-    // its width.
     row((card,))
         .width(percent(100.0))
         .height(percent(100.0))
         .padding(UiRect::all(px(space.panel)))
         .align(AlignItems::Center)
         .justify(JustifyContent::Center)
-        .fill(theme.palette.shadow)
+        .fill(scrim)
 }

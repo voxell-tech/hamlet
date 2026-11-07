@@ -39,7 +39,7 @@ pub(crate) fn plugin(app: &mut App) {
             commands.queue(providers::reconnected);
         })
         .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
-        .add_systems(Update, providers::hold_send)
+        .add_plugins(hold_plugin)
         // After Bevy's text input, in `PreUpdate`, has edited the
         // field.
         // After Bevy tells the field commit() unfocused that it lost
@@ -53,6 +53,12 @@ pub(crate) fn plugin(app: &mut App) {
                 })
                 .after(InputFocusSystems::FocusChangeEvents),
         );
+}
+
+/// Holds back sending a key while its field is empty or holds the
+/// key already refused.
+pub fn hold_plugin(app: &mut App) {
+    app.add_systems(Update, providers::hold_send);
 }
 
 /// A page of first-run setup.
@@ -78,6 +84,8 @@ pub struct Welcome {
     pub problem: Option<String>,
     connection: Option<String>,
     narrow: String,
+    /// The model picked in the list, to be tried on Continue.
+    chosen: Option<String>,
     manual: bool,
     trying: bool,
     requests: BTreeMap<protocol::RequestId, Asked>,
@@ -148,6 +156,7 @@ fn go(world: &mut World, step: Step) {
     welcome.asking = false;
     welcome.problem = None;
     welcome.narrow.clear();
+    welcome.chosen = None;
     welcome.requests.clear();
 }
 
@@ -681,6 +690,7 @@ mod server_tests {
         );
         assert!(!all_words(&mut app).contains("unconfigured::far"));
         press_and_update(&mut app, "small");
+        press_and_update(&mut app, "Continue");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["doc"], "settings");
         assert_eq!(
@@ -732,6 +742,7 @@ mod server_tests {
         );
         assert!(!all_words(&mut app).contains("other::large"));
         press_and_update(&mut app, "small");
+        press_and_update(&mut app, "Continue");
         let edit = sent(&mut app).remove(0);
         incoming(
             &mut app,
@@ -754,6 +765,7 @@ mod server_tests {
             vec!["local::small".into()];
         mount::<HamletTheme>(app.world_mut(), view());
         press_and_update(&mut app, "small");
+        press_and_update(&mut app, "Continue");
         let edit = sent(&mut app).remove(0);
         app.world_mut().resource_mut::<Settings>().0.unset = false;
         app.update();
@@ -779,6 +791,7 @@ mod server_tests {
             vec!["local::small".into()];
         mount::<HamletTheme>(app.world_mut(), view());
         press_and_update(&mut app, "small");
+        press_and_update(&mut app, "Continue");
         let edit = sent(&mut app).remove(0);
         incoming(
             &mut app,

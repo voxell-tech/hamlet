@@ -1,8 +1,8 @@
 //! The popup an agent's model is chosen in: the chief's favourites
 //! and the providers down its side, the models of the one chosen
 //! with a search over every provider, the efforts the model can
-//! think at, and its fast tier when it has one. Its chip in the
-//! composer opens it.
+//! think at, and its fast tier when it has one. It hangs over the
+//! chip in the composer that opens it.
 
 use bevy::app::{App, Update};
 use bevy::color::Color;
@@ -18,7 +18,7 @@ use bevy::input::ButtonState;
 use bevy::input::keyboard::{KeyCode, KeyboardInput};
 use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::input_focus::{FocusCause, FocusedInput, InputFocus};
-use bevy::math::{Rect, Vec2};
+use bevy::math::Rect;
 use bevy::text::EditableText;
 use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy::ui_widgets::popover::{
@@ -31,7 +31,7 @@ use bevy_fynix::shortcut::{
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    label, menu_item, popup, row,
+    label, menu_item, overlay, popup, row,
 };
 use bevy_fynix::{
     Focused, ScopedExt, ViewExt, derived, every_frame, keyed, style,
@@ -51,23 +51,29 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 use serde::{Deserialize, Serialize};
 
 use super::{Open, close};
+use crate::menu::rect_of;
 use crate::models::{
-    ModelRow, Shelf, mark, model_name, model_row, provider_name,
-    provider_of,
+    Detail, ModelRow, Shelf, mark, model_name, model_row,
+    provider_name, provider_of,
 };
 
 /// The width of the providers down the side.
-const RAIL: f32 = 150.0;
+const RAIL: f32 = 118.0;
 
-/// The width of the search and its models.
-const LIST: f32 = 340.0;
+/// The least width of the search and its models, which take what the
+/// popup has over the rest.
+const LIST: f32 = 230.0;
 
-/// The width of the efforts.
-const LEVELS: f32 = 200.0;
+/// The width of the efforts and the tier.
+const LEVELS: f32 = 150.0;
+
+/// The room between the popup's parts, and about them.
+const GAP: f32 = 10.0;
+const PADDING: f32 = 14.0;
 
 /// The popup's height, whatever it shows, so nothing in it moves
 /// under the pointer as it changes.
-const TALL: f32 = 400.0;
+const TALL: f32 = 330.0;
 
 /// The scope of the popup's keys, over the desks' own.
 const MODELS: ScopeId = ScopeId("models");
@@ -114,23 +120,68 @@ pub(super) fn plugin(app: &mut App) {
     }
 }
 
-/// The keys that pick the first nine models shown, with the primary
-/// key.
+/// The keys that pick the first nine favourites, with the primary
+/// key, whatever the list shows.
 const PICKED_BY_DIGIT: [(
     &str,
     &str,
     KeyCode,
     fn(&mut World, Invoke),
 ); 9] = [
-    ("models.pick_1", "Model 1", KeyCode::Digit1, pick_at::<0>),
-    ("models.pick_2", "Model 2", KeyCode::Digit2, pick_at::<1>),
-    ("models.pick_3", "Model 3", KeyCode::Digit3, pick_at::<2>),
-    ("models.pick_4", "Model 4", KeyCode::Digit4, pick_at::<3>),
-    ("models.pick_5", "Model 5", KeyCode::Digit5, pick_at::<4>),
-    ("models.pick_6", "Model 6", KeyCode::Digit6, pick_at::<5>),
-    ("models.pick_7", "Model 7", KeyCode::Digit7, pick_at::<6>),
-    ("models.pick_8", "Model 8", KeyCode::Digit8, pick_at::<7>),
-    ("models.pick_9", "Model 9", KeyCode::Digit9, pick_at::<8>),
+    (
+        "models.pick_1",
+        "Favourite 1",
+        KeyCode::Digit1,
+        pick_at::<0>,
+    ),
+    (
+        "models.pick_2",
+        "Favourite 2",
+        KeyCode::Digit2,
+        pick_at::<1>,
+    ),
+    (
+        "models.pick_3",
+        "Favourite 3",
+        KeyCode::Digit3,
+        pick_at::<2>,
+    ),
+    (
+        "models.pick_4",
+        "Favourite 4",
+        KeyCode::Digit4,
+        pick_at::<3>,
+    ),
+    (
+        "models.pick_5",
+        "Favourite 5",
+        KeyCode::Digit5,
+        pick_at::<4>,
+    ),
+    (
+        "models.pick_6",
+        "Favourite 6",
+        KeyCode::Digit6,
+        pick_at::<5>,
+    ),
+    (
+        "models.pick_7",
+        "Favourite 7",
+        KeyCode::Digit7,
+        pick_at::<6>,
+    ),
+    (
+        "models.pick_8",
+        "Favourite 8",
+        KeyCode::Digit8,
+        pick_at::<7>,
+    ),
+    (
+        "models.pick_9",
+        "Favourite 9",
+        KeyCode::Digit9,
+        pick_at::<8>,
+    ),
 ];
 
 /// The arrows that move the focus between the popup's parts.
@@ -154,6 +205,14 @@ const STEPS: [(&str, &str, KeyCode, fn(&mut World, Invoke)); 2] = [
     Resource, Default, Clone, PartialEq, Debug, Serialize, Deserialize,
 )]
 pub struct Favorites(pub Vec<String>);
+
+/// What the popup hangs from: the composer that holds the model
+/// chip, which it stands over as wide, or the chip alone outside one.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Hook {
+    Chip,
+    Composer,
+}
 
 /// The side of the popup chosen.
 #[derive(Clone, PartialEq, Debug)]
@@ -207,10 +266,10 @@ impl Default for Picking {
     }
 }
 
-/// Opens the popup of `agent`'s model at `at`, its search in focus,
-/// on the favourites when there are any and else on the provider of
-/// the model it runs.
-pub fn open(world: &mut World, agent: Entity, at: Vec2) {
+/// Opens the popup of `agent`'s model, its search in focus, on the
+/// favourites when there are any and else on the provider of the
+/// model it runs.
+pub fn open(world: &mut World, agent: Entity) {
     let side = if world.resource::<Favorites>().0.is_empty() {
         let runs = now(world, agent).model;
         let providers = providers(world);
@@ -229,7 +288,12 @@ pub fn open(world: &mut World, agent: Entity, at: Vec2) {
         side,
         focus: Some(Want::Part(Part::Search)),
     };
-    *world.resource_mut::<Open>() = Open::Model(agent, at);
+    *world.resource_mut::<Open>() = Open::Model(agent);
+}
+
+/// True while the popup of `agent`'s model is open.
+pub(crate) fn is_open(world: &World, agent: Entity) -> bool {
+    *world.resource::<Open>() == Open::Model(agent)
 }
 
 /// Types `text` into the search of the popup open.
@@ -400,6 +464,23 @@ fn rank(world: &World, model: &str, search: &str) -> Option<usize> {
     })
 }
 
+/// The favourites the catalogue lists, in the order they were
+/// starred.
+fn favourites(world: &World) -> Vec<String> {
+    let listed = |name: &&String| {
+        world.get_resource::<Shelf>().is_some_and(|shelf| {
+            shelf.models.iter().any(|model| model.name == **name)
+        })
+    };
+    world
+        .resource::<Favorites>()
+        .0
+        .iter()
+        .filter(listed)
+        .cloned()
+        .collect()
+}
+
 /// The models shown: those found by the search across every
 /// provider, best first, or else those of the side chosen.
 fn listed(world: &World) -> Vec<String> {
@@ -422,16 +503,7 @@ fn listed(world: &World) -> Vec<String> {
         return found.into_iter().map(|(_, name)| name).collect();
     }
     match &picking.side {
-        Side::Favorites => {
-            let known = names.collect::<Vec<_>>();
-            world
-                .resource::<Favorites>()
-                .0
-                .iter()
-                .filter(|name| known.contains(name))
-                .cloned()
-                .collect()
-        }
+        Side::Favorites => favourites(world),
         Side::Provider(id) => {
             names.filter(|name| provider_of(name) == id).collect()
         }
@@ -453,10 +525,10 @@ fn choose(world: &mut World, agent: Entity, model: &str) {
 }
 
 fn pick_at<const N: usize>(world: &mut World, _: Invoke) {
-    let Open::Model(agent, _) = *world.resource::<Open>() else {
+    let Open::Model(agent) = *world.resource::<Open>() else {
         return;
     };
-    if let Some(name) = listed(world).get(N) {
+    if let Some(name) = favourites(world).get(N) {
         let name = name.clone();
         choose(world, agent, &name);
     }
@@ -556,8 +628,8 @@ fn take_focus(world: &mut World) {
             .map(|(entity, _)| entity),
     };
     let Some(root) = root else {
-        // A part not shown once the popup is, such as the providers
-        // hidden by a search, is not waited for.
+        // A part not shown once the popup is, such as the efforts of
+        // a model that does not reason, is not waited for.
         let shown =
             world.query::<&Part>().iter(world).next().is_some();
         if shown && matches!(want, Want::Part(_)) {
@@ -593,12 +665,19 @@ fn take_focus(world: &mut World) {
     world.resource_mut::<Picking>().focus = None;
 }
 
-/// The look of a provider down the side: its name small and bold,
-/// lit under the pointer or the focus, brighter while chosen.
-fn rail_look(chosen: bool) -> impl FnOnce(&mut Cx) + Send + Sync {
+/// The look of a provider down the side: its name small and bold
+/// at `shown` opacity, lit under the pointer or the focus, brighter
+/// while chosen.
+fn rail_look(
+    chosen: bool,
+    shown: f32,
+) -> impl FnOnce(&mut Cx) + Send + Sync {
     let tone = if chosen { Tone::Body } else { Tone::Faint };
     style::<HamletTheme>()
-        .label(|l, t| l.size(t.text.small).bold(true))
+        .label(move |l, t| {
+            l.size(t.text.small).bold(true).opacity(shown)
+        })
+        .icon(move |i, _| i.opacity(shown))
         .tone(tone)
         .frame(|f, t| f.fill(Color::NONE).radius(t.space.round))
         .hovered(|s| {
@@ -612,8 +691,9 @@ fn rail_look(chosen: bool) -> impl FnOnce(&mut Cx) + Send + Sync {
 }
 
 /// The favourites over the providers of the catalogue, each by its
-/// mark and its name, a bar of the accent at the one chosen. Out of
-/// the way while a search runs over all of them.
+/// mark and its name, a bar of the accent at the one chosen. Faded
+/// and kept in place while a search runs over all of them, so the
+/// list beside it does not move.
 fn rail() -> impl View {
     keyed(
         derived(|world: &World| {
@@ -623,14 +703,16 @@ fn rail() -> impl View {
         })
         .when(every_frame()),
         |(providers, on, searching)| {
-            if *searching {
-                return frame().boxed();
-            }
+            let searching = *searching;
+            // Faded while a search runs over every provider.
+            let shown = if searching { 0.45 } else { 1.0 };
             let tab = |side: Side, face: AnyView, name: String| {
                 let chosen = *on == side;
                 let bar = with_cx(move |cx| {
-                    let fill = if chosen {
+                    let fill = if chosen && !searching {
                         cx.theme().palette.accent
+                    } else if chosen {
+                        cx.theme().palette.gold_5
                     } else {
                         Color::NONE
                     };
@@ -647,7 +729,7 @@ fn rail() -> impl View {
                         .width(percent(100.0)),
                 )
                 .padding(UiRect::right(px(8.0)))
-                .rules(rail_look(chosen))
+                .rules(rail_look(chosen, shown))
                 .on_activate(move |world| {
                     let mut picking = world.resource_mut::<Picking>();
                     picking.side = side.clone();
@@ -682,7 +764,7 @@ fn rail() -> impl View {
                     .tagged(Part::Rail),
                 upright(),
             ))
-            .gap(10.0)
+            .gap(GAP)
             .align(AlignItems::Stretch)
             .boxed()
         },
@@ -690,13 +772,13 @@ fn rail() -> impl View {
     .within(row(()))
 }
 
-/// A star that adds `name` to the favourites, or takes it off. Shown
-/// only on the row under the pointer, unless starred.
+/// A star that adds `name` to the favourites, or takes it off:
+/// filled while starred, else hollow and faint.
 fn star(name: String, starred: bool) -> AnyView {
     let face = if starred {
         glyph(Glyph::Starred, ICON).tone(Tone::Accent).opacity(1.0)
     } else {
-        glyph(Glyph::Star, ICON)
+        glyph(Glyph::Star, ICON).tone(Tone::Dim).opacity(0.5)
     };
     button(face)
         .padding(UiRect::all(px(2.0)))
@@ -720,7 +802,7 @@ fn star(name: String, starred: bool) -> AnyView {
         .boxed()
 }
 
-/// The key that picks the row at `at`, as a small cap.
+/// The key that picks the favourite at `at`, as a small cap.
 fn key_cap(at: usize) -> AnyView {
     let Some((_, _, key, _)) = PICKED_BY_DIGIT.get(at) else {
         return frame().boxed();
@@ -754,8 +836,8 @@ fn nothing(title: &'static str, then: &'static str) -> AnyView {
     .boxed()
 }
 
-/// The search and the models it finds, the first nine with their
-/// keys.
+/// The search and the models it finds, each favourite with the key
+/// that picks it.
 fn models(agent: Entity, search: String) -> impl View {
     let search = crate::search::search(
         "Search models",
@@ -774,7 +856,7 @@ fn models(agent: Entity, search: String) -> impl View {
             (
                 listed(world),
                 now(world, agent),
-                world.resource::<Favorites>().0.clone(),
+                favourites(world),
                 (!searching).then(|| picking.side.clone()),
             )
         })
@@ -796,14 +878,18 @@ fn models(agent: Entity, search: String) -> impl View {
                     ),
                 };
             }
+            // One provider's models need not say whose they are.
+            let detail = match side {
+                Some(Side::Provider(_)) => Detail::Mark,
+                _ => Detail::Source,
+            };
             let rows = models
                 .iter()
-                .enumerate()
-                .map(|(at, name)| {
-                    let starred = favorites.contains(name);
+                .map(|name| {
+                    let at = favorites.iter().position(|f| f == name);
                     let end = row((
-                        key_cap(at),
-                        star(name.clone(), starred),
+                        at.map_or_else(|| frame().boxed(), key_cap),
+                        star(name.clone(), at.is_some()),
                     ))
                     .gap(6.0)
                     .align(AlignItems::Center)
@@ -816,6 +902,7 @@ fn models(agent: Entity, search: String) -> impl View {
                             tag: (now.fallback == *name)
                                 .then_some("Default"),
                             end: Some(end),
+                            detail,
                         },
                         move |world| choose(world, agent, &picked),
                     )
@@ -832,7 +919,7 @@ fn models(agent: Entity, search: String) -> impl View {
     .gap(8.0)
     .width(px(LIST))
     .grow(1.0)
-    .min_width(px(0.0))
+    .min_width(px(LIST))
 }
 
 /// A ring, filled while it is the one chosen, as a radio button's.
@@ -870,18 +957,16 @@ fn reasoning(agent: Entity) -> impl View {
         })
         .when(every_frame()),
         move |(now, card)| {
-            let head = row((
+            let head = column((
                 label("Reasoning")
                     .tone(Tone::Faint)
                     .bold(true)
                     .wrap(false)
                     .rules(small_rules),
-                frame().grow(1.0),
                 one_line(label(model_name(&now.model).to_string()))
                     .rules(hamlet_ui::styles::note_rules),
             ))
-            .gap(8.0)
-            .align(AlignItems::Center)
+            .gap(1.0)
             .padding(UiRect::axes(px(8.0), px(4.0)));
             let efforts = match card {
                 Some(card) if !card.efforts.is_empty() => {
@@ -948,7 +1033,7 @@ fn reasoning(agent: Entity) -> impl View {
             .boxed()
         },
     )
-    .within(column(()).width(px(LEVELS)))
+    .within(column(()))
 }
 
 /// The look of an effort: lit under the pointer or the focus.
@@ -958,8 +1043,8 @@ fn level_look(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// Standard or fast, under the rest, for a model whose provider has
-/// a fast tier; nothing for one without.
+/// Standard or fast, under the efforts, for a model whose provider
+/// has a fast tier; nothing for one without.
 fn tier(agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
@@ -976,28 +1061,25 @@ fn tier(agent: Entity) -> impl View {
             let fast = *fast;
             column((
                 with_cx(|cx| hairline(cx.theme().palette.gold_6)),
-                row((
-                    label("Speed")
-                        .tone(Tone::Faint)
-                        .bold(true)
-                        .wrap(false)
-                        .rules(small_rules),
-                    segmented_words(
-                        ["Standard", "Fast"],
-                        usize::from(fast),
-                        move |world, at| {
-                            let to = address(world, agent);
-                            let on =
-                                if at == 1 { "on" } else { "off" };
-                            crate::chat::command(
-                                world,
-                                format!("/fast {to} {on}"),
-                            );
-                        },
-                    ),
-                ))
-                .gap(10.0)
-                .align(AlignItems::Center),
+                column((label("Speed")
+                    .tone(Tone::Faint)
+                    .bold(true)
+                    .wrap(false)
+                    .rules(small_rules),))
+                .padding(UiRect::axes(px(8.0), px(0.0))),
+                row((segmented_words(
+                    ["Standard", "Fast"],
+                    usize::from(fast),
+                    move |world, at| {
+                        let to = address(world, agent);
+                        let on = if at == 1 { "on" } else { "off" };
+                        crate::chat::command(
+                            world,
+                            format!("/fast {to} {on}"),
+                        );
+                    },
+                ),))
+                .padding(UiRect::horizontal(px(8.0))),
             ))
             .gap(8.0)
             .boxed()
@@ -1013,8 +1095,8 @@ fn upright() -> impl View {
     })
 }
 
-/// Above the anchor first, as the chip that opens it is at the foot
-/// of the composer, lined up with its left edge, then its right.
+/// Above the composer first, as it is at the foot of the chat, lined
+/// up with its left edge, then its right.
 fn above() -> Vec<PopoverPlacement> {
     use PopoverAlign::{End, Start};
     use PopoverSide::{Bottom, Top};
@@ -1028,34 +1110,72 @@ fn above() -> Vec<PopoverPlacement> {
         .collect()
 }
 
-/// The popup of `agent`'s model at `at`.
-pub(super) fn picker(agent: Entity, at: Vec2) -> impl View {
-    with_cx(move |cx| {
-        let padding = cx.theme().space.overlay_padding;
-        let search = cx.world.resource::<Picking>().search.clone();
-        let body = row((
-            rail(),
-            models(agent, search),
-            upright(),
-            reasoning(agent),
-        ))
-        .gap(10.0)
-        .align(AlignItems::Stretch)
-        .grow(1.0)
-        .min_height(px(0.0));
-        popup(
-            Rect::from_corners(at, at),
-            (column((body, tier(agent)))
-                .gap(10.0)
-                .height(percent(100.0))
-                .tagged(Scope(MODELS)),),
-        )
-        .placements(above())
-        .on_dismiss(|world, _| close(world))
-        .width(px(RAIL + LIST + LEVELS + 4.0 * 10.0 + 2.0 * padding))
-        .height(px(TALL))
-        .padding(UiRect::all(px(padding)))
+/// What the popup hangs from: the composer around the model chip
+/// shown, in whole pixels so the popup is not built again for a
+/// fraction.
+fn hook(world: &World) -> Option<Rect> {
+    let mut hooks = world.try_query::<(Entity, &Hook)>()?;
+    let (chip, rect) = hooks
+        .iter(world)
+        .filter(|(_, hook)| **hook == Hook::Chip)
+        .find_map(|(chip, _)| {
+            let rect = rect_of(world, chip)?;
+            (rect.width() > 0.0).then_some((chip, rect))
+        })?;
+    let rect = std::iter::successors(Some(chip), |at| {
+        world.get::<ChildOf>(*at).map(ChildOf::parent)
     })
+    .find(|at| world.get::<Hook>(*at) == Some(&Hook::Composer))
+    .and_then(|bar| rect_of(world, bar))
+    .unwrap_or(rect);
+    Some(Rect::new(
+        rect.min.x.round(),
+        rect.min.y.round(),
+        rect.max.x.round(),
+        rect.max.y.round(),
+    ))
+}
+
+/// The popup of `agent`'s model, hung over the composer once its chip
+/// is laid out: as wide as the composer where that leaves the list
+/// its room.
+pub(super) fn picker(agent: Entity) -> impl View {
+    keyed(derived(hook).when(every_frame()), move |hook| {
+        let Some(hook) = *hook else {
+            return frame().boxed();
+        };
+        let fixed = RAIL + LEVELS + 2.0 + 5.0 * GAP + 2.0 * PADDING;
+        let wide = hook.width().max(fixed + LIST);
+        with_cx(move |cx| {
+            let search =
+                cx.world.resource::<Picking>().search.clone();
+            let body = row((
+                rail(),
+                models(agent, search),
+                upright(),
+                column((
+                    reasoning(agent),
+                    frame().grow(1.0),
+                    tier(agent),
+                ))
+                .gap(GAP)
+                .width(px(LEVELS))
+                .shrink(0.0),
+            ))
+            .gap(GAP)
+            .align(AlignItems::Stretch)
+            .height(percent(100.0))
+            .tagged(Scope(MODELS));
+            popup(hook, (body,))
+                .placements(above())
+                .on_dismiss(|world, _| close(world))
+                .width(px(wide))
+                .height(px(TALL))
+                .padding(UiRect::all(px(PADDING)))
+        })
+        .boxed()
+    })
+    .within(overlay(()))
 }
 
 /// The model `agent` runs as the composer's chip shows it: its
@@ -1143,6 +1263,7 @@ mod tests {
     use bevy::app::App;
     use bevy::input::keyboard::Key;
     use bevy::input_focus::InputDispatchPlugin;
+    use bevy::math::Vec2;
     use bevy::window::{PrimaryWindow, Window};
     use hamlet_client::outbox::Outbox;
     use hamlet_client::realm;
@@ -1224,8 +1345,8 @@ mod tests {
         assert_eq!(levels.as_deref(), Some("lantern::wren-large"));
     }
 
-    /// The popup of `home#0`'s model open over a catalogue of one
-    /// model, and her.
+    /// The popup of `home#0`'s model open over a catalogue of two
+    /// models, and her.
     fn picking() -> (App, Entity) {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
@@ -1233,23 +1354,31 @@ mod tests {
             .init_resource::<Shelf>()
             .init_resource::<hamlet_realm::pick::Asked>()
             .init_resource::<hamlet_realm::pick::AskedGround>();
-        app.world_mut().resource_mut::<Shelf>().models =
-            vec![protocol::Listed {
-                context: None,
-                default_effort: Some(Effort::Medium),
-                efforts: vec![
-                    Effort::Low,
-                    Effort::Medium,
-                    Effort::High,
-                ],
-                fast: false,
-                name: "lantern::wren-large".into(),
-                note: String::new(),
-                price: None,
-                priced: protocol::ListedPriced::Unknown,
-            }];
+        let listed = |name: &str| protocol::Listed {
+            context: None,
+            default_effort: Some(Effort::Medium),
+            efforts: vec![Effort::Low, Effort::Medium, Effort::High],
+            fast: false,
+            name: name.into(),
+            note: String::new(),
+            price: None,
+            priced: protocol::ListedPriced::Unknown,
+        };
+        app.world_mut().resource_mut::<Shelf>().models = vec![
+            listed("lantern::wren-large"),
+            listed("lantern::wren-mini"),
+        ];
         let ada = realm::named(app.world_mut(), "home#0").unwrap();
-        open(app.world_mut(), ada, Vec2::ZERO);
+        // The chip it hangs from, laid out.
+        app.world_mut().spawn((
+            Hook::Chip,
+            bevy::ui::ComputedNode {
+                size: Vec2::new(120.0, 24.0),
+                ..bevy::ui::ComputedNode::DEFAULT
+            },
+            bevy::ui::UiGlobalTransform::default(),
+        ));
+        open(app.world_mut(), ada);
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             super::super::view(),
@@ -1283,5 +1412,30 @@ mod tests {
                 "/effort home#0 high"
             ]
         );
+    }
+
+    #[test]
+    fn a_favourites_key_picks_it_whatever_the_search_shows() {
+        let (mut app, _) = picking();
+        app.world_mut().resource_mut::<Favorites>().0 =
+            vec!["lantern::wren-large".into()];
+        search(app.world_mut(), "wren");
+        app.update();
+        assert_eq!(listed(app.world())[0], "lantern::wren-mini");
+        app.world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .for_each(drop);
+        pick_at::<0>(app.world_mut(), Invoke::default());
+        let said = app
+            .world_mut()
+            .resource_mut::<Outbox>()
+            .drain()
+            .filter_map(|message| match message {
+                protocol::ClientMessage::Say(say) => Some(say.text),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(said, ["/model home#0 lantern::wren-large"]);
     }
 }
