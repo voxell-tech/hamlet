@@ -23,8 +23,9 @@ answered.
 
 The chief's chat with an agent is shared by every client. `/new` moves to a
 new numbered conversation while the old one finishes its queue. History
-comes from `read history`; Read opens a numbered past conversation
-read-only, and Resume sends `/resume <n>`. Every conversation is kept.
+comes from `read history`, listed by the day each was last used; Read
+opens a numbered past conversation read-only, drawn as the chat is, and
+Resume sends `/resume <n>`. Every conversation is kept.
 
 The session menu of the Hub's chat lists the agent's sessions, its
 conversations with other agents and the workers it started. Choosing a
@@ -42,9 +43,10 @@ in the chief's chat. It is never drawn as the chief's own words.
 
 Rows follow the transcript's order, even if a clock ran back. Rows by one
 speaker to one listener that follow each other are a run: the first is
-named and the last has the speaker's picture. The chief's own messages are
-at the right on brass. The agent's are at the left, with a disc in the
-paint of its robot. The steps of a turn are folded into one line that opens.
+named and has the speaker's picture beside its name. The chief's own
+messages are at the right on brass. The agent's are at the left, with a
+disc in the paint of its robot. The steps of a turn are folded into one
+line that opens.
 
 Rows build 24 at a time. When a transcript has an earlier page, scrolling
 to the top sends `open` with `before` set to the first item's ID. Only one
@@ -189,7 +191,8 @@ and everything spent. The question says so before anything happens.
 
 **In the window.** Each rewindable chief message carries a small mark,
 shown while the pointer is on the row and no turn runs. A click asks
-first.
+first, under the message, and fades every row the rewind would forget
+while it asks.
 
 ## Pictures
 
@@ -200,8 +203,8 @@ back to the server or a model.
 | The place is | What is drawn |
 |---|---|
 | A local picture file a link may lead to (`png`, `jpg`, `jpeg`, `webp`, `gif`, `bmp`) | The picture. A GIF is its first frame |
-| A file that is too large, is no picture, or is another kind | Its words, as a link to the file |
-| No local file, or an unresolved relative path | Its words, plain |
+| A file that is too large, is no picture, or is another kind | A card with its words and its path, as a link to the file |
+| No local file, or an unresolved relative path | A card with its words and its path |
 | An `http` or `https` address | A card, and the picture only after the chief asks |
 
 **A picture of the web is never fetched by itself.** A model wrote the

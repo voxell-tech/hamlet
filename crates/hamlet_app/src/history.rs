@@ -520,8 +520,8 @@ fn reader() -> impl View {
                 hairline(line),
                 scroll_area((
                     keyed(
-                        resource::<chat::Past, _>(
-                            chat::Past::has_earlier,
+                        resource::<chat::PastLines, _>(
+                            chat::PastLines::has_earlier,
                         ),
                         |earlier| match earlier {
                             true => {

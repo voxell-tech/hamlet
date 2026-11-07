@@ -54,7 +54,7 @@ const STARTERS: [&str; 3] = [
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Reading>()
-        .init_resource::<Past>()
+        .init_resource::<PastLines>()
         .add_observer(page_received);
 }
 
@@ -483,20 +483,20 @@ const PAST_PAGE: usize = 40;
 /// The past session read in the Hub, drawn as the chat is: the entity
 /// with its transcript, and its last rows.
 #[derive(Resource, Default)]
-pub struct Past {
+pub struct PastLines {
     holder: Option<Entity>,
     /// Rows built, counted from the end.
     reach: usize,
     lines: Lines,
 }
 
-impl Board for Past {
+impl Board for PastLines {
     fn lines(&self) -> &Lines {
         &self.lines
     }
 }
 
-impl Past {
+impl PastLines {
     /// Rows before those built, here or still on the server.
     pub(crate) fn has_earlier(&self) -> bool {
         self.lines.more
@@ -506,7 +506,7 @@ impl Past {
 /// Reads the transcript held by `holder` as the past session, or
 /// none.
 pub(crate) fn read_past(world: &mut World, holder: Option<Entity>) {
-    *world.resource_mut::<Past>() = Past {
+    *world.resource_mut::<PastLines>() = PastLines {
         holder,
         reach: PAST_PAGE,
         lines: Lines::default(),
@@ -516,7 +516,7 @@ pub(crate) fn read_past(world: &mut World, holder: Option<Entity>) {
 /// Builds a page more of the past session, and asks the server for
 /// its earlier rows once every row it has is built.
 pub(crate) fn read_earlier(world: &mut World) {
-    let mut past = world.resource_mut::<Past>();
+    let mut past = world.resource_mut::<PastLines>();
     let Some(holder) = past.holder else {
         return;
     };
@@ -533,7 +533,7 @@ pub fn fold_past(
     unfolded: Res<Unfolded>,
     transcripts: Query<Ref<Transcript>>,
     people: People,
-    mut past: ResMut<Past>,
+    mut past: ResMut<PastLines>,
 ) {
     let said = past.holder.and_then(|at| transcripts.get(at).ok());
     let moved = past.is_changed()
@@ -966,9 +966,9 @@ fn rows_column() -> impl View {
 /// The past session's rows, drawn as the chat's are.
 pub(crate) fn past() -> impl View {
     each(
-        resource::<Past, _>(|p| p.lines.rows.clone()),
+        resource::<PastLines, _>(|p| p.lines.rows.clone()),
         |line: &Line| line.key(),
-        bubble::line_view::<Past>,
+        bubble::line_view::<PastLines>,
     )
     .within(rows_column())
 }

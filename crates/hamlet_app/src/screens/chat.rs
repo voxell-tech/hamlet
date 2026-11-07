@@ -68,8 +68,9 @@ pub use self::field::{
     show_bar, show_placeholder,
 };
 pub use self::lines::{
-    ChatRow, Lines, Past, Reach, Unfolded, Whole, break_long_words,
-    fold_lines, fold_past, hide_unseen, read_back, transcript,
+    ChatRow, Lines, PastLines, Reach, Unfolded, Whole,
+    break_long_words, fold_lines, fold_past, hide_unseen, read_back,
+    transcript,
 };
 pub(crate) use self::lines::{past, read_earlier, read_past};
 pub use self::rewind::{Rewinds, ask as ask_rewind};
