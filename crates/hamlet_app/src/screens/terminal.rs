@@ -1,5 +1,5 @@
 //! The Terminal panel: the screen of the active terminal, and beside
-//! it the terminals by hamlet, each agent's runs first, with the
+//! it the terminals by hamlet, each agent's commands first, with the
 //! press that opens another.
 
 mod input;
@@ -247,7 +247,7 @@ fn heading() -> impl View {
                 move |cx| {
                     let space = &cx.theme().space;
                     let mut hints = Vec::<AnyView>::new();
-                    if item.runs {
+                    if item.commands {
                         hints.push(
                             badge("READ-ONLY", Tone::Accent).boxed(),
                         );
@@ -504,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn terminals_are_listed_by_hamlet_with_each_agents_runs_first_and_the_unbounded_last()
+    fn terminals_are_listed_by_hamlet_with_each_agents_commands_first_and_the_unbounded_last()
      {
         let mut app = crate::testing::panel_app();
         let mut state = hamlet_testing::realm::state();
@@ -514,7 +514,7 @@ mod tests {
             view("loose", None, None, "shell"),
             view("chief", Some("home"), None, "shell"),
             view("shell", Some("home"), Some(2), "shell"),
-            view("runs", Some("home"), Some(2), "commands"),
+            view("commands", Some("home"), Some(2), "commands"),
             view("milled", Some("mill"), None, "shell"),
         ];
         hamlet_client::receive(
@@ -550,7 +550,11 @@ mod tests {
             [
                 group(
                     "home",
-                    &["home#0:runs", "home#0:shell", "chief:chief"]
+                    &[
+                        "home#0:commands",
+                        "home#0:shell",
+                        "chief:chief"
+                    ]
                 ),
                 group("mill", &["chief:milled"]),
                 group("Unbounded", &["chief:loose"]),

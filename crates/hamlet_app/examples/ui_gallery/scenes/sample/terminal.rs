@@ -1,4 +1,4 @@
-//! The terminals of the gallery: an agent's runs and the chief's
+//! The terminals of the gallery: an agent's commands and the chief's
 //! shell in one hamlet, a shell that ended in another, and an
 //! unbounded one.
 
@@ -130,9 +130,23 @@ pub(super) fn state(state: &mut protocol::State, scene: Scene) {
         .agents
         .push(hamlet_testing::realm::agent(3, "mill", true));
     state.terminals = vec![
-        view("t1", "runs", Some("home"), Some(2), "commands", None),
+        view(
+            "t1",
+            "commands",
+            Some("home"),
+            Some(2),
+            "commands",
+            None,
+        ),
         view("t2", "zsh", Some("home"), None, "shell", None),
-        view("t3", "runs", Some("mill"), Some(3), "commands", None),
+        view(
+            "t3",
+            "commands",
+            Some("mill"),
+            Some(3),
+            "commands",
+            None,
+        ),
         view("t4", "bash", Some("mill"), None, "shell", Some(0)),
         view("t5", "login", None, None, "shell", None),
     ];

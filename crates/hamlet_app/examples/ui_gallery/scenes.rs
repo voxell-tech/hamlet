@@ -257,7 +257,7 @@ pub enum Scene {
     Icons,
     /// The panels with the HAMLET menu open.
     Menu,
-    /// The Terminal panel showing an agent's runs.
+    /// The Terminal panel showing an agent's commands.
     Terminal,
     /// The Terminal panel showing the chief's shell, typed in.
     TerminalShell,

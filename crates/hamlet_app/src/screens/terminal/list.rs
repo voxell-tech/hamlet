@@ -90,7 +90,7 @@ pub(super) struct Item {
     pub(super) owner: String,
     pub(super) sandboxed: bool,
     pub(super) exit: Option<i64>,
-    pub(super) runs: bool,
+    pub(super) commands: bool,
     pub(super) active: bool,
     /// The last command it ran.
     pub(super) last: Option<String>,
@@ -111,7 +111,7 @@ impl Listed {
 }
 
 /// Lists the terminals by hamlet, the unbounded ones last. In a
-/// hamlet the agents' come first, by agent and each agent's runs
+/// hamlet the agents' come first, by agent and each agent's commands
 /// before its shells, then the chief's.
 pub(super) fn list(world: &mut World) {
     let active = world.resource::<Active>().0;
@@ -144,7 +144,7 @@ pub(super) fn list(world: &mut World) {
                     .filter(|name| !name.is_empty())
                     .unwrap_or_else(|| format!("agent {}", agent.0))
             });
-            let runs = view.kind == TerminalKind::Commands;
+            let commands = view.kind == TerminalKind::Commands;
             // A name the chief gave shows over what programs set.
             let name = if view.named || view.title.is_empty() {
                 view.name.clone()
@@ -156,7 +156,7 @@ pub(super) fn list(world: &mut World) {
                 title.clone(),
                 owner.is_none(),
                 owner.clone(),
-                !runs,
+                !commands,
                 view.name.clone(),
                 view.id.clone(),
             );
@@ -166,7 +166,7 @@ pub(super) fn list(world: &mut World) {
                 owner: owner.unwrap_or_else(|| "chief".into()),
                 sandboxed: view.sandboxed,
                 exit: view.exit,
-                runs,
+                commands,
                 active: active == Some(entity),
                 last: view.last.clone(),
             };
@@ -320,8 +320,8 @@ fn entry(item: Item, renaming: bool) -> AnyView {
         let small = theme.text.small;
         let terminal = item.terminal;
         let mut about = vec![item.owner.clone()];
-        if item.runs {
-            about.push("runs".into());
+        if item.commands {
+            about.push("commands".into());
         }
         if !item.sandboxed {
             about.push("unsandboxed".into());
@@ -329,7 +329,7 @@ fn entry(item: Item, renaming: bool) -> AnyView {
         if let Some(code) = item.exit {
             about.push(format!("exit {code}"));
         }
-        let mark = if item.runs {
+        let mark = if item.commands {
             Glyph::Play
         } else {
             Glyph::Terminal
