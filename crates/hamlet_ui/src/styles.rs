@@ -911,6 +911,16 @@ pub fn nav_list(cx: &Cx, items: Vec<AnyView>) -> impl View + use<> {
     column(rows).gap(0.0)
 }
 
+/// The head of a page: `path`, its [`breadcrumb`], over `name`, its
+/// [`title`].
+pub fn page_head(path: impl View, name: impl View) -> impl View {
+    with_cx(move |cx| {
+        column((path, name))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::FlexStart)
+    })
+}
+
 /// Where a page is within a panel that has pages under it: each page
 /// above it, from the top, as a [`crumb`], a [`crumb_slash`] after
 /// each, and then `current`, the page shown, as a [`crumb_here`]. A

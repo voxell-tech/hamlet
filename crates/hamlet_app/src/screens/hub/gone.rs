@@ -8,7 +8,7 @@ use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, action, bad_action, breadcrumb, buttons, good_action,
-    scroll_area, status_label_large, title,
+    page_head, scroll_area, status_label_large, title,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
@@ -50,22 +50,20 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                     show(world, Showing::Realm);
                 }
             });
-        let (section, gap) =
-            (cx.theme().space.section, cx.theme().space.gap);
+        let section = cx.theme().space.section;
+        let head = page_head(
+            crumb,
+            row((
+                title(name),
+                status_label_large(Glyph::Gone, fate, Tone::Critical),
+            ))
+            .gap(section)
+            .align(AlignItems::Center)
+            .tagged(Wraps),
+        );
         cx.build(
             column((
-                crumb,
-                row((
-                    title(name),
-                    status_label_large(
-                        Glyph::Gone,
-                        fate,
-                        Tone::Critical,
-                    ),
-                ))
-                .gap(section)
-                .align(AlignItems::Center)
-                .tagged(Wraps),
+                head,
                 super::thread::said(purpose),
                 dim("Its lodge is kept in the archive. Deleting it \
                      frees the space on disk."),
@@ -89,7 +87,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                     ),
                 ]),
             ))
-            .gap(gap),
+            .gap(section),
         )
     })
 }
@@ -99,15 +97,17 @@ pub(super) fn ruin(agent: Entity) -> impl View {
 pub(super) fn library() -> impl View {
     with_cx(|cx| {
         column((
-            breadcrumb(
-                vec!["Realm".into()],
-                "The library",
-                |world, _| {
-                    select(world, None);
-                    show(world, Showing::Realm);
-                },
+            page_head(
+                breadcrumb(
+                    vec!["Realm".into()],
+                    "The library",
+                    |world, _| {
+                        select(world, None);
+                        show(world, Showing::Realm);
+                    },
+                ),
+                title("The library"),
             ),
-            title("The library"),
             // On a line of their own, and on to another when the
             // panel is narrow.
             buttons(vec![action(Glyph::Move, "Move", |world| {

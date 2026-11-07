@@ -25,15 +25,14 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, back, bare, choice, close, crumb,
-    crumb_here, crumb_slash, crumbs, danger_button, filling, framed,
-    hairline, note, primary_button, scroll_area, title,
+    Fills, ICON, action, bare, choice, close, crumb, crumb_here,
+    crumb_slash, crumbs, danger_button, filling, framed, hairline,
+    note, page_head, primary_button, scroll_area, title,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
@@ -247,10 +246,10 @@ fn session_menu() -> impl View {
     .within(bare())
 }
 
-/// Characters of a past session's title its path shows.
-const CRUMB_SHOWN: usize = 18;
+/// Characters of a past session's title its page shows.
+const TITLE_SHOWN: usize = 36;
 
-/// A page under the thread, as the path to it names it.
+/// A page under the thread, as its title names it.
 #[derive(Clone, PartialEq)]
 enum Under {
     Prompt,
@@ -334,16 +333,18 @@ fn path(agent: Entity, under: Vec<Under>) -> impl View {
     built(move |cx| {
         let world = &*cx.world;
         let mut parts = above(world, agent);
-        let address = name_of(world, agent);
         let name = called(world, agent);
         parts.push(if under.is_empty() {
-            crumb_here(name)
-                .tooltip(move || note(address.clone()))
-                .boxed()
+            crumb_here(name).boxed()
         } else {
             crumb(name, |world| show(world, Showing::Thread)).boxed()
         });
         for (at, page) in under.iter().enumerate() {
+            // A past session's title is too long for the path, so it
+            // only heads its page.
+            if matches!(page, Under::Session(_)) {
+                continue;
+            }
             parts.push(crumb_slash().boxed());
             parts.push(if at + 1 == under.len() {
                 crumb_here(page.name()).boxed()
@@ -469,16 +470,24 @@ fn header(agent: Entity) -> impl View {
                  questions with other agents, or a worker it started",
             )
         });
-        let gap = cx.theme().space.gap;
+        let address = name_of(cx.world, agent);
+        let name = title(called(cx.world, agent))
+            .tooltip(move || note(address.clone()));
+        let space = &cx.theme().space;
+        let (gap, section) = (space.gap, space.section);
         cx.build(
-            // The path with its state; under it the tabs between the
-            // chat and the details, the one shown underlined, with
-            // what the chat tab shows and the rest at their end.
+            // The path, then the name with its state; under them the
+            // tabs between the chat and the details, the one shown
+            // underlined, with what the chat tab shows and the rest
+            // at their end.
             column((
-                row((path(agent, Vec::new()), state(agent)))
-                    .gap(gap)
-                    .align(AlignItems::Center)
-                    .tagged(Wraps),
+                page_head(
+                    path(agent, Vec::new()),
+                    row((name, state(agent)))
+                        .gap(section)
+                        .align(AlignItems::Center)
+                        .min_width(px(0.0)),
+                ),
                 row((
                     column((tabs::strip(&SHEETS, |world, sheet| {
                         *world.resource_mut::<Sheet>() = sheet;
@@ -491,7 +500,7 @@ fn header(agent: Entity) -> impl View {
                 .gap(gap)
                 .align(AlignItems::Center),
             ))
-            .gap(gap),
+            .gap(section),
         )
     })
 }
@@ -764,8 +773,7 @@ pub(super) fn leave_prompt(
 }
 
 /// A page about the agent the chat is with, under the path to it and
-/// the pages `under` names, with its title or the way back to the
-/// page above.
+/// the pages `under` names, and the title of the last of them.
 fn aside(
     under: fn(&World) -> Vec<Under>,
     body: impl View + 'static,
@@ -776,32 +784,10 @@ fn aside(
         })
         .when(every_frame()),
         |(agent, under)| {
-            let path = path(*agent, under.clone());
-            // What stands under the path, and how far under it in
-            // gaps: a title as far as a hamlet's.
-            let (second, apart) = match under.as_slice() {
-                // The path leads back to the details it was opened
-                // from.
-                [Under::Prompt] => (title("Prompt").boxed(), 1.0),
-                [Under::Sessions] => (
-                    back("Chat", |world| {
-                        *world.resource_mut::<Sheet>() = Sheet::Chat;
-                        show(world, Showing::Thread);
-                    })
-                    .boxed(),
-                    0.5,
-                ),
-                _ => (
-                    back("Sessions", crate::history::close).boxed(),
-                    0.5,
-                ),
-            };
-            with_cx(move |cx| {
-                column((path, second))
-                    .gap(cx.theme().space.gap * apart)
-                    .align(AlignItems::FlexStart)
-            })
-            .boxed()
+            let name =
+                under.last().map(Under::name).unwrap_or_default();
+            page_head(path(*agent, under.clone()), title(name))
+                .boxed()
         },
     )
     .within(bare());
@@ -993,7 +979,7 @@ pub(super) fn sessions() -> impl View {
             match (&history.reading, history.read()) {
                 (Some(_), Some(past)) => vec![
                     Under::Sessions,
-                    Under::Session(cut(&past.title, CRUMB_SHOWN)),
+                    Under::Session(cut(&past.title, TITLE_SHOWN)),
                 ],
                 (Some(reading), None) => vec![
                     Under::Sessions,

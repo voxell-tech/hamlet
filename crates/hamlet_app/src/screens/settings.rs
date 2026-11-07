@@ -29,8 +29,8 @@ use hamlet_protocol::{Effort, client as protocol};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
-    close, crumb_here, description, framed, list, nav_list, note,
-    parts, pill, section, small_rules, text_input,
+    close, description, framed, list, nav_list, note, page_head,
+    parts, pill, section, small_rules, text_input, title,
 };
 use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::Glyph;
@@ -785,10 +785,6 @@ fn again() -> AnyView {
     )
 }
 
-/// The width of the index of pages, kept short so each row's mark is
-/// near its words.
-const INDEX_WIDTH: f32 = 480.0;
-
 /// The Settings panel's contents.
 pub fn screen() -> AnyView {
     let page = keyed(resource::<Pane, _>(|pane| *pane), |pane| {
@@ -798,12 +794,10 @@ pub fn screen() -> AnyView {
             pages.push(again());
             return with_cx(move |cx| {
                 column((
-                    crumb_here(Pane::Front.title()),
-                    column((nav_list(cx, pages),))
-                        .gap(0.0)
-                        .max_width(px(INDEX_WIDTH)),
+                    title(Pane::Front.title()),
+                    nav_list(cx, pages),
                 ))
-                .gap(cx.theme().space.panel)
+                .gap(cx.theme().space.section)
             })
             .boxed();
         }
@@ -818,13 +812,18 @@ pub fn screen() -> AnyView {
             Pane::Appearance => appearance::page().boxed(),
             Pane::Front | Pane::Sound => sound().boxed(),
         };
-        let head = breadcrumb(
-            vec!["Settings".into()],
-            pane.title(),
-            |world, _| *world.resource_mut::<Pane>() = Pane::Front,
+        let head = page_head(
+            breadcrumb(
+                vec!["Settings".into()],
+                pane.title(),
+                |world, _| {
+                    *world.resource_mut::<Pane>() = Pane::Front;
+                },
+            ),
+            title(pane.title()),
         );
         with_cx(move |cx| {
-            column((head, body)).gap(cx.theme().space.panel)
+            column((head, body)).gap(cx.theme().space.section)
         })
         .boxed()
     });

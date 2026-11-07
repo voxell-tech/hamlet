@@ -546,21 +546,19 @@ fn reader() -> impl View {
         }
         let past = history.read().cloned();
         let chief = &cx.world.resource::<Convo>().name;
-        let (title, detail) = match &past {
-            Some(past) => {
-                let mut parts = vec![last_used(past)];
-                parts.extend(counts(past, chief));
-                (cut(&past.title, TITLE_SHOWN), parts.join(" · "))
-            }
-            None => Default::default(),
-        };
+        // Its title heads the page.
+        let detail = past
+            .map(|past| {
+                let mut parts = vec![last_used(&past)];
+                parts.extend(counts(&past, chief));
+                parts.join(" · ")
+            })
+            .unwrap_or_default();
         let theme = cx.theme();
-        let (heading, section) =
-            (theme.text.heading, theme.space.section);
+        let section = theme.space.section;
         let line = theme.palette.gold_6;
         cx.build(
             column((
-                label(title).size(heading).bold(true),
                 note(format!("Read only · {detail}")),
                 actions(),
                 hairline(line),

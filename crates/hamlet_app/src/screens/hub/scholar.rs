@@ -21,7 +21,7 @@ use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bad_action, bare, beside,
     breadcrumb, buttons, description, framed, good_action, note,
-    scroll_area, text_input, title,
+    page_head, scroll_area, text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -757,21 +757,23 @@ fn body(shown: &Shown) -> AnyView {
             careful_part,
         ) = parts;
         column((
-            breadcrumb(
-                vec!["Realm".into(), "City".into()],
-                name.clone(),
-                |world, at| {
-                    show(world, Showing::Realm);
-                    // The city is the rail's tab that lists it.
-                    if at == 1
-                        && let Some(mut tab) =
-                            world.get_resource_mut::<rail::Tab>()
-                    {
-                        *tab = rail::Tab::City;
-                    }
-                },
+            page_head(
+                breadcrumb(
+                    vec!["Realm".into(), "City".into()],
+                    name.clone(),
+                    |world, at| {
+                        show(world, Showing::Realm);
+                        // The city is the rail's tab that lists it.
+                        if at == 1
+                            && let Some(mut tab) =
+                                world.get_resource_mut::<rail::Tab>()
+                        {
+                            *tab = rail::Tab::City;
+                        }
+                    },
+                ),
+                heading,
             ),
-            heading,
             head,
             form_view(address, name.clone(), is_of_header),
             hires_part,
