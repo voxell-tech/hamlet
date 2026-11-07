@@ -28,7 +28,9 @@ use hamlet_ui::theme::{self, HamletTheme, Themes};
 
 use self::dock::{open_settings, panels, seed_dock};
 use self::sample::{first_run, setup};
-use self::sheets::{controls, hold, hold_message, icon_sheet};
+use self::sheets::{
+    ask_rewind, controls, hold, hold_message, icon_sheet,
+};
 
 /// A view of the gallery, its type erased.
 type Ui = AnyView<Bevy, HamletTheme>;
@@ -87,9 +89,9 @@ impl Plugin for GalleryPlugin {
                 (
                     sample::overview::later,
                     hold,
-                    hold_message.run_if(|scene: Res<Scene>| {
-                        *scene == Scene::Rewind
-                    }),
+                    (hold_message, ask_rewind).run_if(
+                        |scene: Res<Scene>| *scene == Scene::Rewind,
+                    ),
                 ),
             )
             // The menus, and what the world tells them was asked

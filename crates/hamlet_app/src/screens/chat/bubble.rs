@@ -2,6 +2,7 @@
 //! speaker's picture and name by its run of them, and who is in it.
 
 use bevy::color::Color;
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::picking::hover::Hovered;
 use bevy::text::TextColor;
@@ -130,6 +131,10 @@ fn hour(at: u64) -> String {
         })
         .unwrap_or_default()
 }
+
+/// The bubble of a message.
+#[derive(Component)]
+pub(super) struct Bubble;
 
 /// The words of a message, by how they are set.
 #[derive(Clone, Copy, PartialEq)]
@@ -355,7 +360,8 @@ fn said<B: Board>(
                         ..round
                     }
                 }
-            });
+            })
+            .tagged(Bubble);
         let above = px(if line.lead { RUN } else { 0.0 });
         let (replying, reply_room) = match replies {
             true => (
@@ -415,6 +421,7 @@ fn said<B: Board>(
         if back {
             built.insert(Rewinds {
                 session,
+                entry: id.clone(),
                 at: line.at,
             });
         }
@@ -427,23 +434,27 @@ fn said<B: Board>(
 
 /// A row of the chat, as board `B` holds it.
 pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
-    match &line.row {
+    let (view, session) = match &line.row {
         Row::Entry { session, id } => {
-            said::<B>(line.clone(), *session, id.clone())
+            (said::<B>(line.clone(), *session, id.clone()), *session)
         }
         // A turn's steps are the agent's own, so they sit where its
         // bubbles do.
-        Row::Fold { session, first, .. } => row((fold_view::<B>(
-            line.key(),
+        Row::Fold { session, first, .. } => (
+            row((fold_view::<B>(
+                line.key(),
+                *session,
+                first.clone(),
+            ),))
+            .padding(UiRect::new(
+                px(GUTTER),
+                px(0.0),
+                px(if line.lead { RUN } else { 0.0 }),
+                px(0.0),
+            ))
+            .boxed(),
             *session,
-            first.clone(),
-        ),))
-        .padding(UiRect::new(
-            px(GUTTER),
-            px(0.0),
-            px(if line.lead { RUN } else { 0.0 }),
-            px(0.0),
-        ))
-        .boxed(),
-    }
+        ),
+    };
+    view.rules(rewind::fading(session, line.at)).boxed()
 }

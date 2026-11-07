@@ -1,7 +1,6 @@
 //! The dock of the gallery: the panels around a picture of the world.
 
 use bevy::ecs::world::World;
-use bevy::math::Vec2;
 use bevy::ui::widget::{ImageNode, NodeImageMode};
 use bevy::ui::{percent, px};
 use bevy_fynix::AnyView;
@@ -9,12 +8,11 @@ use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockRegistry, DockTree, DockWindowKind,
     Edge, dock,
 };
-use bevy_fynix::views::{FrameProps, column, frame, overlay};
+use bevy_fynix::views::{FrameProps, column};
 use hamlet_app::{
-    Convo, chat, highlight_panel, hub, menu, panel, settings,
-    status_bar, toolbar, welcome,
+    highlight_panel, hub, menu, panel, settings, status_bar, toolbar,
+    welcome,
 };
-use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::styles::ICON;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Highlight;
@@ -111,29 +109,6 @@ pub(super) fn open_settings(
     }
 }
 
-/// The question before a rewind to the last of the chief's
-/// messages, in the scene that shows it.
-fn rewind_question() -> Ui {
-    AnyView::new(|cx: &mut Cx| {
-        let session = cx.world.resource::<Convo>().session;
-        let last = cx
-            .world
-            .get::<Transcript>(session)
-            .into_iter()
-            .flat_map(|said| said.items().iter().rev())
-            .find(|item| matches!(item.entry, Entry::Chief { .. }))
-            .map(|item| item.id.clone())
-            .filter(|_| {
-                *cx.world.resource::<Scene>() == Scene::Rewind
-            });
-        let Some(entry) = last else {
-            return cx.build(frame());
-        };
-        let at = Vec2::new(1060.0, 526.0);
-        cx.build(overlay((chat::rewind_asked(session, entry, at),)))
-    })
-}
-
 pub(super) fn panels() -> Ui {
     AnyView::new(|cx: &mut Cx| {
         let panels = shown(cx);
@@ -151,7 +126,6 @@ fn shown(cx: &Cx) -> impl View {
             .gap(0.0),
         status_bar(),
         menu::open_menu(),
-        rewind_question(),
     ))
     .width(percent(100.0))
     .height(percent(100.0))

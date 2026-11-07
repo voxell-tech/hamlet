@@ -4,11 +4,15 @@
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::{With, Without};
 use bevy::ecs::world::World;
-use bevy::math::{Rect, Vec2};
+use bevy::math::Rect;
 use bevy::ui::px;
+use bevy::ui_widgets::popover::{
+    PopoverAlign, PopoverPlacement, PopoverSide,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, popup, row,
+    BehaviorExt, FrameProps, column, corners, frame, label, popup,
+    row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::messages::Rewind;
@@ -50,6 +54,8 @@ pub(crate) enum Deed {
     Rewind {
         session: Entity,
         entry: String,
+        /// The time of the message, in milliseconds since 1970.
+        at: u64,
     },
     /// Ends the realm's own charter, so the built-in one stands.
     DefaultCharter,
@@ -104,7 +110,7 @@ impl Deed {
             Deed::DefaultCharter => {
                 crate::settings::default_charter(world);
             }
-            Deed::Rewind { session, entry } => {
+            Deed::Rewind { session, entry, .. } => {
                 world.trigger(Rewind {
                     chat: *session,
                     item: entry.clone(),
@@ -268,9 +274,9 @@ impl Deed {
     }
 }
 
-/// The question before `deed`, with a warning for each agent that is
-/// at work.
-pub(crate) fn question(deed: Deed, at: Vec2) -> impl View {
+/// The question before `deed`, against `anchor`, with a warning for
+/// each agent that is at work.
+pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
     built(move |cx| {
         if !deed.is_available(cx.world) {
             return cx.build(frame());
@@ -315,8 +321,24 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> impl View {
         ))
         .gap(section)
         .width(px(300.0));
+        // The chief's own message, at the chat's right, has its
+        // question hang from its right edge.
+        let placements = match deed {
+            Deed::Rewind { .. } => {
+                [PopoverSide::Bottom, PopoverSide::Top]
+                    .into_iter()
+                    .map(|side| PopoverPlacement {
+                        side,
+                        align: PopoverAlign::End,
+                        gap: gap / 2.0,
+                    })
+                    .collect()
+            }
+            _ => corners(0.0),
+        };
         cx.build(
-            popup(Rect::from_corners(at, at), (body,))
+            popup(anchor, (body,))
+                .placements(placements)
                 .on_dismiss(|world, _| close(world))
                 .padding(bevy::ui::UiRect::all(px(padding))),
         )

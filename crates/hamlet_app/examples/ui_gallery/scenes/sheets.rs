@@ -6,6 +6,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::With;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::picking::hover::Hovered;
 use bevy::text::EditableText;
@@ -31,6 +32,9 @@ use hamlet_ui::widgets::platform::{self, DisplayText};
 use hamlet_ui::widgets::tabs;
 
 use super::{Scene, Strike, Ui};
+
+/// The update on which the chat is laid out and still.
+const SETTLED: u32 = 120;
 
 /// A control held in one state.
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
@@ -369,6 +373,20 @@ pub(super) fn hold_message(
         && !hovered.0
     {
         commands.entity(row).insert(Hovered(true));
+    }
+}
+
+/// Asks before a rewind to the last of the chief's messages, as its
+/// mark does, once the chat has settled.
+pub(super) fn ask_rewind(world: &mut World, mut updates: Local<u32>) {
+    *updates += 1;
+    if *updates != SETTLED {
+        return;
+    }
+    let mut rows = world.query::<&chat::Rewinds>();
+    let last = rows.iter(world).max_by_key(|row| row.at).cloned();
+    if let Some(row) = last {
+        chat::ask_rewind(world, row.session, &row.entry);
     }
 }
 

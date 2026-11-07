@@ -604,9 +604,9 @@ mod tests {
         app.update();
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "2 sessions"));
+        assert!(shown.iter().any(|text| text == "In use"));
         assert!(shown.iter().any(|text| text
-            == "In use now · 3 messages · 1.2k tokens · begun by \
-                alice"));
+            == "3 messages · 1.2k tokens · begun by alice"));
         assert!(shown.iter().any(|text| text
             == "5 min ago · 2 messages · 800 tokens · begun by bob"));
         app.world_mut().resource_mut::<History>().query =

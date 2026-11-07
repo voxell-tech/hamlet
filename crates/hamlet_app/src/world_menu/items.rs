@@ -2,7 +2,7 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
-use bevy::math::Vec2;
+use bevy::math::{Rect, Vec2};
 use bevy_fynix::ViewExt;
 use bevy_fynix::views::{BehaviorExt, label, menu_item};
 use hamlet_client::gifts::{give, offers};
@@ -50,8 +50,11 @@ pub(super) fn item(
 fn asking(text: String, deed: Deed, at: Vec2) -> AnyView {
     menu_item(label(text).wrap(false))
         .on_activate(move |world| {
-            *world.resource_mut::<Open>() =
-                Open::Question(deed.clone(), at);
+            super::ask_against(
+                world,
+                deed.clone(),
+                Rect::from_corners(at, at),
+            );
         })
         .boxed()
 }

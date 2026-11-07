@@ -72,7 +72,7 @@ pub use self::lines::{
     fold_lines, fold_past, hide_unseen, read_back, transcript,
 };
 pub(crate) use self::lines::{past, read_earlier, read_past};
-pub use self::rewind::{Rewinds, asked as rewind_asked};
+pub use self::rewind::{Rewinds, ask as ask_rewind};
 use crate::PanelSystems;
 use crate::convo::{self, Convo};
 

@@ -58,7 +58,8 @@ pub(crate) enum Open {
     #[default]
     Nothing,
     Menu(Thing, Vec2),
-    Question(Deed, Vec2),
+    /// The question before a deed, against what it was asked from.
+    Question(Deed, Rect),
     /// The menu of the bare ground.
     Ground(Vec2),
     /// The form a hamlet is founded with.
@@ -118,9 +119,8 @@ pub(crate) fn answer_ask(
     // surface too, a moment later and at the same place. It is not
     // a second question about the ground under the thing.
     let same = match &*open {
-        Open::Menu(_, was) | Open::Question(_, was) => {
-            was.distance(at) < 2.0
-        }
+        Open::Menu(_, was) => was.distance(at) < 2.0,
+        Open::Question(_, was) => was.min.distance(at) < 2.0,
         _ => false,
     };
     if !same {
@@ -227,7 +227,16 @@ pub(crate) fn ask_model(world: &mut World, agent: Entity) {
 /// Asks before `deed` is done, at the pointer.
 pub(crate) fn ask(world: &mut World, deed: Deed) {
     let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Question(deed, at);
+    ask_against(world, deed, Rect::from_corners(at, at));
+}
+
+/// Asks before `deed` is done, against `anchor` in the window.
+pub(crate) fn ask_against(
+    world: &mut World,
+    deed: Deed,
+    anchor: Rect,
+) {
+    *world.resource_mut::<Open>() = Open::Question(deed, anchor);
 }
 
 /// Brings back `agent`, which was removed or merged away.
@@ -275,7 +284,9 @@ fn menus() -> AnyView {
                     cx.build(menu(at, items))
                 })
             }
-            Open::Question(deed, at) => question(deed, at).boxed(),
+            Open::Question(deed, anchor) => {
+                question(deed, anchor).boxed()
+            }
             Open::Ground(at) => AnyView::new(move |cx: &mut Cx| {
                 if !Deeds::is_allowed(cx.world, "found") {
                     return cx.build(frame());
