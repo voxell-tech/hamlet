@@ -582,7 +582,10 @@ mod tests {
             protocol::ServerMessage::State(state.clone()),
         );
         app.update();
-        bevy_fynix::mount::<HamletTheme>(app.world_mut(), in_chat());
+        let line = bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            in_chat(),
+        );
         app.update();
         let shown = words(&mut app);
         assert!(
@@ -599,10 +602,14 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
+        // Its own Answer only opens the petition.
+        app.world_mut().despawn(line);
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             crate::petition::waiting(),
         );
+        app.update();
+        press(&mut app, "Answer");
         app.update();
         press(&mut app, "Digital");
         app.update();

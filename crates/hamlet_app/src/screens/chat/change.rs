@@ -256,9 +256,12 @@ pub(crate) fn change_view(
         },
     )
     .within(bare().fills_width().min_width(px(0.0)));
-    let head = row((fold, file, state(session, id, underway)))
-        .gap(10.0)
-        .align(AlignItems::Center);
+    let mut parts = vec![fold.boxed(), file.boxed()];
+    // A held call's card says that it waits, so its head does not.
+    if underway == Underway::Running {
+        parts.push(state(session, id).boxed());
+    }
+    let head = row(parts).gap(10.0).align(AlignItems::Center);
 
     let mut moved = component::<Transcript, _>(session, |_| ());
     let mut turned = resource::<Changes, _>(|_| ());

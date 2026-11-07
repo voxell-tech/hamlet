@@ -59,11 +59,7 @@ pub(crate) enum Underway {
 }
 
 /// How the tool call at entry `id` of `session` stands.
-pub(super) fn state(
-    session: Entity,
-    id: String,
-    underway: Underway,
-) -> impl View {
+pub(super) fn state(session: Entity, id: String) -> impl View {
     let status_id = id.clone();
     label(component::<Transcript, _>(session, move |t| {
         match t
@@ -76,10 +72,7 @@ pub(super) fn state(
             Some(Entry::Tool {
                 exit: Some(code), ..
             }) => format!("Failed (exit {code})"),
-            _ => match underway {
-                Underway::Running => "Running".to_string(),
-                Underway::Waiting => "Waiting".to_string(),
-            },
+            _ => "Running".to_string(),
         }
     }))
     .wrap(false)

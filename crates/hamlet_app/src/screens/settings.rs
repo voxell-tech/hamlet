@@ -432,7 +432,7 @@ fn permissions() -> AnyView {
     keyed(held, |held| {
         if held.is_empty() {
             return description(
-                "None yet. Choosing Always Allow on a petition adds \
+                "None yet. Choosing Allow always on a petition adds \
                  one.",
             )
             .boxed();
@@ -929,7 +929,7 @@ mod tests {
     fn received_grants_show_the_giver_and_revoke_through_the_hand() {
         let mut app = settings_page(Pane::Agents);
         assert!(words_and_spans(&mut app).iter().any(|text| text
-            == "None yet. Choosing Always Allow on a petition \
+            == "None yet. Choosing Allow always on a petition \
                 adds one."));
         let grant = protocol::Grant {
             agent: Some(protocol::AgentId(2)),
@@ -986,7 +986,7 @@ mod tests {
         let shown = words_and_spans(&mut app).join("\n");
         assert!(
             shown.contains(
-                "None yet. Choosing Always Allow on a petition adds \
+                "None yet. Choosing Allow always on a petition adds \
                  one."
             ),
             "{shown}"

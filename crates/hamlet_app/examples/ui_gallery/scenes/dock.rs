@@ -21,7 +21,7 @@ use hamlet_ui::{Cx, View};
 
 use super::{Scene, Stand, Ui};
 
-/// The picture of the world, with its toasts over it.
+/// The picture of the world.
 fn world_stand() -> Ui {
     AnyView::new(|cx: &mut Cx| {
         let picture =
@@ -32,7 +32,7 @@ fn world_stand() -> Ui {
                 ..ImageNode::default()
             });
         cx.build(
-            column((hamlet_app::toasts::stack(),))
+            column(())
                 .grow(1.0)
                 .min_width(px(0.0))
                 .min_height(px(0.0))
@@ -125,6 +125,7 @@ fn shown(cx: &Cx) -> impl View {
             .min_height(px(0.0))
             .gap(0.0),
         status_bar(),
+        hamlet_app::toasts::stack(),
         menu::open_menu(),
     ))
     .width(percent(100.0))

@@ -3,6 +3,8 @@
 //! on the realm's page. Questions are answered on their `asking`
 //! card.
 
+use std::collections::HashSet;
+
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
@@ -13,16 +15,17 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
+use bevy::ui::AlignItems;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label,
+    BehaviorExt, FrameProps, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, each, resource};
+use bevy_fynix::{ScopedExt, ViewExt, derived, each};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::messages::Answer;
 use hamlet_client::waits::{Choice, ChoiceExt, Waiting};
 use hamlet_protocol::client::{
-    Change, Lasting, WaitDanger, WaitDetail,
+    Change, Lasting, Questions, WaitDanger, WaitDetail,
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::styles::{
@@ -38,6 +41,7 @@ use crate::age::Age;
 use crate::convo::talk_at;
 use crate::dock::{HUB, show_tab};
 use crate::hub::Showing;
+use crate::roll::{either, moved};
 use crate::{PanelSystems, asking, chat};
 
 /// Seconds between two refreshes of the time each has waited.
@@ -45,6 +49,7 @@ const TICK: f32 = 10.0;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Queue>()
+        .init_resource::<Unfolded>()
         .add_observer(tag_answered)
         .add_observer(tag_opened)
         .add_systems(
@@ -68,6 +73,10 @@ impl Queue {
     }
 }
 
+/// The questions opened in full on the realm's page.
+#[derive(Resource, Default)]
+struct Unfolded(HashSet<Entity>);
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Need {
     pub(crate) entity: Entity,
@@ -76,7 +85,8 @@ pub(crate) struct Need {
     pub(crate) shown: String,
     about: String,
     pub(crate) line: String,
-    waited: String,
+    /// How long it has waited, short: `now`, `5m`.
+    pub(crate) waited: String,
     asked: u64,
     pub(crate) answers: Vec<Choice>,
     change: Option<Change>,
@@ -86,7 +96,7 @@ pub(crate) struct Need {
 impl Need {
     pub(crate) fn of(entity: Entity, waiting: &Waiting) -> Self {
         let waited =
-            Age::of(crate::status::now_ms(), waiting.since).waited();
+            Age::of(crate::status::now_ms(), waiting.since).short();
         Self {
             entity,
             detail: waiting.detail.clone(),
@@ -104,12 +114,13 @@ impl Need {
 
 /// Keeps the [`Queue`] in step with the waits and the time each has
 /// waited.
-pub(crate) fn keep_queue(
+fn keep_queue(
     time: Res<Time>,
     waiting: Query<(Entity, &Waiting)>,
     moved: Query<(), Changed<Waiting>>,
     mut answered: RemovedComponents<Waiting>,
     mut queue: ResMut<Queue>,
+    mut unfolded: ResMut<Unfolded>,
     mut due: Local<f32>,
 ) {
     let now = time.elapsed_secs();
@@ -126,6 +137,7 @@ pub(crate) fn keep_queue(
         .map(|(entity, waiting)| Need::of(entity, waiting))
         .collect::<Vec<_>>();
     if queue.0 != needs {
+        unfolded.0.retain(|wait| waiting.contains(*wait));
         queue.0 = needs;
     }
 }
@@ -313,6 +325,69 @@ fn held(
     ))
 }
 
+/// The line over the card of `need`: what waits, in its tone, and
+/// how long it has waited.
+fn head(need: &Need) -> impl View + use<> {
+    let what = match &need.detail {
+        WaitDetail::Approval { says, .. } => {
+            format!("{} {says}", need.shown)
+        }
+        WaitDetail::Question { .. } => {
+            format!("{} has a question", need.shown)
+        }
+        WaitDetail::Objection {} => {
+            format!("Objection from {}", need.shown)
+        }
+        WaitDetail::Fault {} => format!("Fault in {}", need.shown),
+        WaitDetail::Newcomer { .. } => "Newcomer".to_string(),
+    };
+    let when = match need.asked {
+        1 => need.waited.clone(),
+        n => format!("{} · asked {n} times", need.waited),
+    };
+    let tone = match need.detail {
+        WaitDetail::Fault {} => Tone::Critical,
+        _ => Tone::Accent,
+    };
+    with_cx(move |cx| {
+        row((caption(what, tone), frame().grow(1.0), note(when)))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
+    })
+}
+
+/// The card of a question folded to its first question, with the
+/// button that unfolds it in place.
+fn brief(need: &Need, asked: &Questions) -> AnyView {
+    let wait = need.entity;
+    let first = asked
+        .questions
+        .first()
+        .map(|one| one.question.clone())
+        .unwrap_or_default();
+    let more = match asked.questions.len() {
+        1 => String::new(),
+        n => format!("{n} questions"),
+    };
+    let head = head(need);
+    with_cx(move |cx| {
+        let open = marked(Glyph::Talk, "Answer")
+            .rules(primary_button)
+            .tagged(Variant::Primary)
+            .on_activate(move |world| {
+                world.resource_mut::<Unfolded>().0.insert(wait);
+            });
+        framed((
+            head,
+            label(first).size(cx.theme().text.heading),
+            row((open, note(more)))
+                .gap(cx.theme().space.gap)
+                .align(AlignItems::Center),
+        ))
+    })
+    .boxed()
+}
+
 pub(crate) fn strip(need: &Need) -> AnyView {
     let need = need.clone();
     AnyView::new(move |cx: &mut Cx| {
@@ -362,37 +437,12 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             ])
             .boxed(),
         };
-        let what = match need.detail {
-            WaitDetail::Approval { .. } => "Approval",
-            WaitDetail::Objection {} => "Objection",
-            WaitDetail::Question { .. } => "Question",
-            WaitDetail::Fault {} => "Fault",
-            WaitDetail::Newcomer { .. } => "Newcomer",
-        };
-        let asked = match need.asked {
-            1 => String::new(),
-            n => format!(", asked {n} times"),
-        };
-        let head = match need.detail {
-            WaitDetail::Newcomer { .. } => {
-                format!("{what}  ({}{asked})", need.waited)
-            }
-            _ => format!(
-                "{what} from {}  ({}{asked})",
-                need.shown, need.waited
-            ),
-        };
-        let tone = match need.detail {
-            WaitDetail::Fault {} => Tone::Critical,
-            _ => Tone::Accent,
-        };
+        let head = head(&need);
         // A form says its questions itself, and an approval's
-        // subject is shown once, in full, under its line.
+        // subject is its head and, in full, its body.
         let line = match &need.detail {
-            WaitDetail::Question { .. } => None,
-            WaitDetail::Approval { says, .. } => {
-                Some(format!("{} {says}", need.shown))
-            }
+            WaitDetail::Question { .. }
+            | WaitDetail::Approval { .. } => None,
             WaitDetail::Newcomer { scholar } => {
                 let name =
                     hamlet_client::realm::scholar(cx.world, *scholar)
@@ -420,20 +470,41 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             }
             None => frame().boxed(),
         };
-        cx.build(framed((caption(head, tone), line, about, answers)))
+        cx.build(framed((head, line, about, answers)))
     })
 }
 
-/// Everything that waits for the chief, oldest first and in full,
-/// with the answers each takes; nothing while nothing waits.
+/// Everything that waits for the chief, oldest first, with the
+/// answers each takes, a question folded until it is opened; nothing
+/// while nothing waits.
 pub fn waiting() -> impl View {
-    with_cx(|cx| {
+    // The time each has waited is part of the row.
+    let rows = derived(|world: &World| {
+        let unfolded = world.get_resource::<Unfolded>();
+        world
+            .resource::<Queue>()
+            .0
+            .iter()
+            .map(|need| {
+                let open = unfolded.is_some_and(|open| {
+                    open.0.contains(&need.entity)
+                });
+                (need.clone(), open)
+            })
+            .collect::<Vec<_>>()
+    })
+    .when(either(moved::<Queue>(), moved::<Unfolded>()));
+    with_cx(move |cx| {
         let space = &cx.theme().space;
         each(
-            // The time each has waited is part of the row.
-            resource::<Queue, _>(|queue| queue.0.clone()),
-            |n: &Need| format!("{n:?}"),
-            strip,
+            rows,
+            |(need, open): &(Need, bool)| format!("{need:?}{open}"),
+            |(need, open)| match (&need.detail, open) {
+                (WaitDetail::Question { questions }, false) => {
+                    brief(need, questions)
+                }
+                _ => strip(need),
+            },
         )
         .within(column(()).gap(space.gap))
     })
@@ -505,9 +576,7 @@ mod tests {
         app.update();
         let shown = words(&mut app);
         assert!(
-            shown
-                .iter()
-                .any(|text| text.starts_with("Approval from ada")),
+            shown.iter().any(|text| text == "ada wants to run"),
             "{shown:?}"
         );
         for text in ["Allow once", "Allow this session", "Deny"] {

@@ -20,12 +20,15 @@ use bevy::ui::{
     AlignItems, JustifyContent, PositionType, UiRect, Val, px,
 };
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, column, frame, row,
+};
 use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource, style};
 use hamlet_client::messages::{Answer, Response, ServerFault};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{
-    Departure, Faulted, Kind, Left, Scholar, Seen, Shown,
+    Departure, Faulted, Kind, Left, LivesIn, Mayor, Scholar, Seen,
+    Shown, name_of,
 };
 use hamlet_client::waits::{RaisedBy, Waiting};
 use hamlet_protocol::client::{
@@ -33,11 +36,11 @@ use hamlet_protocol::client::{
     ServerMessage, WaitDetail,
 };
 use hamlet_ui::styles::{
-    action, buttons, caption, close_button, quoted,
+    ICON, action, buttons, caption, close_button, note, quoted,
 };
 use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::{AnyView, Cx, View};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::convo::Convo;
 use crate::hub::Showing;
@@ -54,7 +57,7 @@ const STAYS: f32 = 8.0;
 const FADES: f32 = 1.2;
 
 /// The width of the stack, in logical pixels.
-const WIDTH: f32 = 380.0;
+const WIDTH: f32 = 430.0;
 
 /// How the server names the Hand as the one who decided an arrival.
 const HAND: &str = "hand";
@@ -355,27 +358,30 @@ fn keep(
     }
 }
 
-/// The stack of toasts, at the top right of the view it is in.
+/// The stack of toasts, at the bottom left of the window over the
+/// status bar, the newest nearest the corner.
 pub fn stack() -> impl View {
-    each(
-        resource::<Toasts, _>(|toasts| {
-            toasts.shown.iter().rev().cloned().collect()
-        }),
-        |toast: &Toast| toast.id,
-        card,
-    )
-    .within(
-        column(())
-            .gap(8.0)
-            .width(px(WIDTH))
-            .position(PositionType::Absolute)
-            .inset(UiRect {
-                left: Val::Auto,
-                top: px(12.0),
-                right: px(12.0),
-                bottom: Val::Auto,
-            }),
-    )
+    with_cx(|cx| {
+        let space = &cx.theme().space;
+        each(
+            resource::<Toasts, _>(|toasts| toasts.shown.clone()),
+            |toast: &Toast| toast.id,
+            card,
+        )
+        .within(
+            column(())
+                .gap(space.gap)
+                .width(px(WIDTH))
+                .position(PositionType::Absolute)
+                .inset(UiRect {
+                    left: px(space.panel + space.gap),
+                    top: Val::Auto,
+                    right: Val::Auto,
+                    // The status bar is less high than the menu bar.
+                    bottom: px(space.bar + space.gap),
+                }),
+        )
+    })
 }
 
 /// The words of a toast's line without the name its wait starts
@@ -387,10 +393,34 @@ fn said(need: &Need) -> &str {
         .trim_start()
 }
 
+/// The mark of who raised `need`, and where it is and how long ago
+/// it asked: `· mill · now`.
+fn origin(world: &World, need: &Need, by: &str) -> (Glyph, String) {
+    let age = need.waited.clone();
+    if let WaitDetail::Newcomer { .. } = need.detail {
+        return (Glyph::Scholar, format!("· harbor · {age}"));
+    }
+    let Some(agent) = hamlet_client::realm::named(world, by) else {
+        return (Glyph::Bell, format!("· {age}"));
+    };
+    let mark = match world.get::<Kind>(agent).map(|kind| kind.0) {
+        Some(AgentKind::Hand) => Glyph::Tower,
+        _ if world.get::<Mayor>(agent).is_some() => Glyph::Mayor,
+        _ => Glyph::Robot,
+    };
+    let from = match world.get::<LivesIn>(agent) {
+        Some(lives) => {
+            format!("· {} · {age}", name_of(world, lives.0))
+        }
+        None => format!("· {age}"),
+    };
+    (mark, from)
+}
+
 fn card(toast: &Toast) -> AnyView {
     let (id, what) = (toast.id, toast.what.clone());
     AnyView::new(move |cx: &mut Cx| {
-        let (head, tone, line, answers) = match &what {
+        let (mark, head, from, tone, line, answers) = match &what {
             What::Petition(wait) => {
                 let Some(waiting) = cx.world.get::<Waiting>(*wait)
                 else {
@@ -401,6 +431,8 @@ fn card(toast: &Toast) -> AnyView {
                     WaitDetail::Fault {} => Tone::Critical,
                     _ => Tone::Accent,
                 };
+                let (mark, from) =
+                    origin(cx.world, &need, &waiting.by);
                 let answers = buttons(vec![
                     button(&need, 0),
                     button(&need, 1),
@@ -408,14 +440,18 @@ fn card(toast: &Toast) -> AnyView {
                 ])
                 .boxed();
                 (
+                    Some(mark),
                     need.shown.clone(),
+                    from,
                     tone,
                     said(&need).to_string(),
                     answers,
                 )
             }
             What::Notice { tone, head, line } => (
+                None,
                 head.clone(),
+                String::new(),
                 *tone,
                 line.clone(),
                 column(()).boxed(),
@@ -438,7 +474,9 @@ fn card(toast: &Toast) -> AnyView {
                     )
                 };
                 (
+                    Some(Glyph::Tower),
                     head.into(),
+                    String::new(),
                     Tone::Accent,
                     line,
                     buttons(vec![action(
@@ -453,7 +491,14 @@ fn card(toast: &Toast) -> AnyView {
             }
         };
         let own = what.clone();
-        let words = column((caption(head, tone), quoted(&line)))
+        let mark = match mark {
+            Some(which) => glyph(which, ICON).tone(tone).boxed(),
+            None => frame().boxed(),
+        };
+        let head = row((mark, caption(head, tone), note(from)))
+            .gap(6.0)
+            .align(AlignItems::Center);
+        let words = column((head, quoted(&line)))
             .gap(2.0)
             .grow(1.0)
             .min_width(px(0.0));

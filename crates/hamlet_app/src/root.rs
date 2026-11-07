@@ -137,6 +137,7 @@ fn root() -> impl View {
         cx.build(
             column((
                 full(cx),
+                crate::toasts::stack(),
                 menu::open_menu(),
                 desk::popups(),
                 world_menu::view(),

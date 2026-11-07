@@ -51,15 +51,6 @@ impl Age {
         }
     }
 
-    /// How long a wait has waited: `waited 5 min`, `waiting since
-    /// 4 Mar`.
-    pub(crate) fn waited(self) -> String {
-        match self {
-            Self::On(..) => format!("waiting since {}", self.words()),
-            _ => format!("waited {}", self.words()),
-        }
-    }
-
     /// When it was: `just now`, `5 min ago`, `on 4 Mar`.
     pub(crate) fn ago(self) -> String {
         match self {

@@ -299,8 +299,8 @@ every hamlet and the Hand.
 _Avoid_: inspector, sidebar
 
 **Toast**:
-A card over the realm view that tells of something new, and answers a
-petition in place.
+A card in a corner of the window that tells of something new, and
+answers a petition in place.
 _Avoid_: notification, popup
 
 **Town**:

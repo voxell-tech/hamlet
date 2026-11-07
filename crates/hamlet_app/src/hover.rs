@@ -320,7 +320,7 @@ impl Told<'_, '_> {
             purpose: if place {
                 "Where the chief lives.".to_string()
             } else {
-                "The chief, who goes by Wickstep.".to_string()
+                "You, the chief.".to_string()
             },
             account: look.words(),
             hint: "Click to change the look".to_string(),
