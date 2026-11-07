@@ -3,6 +3,7 @@
 mod chat;
 mod history;
 mod hub;
+mod images;
 mod menu;
 mod needs;
 pub(super) mod overview;
@@ -185,6 +186,9 @@ pub(super) fn setup(world: &mut World) {
     overview::setup(world, scene);
     hub::setup(world, scene);
     needs::setup(world, scene);
+    if matches!(scene, Scene::Images | Scene::NoImages) {
+        images::setup(world, scene, session);
+    }
     if matches!(scene, Scene::History | Scene::Reading) {
         world.insert_resource(hamlet_app::hub::Showing::Sessions);
         history::setup(world, scene == Scene::Reading);

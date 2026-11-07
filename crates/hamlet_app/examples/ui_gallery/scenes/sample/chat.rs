@@ -161,6 +161,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                  `hire#11` if a row looks wrong.",
             ),
         ]),
+        Scene::Images | Scene::NoImages => {
+            super::images::conversation()
+        }
         Scene::Rewind => conversation(&[
             ("chief", "Tidy the orchard notes."),
             ("", "The notes are in order."),
