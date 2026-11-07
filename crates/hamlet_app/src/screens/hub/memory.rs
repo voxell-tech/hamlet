@@ -150,6 +150,13 @@ fn file(entry: &Entry, open: bool) -> AnyView {
     if !entry.description.is_empty() {
         parts.push(note(entry.description.clone()).boxed());
     }
+    // A file in every prompt shows what it says before it is opened.
+    if !open && !entry.path.contains('/') {
+        let lines = gist(&entry.text);
+        if !lines.is_empty() {
+            parts.push(label(lines).tone(Tone::Dim).boxed());
+        }
+    }
     if open {
         parts.push(
             hamlet_ui::markdown::fixed(&entry.text, Tone::Body)
@@ -172,6 +179,38 @@ fn file(entry: &Entry, open: bool) -> AnyView {
         );
     }
     column(parts).gap(4.0).boxed()
+}
+
+/// Lines a closed file shows of its text.
+const GIST: usize = 3;
+
+/// The first [`GIST`] lines of the Markdown `text` that say
+/// something, without its headings, code and tables, as plain text.
+fn gist(text: &str) -> String {
+    let mut fenced = false;
+    let mut lines = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if line.starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if fenced
+            || line.is_empty()
+            || line.starts_with(['#', '|'])
+            || line.chars().all(|c| "-*_=".contains(c))
+        {
+            continue;
+        }
+        let line = line
+            .trim_start_matches("- [x] ")
+            .trim_start_matches("- [ ] ")
+            .trim_start_matches(['-', '*', '>', ' ']);
+        lines.push(line.replace("**", "").replace('`', ""));
+        if lines.len() == GIST {
+            break;
+        }
+    }
+    lines.join("\n")
 }
 
 fn folder(folder: &Folder, open: Option<&str>) -> AnyView {

@@ -283,11 +283,20 @@ pub fn list(rows: Vec<AnyView>) -> impl View {
     })
 }
 
-/// A command, in monospace at the body size on a chip, wrapping
-/// where it is long.
-pub fn command_chip(text: impl Into<Prop<String>>) -> impl View {
-    // In a row of its own, so it is as wide as the command.
-    row((chip(label(text).tagged(MonoText)),))
+/// A command, in monospace at the body size on a block of code the
+/// width of its column, wrapping where it is long.
+pub fn command_block(text: impl Into<Prop<String>>) -> impl View {
+    let text = text.into();
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        column((label(text).tagged(MonoText),))
+            .min_width(px(0.0))
+            .padding(UiRect::axes(px(10.0), px(8.0)))
+            .fill(theme.palette.code)
+            .border(theme.space.border)
+            .border_color(theme.palette.gold_6)
+            .radius(theme.space.round)
+    })
 }
 
 fn chip(words: impl View + Send + Sync + 'static) -> impl View {
@@ -304,8 +313,8 @@ fn chip(words: impl View + Send + Sync + 'static) -> impl View {
 }
 
 /// `line` on one line, each command in it, between backticks, on a
-/// chip as [`command_chip`]'s, cut short with an ellipsis where it
-/// does not fit. A line with none wraps as words do.
+/// chip, cut short with an ellipsis where it does not fit. A line
+/// with none wraps as words do.
 pub fn quoted(line: &str) -> AnyView {
     if !line.contains('`') {
         return label(line.to_string()).boxed();

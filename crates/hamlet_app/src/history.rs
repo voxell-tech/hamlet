@@ -15,22 +15,24 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, derived, each, every_frame, keyed,
-    resource,
+    resource, style,
 };
+use chrono::Datelike;
 use hamlet_client::chats::{Chat, TalksTo, Transcript};
 use hamlet_client::messages::{ChiefMessage, JobFinished, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::id_of;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, ICON, buttons, card_button, command, filling, good_action,
-    hairline, hidden, note, pill, scroll_area, section, text_input,
+    Fills, ICON, buttons, command, filling, good_action, hairline,
+    hidden, link_row, note, pill, scroll_area, section, text_input,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, View, built, with_cx};
+use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 use protocol::Past;
 
 use crate::age::Age;
@@ -93,13 +95,9 @@ enum Day {
 impl Day {
     /// The day of `then` at `now`, both in milliseconds since 1970.
     fn of(now: i64, then: i64) -> Self {
-        let date = |ms: i64| {
-            chrono::DateTime::from_timestamp_millis(ms)
-                .unwrap_or_default()
-                .with_timezone(&chrono::Local)
-                .date_naive()
-        };
-        match (date(now) - date(then)).num_days() {
+        match (local(now).date_naive() - local(then).date_naive())
+            .num_days()
+        {
             ..=0 => Self::Today,
             1 => Self::Yesterday,
             2..7 => Self::PastWeek,
@@ -117,6 +115,13 @@ impl Day {
     }
 }
 
+/// `ms` since 1970 in the local time zone.
+fn local(ms: i64) -> chrono::DateTime<chrono::Local> {
+    chrono::DateTime::from_timestamp_millis(ms)
+        .unwrap_or_default()
+        .with_timezone(&chrono::Local)
+}
+
 #[derive(Resource, Default)]
 struct Requests {
     agent: Option<protocol::AgentId>,
@@ -124,42 +129,61 @@ struct Requests {
     open: bool,
 }
 
-/// The detail line of a past session's row: when, "now" for the one
-/// in use, how long and who began it, when that was not `chief`.
-fn detail(past: &Past, chief: &str) -> String {
-    let mut parts = vec![if past.current {
-        "now".to_string()
-    } else {
-        Age::of(crate::status::now_ms(), past.modified.max(0) as u64)
-            .ago()
-    }];
-    parts.push(match past.messages {
+/// How long a past session is and who began it, when that was not
+/// `chief`.
+fn counts(past: &Past, chief: &str) -> Vec<String> {
+    let mut parts = vec![match past.messages {
         1 => "1 message".to_string(),
         n => format!("{n} messages"),
-    });
+    }];
     if past.tokens > 0 {
         parts.push(format_tokens(past.tokens));
     }
     if !past.by.is_empty() && past.by != chief {
         parts.push(format!("begun by {}", past.by));
     }
+    parts
+}
+
+/// The detail line of a past session's row: when it was last used,
+/// in the words its day's heading leaves to say, then its
+/// [`counts`].
+fn detail(past: &Past, chief: &str) -> String {
+    let now = crate::status::now_ms() as i64;
+    let at = local(past.modified);
+    let when = match Day::of(now, past.modified) {
+        _ if past.current => "now".to_string(),
+        Day::Today => {
+            Age::of(now as u64, past.modified.max(0) as u64).ago()
+        }
+        Day::Yesterday => at.format("%H:%M").to_string(),
+        Day::PastWeek => at.format("%a %H:%M").to_string(),
+        Day::Earlier => dated(at, now),
+    };
+    let mut parts = vec![when];
+    parts.extend(counts(past, chief));
     parts.join(" · ")
 }
 
-/// When `past` began, as its page's path names it: "Today, 18:00",
-/// or its date for an earlier day.
-pub(crate) fn began(past: &Past) -> String {
+/// The date of `at`, with its year when that is not the year of
+/// `now`.
+fn dated(at: chrono::DateTime<chrono::Local>, now: i64) -> String {
+    match at.year() == local(now).year() {
+        true => at.format("%-d %b").to_string(),
+        false => at.format("%-d %b %Y").to_string(),
+    }
+}
+
+/// When `past` was last used, in full: "Today, 18:00", or its date
+/// for an earlier day.
+fn last_used(past: &Past) -> String {
     let now = crate::status::now_ms() as i64;
-    let at = chrono::DateTime::from_timestamp_millis(past.began)
-        .unwrap_or_default()
-        .with_timezone(&chrono::Local);
-    let day = match Day::of(now, past.began) {
+    let at = local(past.modified);
+    let day = match Day::of(now, past.modified) {
         day @ (Day::Today | Day::Yesterday) => {
             day.heading().to_string()
         }
-        Day::PastWeek | Day::Earlier => {
-            at.format("%-d %b").to_string()
-        }
+        Day::PastWeek | Day::Earlier => dated(at, now),
     };
     format!("{day}, {}", at.format("%H:%M"))
 }
@@ -392,47 +416,63 @@ fn line_view(line: &Line) -> AnyView {
     let menu = line.clone();
     let (title, detail, live) =
         (line.title.clone(), line.detail.clone(), line.live);
-    let card = button(with_cx(move |cx| {
-        let name = column((label(title.clone())
-            .size(cx.theme().text.heading)
-            .bold(true)
-            .tone(if live { Tone::Accent } else { Tone::Body }),))
-        .grow(1.0)
-        .min_width(px(0.0));
-        let head = match live {
-            true => row((name, pill("In use")))
-                .gap(cx.theme().space.gap)
-                .align(AlignItems::FlexStart)
-                .boxed(),
-            false => row((name,)).boxed(),
-        };
-        row((
-            column((head, note(detail.clone())))
-                .gap(cx.theme().space.gap / 2.0)
+    let tone = if live { Tone::Accent } else { Tone::Body };
+    let pressed = with_cx(move |cx| {
+        let space = &cx.theme().space;
+        let name = label(title.clone()).rules(move |cx: &mut Cx| {
+            style::<HamletTheme>()
+                .label(move |l, t| {
+                    l.size(t.text.heading).bold(true).tone(tone)
+                })
+                .apply(cx);
+        });
+        let mut meta = vec![note(detail.clone()).boxed()];
+        if live {
+            meta.push(pill("In use").boxed());
+        }
+        button(
+            row((
+                column((
+                    name,
+                    row(meta)
+                        .gap(space.gap)
+                        .align(AlignItems::Center),
+                ))
+                .gap(space.gap / 2.0)
                 .grow(1.0)
                 .min_width(px(0.0)),
-            glyph(Glyph::Into, ICON).tone(Tone::Dim),
+                glyph(Glyph::Into, ICON).tone(Tone::Dim),
+            ))
+            .gap(space.gap)
+            .align(AlignItems::Center)
+            .fills_width(),
+        )
+        .width(percent(100.0))
+        .padding(UiRect::axes(
+            px(space.card_padding_x),
+            px(space.card_padding_y),
         ))
-        .gap(cx.theme().space.gap)
-        .align(AlignItems::Center)
-        .fills_width()
-    }))
-    .width(percent(100.0))
-    .rules(card_button)
-    .tagged(Variant::Default)
-    .on_activate(move |world| open(world, number))
-    .appear(hidden)
-    .transition(Motion::Expand)
-    .context_menu(move || choices(&menu));
-    match line.heading {
-        Some(day) => with_cx(move |cx| {
-            column((section(day), card))
-                .gap(cx.theme().space.gap)
-                .padding(UiRect::top(px(cx.theme().space.gap)))
-        })
-        .boxed(),
-        None => card.boxed(),
-    }
+        .rules(link_row)
+        .tagged(Variant::Default)
+        .on_activate(move |world| open(world, number))
+        .appear(hidden)
+        .transition(Motion::Expand)
+        .context_menu(move || choices(&menu))
+    });
+    let heading = line.heading;
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        // The first row of a day under its heading, the others under
+        // a line.
+        let over = match heading {
+            Some(day) => column((section(day),))
+                .padding(UiRect::vertical(px(space.gap)))
+                .boxed(),
+            None => hairline(cx.theme().palette.gold_6).boxed(),
+        };
+        column((over, pressed)).gap(0.0)
+    })
+    .boxed()
 }
 
 fn failed() -> impl View {
@@ -485,7 +525,7 @@ fn list() -> impl View {
                 },
                 line_view,
             )
-            .within(column(()).gap(space.gap)),)),
+            .within(column(()).gap(0.0)),)),
         ))
         .fills_height()
         .gap(space.section)
@@ -508,7 +548,9 @@ fn reader() -> impl View {
         let chief = &cx.world.resource::<Convo>().name;
         let (title, detail) = match &past {
             Some(past) => {
-                (cut(&past.title, TITLE_SHOWN), detail(past, chief))
+                let mut parts = vec![last_used(past)];
+                parts.extend(counts(past, chief));
+                (cut(&past.title, TITLE_SHOWN), parts.join(" · "))
             }
             None => Default::default(),
         };
@@ -519,7 +561,7 @@ fn reader() -> impl View {
         cx.build(
             column((
                 label(title).size(heading).bold(true),
-                note(format!("Past session, read only · {detail}")),
+                note(format!("Read only · {detail}")),
                 actions(),
                 hairline(line),
                 scroll_area((

@@ -56,7 +56,7 @@ impl Danger {
     /// The words after the asker's name.
     pub fn says(self) -> &'static str {
         match self {
-            Self::Network => "wants the network for",
+            Self::Network => "wants the network to run",
             Self::Unconfined => "wants to run outside the sandbox:",
             Self::Reserved => "wants to do what you reserved:",
             Self::Edit => "wants to edit",

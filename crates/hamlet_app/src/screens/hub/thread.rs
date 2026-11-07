@@ -25,13 +25,13 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, back, bare, caption, choice, close, crumb,
-    crumb_here, crumb_slash, crumbs, danger_button, filling,
+    Fills, ICON, action, back, bare, card_name, choice, close, crumb,
+    crumb_here, crumb_slash, crumbs, danger_button, filling, framed,
     hairline, note, primary_button, scroll_area,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::ellipsis::one_line;
+use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
@@ -247,12 +247,16 @@ fn session_menu() -> impl View {
     .within(bare())
 }
 
+/// Characters of a past session's title its path shows.
+const CRUMB_SHOWN: usize = 18;
+
 /// A page under the thread, as the path to it names it.
 #[derive(Clone, PartialEq)]
 enum Under {
     Prompt,
     Sessions,
-    /// A past session, read from the sessions, by when it began.
+    /// A past session, read from the sessions, by its title cut
+    /// short.
     Session(String),
 }
 
@@ -872,31 +876,41 @@ fn prompt_sections(
             .tone(Tone::Critical)
             .boxed();
     }
-    let parts = prompt
+    let sections = prompt
         .iter()
         .map(|section| {
-            column((
-                caption(
-                    source(&section.name).0.to_string(),
-                    Tone::Faint,
-                ),
-                // Each line as the model is given it, where Markdown
-                // would run them together.
-                hamlet_ui::markdown::fixed(
-                    &section.text.replace('\n', "  \n"),
-                    Tone::Body,
-                ),
-            ))
-            .gap(4.0)
+            let name = source(&section.name).0.to_string();
+            // Each line as the model is given it, where Markdown
+            // would run them together.
+            let text = hamlet_ui::markdown::fixed(
+                &section.text.replace('\n', "  \n"),
+                Tone::Body,
+            )
+            .boxed();
+            with_cx(move |cx| {
+                column((card_name(name, Tone::Body), text))
+                    .gap(cx.theme().space.gap / 2.0)
+            })
             .boxed()
         })
         .collect::<Vec<_>>();
-    // Clear of the scroll bar, which is drawn over the right edge of
+    // One read-only page, a line between each part and the next,
+    // clear of the scroll bar, which is drawn over the right edge of
     // the area and dims the letters under it.
-    column(parts)
-        .gap(14.0)
-        .padding(UiRect::right(px(12.0)))
-        .boxed()
+    with_cx(move |cx| {
+        let line = cx.theme().palette.gold_6;
+        let gap = cx.theme().space.section;
+        let mut parts = Vec::new();
+        for section in sections {
+            if !parts.is_empty() {
+                parts.push(hairline(line).boxed());
+            }
+            parts.push(section);
+        }
+        column((framed((column(parts).gap(gap),)),))
+            .padding(UiRect::right(px(12.0)))
+    })
+    .boxed()
 }
 
 /// What the page says the prompt is, and the way to copy it once it
@@ -966,7 +980,7 @@ pub(super) fn sessions() -> impl View {
             match (&history.reading, history.read()) {
                 (Some(_), Some(past)) => vec![
                     Under::Sessions,
-                    Under::Session(crate::history::began(past)),
+                    Under::Session(cut(&past.title, CRUMB_SHOWN)),
                 ],
                 (Some(reading), None) => vec![
                     Under::Sessions,

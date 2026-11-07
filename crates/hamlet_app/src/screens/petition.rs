@@ -29,7 +29,7 @@ use hamlet_protocol::client::{
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::styles::{
-    self, buttons, caption, command_chip, danger_button, framed,
+    self, buttons, caption, command_block, danger_button, framed,
     marked, note, primary_button,
 };
 use hamlet_ui::widgets::effects::Variant;
@@ -218,13 +218,7 @@ pub(crate) fn button(need: &Need, at: usize) -> AnyView {
     let Some(choice) = need.answers.get(at).cloned() else {
         return frame().boxed();
     };
-    let always = match need.detail {
-        WaitDetail::Approval {
-            always: Some(Lasting::Session),
-            ..
-        } => "Allow this session",
-        _ => "Allow always",
-    };
+    let always = lasting_words(need);
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
     let (which, text, rules, variant): (_, _, fn(&mut Cx), _) =
         match choice {
@@ -282,6 +276,45 @@ pub(crate) fn button(need: &Need, at: usize) -> AnyView {
             answer(world, &need, choice.clone());
         })
         .boxed()
+}
+
+/// The button of the lasting answer of `need`.
+fn lasting_words(need: &Need) -> &'static str {
+    match need.detail {
+        WaitDetail::Approval {
+            always: Some(Lasting::Session),
+            ..
+        } => "Allow this session",
+        _ => "Allow always",
+    }
+}
+
+/// What the lasting answer of `need` lets go, and for how long.
+fn scope(need: &Need) -> Option<String> {
+    let WaitDetail::Approval {
+        always: Some(lasting),
+        danger,
+        ..
+    } = &need.detail
+    else {
+        return None;
+    };
+    let who = &need.shown;
+    let lets = match (lasting, danger) {
+        (Lasting::Session, WaitDanger::Edit) => {
+            format!("{who}'s edits go ahead until it ends")
+        }
+        (Lasting::Session, _) => {
+            format!("{who}'s commands go ahead until it ends")
+        }
+        (Lasting::Grant, WaitDanger::Network) => {
+            format!("{who} keeps the network until you revoke it")
+        }
+        (Lasting::Grant, _) => {
+            format!("{who} may leave the sandbox until you revoke it")
+        }
+    };
+    Some(format!("{}: {lets}.", lasting_words(need)))
 }
 
 /// The edit that waits as `need`: its entry in the conversation
@@ -421,7 +454,7 @@ pub(crate) fn strip(need: &Need) -> AnyView {
                     WaitDetail::Approval { .. }
                 ) =>
             {
-                command_chip(need.about.clone()).boxed()
+                command_block(need.about.clone()).boxed()
             }
             (None, None) => {
                 note(need.about.clone()).tagged(MonoText).boxed()
@@ -436,6 +469,10 @@ pub(crate) fn strip(need: &Need) -> AnyView {
                 button(&need, 2),
             ])
             .boxed(),
+        };
+        let scope = match scope(&need) {
+            Some(words) => note(words).boxed(),
+            None => frame().boxed(),
         };
         let head = head(&need);
         // A form says its questions itself, and an approval's
@@ -470,7 +507,7 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             }
             None => frame().boxed(),
         };
-        cx.build(framed((head, line, about, answers)))
+        cx.build(framed((head, line, about, answers, scope)))
     })
 }
 

@@ -36,6 +36,9 @@ use crate::overview::heading;
 /// How wide the names of the settings are, so their values line up.
 const NAMES: f32 = 76.0;
 
+/// How wide the field of an amount in dollars is.
+const AMOUNT: f32 = 96.0;
+
 /// What the sheet shows of the agent, found from the world.
 #[derive(Clone, Debug, PartialEq)]
 struct Facts {
@@ -174,7 +177,7 @@ fn allowance_field(facts: &Facts) -> AnyView {
         .allowance
         .map(|dollars| format!("{dollars:.2}"))
         .unwrap_or_default();
-    hinted(
+    column((hinted(
         text_field(had.clone(), move |world, typed| {
             let typed = typed.trim().trim_start_matches('$').trim();
             if typed != had {
@@ -188,7 +191,8 @@ fn allowance_field(facts: &Facts) -> AnyView {
         })
         .rules(text_input),
         "No limit",
-    )
+    ),))
+    .width(px(AMOUNT))
     .boxed()
 }
 
@@ -425,8 +429,7 @@ pub(super) fn card(
     .boxed()
 }
 
-/// Its whole prompt, and a reflection asked now: what acts on the
-/// whole agent, over its parts.
+/// Its whole prompt, which acts on no one part of it.
 fn pages() -> impl View {
     buttons(vec![
         action(Glyph::Notes, "Prompt", super::thread::show_prompt)
@@ -434,21 +437,23 @@ fn pages() -> impl View {
                 note("Everything it is told at a turn's start")
             })
             .boxed(),
-        action(Glyph::Moon, "Note what it learned", |world| {
-            if let Some(to) = super::papers::selected(world) {
-                world.trigger(
-                    hamlet_client::messages::ChiefMessage {
-                        to,
-                        text: "/reflect".into(),
-                    },
-                );
-            }
-        })
-        .tooltip(|| {
-            note("It writes what it learned so far to its memory")
-        })
-        .boxed(),
     ])
+}
+
+/// A reflection asked now, which writes to its memory.
+fn reflect() -> AnyView {
+    action(Glyph::Moon, "Note what it learned", |world| {
+        if let Some(to) = super::papers::selected(world) {
+            world.trigger(hamlet_client::messages::ChiefMessage {
+                to,
+                text: "/reflect".into(),
+            });
+        }
+    })
+    .tooltip(|| {
+        note("It writes what it learned so far to its memory")
+    })
+    .boxed()
 }
 
 /// The sheet that takes the place of the thread of `agent` while it
@@ -460,7 +465,12 @@ pub(super) fn sheet(agent: Entity) -> impl View {
             pages(),
             facts_cards(agent, head),
             memory::character_section(),
-            card(Glyph::Notes, "Memory", None, memory::view()),
+            card(
+                Glyph::Notes,
+                "Memory",
+                Some(reflect()),
+                memory::view(),
+            ),
             card(Glyph::Book, "Skills", None, memory::skills()),
             facts_cards(agent, powers),
         ))

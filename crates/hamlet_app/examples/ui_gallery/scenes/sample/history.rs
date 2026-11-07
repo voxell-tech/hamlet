@@ -66,6 +66,12 @@ pub(super) fn setup(world: &mut World, reading: bool) {
             1..1,
             [step(0, "notes/rows.md"), step(1, "notes/spring.md")],
         );
+        // A minute apart, the last when the session was last used.
+        let last = items.len() as u64 - 1;
+        for (at, item) in items.iter_mut().enumerate() {
+            item.at = pasts[1].modified as u64
+                - (last - at as u64) * 60_000;
+        }
         let transcript = Transcript::from_items(items);
         let holder = world
             .spawn((

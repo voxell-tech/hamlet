@@ -20,6 +20,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Realm
             | Scene::Desk
             | Scene::Toasts
+            | Scene::Memory
+            | Scene::Character
+            | Scene::Prompt
     ) {
         return;
     }
