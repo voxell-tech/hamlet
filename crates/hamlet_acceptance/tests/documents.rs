@@ -314,6 +314,7 @@ async fn prices_and_notes_a_model_in_the_catalogue() {
         id,
         model: "faux::faux-1".into(),
         set: EditCatalogueSet {
+            images: None,
             price: Some(Some(Price {
                 input: 0.12,
                 output: 0.34,
@@ -343,6 +344,7 @@ async fn prices_and_notes_a_model_in_the_catalogue() {
         id,
         model: "missing::model".into(),
         set: EditCatalogueSet {
+            images: None,
             price: None,
             note: None,
         },
