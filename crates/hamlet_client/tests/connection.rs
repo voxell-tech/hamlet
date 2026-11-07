@@ -94,6 +94,7 @@ fn say(app: &mut App, text: &str) -> protocol::RequestId {
     app.world_mut().resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Say(protocol::Say {
             id,
+            images: Vec::new(),
             to: protocol::AgentId(2),
             text: text.into(),
         })

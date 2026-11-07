@@ -61,6 +61,8 @@ fn reply(
             kind,
             text: text.into(),
             upload: upload.map(str::to_string),
+            image: None,
+            images: Vec::new(),
         }),
     );
     settle(app);
@@ -654,6 +656,8 @@ fn a_walk_and_a_part_read_off_the_frame_each_wake_the_window() {
             kind: protocol::ReplyKind::Notice,
             text: "Ready".into(),
             upload: Some("upload-one".into()),
+            image: None,
+            images: Vec::new(),
         }),
     );
     // The reply starts the part's read, which wakes the window too.

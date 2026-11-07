@@ -33,6 +33,7 @@ use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Kind;
 use hamlet_protocol::client as protocol;
+use hamlet_realm::hand::ImageDrop;
 use hamlet_ui::styles::{
     Fills, LINE, Looks, Tipped, lettered, note, small_rules,
 };
@@ -963,7 +964,8 @@ pub fn transcript() -> impl View {
         x: OverflowAxis::Clip,
         y: OverflowAxis::Scroll,
     })
-    .tagged(ChatScroll);
+    .tagged(ChatScroll)
+    .tagged(ImageDrop);
     // The way back to the end, over the corner of the chat, offered
     // only when the chat is not at its end.
     let back = each(

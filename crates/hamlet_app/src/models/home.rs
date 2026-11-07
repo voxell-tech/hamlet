@@ -4,8 +4,8 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    self, BehaviorExt, FrameProps, TooltipExt, label, number_field,
-    row,
+    self, BehaviorExt, FrameProps, TooltipExt, column, label,
+    number_field, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::outbox::Outbox;
@@ -19,6 +19,7 @@ use hamlet_ui::styles::{
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
 use super::choice::home_default;
@@ -184,6 +185,7 @@ fn price(name: &str, output: bool) -> AnyView {
                     world,
                     &name,
                     protocol::EditCatalogueSet {
+                        images: None,
                         price: Some(Some(price)),
                         note: None,
                     },
@@ -194,6 +196,164 @@ fn price(name: &str, output: bool) -> AnyView {
             .precision(2)
             .width(px(PRICE_WIDE))
             .rules(text_input)
+            .boxed()
+        },
+    )
+    .within(bare())
+    .boxed()
+}
+
+const LIMIT_WIDE: f32 = 72.0;
+
+/// The bytes in a megabyte of an image's limit.
+const MEGABYTE: f64 = 1_048_576.0;
+
+/// Sets what the model `name` takes of images: `None` leaves it to
+/// the endpoint's listing, which for a custom endpoint is none.
+fn save_images(
+    world: &mut World,
+    name: &str,
+    images: Option<protocol::ImageInput>,
+) {
+    catalogue(
+        world,
+        name,
+        protocol::EditCatalogueSet {
+            images: Some(images),
+            price: None,
+            note: None,
+        },
+    );
+}
+
+/// The field of one limit of the model `name`, showing `value`,
+/// that `set` writes into what the model takes. `range` is what it
+/// may be, `step` how much a pixel of dragging changes it, and
+/// `decimals` how many it is shown with.
+fn limit(
+    name: &str,
+    title: &'static str,
+    value: f64,
+    range: (f64, f64),
+    (step, decimals): (f64, usize),
+    set: fn(&mut protocol::ImageInput, f64),
+) -> AnyView {
+    let name = name.to_string();
+    row((
+        section(title),
+        number_field(value, move |world, value: f64| {
+            let mut input = world
+                .resource::<Shelf>()
+                .models
+                .iter()
+                .find(|model| model.name == name)
+                .and_then(|model| model.images.clone())
+                .unwrap_or_default();
+            set(&mut input, value);
+            save_images(world, &name, Some(input));
+        })
+        .range(range.0, range.1)
+        .step(step)
+        .precision(decimals)
+        .width(px(LIMIT_WIDE))
+        .rules(text_input),
+    ))
+    .align(AlignItems::Center)
+    .boxed()
+}
+
+/// A switch that says whether the model `name` takes images, and the
+/// limits it takes them within once it does. A model its endpoint
+/// lists as taking images keeps doing so when the switch is off.
+fn images(name: &str) -> AnyView {
+    let (known, name) = (name.to_string(), name.to_string());
+    keyed(
+        resource::<Shelf, _>(move |shelf| {
+            shelf
+                .models
+                .iter()
+                .find(|model| model.name == known)
+                .map(|model| model.images.clone())
+        }),
+        move |model| {
+            let Some(images) = model else {
+                return row(()).boxed();
+            };
+            let switched = name.clone();
+            let toggle = labelled_switch(
+                "IMAGES",
+                images.is_some(),
+                move |world, on| {
+                    let input =
+                        on.then(protocol::ImageInput::default);
+                    save_images(world, &switched, input);
+                },
+            );
+            let Some(input) = images else {
+                return row((toggle,)).boxed();
+            };
+            row((
+                toggle,
+                limit(
+                    &name,
+                    "WIDTH",
+                    f64::from(
+                        input
+                            .max_width
+                            .unwrap_or(protocol::ImageInput::WIDTH),
+                    ),
+                    (1.0, 16_000.0),
+                    (10.0, 0),
+                    |input, value| {
+                        input.max_width = Some(value as u32);
+                    },
+                ),
+                limit(
+                    &name,
+                    "HEIGHT",
+                    f64::from(
+                        input
+                            .max_height
+                            .unwrap_or(protocol::ImageInput::HEIGHT),
+                    ),
+                    (1.0, 16_000.0),
+                    (10.0, 0),
+                    |input, value| {
+                        input.max_height = Some(value as u32);
+                    },
+                ),
+                limit(
+                    &name,
+                    "MB",
+                    input
+                        .max_bytes
+                        .unwrap_or(protocol::ImageInput::BYTES)
+                        as f64
+                        / MEGABYTE,
+                    (0.5, 20.0),
+                    (0.1, 1),
+                    |input, value| {
+                        input.max_bytes =
+                            Some((value * MEGABYTE) as u64);
+                    },
+                ),
+                limit(
+                    &name,
+                    "PER LINE",
+                    f64::from(
+                        input.per_line.unwrap_or(
+                            protocol::ImageInput::PER_LINE,
+                        ),
+                    ),
+                    (1.0, f64::from(protocol::ImageInput::PER_LINE)),
+                    (0.2, 0),
+                    |input, value| {
+                        input.per_line = Some(value as u32);
+                    },
+                ),
+            ))
+            .gap(8.0)
+            .align(AlignItems::Center)
             .boxed()
         },
     )
@@ -290,13 +450,20 @@ fn entry(model: &protocol::Listed, default: &str) -> AnyView {
             .on_activate(move |world| save_default(world, &chosen))
             .boxed()
     };
-    columns(
+    let table = columns(
         words,
         provider,
         (price(&name, false), price(&name, true)),
         context,
         end,
-    )
+    );
+    // The image limits sit under the name, past its mark.
+    column((
+        table,
+        row((images(&name),))
+            .padding(UiRect::left(px(MARK + MARK_GAP))),
+    ))
+    .gap(4.0)
     .boxed()
 }
 

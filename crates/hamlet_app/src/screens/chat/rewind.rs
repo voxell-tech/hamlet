@@ -28,6 +28,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{Cx, View, built};
 
 use super::Draft;
+use super::attach::Attached;
 use super::bubble::Bubble;
 use super::reply::{Replying, unreplied};
 use crate::convo::Convo;
@@ -222,10 +223,12 @@ fn retype(
     convo: Res<Convo>,
     mut draft: ResMut<Draft>,
     mut replying: ResMut<Replying>,
+    mut attached: ResMut<Attached>,
 ) {
     if rewound.event().chat != convo.session {
         return;
     }
+    attached.give_back(&rewound.event().images);
     let text = &rewound.event().text;
     let (answers, words) = match unreplied(text) {
         Some((answers, words)) => {

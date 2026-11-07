@@ -1206,6 +1206,8 @@ mod tests {
                 kind: protocol::ReplyKind::Error,
                 text: "The charter was refused.".into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
             }),
         );
         settle(&mut app);
@@ -1249,6 +1251,8 @@ mod tests {
                 kind: protocol::ReplyKind::Notice,
                 text: "The default charter is back.".into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
             }),
         );
         let read = app

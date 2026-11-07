@@ -37,6 +37,7 @@ pub(crate) fn catalogue() -> Vec<protocol::Listed> {
             default_effort: None,
             efforts: Vec::new(),
             fast: false,
+            images: None,
             name: format!("openrouter::{name}"),
             note: String::new(),
             price: Some(protocol::Price { input, output }),

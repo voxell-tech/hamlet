@@ -6,6 +6,7 @@
 //! them (`rewind`). A message can `reply` to another, and `quote`
 //! lines as chat apps do.
 
+mod attach;
 pub(crate) mod bubble;
 mod change;
 mod commands;
@@ -54,6 +55,7 @@ use hamlet_client::messages::{
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm as agents;
 use hamlet_protocol::client as protocol;
+use hamlet_realm::hand::ImageDrop;
 use hamlet_realm::orders::{Decree, Tell};
 use hamlet_ui::styles::{note, text_input};
 use hamlet_ui::theme::HamletTheme;
@@ -114,7 +116,12 @@ pub fn plugin(app: &mut App) {
         // A row fades while a rewind that would forget it is asked
         // about.
         .init_resource::<crate::world_menu::Open>()
-        .add_plugins((rewind::plugin, lines::plugin, reply::plugin))
+        .add_plugins((
+            attach::plugin,
+            rewind::plugin,
+            lines::plugin,
+            reply::plugin,
+        ))
         // The rows are folded before fynix mounts them, so a received
         // reply shows in the update it arrives.
         .add_systems(
@@ -267,7 +274,16 @@ pub(crate) fn quote_in_field(world: &mut World, words: &str) {
 /// Sends `text` to the open chat.
 pub fn send(world: &mut World, text: String) {
     let text = text.trim().to_string();
-    if text.is_empty() {
+    let images = world
+        .get_resource::<attach::Attached>()
+        .map_or(Some(Vec::new()), attach::Attached::ready);
+    // A line of images alone is a line, once they are all kept.
+    let Some(images) = images else {
+        world.resource_mut::<Draft>().notice =
+            "An image is still being sent, or was not kept.".into();
+        return;
+    };
+    if text.is_empty() && images.is_empty() {
         return;
     }
     if matches!(
@@ -288,7 +304,12 @@ pub fn send(world: &mut World, text: String) {
     };
     // What is sent is at the end of the chat.
     to_end(world);
-    world.trigger(ChiefMessage { to, text });
+    world.trigger(ChiefMessage { to, text, images });
+    if let Some(mut attached) =
+        world.get_resource_mut::<attach::Attached>()
+    {
+        attached.clear();
+    }
 }
 
 /// A chief's command about a hamlet, addressed to its mayor.
@@ -309,7 +330,7 @@ pub(crate) fn command(world: &mut World, text: String) {
 /// refusal is toasted rather than said only in a chat.
 fn command_to(world: &mut World, agent: Entity, text: String) {
     if let Some(to) = agents::id_of(world, agent) {
-        world.trigger(ChiefMessage { to, text });
+        world.trigger(ChiefMessage::words(to, text));
         crate::toasts::watch_last(world);
     }
 }
@@ -331,7 +352,7 @@ fn told(tell: On<Tell>, mut commands: Commands) {
         let Some((to, _)) = convo::id_and_shown(world, agent) else {
             return;
         };
-        world.trigger(ChiefMessage { to, text });
+        world.trigger(ChiefMessage::words(to, text));
         world.flush();
     });
 }
@@ -627,7 +648,11 @@ fn message_bar_in(
     let card = column((
         commands::list(),
         reply::preview(),
-        row((field,)),
+        attach::indicator(),
+        attach::strip(),
+        row((attach::control(), field))
+            .gap(gap)
+            .align(AlignItems::Center),
         tools,
     ))
     .gap(gap / 2.0)
@@ -645,6 +670,7 @@ fn message_bar_in(
         .min_height(px(15.0)),
     ))
     .gap(gap / 2.0)
+    .tagged(ImageDrop)
 }
 
 /// The composer's card: a text field's look, rounder, its frame
@@ -813,6 +839,7 @@ mod tests {
         app.world_mut().trigger(hamlet_client::messages::Rewound {
             chat: session,
             text,
+            images: Vec::new(),
         });
         app.update();
         assert_eq!(
@@ -892,6 +919,8 @@ mod tests {
                     kind: protocol::ReplyKind::Error,
                     text,
                     upload: None,
+                    image: None,
+                    images: Vec::new(),
                 })
             };
             hamlet_client::receive(app.world_mut(), message);
@@ -920,6 +949,8 @@ mod tests {
                 text: "Only the settings panel should show this."
                     .into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
             }),
         );
         app.update();
@@ -1285,6 +1316,7 @@ mod tests {
                     entry: Entry::Chief {
                         name: "chief".into(),
                         text: "Go".into(),
+                        images: Vec::new(),
                     },
                 },
                 tool("done:0", Some(0)),
@@ -1355,6 +1387,7 @@ mod tests {
                 entry: Entry::Chief {
                     name: "chief".into(),
                     text: "Change these words".into(),
+                    images: Vec::new(),
                 },
             }]),
         );
@@ -1404,6 +1437,8 @@ mod tests {
                 kind: protocol::ReplyKind::Rewound,
                 text: "Change these words".into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
             }),
         );
         app.update();

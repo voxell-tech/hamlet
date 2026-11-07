@@ -24,6 +24,7 @@ pub fn plugin(app: &mut App) {
                 outbox.send(|id| {
                     protocol::ClientMessage::Say(protocol::Say {
                         id,
+                        images: message.images.clone(),
                         to: message.to,
                         text: message.text.clone(),
                     })
@@ -98,6 +99,19 @@ pub fn plugin(app: &mut App) {
 pub struct ChiefMessage {
     pub to: protocol::AgentId,
     pub text: String,
+    /// The images the line carries, already uploaded (C33).
+    pub images: Vec<protocol::ImageId>,
+}
+
+impl ChiefMessage {
+    /// A line of words alone.
+    pub fn words(to: protocol::AgentId, text: String) -> Self {
+        ChiefMessage {
+            to,
+            text,
+            images: Vec::new(),
+        }
+    }
 }
 
 /// A chief's answer to a received need.
@@ -145,12 +159,13 @@ pub struct JobFinished {
     pub chat: Entity,
 }
 
-/// The removed chief words returned to a chat's input.
+/// The removed chief words and images returned to a chat's input.
 #[derive(EntityEvent, Clone, Debug)]
 pub struct Rewound {
     #[event_target]
     pub chat: Entity,
     pub text: String,
+    pub images: Vec<protocol::ImageId>,
 }
 
 /// A server answer paired with its request id.
@@ -229,6 +244,7 @@ pub(crate) fn receive(
             world.trigger(Rewound {
                 chat,
                 text: reply.text.clone(),
+                images: reply.images.clone(),
             });
         }
         let refusal = match message {

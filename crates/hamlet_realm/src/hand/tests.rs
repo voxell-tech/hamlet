@@ -16,20 +16,25 @@ use crate::sky::CameraSettings;
 use crate::testing::receive_state;
 use crate::{Clock, bubble};
 
-/// The deeds the hand told the world of and its wishes of the core.
+/// The deeds the hand told the world of, its wishes of the core and
+/// the images it told of.
 #[derive(Resource, Default)]
 struct Log {
     played: Vec<Play>,
     wishes: Vec<Wish>,
+    images: Vec<PathBuf>,
 }
 
 fn collect(
     mut played: MessageReader<Played>,
     mut wishes: MessageReader<Wish>,
+    mut images: MessageReader<ImageDropped>,
     mut log: ResMut<Log>,
 ) {
     log.played.extend(played.read().map(|played| played.what));
     log.wishes.extend(wishes.read().cloned());
+    log.images
+        .extend(images.read().map(|dropped| dropped.path.clone()));
 }
 
 /// A world of robots at their porches, each with its agent, the box
@@ -182,6 +187,49 @@ fn a_file_dropped_on_a_robot_or_its_house_is_handed_to_its_agent() {
     cast.run(0.5);
     assert!(cast.wishes().is_empty());
     assert!(cast.played_at().is_empty());
+}
+
+#[test]
+fn a_file_goes_where_the_pointer_is_first_seen() {
+    use bevy::picking::backend::HitData;
+    use bevy::picking::pointer::PointerId;
+
+    let mut cast = Cast::new(1);
+    let house = Thing::House(cast.agents[0]);
+    let panel = cast.app.world_mut().spawn(ImageDrop).id();
+    let field = cast.app.world_mut().spawn(ChildOf(panel)).id();
+    let drop = |cast: &mut Cast, path: &str| {
+        cast.app.world_mut().write_message(
+            FileDragAndDrop::DroppedFile {
+                window: Entity::PLACEHOLDER,
+                path_buf: PathBuf::from(path),
+            },
+        );
+    };
+    let images = |cast: &mut Cast| {
+        let mut log = cast.app.world_mut().resource_mut::<Log>();
+        std::mem::take(&mut log.images)
+    };
+
+    // On the chat an image is its own and another file is let lie.
+    cast.app.world_mut().resource_mut::<HoverMap>().insert(
+        PointerId::Mouse,
+        [(field, HitData::new(Entity::PLACEHOLDER, 0.0, None, None))]
+            .into(),
+    );
+    drop(&mut cast, "/desk/pear.PNG");
+    drop(&mut cast, "/desk/list.txt");
+    cast.run(0.3);
+    assert_eq!(images(&mut cast), [PathBuf::from("/desk/pear.PNG")]);
+    assert!(cast.wishes().is_empty());
+
+    // On a house the same image is a gift.
+    cast.app.world_mut().resource_mut::<HoverMap>().clear();
+    cast.hover(Some(house));
+    drop(&mut cast, "/desk/pear.png");
+    cast.run(0.3);
+    assert!(images(&mut cast).is_empty());
+    assert_eq!(cast.wishes().len(), 1);
 }
 
 /// The client and the orders on `cast`, with letters walked on

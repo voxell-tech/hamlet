@@ -302,10 +302,10 @@ fn resume(world: &mut World) {
         return;
     };
     close(world);
-    world.trigger(ChiefMessage {
+    world.trigger(ChiefMessage::words(
         to,
-        text: format!("/resume {number}"),
-    });
+        format!("/resume {number}"),
+    ));
     hub::show(world, Showing::Thread);
     show_tab(world, HUB);
 }

@@ -40,6 +40,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<Travel>()
         .init_resource::<HoverMap>()
         .add_message::<Wish>()
+        .add_message::<ImageDropped>()
         .add_message::<Tap>()
         .add_message::<FileDragAndDrop>()
         .add_observer(touch::tap)
@@ -254,6 +255,17 @@ pub struct Hand {
     letters: Vec<(PathBuf, f32)>,
     /// The robot under the pointer that could be lifted.
     within: Option<Entity>,
+}
+
+/// A node, or any node in it, that takes the image files dropped on
+/// it, which the hand tells as [`ImageDropped`].
+#[derive(Component)]
+pub struct ImageDrop;
+
+/// An image file dropped on an [`ImageDrop`].
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
+pub struct ImageDropped {
+    pub path: PathBuf,
 }
 
 /// The hand's hold on the thing under the pointer.

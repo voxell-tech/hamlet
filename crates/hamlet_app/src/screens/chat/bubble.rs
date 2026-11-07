@@ -320,6 +320,11 @@ fn said<B: Board>(
                             .boxed(),
                     );
                 }
+                if let Some(Entry::Chief { images, .. }) = entry
+                    && !images.is_empty()
+                {
+                    inside.push(super::attach::sent(images).boxed());
+                }
                 let said = linked.unwrap_or_else(|| {
                     label(component::<Transcript, _>(
                         session,

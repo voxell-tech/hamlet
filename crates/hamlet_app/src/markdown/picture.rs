@@ -57,23 +57,29 @@ fn shown(
         let theme = cx.theme();
         // A node of its own, whose image no paint of a view tints
         // and whose height follows the width it ends up with.
-        cx.world.spawn((
-            Node {
-                width: percent(100.0),
-                aspect_ratio: Some(outer.x / outer.y),
-                border: UiRect::all(px(edge)),
-                border_radius: BorderRadius::all(px(theme
-                    .space
-                    .round)),
-                ..Node::default()
-            },
-            BackgroundColor(theme.palette.code),
-            BorderColor::all(theme.palette.gold_6),
-            ImageNode::new(image).with_mode(NodeImageMode::Stretch),
-            anchor,
-            EntityCursor(SystemCursorIcon::Pointer),
-            ChildOf(within),
-        ));
+        let node = cx
+            .world
+            .spawn((
+                Node {
+                    width: percent(100.0),
+                    aspect_ratio: Some(outer.x / outer.y),
+                    border: UiRect::all(px(edge)),
+                    border_radius: BorderRadius::all(px(theme
+                        .space
+                        .round)),
+                    ..Node::default()
+                },
+                BackgroundColor(theme.palette.code),
+                BorderColor::all(theme.palette.gold_6),
+                ImageNode::new(image)
+                    .with_mode(NodeImageMode::Stretch),
+                EntityCursor(SystemCursorIcon::Pointer),
+                ChildOf(within),
+            ))
+            .id();
+        if let Some(anchor) = anchor {
+            cx.world.entity_mut(node).insert(anchor);
+        }
         within
     });
     let mut parts = vec![picture];
@@ -239,7 +245,10 @@ pub(crate) fn picture_view(
                                 cx.build(card)
                             })
                         }
-                        (Source::File(_), State::Failed) => {
+                        (
+                            Source::File(_) | Source::Image(_),
+                            State::Failed,
+                        ) => {
                             let (caption, target) =
                                 (caption.clone(), target.clone());
                             AnyView::new(move |cx: &mut Cx| {
@@ -251,7 +260,7 @@ pub(crate) fn picture_view(
                                 cx.build(card)
                             })
                         }
-                        (Source::File(_), _) => {
+                        (Source::File(_) | Source::Image(_), _) => {
                             let (wide, tall) =
                                 (most.x, settings.picture_wait);
                             AnyView::new(move |cx: &mut Cx| {

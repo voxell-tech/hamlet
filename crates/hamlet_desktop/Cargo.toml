@@ -13,17 +13,21 @@ workspace = true
 # Bevy's parts, not the whole: nothing here draws.
 [dependencies]
 hamlet_client.workspace = true
+arboard.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_log.workspace = true
 bevy_time.workspace = true
 bevy_window.workspace = true
+image.workspace = true
 rfd.workspace = true
 tokio.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 futures.workspace = true
 zbus.workspace = true
+# The clipboard of a Wayland session; X11 sessions keep their own.
+arboard = { workspace = true, features = ["wayland-data-control"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true

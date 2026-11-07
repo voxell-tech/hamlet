@@ -234,6 +234,7 @@ mod tests {
                             author: None,
                             rewindable: None,
                             tool: None,
+                            images: Vec::new(),
                         },
                         replaces: None,
                     },

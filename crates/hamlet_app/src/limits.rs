@@ -916,6 +916,8 @@ mod tests {
                 kind: protocol::ReplyKind::Error,
                 text: "The daily cost was refused.".into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
             }),
         );
         app.update();

@@ -25,7 +25,9 @@ use bevy::render::render_resource::{
 };
 use bevy::tasks::{AsyncComputeTaskPool, TaskPool};
 use hamlet_client::Tokio;
+use hamlet_client::images::{Download, ImageArrived, ImageMissing};
 use hamlet_client::messages::JobFinished;
+use hamlet_protocol::client::{ImageId, ImageSize};
 use hamlet_ui::markdown::{Anchor, PictureView, Target};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
@@ -63,6 +65,8 @@ pub fn plugin(app: &mut App) {
         .add_observer(show)
         .add_observer(unshow)
         .add_observer(look_again)
+        .add_observer(arrived_image)
+        .add_observer(missing_image)
         .add_systems(Update, take.run_if(arrived));
 }
 
@@ -73,14 +77,19 @@ pub(crate) enum Source {
     File(PathBuf),
     /// A web address.
     Web(String),
+    /// An image the server keeps for a line (C33).
+    Image(ImageId),
 }
 
 impl Source {
-    /// The place a click on the picture leads.
-    pub(crate) fn anchor(&self) -> Anchor {
+    /// The place a click on the picture leads, if it leads anywhere.
+    pub(crate) fn anchor(&self) -> Option<Anchor> {
         match self {
-            Source::File(file) => Anchor::File(file.clone()),
-            Source::Web(address) => Anchor::Web(address.clone()),
+            Source::File(file) => Some(Anchor::File(file.clone())),
+            Source::Web(address) => {
+                Some(Anchor::Web(address.clone()))
+            }
+            Source::Image(_) => None,
         }
     }
 }
@@ -237,7 +246,7 @@ impl Pictures {
             .keys()
             .filter_map(|source| match source {
                 Source::File(path) => Some((source, path)),
-                Source::Web(_) => None,
+                Source::Web(_) | Source::Image(_) => None,
             })
             .filter_map(|(source, path)| {
                 let now = stamp(path)?;
@@ -350,6 +359,69 @@ pub(crate) fn find(
             Some(Source::File(file))
         }
     }
+}
+
+/// Asks for the picture `source` names, once: a file that is read
+/// now or an image the server is asked for. A picture of the web
+/// waits for [`fetch()`].
+pub(crate) fn want(world: &mut World, source: &Source) {
+    match source {
+        Source::File(path) => {
+            let bounds = bounds(&settings(world));
+            world
+                .get_resource_or_init::<Pictures>()
+                .ask(path, bounds);
+        }
+        Source::Image(image) => {
+            let mut pictures =
+                world.get_resource_or_init::<Pictures>();
+            if pictures.state(source) != State::Unasked {
+                return;
+            }
+            pictures.put(source.clone(), None, State::Loading);
+            world.trigger(Download {
+                image: image.clone(),
+                size: ImageSize::Thumbnail,
+            });
+        }
+        Source::Web(_) => {}
+    }
+}
+
+/// Keeps the bytes of a thumbnail the server sent as a picture, read
+/// off the frame.
+fn arrived_image(
+    arrived: On<ImageArrived>,
+    settings: Res<ChatSettings>,
+    pictures: Res<Pictures>,
+) {
+    if arrived.size != ImageSize::Thumbnail {
+        return;
+    }
+    let (bounds, tx) = (bounds(&settings), pictures.tx.clone());
+    let source = Source::Image(arrived.image.clone());
+    let bytes = arrived.bytes.clone();
+    AsyncComputeTaskPool::get_or_init(TaskPool::default)
+        .spawn(async move {
+            let pixels = load::decode(&bytes, bounds.pixels);
+            let _ = tx.send((source, None, pixels));
+        })
+        .detach();
+}
+
+/// Gives up on a thumbnail the server did not give.
+fn missing_image(
+    missing: On<ImageMissing>,
+    mut pictures: ResMut<Pictures>,
+) {
+    if missing.size != ImageSize::Thumbnail {
+        return;
+    }
+    pictures.settle(
+        Source::Image(missing.image.clone()),
+        None,
+        State::Failed,
+    );
 }
 
 /// Fetches the picture at `address`, which a chief asked to see.

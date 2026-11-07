@@ -22,7 +22,7 @@ use hamlet_ui::{View, built};
 use super::{ChatField, Draft};
 
 /// The editable text inside the field.
-fn typing(
+pub(super) fn typing(
     root: &Query<&Children, With<ChatField>>,
     texts: &Query<&EditableText>,
 ) -> Option<Entity> {

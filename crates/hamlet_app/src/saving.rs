@@ -237,6 +237,8 @@ mod tests {
                 kind: protocol::ReplyKind::Notice,
                 text: "Saved.".into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
             }),
         );
         app.update();

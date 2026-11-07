@@ -2,12 +2,17 @@
 //! the world.
 
 use bevy::ecs::system::SystemParam;
+use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
+use hamlet_client::images::is_image_file;
 use hamlet_client::realm::{Deeds, Mayor};
 
 use super::toys::{self, Kind, Toys};
-use super::{Hand, Mood, PlaySettings, Wish, is_free, met, toward};
+use super::{
+    Hand, ImageDrop, ImageDropped, Mood, PlaySettings, Wish, is_free,
+    met, toward,
+};
 use crate::Clock;
 use crate::generator::{Passage, Robot};
 use crate::hamlet::Housed;
@@ -41,20 +46,46 @@ pub(super) struct Addressees<'w, 's> {
     >,
 }
 
-/// The messages a letter handed over writes: the wish to give it, and
-/// what is played.
+/// The nodes that take image files, and whether the pointer is on
+/// one.
+#[derive(SystemParam)]
+pub(super) struct ImageTargets<'w, 's> {
+    over: Res<'w, HoverMap>,
+    targets: Query<'w, 's, (), With<ImageDrop>>,
+    parents: Query<'w, 's, &'static ChildOf>,
+}
+
+impl ImageTargets<'_, '_> {
+    fn is_pointed_at(&self) -> bool {
+        self.over.values().flat_map(|hits| hits.keys()).any(|&hit| {
+            self.targets.contains(hit)
+                || self
+                    .parents
+                    .iter_ancestors(hit)
+                    .any(|node| self.targets.contains(node))
+        })
+    }
+}
+
+/// The messages a letter handed over writes: the wish to give it,
+/// what is played, and an image dropped on a chat.
 #[derive(SystemParam)]
 pub(super) struct Writers<'w> {
     played: MessageWriter<'w, Played>,
     wishes: MessageWriter<'w, Wish>,
+    images: MessageWriter<'w, ImageDropped>,
 }
 
-/// Hands each file dropped on the window to the agent whose robot
-/// or house the pointer is on. One that fell on nothing is let lie.
+/// Routes each file dropped on the window by where the pointer is
+/// first seen. On an [`ImageDrop`] an image file is told as
+/// [`ImageDropped`] and another file is let lie. On a robot or its
+/// house a file goes to its agent. One that fell on nothing is let
+/// lie.
 pub(super) fn letters(
     mut commands: Commands,
     post: Post,
     addressees: Addressees,
+    image_targets: ImageTargets,
     writers: Writers,
     mut dropped: MessageReader<FileDragAndDrop>,
     mut hand: ResMut<Hand>,
@@ -76,12 +107,8 @@ pub(super) fn letters(
     let Writers {
         mut played,
         mut wishes,
+        mut images,
     } = writers;
-    if !deeds.is_some_and(|deeds| deeds.is_supported("give")) {
-        dropped.clear();
-        hand.letters.clear();
-        return;
-    }
     for drop in dropped.read() {
         if let FileDragAndDrop::DroppedFile { path_buf, .. } = drop {
             hand.letters.push((path_buf.clone(), set.letter_wait));
@@ -92,8 +119,18 @@ pub(super) fn letters(
     }
     // The spot it fell on is known once the pointer is seen on
     // something.
+    if image_targets.is_pointed_at() {
+        for (path, _) in hand.letters.drain(..) {
+            if is_image_file(&path) {
+                images.write(ImageDropped { path });
+            }
+        }
+        return;
+    }
+    let gives = deeds.is_some_and(|deeds| deeds.is_supported("give"));
     let to = hovered
         .0
+        .filter(|_| gives)
         .and_then(|thing| met(thing, &boxes, &plain, &agents));
     let Some((to, robot)) = to else {
         let dt = time.delta_secs();

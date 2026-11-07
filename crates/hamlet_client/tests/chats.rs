@@ -140,7 +140,7 @@ fn live_turns_equal_the_transcript_read_back_and_emit_each_operation_once()
     let said = world.get::<Transcript>(chat).unwrap();
     assert_eq!(said.items().len(), 4);
     assert!(
-        matches!(&said.items()[0].entry, Entry::Chief { name, text } if name == "chief" && text == "Hello, Hand.")
+        matches!(&said.items()[0].entry, Entry::Chief { name, text, .. } if name == "chief" && text == "Hello, Hand.")
     );
     assert!(
         matches!(&said.items()[1].entry, Entry::Reasoning(text) if text == "I will greet the chief.")
@@ -595,6 +595,8 @@ fn a_refused_page_can_be_requested_again() {
                 kind: protocol::ReplyKind::Error,
                 text: "No page".into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
             })
         };
         receive(app.world_mut(), response);
@@ -623,6 +625,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
             author: None,
             rewindable: None,
             tool: None,
+            images: Vec::new(),
         }
     };
     for (id, kind, text) in [
@@ -648,7 +651,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     }
     let said = app.world().get::<Transcript>(chat).unwrap();
     assert!(
-        matches!(&said.item("chief").unwrap().entry, Entry::Chief { name, text } if name == "chief" && text == "Chief words")
+        matches!(&said.item("chief").unwrap().entry, Entry::Chief { name, text, .. } if name == "chief" && text == "Chief words")
     );
     assert!(
         matches!(&said.item("notice").unwrap().entry, Entry::Notice(text) if text == "A notice")

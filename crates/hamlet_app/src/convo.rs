@@ -134,10 +134,10 @@ pub(crate) fn new_session(world: &mut World) {
         return;
     };
     seat_as(world, agent, to, with);
-    world.trigger(hamlet_client::messages::ChiefMessage {
+    world.trigger(hamlet_client::messages::ChiefMessage::words(
         to,
-        text: "/new".into(),
-    });
+        "/new".into(),
+    ));
 }
 
 fn seat_as(

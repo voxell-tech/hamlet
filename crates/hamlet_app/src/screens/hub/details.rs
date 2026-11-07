@@ -496,10 +496,12 @@ fn prompt() -> AnyView {
 fn reflect() -> AnyView {
     action(Glyph::Rename, "Note what it learned", |world| {
         if let Some(to) = super::papers::selected(world) {
-            world.trigger(hamlet_client::messages::ChiefMessage {
-                to,
-                text: "/reflect".into(),
-            });
+            world.trigger(
+                hamlet_client::messages::ChiefMessage::words(
+                    to,
+                    "/reflect".into(),
+                ),
+            );
         }
     })
     .tooltip(|| {
