@@ -17,6 +17,11 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         // The thread with its details open beside it.
         world.insert_resource(Showing::Thread);
         world.insert_resource(hub::Sheet::Details);
+        let agent = world.resource::<Convo>().agent;
+        world.entity_mut(agent).insert((
+            hamlet_client::realm::Allowance(5.0),
+            hamlet_client::realm::ToolsOff(vec!["bash".into()]),
+        ));
     }
     if matches!(
         scene,
@@ -56,13 +61,40 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     if scene == Scene::Prompt {
         let agent = world.resource::<Convo>().agent;
-        let text = "You are an agent of Hamlet.\n\nSandbox: \
-                    seatbelt. Network for tools: off.\n\nKeep the \
-                    orchard's notes in order."
-            .into();
+        let section =
+            |name: &str, text: &str| protocol::PromptSection {
+                name: name.into(),
+                text: text.into(),
+            };
         world.insert_resource(hub::Briefing {
             agent: Some(agent),
-            text,
+            prompt: vec![
+                section(
+                    "charter",
+                    "You are an agent of Hamlet, a personal \
+                     assistant shared by a few people.\nBe concise. \
+                     Act rather than describe what you would do.",
+                ),
+                section(
+                    "machine",
+                    "System: Linux.\nSandbox: seatbelt. Network for \
+                     tools: off.",
+                ),
+                section(
+                    "character",
+                    "You are Juniper, the orchard's keeper of \
+                     notes.\n- Speak plainly, in short \
+                     sentences.\n- Say what you do not know.",
+                ),
+                section(
+                    "memory",
+                    "notes.md: Row 4 wants straw at the roots. Pip \
+                     keeps the key to the press.",
+                ),
+                section("skills", "No skills yet."),
+                section("budget", "Spent today: $1.20 of $20.00."),
+            ],
+            ..Default::default()
         });
         world.insert_resource(Showing::Prompt);
     }

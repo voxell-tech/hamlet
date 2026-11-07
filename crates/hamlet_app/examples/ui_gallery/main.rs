@@ -196,7 +196,7 @@ const SHOTS: [Shot; 40] = [
     Shot {
         name: "character",
         scene: Scene::Character,
-        size: UVec2::new(1440, 860),
+        size: UVec2::new(1440, 1100),
         scale: 1.0,
     },
     Shot {

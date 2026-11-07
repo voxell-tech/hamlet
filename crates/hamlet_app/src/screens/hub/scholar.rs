@@ -28,7 +28,7 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::thread::dim;
-use super::{Showing, memory, papers, show};
+use super::{Showing, memory, show};
 use crate::chat;
 use crate::convo::talk_to;
 use crate::overview::{heading, typed};
@@ -577,9 +577,7 @@ fn hires(shown: &Shown) -> AnyView {
 /// Its skills and the character a chief may edit.
 fn knowledge() -> impl View {
     column((
-        heading(Glyph::Face, "Character"),
-        memory::character(),
-        row((action(Glyph::Rename, "Edit", papers::edit_character),)),
+        memory::character_section(),
         heading(Glyph::Notes, "Memory"),
         memory::view(),
         heading(Glyph::Book, "Skills"),

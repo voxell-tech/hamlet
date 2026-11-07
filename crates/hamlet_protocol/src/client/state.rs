@@ -202,6 +202,12 @@ pub enum Update {
 #[serde(deny_unknown_fields)]
 pub struct Agent {
     pub activity: AgentActivity,
+    /// The dollars a hire may spend in its hamlet's budget period;
+    /// left out while it has no allowance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "f64")]
+    pub allowance: Option<f64>,
     pub busy: bool,
     pub consulting: bool,
     pub conversations: Vec<ConversationView>,
@@ -254,6 +260,13 @@ pub struct Agent {
     pub since: u64,
     pub skills: Vec<String>,
     pub spent: AgentSpent,
+    /// The built-in tools a hire has turned off.
+    #[serde(
+        rename = "toolsOff",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub tools_off: Vec<String>,
 }
 
 #[derive(

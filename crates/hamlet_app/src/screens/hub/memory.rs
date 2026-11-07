@@ -23,6 +23,7 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::papers::{self, Papers};
 use super::thread::dim;
+use crate::overview::heading;
 
 /// The memory file whose text is open, and the name typed for a new
 /// one.
@@ -248,8 +249,30 @@ pub(super) fn skills() -> impl View {
     .within(bare())
 }
 
+/// The character of an agent or a scholar under its heading, with the
+/// way to edit it.
+pub(super) fn character_section() -> impl View {
+    column((
+        row((
+            heading(Glyph::Face, "Character"),
+            column(()).grow(1.0),
+            action(Glyph::Rename, "Edit", papers::edit_character)
+                .tooltip(|| {
+                    note(
+                        "Opens it in your text editor. It is saved \
+                         here when you save it there.",
+                    )
+                }),
+        ))
+        .gap(8.0)
+        .align(AlignItems::Center),
+        character(),
+    ))
+    .gap(6.0)
+}
+
 /// The character of an agent or a scholar.
-pub(super) fn character() -> impl View {
+fn character() -> impl View {
     keyed(resource::<Papers, _>(|p| p.character.clone()), |text| {
         if text.is_empty() {
             dim("Not written yet").boxed()

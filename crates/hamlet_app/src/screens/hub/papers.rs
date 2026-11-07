@@ -355,18 +355,17 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
                 {
                     return;
                 }
-                let text = match reply.message {
-                    protocol::ServerMessage::Read(
-                        protocol::ReadResult::Prompt { prompt, .. },
-                    ) => prompt,
-                    _ => match failed {
-                        Some(why) => format!(
-                            "The prompt could not be read: {why}"
+                let mut briefing = world.resource_mut::<Briefing>();
+                match (reply.message, failed) {
+                    (
+                        protocol::ServerMessage::Read(
+                            protocol::ReadResult::Prompt { prompt, .. },
                         ),
-                        None => return,
-                    },
-                };
-                world.resource_mut::<Briefing>().text = text;
+                        _,
+                    ) => briefing.prompt = prompt,
+                    (_, Some(why)) => briefing.failed = Some(why),
+                    _ => {}
+                }
             }
             Request::Whole(of, target) => {
                 if let Some(failed) = failed {

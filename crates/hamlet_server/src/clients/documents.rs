@@ -501,14 +501,16 @@ impl Core {
                     db,
                     conversation,
                 )?;
-                let sections = self.prompt(&kept, None)?;
-                let text = sections
+                let prompt = self
+                    .prompt(&kept, None)?
                     .into_iter()
-                    .map(|s| s.text)
-                    .collect::<Vec<_>>()
-                    .join("\n\n");
+                    .map(|s| protocol::PromptSection {
+                        name: s.name,
+                        text: s.text,
+                    })
+                    .collect();
                 ServerMessage::Read(ReadResult::Prompt {
-                    prompt: text,
+                    prompt,
                     to: id,
                 })
             }

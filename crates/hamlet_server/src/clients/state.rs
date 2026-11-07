@@ -206,12 +206,18 @@ fn agent_view(
         AgentKind::Hire => hires::get(db, id)?.model,
         AgentKind::Worker => workers::get(db, id)?.model,
     };
-    let (pin, nickname) = match found.kind {
+    let (pin, nickname, allowance, tools_off) = match found.kind {
         AgentKind::Hire => {
             let hire = hires::get(db, id)?;
-            (hire.pin, hire.nickname)
+            (
+                hire.pin,
+                hire.nickname,
+                hire.allowance
+                    .map(|micros| micros as f64 / 1_000_000.0),
+                hires::tools_off(db, id)?,
+            )
         }
-        _ => (None, None),
+        _ => (None, None, None, Vec::new()),
     };
     let skills = match found.kind {
         AgentKind::Worker => Vec::new(),
@@ -229,6 +235,7 @@ fn agent_view(
             step: shown
                 .map_or(0, |a| u64::try_from(a.step).unwrap_or(0)),
         },
+        allowance,
         busy: found.is_living() && inputs::is_agent_busy(db, id)?,
         consulting: found.is_living()
             && crate::talk::errands::is_waited_on(
@@ -270,6 +277,7 @@ fn agent_view(
             ms: spent.ms,
             tokens: spent.tokens,
         },
+        tools_off,
     })
 }
 

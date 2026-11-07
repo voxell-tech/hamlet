@@ -25,9 +25,9 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, bare, choice, close, crumb, crumb_here, crumb_slash,
-    crumbs, danger_button, filling, hairline, note, primary_button,
-    scroll_area,
+    Fills, ICON, action, bare, caption, choice, close, crumb,
+    crumb_here, crumb_slash, crumbs, danger_button, filling,
+    hairline, note, primary_button, scroll_area,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -64,7 +64,22 @@ const SHEETS: [(Sheet, Glyph, &str); 2] = [
 #[derive(Resource, Default, PartialEq)]
 pub struct Briefing {
     pub agent: Option<Entity>,
-    pub text: String,
+    pub prompt: Vec<protocol::PromptSection>,
+    /// Why it could not be read.
+    pub failed: Option<String>,
+    /// Whether it went to the clipboard since it was read.
+    pub copied: bool,
+}
+
+impl Briefing {
+    /// The prompt as the model reads it, in one text.
+    fn whole(&self) -> String {
+        self.prompt
+            .iter()
+            .map(|section| section.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
 }
 
 /// An agent's purpose cut short, whole under the pointer.
@@ -261,55 +276,65 @@ fn called(world: &World, agent: Entity) -> String {
     shown_of(world, agent)
 }
 
-/// The chain of command down to the thread: `Realm / hamlet / mayor /
-/// lead / agent`, then the pages `under` it. Each step above the last
-/// leads to its page or its thread.
+/// The steps above `agent` in the chain of command, `Realm / hamlet /
+/// mayor / lead /`, each leading to its page or its thread.
+fn above(world: &World, agent: Entity) -> Vec<AnyView> {
+    let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
+    let mut parts = vec![
+        crumb("Realm", |world| show(world, Showing::Realm)).boxed(),
+        crumb_slash().boxed(),
+    ];
+    if let Some(hamlet) = hamlet {
+        parts.push(
+            crumb(name_of(world, hamlet), move |world| {
+                select(world, Some(Thing::Common(hamlet)));
+                show(world, Showing::Hamlet(hamlet));
+            })
+            .boxed(),
+        );
+        parts.push(crumb_slash().boxed());
+    }
+    // The leads above it in its hamlet, the mayor first.
+    let mut leads = Vec::new();
+    let mut at = agent;
+    while let Some(parent) =
+        world.get::<Parent>(at).and_then(|parent| {
+            hamlet_client::realm::agent(world, parent.0)
+        })
+    {
+        let same = world.get::<LivesIn>(parent).map(|l| l.0);
+        if leads.contains(&parent)
+            || hamlet.is_none()
+            || same != hamlet
+        {
+            break;
+        }
+        leads.insert(0, parent);
+        at = parent;
+    }
+    for lead in leads {
+        parts.push(
+            crumb(called(world, lead), move |world| {
+                crate::convo::talk_to(world, lead);
+            })
+            .boxed(),
+        );
+        parts.push(crumb_slash().boxed());
+    }
+    parts
+}
+
+/// The path to the thread, then the pages `under` it. A page under
+/// the thread starts at the agent, as its thread shows the steps
+/// above.
 fn path(agent: Entity, under: Vec<Under>) -> impl View {
     built(move |cx| {
         let world = &*cx.world;
-        let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
-        let mut parts = vec![
-            crumb("Realm", |world| show(world, Showing::Realm))
-                .boxed(),
-        ];
-        if let Some(hamlet) = hamlet {
-            parts.push(crumb_slash().boxed());
-            parts.push(
-                crumb(name_of(world, hamlet), move |world| {
-                    select(world, Some(Thing::Common(hamlet)));
-                    show(world, Showing::Hamlet(hamlet));
-                })
-                .boxed(),
-            );
-        }
-        // The leads above it in its hamlet, the mayor first.
-        let mut above = Vec::new();
-        let mut at = agent;
-        while let Some(parent) =
-            world.get::<Parent>(at).and_then(|parent| {
-                hamlet_client::realm::agent(world, parent.0)
-            })
-        {
-            let same = world.get::<LivesIn>(parent).map(|l| l.0);
-            if above.contains(&parent)
-                || hamlet.is_none()
-                || same != hamlet
-            {
-                break;
-            }
-            above.insert(0, parent);
-            at = parent;
-        }
-        for lead in above {
-            parts.push(crumb_slash().boxed());
-            parts.push(
-                crumb(called(world, lead), move |world| {
-                    crate::convo::talk_to(world, lead);
-                })
-                .boxed(),
-            );
-        }
-        parts.push(crumb_slash().boxed());
+        let mut parts = if under.is_empty() {
+            above(world, agent)
+        } else {
+            Vec::new()
+        };
         let address = name_of(world, agent);
         let name = called(world, agent);
         parts.push(if under.is_empty() {
@@ -682,7 +707,7 @@ pub(crate) fn show_prompt(world: &mut World) {
     let agent = convo.agent;
     *world.resource_mut::<Briefing>() = Briefing {
         agent: Some(agent),
-        text: String::new(),
+        ..Briefing::default()
     };
     super::papers::prompt(world);
     show(world, Showing::Prompt);
@@ -722,28 +747,156 @@ fn aside(
     })
 }
 
-/// The whole of the agent's prompt.
-pub(super) fn prompt_page() -> impl View {
-    let shown =
-        keyed(resource::<Briefing, _>(|b| b.text.clone()), |text| {
-            // Each line as the model is given it, where Markdown
-            // would run them together.
-            hamlet_ui::markdown::fixed(
-                &text.replace('\n', "  \n"),
-                Tone::Body,
-            )
+/// The sources of a prompt's sections by the server's names: what
+/// heads a section, and what the line of sources calls it.
+const SOURCES: [(&str, &str, &str); 11] = [
+    ("charter", "Charter", "the charter"),
+    ("machine", "This computer", "this computer"),
+    ("project", "The project", "the project"),
+    ("character", "Character", "its character"),
+    ("memory", "Memory", "its memory"),
+    ("skills", "Skills", "its skills"),
+    ("place", "Its place", "its place"),
+    ("realm", "The realm", "the realm"),
+    (
+        "scholars",
+        "Scholars it may hire",
+        "the scholars it may hire",
+    ),
+    ("budget", "Budget", "its budget"),
+    ("errand", "Errand", "its errand"),
+];
+
+/// What heads the section `name`, and what the line of sources calls
+/// it.
+fn source(name: &str) -> (&str, &str) {
+    SOURCES
+        .iter()
+        .find(|(known, ..)| *known == name)
+        .map_or((name, name), |(_, heading, phrase)| {
+            (heading, phrase)
+        })
+}
+
+/// The line that names what the prompt is built from.
+fn built_from(prompt: &[protocol::PromptSection]) -> String {
+    let names = prompt
+        .iter()
+        .map(|section| source(&section.name).1)
+        .collect::<Vec<_>>();
+    match names.split_last() {
+        None => String::new(),
+        Some((last, [])) => format!("Built from {last}."),
+        Some((last, rest)) => {
+            format!("Built from {} and {last}.", rest.join(", "))
+        }
+    }
+}
+
+/// Puts the whole prompt on the clipboard.
+fn copy_prompt(world: &mut World) {
+    let text = world.resource::<Briefing>().whole();
+    let Some(mut clipboard) =
+        world.get_resource_mut::<bevy::clipboard::Clipboard>()
+    else {
+        return;
+    };
+    match clipboard.set_text(text) {
+        Ok(()) => world.resource_mut::<Briefing>().copied = true,
+        Err(e) => {
+            bevy::log::warn!("could not copy the prompt: {e:?}");
+        }
+    }
+}
+
+/// The prompt under a heading for each of its sections, or why it
+/// could not be read.
+fn prompt_sections(
+    prompt: &[protocol::PromptSection],
+    failed: Option<&str>,
+) -> AnyView {
+    if let Some(why) = failed {
+        return label(format!("The prompt could not be read: {why}"))
+            .tone(Tone::Critical)
+            .boxed();
+    }
+    let parts = prompt
+        .iter()
+        .map(|section| {
+            column((
+                caption(
+                    source(&section.name).0.to_string(),
+                    Tone::Faint,
+                ),
+                // Each line as the model is given it, where Markdown
+                // would run them together.
+                hamlet_ui::markdown::fixed(
+                    &section.text.replace('\n', "  \n"),
+                    Tone::Body,
+                ),
+            ))
+            .gap(4.0)
             .boxed()
         })
-        .within(bare());
+        .collect::<Vec<_>>();
+    // Clear of the scroll bar, which is drawn over the right edge of
+    // the area and dims the letters under it.
+    column(parts)
+        .gap(14.0)
+        .padding(UiRect::right(px(12.0)))
+        .boxed()
+}
+
+/// What the page says the prompt is, and the way to copy it once it
+/// is read.
+fn prompt_head() -> impl View {
+    keyed(
+        resource::<Briefing, _>(|b| {
+            (built_from(&b.prompt), b.copied)
+        }),
+        |(from, copied)| {
+            let intro = column((
+                note(
+                    "What this agent is told at the start of a turn.",
+                ),
+                note(from.clone()),
+            ))
+            .gap(2.0)
+            .grow(1.0)
+            .min_width(px(0.0));
+            if from.is_empty() {
+                return row((intro,)).boxed();
+            }
+            let copy = if *copied {
+                action(Glyph::Check, "Copied", copy_prompt)
+            } else {
+                action(Glyph::Notes, "Copy", copy_prompt)
+            };
+            row((intro, copy))
+                .gap(8.0)
+                .align(AlignItems::Center)
+                .boxed()
+        },
+    )
+    .within(bare())
+}
+
+/// The whole of the agent's prompt, part by part.
+pub(super) fn prompt_page() -> impl View {
+    let shown = keyed(
+        resource::<Briefing, _>(|b| {
+            (b.prompt.clone(), b.failed.clone())
+        }),
+        |(prompt, failed)| prompt_sections(prompt, failed.as_deref()),
+    )
+    .within(bare());
     with_cx(move |cx| {
         let gold = cx.theme().palette.gold_6;
         let gap = cx.theme().space.section;
         aside(
             |_| vec![Under::Prompt],
             column((
-                note(
-                    "What this agent is told at the start of a turn.",
-                ),
+                prompt_head(),
                 hairline(gold),
                 scroll_area((shown,)),
             ))
@@ -958,29 +1111,25 @@ mod tests {
         assert_eq!(read["agent"], json!(2));
         receive(
             &mut app,
-            json!({"type": "read", "to": read["id"], "prompt": "The received prompt"}),
+            json!({"type": "read", "to": read["id"], "prompt": [{"name": "charter", "text": "The received charter"}, {"name": "memory", "text": "The received memory"}]}),
         );
+        app.update();
         assert_eq!(
-            app.world().resource::<Briefing>().text,
-            "The received prompt"
+            app.world().resource::<Briefing>().whole(),
+            "The received charter\n\nThe received memory"
         );
+        assert!(words(&mut app).contains(
+            &"Built from the charter and its memory.".into()
+        ));
         show_prompt(app.world_mut());
         let read = request(&app, "prompt");
         receive(
             &mut app,
             json!({"type": "reply", "to": read["id"], "kind": "error", "text": "No such agent"}),
         );
-        assert_eq!(
-            app.world().resource::<Briefing>().text,
-            "The prompt could not be read: No such agent"
-        );
-        assert!(
-            app.world_mut()
-                .query::<&bevy::text::TextSpan>()
-                .iter(app.world())
-                .any(|text| text.0
-                    == "The prompt could not be read: No such agent")
-        );
+        assert!(words(&mut app).contains(
+            &"The prompt could not be read: No such agent".into()
+        ));
     }
 
     #[test]
@@ -1134,7 +1283,7 @@ mod tests {
         );
         receive(
             &mut app,
-            json!({"type": "read", "to": prompt["id"], "prompt": "Wrong prompt"}),
+            json!({"type": "read", "to": prompt["id"], "prompt": [{"name": "charter", "text": "Wrong prompt"}]}),
         );
         // The prompt page is left for the thread of the next agent.
         assert_eq!(
@@ -1147,10 +1296,7 @@ mod tests {
         app.update();
         assert!(has_span(&mut app, "Scout notes"));
         assert!(!has_span(&mut app, "Wrong notes"));
-        assert_ne!(
-            app.world().resource::<Briefing>().text,
-            "Wrong prompt"
-        );
+        assert!(app.world().resource::<Briefing>().prompt.is_empty());
     }
 
     #[test]

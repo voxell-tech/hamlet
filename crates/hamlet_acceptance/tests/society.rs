@@ -178,6 +178,12 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
         s.chief.command(ada, "/tools docs#1").await,
         "`docs#1` has these off: bash"
     );
+    s.chief
+        .until("its tools off shown", |c| {
+            c.agent("docs#1")
+                .is_some_and(|cy| cy.tools_off == ["bash"])
+        })
+        .await;
     // A chief chooses how any agent thinks, its tier and its model.
     assert_eq!(
         s.chief.command(ada, "/effort docs#1 xhigh").await,

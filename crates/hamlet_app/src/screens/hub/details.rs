@@ -13,7 +13,8 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{
-    Account, Deeds, Kind, Road, name_of, roads_of, shown_of,
+    Account, Allowance, Bylaws, Deeds, Kind, LivesIn, Road, ToolsOff,
+    name_of, roads_of, shown_of,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
@@ -24,6 +25,7 @@ use hamlet_ui::styles::{
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::memory;
@@ -46,6 +48,11 @@ struct Facts {
     called: String,
     roads: Vec<(Entity, String)>,
     spent: String,
+    /// Its allowance in dollars, and the period of its hamlet's
+    /// budget that it is for.
+    allowance: Option<f64>,
+    period: &'static str,
+    tools_off: Vec<String>,
 }
 
 fn facts(world: &World, agent: Entity) -> Facts {
@@ -77,6 +84,19 @@ fn facts(world: &World, agent: Entity) -> Facts {
         spent: world
             .get::<Account>(agent)
             .map(|account| account.cost.clone())
+            .unwrap_or_default(),
+        allowance: world.get::<Allowance>(agent).map(|a| a.0),
+        period: match world
+            .get::<LivesIn>(agent)
+            .and_then(|hamlet| world.get::<Bylaws>(hamlet.0))
+            .map(|bylaws| bylaws.0.budget.period)
+        {
+            Some(protocol::Period::Month) => "a month",
+            _ => "a day",
+        },
+        tools_off: world
+            .get::<ToolsOff>(agent)
+            .map(|off| off.0.clone())
             .unwrap_or_default(),
     }
 }
@@ -120,29 +140,71 @@ fn nickname_field(facts: &Facts) -> AnyView {
     .boxed()
 }
 
-/// A field that gives the command `/<command> <address> <typed>` on
-/// Enter, and empties itself after. `hint` says what to type while it
-/// is empty.
-fn command_field(
-    address: &str,
-    command: &'static str,
-    hint: &'static str,
-) -> AnyView {
-    let address = address.to_string();
+/// Its allowance in dollars, typed over: Enter gives it the amount,
+/// and a field left empty no allowance.
+fn allowance_field(facts: &Facts) -> AnyView {
+    let address = facts.address.clone();
+    let had = facts
+        .allowance
+        .map(|dollars| format!("{dollars:.2}"))
+        .unwrap_or_default();
     hinted(
-        text_field(String::new(), move |world, typed| {
-            let typed = typed.trim();
-            if !typed.is_empty() {
+        text_field(had.clone(), move |world, typed| {
+            let typed = typed.trim().trim_start_matches('$').trim();
+            if typed != had {
+                let amount =
+                    if typed.is_empty() { "none" } else { typed };
                 crate::chat::command(
                     world,
-                    format!("/{command} {address} {typed}"),
+                    format!("/allowance {address} {amount}"),
                 );
             }
         })
         .rules(text_input),
-        hint,
+        "No limit",
     )
     .boxed()
+}
+
+/// The built-in tools a hire can be kept from, each with what it
+/// does.
+const TOOLS: [(&str, &str); 6] = [
+    ("read", "Reads files"),
+    ("write", "Writes whole files"),
+    ("edit", "Changes part of a file"),
+    ("bash", "Runs commands"),
+    ("search", "Looks for words in files"),
+    ("find", "Finds files by name"),
+];
+
+/// A switch for each of its built-in tools.
+fn tools(facts: &Facts) -> AnyView {
+    let rows = TOOLS
+        .iter()
+        .map(|&(tool, does)| {
+            let on = !facts.tools_off.iter().any(|off| off == tool);
+            let address = facts.address.clone();
+            row((
+                label(tool).bold(true).wrap(false),
+                column((label(does).tone(Tone::Faint),))
+                    .grow(1.0)
+                    .min_width(px(0.0)),
+                switch(on, move |world, on| {
+                    let sign = if on { '+' } else { '-' };
+                    crate::chat::command(
+                        world,
+                        format!("/tools {address} {sign}{tool}"),
+                    );
+                }),
+            ))
+            .gap(8.0)
+            .align(AlignItems::Center)
+            .boxed()
+        })
+        .collect::<Vec<_>>();
+    column((heading(Glyph::Power, "Tools"), column(rows).gap(6.0)))
+        .gap(6.0)
+        .boxed()
 }
 
 /// An agent's name that leads to its thread.
@@ -173,27 +235,16 @@ fn settings(facts: &Facts) -> AnyView {
         ));
         parts.push(setting(
             "Allowance",
-            "Dollars it may spend in its hamlet's budget period",
+            "Dollars it may spend in its hamlet's budget period; \
+             empty for no limit",
             row((
                 label("$").tone(Tone::Faint),
-                command_field(
-                    &facts.address,
-                    "allowance",
-                    "Dollars a period, or none",
-                ),
+                allowance_field(facts),
+                label(facts.period).tone(Tone::Faint).wrap(false),
             ))
             .gap(6.0)
             .align(AlignItems::Center)
             .grow(1.0),
-        ));
-        parts.push(setting(
-            "Tools",
-            "-bash turns a tool off, +bash on again",
-            command_field(
-                &facts.address,
-                "tools",
-                "-bash turns a tool off, +bash on",
-            ),
         ));
     }
     if !facts.spent.is_empty() {
@@ -248,6 +299,9 @@ fn agent_section(agent: Entity) -> impl View {
                 parts.push(said(facts.purpose.clone()));
             }
             parts.push(settings(facts));
+            if !facts.hand {
+                parts.push(tools(facts));
+            }
             if *may_road && !facts.hand {
                 parts.push(roads(agent, facts));
             }
@@ -261,18 +315,6 @@ fn agent_section(agent: Entity) -> impl View {
 fn skills() -> impl View {
     column((heading(Glyph::Book, "Skills"), memory::skills()))
         .gap(6.0)
-}
-
-/// Its character, which a chief may edit.
-fn character() -> impl View {
-    let edit =
-        action(Glyph::Rename, "Edit", super::papers::edit_character);
-    column((
-        heading(Glyph::Face, "Character"),
-        memory::character(),
-        row((edit,)),
-    ))
-    .gap(6.0)
 }
 
 /// Its prompt in full, and a reflection asked now.
@@ -310,7 +352,7 @@ pub(super) fn sheet(agent: Entity) -> impl View {
             hairline(line),
             skills(),
             hairline(line),
-            character(),
+            memory::character_section(),
         ))
         .gap(gap)
         .width(percent(100.0)),)),))
