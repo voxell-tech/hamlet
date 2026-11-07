@@ -1,9 +1,8 @@
 //! The desk switcher in the top bar: the desks as tabs, the one
-//! shown on a raised plate and underlined, as a panel's tab is, then
-//! apart from them a chevron listing them all, and "New desk", which
-//! adds one. A tab is renamed in place on a double-click, closed by
-//! its "x" once asked, dragged to another place, and offers the rest
-//! on a right-click.
+//! shown underlined, as a panel's tab is, then a "+" that adds one
+//! and a chevron listing them all. A tab is renamed in place on a
+//! double-click, closed by its "x" once asked, dragged to another
+//! place, and offers the rest on a right-click.
 
 mod motion;
 
@@ -32,9 +31,9 @@ use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, BackgroundGradient, BoxShadow, ColorStop, Display,
-    FlexDirection, LinearGradient, Overflow, OverflowAxis,
-    PositionType, ShadowStyle, UiRect, UiTransform, Val, percent, px,
+    AlignItems, BoxShadow, Display, FlexDirection, Overflow,
+    OverflowAxis, PositionType, ShadowStyle, UiRect, UiTransform,
+    Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::scroll::{
@@ -59,7 +58,6 @@ use hamlet_ui::styles::{
     section, text_input,
 };
 use hamlet_ui::theme::{HamletTheme, Themed};
-use hamlet_ui::widgets::effects::EffectSettings;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
@@ -203,7 +201,7 @@ struct TabStrip;
 #[derive(Component, Clone, Copy)]
 struct TabRow;
 
-/// On the raised segment under the shown tab.
+/// On the span under the shown tab that holds its underline.
 #[derive(Component, Clone, Copy)]
 struct Indicator;
 
@@ -250,20 +248,9 @@ pub(crate) fn switcher() -> impl View {
             .shrink(1.0)
             .tagged(OwnScrollbar(hidden))
             .tagged(TabStrip);
-        // Named, so that it does not read as a panel's "+".
-        let new = segment(
-            row((
-                glyph(Glyph::Plus, ICON),
-                // Smaller than a desk's name, as an action beside
-                // them.
-                label("New desk").size(theme.text.small),
-            ))
-            .gap(space.gap / 2.0)
-            .align(AlignItems::Center),
-            space.gap,
-        )
-        .on_activate(new_desk)
-        .tooltip(|| note(format!("New desk ({NEW})")));
+        let new = segment(glyph(Glyph::Plus, ICON), space.gap / 2.0)
+            .on_activate(new_desk)
+            .tooltip(|| note(format!("New desk ({NEW})")));
         let all = segment(
             row((glyph(Glyph::Chevron, ICON),)).tagged(UiTransform {
                 rotation: Rot2::degrees(180.0),
@@ -276,20 +263,13 @@ pub(crate) fn switcher() -> impl View {
             *world.resource_mut::<Opened>() = Opened::All { anchor };
         })
         .tooltip(|| note("All desks"));
-        // The list of every desk ends the desks, apart from what adds
-        // one.
-        let track = row((strip, all))
+        let track = row((strip, new, all))
             .height(px(space.bar - 2.0 * space.track_inset))
             .min_width(px(0.0))
             .shrink(1.0)
             .padding(UiRect::all(px(space.track_padding)))
             .align(AlignItems::Stretch);
-        let tools = row((new,))
-            .height(px(space.bar - 2.0 * space.track_inset))
-            .shrink(0.0)
-            .gap(0.0)
-            .align(AlignItems::Stretch);
-        row((divider, track, tools))
+        row((divider, track))
             .gap(space.section)
             .padding(UiRect::left(px(space.section)))
             .min_width(px(0.0))
@@ -321,7 +301,7 @@ pub(crate) fn popups() -> impl View {
     .within(overlay(()))
 }
 
-/// The row of tabs, over the raised segment under the shown one.
+/// The row of tabs, over the underline of the shown one.
 fn tabs_view(tabs: &Tabs) -> impl View {
     let tabs = tabs.clone();
     with_cx(move |cx| {
@@ -345,26 +325,17 @@ fn tabs_view(tabs: &Tabs) -> impl View {
     })
 }
 
-/// The raised segment under the shown tab, lit inside from below
-/// and underlined with a glowing line.
+/// The glowing line under the shown tab.
 fn indicator() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let (space, palette) = (&theme.space, &theme.palette);
-        let underglow =
-            cx.world.resource::<EffectSettings>().underglow;
         let glow = underline_glow(
             cx.world.resource::<DeskSettings>(),
             palette.glow,
         );
         let radius =
             (space.track_radius - space.track_padding).max(0.0);
-        let light = palette.glow.with_alpha(underglow);
-        let inner =
-            BackgroundGradient::from(LinearGradient::to_top(vec![
-                ColorStop::new(light, percent(0.0)),
-                ColorStop::new(light.with_alpha(0.0), percent(100.0)),
-            ]));
         let line = frame()
             .position(PositionType::Absolute)
             .inset(UiRect {
@@ -386,9 +357,6 @@ fn indicator() -> impl View {
                 bottom: px(0.0),
             })
             .display(Display::None)
-            .fill(palette.button)
-            .radius(radius)
-            .tagged(inner)
             .tagged(Indicator)
             .tagged(Pickable::IGNORE)
     })

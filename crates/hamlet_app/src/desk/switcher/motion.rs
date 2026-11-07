@@ -1,7 +1,7 @@
-//! How the switcher moves: the raised segment gliding to the shown
+//! How the switcher moves: the underline gliding to the shown
 //! tab, a tab dragged along the track with the others easing aside,
 //! and the track scrolled to the shown tab and across by the wheel.
-//! The segment and the tabs ease at the rate the dock's hint glides
+//! The underline and the tabs ease at the rate the dock's hint glides
 //! at; the track scrolls as fynix eases a scroll.
 
 use bevy::app::{App, Last, Update};
@@ -46,7 +46,7 @@ pub(super) fn plugin(app: &mut App) {
         });
 }
 
-/// Where the raised segment is drawn across its row, as its left
+/// Where the underline is drawn across its row, as its left
 /// edge and its width; none before it is first placed.
 #[derive(Resource, Default)]
 struct Glide(Option<Vec2>);
@@ -301,7 +301,7 @@ fn grab(
     }
 }
 
-/// Glides the raised segment to the shown tab, at once when first
+/// Glides the underline to the shown tab, at once when first
 /// placed, under reduced motion or while a tab is dragged.
 fn glide(
     time: Res<Time>,

@@ -23,15 +23,15 @@ use bevy_fynix::{
 };
 use hamlet_client::messages::Veto;
 use hamlet_client::realm::{
-    Busy, Closed, Deeds, HamletId, Identity, Left, Scholar,
+    Busy, Closed, Deeds, HamletId, Identity, Left, Scholar, Treasury,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, buttons, card_name, close,
-    framed, group, note, raised, scroll_area, small_rules, title,
+    Fills, ICON, action, bad_action, bare, buttons, close, framed,
+    group, note, raised, scroll_area, small_rules, title,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
@@ -43,7 +43,9 @@ pub use self::hamlet::{Naming, Page, hamlet};
 pub(crate) use self::hamlet::{rename, typed};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
-use self::rows::{agent_rows, hamlet_rows, pressable, stale};
+use self::rows::{
+    agent_rows, hamlet_name, hamlet_rows, pressable, stale,
+};
 use crate::petition::Queue;
 use crate::standing::{Standing, need_you};
 use crate::{chat, world_menu};
@@ -386,7 +388,17 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
                     how_many(Standing::Waits),
                 ),
                 mayor,
-                account: facts.account,
+                // A card shows its budget only once something is
+                // spent.
+                account: match world.get::<Treasury>(facts.hamlet) {
+                    Some(t)
+                        if t.0.spent.micros > 0
+                            || t.0.spent.ms > 0 =>
+                    {
+                        facts.account
+                    }
+                    _ => String::new(),
+                },
                 spent: facts.spent,
             }
         })
@@ -519,8 +531,7 @@ fn closed() -> AnyView {
                     ));
                 }
                 let mut card = vec![
-                    card_name(hamlet.name.clone(), Tone::Body)
-                        .boxed(),
+                    hamlet_name(hamlet.name.clone()).boxed(),
                     note(hamlet.reason.clone()).boxed(),
                     row(actions).align(AlignItems::Center).boxed(),
                 ];

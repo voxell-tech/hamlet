@@ -3,7 +3,7 @@
 //! Hub.
 
 use bevy::app::{App, PreUpdate, Startup, Update};
-use bevy::color::{Alpha, Color};
+use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
@@ -14,7 +14,10 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
-use bevy::ui::{AlignItems, PositionType, UiRect, Val, px};
+use bevy::ui::{
+    AlignItems, BoxShadow, Overflow, PositionType, ShadowStyle,
+    UiRect, Val, px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, Frame, FrameProps, button, column, frame, label, row,
@@ -196,7 +199,9 @@ struct Facts {
 #[derive(Clone, Copy, PartialEq)]
 struct Tints {
     face: Color,
+    blush: Color,
     hair: Color,
+    mantle: Color,
     brass: Color,
     leaves: Color,
     quill: Color,
@@ -204,6 +209,13 @@ struct Tints {
     china: Color,
     leather: Color,
     page: Color,
+}
+
+impl Tints {
+    /// The trim of a cloak of `cloak` and of its hat.
+    fn trim(&self, cloak: Color) -> Color {
+        self.mantle.mix(&cloak, 0.25)
+    }
 }
 
 fn facts(world: &World, chief: Entity) -> Option<Facts> {
@@ -230,7 +242,9 @@ fn facts(world: &World, chief: Entity) -> Option<Facts> {
         lights: Light::ALL.map(|light| shown(light.colour(pal))),
         tints: Tints {
             face: shown(pal.face),
+            blush: shown(pal.blush),
             hair: shown(pal.hair),
+            mantle: shown(pal.mantle),
             brass: shown(pal.brass),
             leaves: shown(pal.foliage_shade),
             quill: shown(pal.autumn),
@@ -264,8 +278,14 @@ const SWATCH_WIDTH: f32 = 50.0;
 /// inside it.
 const RING: f32 = 2.0;
 
-/// The side of the chief's figure.
-const FIGURE: f32 = 104.0;
+/// The side of the chief's portrait, which is drawn in hundredths
+/// of it.
+const FIGURE: f32 = 150.0;
+
+/// `units` hundredths of the portrait, in pixels.
+fn u(units: f32) -> f32 {
+    units * FIGURE / 100.0
+}
 
 /// A disc of `colour` with `name` under it, to press, a choice like
 /// those of words. The one chosen has a ring about its disc and its
@@ -339,8 +359,8 @@ fn part(
     }
 }
 
-/// A rounded block of the figure, `dx` right of its middle and `top`
-/// down from its top, `width` by `height`, of `colour`.
+/// A rounded block of the portrait, `dx` right of its middle and
+/// `top` down from its top, `width` by `height`, of `colour`.
 fn block(
     dx: f32,
     top: f32,
@@ -349,20 +369,21 @@ fn block(
     colour: Color,
 ) -> Frame {
     frame()
-        .width(px(width))
-        .height(px(height))
-        .radius(width.min(height) / 2.0)
+        .width(px(u(width)))
+        .height(px(u(height)))
+        .radius(u(width.min(height) / 2.0))
         .fill(colour)
         .position(PositionType::Absolute)
         .inset(UiRect {
-            left: px(FIGURE / 2.0 + dx - width / 2.0),
-            top: px(top),
+            left: px(u(50.0 + dx - width / 2.0)),
+            top: px(u(top)),
             right: Val::Auto,
             bottom: Val::Auto,
         })
 }
 
-/// A ring of the figure, as [`block`] places one, its line `colour`.
+/// A ring of the portrait, as [`block`] places one, its line
+/// `colour`.
 fn hoop(
     dx: f32,
     top: f32,
@@ -371,92 +392,134 @@ fn hoop(
     colour: Color,
 ) -> Frame {
     block(dx, top, width, height, Color::NONE)
-        .border(2.5)
+        .border(u(2.5))
         .border_color(colour)
 }
 
 /// What sits on the head, drawn over the face but for a hood, which
 /// is behind it.
 fn hat(hat: Hat, cloak: Color, tints: &Tints) -> Vec<Frame> {
+    let felt = cloak.mix(&Color::BLACK, 0.2);
+    let trim = tints.trim(cloak);
     match hat {
         Hat::Pointed => vec![
-            block(2.0, 22.0, 8.0, 10.0, cloak).radius(3.0),
-            block(1.0, 27.0, 15.0, 10.0, cloak).radius(3.0),
-            block(0.0, 32.0, 23.0, 9.0, cloak).radius(3.0),
-            block(0.0, 38.0, 42.0, 6.0, cloak),
-            block(3.0, 19.0, 5.0, 5.0, tints.brass),
+            block(9.0, 2.0, 7.0, 8.0, felt),
+            block(6.0, 6.0, 11.0, 9.0, felt).radius(u(3.0)),
+            block(3.0, 11.0, 19.0, 10.0, felt).radius(u(3.0)),
+            block(1.0, 17.0, 28.0, 11.0, felt).radius(u(3.0)),
+            block(0.0, 24.0, 34.0, 5.0, trim).radius(u(2.0)),
+            block(0.0, 29.0, 58.0, 7.0, felt),
+            block(12.0, 0.0, 7.0, 7.0, tints.brass),
         ],
         Hat::Crown => vec![
-            block(-8.0, 30.0, 5.0, 7.0, tints.brass).radius(1.5),
-            block(0.0, 29.0, 5.0, 8.0, tints.brass).radius(1.5),
-            block(8.0, 30.0, 5.0, 7.0, tints.brass).radius(1.5),
-            block(0.0, 35.0, 26.0, 6.0, tints.brass).radius(1.5),
+            block(-10.0, 23.0, 6.0, 10.0, tints.brass).radius(u(1.5)),
+            block(0.0, 21.0, 6.0, 12.0, tints.brass).radius(u(1.5)),
+            block(10.0, 23.0, 6.0, 10.0, tints.brass).radius(u(1.5)),
+            block(0.0, 29.0, 34.0, 7.0, tints.brass).radius(u(1.5)),
         ],
         Hat::Wreath => {
-            vec![hoop(0.0, 39.0, 30.0, 10.0, tints.leaves)]
+            vec![hoop(0.0, 29.0, 42.0, 12.0, tints.leaves)]
         }
         Hat::Hood | Hat::Bare => Vec::new(),
     }
 }
 
-/// What is held, and the hand that holds it, at the figure's side.
+/// What is held, and the hand that holds it, by the shoulder.
 fn held(holds: Holds, tints: &Tints) -> Vec<Frame> {
-    let hand = block(22.0, 74.0, 9.0, 9.0, tints.face);
+    let hand = block(31.0, 79.0, 12.0, 12.0, tints.face);
     match holds {
         Holds::Quill => vec![
-            block(28.0, 54.0, 7.0, 20.0, tints.quill),
-            block(28.0, 70.0, 2.0, 12.0, tints.ink),
+            block(34.0, 50.0, 8.0, 28.0, tints.quill),
+            block(34.0, 76.0, 2.5, 10.0, tints.ink),
             hand,
         ],
         Holds::Teacup => vec![
-            hoop(34.0, 70.0, 8.0, 8.0, tints.china),
-            block(28.0, 68.0, 13.0, 11.0, tints.china).radius(3.0),
+            hoop(40.0, 71.0, 9.0, 9.0, tints.china),
+            block(31.0, 69.0, 17.0, 13.0, tints.china).radius(u(3.0)),
             hand,
         ],
         Holds::Book => vec![
-            block(28.0, 62.0, 14.0, 18.0, tints.leather).radius(2.0),
-            block(31.0, 64.0, 4.0, 14.0, tints.page).radius(1.0),
+            block(32.0, 61.0, 18.0, 22.0, tints.leather)
+                .radius(u(2.0)),
+            block(35.0, 63.0, 5.0, 18.0, tints.page).radius(u(1.0)),
             hand,
         ],
         Holds::Nothing => Vec::new(),
     }
 }
 
-/// The chief drawn flat as the mascot looks: its wick over its head,
-/// its hat, its cloak and what it holds.
+/// The chief as a portrait of its mascot: the wick and its glow over
+/// its head, its hat, its face and the cloak on its shoulders, and
+/// what it holds.
 fn figure(facts: &Facts) -> impl View {
     let light = facts.lights[facts.look.light as usize];
     let cloak = facts.cloaks[facts.look.cloak as usize];
     let (tints, look) = (facts.tints, facts.look);
     with_cx(move |cx| {
+        // Over a pointed hat the wick floats by its tip.
+        let (wick, high) = match look.hat {
+            Hat::Pointed => (26.0, 10.0),
+            _ => (0.0, 13.0),
+        };
+        let glow = BoxShadow(vec![ShadowStyle {
+            color: light.with_alpha(0.9),
+            x_offset: px(0.0),
+            y_offset: px(0.0),
+            spread_radius: px(u(8.0)),
+            blur_radius: px(u(30.0)),
+        }]);
+        let flame = block(wick, high - 7.0, 11.0, 15.0, light)
+            .tagged(glow)
+            .boxed();
         let mut parts = vec![
-            block(0.0, 3.0, 24.0, 24.0, light.with_alpha(0.3)),
-            block(0.0, 9.5, 11.0, 11.0, light),
-            block(0.0, 60.0, 48.0, 36.0, cloak).radius(16.0),
+            block(
+                wick,
+                high - 1.0,
+                5.0,
+                7.0,
+                light.mix(&Color::WHITE, 0.6),
+            ),
+            block(0.0, 68.0, 86.0, 70.0, cloak),
         ];
         match look.hat {
             Hat::Hood => {
-                parts.push(block(0.0, 33.0, 36.0, 36.0, cloak));
+                parts.push(block(0.0, 25.0, 54.0, 54.0, cloak));
             }
             Hat::Bare => {
-                parts.push(block(0.0, 35.0, 28.0, 14.0, tints.hair));
+                parts.push(block(0.0, 28.0, 42.0, 22.0, tints.hair));
             }
             _ => {}
         }
-        parts.push(block(0.0, 38.0, 26.0, 26.0, tints.face));
+        parts.extend([
+            block(0.0, 67.0, 36.0, 9.0, tints.trim(cloak)),
+            block(0.0, 72.0, 7.0, 7.0, tints.brass),
+            block(0.0, 31.0, 40.0, 38.0, tints.face),
+        ]);
+        for side in [-1.0, 1.0] {
+            parts.push(block(side * 8.0, 45.0, 5.0, 8.0, tints.ink));
+            parts.push(block(
+                side * 13.0,
+                55.0,
+                7.0,
+                4.0,
+                tints.blush.with_alpha(0.8),
+            ));
+        }
         parts.extend(hat(look.hat, cloak, &tints));
         parts.extend(held(look.holds, &tints));
         let palette = &cx.theme().palette;
-        column(
-            parts.into_iter().map(ViewExt::boxed).collect::<Vec<_>>(),
-        )
-        .width(px(FIGURE))
-        .height(px(FIGURE))
-        .shrink(0.0)
-        .radius(FIGURE / 2.0)
-        .fill(palette.input)
-        .border(cx.theme().space.border)
-        .border_color(palette.gold_6)
+        let views = std::iter::once(flame)
+            .chain(parts.into_iter().map(ViewExt::boxed))
+            .collect::<Vec<_>>();
+        column(views)
+            .width(px(FIGURE))
+            .height(px(FIGURE))
+            .shrink(0.0)
+            .overflow(Overflow::clip())
+            .radius(cx.theme().space.round * 3.0)
+            .fill(palette.input)
+            .border(cx.theme().space.border)
+            .border_color(palette.gold_6)
     })
 }
 

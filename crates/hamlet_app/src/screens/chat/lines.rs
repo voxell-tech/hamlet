@@ -227,39 +227,45 @@ pub(super) fn fold_view<B: Board>(
     let heading_key = key.clone();
     let tone_key = key.clone();
     let turn_key = key.clone();
-    let head = button(
-        row((
-            glyph(Glyph::Chevron, 10.0).tone(Tone::Faint).rotation(
-                resource::<B, _>(move |b| {
-                    if b.lines().is_open(&turn_key) {
-                        180.0
-                    } else {
-                        90.0
+    let words = row((
+        glyph(Glyph::Chevron, 10.0).tone(Tone::Dim).rotation(
+            resource::<B, _>(move |b| {
+                if b.lines().is_open(&turn_key) {
+                    180.0
+                } else {
+                    90.0
+                }
+            }),
+        ),
+        label(resource::<B, _>(move |b| {
+            b.lines().heading(&heading_key)
+        }))
+        .tone(resource::<B, _>(move |b| b.lines().tone(&tone_key)))
+        .rules(small_rules),
+    ))
+    .gap(6.0)
+    .align(AlignItems::Center);
+    // Framed, its edge on the bubbles' edge, so that it reads as the
+    // way into the turn's steps.
+    let head = with_cx(move |cx| {
+        let theme = cx.theme();
+        button(words)
+            .padding(UiRect::axes(px(INSET), px(4.0)))
+            .border(theme.space.border)
+            .border_color(theme.palette.border)
+            .radius(theme.space.round)
+            .rules(ghost)
+            .on_activate(move |world| {
+                let unfolded =
+                    &mut world.resource_mut::<Unfolded>().0;
+                let fold = (session, first.clone());
+                match unfolded.iter().position(|open| *open == fold) {
+                    Some(at) => {
+                        unfolded.remove(at);
                     }
-                }),
-            ),
-            label(resource::<B, _>(move |b| {
-                b.lines().heading(&heading_key)
-            }))
-            .tone(resource::<B, _>(move |b| {
-                b.lines().tone(&tone_key)
-            }))
-            .rules(small_rules),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center),
-    )
-    .padding(UiRect::axes(px(INSET), px(4.0)))
-    .rules(ghost)
-    .on_activate(move |world| {
-        let unfolded = &mut world.resource_mut::<Unfolded>().0;
-        let fold = (session, first.clone());
-        match unfolded.iter().position(|open| *open == fold) {
-            Some(at) => {
-                unfolded.remove(at);
-            }
-            None => unfolded.push(fold),
-        }
+                    None => unfolded.push(fold),
+                }
+            })
     });
     let kept_key = key.clone();
     let inside = each(

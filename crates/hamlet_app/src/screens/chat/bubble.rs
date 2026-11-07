@@ -23,6 +23,7 @@ use hamlet_ui::markdown::{Area, Block, Kind as Shape, Span, Style};
 use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Palette;
 use hamlet_ui::theme::contrast::{self, TEXT};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::entry::entry_view;
@@ -76,28 +77,30 @@ pub(super) fn inked(
     })
 }
 
-/// A speaker's picture: its first letter on its robot's paint. The
-/// mayor's is ringed in gold, and a chief's is square.
+/// A speaker's picture: the mark the Hub's tree gives it, on its
+/// robot's paint. The mayor's is ringed in gold, and a chief's is
+/// square.
 fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
     let theme = cx.theme();
-    let letter = who
-        .name
-        .chars()
-        .next()
-        .map(|first| first.to_uppercase().collect::<String>())
-        .unwrap_or_default();
+    let mark = match who.kind {
+        Kind::Agent => Glyph::Robot,
+        Kind::Mayor => Glyph::Mayor,
+        Kind::Hand => Glyph::Tower,
+        Kind::Me | Kind::Chief => Glyph::Hearth,
+    };
     let ink = contrast::clearer(
         theme.palette.gold_1,
         theme.palette.surface,
         who.paint,
     );
-    let face = row((inked(letter, ink, size * 0.5),))
-        .width(px(size))
-        .height(px(size))
-        .shrink(0.0)
-        .justify(JustifyContent::Center)
-        .align(AlignItems::Center)
-        .fill(who.paint);
+    let face =
+        row((glyph(mark, (size * 0.6).round()).tint(Some(ink)),))
+            .width(px(size))
+            .height(px(size))
+            .shrink(0.0)
+            .justify(JustifyContent::Center)
+            .align(AlignItems::Center)
+            .fill(who.paint);
     match who.kind {
         Kind::Agent => face.radius(size / 2.0),
         Kind::Mayor | Kind::Hand => face

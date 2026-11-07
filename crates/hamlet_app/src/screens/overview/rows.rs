@@ -19,6 +19,7 @@ use hamlet_realm::pick::Thing;
 use hamlet_ui::styles::{card_button, card_name, status_label};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Naming;
@@ -270,6 +271,12 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
     rows
 }
 
+/// A hamlet's name on a card, in the display face the Hub's tree
+/// names it in.
+pub(super) fn hamlet_name(name: String) -> impl View {
+    card_name(name, Tone::Body).tagged(DisplayText)
+}
+
 /// A row that can be pressed: a title with a word of status beside
 /// it, over `lines`. The right button opens the menu of `thing`.
 pub(super) fn pressable(
@@ -284,7 +291,7 @@ pub(super) fn pressable(
         button(
             column((
                 row((
-                    card_name(title, Tone::Body),
+                    hamlet_name(title),
                     status_label(beside.0, beside.1, beside.2),
                 ))
                 .gap(gap)
