@@ -1,5 +1,5 @@
-//! A label kept to one line that ends in an ellipsis where it does
-//! not fit, cut between letters, so the column after it stays clear.
+//! A label kept to one line that is cut with an ellipsis where it
+//! does not fit, between letters, so the column after it stays clear.
 
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
@@ -24,6 +24,9 @@ use crate::theme::HamletTheme;
 /// character is missing from some.
 const DOTS: &str = "...";
 
+/// The share of the room the start of a text cut in its middle takes.
+const HEAD: f32 = 0.4;
+
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(PostUpdate, fit.after(UiSystems::PostLayout));
 }
@@ -31,7 +34,17 @@ pub(super) fn plugin(app: &mut App) {
 /// `label` on one line, ending in an ellipsis where its node is
 /// narrower than its text. The node shrinks to what it is given.
 pub fn one_line(label: Label) -> OneLine {
-    OneLine(label)
+    OneLine(label, Keep::Start)
+}
+
+/// The part of a text a cut keeps.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub enum Keep {
+    #[default]
+    Start,
+    /// Its start and its end, with the ellipsis between them, for a
+    /// text whose end tells it apart, as a path does.
+    Ends,
 }
 
 /// `text` on one line, its first `most` letters, ending in an
@@ -44,8 +57,15 @@ pub fn cut(text: &str, most: usize) -> String {
     }
 }
 
-/// A [`Label`] that ends in an ellipsis where it does not fit.
-pub struct OneLine(Label);
+/// A [`Label`] that is cut with an ellipsis where it does not fit.
+pub struct OneLine(Label, Keep);
+
+impl OneLine {
+    /// Keeps `keep` of the text where it is cut.
+    pub fn keep(self, keep: Keep) -> Self {
+        Self(self.0, keep)
+    }
+}
 
 impl bevy_fynix::View<Bevy, HamletTheme> for OneLine {
     fn build(self, cx: &mut Cx<'_>) -> Entity {
@@ -55,7 +75,10 @@ impl bevy_fynix::View<Bevy, HamletTheme> for OneLine {
             ui.min_width = Val::Px(0.0);
             ui.max_width = Val::Percent(100.0);
         }
-        entity.insert(Ellipsis::default());
+        entity.insert(Ellipsis {
+            keep: self.1,
+            ..Ellipsis::default()
+        });
         node
     }
 }
@@ -63,6 +86,7 @@ impl bevy_fynix::View<Bevy, HamletTheme> for OneLine {
 /// The whole text of a [`OneLine`] and where it can be cut.
 #[derive(Component, Default)]
 struct Ellipsis {
+    keep: Keep,
     full: String,
     /// The text last written, `full` or a cut of it.
     shown: String,
@@ -90,14 +114,34 @@ impl Ellipsis {
             return self.full.clone();
         }
         // Before the ellipsis is laid out, a guess wider than it.
-        let dots = self.dots.unwrap_or(tall);
-        let cut = self
+        let room = room - self.dots.unwrap_or(tall);
+        let head_room = match self.keep {
+            Keep::Start => room,
+            Keep::Ends => room * HEAD,
+        };
+        let (head, head_x) = self
             .stops
             .iter()
-            .take_while(|&&(_, x)| x <= room - dots)
+            .take_while(|&&(_, x)| x <= head_room)
             .last()
-            .map_or(0, |&(at, _)| at);
-        format!("{}{DOTS}", self.full[..cut].trim_end())
+            .copied()
+            .unwrap_or_default();
+        let head = self.full[..head].trim_end();
+        match self.keep {
+            Keep::Start => format!("{head}{DOTS}"),
+            Keep::Ends => {
+                let from = whole - (room - head_x);
+                let tail = self
+                    .stops
+                    .iter()
+                    .find(|&&(_, x)| x >= from)
+                    .map_or(self.full.len(), |&(at, _)| at);
+                format!(
+                    "{head}{DOTS}{}",
+                    self.full[tail..].trim_start()
+                )
+            }
+        }
     }
 }
 
@@ -116,23 +160,22 @@ fn stops(layout: &Layout<TextBrush>) -> Vec<(usize, f32)> {
     stops
 }
 
-/// The width of the ellipsis that ends `shown`, when `layout` is of
-/// `shown` and it ends in one.
+/// The width of the ellipsis in `shown`, when `layout` is of `shown`
+/// and it has one.
 fn dots_width(
     layout: &Layout<TextBrush>,
     shown: &str,
 ) -> Option<f32> {
-    let body = shown.strip_suffix(DOTS)?.len();
+    let body = shown.find(DOTS)?;
     let laid = stops(layout);
-    let &(end, whole) = laid.last()?;
-    if end != shown.len() {
+    if laid.last()?.0 != shown.len() {
         return None;
     }
-    let before = match body {
-        0 => 0.0,
-        _ => laid.iter().find(|&&(at, _)| at == body)?.1,
+    let x = |at: usize| match at {
+        0 => Some(0.0),
+        _ => laid.iter().find(|&&(end, _)| end == at).map(|s| s.1),
     };
-    Some(whole - before)
+    Some(x(body + DOTS.len())? - x(body)?)
 }
 
 fn fit(
@@ -190,5 +233,29 @@ fn fit(
             text.0.clone_from(&fitted);
             ellipsis.shown = fitted;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_cut_in_the_middle_keeps_both_ends_within_the_room() {
+        let full = "grep -n row-0 notes/orchard/1.md";
+        let ellipsis = Ellipsis {
+            keep: Keep::Ends,
+            full: full.to_string(),
+            stops: (1..=full.len())
+                .map(|at| (at, at as f32 * 10.0))
+                .collect(),
+            dots: Some(30.0),
+            ..Ellipsis::default()
+        };
+        assert_eq!(
+            ellipsis.fitted(200.0, 0.0),
+            "grep -...rchard/1.md"
+        );
+        assert_eq!(ellipsis.fitted(400.0, 0.0), full);
     }
 }

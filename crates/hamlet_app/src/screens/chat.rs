@@ -62,15 +62,16 @@ use unicode_segmentation::UnicodeSegmentation;
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
 pub use self::entry::OpenTools;
-pub(crate) use self::entry::{Underway, entry_view};
+pub(crate) use self::entry::Underway;
 pub use self::field::{
     FieldBar, Placeholder, bar, grow, keep_typed, scroll_field,
     show_bar, show_placeholder,
 };
 pub use self::lines::{
-    ChatRow, Lines, Reach, Unfolded, Whole, break_long_words,
-    fold_lines, hide_unseen, read_back, transcript,
+    ChatRow, Lines, Past, Reach, Unfolded, Whole, break_long_words,
+    fold_lines, fold_past, hide_unseen, read_back, transcript,
 };
+pub(crate) use self::lines::{past, read_earlier, read_past};
 pub use self::rewind::{Rewinds, asked as rewind_asked};
 use crate::PanelSystems;
 use crate::convo::{self, Convo};
@@ -109,7 +110,7 @@ pub fn plugin(app: &mut App) {
         // reply shows in the update it arrives.
         .add_systems(
             PreUpdate,
-            (stick_to_bottom, read_back, fold_lines)
+            (stick_to_bottom, read_back, fold_lines, fold_past)
                 .chain()
                 .in_set(PanelSystems::Bind),
         )

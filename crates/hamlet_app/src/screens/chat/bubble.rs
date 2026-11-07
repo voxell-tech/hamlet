@@ -6,16 +6,16 @@ use bevy::ecs::entity::Entity;
 use bevy::picking::hover::Hovered;
 use bevy::text::TextColor;
 use bevy::ui::{
-    AlignItems, BorderRadius, Display, FlexWrap, JustifyContent,
-    Node, Overflow, PositionType, UiRect, Val, percent, px,
+    AlignItems, BorderRadius, FlexWrap, JustifyContent, Node,
+    Overflow, PositionType, UiRect, Val, percent, px,
 };
 use bevy_fynix::patch::Paint;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, component, resource};
-use hamlet_client::chats::{Entry, Transcript};
+use bevy_fynix::{ScopedExt, ViewExt, component};
+use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_ui::markdown::Area;
 use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Palette;
@@ -23,7 +23,7 @@ use hamlet_ui::theme::contrast::{self, TEXT};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::entry::entry_view;
-use super::lines::{Lines, Row, fold_view};
+use super::lines::{Board, Row, fold_view};
 use super::quote;
 use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
@@ -44,7 +44,7 @@ const FAR: f32 = 26.0;
 /// The room over a run, above the room between any two rows.
 const RUN: f32 = 9.0;
 
-/// The corner of a bubble, and the one by the picture of the last
+/// The corner of a bubble, and the one by the picture of the first
 /// bubble of a run.
 const ROUND: f32 = 10.0;
 const TAIL: f32 = 3.0;
@@ -142,9 +142,13 @@ enum Words {
 
 /// One message: a bubble at the right for the chief's own, and at
 /// the left by its speaker's picture for anyone else's.
-fn said(line: Line, session: Entity, id: String) -> AnyView {
+fn said<B: Board>(
+    line: Line,
+    session: Entity,
+    id: String,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let cast = cx.world.resource::<Lines>().cast();
+        let cast = cx.world.resource::<B>().lines().cast();
         let who = cast.get(line.by).cloned().unwrap_or_default();
         // The agent the chat is with comes first, and what is said
         // to it or to the chief needs no saying.
@@ -171,14 +175,20 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             Some((answers, words)) => (Some(answers), words),
             None => (None, typed),
         };
+        // A past session is only read.
+        let past = cx
+            .world
+            .get::<Chat>(session)
+            .is_some_and(|chat| chat.0.past.is_some());
         let replies = words != Words::Fault
+            && !past
             && entry.is_some_and(reply::can_reply_to);
         let mine = who.kind == Kind::Me;
         // The chief's own words in its own conversation with the
         // agent are what that conversation can be taken back to.
         let back = cx
             .world
-            .get::<hamlet_client::chats::Chat>(session)
+            .get::<Chat>(session)
             .is_none_or(|chat| chat.0.from.is_none())
             && mine
             && matches!(entry, Some(Entry::Chief { .. }))
@@ -188,7 +198,6 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
         let fill: fn(&Palette) -> Color =
             if mine { |p| p.gold_6 } else { |p| p.card };
         let time = hour(line.at);
-        let key = line.key();
 
         let mut inside = Vec::new();
         if line.named && !mine {
@@ -318,9 +327,6 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
                 ));
             }
         }
-        let ends_key = key.clone();
-        let ends = move |lines: &Lines| lines.is_run_end(&ends_key);
-        let corner_ends = ends.clone();
         let bubble = column(inside)
             .gap(2.0)
             .padding(UiRect::axes(px(10.0), px(6.0)))
@@ -335,22 +341,21 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             } else {
                 palette.border
             })
-            .corners(resource::<Lines, _>(move |lines| {
-                let tail =
-                    px(if corner_ends(lines) { TAIL } else { ROUND });
+            .corners({
+                let tail = px(if line.named { TAIL } else { ROUND });
                 let round = BorderRadius::all(px(ROUND));
                 if mine {
                     BorderRadius {
-                        bottom_right: tail.into(),
+                        top_right: tail.into(),
                         ..round
                     }
                 } else {
                     BorderRadius {
-                        bottom_left: tail.into(),
+                        top_left: tail.into(),
                         ..round
                     }
                 }
-            }));
+            });
         let above = px(if line.lead { RUN } else { 0.0 });
         let (replying, reply_room) = match replies {
             true => (
@@ -379,20 +384,17 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
                 ))
                 .boxed()
         } else {
-            let picture =
-                column((with_cx(move |cx| face(cx, &who, FACE)),))
-                    .display(resource::<Lines, _>(move |lines| {
-                        if ends(lines) {
-                            Display::Flex
-                        } else {
-                            Display::None
-                        }
-                    }));
+            let picture = match line.named {
+                true => {
+                    with_cx(move |cx| face(cx, &who, FACE)).boxed()
+                }
+                false => frame().boxed(),
+            };
             row((
                 column((picture,))
                     .width(px(GUTTER))
                     .shrink(0.0)
-                    .justify(JustifyContent::FlexEnd),
+                    .justify(JustifyContent::FlexStart),
                 bubble,
                 replying,
             ))
@@ -423,23 +425,25 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
     })
 }
 
-/// A row of the chat.
-pub(super) fn line_view(line: &Line) -> AnyView {
+/// A row of the chat, as board `B` holds it.
+pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
     match &line.row {
         Row::Entry { session, id } => {
-            said(line.clone(), *session, id.clone())
+            said::<B>(line.clone(), *session, id.clone())
         }
         // A turn's steps are the agent's own, so they sit where its
         // bubbles do.
-        Row::Fold { session, first, .. } => {
-            row((fold_view(line.key(), *session, first.clone()),))
-                .padding(UiRect::new(
-                    px(GUTTER),
-                    px(0.0),
-                    px(if line.lead { RUN } else { 0.0 }),
-                    px(0.0),
-                ))
-                .boxed()
-        }
+        Row::Fold { session, first, .. } => row((fold_view::<B>(
+            line.key(),
+            *session,
+            first.clone(),
+        ),))
+        .padding(UiRect::new(
+            px(GUTTER),
+            px(0.0),
+            px(if line.lead { RUN } else { 0.0 }),
+            px(0.0),
+        ))
+        .boxed(),
     }
 }

@@ -282,17 +282,16 @@ pub(super) struct Line {
     /// The first row of a run of rows by one speaker to one
     /// listener.
     pub lead: bool,
-    /// The first message of its run, which is the one that is
-    /// named.
+    /// The first message of its run, which is named and which the
+    /// speaker's picture stands by.
     pub named: bool,
-    /// The last message of its run, which the speaker's picture
-    /// stands by.
-    pub last: bool,
 }
 
-/// The received chat in display order with its speakers.
+/// The conversation `session` of the chat in display order with its
+/// speakers.
 pub(super) fn timeline(
     convo: &Convo,
+    session: Entity,
     transcript: &Transcript,
     open: &[(Entity, String)],
     people: &People,
@@ -305,7 +304,7 @@ pub(super) fn timeline(
     };
     let agent = cast.agent(convo.agent);
     let chief = cast.chief(&convo.name);
-    let mut lines = rows(convo.session, transcript, open)
+    let mut lines = rows(session, transcript, open)
         .into_iter()
         .map(|row| {
             let first = match &row {
@@ -332,7 +331,6 @@ pub(super) fn timeline(
                 look: 0,
                 lead: false,
                 named: false,
-                last: false,
             }
         })
         .collect::<Vec<_>>();
@@ -358,7 +356,7 @@ fn is_message(line: &Line) -> bool {
 }
 
 /// Sets where each run of rows by one speaker to one listener
-/// begins, and its first and last message.
+/// begins, and its first message.
 fn mark_runs(lines: &mut [Line]) {
     let mut start = 0;
     while start < lines.len() {
@@ -371,9 +369,6 @@ fn mark_runs(lines: &mut [Line]) {
         let run = &mut lines[start..end];
         if let Some(first) = run.iter_mut().find(|l| is_message(l)) {
             first.named = true;
-        }
-        if let Some(last) = run.iter_mut().rfind(|l| is_message(l)) {
-            last.last = true;
         }
         start = end;
     }

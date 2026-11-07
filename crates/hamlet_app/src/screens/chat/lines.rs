@@ -13,6 +13,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::world::World;
 use bevy::text::{LineBreak, TextLayout};
 use bevy::ui::{
     AlignItems, ComputedNode, JustifyContent, Overflow, OverflowAxis,
@@ -46,7 +47,9 @@ const EMPTY: &str = "Nothing has been said here yet. Agents can \
                      make mistakes, so check anything important.";
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Reading>().add_observer(page_received);
+    app.init_resource::<Reading>()
+        .init_resource::<Past>()
+        .add_observer(page_received);
 }
 
 fn page_received(
@@ -197,8 +200,9 @@ pub(super) fn rows(
     rows
 }
 
-/// The steps of a turn as one line that opens.
-pub(super) fn fold_view(
+/// The steps of a turn as one line that opens, as board `B` holds
+/// them.
+pub(super) fn fold_view<B: Board>(
     key: RowKey,
     session: Entity,
     first: String,
@@ -214,24 +218,26 @@ pub(super) fn fold_view(
         row((
             glyph(Glyph::Chevron, 10.0)
                 .tone(Tone::Faint)
-                .rotation(resource::<Lines, _>(move |l| {
-                    if l.is_open(&turn_key) == Some(true) {
+                .rotation(resource::<B, _>(move |b| {
+                    if b.lines().is_open(&turn_key) == Some(true) {
                         180.0
                     } else {
                         90.0
                     }
                 }))
-                .opacity(resource::<Lines, _>(move |l| {
-                    if l.is_open(&shown_key).is_some() {
+                .opacity(resource::<B, _>(move |b| {
+                    if b.lines().is_open(&shown_key).is_some() {
                         1.0
                     } else {
                         0.0
                     }
                 })),
-            label(resource::<Lines, _>(move |l| {
-                l.heading(&heading_key)
+            label(resource::<B, _>(move |b| {
+                b.lines().heading(&heading_key)
             }))
-            .tone(resource::<Lines, _>(move |l| l.tone(&tone_key)))
+            .tone(resource::<B, _>(move |b| {
+                b.lines().tone(&tone_key)
+            }))
             .rules(small_rules),
         ))
         .gap(6.0)
@@ -249,7 +255,7 @@ pub(super) fn fold_view(
         }
     });
     let inside = each(
-        resource::<Lines, _>(move |l| l.shown(&key)),
+        resource::<B, _>(move |b| b.lines().shown(&key)),
         |id: &String| id.clone(),
         move |id| entry_view(session, id.clone()),
     )
@@ -341,6 +347,18 @@ pub struct Lines {
     cast: Vec<Who>,
 }
 
+/// A resource that holds the rows of a conversation as the chat
+/// draws them.
+pub(crate) trait Board: Resource {
+    fn lines(&self) -> &Lines;
+}
+
+impl Board for Lines {
+    fn lines(&self) -> &Lines {
+        self
+    }
+}
+
 impl Lines {
     fn of(
         rows: Vec<Line>,
@@ -375,11 +393,6 @@ impl Lines {
 
     pub(super) fn cast(&self) -> &[Who] {
         &self.cast
-    }
-
-    /// The row `key` is the last message of its run.
-    pub(super) fn is_run_end(&self, key: &RowKey) -> bool {
-        self.line(key).is_some_and(|line| line.last)
     }
 
     /// The words on a fold's button.
@@ -458,6 +471,85 @@ pub struct Whole {
     anchor: Option<(RowKey, usize)>,
 }
 
+/// Rows of a past session added each time more of it is asked for.
+const PAST_PAGE: usize = 40;
+
+/// The past session read in the Hub, drawn as the chat is: the entity
+/// with its transcript, and its last rows.
+#[derive(Resource, Default)]
+pub struct Past {
+    holder: Option<Entity>,
+    /// Rows built, counted from the end.
+    reach: usize,
+    lines: Lines,
+}
+
+impl Board for Past {
+    fn lines(&self) -> &Lines {
+        &self.lines
+    }
+}
+
+impl Past {
+    /// Rows before those built, here or still on the server.
+    pub(crate) fn has_earlier(&self) -> bool {
+        self.lines.more
+    }
+}
+
+/// Reads the transcript held by `holder` as the past session, or
+/// none.
+pub(crate) fn read_past(world: &mut World, holder: Option<Entity>) {
+    *world.resource_mut::<Past>() = Past {
+        holder,
+        reach: PAST_PAGE,
+        lines: Lines::default(),
+    };
+}
+
+/// Builds a page more of the past session, and asks the server for
+/// its earlier rows once every row it has is built.
+pub(crate) fn read_earlier(world: &mut World) {
+    let mut past = world.resource_mut::<Past>();
+    let Some(holder) = past.holder else {
+        return;
+    };
+    let all_built = past.lines.earlier == 0;
+    past.reach += PAST_PAGE;
+    if all_built {
+        chats::earlier(world, holder);
+    }
+}
+
+/// The rows of the past session.
+pub fn fold_past(
+    convo: Res<Convo>,
+    unfolded: Res<Unfolded>,
+    transcripts: Query<Ref<Transcript>>,
+    people: People,
+    mut past: ResMut<Past>,
+) {
+    let said = past.holder.and_then(|at| transcripts.get(at).ok());
+    let moved = past.is_changed()
+        || convo.is_changed()
+        || unfolded.is_changed()
+        || people.has_moved()
+        || said.as_ref().is_some_and(DetectChanges::is_changed);
+    let (Some(holder), Some(said), true) = (past.holder, said, moved)
+    else {
+        return;
+    };
+    let (rows, cast) =
+        timeline(&convo, holder, &said, &unfolded.0, &people);
+    let earlier = rows.len().saturating_sub(past.reach);
+    let mut now =
+        Lines::of(rows[earlier..].to_vec(), earlier, 0, cast);
+    now.more |= said.earlier().is_some();
+    if past.lines != now {
+        past.lines = now;
+    }
+}
+
 /// The visible rows of the received chat.
 pub fn fold_lines(
     convo: Res<Convo>,
@@ -493,8 +585,13 @@ pub fn fold_lines(
         return;
     }
     if moved {
-        let (rows, cast) =
-            timeline(&convo, &transcript, &unfolded.0, &people);
+        let (rows, cast) = timeline(
+            &convo,
+            convo.session,
+            &transcript,
+            &unfolded.0,
+            &people,
+        );
         let anchor = whole.anchor.take();
         *whole = Whole {
             from,
@@ -683,38 +780,36 @@ pub fn read_back(
         {
             reading.at_top = true;
             let chat = convo.session;
-            commands.queue(
-                move |world: &mut bevy::ecs::world::World| {
-                    let Some(reference) = world
-                        .get::<chats::Chat>(chat)
-                        .map(|chat| chat.0.clone())
-                    else {
-                        return;
-                    };
-                    chats::earlier(world, chat);
-                    let id = world
-                        .resource::<Outbox>()
-                        .iter()
-                        .filter_map(|message| match message {
-                            protocol::ClientMessage::Open(open)
-                                if open.chat == reference
-                                    && open.before.is_some() =>
-                            {
-                                Some(open.id.clone())
-                            }
-                            _ => None,
-                        })
-                        .last();
-                    if let Some(id) = &id {
-                        world
-                            .resource_mut::<super::Requests>()
-                            .0
-                            .insert(id.clone());
-                    }
-                    world.resource_mut::<Reading>().page =
-                        id.map(|id| (id, reference));
-                },
-            );
+            commands.queue(move |world: &mut World| {
+                let Some(reference) = world
+                    .get::<chats::Chat>(chat)
+                    .map(|chat| chat.0.clone())
+                else {
+                    return;
+                };
+                chats::earlier(world, chat);
+                let id = world
+                    .resource::<Outbox>()
+                    .iter()
+                    .filter_map(|message| match message {
+                        protocol::ClientMessage::Open(open)
+                            if open.chat == reference
+                                && open.before.is_some() =>
+                        {
+                            Some(open.id.clone())
+                        }
+                        _ => None,
+                    })
+                    .last();
+                if let Some(id) = &id {
+                    world
+                        .resource_mut::<super::Requests>()
+                        .0
+                        .insert(id.clone());
+                }
+                world.resource_mut::<Reading>().page =
+                    id.map(|id| (id, reference));
+            });
         }
     }
 }
@@ -731,17 +826,12 @@ pub fn transcript() -> impl View {
         resource::<Lines, _>(|l| l.rows.clone()),
         |line: &Line| line.key(),
         |line| {
-            bubble::line_view(line)
+            bubble::line_view::<Lines>(line)
                 .tagged(ChatRow(line.key()))
                 .boxed()
         },
     )
-    .within(
-        column(())
-            .gap(GAP)
-            .width(percent(100.0))
-            .min_width(px(LEAST)),
-    );
+    .within(rows_column());
     let said = scroll((
         note(resource::<Lines, _>(|l| {
             if l.more {
@@ -793,6 +883,24 @@ pub fn transcript() -> impl View {
         .justify(JustifyContent::FlexEnd)
         .align(AlignItems::FlexEnd);
     column((said, corner)).fills_height()
+}
+
+/// The column the rows of a conversation stand in.
+fn rows_column() -> impl View {
+    column(())
+        .gap(GAP)
+        .width(percent(100.0))
+        .min_width(px(LEAST))
+}
+
+/// The past session's rows, drawn as the chat's are.
+pub(crate) fn past() -> impl View {
+    each(
+        resource::<Past, _>(|p| p.lines.rows.clone()),
+        |line: &Line| line.key(),
+        bubble::line_view::<Past>,
+    )
+    .within(rows_column())
 }
 
 /// A row of the chat.

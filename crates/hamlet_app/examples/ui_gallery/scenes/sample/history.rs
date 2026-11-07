@@ -3,7 +3,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::ecs::world::World;
-use hamlet_app::history::{self, History, Reading};
+use hamlet_app::history::{self, History};
 use hamlet_client::chats::Chat;
 use hamlet_protocol::client::{self as protocol, Past};
 
@@ -46,27 +46,25 @@ pub(super) fn setup(world: &mut World, reading: bool) {
             ("chief", "Note the quince for next year."),
             ("", "Noted, under next spring's work."),
         ]);
-        Reading {
-            number: pasts[1].number,
-            said: history::said(&transcript),
-            holder: world
-                .spawn((
-                    Chat(protocol::ChatRef {
-                        kind: None,
-                        from: None,
-                        with: protocol::AgentId(2),
-                        past: Some(pasts[1].number),
-                    }),
-                    transcript,
-                ))
-                .id(),
-            reach: history::PAGE,
-        }
+        let holder = world
+            .spawn((
+                Chat(protocol::ChatRef {
+                    kind: None,
+                    from: None,
+                    with: protocol::AgentId(2),
+                    past: Some(pasts[1].number),
+                }),
+                transcript,
+            ))
+            .id();
+        (pasts[1].number, holder)
     });
     world.insert_resource(History {
         pasts,
-        reading,
         fresh: true,
         ..Default::default()
     });
+    if let Some((number, holder)) = reading {
+        history::read(world, number, holder);
+    }
 }

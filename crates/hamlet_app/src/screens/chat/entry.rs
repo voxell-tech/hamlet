@@ -1,5 +1,5 @@
-//! One entry of a conversation, drawn plainly: in a fold, in the
-//! reader of a past session, and for a reply that failed.
+//! One entry of a conversation, drawn plainly: in a fold and for a
+//! reply that failed.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
@@ -14,7 +14,7 @@ use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::shown_of;
 use hamlet_ui::markdown::document;
 use hamlet_ui::styles::{note, small_rules};
-use hamlet_ui::widgets::ellipsis::{cut, one_line};
+use hamlet_ui::widgets::ellipsis::{Keep, cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, Cx, View};
@@ -37,13 +37,17 @@ fn clip(s: &str, max: usize) -> String {
     }
 }
 
+/// The letters of a request a tool's row lays out, which its line
+/// cuts again to the room it has.
+const TOOL_TEXT: usize = 400;
+
 /// The request to a tool: the shell command itself when the arguments
 /// are `{"command": ...}`, the raw arguments otherwise.
 fn tool_text(summary: &str) -> String {
     let command = serde_json::from_str::<serde_json::Value>(summary)
         .ok()
         .and_then(|v| v["command"].as_str().map(str::to_string));
-    cut(command.as_deref().unwrap_or(summary), 90)
+    cut(command.as_deref().unwrap_or(summary), TOOL_TEXT)
 }
 
 /// What a tool call that has not ended is doing.
@@ -185,6 +189,8 @@ fn tool_row(session: Entity, id: String) -> impl View {
             .wrap(false)
             .rules(small_rules)
             .tagged(MonoText),
+            // What tells one call from the next is often at the
+            // end, as the file a command reads.
             column((one_line(
                 label(read(|e| match e {
                     Entry::Tool { summary, .. } => tool_text(summary),
@@ -192,6 +198,7 @@ fn tool_row(session: Entity, id: String) -> impl View {
                 }))
                 .tone(Tone::Dim),
             )
+            .keep(Keep::Ends)
             .rules(small_rules)
             .tagged(MonoText),))
             .grow(1.0)

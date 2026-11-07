@@ -3,12 +3,11 @@
 use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::Changed;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, percent};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, button, column, frame,
@@ -18,14 +17,14 @@ use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, derived, each, every_frame, keyed,
     resource,
 };
-use hamlet_client::chats::{Chat, Entry, TalksTo, Transcript};
+use hamlet_client::chats::{Chat, TalksTo, Transcript};
 use hamlet_client::messages::{ChiefMessage, JobFinished, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::id_of;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, buttons, card_button, command, filling, good_action,
-    hairline, hidden, note, scroll_area, text_input,
+    hairline, hidden, note, scroll_area, section, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::cut;
@@ -43,19 +42,13 @@ use crate::{PanelSystems, chat};
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
 
-/// Messages of a session built at a time.
-pub const PAGE: usize = 40;
-
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<History>()
         .init_resource::<Requests>()
         .add_observer(response)
         .add_observer(stale_on_job)
         .add_systems(Update, refresh.run_if(hub::reads_sessions))
-        .add_systems(
-            PreUpdate,
-            keep_reader.in_set(PanelSystems::Bind),
-        );
+        .add_systems(PreUpdate, keep_open.in_set(PanelSystems::Bind));
 }
 
 /// The session open in the reader.
@@ -63,17 +56,6 @@ pub struct Reading {
     pub number: i64,
     /// The entity with its [`Transcript`].
     pub holder: Entity,
-    /// Its messages, without the steps between them.
-    pub said: Vec<String>,
-    /// Messages built, counted from the end.
-    pub reach: usize,
-}
-
-impl Reading {
-    fn shown(&self) -> Vec<String> {
-        let earlier = self.said.len().saturating_sub(self.reach);
-        self.said[earlier..].to_vec()
-    }
 }
 
 /// State of the History page.
@@ -95,6 +77,44 @@ struct Line {
     title: String,
     detail: String,
     live: bool,
+    /// The heading of the day it begins, on the first row of a day.
+    heading: Option<&'static str>,
+}
+
+/// The day a session was last used, as the list groups it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Day {
+    Today,
+    Yesterday,
+    PastWeek,
+    Earlier,
+}
+
+impl Day {
+    /// The day of `then` at `now`, both in milliseconds since 1970.
+    fn of(now: i64, then: i64) -> Self {
+        let date = |ms: i64| {
+            chrono::DateTime::from_timestamp_millis(ms)
+                .unwrap_or_default()
+                .with_timezone(&chrono::Local)
+                .date_naive()
+        };
+        match (date(now) - date(then)).num_days() {
+            ..=0 => Self::Today,
+            1 => Self::Yesterday,
+            2..7 => Self::PastWeek,
+            _ => Self::Earlier,
+        }
+    }
+
+    fn heading(self) -> &'static str {
+        match self {
+            Self::Today => "Today",
+            Self::Yesterday => "Yesterday",
+            Self::PastWeek => "Past week",
+            Self::Earlier => "Earlier",
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -104,15 +124,19 @@ struct Requests {
     open: bool,
 }
 
-/// The detail line of a past session's row: when, how long and who
-/// began it, when that was not `chief`.
+/// The detail line of a past session's row: when, unless it is in
+/// use, how long and who began it, when that was not `chief`.
 fn detail(past: &Past, chief: &str) -> String {
-    let mut parts = vec![if past.current {
-        "In use now".to_string()
-    } else {
-        Age::of(crate::status::now_ms(), past.modified.max(0) as u64)
-            .ago()
-    }];
+    let mut parts = Vec::new();
+    if !past.current {
+        parts.push(
+            Age::of(
+                crate::status::now_ms(),
+                past.modified.max(0) as u64,
+            )
+            .ago(),
+        );
+    }
     parts.push(match past.messages {
         1 => "1 message".to_string(),
         n => format!("{n} messages"),
@@ -137,13 +161,28 @@ impl History {
         })
     }
 
+    /// The rows found, by the day they were last used, the one in
+    /// use among today's.
     fn lines(&self, chief: &str) -> Vec<Line> {
-        self.found()
-            .map(|past| Line {
+        let now = crate::status::now_ms() as i64;
+        let mut found = self
+            .found()
+            .map(|past| match past.current {
+                true => (Day::Today, past),
+                false => (Day::of(now, past.modified), past),
+            })
+            .collect::<Vec<_>>();
+        found.sort_by_key(|(day, _)| *day);
+        let mut was = None;
+        found
+            .into_iter()
+            .map(|(day, past)| Line {
                 number: past.number,
                 title: cut(&past.title, TITLE_SHOWN),
                 detail: detail(past, chief),
                 live: past.current,
+                heading: (was.replace(day) != Some(day))
+                    .then(|| day.heading()),
             })
             .collect()
     }
@@ -171,25 +210,17 @@ pub(crate) fn close(world: &mut World) {
     let mut history = world.resource_mut::<History>();
     if let Some(reading) = history.reading.take() {
         world.despawn(reading.holder);
+        chat::read_past(world, None);
     }
 }
 
-/// The messages of a session, without the steps between them.
-pub fn said(transcript: &Transcript) -> Vec<String> {
-    transcript
-        .items()
-        .iter()
-        .filter(|item| {
-            matches!(
-                item.entry,
-                Entry::Chief { .. }
-                    | Entry::Assistant(_)
-                    | Entry::Agent { .. }
-                    | Entry::Error(_)
-            )
-        })
-        .map(|item| item.id.clone())
-        .collect()
+/// Opens the session `number`, whose transcript `holder` holds, in
+/// the reader.
+pub fn read(world: &mut World, number: i64, holder: Entity) {
+    let mut history = world.resource_mut::<History>();
+    history.failed = None;
+    history.reading = Some(Reading { number, holder });
+    chat::read_past(world, Some(holder));
 }
 
 fn format_tokens(n: u64) -> String {
@@ -218,14 +249,7 @@ pub(crate) fn open(world: &mut World, number: i64) {
             Transcript::default(),
         ))
         .id();
-    let mut history = world.resource_mut::<History>();
-    history.failed = None;
-    history.reading = Some(Reading {
-        number,
-        holder,
-        said: Vec::new(),
-        reach: PAGE,
-    });
+    read(world, number, holder);
 }
 
 /// The reader's conversation resumed by its stable number.
@@ -327,24 +351,9 @@ fn stale_on_job(job: On<JobFinished>, mut commands: Commands) {
     });
 }
 
-fn keep_reader(
-    showing: Res<Showing>,
-    mut requests: ResMut<Requests>,
-    mut history: ResMut<History>,
-    transcripts: Query<&Transcript, Changed<Transcript>>,
-) {
+fn keep_open(showing: Res<Showing>, mut requests: ResMut<Requests>) {
     if !hub::reads_sessions(showing) && requests.open {
         requests.open = false;
-    }
-    let Some(reading) = &history.reading else {
-        return;
-    };
-    let Ok(transcript) = transcripts.get(reading.holder) else {
-        return;
-    };
-    let now = said(transcript);
-    if now != reading.said {
-        history.reading.as_mut().unwrap().said = now;
     }
 }
 
@@ -364,21 +373,45 @@ fn choices(line: &Line) -> Vec<AnyView> {
     ]
 }
 
+/// The mark on the row of the session in use.
+fn in_use() -> impl View {
+    with_cx(|cx| {
+        let theme = cx.theme();
+        row((label("In use")
+            .size(theme.text.small)
+            .bold(true)
+            .tone(Tone::Accent)
+            .wrap(false),))
+        .padding(UiRect::axes(px(8.0), px(2.0)))
+        .shrink(0.0)
+        .border(1.0)
+        .border_color(theme.palette.gold_4)
+        .radius(theme.space.round)
+    })
+}
+
 fn line_view(line: &Line) -> AnyView {
     let number = line.number;
     let menu = line.clone();
-    let tone = if line.live { Tone::Accent } else { Tone::Body };
-    let (title, detail) = (line.title.clone(), line.detail.clone());
-    button(with_cx(move |cx| {
-        column((
-            label(title)
-                .size(cx.theme().text.heading)
-                .bold(true)
-                .tone(tone),
-            note(detail),
-        ))
-        .gap(cx.theme().space.gap / 2.0)
-        .fills_width()
+    let (title, detail, live) =
+        (line.title.clone(), line.detail.clone(), line.live);
+    let card = button(with_cx(move |cx| {
+        let name = column((label(title.clone())
+            .size(cx.theme().text.heading)
+            .bold(true)
+            .tone(if live { Tone::Accent } else { Tone::Body }),))
+        .grow(1.0)
+        .min_width(px(0.0));
+        let head = match live {
+            true => row((name, in_use()))
+                .gap(cx.theme().space.gap)
+                .align(AlignItems::FlexStart)
+                .boxed(),
+            false => row((name,)).boxed(),
+        };
+        column((head, note(detail.clone())))
+            .gap(cx.theme().space.gap / 2.0)
+            .fills_width()
     }))
     .width(percent(100.0))
     .rules(card_button)
@@ -386,8 +419,16 @@ fn line_view(line: &Line) -> AnyView {
     .on_activate(move |world| open(world, number))
     .appear(hidden)
     .transition(Motion::Expand)
-    .context_menu(move || choices(&menu))
-    .boxed()
+    .context_menu(move || choices(&menu));
+    match line.heading {
+        Some(day) => with_cx(move |cx| {
+            column((section(day), card))
+                .gap(cx.theme().space.gap)
+                .padding(UiRect::top(px(cx.theme().space.gap)))
+        })
+        .boxed(),
+        None => card.boxed(),
+    }
 }
 
 fn failed() -> impl View {
@@ -435,6 +476,7 @@ fn list() -> impl View {
                         line.number,
                         line.title.clone(),
                         line.detail.clone(),
+                        line.heading,
                     )
                 },
                 line_view,
@@ -455,10 +497,9 @@ fn actions() -> AnyView {
 fn reader() -> impl View {
     built(|cx| {
         let history = cx.world.resource::<History>();
-        let Some(reading) = &history.reading else {
+        if history.reading.is_none() {
             return cx.build(frame());
-        };
-        let holder = reading.holder;
+        }
         let past = history.read().cloned();
         let chief = &cx.world.resource::<Convo>().name;
         let (title, detail) = match &past {
@@ -467,86 +508,31 @@ fn reader() -> impl View {
             }
             None => Default::default(),
         };
-        let hint = format!(
-            "Resume carries on from session {}.",
-            reading.number
-        );
         let theme = cx.theme();
-        let (heading, gap, section) = (
-            theme.text.heading,
-            theme.space.gap,
-            theme.space.section,
-        );
+        let (heading, section) =
+            (theme.text.heading, theme.space.section);
         let line = theme.palette.gold_6;
         cx.build(
             column((
                 label(title).size(heading).bold(true),
                 note(detail),
                 actions(),
-                note(hint),
                 hairline(line),
                 scroll_area((
                     keyed(
-                        derived(|world: &World| {
-                            world
-                                .resource::<History>()
-                                .reading
-                                .as_ref()
-                                .is_some_and(|r| {
-                                    r.said.len() > r.reach
-                                        || world
-                                            .get::<Transcript>(
-                                                r.holder,
-                                            )
-                                            .is_some_and(|t| {
-                                                t.earlier().is_some()
-                                            })
-                                })
-                        })
-                        .when(every_frame()),
-                        |earlier| {
-                            if !*earlier {
-                                return frame().boxed();
+                        resource::<chat::Past, _>(
+                            chat::Past::has_earlier,
+                        ),
+                        |earlier| match earlier {
+                            true => {
+                                command("Earlier", chat::read_earlier)
+                                    .boxed()
                             }
-                            command("Earlier", |world| {
-                                let mut history =
-                                    world.resource_mut::<History>();
-                                let Some(reading) =
-                                    &mut history.reading
-                                else {
-                                    return;
-                                };
-                                let (holder, more) = (
-                                    reading.holder,
-                                    reading.said.len()
-                                        <= reading.reach,
-                                );
-                                reading.reach += PAGE;
-                                if more {
-                                    hamlet_client::chats::earlier(
-                                        world, holder,
-                                    );
-                                }
-                            })
-                            .boxed()
+                            false => frame().boxed(),
                         },
                     )
                     .within(column(()).align(AlignItems::FlexStart)),
-                    each(
-                        resource::<History, _>(|h| {
-                            h.reading
-                                .as_ref()
-                                .map(Reading::shown)
-                                .unwrap_or_default()
-                        }),
-                        |id: &String| id.clone(),
-                        move |id| {
-                            chat::entry_view(holder, id.clone())
-                        },
-                    )
-                    .within(
-                        column(()).gap(gap).width(percent(100.0)),
-                    ),
+                    chat::past(),
                 )),
             ))
             .fills_height()
