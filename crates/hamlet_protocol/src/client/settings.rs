@@ -173,6 +173,9 @@ pub struct Listed {
     #[serde(deserialize_with = "Option::deserialize")]
     pub price: Option<Price>,
     pub priced: ListedPriced,
+    /// What its provider calls it, such as `Claude Opus 4.8`; empty
+    /// when the provider gives no name.
+    pub title: String,
 }
 
 #[derive(

@@ -55,7 +55,8 @@ use super::{Open, close};
 use crate::menu::rect_of;
 use crate::models::{
     Detail, ModelRow, Shelf, legend, mark, model_name, model_row,
-    over_rows, provider_name, provider_of, tag,
+    model_title, over_rows, provider_name, provider_of, tag,
+    title_of,
 };
 
 /// The width of the providers down the side.
@@ -427,29 +428,41 @@ fn providers(world: &World) -> Vec<(String, String)> {
 }
 
 /// How well `model` answers every word of `search`, best lowest; none
-/// when a word is in neither its name nor its provider's.
+/// when a word is in neither its names nor its provider's.
 fn rank(world: &World, model: &str, search: &str) -> Option<usize> {
-    let name = model_name(model).to_lowercase();
+    let names = [
+        model_name(model).to_lowercase(),
+        model_title(world, model).to_lowercase(),
+    ];
     let whole = model.to_lowercase();
     let provider =
         provider_name(world, provider_of(model)).to_lowercase();
-    search.split_whitespace().try_fold(0, |sum, word| {
+    // How well `word` answers `name`, best lowest.
+    let answers = |name: &String, word: &str| {
         let starts_a_part = name
             .split(['-', '/', '.', '_', ' ', ':'])
             .any(|part| part.starts_with(word));
-        let score = if name == word {
-            0
+        if name == word {
+            Some(0)
         } else if name.starts_with(word) {
-            1
+            Some(1)
         } else if starts_a_part {
-            2
+            Some(2)
         } else if name.contains(word) {
-            3
-        } else if whole.contains(word) || provider.contains(word) {
-            4
+            Some(3)
         } else {
-            return None;
-        };
+            None
+        }
+    };
+    search.split_whitespace().try_fold(0, |sum, word| {
+        let score = names
+            .iter()
+            .filter_map(|name| answers(name, word))
+            .min()
+            .or_else(|| {
+                (whole.contains(word) || provider.contains(word))
+                    .then_some(4)
+            })?;
         Some(sum + score)
     })
 }
@@ -913,7 +926,10 @@ fn reasoning(agent: Entity) -> impl View {
                     .rules(small_rules),
                 one_line(label(format!(
                     "for {}",
-                    model_name(&now.model)
+                    card.as_ref().map_or_else(
+                        || model_name(&now.model).to_string(),
+                        title_of,
+                    )
                 )))
                 .rules(hamlet_ui::styles::note_rules),
             ))
@@ -1132,14 +1148,15 @@ pub(crate) fn chip(agent: Entity) -> impl View {
                 .is_none_or(|card| card.efforts != [Effort::Off]);
             let effort =
                 now.efforts(card.as_ref()).0.filter(|_| reasons);
-            (now, effort)
+            let title = model_title(world, &now.model);
+            (now, effort, title)
         })
         .when(every_frame()),
-        |(now, effort)| {
+        |(now, effort, title)| {
             let name = if now.model.is_empty() {
                 "Default model".to_string()
             } else {
-                model_name(&now.model).to_string()
+                title.clone()
             };
             let mut parts = vec![
                 mark(provider_of(&now.model), ICON),
@@ -1287,6 +1304,7 @@ mod tests {
             note: String::new(),
             price: None,
             priced: protocol::ListedPriced::Unknown,
+            title: String::new(),
         };
         app.world_mut().resource_mut::<Shelf>().models = vec![
             listed("lantern::wren-large"),

@@ -18,7 +18,8 @@ use hamlet_ui::widgets::providers::provider_mark;
 use hamlet_ui::{AnyView, Cx, with_cx};
 
 use super::{
-    Shelf, context_words, model_name, provider_of, source_of,
+    Shelf, context_words, model_name, model_title, provider_of,
+    source_of,
 };
 use crate::roll::moved;
 
@@ -168,8 +169,12 @@ pub(crate) fn model_row(
     } else {
         frame().boxed()
     };
+    let called = name.clone();
     let title = row((
-        one_line(label(model_name(&name).to_string())),
+        one_line(label(
+            derived(move |world: &World| model_title(world, &called))
+                .when(moved::<Shelf>()),
+        )),
         check,
         word.map_or_else(|| frame().boxed(), tag),
     ))

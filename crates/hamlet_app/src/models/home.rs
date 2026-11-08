@@ -24,7 +24,7 @@ use hamlet_ui::{AnyView, View, built, with_cx};
 use super::choice::home_default;
 use super::{
     Asked, Draft, SHOWN, Shelf, catalogue, context_words, edit, mark,
-    model_name, provider_name, provider_of, read_models,
+    provider_name, provider_of, read_models, title_of,
 };
 use crate::roll::{either, moved};
 
@@ -250,7 +250,7 @@ fn entry(model: &protocol::Listed, default: &str) -> AnyView {
     let id = model.name.clone();
     let words = row((
         mark(provider_of(&name), MARK),
-        one_line(label(model_name(&name).to_string())),
+        one_line(label(title_of(model))),
     ))
     .gap(MARK_GAP)
     .align(AlignItems::Center)

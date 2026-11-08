@@ -899,6 +899,7 @@ impl Core {
                 note: String::new(),
                 price: None,
                 priced: ListedPriced::Unknown,
+                title: String::new(),
             });
             card.learn(model);
             let context = model
@@ -1084,13 +1085,21 @@ struct Card {
     note: String,
     price: Option<ListedPrice>,
     priced: ListedPriced,
+    /// What its provider calls it.
+    #[serde(default)]
+    title: String,
 }
 
 impl Card {
-    /// Takes in what pi says of `model`: the efforts it can be asked
-    /// for, its default among them, and whether its API has a fast
-    /// tier.
+    /// Takes in what pi says of `model`: what it is called, the
+    /// efforts it can be asked for, its default among them, and
+    /// whether its API has a fast tier.
     fn learn(&mut self, model: &Value) {
+        model["name"]
+            .as_str()
+            .unwrap_or_default()
+            .trim()
+            .clone_into(&mut self.title);
         self.efforts =
             if model["reasoning"].as_bool().unwrap_or(false) {
                 Effort::ALL
@@ -1133,6 +1142,7 @@ impl Card {
             note: self.note,
             price: self.price,
             priced: self.priced,
+            title: self.title,
         }
     }
 }

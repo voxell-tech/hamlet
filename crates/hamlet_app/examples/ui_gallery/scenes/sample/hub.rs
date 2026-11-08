@@ -120,6 +120,7 @@ pub(super) fn catalogue() -> Vec<protocol::Listed> {
         note: String::new(),
         price: Some(protocol::Price { input, output }),
         priced: protocol::ListedPriced::Listed,
+        title: String::new(),
     };
     let thinks = [
         Effort::Low,

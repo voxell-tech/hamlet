@@ -353,6 +353,7 @@ async fn lists_prices_and_bills_an_endpoints_models() {
                 output: 3.0
             }),
             priced: ListedPriced::Yours,
+            title: "org/large".into(),
         })
     );
     let hand = s.hand();

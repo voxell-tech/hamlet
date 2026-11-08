@@ -97,6 +97,26 @@ pub(crate) fn model_name(model: &str) -> &str {
     id.rsplit('/').next().unwrap_or(id)
 }
 
+/// What `model` is called: what its provider calls it, else its
+/// [`model_name`].
+pub(crate) fn title_of(model: &protocol::Listed) -> String {
+    match model.title.is_empty() {
+        true => model_name(&model.name).to_string(),
+        false => model.title.clone(),
+    }
+}
+
+/// What the catalogue's model `name` is called, as [`title_of`]; its
+/// [`model_name`] while the catalogue does not list it.
+pub(crate) fn model_title(world: &World, name: &str) -> String {
+    world
+        .get_resource::<Shelf>()
+        .and_then(|shelf| {
+            shelf.models.iter().find(|model| model.name == name)
+        })
+        .map_or_else(|| model_name(name).to_string(), title_of)
+}
+
 /// The name of the provider `id`, as the server lists it, else its
 /// id.
 pub(crate) fn provider_name(world: &World, id: &str) -> String {
@@ -296,12 +316,12 @@ mod tests {
         incoming(
             &mut app,
             json!({"type":"read", "to":requests[0]["id"], "models":[
-                {"name":"far::large", "price":{"input":3.0,"output":15.0}, "priced":"listed", "context":200000, "defaultEffort":null, "efforts":[], "fast":false, "note":"For hard questions."}
+                {"name":"far::large", "price":{"input":3.0,"output":15.0}, "priced":"listed", "context":200000, "defaultEffort":null, "efforts":[], "fast":false, "note":"For hard questions.", "title":"Large"}
             ]}),
         );
         mount::<HamletTheme>(app.world_mut(), shelf());
         let shown = all_words(&mut app);
-        for text in ["large", "3.00", "15.00", "200k"] {
+        for text in ["Large", "3.00", "15.00", "200k"] {
             assert!(shown.contains(text), "{shown}");
         }
     }
@@ -313,7 +333,7 @@ mod tests {
         incoming(
             &mut app,
             json!({"type":"read", "to":read["id"], "models":[
-                {"name":"far::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":""}
+                {"name":"far::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":"", "title":""}
             ]}),
         );
         app
