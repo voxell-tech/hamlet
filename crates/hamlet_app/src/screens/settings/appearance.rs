@@ -11,8 +11,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_ui::styles::{
-    ICON, bare, card_choice, card_name, description, group, note,
-    parts,
+    ICON, bare, card_choice, card_name, group, note, parts,
 };
 use hamlet_ui::theme::{Palette, Theme, Themes};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -27,14 +26,14 @@ use crate::root::Lasting;
 /// The width of a theme's small painted panel.
 const SWATCH: f32 = 128.0;
 /// The width of what a mode's card holds.
-const CHOICE: f32 = 150.0;
+const CHOICE: f32 = 120.0;
 
 pub(super) fn page() -> impl View {
-    parts((field("Light or dark", modes()), themes()))
+    parts((modes(), themes()))
 }
 
-/// The three modes, each with what it does, and why the panels stay
-/// as they are where the theme has no variant for the mode.
+/// The three modes, and why the panels stay as they are where the
+/// theme has no variant for the mode.
 fn modes() -> AnyView {
     let picked = derived(|world: &World| {
         let appearance = world.resource::<Appearance>();
@@ -96,25 +95,20 @@ fn missing(
     ))
 }
 
-/// A mode as a card: how the panels look in it, its name and what it
-/// does.
+/// A mode as a card: how the panels look in it, over its name.
 fn mode_card(
     mode: Mode,
     picked: bool,
     scheme: ColorScheme,
     (light, dark): &(Palette, Palette),
 ) -> AnyView {
-    let (name, does) = match mode {
-        Mode::System => ("Match system", system_words(scheme)),
-        Mode::Light => {
-            ("Light", "Always light, however your computer is set.")
-        }
-        Mode::Dark => {
-            ("Dark", "Always dark, however your computer is set.")
-        }
+    let name = match mode {
+        Mode::System => "System",
+        Mode::Light => "Light",
+        Mode::Dark => "Dark",
     };
-    // Match system looks as the computer says now, else dark, as
-    // the panels then stay.
+    // System looks as the computer says now, else dark, as the panels
+    // then stay.
     let shade = match (mode, scheme) {
         (Mode::Light, _)
         | (Mode::System, ColorScheme::Says(WindowTheme::Light)) => {
@@ -128,7 +122,6 @@ fn mode_card(
         column((
             row((swatch(shade),)).width(percent(100.0)),
             card_name(name, Tone::Body),
-            description(does),
         ))
         .gap(6.0)
         .width(px(CHOICE)),
@@ -136,25 +129,6 @@ fn mode_card(
             world.resource_mut::<Appearance>().pick_mode(mode);
         },
     )
-}
-
-fn system_words(scheme: ColorScheme) -> &'static str {
-    match scheme {
-        ColorScheme::Says(WindowTheme::Light) => {
-            "Follows your computer, which is light now."
-        }
-        ColorScheme::Says(WindowTheme::Dark) => {
-            "Follows your computer, which is dark now."
-        }
-        ColorScheme::Silent => {
-            "Follows your computer. It does not say which it is, so \
-             the panels stay dark."
-        }
-        ColorScheme::Asking => {
-            "Follows your computer, light when it is light and dark \
-             when it is dark."
-        }
-    }
 }
 
 fn shade_name(shade: WindowTheme) -> &'static str {
