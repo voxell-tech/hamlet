@@ -10,7 +10,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
 use bevy::ui::{AlignItems, PositionType, UiRect, Val, percent, px};
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
     frame, label, row, text_field,
@@ -430,7 +430,7 @@ fn row_look(cx: &mut Cx) {
                 .radius(t.space.round)
         })
         .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
-        .pressed(|s| s.frame(|f, t| f.fill(t.palette.input)))
+        .pressed(|s| s.frame(|f, t| f.fill(t.pressed())))
         .transition(Motion::Interact)
         .apply(cx);
 }

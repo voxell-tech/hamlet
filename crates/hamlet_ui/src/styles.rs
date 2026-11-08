@@ -8,7 +8,7 @@ use bevy::ui::{
     AlignItems, InteractionDisabled, JustifyContent, UiRect, percent,
     px,
 };
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     self, BehaviorExt, Frame, FrameProps, Icon, Stack, TooltipExt,
     column, frame, label, menu_item, row, scroll, tinted_icon,
@@ -63,13 +63,14 @@ pub fn button(cx: &mut Cx) {
         })
         .pressed(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.input).border_color(t.palette.gold_5)
+                f.fill(t.pressed()).border_color(t.palette.gold_5)
             })
-            .tone(Tone::Dim)
+            .tone(Tone::Body)
         })
         .when::<InteractionDisabled>(|s| {
             s.frame(|f, t| {
-                f.fill(Color::NONE).border_color(t.palette.gold_6)
+                f.fill(transparent(t.palette.button))
+                    .border_color(t.palette.gold_6)
             })
             .tone(Tone::Dim)
         })
@@ -103,7 +104,7 @@ pub fn primary_button(cx: &mut Cx) {
                 f.fill(t.palette.primary_low)
                     .border_color(t.palette.gold_5)
             })
-            .tone(Tone::Faint)
+            .tone(Tone::Body)
         })
         .when::<InteractionDisabled>(|s| {
             s.frame(|f, t| {
@@ -191,7 +192,8 @@ pub fn danger_button(cx: &mut Cx) {
         })
         .pressed(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.input).border_color(t.palette.red)
+                f.fill(t.palette.danger_hover)
+                    .border_color(t.palette.red)
             })
             .tone(Tone::Critical)
         })
@@ -715,7 +717,7 @@ fn segment(
         })
         .pressed(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.input).border_color(t.palette.gold_5)
+                f.fill(t.pressed()).border_color(t.palette.gold_5)
             })
         })
     };
@@ -762,7 +764,7 @@ pub fn choice(
         })
         .pressed(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.input).border_color(Color::NONE)
+                f.fill(t.pressed()).border_color(Color::NONE)
             })
         })
     };
@@ -868,7 +870,7 @@ pub fn link_row(cx: &mut Cx) {
             s.frame(|f, t| f.fill(t.palette.button)).tone(Tone::Body)
         })
         .pressed(|s| {
-            s.frame(|f, t| f.fill(t.palette.input)).tone(Tone::Dim)
+            s.frame(|f, t| f.fill(t.pressed())).tone(Tone::Body)
         })
         .transition(Motion::Interact)
         .apply(cx);

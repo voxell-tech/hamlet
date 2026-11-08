@@ -22,7 +22,7 @@ use bevy::ui::{
     PositionType, UiGlobalTransform, UiRect, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     self, Axis, BehaviorExt, FrameProps, TooltipExt, button, column,
     frame, label, row, text_field,
@@ -1295,7 +1295,7 @@ fn row_rules(cx: &mut Cx) {
                 .padding(UiRect::axes(px(ROW_INSET), px(4.0)))
         })
         .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
-        .pressed(|s| s.frame(|f, t| f.fill(t.palette.input)))
+        .pressed(|s| s.frame(|f, t| f.fill(t.pressed())))
         .transition(Motion::Interact)
         .apply(cx);
 }

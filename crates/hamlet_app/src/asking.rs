@@ -14,7 +14,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, label, row,
     text_field,
@@ -30,7 +30,7 @@ use hamlet_client::waits::{
 use hamlet_protocol::client::{Offer, Pick, Questions};
 use hamlet_ui::styles::{
     self, Fills, action, back_link, bare, marked, note, note_rules,
-    primary_button, small_rules, text_input,
+    primary_button, small_rules, text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -212,13 +212,13 @@ fn dismiss(world: &mut World, card: Entity) {
 fn option(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(Color::NONE)
+            f.fill(transparent(t.palette.button_hover))
                 .border(t.space.border)
                 .border_color(Color::NONE)
                 .radius(t.space.round)
         })
         .hovered(|s| s.frame(|f, t| f.fill(t.palette.button_hover)))
-        .pressed(|s| s.frame(|f, t| f.fill(t.palette.input)))
+        .pressed(|s| s.frame(|f, t| f.fill(t.pressed())))
         .transition(Motion::Interact)
         .apply(cx);
 }
