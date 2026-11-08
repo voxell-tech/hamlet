@@ -11,7 +11,7 @@ use hamlet_protocol::client::{
     self as protocol, ChatRef, ChatRefKind, ClientMessage, RequestId,
     ServerMessage, Transcript,
 };
-use hamlet_store::ids::{Actor, AgentId, ConversationId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
 use super::check::{fault, reply};
 use super::connection::{self, Event};
@@ -54,8 +54,6 @@ impl Core {
             Event::Gone(client) => {
                 self.clients.gone(client);
                 self.providers.disconnect(client);
-                let staging = self.realm.layout().staging();
-                self.gifts.disconnect(client, &staging);
                 self.images.disconnect(client);
                 self.send_providers().await
             }
@@ -380,30 +378,6 @@ impl Core {
                     )
                     .await?;
                 self.answer(client, reply(&answer.id, words))
-            }
-            ClientMessage::Give(protocol::Give::Files {
-                files,
-                id,
-                to,
-            }) => {
-                let to = AgentId(i64::try_from(to.0)?);
-                let answer =
-                    self.give_files(client, &id, to, files)?;
-                self.answer(client, answer)
-            }
-            ClientMessage::Give(protocol::Give::Skill {
-                id,
-                skill,
-                to,
-            }) => {
-                let to = ScholarId(i64::try_from(to.0)?);
-                let words = self.give_skill(to, skill).await?;
-                self.publish().await?;
-                self.answer(client, reply(&id, words))
-            }
-            ClientMessage::GivePart(part) => {
-                let answer = self.give_part(client, part).await?;
-                self.answer(client, answer)
             }
             ClientMessage::PutImage(put) => {
                 let answer = self.put_image(client, put);

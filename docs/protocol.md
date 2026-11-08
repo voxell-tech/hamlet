@@ -5,8 +5,8 @@ Hamlet's server. There is no HTTP API. The wire carries JSON messages.
 
 The contract is the Rust types in
 [`hamlet_protocol::client`](../crates/hamlet_protocol/src/client.rs), one
-module per area: `state`, `chat`, `waits`, `gifts`, `documents`, `limits`
-and `settings`.
+module per area: `state`, `chat`, `waits`, `images`, `documents`,
+`limits` and `settings`.
 The names below, such as `Hello` and `ClientMessage`, are their type names.
 The handshake's `v` is the protocol's version, `VERSION`, in semver. A
 server takes a client whose version is compatible with its own by
@@ -49,9 +49,9 @@ The window says so in its connection words.
 A client-to-server WebSocket message holds at most **1,048,576 bytes**
 (1 MiB). An oversized message gets a best-effort `fault` and close **1009**.
 The server applies no matching outbound limit to state or transcript pages.
-File gifts have a separate
-**32 MiB** limit and travel in chunks (`Give`, `GivePart`). A server shutdown
-closes clients with **1001**. These rules are in
+Images travel in
+chunks (`PutImage`, `PutImagePart`). A server shutdown closes clients with
+**1001**. These rules are in
 [`crates/hamlet_server/src/clients/connection.rs`](../crates/hamlet_server/src/clients/connection.rs).
 
 ## Shared shapes
@@ -110,9 +110,6 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `say` (`Say`) | `to: AgentId`, `text: string`, `images?: ImageId[]` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. `images` are images sent before with `put-image`, at most 20 and at most what the agent's model takes; a line with images is refused when that model takes none. A command takes no images. |
 | `put-image` (`PutImage`) | `size: integer` | Begin sending one image of that many bytes, at most 20 MiB, a PNG, JPEG, WebP or GIF; `reply.upload` identifies the upload for its parts. |
 | `put-image-part` (`PutImagePart`) | `upload: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset. `reply` acknowledges the part; the one that completes the image is answered with `reply.image`, the image's id. |
-| `give` (`Give`) | `to: AgentId`, `files: {path: string, size: integer}[]` | Begin a file gift; `reply.upload` identifies the upload for chunks. Paths are relative; sizes are byte counts. |
-| `give` (`Give`) | `to: ScholarId`, `skill: {from: Keeper, name: string}` | Copy a named skill of a scholar or a hire's lodge; `reply`. |
-| `give-part` (`GivePart`) | `upload: string`, `path: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset in a declared file. `reply` acknowledges the chunk or completed gift. |
 | `answer` (`Answer`) | `wait: string`, `choice: Choice`, `text?: string`, `picks?: Pick[]` | Answer a wait; `reply`. |
 | `stop` (`Stop`) | `agent?: AgentId` | Stop that agent's work, or all work if omitted; `reply`. |
 | `rewind` (`Rewind`) | `chat: ChatRef`, `item: string` | Take back a chief input and what followed. `reply` with kind `rewound` returns its words; watchers get a reset and replacement transcript. Refused while work is running or queued. |
@@ -355,7 +352,7 @@ readable `text`; neither carries a machine error code.
 
 | Envelope | Use |
 |---|---|
-| `reply`, kind `error`, with `to` | An ordinary requested operation is refused: an edit, read, answer, gift, check or conversation action, or a typed command. |
+| `reply`, kind `error`, with `to` | An ordinary requested operation is refused: an edit, read, answer, check or conversation action, or a typed command. |
 | `fault` with `to` | A malformed request with a recoverable UUID, an open/page refusal, a watch failure still associated with its opening request, or an unexpected request-handler failure, a panic included. |
 | `fault` without `to` | A handshake or connection failure, input with no valid request ID, or a watch failure after its opening request has been answered. |
 

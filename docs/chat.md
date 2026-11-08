@@ -187,8 +187,8 @@ reply gives the words back; a reset followed by a transcript replaces the
 shown items. The server refuses a rewind while work is running or queued
 and closes waits raised by the part taken back.
 
-**What is not undone.** Files changed, commands run, memory, skills, gifts
-and everything spent. The question says so before anything happens.
+**What is not undone.** Files changed, commands run, memory, skills, files
+attached and everything spent. The question says so before anything happens.
 
 **In the window.** Each rewindable chief message carries a small mark,
 shown while the pointer is on the row and no turn runs. A click asks
@@ -255,9 +255,8 @@ reads the bytes of what is attached; the server checks, resizes and keeps
 them. A rewind puts the images of the line back over the field with its words.
 
 The system reports no pointer with a drop, so the hand holds each dropped
-file until the pointer is seen on something. Over the chat, an image file is
-attached and any other file is let lie. Over a robot or a house, a file is a
-gift to its agent. A file that is seen on nothing within a moment is let lie.
+file until the pointer is seen on something. Over the chat, a file is
+attached. A file that is seen on nothing within a moment is let lie.
 
 ## Questions to the chief
 

@@ -55,7 +55,7 @@ use hamlet_client::messages::{
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm as agents;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::hand::ImageDrop;
+use hamlet_realm::hand::FileDrop;
 use hamlet_realm::orders::{Decree, Tell};
 use hamlet_ui::styles::{note, text_input};
 use hamlet_ui::theme::HamletTheme;
@@ -670,7 +670,7 @@ fn message_bar_in(
         .min_height(px(15.0)),
     ))
     .gap(gap / 2.0)
-    .tagged(ImageDrop)
+    .tagged(FileDrop)
 }
 
 /// The composer's card: a text field's look, rounder, its frame

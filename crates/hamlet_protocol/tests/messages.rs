@@ -158,32 +158,6 @@ fn chief_requests_carry_addresses_ids_and_choices() {
 }
 
 #[test]
-fn gifts_name_the_agent_for_files_and_the_scholar_for_skills() {
-    client(
-        ClientMessage::Give(Give::Files {
-            id: id(),
-            to: agent(),
-            files: vec![GiveFile {
-                path: "a.md".into(),
-                size: 1,
-            }],
-        }),
-        json!({"type": "give", "id": ID, "to": 2, "files": [{"path": "a.md", "size": 1}]}),
-    );
-    client(
-        ClientMessage::Give(Give::Skill {
-            id: id(),
-            to: ScholarId(1),
-            skill: GiveSkillSource {
-                from: Keeper::Agent(agent()),
-                name: "maps".into(),
-            },
-        }),
-        json!({"type": "give", "id": ID, "to": 1, "skill": {"from": {"agent": 2}, "name": "maps"}}),
-    );
-}
-
-#[test]
 fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
 {
     client(

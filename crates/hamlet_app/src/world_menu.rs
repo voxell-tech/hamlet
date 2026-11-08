@@ -38,7 +38,6 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
-use hamlet_client::gifts::GiftReports;
 use hamlet_client::messages::Veto;
 use hamlet_client::realm::{self as agents, Deeds};
 use hamlet_realm::orders;
@@ -123,8 +122,6 @@ pub(crate) enum Open {
     Hire(Entity, Vec2),
     /// The form a road from an agent is built with.
     Road(Entity, Vec2),
-    /// The skills an agent could be given.
-    Skills(Entity, Vec2),
     /// The model an agent runs, its effort and its tier.
     Model(Entity),
 }
@@ -345,13 +342,6 @@ pub(crate) fn has_items(world: &World, thing: Thing) -> bool {
     items::has_items(world, thing)
 }
 
-/// Opens the menu of the skills `agent` could be given, at the
-/// pointer.
-pub(super) fn open_skills(world: &mut World, agent: Entity) {
-    let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Skills(agent, at);
-}
-
 /// Opens the form a hamlet is founded with, at the pointer.
 pub(crate) fn ask_found(world: &mut World) {
     if !Deeds::is_allowed(world, "create-hamlet") {
@@ -435,7 +425,7 @@ fn menu(at: Vec2, items: Vec<AnyView>) -> impl View {
 
 /// The menu or the question that is open, over everything.
 pub fn view() -> AnyView {
-    overlay((menus(), gift_reports())).boxed()
+    overlay((menus(),)).boxed()
 }
 
 fn menus() -> AnyView {
@@ -484,66 +474,9 @@ fn menus() -> AnyView {
             Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
             Open::Road(agent, at) => road::road(agent, at).boxed(),
             Open::Model(agent) => model::picker(agent).boxed(),
-            Open::Skills(agent, at) => {
-                AnyView::new(move |cx: &mut Cx| {
-                    let items = items::skills(cx.world, agent);
-                    cx.build(menu(at, items))
-                })
-            }
         },
     )
     .within(overlay(()))
-    .boxed()
-}
-
-fn gift_reports() -> AnyView {
-    keyed(
-        derived(|world| {
-            world
-                .get_resource::<GiftReports>()
-                .map(|reports| reports.0.clone())
-                .unwrap_or_default()
-        })
-        .when(every_frame()),
-        |reports| {
-            if reports.is_empty() {
-                return frame().boxed();
-            }
-            let lines = reports
-                .iter()
-                .map(|(text, failed)| {
-                    label(text.clone())
-                        .tone(if *failed {
-                            Tone::Critical
-                        } else {
-                            Tone::Body
-                        })
-                        .boxed()
-                })
-                .collect::<Vec<_>>();
-            with_cx(move |cx| {
-                let space = &cx.theme().space;
-                popup(
-                    Rect::new(16.0, 52.0, 16.0, 52.0),
-                    (column((
-                        column(lines).gap(space.gap / 2.0),
-                        hamlet_ui::styles::lettered("Dismiss")
-                            .rules(hamlet_ui::styles::button)
-                            .on_activate(|world| {
-                                world
-                                    .resource_mut::<GiftReports>()
-                                    .0
-                                    .clear();
-                            }),
-                    ))
-                    .gap(space.section)
-                    .width(px(360.0)),),
-                )
-                .padding(UiRect::all(px(space.overlay_padding)))
-            })
-            .boxed()
-        },
-    )
     .boxed()
 }
 
@@ -690,38 +623,5 @@ mod tests {
             panic!("one stop: {messages:?}");
         };
         assert_eq!(stop.agent, Some(protocol::AgentId(2)));
-    }
-
-    #[test]
-    fn the_first_mayors_skill_menu_sends_another_agents_skill() {
-        let mut state = realm::state();
-        state.deeds = realm::deeds(&["give"]);
-        let mut scout = realm::agent(3, "home", false);
-        scout.skills = vec!["maps".into()];
-        state.agents.push(scout);
-        let mut app = app(state);
-        open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
-        press(&mut app, "Give a skill...");
-        app.update();
-        press(&mut app, "maps (of hire#3)");
-        let messages = sent(&mut app);
-        let [
-            protocol::ClientMessage::Give(protocol::Give::Skill {
-                skill,
-                to,
-                ..
-            }),
-        ] = &messages[..]
-        else {
-            panic!("one skill: {messages:?}");
-        };
-        assert_eq!(
-            skill,
-            &protocol::GiveSkillSource {
-                from: protocol::Keeper::Agent(protocol::AgentId(3)),
-                name: "maps".into(),
-            }
-        );
-        assert_eq!(*to, protocol::ScholarId(2));
     }
 }

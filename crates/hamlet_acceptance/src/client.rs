@@ -240,67 +240,6 @@ impl Client {
         }
     }
 
-    /// Gives `files` to the inbox of `to`: the manifest, then each
-    /// file's bytes in parts. Gives the first refusal, else the last
-    /// reply.
-    pub async fn give(
-        &mut self,
-        to: AgentId,
-        files: &[(&str, &[u8])],
-        part: usize,
-    ) -> Reply {
-        let manifest = files
-            .iter()
-            .map(|(path, bytes)| GiveFile {
-                path: (*path).into(),
-                size: bytes.len() as u64,
-            })
-            .collect();
-        let mut reply = self
-            .request(|id| {
-                ClientMessage::Give(Give::Files {
-                    files: manifest,
-                    id,
-                    to,
-                })
-            })
-            .await;
-        let Some(upload) = reply.upload.clone() else {
-            return reply;
-        };
-        for (path, bytes) in files {
-            for (n, bytes) in bytes.chunks(part).enumerate() {
-                reply =
-                    self.part(&upload, path, n * part, bytes).await;
-                if reply.kind == ReplyKind::Error {
-                    return reply;
-                }
-            }
-        }
-        reply
-    }
-
-    /// Sends the bytes of `path` at `offset` for the gift `upload`.
-    pub async fn part(
-        &mut self,
-        upload: &str,
-        path: &str,
-        offset: usize,
-        bytes: &[u8],
-    ) -> Reply {
-        let data = BASE64_STANDARD.encode(bytes);
-        self.request(|id| {
-            ClientMessage::GivePart(GivePart {
-                data,
-                id,
-                offset: offset as u64,
-                path: path.into(),
-                upload: upload.into(),
-            })
-        })
-        .await
-    }
-
     /// Uploads an image in parts of `part` bytes. Gives the first
     /// refusal, else the reply that names the kept image.
     pub async fn put_image(
@@ -352,18 +291,6 @@ impl Client {
                 to,
                 text,
             })
-        })
-        .await
-    }
-
-    /// Gives the skill `skill` to the scholar `to`.
-    pub async fn give_skill(
-        &mut self,
-        to: ScholarId,
-        skill: GiveSkillSource,
-    ) -> Reply {
-        self.request(|id| {
-            ClientMessage::Give(Give::Skill { id, skill, to })
         })
         .await
     }

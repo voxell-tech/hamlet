@@ -12,7 +12,6 @@ mod credentials;
 mod diagnostic;
 mod dreaming;
 mod fault;
-mod gifts;
 mod images;
 mod jobs;
 mod knowledge;

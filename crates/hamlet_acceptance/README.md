@@ -80,7 +80,6 @@ endpoint, which bills a fixed price per answer.
 | `restart` | Waits and the realm across a crash and a stop. |
 | `models` | Model and connection checks, key sign-in, listings and prices, refusals. |
 | `oauth` | Sign-in prompts and token rotation. |
-| `gifts` | Files handed over in parts to an inbox, skills given to a scholar from an agent or another scholar. |
 | `versions` | `/tag`, `/versions`, `/pin`, `/revert`, `/fork` and `/purge`. |
 | `merges` | `/merge` and the split by `/restore`. |
 | `library` | `submit_skill` judged by the librarian, `ask_librarian` and `/unshelve`. |
@@ -90,9 +89,9 @@ endpoint, which bills a fixed price per answer.
 
 ## Recording protocol frames
 
-`tests/frames/` records 19 real server sessions through the client protocol:
-the Hand's chats, a hire's approvals, reads and edits, sign-in, spend, file
-and skill gifts, letters and questions, leaving and merging, hamlets and
+`tests/frames/` records 18 real server sessions through the client protocol:
+the Hand's chats, a hire's approvals, reads and edits, sign-in, spend,
+letters and questions, leaving and merging, hamlets and
 roads, the library, and the questions and objections that wait for a chief.
 It uses scratch realms, faux responses and a loopback endpoint, never a live
 provider. Both wire directions are saved as JSONL; connection tokens and the

@@ -22,7 +22,7 @@ use crate::society::{hand, hires};
 pub(crate) const CHARACTER: &str = "CHARACTER.md";
 
 /// Whether a lodge keeps `path` out of git: the character, which no
-/// agent writes (C13), and the inbox, whose gifts are not knowledge.
+/// agent writes (C13), and the inbox, whose files are not knowledge.
 pub(crate) fn outside_git(path: &str) -> bool {
     path == CHARACTER || path == "inbox" || path.starts_with("inbox/")
 }

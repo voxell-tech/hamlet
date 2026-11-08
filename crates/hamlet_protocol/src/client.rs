@@ -11,7 +11,6 @@ pub mod transcript;
 
 mod chat;
 mod documents;
-mod gifts;
 mod images;
 mod limits;
 mod request_id;
@@ -21,7 +20,6 @@ mod waits;
 
 pub use chat::*;
 pub use documents::*;
-pub use gifts::*;
 pub use images::*;
 pub use limits::*;
 pub use request_id::*;
@@ -35,10 +33,6 @@ impl ClientMessage {
         match self {
             Self::Hello(_) | Self::Close(_) => None,
             Self::Say(Say { id, .. })
-            | Self::Give(
-                Give::Files { id, .. } | Give::Skill { id, .. },
-            )
-            | Self::GivePart(GivePart { id, .. })
             | Self::PutImage(PutImage { id, .. })
             | Self::PutImagePart(PutImagePart { id, .. })
             | Self::Answer(Answer { id, .. })
@@ -113,10 +107,6 @@ pub enum ClientMessage {
     Hello(Hello),
     #[serde(rename = "say")]
     Say(Say),
-    #[serde(rename = "give")]
-    Give(Give),
-    #[serde(rename = "give-part")]
-    GivePart(GivePart),
     #[serde(rename = "put-image")]
     PutImage(PutImage),
     #[serde(rename = "put-image-part")]

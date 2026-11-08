@@ -5,9 +5,8 @@
 //! and a drag over the window says it cannot be dropped.
 //!
 //! The system gives no pointer position with a drop. The hand holds
-//! each dropped file until the pointer is seen, and an image file
-//! seen over the chat is attached here, while one over a robot or a
-//! house is a gift.
+//! each dropped file until the pointer is seen over the chat, where
+//! it is attached here.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -49,7 +48,7 @@ use hamlet_desktop::clipboard::{ImagesPasted, PasteImages};
 use hamlet_desktop::images::{ChooseImages, ImagesChosen};
 use hamlet_desktop::open;
 use hamlet_protocol::client::{ImageId, ImageSize};
-use hamlet_realm::hand::ImageDropped;
+use hamlet_realm::hand::FileDropped;
 use hamlet_ui::styles::{ICON, back_link, bare, close_button, note};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -83,7 +82,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<Reads>()
         .init_resource::<Opening>()
         .add_message::<FileDragAndDrop>()
-        .add_message::<ImageDropped>()
+        .add_message::<FileDropped>()
         .add_observer(kept)
         .add_observer(refused)
         .add_observer(chosen)
@@ -401,7 +400,7 @@ fn watch_drag(
 
 /// Attaches the image files dropped on the chat.
 fn dropped(
-    mut images: MessageReader<ImageDropped>,
+    mut images: MessageReader<FileDropped>,
     mut commands: Commands,
 ) {
     let incoming = images

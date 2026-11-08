@@ -1,13 +1,11 @@
 //! The chief's deeds by hand, carried to the server as commands, and
 //! the moves of what the hand set down.
 
-use std::path::PathBuf;
-
 use bevy::prelude::*;
+use hamlet_client::ViewFolder;
 use hamlet_client::realm::{
     self as agents, Deeds, HamletId, Scholar,
 };
-use hamlet_client::{ViewFolder, gifts};
 
 use crate::chief::{Kept, Player, Stands};
 use crate::generator::land::{IslandId, Land};
@@ -191,26 +189,11 @@ fn grant(
     for set in set.read().copied() {
         commands.queue(move |world: &mut World| set_down(world, set));
     }
-    let mut letters = Vec::<(Entity, Vec<PathBuf>)>::new();
     for wish in wishes.read().cloned() {
         match wish {
             Wish::Road { a, b } => commands
                 .queue(move |world: &mut World| road(world, a, b)),
-            Wish::Letter { to, path } => {
-                if let Some((_, paths)) =
-                    letters.iter_mut().find(|(agent, _)| *agent == to)
-                {
-                    paths.push(path);
-                } else {
-                    letters.push((to, vec![path]));
-                }
-            }
         }
-    }
-    for (to, paths) in letters {
-        commands.queue(move |world: &mut World| {
-            gifts::letter(world, to, paths);
-        });
     }
 }
 

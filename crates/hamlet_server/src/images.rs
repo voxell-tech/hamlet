@@ -745,11 +745,9 @@ impl Core {
             };
             let name = images.hand_over(&lodge, id, &stored)?;
             let saved = match &remote {
-                None => lodge
-                    .join(SEEN)
-                    .join(&name)
-                    .display()
-                    .to_string(),
+                None => {
+                    lodge.join(SEEN).join(&name).display().to_string()
+                }
                 Some(session) => {
                     let path = format!("{LODGE}/{SEEN}/{name}");
                     // One request carries at most MAX_FILE bytes, so

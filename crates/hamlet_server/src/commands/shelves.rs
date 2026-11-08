@@ -21,7 +21,6 @@ impl Core {
         words: &[&str],
     ) -> Result<Option<Result<String, Refusal>>> {
         Ok(Some(match name {
-            "give" => self.give_command(here, words).await?,
             "unshelve" => self.unshelve(words)?,
             "dream" => self.dream_command(here, words).await?,
             _ => return Ok(None),

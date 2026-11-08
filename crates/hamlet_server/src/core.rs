@@ -26,7 +26,6 @@ use crate::clients::fold::Fold;
 use crate::clock;
 use crate::credentials::Credentials;
 use crate::diagnostic::{self, Secrets, tell};
-use crate::gifts::Gifts;
 use crate::images::Uploads;
 use crate::knowledge::runner::{Runner, Writing, run_due};
 use crate::providers::{FAUX, Providers};
@@ -74,8 +73,6 @@ pub(crate) struct Core {
     pub providers: Providers,
     /// Which runtime may read or rotate which provider's credential.
     pub leases: Authority,
-    /// The file gifts being sent.
-    pub gifts: Gifts,
     /// The images being sent.
     pub images: Uploads,
     /// The remote workspace the agents' tools run in, chosen before
@@ -186,7 +183,6 @@ impl Core {
             calls: Calls::new(ran_to),
             providers,
             leases: Authority::default(),
-            gifts: Gifts::default(),
             images: Uploads::default(),
             workspace,
             synced: HashMap::new(),

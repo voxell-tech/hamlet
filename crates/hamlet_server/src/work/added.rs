@@ -186,7 +186,6 @@ fn parse(
         locked: vec![
             root.join("tools"),
             dir.to_owned(),
-            root.join(".gifts"),
             root.join(".erasing"),
         ],
         ..Policy::default()

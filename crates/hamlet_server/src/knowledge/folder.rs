@@ -237,7 +237,7 @@ mod tests {
         let lodge = Folder::make(&dir.join("lodge")).unwrap();
         lodge.write("memory/notes.md", b"n", false).unwrap();
         lodge.write("skills/a/run.sh", b"#!", true).unwrap();
-        lodge.write("inbox/gift.bin", b"g", false).unwrap();
+        lodge.write("inbox/file.bin", b"g", false).unwrap();
         hamlet_testing::links::symlink(
             &outside,
             dir.join("lodge/out"),

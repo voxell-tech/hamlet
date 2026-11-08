@@ -1,7 +1,8 @@
 //! A chief's hand on the world: robots poked, patted, lifted and
-//! cheered, letters handed over, a thought nudged.
+//! cheered, files dropped on a chat, a thought nudged.
 
-mod given;
+mod drops;
+mod greet;
 mod lift;
 mod notice;
 mod pool;
@@ -16,11 +17,9 @@ use std::path::PathBuf;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
-use hamlet_client::gifts::SkillGiven;
 use hamlet_client::realm::Mayor;
 
-use self::given::gifted;
-pub use self::given::greet;
+pub use self::greet::greet;
 use self::lift::Fall;
 pub use self::pool::Readout;
 pub use self::touch::Proud;
@@ -40,7 +39,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<Travel>()
         .init_resource::<HoverMap>()
         .add_message::<Wish>()
-        .add_message::<ImageDropped>()
+        .add_message::<FileDropped>()
         .add_message::<Tap>()
         .add_message::<FileDragAndDrop>()
         .add_observer(touch::tap)
@@ -50,14 +49,6 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(lift::let_go)
         .add_observer(lift::drag_end)
         .add_observer(touch::finished)
-        .add_observer(
-            |given: On<SkillGiven>, mut commands: Commands| {
-                let agent = given.entity;
-                commands.queue(move |world: &mut World| {
-                    gifted(world, agent);
-                });
-            },
-        )
         .add_systems(Startup, (toys::prepare, pool::gauge::prepare))
         .add_systems(
             Update,
@@ -68,7 +59,7 @@ pub(super) fn plugin(app: &mut App) {
                     touch::pats,
                     lift::carry,
                     lift::fall,
-                    given::letters,
+                    drops::drops,
                 ),
                 (
                     notice::watch,
@@ -89,7 +80,7 @@ pub(super) fn plugin(app: &mut App) {
 }
 
 /// A chief's hand on the world: poking, patting and lifting the
-/// robots, and what it gives them.
+/// robots.
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlaySettings {
@@ -151,10 +142,7 @@ pub struct PlaySettings {
     pub nudge_room: f32,
     /// Seconds a dropped file waits for the pointer to show where it
     /// fell.
-    pub letter_wait: f32,
-    /// The place of a gift, from its robot's place at rest: to its
-    /// side and out from the house.
-    pub gift_at: Vec2,
+    pub drop_wait: f32,
     /// The place of a hamlet's meter on the common, in the town's
     /// frame, and its size.
     pub meter_at: Vec2,
@@ -175,11 +163,6 @@ pub struct PlaySettings {
     pub heart_rise: f32,
     pub heart_size: f32,
     pub heart_time: f32,
-    /// Height a gift or a letter falls from, the seconds it
-    /// takes, and the seconds a gift stays in the yard.
-    pub drop_height: f32,
-    pub drop_time: f32,
-    pub gift_stays: f32,
 }
 
 /// A deed the chief asked of the server by hand.
@@ -187,8 +170,6 @@ pub struct PlaySettings {
 pub enum Wish {
     /// A road between two agents.
     Road { a: Entity, b: Entity },
-    /// The file or folder at `path`, handed to an agent.
-    Letter { to: Entity, path: PathBuf },
 }
 
 /// A robot's handling of late. Times are the scene's clock.
@@ -252,19 +233,19 @@ pub struct Hand {
     rest: Option<Rest>,
     /// Files dropped on the window, each with the seconds it still
     /// waits to learn where it fell.
-    letters: Vec<(PathBuf, f32)>,
+    drops: Vec<(PathBuf, f32)>,
     /// The robot under the pointer that could be lifted.
     within: Option<Entity>,
 }
 
-/// A node, or any node in it, that takes the image files dropped on
-/// it, which the hand tells as [`ImageDropped`].
+/// A node, or any node in it, that takes the files dropped on it,
+/// which the hand tells as [`FileDropped`].
 #[derive(Component)]
-pub struct ImageDrop;
+pub struct FileDrop;
 
-/// An image file dropped on an [`ImageDrop`].
+/// A file or folder dropped on a [`FileDrop`].
 #[derive(Message, Clone, Debug, PartialEq, Eq)]
-pub struct ImageDropped {
+pub struct FileDropped {
     pub path: PathBuf,
 }
 

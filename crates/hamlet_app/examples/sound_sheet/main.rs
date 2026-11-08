@@ -480,7 +480,6 @@ fn main() {
         (51.2, Sound::Drop),
         (54.0, Sound::Tab),
         (55.0, Sound::Fold),
-        (58.0, Sound::Gift),
         (68.0, Sound::MergeAway),
         (69.5, Sound::MergeLand),
         (74.0, Sound::HouseShudder),

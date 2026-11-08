@@ -24,7 +24,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
     std::fs::write(lodge.join("memory/notes.md"), "learned").unwrap();
     std::fs::write(lodge.join(CHARACTER), "I am free now.").unwrap();
     std::fs::create_dir_all(lodge.join("inbox")).unwrap();
-    std::fs::write(lodge.join("inbox/gift.bin"), "big").unwrap();
+    std::fs::write(lodge.join("inbox/file.bin"), "big").unwrap();
     let at = realm.at;
     let learned = run::commit(realm.db(), &layout, mayor.agent, at)
         .unwrap()
@@ -36,7 +36,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
         Some(&b"Careful."[..]),
         "a lodge never changes its character"
     );
-    assert_eq!(repo.read(learned, "inbox/gift.bin").unwrap(), None);
+    assert_eq!(repo.read(learned, "inbox/file.bin").unwrap(), None);
 
     repo.commit(
         MAIN,

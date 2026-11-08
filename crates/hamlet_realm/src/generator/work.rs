@@ -168,14 +168,6 @@ impl Robot {
         self.lot.porch
     }
 
-    /// A point by where it stands with nothing to do: `by.x` to its
-    /// side and `by.y` out from the house.
-    pub(crate) fn by_porch(&self, by: Vec2) -> Vec3 {
-        self.lot.porch
-            + Quat::from_rotation_y(self.lot.yaw)
-                * Vec3::new(by.x, 0.0, by.y)
-    }
-
     /// The ground a robot stands on at `p`.
     pub fn ground(land: &Land, p: Vec2) -> f32 {
         footing(land, p)

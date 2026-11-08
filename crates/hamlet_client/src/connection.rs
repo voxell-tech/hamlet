@@ -72,13 +72,12 @@ pub enum ClientSystems {
 }
 
 /// The call that wakes the window's event loop after the connect task
-/// hands it a frame or a change of the connection, or a gift's read
-/// hands it a walked folder or a part.
+/// hands it a frame or a change of the connection.
 #[derive(Resource, Clone)]
 pub struct Wake(
-    // Shared: the connect task and every gift read hold the one
-    // callable, of a type this crate cannot name, a closure over the
-    // window's event loop.
+    // Shared with the tasks that wake the window, a callable of a
+    // type this crate cannot name, a closure over the window's event
+    // loop.
     Arc<dyn Fn() + Send + Sync>,
 );
 

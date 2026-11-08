@@ -171,18 +171,6 @@ fn introduce() -> Vec<f32> {
     finish(out, 0.28, false)
 }
 
-/// A skill given: paper, and glass notes going up.
-fn gift() -> Vec<f32> {
-    let mut out = empty(1.0);
-    let mut hiss = Hiss(181);
-    rustle(&mut out, &mut hiss, (0.0, 0.12), 0.6, 2400.0);
-    for (k, note) in [74.0, 78.0, 81.0, 86.0].into_iter().enumerate()
-    {
-        glass(&mut out, 0.08 + k as f32 * 0.06, note, 0.5, 0.16);
-    }
-    finish(out, 0.28, false)
-}
-
 /// A Wickstep going out: a breath drawn in, and glass that falls a
 /// fourth as the flame goes.
 fn wick_out() -> Vec<f32> {
@@ -250,7 +238,6 @@ pub(super) fn make(sound: Sound) -> Option<Vec<f32>> {
         Sound::Hand => hand(),
         Sound::Nudge => nudge(),
         Sound::Introduce => introduce(),
-        Sound::Gift => gift(),
         Sound::WickOut => wick_out(),
         Sound::WickIn => wick_in(),
         Sound::Clockwork => clockwork(),

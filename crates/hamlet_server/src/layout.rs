@@ -102,9 +102,4 @@ impl Layout {
     pub fn images(&self) -> PathBuf {
         self.root.join("images")
     }
-
-    /// Uploads and work in flight, out of agents' reach.
-    pub fn staging(&self) -> PathBuf {
-        self.root.join("staging")
-    }
 }
