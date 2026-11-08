@@ -388,16 +388,20 @@ pub fn description(text: impl Into<Prop<String>>) -> impl View {
     label(text).rules(description_rules)
 }
 
-/// The name at the head of a page.
+/// The name at the head of a page, in the display face.
 pub fn title(text: impl Into<Prop<String>>) -> impl View {
-    label(text)
-        .wrap(false)
-        .rules(|cx: &mut Cx| {
-            style::<HamletTheme>()
-                .label(|l, t| l.size(t.text.title).bold(true))
-                .apply(cx);
-        })
-        .tagged(DisplayText)
+    sentence_title(text).tagged(DisplayText)
+}
+
+/// A sentence or a question at the head of a page, such as a
+/// session's title: a [`title`] in the body face, since the display
+/// face sets every letter as a capital.
+pub fn sentence_title(text: impl Into<Prop<String>>) -> impl View {
+    label(text).wrap(false).rules(|cx: &mut Cx| {
+        style::<HamletTheme>()
+            .label(|l, t| l.size(t.text.title).bold(true))
+            .apply(cx);
+    })
 }
 
 /// The name of a part of a panel: small and bold.

@@ -28,7 +28,7 @@ use hamlet_ui::styles::{
     Fills, ICON, action, bare, card_name, choice, close, crumb,
     crumb_here, crumb_slash, crumbs, danger_button, filling, framed,
     hairline, more_button, note, page_head, primary_button,
-    scroll_area, title,
+    scroll_area, sentence_title, title,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -266,6 +266,17 @@ impl Under {
             Under::Prompt => "Prompt".into(),
             Under::Sessions => "Sessions".into(),
             Under::Session(title) => title.clone(),
+        }
+    }
+
+    /// The head of its page: a session's title as the sentence it is,
+    /// the rest as names.
+    fn title(&self) -> AnyView {
+        match self {
+            Under::Session(_) => sentence_title(self.name()).boxed(),
+            Under::Prompt | Under::Sessions => {
+                title(self.name()).boxed()
+            }
         }
     }
 }
@@ -778,10 +789,10 @@ fn aside(
         })
         .when(every_frame()),
         |(agent, under)| {
-            let name =
-                under.last().map(Under::name).unwrap_or_default();
-            page_head(path(*agent, under.clone()), title(name))
-                .boxed()
+            let name = under
+                .last()
+                .map_or_else(|| title("").boxed(), Under::title);
+            page_head(path(*agent, under.clone()), name).boxed()
         },
     )
     .within(bare());
