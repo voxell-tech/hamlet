@@ -5,7 +5,6 @@
 //! agent works and rests; only its mark changes.
 
 use bevy::app::{App, Update};
-use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -43,7 +42,7 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
     ICON, description_rules, note, note_rules, quoted, scroll_area,
-    text_input,
+    text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -1288,8 +1287,8 @@ fn look_at(world: &mut World, thing: Thing) {
 
 fn row_rules(cx: &mut Cx) {
     style::<HamletTheme>()
-        .frame(|f, _| {
-            f.fill(Color::NONE)
+        .frame(|f, t| {
+            f.fill(transparent(t.palette.button))
                 .radius(4.0)
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::Stretch)

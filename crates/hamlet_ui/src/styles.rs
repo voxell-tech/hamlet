@@ -1,7 +1,7 @@
 //! The styles of the buttons and fields, and the view shapes the
 //! panels share.
 
-use bevy::color::Color;
+use bevy::color::{Alpha, Color};
 use bevy::ecs::component::Component;
 use bevy::ecs::world::World;
 use bevy::ui::{
@@ -27,6 +27,13 @@ use crate::{AnyView, Cx, View, with_cx};
 /// The least height of any button (macOS default control size, 28
 /// pt).
 pub const CONTROL: f32 = 28.0;
+
+/// `colour` with no opacity: the rest fill of what is bare until the
+/// pointer gives it `colour`. A fade from [`Color::NONE`], which is
+/// transparent black, passes through grey on a light panel.
+pub fn transparent(colour: Color) -> Color {
+    colour.with_alpha(0.0)
+}
 
 /// The padding inside a text button.
 pub fn pad() -> UiRect {
@@ -741,8 +748,9 @@ pub fn choice(
             })
         })
     } else {
-        base.frame(|f, _| {
-            f.fill(Color::NONE).border_color(Color::NONE)
+        base.frame(|f, t| {
+            f.fill(transparent(t.palette.button_hover))
+                .border_color(Color::NONE)
         })
         .tone(Tone::Faint)
         .hovered(|s| {
@@ -849,7 +857,9 @@ pub fn bad_action(
 /// rest, and a faint fill under the pointer.
 pub fn link_row(cx: &mut Cx) {
     style::<HamletTheme>()
-        .frame(|f, _| f.fill(Color::NONE).radius(0.0))
+        .frame(|f, t| {
+            f.fill(transparent(t.palette.button)).radius(0.0)
+        })
         .label(|l, t| {
             l.tone(Tone::Faint).size(t.text.small).bold(true)
         })

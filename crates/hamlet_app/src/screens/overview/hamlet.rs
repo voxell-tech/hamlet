@@ -24,7 +24,7 @@ use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     self, Fills, ICON, action, bare, breadcrumb, buttons, group,
     lettered, more_button, note, note_rules, primary_button, raised,
-    scroll_area, status_label, text_input, title,
+    scroll_area, status_label, text_input, title, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -425,7 +425,10 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
 /// A row of the list: bare at rest, a faint fill under the pointer.
 fn row_look(cx: &mut Cx) {
     style::<HamletTheme>()
-        .frame(|f, t| f.fill(Color::NONE).radius(t.space.round))
+        .frame(|f, t| {
+            f.fill(transparent(t.palette.button))
+                .radius(t.space.round)
+        })
         .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
         .pressed(|s| s.frame(|f, t| f.fill(t.palette.input)))
         .transition(Motion::Interact)

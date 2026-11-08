@@ -35,6 +35,7 @@ use bevy_fynix::tokens::Motion;
 use bevy_fynix::views::{BehaviorExt, FrameProps, button, icon, row};
 use bevy_fynix::{OverrideCursor, ScopedExt, style};
 use hamlet_desktop::title_bar::TitleBarDrag;
+use hamlet_ui::styles::transparent;
 use hamlet_ui::theme::{HamletTheme, Palette};
 use hamlet_ui::{Cx, View, built};
 
@@ -157,7 +158,9 @@ pub fn draw_marks(world: &mut World) {
 fn plate(under: fn(&Palette) -> Color) -> impl FnOnce(&mut Cx) {
     move |cx| {
         style::<HamletTheme>()
-            .frame(|f, _| f.fill(Color::NONE).radius(0.0))
+            .frame(move |f, t| {
+                f.fill(transparent(under(&t.palette))).radius(0.0)
+            })
             .hovered(move |s| s.fill(move |t| under(&t.palette)))
             .pressed(|s| s.fill(|t| t.palette.surface))
             .transition(Motion::Interact)
