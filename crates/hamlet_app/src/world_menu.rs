@@ -37,7 +37,7 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
 pub use self::model::{
-    Favorites, open as open_model, search as search_models,
+    Favorites, LastSide, open as open_model, search as search_models,
 };
 pub(crate) use self::model::{Hook, chip, is_open as is_picking};
 

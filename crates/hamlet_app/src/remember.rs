@@ -33,7 +33,7 @@ use crate::appearance::{Appearance, Pick};
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
-use crate::world_menu::Favorites;
+use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
 
 /// Seconds a change waits before it is written, so that dragging a
@@ -49,6 +49,7 @@ pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pending>()
         .init_resource::<Kept>()
         .init_resource::<Favorites>()
+        .init_resource::<LastSide>()
         // Before the first theme is shown.
         .add_systems(Startup, restore_appearance)
         .add_systems(
@@ -127,6 +128,9 @@ pub struct View {
     /// The models the chief starred.
     #[serde(default)]
     favorite_models: Favorites,
+    /// The side of the models' popup last chosen.
+    #[serde(default)]
+    model_side: LastSide,
     /// The appearance as the chief picked it; none until a pick.
     #[serde(
         default,
@@ -333,6 +337,7 @@ pub fn restore(world: &mut World) {
     };
     world.insert_resource(desks);
     world.insert_resource(view.favorite_models);
+    world.insert_resource(view.model_side);
 }
 
 /// Puts back the kept appearance.
@@ -373,11 +378,12 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north, favorites): (
+    (pending, kept, north, favorites, side): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
         Res<Favorites>,
+        Res<LastSide>,
     ),
     (fog, far, wind, appearance): (
         Res<VolumetricFogSettings>,
@@ -400,6 +406,7 @@ pub fn keep(
         || wind.is_changed()
         || north.is_changed()
         || favorites.is_changed()
+        || side.is_changed()
         || appearance.is_changed()
     {
         *due = Some(now + SETTLE);
@@ -427,6 +434,7 @@ pub fn keep(
         desks: Some(desks.clone()),
         selected: kept.0.clone(),
         favorite_models: favorites.clone(),
+        model_side: side.clone(),
         appearance: appearance.0.clone(),
     };
     if written.as_ref() == Some(&view) {
@@ -483,6 +491,7 @@ mod tests {
             desks,
             selected: Some(Chosen::House("juniper".into())),
             favorite_models: Favorites(vec!["faux::faux-1".into()]),
+            model_side: LastSide("faux".into()),
             appearance: None,
         }
     }

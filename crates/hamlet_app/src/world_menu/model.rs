@@ -4,7 +4,10 @@
 //! think at, and its fast tier when it has one. It hangs over the
 //! chip in the composer that opens it.
 
+use std::cmp::Reverse;
+
 use bevy::app::{App, Update};
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
@@ -83,6 +86,7 @@ const MODELS: ScopeId = ScopeId("models");
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Picking>()
         .init_resource::<Favorites>()
+        .init_resource::<LastSide>()
         .add_scope(ScopeSpec {
             id: MODELS,
             label: "Models",
@@ -208,6 +212,13 @@ const STEPS: [(&str, &str, KeyCode, fn(&mut World, Invoke)); 2] = [
 )]
 pub struct Favorites(pub Vec<String>);
 
+/// The side of the popup the chief chose last, kept with the view:
+/// `favorites` or a provider's id; empty before any.
+#[derive(
+    Resource, Default, Clone, PartialEq, Debug, Serialize, Deserialize,
+)]
+pub struct LastSide(pub String);
+
 /// What the popup hangs from: the composer that holds the model
 /// chip, which it stands over as wide, or the chip alone outside one.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
@@ -221,6 +232,24 @@ pub(crate) enum Hook {
 enum Side {
     Favorites,
     Provider(String),
+}
+
+impl Side {
+    /// The side `kept` names, as [`LastSide`] keeps it.
+    fn of(kept: &str) -> Option<Self> {
+        Some(match kept {
+            "" => return None,
+            "favorites" => Self::Favorites,
+            provider => Self::Provider(provider.into()),
+        })
+    }
+
+    fn kept(&self) -> String {
+        match self {
+            Self::Favorites => "favorites".into(),
+            Self::Provider(provider) => provider.clone(),
+        }
+    }
 }
 
 /// The parts of the popup the arrows move between, left to right.
@@ -269,10 +298,22 @@ impl Default for Picking {
 }
 
 /// Opens the popup of `agent`'s model, its search in focus, on the
+/// side chosen last while it still has models, else on the
 /// favourites when there are any and else on the provider of the
 /// model it runs.
 pub fn open(world: &mut World, agent: Entity) {
-    let side = if world.resource::<Favorites>().0.is_empty() {
+    let last = world
+        .get_resource::<LastSide>()
+        .and_then(|last| Side::of(&last.0))
+        .filter(|side| match side {
+            Side::Favorites => !favourites(world).is_empty(),
+            Side::Provider(id) => {
+                providers(world).iter().any(|(at, _)| at == id)
+            }
+        });
+    let side = if let Some(last) = last {
+        last
+    } else if world.resource::<Favorites>().0.is_empty() {
         let runs = now(world, agent).model;
         let providers = providers(world);
         providers
@@ -507,10 +548,32 @@ fn listed(world: &World) -> Vec<String> {
     }
     match &picking.side {
         Side::Favorites => favourites(world),
+        // Its newest first.
         Side::Provider(id) => {
-            names.filter(|name| provider_of(name) == id).collect()
+            let mut models = names
+                .filter(|name| provider_of(name) == id)
+                .collect::<Vec<_>>();
+            models.sort_by_cached_key(|name| {
+                Reverse(version(&model_title(world, name)))
+            });
+            models
         }
     }
+}
+
+/// The version in a model's title, as `[5, 5]` in `Opus 5.5`; none
+/// for a title with none, which sorts last.
+fn version(title: &str) -> Option<Vec<u32>> {
+    title
+        .split(|c: char| c.is_whitespace() || c == '-')
+        .rev()
+        .find_map(|word| {
+            word.split('.')
+                .map(|part| {
+                    part.parse::<u32>().ok().filter(|n| *n < 1000)
+                })
+                .collect::<Option<Vec<_>>>()
+        })
 }
 
 /// Gives `agent` the model `model`, or no model of its own for the
@@ -696,6 +759,9 @@ fn rail() -> impl View {
                     let mut picking = world.resource_mut::<Picking>();
                     picking.side = side.clone();
                     picking.focus = Some(Want::Part(Part::Rail));
+                    world
+                        .resource_mut::<LastSide>()
+                        .set_if_neq(LastSide(side.kept()));
                 });
                 if chosen {
                     item.tagged(Chosen).boxed()
