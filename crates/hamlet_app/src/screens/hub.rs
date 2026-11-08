@@ -21,6 +21,7 @@ use bevy::ecs::system::{Local, Res};
 use bevy::ecs::world::World;
 use bevy::ui::{percent, px};
 use bevy_fynix::dock::DockWindowKind;
+use bevy_fynix::shortcut::Scope;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::Left;
@@ -160,6 +161,7 @@ pub fn screen() -> impl View {
         .fills_height()
         .width(percent(100.0))
         .tagged(rail::Frame)
+        .tagged(Scope(visits::KEYS))
     })
 }
 

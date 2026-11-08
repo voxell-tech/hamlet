@@ -1,6 +1,6 @@
 //! The Hub's pages gone through, to go back and forward among them:
-//! with the primary key and `[` or `]`, or the mouse's back and
-//! forward buttons.
+//! with the primary key and `[` or `]` while the pointer is over the
+//! Hub, or the mouse's back and forward buttons.
 
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
@@ -12,7 +12,8 @@ use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseButton;
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, GLOBAL, Mods, ShortcutAppExt,
+    Chord, CommandId, CommandSpec, Layer, Mods, ScopeId, ScopeSpec,
+    ShortcutAppExt,
 };
 use hamlet_realm::pick::{Selected, Thing, select};
 
@@ -22,11 +23,14 @@ use crate::convo::{Convo, seat};
 /// How many pages are kept behind.
 const KEPT: usize = 50;
 
+/// The Hub's keys, in force while the pointer is over it.
+pub(super) const KEYS: ScopeId = ScopeId("hub");
+
 pub(super) fn plugin(app: &mut App) {
     let command = |id, label, run| CommandSpec {
         id: CommandId(id),
         label,
-        scope: GLOBAL,
+        scope: KEYS,
         run,
         enabled: |_| true,
         repeat: false,
@@ -36,6 +40,12 @@ pub(super) fn plugin(app: &mut App) {
         mods: Mods::PRIMARY,
     };
     app.init_resource::<Visits>()
+        .add_scope(ScopeSpec {
+            id: KEYS,
+            label: "Hub",
+            layer: Layer::Panel,
+            active: None,
+        })
         .add_command(
             command("hub.back", "Back", |world, _| {
                 travel(world, Way::Back);
