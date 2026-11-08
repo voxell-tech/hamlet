@@ -168,21 +168,14 @@ fn signs(
             visibility.set_if_neq(Visibility::Hidden);
             continue;
         };
-        // A far sign is smaller and fainter, and a near one is drawn
-        // over it, so that they read as standing apart.
-        let near = 1.0
-            - ((far - pick.signs_far * CLOSE)
-                / (pick.signs_far * (1.0 - CLOSE)))
-                .clamp(0.0, 1.0);
-        let shown = FAINTEST + (1.0 - FAINTEST) * near;
-        transform.scale =
-            Vec2::splat(SMALLEST + (1.0 - SMALLEST) * near);
-        order.set_if_neq(ZIndex(-1 - (far * 10.0) as i32));
-        plate.0 = PLATE.with_alpha(PLATE.alpha() * shown);
-        *edge = BorderColor::all(EDGE.with_alpha(shown));
+        let depth = label::depth(far, pick.signs_far);
+        transform.scale = Vec2::splat(depth.scale);
+        order.set_if_neq(depth.order);
+        plate.0 = PLATE.with_alpha(PLATE.alpha() * depth.shown);
+        *edge = BorderColor::all(EDGE.with_alpha(depth.shown));
         for child in children {
             if let Ok(mut ink) = texts.get_mut(*child) {
-                ink.0 = INK.with_alpha(shown);
+                ink.0 = INK.with_alpha(depth.shown);
             }
         }
         label::put(&mut node, label::above(computed, point, 4.0));
@@ -194,13 +187,6 @@ fn signs(
 const PLATE: Color = Color::srgba(0.004, 0.039, 0.075, 0.85);
 const EDGE: Color = Color::srgb(0.47, 0.353, 0.157);
 const INK: Color = Color::srgb(0.941, 0.902, 0.824);
-
-/// The share of the farthest a sign is shown from, the share of its
-/// size it shrinks to there, and the share of its strength it fades
-/// to.
-const CLOSE: f32 = 0.2;
-const SMALLEST: f32 = 0.75;
-const FAINTEST: f32 = 0.4;
 
 /// The words of the sign of `thing`.
 fn words(
