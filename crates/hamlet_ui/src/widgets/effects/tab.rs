@@ -27,7 +27,7 @@ use crate::theme::Themed;
 
 /// The most glow a tab's attention glow and its flash throw, as an
 /// alpha.
-const GLOW: f32 = 0.2;
+const GLOW: f32 = 0.13;
 const FLASH: f32 = 0.4;
 
 /// The most a badge counts to before it says there are more.
