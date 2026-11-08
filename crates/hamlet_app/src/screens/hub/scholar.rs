@@ -20,19 +20,19 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bad_action, bare, beside,
-    breadcrumb, buttons, framed, good_action, note, page_head,
-    scroll_area, text_input, title,
+    breadcrumb, buttons, good_action, note, page_head, scroll_area,
+    text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, with_cx};
 
-use super::details::card;
+use super::details::{section, section_line};
 use super::thread::dim;
 use super::{Showing, memory, rail, show};
 use crate::chat;
 use crate::convo::talk_to;
-use crate::overview::{heading, typed};
+use crate::overview::typed;
 use crate::standing::Standing;
 
 /// The deeds a scholar's page offers, in the names the server
@@ -439,13 +439,13 @@ fn arrival(shown: &Shown) -> AnyView {
     buttons(buttons_row).boxed()
 }
 
-/// The versions on their card, each with what can be done from it,
+/// The versions in their section, each with what can be done from it,
 /// and the form of what was asked for from them.
 fn versions(shown: &Shown) -> AnyView {
     let can = |deed| shown.allowed.contains(&deed);
     let address = scholar_address(shown.scholar.id);
     let scholar = shown.scholar.name.clone();
-    let mut parts = vec![heading(Glyph::History, "Versions")];
+    let mut parts = Vec::new();
     if shown.scholar.versions.is_empty() {
         parts.push(note("No version is named yet.").boxed());
     }
@@ -506,7 +506,7 @@ fn versions(shown: &Shown) -> AnyView {
     }
     parts.push(buttons(acts).boxed());
     parts.push(form_view(address, scholar, is_of_versions).boxed());
-    framed(parts).boxed()
+    section(Glyph::History, "Versions", None, column(parts).gap(4.0))
 }
 
 /// The button that opens what can be done from one version: each of
@@ -532,13 +532,17 @@ fn version_menu(deeds: Vec<(String, Act)>) -> AnyView {
     .boxed()
 }
 
-/// Its hires on their card, each led to and pinned to a version from
-/// here.
+/// Its hires in their section, each led to and pinned to a version
+/// from here.
 fn hires(shown: &Shown) -> AnyView {
-    let mut parts = vec![heading(Glyph::Robot, "Hires")];
     if shown.hires.is_empty() {
-        parts.push(note("Nobody works as it now.").boxed());
+        return section_line(
+            Glyph::Robot,
+            "Hires",
+            dim("Nobody works as it now.").boxed(),
+        );
     }
+    let mut parts = Vec::new();
     let pins = shown.allowed.contains(&"pin");
     let mut names = vec!["main".to_string()];
     names.extend(
@@ -612,21 +616,21 @@ fn hires(shown: &Shown) -> AnyView {
             row(line).gap(8.0).align(AlignItems::Center).boxed(),
         );
     }
-    framed(parts).boxed()
+    section(Glyph::Robot, "Hires", None, column(parts).gap(4.0))
 }
 
-/// What it knows, each part on its card: the character a chief may
+/// What it knows, each part in its section: the character a chief may
 /// edit, its memory with a dream that tidies it, and its skills.
 fn knowledge(shown: &Shown) -> [AnyView; 3] {
     [
         memory::character_section(),
-        card(
+        section(
             Glyph::Notes,
             "Memory",
             None,
             memory::view(dream(shown)),
         ),
-        card(Glyph::Book, "Skills", None, memory::skills()),
+        memory::skills_section(),
     ]
 }
 
@@ -660,7 +664,7 @@ fn dream(
 }
 
 /// What changes the scholar for good, kept at the foot of its page
-/// on its own card.
+/// in its own section.
 fn careful(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
@@ -721,16 +725,17 @@ fn careful(shown: &Shown) -> AnyView {
     if acts.is_empty() {
         return frame().boxed();
     }
-    framed((
-        heading(Glyph::Stop, "Careful"),
-        buttons(acts),
-        form_view(address, name, is_careful),
-    ))
-    .boxed()
+    section(
+        Glyph::Stop,
+        "Careful",
+        None,
+        column((buttons(acts), form_view(address, name, is_careful)))
+            .gap(4.0),
+    )
 }
 
 /// The scholar's page: where it stands and what it is called, then a
-/// card each for its hires, what it knows, its versions and what
+/// section each for its hires, what it knows, its versions and what
 /// changes it for good.
 fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
@@ -773,12 +778,15 @@ fn body(shown: &Shown) -> AnyView {
             ),
             head,
             form_view(address, name.clone(), is_of_header),
-            hires_part,
-            character_part,
-            memory_part,
-            skills_part,
-            versions_part,
-            careful_part,
+            column((
+                hires_part,
+                character_part,
+                memory_part,
+                skills_part,
+                versions_part,
+                careful_part,
+            ))
+            .gap(0.0),
         ))
         .gap(cx.theme().space.section)
     })

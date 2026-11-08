@@ -270,13 +270,19 @@ impl Under {
     }
 
     /// The head of its page: a session's title as the sentence it is,
-    /// the rest as names.
+    /// the rest as names, and the prompt's way to copy it at the end
+    /// of that line.
     fn title(&self) -> AnyView {
         match self {
             Under::Session(_) => sentence_title(self.name()).boxed(),
-            Under::Prompt | Under::Sessions => {
-                title(self.name()).boxed()
-            }
+            Under::Sessions => title(self.name()).boxed(),
+            Under::Prompt => with_cx(|cx| {
+                row((title("Prompt"), frame().grow(1.0), copy()))
+                    .gap(cx.theme().space.gap)
+                    .align(AlignItems::Center)
+                    .width(percent(100.0))
+            })
+            .boxed(),
         }
     }
 }
@@ -888,29 +894,18 @@ fn prompt_sections(
     .boxed()
 }
 
-/// The way to copy the prompt and a line under it, once it is read.
-fn prompt_head() -> impl View {
+/// The way to copy the prompt, once it is read.
+fn copy() -> impl View {
     keyed(
         resource::<Briefing, _>(|b| (b.prompt.is_empty(), b.copied)),
-        |(empty, copied)| {
-            if *empty {
-                return frame().boxed();
-            }
-            let copy = if *copied {
+        |(empty, copied)| match (empty, copied) {
+            (true, _) => frame().boxed(),
+            (false, true) => {
                 action(Glyph::Check, "Copied", copy_prompt)
-            } else {
+            }
+            (false, false) => {
                 action(Glyph::Notes, "Copy", copy_prompt)
-            };
-            with_cx(move |cx| {
-                let gap = cx.theme().space.section;
-                column((
-                    row((frame().grow(1.0), copy)),
-                    hairline(cx.theme().palette.gold_6),
-                ))
-                .gap(gap)
-                .padding(UiRect::bottom(px(gap)))
-            })
-            .boxed()
+            }
         },
     )
     .within(bare())
@@ -925,12 +920,7 @@ pub(super) fn prompt_page() -> impl View {
         |(prompt, failed)| prompt_sections(prompt, failed.as_deref()),
     )
     .within(bare());
-    aside(
-        |_| vec![Under::Prompt],
-        column((prompt_head(), scroll_area((shown,))))
-            .fills_height()
-            .gap(0.0),
-    )
+    aside(|_| vec![Under::Prompt], scroll_area((shown,)))
 }
 
 /// The past sessions of the agent the chat is with.

@@ -20,14 +20,15 @@ use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 use hamlet_ui::styles::{
-    action, bare, buttons, link_row, note, segmented_words,
+    action, bare, buttons, description, link_row, note,
+    segmented_words,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use crate::overview::{heading, tell};
+use crate::overview::{heading_line, tell};
 use crate::roll::hamlets_moved;
 
 /// The most earlier folders offered again.
@@ -114,31 +115,23 @@ fn works_on(hamlet: Entity, work: &Works) -> AnyView {
     )
     .tooltip(|| note("A path on the server's machine"))
     .boxed();
-    let mut parts = vec![heading(Glyph::Folder, "Works on").boxed()];
-    match &work.folder {
-        Some(folder) => {
-            parts.push(label(folder.clone()).boxed());
-            parts.push(
-                buttons(vec![
-                    choose,
-                    action(Glyph::Cross, "No folder", move |world| {
-                        tell(
-                            world,
-                            hamlet,
-                            "/folder none".to_string(),
-                        );
-                    })
-                    .tooltip(|| note("Stop working on this folder"))
-                    .boxed(),
-                ])
+    let (now, acts) = match &work.folder {
+        Some(folder) => (
+            description(folder.clone()).boxed(),
+            vec![
+                choose,
+                action(Glyph::Cross, "No folder", move |world| {
+                    tell(world, hamlet, "/folder none".to_string());
+                })
+                .tooltip(|| note("Stop working on this folder"))
                 .boxed(),
-            );
-        }
+            ],
+        ),
         None => {
-            parts.push(note("No folder selected.").boxed());
-            parts.push(buttons(vec![choose]).boxed());
+            (description("No folder selected.").boxed(), vec![choose])
         }
-    }
+    };
+    let mut more = Vec::new();
     if !work.before.is_empty() {
         let earlier = work
             .before
@@ -146,7 +139,7 @@ fn works_on(hamlet: Entity, work: &Works) -> AnyView {
             .take(EARLIER)
             .map(|folder| earlier_row(hamlet, folder.clone()))
             .collect::<Vec<_>>();
-        parts.push(
+        more.push(
             column((
                 hamlet_ui::styles::section("Worked on before"),
                 column(earlier).gap(0.0).width(percent(100.0)),
@@ -156,13 +149,14 @@ fn works_on(hamlet: Entity, work: &Works) -> AnyView {
             .boxed(),
         );
     }
-    stacked(parts)
+    bylaw(Glyph::Folder, "Works on", buttons(acts).boxed(), now, more)
 }
 
 fn approvals_of(hamlet: Entity, work: &Works) -> AnyView {
     let mode = work.mode;
-    stacked(vec![
-        heading(Glyph::Shield, "Approvals"),
+    bylaw(
+        Glyph::Shield,
+        "Approvals",
         segmented_words(
             ["Manual", "Auto"],
             match mode {
@@ -180,16 +174,29 @@ fn approvals_of(hamlet: Entity, work: &Works) -> AnyView {
             },
         )
         .boxed(),
-        note(work.words.clone()).boxed(),
-    ])
+        description(work.words.clone()).boxed(),
+        Vec::new(),
+    )
 }
 
-/// `parts` one under another, at the start of the panel's width.
-fn stacked(parts: Vec<AnyView>) -> AnyView {
+/// A bylaw changed where it stands: its name under `which` with
+/// `control` at the end of that line, what it is now under them, then
+/// `more`.
+fn bylaw(
+    which: Glyph,
+    name: &'static str,
+    control: AnyView,
+    now: AnyView,
+    more: Vec<AnyView>,
+) -> AnyView {
     with_cx(move |cx| {
-        column(parts)
-            .gap(cx.theme().space.gap)
-            .align(AlignItems::FlexStart)
+        let space = &cx.theme().space;
+        let named = column((heading_line(which, name, control), now))
+            .gap(space.gap / 2.0);
+        let parts = std::iter::once(named.boxed())
+            .chain(more)
+            .collect::<Vec<_>>();
+        column(parts).gap(space.gap)
     })
     .boxed()
 }

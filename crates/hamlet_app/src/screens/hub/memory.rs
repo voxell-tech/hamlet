@@ -14,8 +14,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    ICON, action, bad_action, bare, buttons, good_action, inset,
-    lettered, note, text_input,
+    ICON, action, bad_action, bare, buttons, good_action, lettered,
+    note, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
@@ -23,7 +23,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, View, with_cx};
 
-use super::details::card;
+use super::details::{section, section_line};
 use super::papers::{self, Papers};
 use super::thread::dim;
 
@@ -154,7 +154,7 @@ fn file(entry: &Entry, open: bool) -> AnyView {
     if !open && !entry.path.contains('/') {
         let lines = gist(&entry.text);
         if !lines.is_empty() {
-            parts.push(inset(label(lines).tone(Tone::Dim)).boxed());
+            parts.push(quote(label(lines).tone(Tone::Dim)).boxed());
         }
     }
     if open {
@@ -179,6 +179,18 @@ fn file(entry: &Entry, open: bool) -> AnyView {
         );
     }
     column(parts).gap(4.0).boxed()
+}
+
+/// `content` set off as a quote, read only: a rule down its left and
+/// no frame.
+fn quote(content: impl View + 'static) -> impl View {
+    with_cx(move |cx| {
+        row((
+            frame().width(px(2.0)).fill(cx.theme().palette.gold_5),
+            column((content,)).grow(1.0).min_width(px(0.0)),
+        ))
+        .gap(10.0)
+    })
 }
 
 /// Lines a closed file shows of its text.
@@ -282,34 +294,36 @@ fn add(
     .within(bare())
 }
 
-/// The skills of an agent or a scholar, each with what it does.
-pub(super) fn skills() -> impl View {
+/// The skills of an agent or a scholar, each with what it does, or
+/// one line when it has none.
+pub(super) fn skills_section() -> AnyView {
     keyed(resource::<Papers, _>(|p| p.skills.clone()), |skills| {
         if skills.is_empty() {
-            return dim("None of its own").boxed();
+            return section_line(
+                Glyph::Book,
+                "Skills",
+                dim("None of its own").boxed(),
+            );
         }
-        column(
-            skills
-                .iter()
-                .map(|(name, does)| {
-                    crate::lists::item(
-                        name.clone(),
-                        does.clone(),
-                        Tone::Body,
-                    )
-                })
-                .collect::<Vec<_>>(),
-        )
-        .gap(4.0)
-        .boxed()
+        let rows = skills
+            .iter()
+            .map(|(name, does)| {
+                crate::lists::item(
+                    name.clone(),
+                    does.clone(),
+                    Tone::Body,
+                )
+            })
+            .collect::<Vec<_>>();
+        section(Glyph::Book, "Skills", None, column(rows).gap(4.0))
     })
     .within(bare())
+    .boxed()
 }
 
-/// The character of an agent or a scholar on its card, with the way
-/// to edit it.
+/// The character of an agent or a scholar, with the way to edit it.
 pub(super) fn character_section() -> AnyView {
-    card(
+    section(
         Glyph::Face,
         "Character",
         Some(

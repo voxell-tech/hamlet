@@ -11,7 +11,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
     frame, label, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use bevy_fynix::{
+    Bevy, ScopedExt, ViewExt, ViewSeq, derived, every_frame, keyed,
+};
 use hamlet_client::realm::{
     Account, Allowance, Bylaws, Deeds, Kind, LivesIn, Road, Scholar,
     ToolsOff, id_of, name_of, roads_of, shown_of,
@@ -19,9 +21,10 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    CONTROL, Fills, ICON, action, back_link, bare, framed, lettered,
-    note, scroll_area, text_input,
+    Fills, ICON, action, back_link, bare, hairline, lettered, note,
+    scroll_area, text_input,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -31,7 +34,7 @@ use hamlet_ui::{AnyView, View, with_cx};
 use super::memory;
 use super::thread::said;
 use crate::convo::talk_to;
-use crate::overview::heading;
+use crate::overview::heading_line;
 
 /// How wide the names of the settings are, so their values line up.
 const NAMES: f32 = 76.0;
@@ -290,7 +293,7 @@ fn tools(facts: &Facts) -> AnyView {
             .boxed()
         })
         .collect::<Vec<_>>();
-    card(Glyph::Key, "Tools", None, column(rows).gap(6.0))
+    section(Glyph::Key, "Tools", None, column(rows).gap(6.0))
 }
 
 /// An agent's name that leads to its thread.
@@ -340,7 +343,7 @@ fn about(facts: &Facts) -> Option<AnyView> {
         ));
     }
     (!parts.is_empty()).then(|| {
-        card(
+        section(
             Glyph::Robot,
             "Identity and budget",
             None,
@@ -374,12 +377,12 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
         }),))
         .boxed(),
     );
-    card(Glyph::Signpost, "Roads", None, column(parts).gap(6.0))
+    section(Glyph::Signpost, "Roads", None, column(parts).gap(6.0))
 }
 
-/// The cards of the agent's own facts that `build` makes, kept in
+/// The sections of the agent's own facts that `build` makes, kept in
 /// step with the world.
-fn facts_cards(
+fn facts_sections(
     agent: Entity,
     build: fn(Entity, &Facts, bool) -> Vec<AnyView>,
 ) -> impl View {
@@ -391,11 +394,7 @@ fn facts_cards(
         })
         .when(every_frame()),
         move |(facts, may_road)| {
-            let parts = build(agent, facts, *may_road);
-            with_cx(move |cx| {
-                column(parts).gap(cx.theme().space.section)
-            })
-            .boxed()
+            column(build(agent, facts, *may_road)).gap(0.0).boxed()
         },
     )
     .within(bare())
@@ -422,9 +421,10 @@ fn powers(
     parts
 }
 
-/// A part of the sheet on its card: its name under `which`, the one
-/// thing done to it at the end of that line, and `body` under it.
-pub(super) fn card(
+/// A part of a page, flat under a hairline: its name under `which`,
+/// the one thing done to it at the end of that line, and `body` under
+/// it.
+pub(super) fn section(
     which: Glyph,
     name: &'static str,
     end: Option<AnyView>,
@@ -432,37 +432,54 @@ pub(super) fn card(
 ) -> AnyView {
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
-        framed((
-            card_head(which, name, end),
+        ruled((
+            heading_line(
+                which,
+                name,
+                end.unwrap_or_else(|| frame().boxed()),
+            ),
             column((body,)).padding(UiRect::top(px(gap / 2.0))),
         ))
     })
     .boxed()
 }
 
-/// A card's name under `which`, and `end` at the end of that line.
-fn card_head(
+/// A [`section`] that is only its line: its name under `which` and
+/// `end`, such as what an empty one says.
+pub(super) fn section_line(
     which: Glyph,
     name: &'static str,
-    end: Option<AnyView>,
+    end: AnyView,
+) -> AnyView {
+    ruled((heading_line(which, name, end),)).boxed()
+}
+
+/// `content` padded under a hairline.
+fn ruled(
+    content: impl ViewSeq<Bevy, HamletTheme> + 'static,
 ) -> impl View {
-    let end = end.unwrap_or_else(|| frame().boxed());
     with_cx(move |cx| {
-        row((heading(which, name), frame().grow(1.0), end))
-            .gap(cx.theme().space.gap)
-            .align(AlignItems::Center)
-            .min_height(px(CONTROL))
+        let theme = cx.theme();
+        column((
+            hairline(theme.palette.gold_6),
+            column(content).gap(theme.space.gap / 2.0).padding(
+                UiRect::axes(
+                    px(theme.space.card_padding_x),
+                    px(theme.space.card_padding_y),
+                ),
+            ),
+        ))
+        .gap(0.0)
     })
 }
 
 /// The way to its whole prompt, on a page of its own.
 fn prompt() -> AnyView {
-    framed((card_head(
+    section_line(
         Glyph::Notes,
         "Prompt",
-        Some(action(Glyph::Into, "Open", super::thread::show_prompt)),
-    ),))
-    .boxed()
+        action(Glyph::Into, "Open", super::thread::show_prompt),
+    )
 }
 
 /// A reflection asked now, which writes to its memory.
@@ -484,25 +501,22 @@ fn reflect() -> AnyView {
 /// The sheet that takes the place of the thread of `agent` while it
 /// is open.
 pub(super) fn sheet(agent: Entity) -> impl View {
-    with_cx(move |cx| {
-        let gap = cx.theme().space.section;
-        column((scroll_area((column((
-            facts_cards(agent, head),
-            memory::character_section(),
-            card(
-                Glyph::Notes,
-                "Memory",
-                None,
-                memory::view(|| Some(reflect())),
-            ),
-            card(Glyph::Book, "Skills", None, memory::skills()),
-            prompt(),
-            facts_cards(agent, powers),
-        ))
-        .gap(gap)
-        .width(percent(100.0)),)),))
-        .width(percent(100.0))
-        .min_width(px(0.0))
-        .fills_height()
-    })
+    column((scroll_area((column((
+        facts_sections(agent, head),
+        memory::character_section(),
+        section(
+            Glyph::Notes,
+            "Memory",
+            None,
+            memory::view(|| Some(reflect())),
+        ),
+        memory::skills_section(),
+        prompt(),
+        facts_sections(agent, powers),
+    ))
+    .gap(0.0)
+    .width(percent(100.0)),)),))
+    .width(percent(100.0))
+    .min_width(px(0.0))
+    .fills_height()
 }

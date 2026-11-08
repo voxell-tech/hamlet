@@ -629,7 +629,7 @@ impl Part {
             Part::Front => "Bylaws",
             Part::Budget => "Budget",
             Part::Models => "Models",
-            Part::Leads => "The leads and limits",
+            Part::Leads => "Leads and limits",
         }
     }
 
@@ -673,7 +673,7 @@ impl Part {
                     (limits.reserved.hire, "hire"),
                     (limits.reserved.end, "end a hire"),
                     (limits.reserved.merge, "merge"),
-                    (limits.reserved.roads, "lay roads"),
+                    (limits.reserved.roads, "link agents"),
                 ]
                 .into_iter()
                 .filter(|(kept, _)| *kept)
@@ -693,7 +693,7 @@ impl Part {
                 };
                 format!(
                     "{asks}. Hires go {} levels deep at most, with \
-                     up to {} roads.",
+                     up to {} links between agents.",
                     limits.depth, limits.road.most
                 )
             }
@@ -707,7 +707,7 @@ impl Part {
             Part::Models => "Which models this hamlet may run.",
             Part::Leads => {
                 "What the leads may do without asking, and the caps \
-                 on the tree and its roads."
+                 on hires and the links between agents."
             }
         }
     }

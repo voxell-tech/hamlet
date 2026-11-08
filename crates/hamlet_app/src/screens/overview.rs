@@ -12,7 +12,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
 use bevy::ui::{
-    AlignItems, Display, InteractionDisabled, UiRect, px,
+    AlignItems, Display, InteractionDisabled, UiRect, percent, px,
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -80,6 +80,21 @@ pub(crate) fn heading(
         ))
         .gap(6.0)
         .align(AlignItems::Center)
+    })
+    .boxed()
+}
+
+/// A [`heading`] with `end` at the far end of its line.
+pub(crate) fn heading_line(
+    which: Glyph,
+    text: &'static str,
+    end: AnyView,
+) -> AnyView {
+    with_cx(move |cx| {
+        row((heading(which, text), frame().grow(1.0), end))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
+            .width(percent(100.0))
     })
     .boxed()
 }
