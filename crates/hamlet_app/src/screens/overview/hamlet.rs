@@ -9,7 +9,7 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
-use bevy::ui::{AlignItems, UiRect, percent, px};
+use bevy::ui::{AlignItems, PositionType, UiRect, Val, percent, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
@@ -196,16 +196,18 @@ fn list_of(hamlet: Entity) -> impl View {
         derived(move |world: &World| agent_rows(world, Some(hamlet)))
             .when(stale());
     keyed(people, |rows| {
-        let living = rows
-            .iter()
-            .filter(|row| !row.gone)
-            .map(person)
-            .collect::<Vec<_>>();
-        let gone = rows
-            .iter()
-            .filter(|row| row.gone)
-            .map(person)
-            .collect::<Vec<_>>();
+        let tree = |gone: bool| {
+            let rows = rows
+                .iter()
+                .filter(|row| row.gone == gone)
+                .collect::<Vec<_>>();
+            branches(&rows)
+                .into_iter()
+                .zip(rows)
+                .map(|(branch, row)| person(row, branch))
+                .collect::<Vec<_>>()
+        };
+        let (living, gone) = (tree(false), tree(true));
         let mut parts = vec![column(living).gap(0.0).boxed()];
         if !gone.is_empty() {
             parts.push(heading(
@@ -225,10 +227,123 @@ const STEP: f32 = 18.0;
 /// How far a row's icon stands in from its left edge.
 const INSET: f32 = 6.0;
 
+/// The room over a row's first line.
+const TOP: f32 = 5.0;
+
+/// The tree's lines in front of one agent's row.
+struct Branch {
+    /// For each level between the top and its lead's, whether a
+    /// guide runs down it past this row.
+    rails: Vec<bool>,
+    /// Whether it is the last of its lead's hires.
+    last: bool,
+    /// Whether it has hires of its own under it.
+    leads: bool,
+}
+
+/// The lines in front of each of `rows`, which are in the tree's
+/// order.
+fn branches(rows: &[&AgentRow]) -> Vec<Branch> {
+    // Whether the agent last seen at each depth has more after it.
+    let mut more = Vec::<bool>::new();
+    rows.iter()
+        .enumerate()
+        .map(|(at, row)| {
+            let depth = row.depth;
+            let last = rows[at + 1..]
+                .iter()
+                .take_while(|after| after.depth >= depth)
+                .all(|after| after.depth > depth);
+            let rails =
+                more.get(1..depth).unwrap_or_default().to_vec();
+            more.resize(depth + 1, false);
+            more[depth] = !last;
+            let leads = rows
+                .get(at + 1)
+                .is_some_and(|next| next.depth > depth);
+            Branch { rails, last, leads }
+        })
+        .collect()
+}
+
+/// The lines in front of a row at `depth`: a guide down each level
+/// above its lead's that has more rows after it, then an elbow from
+/// its lead to its icon, running on down while its lead has more.
+/// Each line runs under the icon of the lead it comes from.
+fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
+    let colour = cx.theme().palette.gold_6;
+    let shown = |on: bool| if on { colour } else { Color::NONE };
+    // Where the elbow meets the row: the middle of its first line.
+    let elbow = TOP + cx.theme().text.body * 0.6;
+    let step = |inside: AnyView| {
+        row((inside,))
+            .width(px(STEP))
+            .shrink(0.0)
+            .padding(UiRect::left(px(INSET + ICON / 2.0 - 0.5)))
+            .align(AlignItems::Stretch)
+            .boxed()
+    };
+    let mut parts = branch
+        .rails
+        .iter()
+        .map(|on| {
+            step(frame().width(px(1.0)).fill(shown(*on)).boxed())
+        })
+        .collect::<Vec<_>>();
+    // A line laid over the row, `left` and `top` in from its edges;
+    // one with no height runs to its foot.
+    let over = |left: f32,
+                top: f32,
+                width: f32,
+                height: Option<f32>| {
+        frame()
+            .width(px(width))
+            .height(height.map_or(Val::Auto, px))
+            .fill(colour)
+            .position(PositionType::Absolute)
+            .inset(UiRect::new(
+                px(left),
+                Val::Auto,
+                px(top),
+                if height.is_some() { Val::Auto } else { px(0.0) },
+            ))
+            .boxed()
+    };
+    // Where the line under a row's icon runs, at `depth`.
+    let under_icon =
+        |depth: usize| depth as f32 * STEP + INSET + ICON / 2.0 - 0.5;
+    if depth > 0 {
+        parts.push(step(
+            column((
+                frame()
+                    .width(px(1.0))
+                    .height(px(elbow + 1.0))
+                    .fill(colour),
+                frame()
+                    .width(px(1.0))
+                    .grow(1.0)
+                    .fill(shown(!branch.last)),
+            ))
+            .gap(0.0)
+            .boxed(),
+        ));
+        // The elbow's foot, up to just short of the icon.
+        let from = under_icon(depth - 1);
+        let to = depth as f32 * STEP + INSET - 2.0;
+        parts.push(over(from, elbow, to - from, Some(1.0)));
+    }
+    if branch.leads {
+        // Down from under its icon to its first hire.
+        let top = elbow + ICON / 2.0 + 2.0;
+        parts.push(over(under_icon(depth), top, 1.0, None));
+    }
+    parts
+}
+
 /// One agent as a row of the list: its kind, its name and state, and
 /// its own model and spending at the end of that line, then what its
-/// row says under them.
-fn person(row_of: &AgentRow) -> AnyView {
+/// row says under them, behind the tree's lines.
+fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
     let agent = row_of.agent;
     let gone = row_of.gone;
     let thing = if gone {
@@ -249,22 +364,8 @@ fn person(row_of: &AgentRow) -> AnyView {
         row_of.depth,
     );
     with_cx(move |cx| {
+        let mut parts = lines(cx, depth, &branch);
         let space = &cx.theme().space;
-        let line = cx.theme().palette.gold_6;
-        // A guide down each lead above it, under the lead's icon, so
-        // that a lead's rows run together without a gap.
-        let mut parts = (0..depth)
-            .map(|_| {
-                row((frame()
-                    .width(px(1.0))
-                    .height(percent(100.0))
-                    .fill(line),))
-                .width(px(STEP))
-                .shrink(0.0)
-                .padding(UiRect::left(px(INSET + ICON / 2.0 - 0.5)))
-                .boxed()
-            })
-            .collect::<Vec<_>>();
         let mut words = vec![
             row((
                 raised(glyph(kind, ICON).tone(Tone::Dim)),
@@ -299,7 +400,7 @@ fn person(row_of: &AgentRow) -> AnyView {
             .padding(UiRect::new(
                 px(INSET),
                 px(6.0),
-                px(5.0),
+                px(TOP),
                 px(5.0),
             ))
             .grow(1.0)
