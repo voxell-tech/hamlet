@@ -60,7 +60,11 @@ impl Worker {
                     thread::sleep(Duration::from_millis(2));
                     continue;
                 };
-                let message = read(&mut stream);
+                // A server stopped mid-request leaves a connection
+                // with no request on it.
+                let Some(message) = read(&mut stream) else {
+                    continue;
+                };
                 sent.send(message.clone()).unwrap();
                 let reply = if message["kind"] == "cancel" {
                     json!({"kind": "ok", "value": {"state": "completed"}})
@@ -91,8 +95,9 @@ impl Worker {
     }
 }
 
-/// One request's body, checked as the worker checks its head.
-fn read(stream: &mut TcpStream) -> Value {
+/// One request's body, checked as the worker checks its head, or
+/// `None` if the connection closed before its head.
+fn read(stream: &mut TcpStream) -> Option<Value> {
     stream.set_nonblocking(false).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
@@ -100,8 +105,20 @@ fn read(stream: &mut TcpStream) -> Value {
     let mut head = Vec::new();
     while !head.ends_with(b"\r\n\r\n") {
         let mut byte = [0];
-        stream.read_exact(&mut byte).unwrap();
-        head.push(byte[0]);
+        match stream.read_exact(&mut byte) {
+            Ok(()) => head.push(byte[0]),
+            Err(error)
+                if head.is_empty()
+                    && matches!(
+                        error.kind(),
+                        std::io::ErrorKind::UnexpectedEof
+                            | std::io::ErrorKind::ConnectionReset
+                    ) =>
+            {
+                return None;
+            }
+            Err(error) => panic!("{error}"),
+        }
     }
     let head = String::from_utf8(head).unwrap().to_lowercase();
     assert!(head.starts_with("post /v1 http/1.1\r\n"), "{head}");
@@ -114,7 +131,7 @@ fn read(stream: &mut TcpStream) -> Value {
         .unwrap();
     let mut body = vec![0; length];
     stream.read_exact(&mut body).unwrap();
-    serde_json::from_slice(&body).unwrap()
+    Some(serde_json::from_slice(&body).unwrap())
 }
 
 fn answer(stream: &mut TcpStream, reply: &Value) {
