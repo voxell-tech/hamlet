@@ -60,7 +60,12 @@ pub const MEASURES: File = file!("measures.toml");
 
 /// The themes a chief can pick, one family a file. The file's name,
 /// less `.toml`, is the theme's id.
-pub const THEMES: &[File] = &[file!("themes/hamlet.toml")];
+pub const THEMES: &[File] = &[
+    file!("themes/catppuccin.toml"),
+    file!("themes/hamlet.toml"),
+    file!("themes/monokai_vox.toml"),
+    file!("themes/tokyonight.toml"),
+];
 
 /// The typefaces. Their licences are beside them in `assets/fonts/`.
 pub mod fonts {
