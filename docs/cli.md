@@ -18,15 +18,18 @@ PATH. The server selects `HAMLET_PI_HARNESS` (the path to `src/main.ts`),
 then sibling `pi/src/main.ts`, then the macOS app's
 `Contents/Resources/pi/src/main.ts`, then the harness in its build checkout,
 and refuses to start when the entry it selects does not exist.
-`HAMLET_NODE` selects Node. Node is installed separately; the release
-archive includes the pi package and its production dependencies.
+`HAMLET_NODE` selects Node, else the `node` a release ships beside the
+server, else Node on `PATH`. A release includes Node, the pi package and
+its production dependencies; from source, Node is installed separately.
 
 Bare `hamlet` starts the realm's server in the background, or reuses its
 running server, and opens a window. The realm's folder is `HAMLET_HOME`, else
 `~/.hamlet`; the background server appends output to `<folder>/server.log`.
 Closing the window or terminal stops no agent. `hamlet stop` stops the
-server, and `hamlet status` reports it. The packaged macOS app runs this
-CLI entry, so opening it also starts or reuses the server. Running
+server, and `hamlet status` reports it. An installed app opens
+`hamlet_launch`, which does the same with no terminal: on Linux and
+macOS the window then takes its process, and a failure to start is shown
+in a dialog as well (see [releases](releases.md#the-launcher)). Running
 `hamlet_app` directly starts only the window.
 
 | Command | Does |
@@ -86,9 +89,7 @@ or `HAMLET_APP` selects the corresponding existing binary.
 `hamlet window` finds the app by `HAMLET_APP`, then beside the CLI,
 then PATH. It passes the server address and token through the environment,
 never argv. Players still open an app called Hamlet; only its executable is
-named `hamlet_app`. Release archives contain all three binaries and pi.
-On macOS, Finder may not inherit the shell's Node PATH: run the bundle's
-`Contents/MacOS/hamlet` from a terminal with `HAMLET_NODE` set if needed.
+named `hamlet_app`. Releases contain the four binaries, Node and pi.
 
 The window has no realm claim and runs no agent. It finds a local server
 through the realm's `server.json` and connection token, or uses

@@ -1,9 +1,20 @@
-# Complete installations for macOS, Linux and Windows.
+# Complete installations for macOS, Linux and Windows: an archive for
+# each, and what a chief installs without a terminal, a disk image, an
+# installer, a .deb and an .rpm.
 #
 # Runs when a version tag is pushed (v0.1.0) and when started by hand
 # from the Actions tab, and at no other time. A tag publishes a GitHub
-# release with the three archives. A run by hand only keeps them as
-# the run's artifacts.
+# release with them all. A run by hand only keeps them as the run's
+# artifacts.
+#
+# Signing waits on the repository's secrets, and is skipped without
+# them. macOS: APPLE_CERTIFICATE (a Developer ID Application .p12, in
+# base64), APPLE_CERTIFICATE_PASSWORD and APPLE_SIGNING_IDENTITY sign;
+# APPLE_ID, APPLE_TEAM_ID and APPLE_APP_PASSWORD (an app-specific
+# password) then notarize. Windows, through Azure Trusted Signing:
+# AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+# TRUSTED_SIGNING_ENDPOINT, TRUSTED_SIGNING_ACCOUNT and
+# TRUSTED_SIGNING_PROFILE.
 name: Release
 
 on:
@@ -25,6 +36,9 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
     strategy:
       fail-fast: false
       matrix:
@@ -81,7 +95,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             pkg-config libasound2-dev libudev-dev \
-            libwayland-dev libxkbcommon-dev
+            libwayland-dev libxkbcommon-dev rpm
+
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          if ! command -v iscc && [ ! -f "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ]; then
+            choco install innosetup --no-progress -y
+          fi
 
       - name: Build
         if: runner.os != 'Windows'
@@ -91,11 +113,67 @@ jobs:
         if: runner.os == 'Windows'
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-        run: cargo build --release --locked -p hamlet_cli --bin hamlet -p hamlet_server --bin hamlet_server -p hamlet_app --bin hamlet_app --target ${{ matrix.target }}
+        run: cargo build --release --locked -p hamlet_cli --bin hamlet --bin hamlet_launch -p hamlet_server --bin hamlet_server -p hamlet_app --bin hamlet_app --target ${{ matrix.target }}
+
+      - name: Sign the programs on Windows
+        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: target/${{ matrix.target }}/release
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # A keychain of this run's own, holding the Developer ID.
+      - name: Import the Developer ID on macOS
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain=$RUNNER_TEMP/signing.keychain-db
+          password=$(uuidgen)
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          rm "$RUNNER_TEMP/certificate.p12"
 
       - name: Package
         shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && env.APPLE_CERTIFICATE != '' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: .github/scripts/package.sh "${{ matrix.target }}" "${{ github.ref_type == 'tag' && github.ref_name || github.sha }}"
+
+      - name: Sign the installer on Windows
+        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - uses: actions/upload-artifact@v4
         with:
