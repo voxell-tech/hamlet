@@ -77,7 +77,7 @@ pub(super) fn readouts(
                     ..default()
                 },
                 BackgroundColor(Color::srgba_u8(
-                    0x01, 0x0a, 0x13, 0xf0,
+                    0x01, 0x0a, 0x13, 0xd8,
                 )),
                 BorderColor::all(Color::srgb_u8(0x7c, 0x5d, 0x2f)),
                 Pickable::IGNORE,
