@@ -1,6 +1,6 @@
 //! The pages of first-run setup.
 
-use bevy::color::Mix;
+use bevy::color::{Alpha, Mix};
 use bevy::ecs::world::World;
 use bevy::ui::{
     AlignItems, BackgroundGradient, ColorStop, JustifyContent,
@@ -19,6 +19,7 @@ use hamlet_ui::styles::{
     good_action, group, headed, lead_card, marked, nav_card, note,
     parts, scroll_area, small_rules,
 };
+use hamlet_ui::theme::Palette;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
@@ -391,7 +392,10 @@ fn screen() -> AnyView {
                     Step::Models => models(),
                 }
             };
-            with_cx(move |cx| over(cx, page)).boxed()
+            // Adding a place over an open desk dims the desk; first
+            // run and the server question have no desk to show.
+            let dims = *adding && connection.is_none();
+            with_cx(move |cx| over(cx, page, dims)).boxed()
         },
     )
     .within(overlay(()))
@@ -402,13 +406,45 @@ fn screen() -> AnyView {
 /// from the bottom glow toward the lamp's glow.
 const WARMTH: f32 = 0.14;
 
-fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
+/// How much of the desk a dimming scrim hides.
+const DIM: f32 = 0.85;
+
+/// How strong the lamp at the foot of a card over a dimmed desk is.
+const LAMP: f32 = 0.16;
+
+/// Lamplight rising from the foot of a card, as it rises from a
+/// lit tab's.
+fn lamp(palette: &Palette) -> BackgroundGradient {
+    let glow = |strength: f32, at: f32| {
+        ColorStop::new(
+            palette.glow.with_alpha(LAMP * strength),
+            percent(at),
+        )
+    };
+    BackgroundGradient::from(RadialGradient::new(
+        UiPosition::BOTTOM,
+        RadialGradientShape::Ellipse(percent(75.0), percent(55.0)),
+        vec![
+            glow(1.0, 0.0),
+            glow(0.5, 30.0),
+            glow(0.15, 65.0),
+            glow(0.0, 100.0),
+        ],
+    ))
+}
+
+/// The card over its ground: the window's own colour, opaque, or with
+/// `dims` the desk behind it, dimmed.
+fn over(cx: &Cx, page: AnyView, dims: bool) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
-    // The window's own colour, opaque: colours mix in linear light,
-    // so any scrim thin enough to show the realm leaves its words
-    // readable behind the card.
-    let scrim = theme.background();
+    // Opaque by default: colours mix in linear light, so a scrim
+    // thin enough to show the realm leaves its words readable behind
+    // the card. Dimmed, the desk is meant to be seen, not read.
+    let scrim = match dims {
+        true => theme.palette.shadow.with_alpha(DIM),
+        false => theme.background(),
+    };
     let card = column((scroll_area((column((page,))
         .gap(0.0)
         .padding(UiRect::all(px(space.overlay_padding))),)),))
@@ -419,27 +455,38 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     .border(space.border)
     .border_color(theme.palette.gold_5)
     .radius(space.soft)
-    .tagged(theme.shadow());
+    .tagged(theme.shadow())
+    .tagged(match dims {
+        true => lamp(&theme.palette),
+        false => BackgroundGradient(Vec::new()),
+    });
     let hung = column((card,))
         .width(percent(100.0))
         .max_width(px(space.overlay_width))
         .max_height(percent(100.0))
         .gap(0.0);
-    // A lamp's warmth pooled behind the card, fading to the window's
-    // own colour at its edges.
+    // First run pools a lamp's warmth behind the card, fading to the
+    // window's own colour at its edges. Dimmed, the card carries its
+    // own lamp instead.
     let palette = &theme.palette;
-    let ground = BackgroundGradient::from(RadialGradient::new(
-        UiPosition::CENTER,
-        RadialGradientShape::Ellipse(percent(60.0), percent(70.0)),
-        vec![
-            ColorStop::new(
-                palette.bottom_glow.mix(&palette.glow, WARMTH),
-                percent(0.0),
+    let ground = match dims {
+        true => BackgroundGradient(Vec::new()),
+        false => BackgroundGradient::from(RadialGradient::new(
+            UiPosition::CENTER,
+            RadialGradientShape::Ellipse(
+                percent(60.0),
+                percent(70.0),
             ),
-            ColorStop::new(palette.bottom_glow, percent(45.0)),
-            ColorStop::new(scrim, percent(100.0)),
-        ],
-    ));
+            vec![
+                ColorStop::new(
+                    palette.bottom_glow.mix(&palette.glow, WARMTH),
+                    percent(0.0),
+                ),
+                ColorStop::new(palette.bottom_glow, percent(45.0)),
+                ColorStop::new(scrim, percent(100.0)),
+            ],
+        )),
+    };
     row((hung,))
         .width(percent(100.0))
         .height(percent(100.0))
