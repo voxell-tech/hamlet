@@ -22,11 +22,16 @@ pub struct Pi {
 
 impl Pi {
     /// The pi harness the environment gives: `HAMLET_NODE` and
-    /// `HAMLET_PI_HARNESS`, else Node on the path and the entry
-    /// beside the server or in the checkout it was built from.
+    /// `HAMLET_PI_HARNESS`, else the Node a release ships beside the
+    /// server, or Node on the path, and the entry beside the server
+    /// or in the checkout it was built from.
     pub fn from_env(faux: Option<PathBuf>) -> Result<Self> {
         let set =
             |name| std::env::var(name).ok().filter(|v| !v.is_empty());
+        let executable = std::env::current_exe()?;
+        let directory = executable
+            .parent()
+            .context("Cannot locate the server's directory")?;
         let entry = if let Some(path) = set("HAMLET_PI_HARNESS") {
             let path = PathBuf::from(path);
             ensure!(
@@ -36,10 +41,6 @@ impl Pi {
             );
             path
         } else {
-            let executable = std::env::current_exe()?;
-            let directory = executable
-                .parent()
-                .context("Cannot locate the server's directory")?;
             [
                 directory.join("pi/src/main.ts"),
                 directory.join("../Resources/pi/src/main.ts"),
@@ -57,13 +58,14 @@ impl Pi {
                 )
             })?
         };
-        Ok(Self {
-            node: set("HAMLET_NODE")
-                .unwrap_or_else(|| "node".into())
-                .into(),
-            entry,
-            faux,
-        })
+        let shipped = directory
+            .join(format!("node{}", std::env::consts::EXE_SUFFIX));
+        let node = match set("HAMLET_NODE") {
+            Some(node) => node.into(),
+            None if shipped.is_file() => shipped,
+            None => "node".into(),
+        };
+        Ok(Self { node, entry, faux })
     }
 
     /// The store of the runtime whose folder is `folder`.
