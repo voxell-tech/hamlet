@@ -15,7 +15,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
-use bevy::ui::AlignItems;
+use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
@@ -381,8 +381,11 @@ fn head(need: &Need, scholar: &str) -> impl View + use<> {
         WaitDetail::Approval { says, .. } => {
             format!("{} {says}", need.shown)
         }
-        WaitDetail::Question { .. } => {
-            format!("{} has a question", need.shown)
+        WaitDetail::Question { questions } => {
+            match questions.questions.len() {
+                1 => format!("{} has a question", need.shown),
+                n => format!("{} has {n} questions", need.shown),
+            }
         }
         WaitDetail::Objection {} => {
             format!("Objection from {}", need.shown)
@@ -407,8 +410,8 @@ fn head(need: &Need, scholar: &str) -> impl View + use<> {
     })
 }
 
-/// The card of a question folded to its first question, with the
-/// button that unfolds it in place.
+/// The card of a question folded to its first question and how many
+/// more there are, with the button that unfolds it in place.
 fn brief(need: &Need, asked: &Questions) -> AnyView {
     let wait = need.entity;
     let first = asked
@@ -416,13 +419,13 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
         .first()
         .map(|one| one.question.clone())
         .unwrap_or_default();
-    let answer = match asked.questions.len() {
-        1 => "Answer".to_string(),
-        n => format!("Answer {n} questions"),
+    let more = match asked.questions.len() {
+        0 | 1 => frame().boxed(),
+        n => note(format!("+{} more", n - 1)).boxed(),
     };
     let head = head(need, "");
     with_cx(move |cx| {
-        let open = marked(Glyph::Talk, answer)
+        let open = marked(Glyph::Talk, "Answer")
             .rules(primary_button)
             .tagged(Variant::Primary)
             .on_activate(move |world| {
@@ -430,7 +433,13 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
             });
         framed((
             head,
-            label(first).size(cx.theme().text.heading),
+            row((
+                row((label(first).size(cx.theme().text.heading),))
+                    .min_width(px(0.0)),
+                more,
+            ))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Baseline),
             row((open,)),
         ))
     })

@@ -1095,6 +1095,7 @@ pub fn radio(on: bool) -> impl View {
         column((dot,))
             .width(px(14.0))
             .height(px(14.0))
+            .shrink(0.0)
             .radius(7.0)
             .border(1.5)
             .border_color(if on {

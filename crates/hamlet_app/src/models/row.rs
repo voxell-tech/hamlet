@@ -10,7 +10,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{Focused, ScopedExt, ViewExt, derived, style};
 use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
-use hamlet_ui::styles::{ICON, note_rules, small_rules};
+use hamlet_ui::styles::{ICON, note, note_rules, small_rules};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -98,6 +98,27 @@ pub(crate) fn tag(text: &'static str) -> AnyView {
         .radius(theme.space.round)
     })
     .boxed()
+}
+
+/// `text` muted over rows that show `detail`, in line with their
+/// names.
+pub(crate) fn over_rows(
+    text: &'static str,
+    detail: Detail,
+) -> AnyView {
+    let lead = match detail {
+        Detail::Source => MARK + GAP,
+        Detail::Id => GAP,
+    };
+    column((note(text),))
+        .padding(UiRect::left(px(PAD + lead)))
+        .boxed()
+}
+
+/// The muted line over rows that show `detail` and says what their
+/// numbers are.
+pub(crate) fn legend(detail: Detail) -> AnyView {
+    over_rows("In / out per 1M tokens · context", detail)
 }
 
 /// What `model` costs per million tokens in and out, and how many

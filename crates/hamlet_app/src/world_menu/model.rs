@@ -53,8 +53,8 @@ use serde::{Deserialize, Serialize};
 use super::{Open, close};
 use crate::menu::rect_of;
 use crate::models::{
-    Detail, ModelRow, Shelf, mark, model_name, model_row,
-    provider_name, provider_of, tag,
+    Detail, ModelRow, Shelf, legend, mark, model_name, model_row,
+    over_rows, provider_name, provider_of, tag,
 };
 
 /// The width of the providers down the side.
@@ -861,17 +861,12 @@ fn models(agent: Entity, search: String) -> impl View {
                     ),
                 };
             }
-            // One provider's models need not say whose they are.
-            let detail = match side {
-                Some(Side::Provider(_)) => Detail::Id,
-                _ => Detail::Source,
-            };
             // A search runs over every provider, whichever is
             // chosen down the side.
             let over = match side {
-                None => column((note("From every provider"),))
-                    .padding(UiRect::horizontal(px(8.0)))
-                    .boxed(),
+                None => {
+                    over_rows("From every provider", Detail::Source)
+                }
                 Some(_) => frame().boxed(),
             };
             let rows = models
@@ -898,16 +893,20 @@ fn models(agent: Entity, search: String) -> impl View {
                             tag: (now.fallback == *name)
                                 .then_some("Default"),
                             end: Some(end),
-                            detail,
+                            detail: Detail::Source,
                         },
                         move |world| choose(world, agent, &picked),
                     )
                 })
                 .collect::<Vec<_>>();
-            column((over, column(rows).gap(2.0)))
-                .gap(4.0)
-                .width(percent(100.0))
-                .boxed()
+            column((
+                legend(Detail::Source),
+                over,
+                column(rows).gap(2.0),
+            ))
+            .gap(4.0)
+            .width(percent(100.0))
+            .boxed()
         },
     )
     .within(column(()).width(percent(100.0)));

@@ -138,6 +138,9 @@ pub(super) fn rows(
     open: &[(Entity, String)],
 ) -> Vec<Row> {
     let mut rows = Vec::<Row>::new();
+    // Whether the last row is a fold that opened its turn, and
+    // whether the last entry was a reply.
+    let (mut opening, mut replied) = (false, false);
     for item in transcript.items() {
         let step = match &item.entry {
             // Nothing said is no message: a model that calls a tool
@@ -153,13 +156,23 @@ pub(super) fn rows(
             _ => None,
         };
         let Some((tool, exit)) = step else {
-            rows.push(Row::Entry {
+            let reply = matches!(item.entry, Entry::Assistant(_));
+            let row = Row::Entry {
                 session,
                 id: item.id.clone(),
-            });
+            };
+            // Steps stand under the reply before them, and those
+            // that open a turn under its first reply.
+            if reply && opening {
+                rows.insert(rows.len() - 1, row);
+            } else {
+                rows.push(row);
+            }
+            (opening, replied) = (false, reply);
             continue;
         };
         if !matches!(rows.last(), Some(Row::Fold { .. })) {
+            opening = !replied;
             rows.push(Row::Fold {
                 session,
                 first: item.id.clone(),
@@ -245,15 +258,12 @@ pub(super) fn fold_view<B: Board>(
     ))
     .gap(6.0)
     .align(AlignItems::Center);
-    // Framed, its edge on the bubbles' edge, so that it reads as the
-    // way into the turn's steps.
+    // Unframed, so it reads as a note on the reply, its chevron in
+    // line with the bubbles' words.
     let head = with_cx(move |cx| {
-        let theme = cx.theme();
         button(words)
-            .padding(UiRect::axes(px(INSET), px(4.0)))
-            .border(theme.space.border)
-            .border_color(theme.palette.border)
-            .radius(theme.space.round)
+            .padding(UiRect::axes(px(INSET), px(2.0)))
+            .radius(cx.theme().space.round)
             .rules(ghost)
             .on_activate(move |world| {
                 let unfolded =

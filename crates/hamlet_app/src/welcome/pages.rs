@@ -25,7 +25,7 @@ use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{NOTHING_LOCAL, Step, Welcome, close, go, look, pick};
 use crate::models::{
-    Detail, ModelRow, mark, model_row, narrowed, provider_of,
+    Detail, ModelRow, legend, mark, model_row, narrowed, provider_of,
 };
 use crate::roll::{either, moved};
 
@@ -278,7 +278,9 @@ fn models() -> AnyView {
                      them.",
                 ));
             }
-            column(rows).gap(2.0).boxed()
+            column((legend(*detail), column(rows).gap(2.0)))
+                .gap(4.0)
+                .boxed()
         },
     )
     .within(bare());

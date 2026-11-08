@@ -46,7 +46,8 @@ speaker to one listener that follow each other are a run: the first is
 named and has the speaker's picture beside its name. The chief's own
 messages are at the right on brass. The agent's are at the left, with a
 disc in the paint of its robot. The steps of a turn are folded into one
-line that opens.
+quiet line that opens, under the reply before them. Steps that open a turn
+stand under its first reply, joined by those after it.
 
 Rows build 24 at a time. When a transcript has an earlier page, scrolling
 to the top sends `open` with `before` set to the first item's ID. Only one
@@ -203,14 +204,14 @@ back to the server or a model.
 | The place is | What is drawn |
 |---|---|
 | A local picture file a link may lead to (`png`, `jpg`, `jpeg`, `webp`, `gif`, `bmp`) | The picture. A GIF is its first frame |
-| A file that is too large, is no picture, or is another kind | A card with its words and its path, as a link to the file |
-| No local file, or an unresolved relative path | A card with its words and its path |
-| An `http` or `https` address | A card, and the picture only after the chief asks |
+| A file that is too large, is no picture, or is another kind | A one-line chip with its words, its path as a link to the file, and why it is not shown |
+| No local file, or an unresolved relative path | A one-line chip with its words, its path and why it is not shown |
+| An `http` or `https` address | A chip, and the picture only after the chief asks |
 
 **A picture of the web is never fetched by itself.** A model wrote the
 address, and a fetch tells that server whatever the address carries. An
 agent that was fed bad instructions could put a secret in the address and
-have the chief's machine send it just by showing the chat. So the card
+have the chief's machine send it just by showing the chat. So the chip
 shows the words, the host and a button, SHOW PICTURE, and only the press
 fetches. The fetch is bounded in time, size and redirects, takes only an
 answer that is an image, and keeps the picture in memory only.

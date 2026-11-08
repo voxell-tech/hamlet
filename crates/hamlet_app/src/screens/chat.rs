@@ -1279,8 +1279,8 @@ mod tests {
             transcript(),
         );
         app.update();
-        press(&mut app, "Worked, 2 steps, 1 failed");
-        press(&mut app, "Working, 1 step so far");
+        // The steps before the first reply join those after it.
+        press(&mut app, "Working, 3 steps so far, 1 failed");
         press(&mut app, "Thought it over");
         app.update();
         // Each call is a row of its request; a finished one says how
