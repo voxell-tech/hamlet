@@ -120,8 +120,6 @@ diesel::table! {
         retiring -> Bool,
         entered -> Nullable<Text>,
         last_input -> Nullable<Text>,
-        budget_input -> Nullable<Text>,
-        budget_words -> Nullable<Text>,
         made -> BigInt,
     }
 }

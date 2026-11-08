@@ -359,7 +359,9 @@ are charged at catalogue rates even when the chief pays no per-token bill.
 Spending follows the server's local day.
 
 Before every model call the budget and the task's caps are checked, and a
-turn that has run out stops, saying what ran out and who can change it. A
+turn that has run out stops, saying what ran out and who can change it. An
+agent reads what it may spend with `read_budget`: its hamlet's or the realm's
+spend against the budget, its own, its allowance and its task's cap. A
 chief can start the period again from nothing spent, without resetting a
 task's spend. No summary starts once the budget or the task's cap has run
 out.
@@ -484,7 +486,7 @@ the tools in its own row:
 
 | Who | Tools |
 |---|---|
-| Every agent but a worker | `tell`, `ask` (H30), `start_worker` (H42), `submit_skill`, `ask_librarian` (H33), `ask_chief` (H10) |
+| Every agent but a worker | `tell`, `ask` (H30), `start_worker` (H42), `submit_skill`, `ask_librarian` (H33), `ask_chief` (H10), `read_budget` (H8) |
 | Every hire | `request_road` |
 | A lead, and the Hand | `create_scholar`, `hire`, `end_hire`, `merge_hires`, `set_model`, `set_tools`, `set_allowance`, `nickname`, `lay_road`, `take_up_road` |
 | A mayor, when other hamlets live | `agree_road` |

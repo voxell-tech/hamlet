@@ -18,13 +18,14 @@ use crate::talk::conversations::Kind;
 use crate::work::tools::Place;
 
 /// Every agent's tools but a worker's.
-const EVERYONE: [&str; 6] = [
+const EVERYONE: [&str; 7] = [
     "tell",
     "ask",
     "start_worker",
     "submit_skill",
     "ask_librarian",
     "ask_chief",
+    "read_budget",
 ];
 
 /// A lead's tools over its own tree, which the Hand has over all.

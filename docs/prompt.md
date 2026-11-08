@@ -17,11 +17,12 @@ sections; the pi harness asks for them before each request.
 | The place | Who the agent is, whom it answers to, the hires under it, the roads it can write along, the tools its lead turned off, and how its hamlet was run lately | The record |
 | The realm | For the Hand and mayors, the other hamlets, their mayors and hires; a realm with none says so and that a chief or the Hand can found one | The realm's record |
 | The scholars | For the Hand and a lead, the living scholars it may hire, each as `scholar#<id> (<name>)`, since no name finds one | The city |
-| The budget | What its hamlet or the realm has spent, its task's caps and its allowance | The ledger and limits |
 
 `crates/hamlet_server/src/talk/prompt.rs` composes the sections;
-`talk/prompt/place.rs` renders the place and the realm. The budget's words stay
-fixed for a turn; the other parts are built again before each request.
+`talk/prompt/place.rs` renders the place and the realm. The parts are built
+again before each request. None of them follows spending, so the prompt of one
+input matches the next's, and the provider's prompt cache holds across them;
+an agent reads what it may spend with the `read_budget` tool.
 
 A worker's prompt is the charter, the machine, the project and its place. It
 has no character, memory or skills of its own. An errand is a one-off
