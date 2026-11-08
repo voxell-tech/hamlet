@@ -96,11 +96,11 @@ enum Mark {
 }
 
 /// How far a mark reaches from the middle of its 32 pixels, so that
-/// drawn at [`MARK`] it is 12 pixels across.
+/// drawn at [`MARK`] it is 10.5 pixels across.
 const REACH: f32 = 12.0;
 
 /// The side a mark is drawn at on its button.
-const MARK: f32 = 16.0;
+const MARK: f32 = 14.0;
 
 /// A mark drawn in white, to be tinted.
 fn mark(mark: Mark) -> Image {
