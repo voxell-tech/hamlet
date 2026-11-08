@@ -5,7 +5,6 @@
 //! chip in the composer that opens it.
 
 use bevy::app::{App, Update};
-use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
@@ -656,27 +655,20 @@ fn take_focus(world: &mut World) {
 }
 
 /// The look of a provider down the side: its name small and bold
-/// at `shown` opacity, lit under the pointer or the focus, and lit as
-/// the model picked is while chosen.
+/// at `shown` opacity, lit under the pointer or the focus, and in the
+/// accent while chosen, as the check of the model picked is.
 fn rail_look(
     chosen: bool,
     shown: f32,
 ) -> impl FnOnce(&mut Cx) + Send + Sync {
-    let tone = if chosen { Tone::Body } else { Tone::Faint };
+    let tone = if chosen { Tone::Accent } else { Tone::Faint };
     style::<HamletTheme>()
         .label(move |l, t| {
             l.size(t.text.small).bold(true).opacity(shown)
         })
         .icon(move |i, _| i.opacity(shown))
         .tone(tone)
-        .frame(move |f, t| {
-            f.fill(if chosen {
-                t.palette.primary_low
-            } else {
-                Color::NONE
-            })
-            .radius(t.space.round)
-        })
+        .frame(|f, t| f.radius(t.space.round))
         .hovered(|s| {
             s.fill(|t| t.palette.button_hover).tone(Tone::Body)
         })
