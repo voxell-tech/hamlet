@@ -32,7 +32,6 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     let account = world.get::<Account>(hand).unwrap();
     let activity = world.get::<Activity>(hand).unwrap();
     assert_eq!(account.model, "faux::faux-1");
-    assert_eq!(account.summary(), "faux::faux-1, $0.00");
     assert_eq!(activity.doing, Doing::Unknown);
     assert_eq!(world.get::<Lived>(hand).unwrap().until, None);
     assert_eq!(world.resource::<Chief>().0, "chief");
@@ -138,10 +137,6 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
                         1
                     );
                 }
-                assert_eq!(
-                    wait.waited(wait.since + 65_000).as_secs(),
-                    65
-                );
                 entity
             })
             .next();

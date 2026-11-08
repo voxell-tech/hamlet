@@ -11,39 +11,50 @@ use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
-use bevy::ui::AlignItems;
+use bevy::ui::{
+    AlignItems, Display, InteractionDisabled, UiRect, percent, px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, row,
+    BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
-use bevy_fynix::{ViewExt, derived, keyed};
+use bevy_fynix::{
+    ScopedExt, ViewExt, Visual, derived, keyed, resource,
+};
 use hamlet_client::messages::Veto;
 use hamlet_client::realm::{
-    Busy, Closed, Deeds, HamletId, Identity, Left, Scholar,
+    Busy, Closed, Deeds, HamletId, Identity, Left, Scholar, Treasury,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
+use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, beside, close, framed,
-    group, note, raised, scroll_area, section, status_label_large,
-    title,
+    Fills, ICON, action, bad_action, bare, buttons, close, framed,
+    group, note, raised, scroll_area, small_rules, title,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::{DisplayText, Wraps};
 use hamlet_ui::widgets::tabs;
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-pub(crate) use self::hamlet::typed;
+use self::hamlet::budget;
 pub use self::hamlet::{Naming, Page, hamlet};
+pub(crate) use self::hamlet::{rename, typed};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
+use self::rows::{
+    agent_rows, hamlet_name, hamlet_rows, pressable, stale,
+};
+use crate::petition::Queue;
+use crate::standing::{Standing, need_you};
 use crate::{chat, world_menu};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(record::plugin)
         .init_resource::<Erasing>()
         // The realm's page lists what waits.
-        .init_resource::<crate::petition::Queue>()
+        .init_resource::<Queue>()
         .add_observer(disarm)
         .add_systems(Update, reconcile_erasing)
         .init_resource::<Naming>()
@@ -52,56 +63,137 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, tabs::mark::<Page>);
 }
 
-/// A heading over a part of the panel, behind its icon.
+/// A heading over a part of the panel, behind its icon: larger than
+/// the names of the settings under it.
 pub(crate) fn heading(
     which: Glyph,
     text: impl Into<String>,
 ) -> AnyView {
+    let text = text.into();
+    with_cx(move |cx| {
+        row((
+            raised(glyph(which, ICON).tone(Tone::Dim)),
+            label(text.clone())
+                .size(cx.theme().text.heading)
+                .bold(true)
+                .wrap(false),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center)
+    })
+    .boxed()
+}
+
+/// A [`heading`] with `end` at the far end of its line.
+pub(crate) fn heading_line(
+    which: Glyph,
+    text: &'static str,
+    end: AnyView,
+) -> AnyView {
+    with_cx(move |cx| {
+        row((heading(which, text), frame().grow(1.0), end))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
+            .width(percent(100.0))
+    })
+    .boxed()
+}
+
+/// The title of a part of a list, small in the display face and in
+/// `tone`, as the rail heads its parts.
+pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
+    with_cx(move |cx| {
+        label(text.clone())
+            .size(cx.theme().text.small)
+            .bold(true)
+            .tone(tone)
+            .wrap(false)
+            .tagged(DisplayText)
+    })
+}
+
+/// A [`part_title`] with how many there are after it, dim, as the
+/// rail counts its parts.
+fn counted(text: &str, count: usize) -> AnyView {
     row((
-        raised(glyph(which, ICON).tone(Tone::Faint)),
-        section(text.into()),
+        part_title(text.to_owned(), Tone::Faint),
+        label(count.to_string()).tone(Tone::Dim).wrap(false),
     ))
     .gap(6.0)
     .align(AlignItems::Center)
     .boxed()
 }
 
-/// The realm at a glance: how it stands today, what waits for the
-/// chief in full, and the hamlets closed down. The hamlets and the
-/// Hand are in the rail beside it.
+/// The size of a figure of the day.
+const FIGURE: f32 = 22.0;
+
+/// The realm at a glance: its figures, what waits for the chief in
+/// full, then the hamlets, open and closed down. The hamlets and the
+/// Hand are in the rail beside it too.
 pub fn overview() -> impl View {
     with_cx(move |cx| {
         column((
-            title("REALM"),
+            // Stopping every agent stands apart, at the far end.
+            row((title("Realm"), frame().grow(1.0), stop_all()))
+                .gap(cx.theme().space.gap)
+                .align(AlignItems::Center),
             today(),
-            // What waits for the chief comes first, in full.
-            scroll_area((crate::petition::waiting(), closed())),
-            beside((
+            // Ways about the world, under the figures they lead to.
+            buttons(vec![
                 action(
                     Glyph::Hearth,
-                    "YOUR HEARTH",
+                    "Your hearth",
                     crate::chief::go_home,
-                ),
-                action(
-                    Glyph::Signpost,
-                    "HARBOR",
-                    glide_to_other_pier,
                 )
-                .tooltip(|| note("Cross to the other island")),
+                .boxed(),
+                action(Glyph::Anchor, "Harbor", glide_to_other_pier)
+                    .tooltip(|| note("Cross to the other island"))
+                    .boxed(),
                 action(
-                    Glyph::Notes,
-                    "NEW SCHOLAR",
+                    Glyph::Scholar,
+                    "New scholar",
                     world_menu::ask_new_scholar,
-                ),
-                bad_action(Glyph::Stop, "STOP ALL", |world| {
-                    world.trigger(Veto { agent: None });
-                    world.flush();
-                }),
-            )),
+                )
+                .boxed(),
+            ]),
+            scroll_area((column((needs(), hamlets(), closed()))
+                .gap(cx.theme().space.section),)),
         ))
         .fills_height()
         .gap(cx.theme().space.section)
     })
+}
+
+/// Stops every agent, as a plain button that cannot be pressed while
+/// none works or waits.
+fn stop_all() -> AnyView {
+    keyed(
+        derived(|world: &World| {
+            let today = today_of(world);
+            today.working + today.needs > 0
+        })
+        .when(bevy_fynix::every_frame()),
+        |&any| {
+            let stop = action(Glyph::Stop, "Stop all", |world| {
+                world.trigger(Veto { agent: None });
+                world.flush();
+            });
+            if any {
+                stop
+            } else {
+                row((stop.tagged(InteractionDisabled),))
+                    .rules(faded)
+                    .boxed()
+            }
+        },
+    )
+    .within(bare())
+    .boxed()
+}
+
+/// Half see-through, as what cannot be pressed.
+fn faded(cx: &mut Cx) {
+    cx.set::<Visual>(|visual, _| visual.opacity(0.5));
 }
 
 /// How the realm stands today.
@@ -152,63 +244,223 @@ fn today_of(world: &World) -> Today {
     }
 }
 
-/// A card of the day's figures: what waits, what works and who lives
-/// in the city.
+/// One figure of the day on a card of its own: its mark and how
+/// many, large, over what they are, all in `tone`, or dim while
+/// there are none, and `tip` under the pointer. The cards share the
+/// row's width and are as tall as the tallest; a card that does not
+/// fit beside the others goes on below.
+fn figure(
+    count: usize,
+    which: Glyph,
+    words: &'static str,
+    tone: Tone,
+    tip: &'static str,
+) -> AnyView {
+    let tone = if count == 0 { Tone::Dim } else { tone };
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let space = &theme.space;
+        column((
+            row((
+                glyph(which, ICON).tone(tone),
+                label(count.to_string())
+                    .size(FIGURE)
+                    .bold(true)
+                    .tone(tone)
+                    .wrap(false),
+            ))
+            .gap(6.0)
+            .align(AlignItems::Center),
+            label(words).tone(tone).wrap(false).rules(small_rules),
+        ))
+        .gap(space.gap / 2.0)
+        // Less room at its sides than a card has, so that five fit a
+        // narrow page.
+        .padding(UiRect::axes(px(8.0), px(space.card_padding_y)))
+        .border(space.border)
+        .border_color(theme.palette.gold_6)
+        .radius(space.round)
+        .fill(theme.palette.card)
+        // As wide as its words, and the row's room left shared out.
+        .grow(1.0)
+        .tooltip(move || note(tip))
+    })
+    .boxed()
+}
+
+/// The day's figures: what waits, what works and rests, and the
+/// scholars in the city and the newcomers at its harbor.
 fn today() -> AnyView {
     keyed(
         derived(today_of).when(bevy_fynix::every_frame()),
         |today| {
-            let (mark, words, tone) = match today.needs {
-                0 => (
-                    Glyph::Check,
-                    "Nothing waits for you".into(),
-                    Tone::Dim,
+            let (waits, works, rests) =
+                (Standing::Waits, Standing::Works, Standing::Rests);
+            let figures = vec![
+                figure(
+                    today.needs,
+                    waits.glyph(),
+                    need_you(today.needs),
+                    waits.tone(),
+                    "Petitions waiting for your answer",
                 ),
-                1 => (
-                    Glyph::Bell,
-                    "1 waits for you".into(),
-                    Tone::Critical,
+                figure(
+                    today.working,
+                    works.glyph(),
+                    "at work",
+                    works.tone(),
+                    "Agents working now",
                 ),
-                n => (
-                    Glyph::Bell,
-                    format!("{n} wait for you"),
-                    Tone::Critical,
+                figure(
+                    today.resting,
+                    rests.glyph(),
+                    "at rest",
+                    rests.tone(),
+                    "Agents resting until there is work",
                 ),
-            };
-            let mut lines = vec![
-                status_label_large(mark, words, tone).boxed(),
-                status_label_large(
-                    Glyph::Bolt,
-                    format!("{} at work", today.working),
-                    Tone::Accent,
-                )
-                .boxed(),
-                status_label_large(
-                    Glyph::Moon,
-                    format!("{} at rest", today.resting),
-                    Tone::Dim,
-                )
-                .boxed(),
-                status_label_large(
-                    Glyph::Hamlet,
-                    format!("{} in the city", today.scholars),
+                figure(
+                    today.scholars,
+                    Glyph::Scholar,
+                    match today.scholars {
+                        1 => "scholar",
+                        _ => "scholars",
+                    },
                     Tone::Body,
-                )
-                .boxed(),
+                    "Scholars living in the city",
+                ),
+                figure(
+                    today.harbor,
+                    Glyph::Anchor,
+                    "arriving",
+                    Tone::Body,
+                    "Newcomers waiting at the harbor to be let in",
+                ),
             ];
-            if today.harbor > 0 {
-                lines.push(
-                    status_label_large(
-                        Glyph::Signpost,
-                        format!("{} at the harbor", today.harbor),
-                        Tone::Body,
-                    )
-                    .boxed(),
-                );
-            }
-            framed(lines).boxed()
+            // Closer than cards elsewhere, so their words have the
+            // room.
+            row(figures)
+                .gap(6.0)
+                .align(AlignItems::Stretch)
+                .tagged(Wraps)
+                .boxed()
         },
     )
+    .within(bare())
+    .boxed()
+}
+
+/// What waits for the chief, in full, under its heading while there
+/// is any.
+fn needs() -> AnyView {
+    let head = keyed(resource(Queue::len), |&count| {
+        counted("Needs you", count)
+    })
+    .within(bare());
+    with_cx(move |cx| {
+        column((head, crate::petition::waiting()))
+            .gap(cx.theme().space.gap)
+            // Out of the page while nothing waits, its gap with it.
+            .display(resource::<Queue, _>(|queue| {
+                if queue.is_empty() {
+                    Display::None
+                } else {
+                    Display::Flex
+                }
+            }))
+    })
+    .boxed()
+}
+
+/// A hamlet as its card on the realm's page.
+#[derive(Clone, PartialEq)]
+struct HamletCard {
+    hamlet: Entity,
+    title: String,
+    standing: (Glyph, String, Tone),
+    mayor: Option<String>,
+    account: String,
+    spent: Option<f32>,
+}
+
+fn hamlet_cards(world: &World) -> Vec<HamletCard> {
+    hamlet_rows(world)
+        .into_iter()
+        .map(|facts| {
+            let agents = agent_rows(world, Some(facts.hamlet));
+            let living = agents
+                .iter()
+                .filter(|row| !row.gone)
+                .collect::<Vec<_>>();
+            let how_many = |standing| {
+                living
+                    .iter()
+                    .filter(|row| row.standing == standing)
+                    .count()
+            };
+            let mayor = living
+                .iter()
+                .find(|row| row.mayor)
+                .map(|row| format!("Mayor: {}", row.name));
+            HamletCard {
+                hamlet: facts.hamlet,
+                title: facts.title,
+                standing: standing(
+                    living.len(),
+                    how_many(Standing::Works),
+                    how_many(Standing::Waits),
+                ),
+                mayor,
+                // A card shows its budget only once something is
+                // spent.
+                account: match world.get::<Treasury>(facts.hamlet) {
+                    Some(t)
+                        if t.0.spent.micros > 0
+                            || t.0.spent.ms > 0 =>
+                    {
+                        facts.account
+                    }
+                    _ => String::new(),
+                },
+                spent: facts.spent,
+            }
+        })
+        .collect()
+}
+
+/// Each hamlet on a card that opens its page.
+fn hamlets() -> AnyView {
+    keyed(derived(hamlet_cards).when(stale()), |cards| {
+        if cards.is_empty() {
+            return column(()).boxed();
+        }
+        let mut parts = vec![counted("Hamlets", cards.len())];
+        parts.extend(cards.iter().cloned().map(|card| {
+            let hamlet = card.hamlet;
+            let mut lines = Vec::from_iter(
+                card.mayor.map(|mayor| note(mayor).boxed()),
+            );
+            if !card.account.is_empty() {
+                lines.push(budget(card.account, card.spent));
+            }
+            pressable(
+                Thing::Common(hamlet),
+                card.title,
+                card.standing,
+                lines,
+                move |world| {
+                    crate::hub::show(
+                        world,
+                        crate::hub::Showing::Hamlet(hamlet),
+                    );
+                    if world.contains_resource::<Selected>() {
+                        select(world, Some(Thing::Common(hamlet)));
+                    }
+                },
+            )
+            .boxed()
+        }));
+        group(parts).boxed()
+    })
     .within(bare())
     .boxed()
 }
@@ -258,17 +510,15 @@ fn closed() -> AnyView {
             if closed.is_empty() {
                 return column(()).boxed();
             }
-            let mut parts = vec![heading(
-                Glyph::Gone,
-                format!("CLOSED DOWN ({})", closed.len()),
-            )];
+            let mut parts =
+                vec![counted("Closed down", closed.len())];
             for hamlet in closed {
                 let mut actions = Vec::new();
                 if *restore {
                     let id = hamlet.id.clone();
                     actions.push(action(
                         Glyph::Restore,
-                        "RESTORE",
+                        "Restore",
                         move |world| {
                             if world
                                 .resource::<Deeds>()
@@ -284,46 +534,45 @@ fn closed() -> AnyView {
                         },
                     ));
                 }
+                // Deleting for good stands apart, at the far end.
+                actions.push(frame().grow(1.0).boxed());
                 if *erase {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
                     actions.push(bad_action(
                         Glyph::Gone,
-                        "DELETE FOR GOOD",
+                        "Delete for good",
                         move |world| {
                             world.resource_mut::<Erasing>().0 =
                                 Some((id.clone(), at));
                         },
                     ));
                 }
-                parts.push(
-                    close((
-                        note(hamlet.name.clone()),
-                        note(hamlet.reason.clone()),
-                        hamlet_ui::styles::buttons(actions),
-                    ))
-                    .boxed(),
-                );
+                let mut card = vec![
+                    hamlet_name(hamlet.name.clone()).boxed(),
+                    note(hamlet.reason.clone()).boxed(),
+                    row(actions).align(AlignItems::Center).boxed(),
+                ];
                 if *erase
                     && asking.as_ref()
                         == Some(&(hamlet.id.clone(), hamlet.at))
                 {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
-                    parts.push(
+                    card.push(
                         close((
                             note(format!(
-                                "DELETE {} FOR GOOD?",
-                                hamlet.name.to_uppercase()
+                                "Delete {} for good?",
+                                hamlet.name
                             )),
                             note(
                                 "Every archived lodge is deleted. \
                                  This cannot be undone.",
                             ),
-                            hamlet_ui::styles::buttons(vec![
+                            buttons(vec![
                                 bad_action(
                                     Glyph::Gone,
-                                    "DELETE",
+                                    "Delete",
                                     move |world| {
                                         world
                                             .resource_mut::<Erasing>()
@@ -354,7 +603,7 @@ fn closed() -> AnyView {
                                 ),
                                 action(
                                     Glyph::Back,
-                                    "CANCEL",
+                                    "Cancel",
                                     |world| {
                                         world
                                             .resource_mut::<Erasing>()
@@ -366,6 +615,7 @@ fn closed() -> AnyView {
                         .boxed(),
                     );
                 }
+                parts.push(framed(card).boxed());
             }
             group(parts).boxed()
         },
@@ -419,20 +669,18 @@ mod tests {
             overview(),
         );
         app.update();
-        assert!(
-            words(&mut app).iter().any(|s| s == "CLOSED DOWN (1)")
-        );
-        press(&mut app, "RESTORE");
+        assert!(words(&mut app).iter().any(|s| s == "Closed down"));
+        press(&mut app, "Restore");
         assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/restore-hamlet mill" && s.to == protocol::AgentId(1))));
-        press(&mut app, "DELETE FOR GOOD");
+        press(&mut app, "Delete for good");
         assert!(!app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text.starts_with("/erase-hamlet"))));
         app.update();
         assert!(
             words(&mut app)
                 .iter()
-                .any(|s| s == "DELETE THE MILL FOR GOOD?")
+                .any(|s| s == "Delete The Mill for good?")
         );
-        press(&mut app, "DELETE");
+        press(&mut app, "Delete");
         assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/erase-hamlet mill" && s.to == protocol::AgentId(1))));
         app.world_mut().resource_mut::<Deeds>().0.clear();
         app.update();
@@ -440,7 +688,7 @@ mod tests {
         assert!(
             !shown
                 .iter()
-                .any(|s| s == "RESTORE" || s == "DELETE FOR GOOD")
+                .any(|s| s == "Restore" || s == "Delete for good")
         );
     }
 
@@ -471,15 +719,15 @@ mod tests {
             closed(),
         );
         app.update();
-        press(&mut app, "DELETE FOR GOOD");
+        press(&mut app, "Delete for good");
         app.update();
-        press(&mut app, "RESTORE");
+        press(&mut app, "Restore");
         app.update();
         assert!(
             !words(&mut app)
-                .contains(&"DELETE MILL FOR GOOD?".into())
+                .contains(&"Delete Mill for good?".into())
         );
-        press(&mut app, "DELETE FOR GOOD");
+        press(&mut app, "Delete for good");
         app.update();
         app.world_mut().despawn(root);
         app.update();
@@ -490,9 +738,9 @@ mod tests {
         app.update();
         assert!(
             !words(&mut app)
-                .contains(&"DELETE MILL FOR GOOD?".into())
+                .contains(&"Delete Mill for good?".into())
         );
-        press(&mut app, "DELETE FOR GOOD");
+        press(&mut app, "Delete for good");
         app.update();
         state.closed[0].at = 200;
         hamlet_client::receive(
@@ -502,60 +750,7 @@ mod tests {
         app.update();
         assert!(
             !words(&mut app)
-                .contains(&"DELETE MILL FOR GOOD?".into())
-        );
-    }
-
-    #[test]
-    fn only_a_server_that_lists_the_deed_offers_to_move_a_town() {
-        use bevy::ecs::query::With;
-        use hamlet_client::realm::Deeds;
-        use hamlet_realm::generator::GeneratorSettings;
-        use hamlet_realm::generator::land::Land;
-        use hamlet_realm::generator::society::{Ground, Society};
-        use hamlet_realm::hamlet::Sited;
-        use hamlet_realm::moving::Carrying;
-        use hamlet_realm::palette::Palette;
-        use hamlet_realm::play::Played;
-
-        use crate::testing::press;
-
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        let hamlet = app
-            .world_mut()
-            .query_filtered::<Entity, With<HamletId>>()
-            .single(app.world())
-            .unwrap();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            self::hamlet(hamlet),
-        );
-        app.update();
-        assert!(!words(&mut app).iter().any(|text| text == "MOVE"));
-        assert!(!words(&mut app).iter().any(|text| text == "RENAME"));
-        app.world_mut()
-            .resource_mut::<Deeds>()
-            .0
-            .push("move-hamlet".into());
-        app.update();
-        assert!(words(&mut app).iter().any(|text| text == "MOVE"));
-        let mut land = Land::new(
-            1,
-            GeneratorSettings::default(),
-            Palette::default(),
-        );
-        let mut society = Society::default();
-        let town = society.found_town(&mut land);
-        app.insert_resource(land)
-            .insert_resource(society)
-            .init_resource::<Carrying>()
-            .add_message::<Played>();
-        app.world_mut().entity_mut(hamlet).insert(Sited(town));
-        press(&mut app, "MOVE");
-        assert_eq!(
-            app.world().resource::<Carrying>().0.unwrap().place,
-            Ground::Town(town)
+                .contains(&"Delete Mill for good?".into())
         );
     }
 

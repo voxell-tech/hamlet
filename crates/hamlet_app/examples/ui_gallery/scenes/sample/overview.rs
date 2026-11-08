@@ -20,6 +20,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Realm
             | Scene::Desk
             | Scene::Toasts
+            | Scene::Memory
+            | Scene::Character
+            | Scene::Prompt
     ) {
         return;
     }
@@ -42,6 +45,17 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         "welcome",
         "turn-away",
     ]);
+    // A hamlet's page as its chief sees it, with what can be done to
+    // the hamlet.
+    if matches!(scene, Scene::Hamlet | Scene::Bylaws) {
+        state.deeds.extend(hamlet_testing::realm::deeds(&[
+            "hire",
+            "worker",
+            "name-hamlet",
+            "move-hamlet",
+            "remove-hamlet",
+        ]));
+    }
     state.closed = vec![protocol::ClosedHamlet {
         id: "press".into(),
         name: "The Old Press".into(),
@@ -140,12 +154,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     burr.house = None;
     state.scholars.extend([moss, burr]);
     if scene != Scene::Toasts {
-        // The chief holds the door, so moss waits on a petition.
+        // The chief holds the door, so moss waits on a petition
+        // raised by scout, who made it.
         let mut wait = hamlet_testing::realm::wait("moss");
-        wait.agent = None;
+        wait.agent = Some(protocol::AgentId(10));
         wait.by = "home#1".into();
-        wait.about =
-            "scout made moss, who waits to be let in.".into();
+        wait.about = "scholar#90 (moss)".into();
+        wait.subject = wait.about.clone();
+        wait.chat = None;
         // It came in a few minutes ago.
         wait.since = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -155,6 +171,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         wait.detail = protocol::WaitDetail::Newcomer {
             scholar: protocol::ScholarId(90),
         };
+        wait.answers = vec![
+            protocol::Choice::Welcome,
+            protocol::Choice::Dismiss,
+        ];
         state.waits.push(wait);
     }
     if scene == Scene::Toasts {
@@ -174,7 +194,25 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             }
         }
         let mut wait = hamlet_testing::realm::wait("toast");
-        wait.since = 1000;
+        // From an agent whose chat is not the one open, which shows
+        // its own waits in full.
+        if let Some(fen) =
+            next.agents.iter().find(|agent| agent.name == "mill#2")
+        {
+            wait.agent = Some(fen.id);
+            wait.by = fen.name.clone();
+            if let Some(chat) = &mut wait.chat {
+                chat.with = fen.id;
+            }
+            wait.about = "git status --short".into();
+            wait.subject = wait.about.clone();
+        }
+        // It came in a moment ago.
+        wait.since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+            - 2 * 60_000;
         next.waits.push(wait);
         world.insert_resource(Later(next, 0));
     }

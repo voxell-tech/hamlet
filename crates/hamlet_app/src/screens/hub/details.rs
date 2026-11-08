@@ -5,15 +5,18 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, percent, px};
+use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
-    text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
+    frame, label, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use bevy_fynix::{
+    Bevy, ScopedExt, ViewExt, ViewSeq, derived, every_frame, keyed,
+};
 use hamlet_client::realm::{
-    Account, Deeds, Kind, Road, name_of, roads_of, shown_of,
+    Account, Allowance, Bylaws, Deeds, Kind, LivesIn, Road, Scholar,
+    ToolsOff, id_of, name_of, roads_of, shown_of,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
@@ -21,30 +24,45 @@ use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bare, hairline, lettered, note,
     scroll_area, text_input,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::memory;
 use super::thread::said;
 use crate::convo::talk_to;
-use crate::overview::heading;
+use crate::overview::heading_line;
 
 /// How wide the names of the settings are, so their values line up.
 const NAMES: f32 = 76.0;
+
+/// How wide the fields of the settings are, so they line up.
+const FIELD: f32 = 168.0;
 
 /// What the sheet shows of the agent, found from the world.
 #[derive(Clone, Debug, PartialEq)]
 struct Facts {
     hand: bool,
+    worker: bool,
     purpose: String,
     /// The version it is pinned to, none for its scholar's `main`.
     pin: Option<String>,
+    /// Its scholar's named versions, when the chief may pin it to
+    /// one.
+    versions: Option<Vec<String>>,
     /// Its address, and what it is called in the world.
     address: String,
-    nickname: Option<String>,
+    called: String,
     roads: Vec<(Entity, String)>,
     spent: String,
+    /// Its allowance in dollars, and the period of its hamlet's
+    /// budget that it is for.
+    allowance: Option<f64>,
+    period: &'static str,
+    tools_off: Vec<String>,
 }
 
 fn facts(world: &World, agent: Entity) -> Facts {
@@ -63,6 +81,8 @@ fn facts(world: &World, agent: Entity) -> Facts {
     Facts {
         hand: world.get::<Kind>(agent).map(|kind| kind.0)
             == Some(protocol::AgentKind::Hand),
+        worker: world.get::<Kind>(agent).map(|kind| kind.0)
+            == Some(protocol::AgentKind::Worker),
         purpose: world
             .get::<hamlet_client::realm::Purpose>(agent)
             .map(|purpose| purpose.0.clone())
@@ -70,16 +90,47 @@ fn facts(world: &World, agent: Entity) -> Facts {
         pin: world
             .get::<hamlet_client::realm::Pin>(agent)
             .map(|pin| pin.0.clone()),
+        versions: Deeds::is_allowed(world, "pin")
+            .then(|| versions_of(world, agent))
+            .flatten(),
         address: name_of(world, agent),
-        nickname: world
-            .get::<hamlet_client::realm::Nickname>(agent)
-            .map(|nickname| nickname.0.clone()),
+        called: shown_of(world, agent),
         roads,
         spent: world
             .get::<Account>(agent)
             .map(|account| account.cost.clone())
             .unwrap_or_default(),
+        allowance: world.get::<Allowance>(agent).map(|a| a.0),
+        period: match world
+            .get::<LivesIn>(agent)
+            .and_then(|hamlet| world.get::<Bylaws>(hamlet.0))
+            .map(|bylaws| bylaws.0.budget.period)
+        {
+            Some(protocol::Period::Month) => "a month",
+            _ => "a day",
+        },
+        tools_off: world
+            .get::<ToolsOff>(agent)
+            .map(|off| off.0.clone())
+            .unwrap_or_default(),
     }
+}
+
+/// The named versions of the scholar `agent` is a hire of.
+fn versions_of(world: &World, agent: Entity) -> Option<Vec<String>> {
+    let id = id_of(world, agent)?;
+    let mut scholars = world.try_query::<&Scholar>()?;
+    scholars
+        .iter(world)
+        .find(|scholar| scholar.0.hires.contains(&id))
+        .map(|scholar| {
+            scholar
+                .0
+                .versions
+                .iter()
+                .map(|v| v.name.clone())
+                .collect()
+        })
 }
 
 /// A setting: its name, which says more on hover, and its value.
@@ -99,11 +150,22 @@ fn setting(
     .boxed()
 }
 
+/// A setting's value that is not typed over, its words where a
+/// field's words start.
+fn read_only(text: String) -> AnyView {
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        row((label(text.clone()),))
+            .padding(UiRect::left(px(space.gap + space.border)))
+    })
+    .boxed()
+}
+
 /// What a hire is called in the world, typed over: Enter gives it the
 /// nickname, and a field left empty its own name again.
 fn nickname_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
-    let had = facts.nickname.clone().unwrap_or_default();
+    let had = facts.called.clone();
     text_field(had.clone(), move |world, typed| {
         let typed = typed.trim().to_string();
         if typed != had {
@@ -115,29 +177,132 @@ fn nickname_field(facts: &Facts) -> AnyView {
             );
         }
     })
-    .grow(1.0)
-    .min_width(px(0.0))
+    .width(px(FIELD))
     .rules(text_input)
     .boxed()
 }
 
-/// A field that gives the command `/<command> <address> <typed>` on
-/// Enter, and empties itself after.
-fn command_field(address: &str, command: &'static str) -> AnyView {
-    let address = address.to_string();
-    text_field(String::new(), move |world, typed| {
-        let typed = typed.trim();
-        if !typed.is_empty() {
-            crate::chat::command(
-                world,
-                format!("/{command} {address} {typed}"),
-            );
-        }
-    })
-    .grow(1.0)
-    .min_width(px(0.0))
-    .rules(text_input)
+/// The amount typed in a field of dollars, without its `$`.
+fn dollars(typed: &str) -> &str {
+    typed.trim().trim_start_matches('$').trim()
+}
+
+/// Its allowance in dollars, typed over: Enter gives it the amount,
+/// and a field left empty no allowance.
+fn allowance_field(facts: &Facts) -> AnyView {
+    let address = facts.address.clone();
+    let shown = facts
+        .allowance
+        .map(|dollars| format!("${dollars:.2}"))
+        .unwrap_or_default();
+    let had = dollars(&shown).to_string();
+    column((hinted(
+        text_field(shown, move |world, typed| {
+            let typed = dollars(&typed);
+            if typed != had {
+                let amount =
+                    if typed.is_empty() { "none" } else { typed };
+                crate::chat::command(
+                    world,
+                    format!("/allowance {address} {amount}"),
+                );
+            }
+        })
+        .rules(text_input),
+        "No limit",
+    ),))
+    .width(px(FIELD))
     .boxed()
+}
+
+/// The version of its scholar it works from, chosen from the
+/// scholar's versions where it may be pinned.
+fn version(facts: &Facts) -> AnyView {
+    let now = facts.pin.clone().unwrap_or_else(|| "main".into());
+    let Some(versions) = &facts.versions else {
+        return read_only(shown_version(&now));
+    };
+    let mut names = vec!["main".to_string()];
+    names.extend(versions.iter().cloned());
+    let at = names.iter().position(|name| *name == now).unwrap_or(0);
+    let words = names
+        .iter()
+        .map(|name| shown_version(name))
+        .collect::<Vec<_>>();
+    let address = facts.address.clone();
+    // Framed as the fields beside it are.
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        row((dropdown(
+            words,
+            at,
+            Glyph::Chevron.image(ICON),
+            move |world, chosen| {
+                if chosen != at
+                    && let Some(to) = names.get(chosen)
+                {
+                    crate::chat::command(
+                        world,
+                        format!("/pin {address} {to}"),
+                    );
+                }
+            },
+        )
+        .width(px(FIELD))
+        .fill(theme.palette.input)
+        .border(theme.space.border)
+        .border_color(theme.palette.gold_5)
+        .radius(theme.space.round),))
+    })
+    .boxed()
+}
+
+/// A version as the chief reads it: `main` is what its scholar knows
+/// now.
+fn shown_version(name: &str) -> String {
+    match name {
+        "main" => "Latest".to_string(),
+        version => version.to_string(),
+    }
+}
+
+/// The built-in tools a hire can be kept from, each with what it
+/// does.
+const TOOLS: [(&str, &str); 6] = [
+    ("read", "Reads files"),
+    ("write", "Writes whole files"),
+    ("edit", "Changes part of a file"),
+    ("bash", "Runs commands"),
+    ("search", "Looks for words in files"),
+    ("find", "Finds files by name"),
+];
+
+/// A switch for each of its built-in tools.
+fn tools(facts: &Facts) -> AnyView {
+    let rows = TOOLS
+        .iter()
+        .map(|&(tool, does)| {
+            let on = !facts.tools_off.iter().any(|off| off == tool);
+            let address = facts.address.clone();
+            row((
+                switch(on, move |world, on| {
+                    let sign = if on { '+' } else { '-' };
+                    crate::chat::command(
+                        world,
+                        format!("/tools {address} {sign}{tool}"),
+                    );
+                }),
+                label(tool).bold(true).wrap(false),
+                column((label(does).tone(Tone::Faint),))
+                    .grow(1.0)
+                    .min_width(px(0.0)),
+            ))
+            .gap(8.0)
+            .align(AlignItems::Center)
+            .boxed()
+        })
+        .collect::<Vec<_>>();
+    section(Glyph::Key, "Tools", None, column(rows).gap(6.0))
 }
 
 /// An agent's name that leads to its thread.
@@ -149,9 +314,12 @@ fn link(entity: Entity, name: String) -> AnyView {
         .boxed()
 }
 
-/// Its settings, which a chief changes here.
-fn settings(facts: &Facts) -> AnyView {
+/// Who it is and what it may spend, which a chief changes here.
+fn about(facts: &Facts) -> Option<AnyView> {
     let mut parts = Vec::new();
+    if !facts.purpose.is_empty() && !facts.hand {
+        parts.push(said(facts.purpose.clone()));
+    }
     if !facts.hand {
         parts.push(setting(
             "Called",
@@ -161,39 +329,45 @@ fn settings(facts: &Facts) -> AnyView {
         parts.push(setting(
             "Version",
             "The version of its scholar it works from",
-            label(match &facts.pin {
-                Some(pin) => pin.clone(),
-                None => "main".to_string(),
-            }),
+            version(facts),
         ));
         parts.push(setting(
             "Allowance",
-            "Dollars it may spend a day, or none",
-            command_field(&facts.address, "allowance"),
-        ));
-        parts.push(setting(
-            "Tools",
-            "-bash turns a tool off, +bash on again",
-            command_field(&facts.address, "tools"),
+            "Dollars it may spend in its hamlet's budget period; \
+             empty for no limit",
+            row((
+                allowance_field(facts),
+                label(facts.period).tone(Tone::Faint).wrap(false),
+            ))
+            .gap(6.0)
+            .align(AlignItems::Center)
+            .grow(1.0),
         ));
     }
     if !facts.spent.is_empty() {
         parts.push(setting(
             "Spent",
             "What it has spent today",
-            label(facts.spent.clone()),
+            read_only(facts.spent.clone()),
         ));
     }
-    column(parts).gap(6.0).boxed()
+    (!parts.is_empty()).then(|| {
+        section(
+            Glyph::Robot,
+            "Identity and budget",
+            None,
+            column(parts).gap(6.0),
+        )
+    })
 }
 
 /// The agents it has a road to, each to take up, and a way to build
 /// another.
 fn roads(agent: Entity, facts: &Facts) -> AnyView {
-    let mut parts = vec![heading(Glyph::Signpost, "ROADS")];
+    let mut parts = Vec::new();
     for (other, name) in facts.roads.iter().cloned() {
         let cut = button(glyph(Glyph::Cross, ICON).tone(Tone::Faint))
-            .padding(bevy::ui::UiRect::all(px(2.0)))
+            .padding(UiRect::all(px(2.0)))
             .rules(bevy_fynix::views::tint)
             .tooltip(|| note("Take up the road"))
             .on_activate(move |world| {
@@ -207,15 +381,20 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
         );
     }
     parts.push(
-        row((action(Glyph::Plus, "BUILD A ROAD", move |world| {
+        row((action(Glyph::Plus, "Build a road", move |world| {
             crate::world_menu::ask_road(world, agent);
         }),))
         .boxed(),
     );
-    column(parts).gap(6.0).boxed()
+    section(Glyph::Signpost, "Roads", None, column(parts).gap(6.0))
 }
 
-fn agent_section(agent: Entity) -> impl View {
+/// The sections of the agent's own facts that `build` makes, kept in
+/// step with the world.
+fn facts_sections(
+    agent: Entity,
+    build: fn(Entity, &Facts, bool) -> Vec<AnyView>,
+) -> impl View {
     keyed(
         derived(move |world: &World| {
             let roads = Deeds::is_allowed(world, "road")
@@ -224,73 +403,129 @@ fn agent_section(agent: Entity) -> impl View {
         })
         .when(every_frame()),
         move |(facts, may_road)| {
-            let mut parts = Vec::new();
-            if !facts.purpose.is_empty() {
-                parts.push(said(facts.purpose.clone()));
-            }
-            parts.push(settings(facts));
-            if *may_road && !facts.hand {
-                parts.push(roads(agent, facts));
-            }
-            column(parts).gap(12.0).boxed()
+            column(build(agent, facts, *may_road)).gap(0.0).boxed()
         },
     )
     .within(bare())
 }
 
-/// Its own skills and its character, which a chief may edit.
-fn skills_and_character() -> impl View {
-    let edit =
-        action(Glyph::Rename, "EDIT", super::papers::edit_character);
-    column((
-        heading(Glyph::Book, "SKILLS"),
-        memory::skills(),
-        heading(Glyph::Robot, "CHARACTER"),
-        memory::character(),
-        row((edit,)),
-    ))
-    .gap(6.0)
+/// Who it is and what it may spend.
+fn head(_: Entity, facts: &Facts, _: bool) -> Vec<AnyView> {
+    about(facts).into_iter().collect()
 }
 
-/// Its prompt in full, and a reflection asked now.
-fn pages() -> impl View {
-    row((
-        action(Glyph::Lens, "PROMPT", super::thread::show_prompt),
-        action(Glyph::Notes, "REFLECT NOW", |world| {
-            if let Some(to) = super::papers::selected(world) {
-                world.trigger(
-                    hamlet_client::messages::ChiefMessage {
-                        to,
-                        text: "/reflect".into(),
-                    },
-                );
-            }
-        })
-        .tooltip(|| note("Write down what it learned so far")),
-    ))
-    .gap(8.0)
-    .tagged(hamlet_ui::widgets::platform::Wraps)
+/// What it may do: its tools and its roads.
+fn powers(
+    agent: Entity,
+    facts: &Facts,
+    may_road: bool,
+) -> Vec<AnyView> {
+    let mut parts = Vec::new();
+    if !facts.hand && !facts.worker {
+        parts.push(tools(facts));
+    }
+    if may_road && !facts.hand {
+        parts.push(roads(agent, facts));
+    }
+    parts
+}
+
+/// A part of a page, flat under a hairline: its name under `which`,
+/// the one thing done to it at the end of that line, and `body` under
+/// it.
+pub(super) fn section(
+    which: Glyph,
+    name: &'static str,
+    end: Option<AnyView>,
+    body: impl View + 'static,
+) -> AnyView {
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        ruled((
+            heading_line(
+                which,
+                name,
+                end.unwrap_or_else(|| frame().boxed()),
+            ),
+            column((body,)).padding(UiRect::top(px(gap / 2.0))),
+        ))
+    })
+    .boxed()
+}
+
+/// A [`section`] that is only its line: its name under `which` and
+/// `end`, such as what an empty one says.
+pub(super) fn section_line(
+    which: Glyph,
+    name: &'static str,
+    end: AnyView,
+) -> AnyView {
+    ruled((heading_line(which, name, end),)).boxed()
+}
+
+/// `content` padded under a hairline.
+fn ruled(
+    content: impl ViewSeq<Bevy, HamletTheme> + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        column((
+            hairline(theme.palette.gold_6),
+            column(content).gap(theme.space.gap / 2.0).padding(
+                UiRect::axes(
+                    px(theme.space.card_padding_x),
+                    px(theme.space.card_padding_y),
+                ),
+            ),
+        ))
+        .gap(0.0)
+    })
+}
+
+/// The way to its whole prompt, on a page of its own.
+fn prompt() -> AnyView {
+    section_line(
+        Glyph::Notes,
+        "Prompt",
+        action(Glyph::Into, "Open", super::thread::show_prompt),
+    )
+}
+
+/// A reflection asked now, which writes to its memory.
+fn reflect() -> AnyView {
+    action(Glyph::Rename, "Note what it learned", |world| {
+        if let Some(to) = super::papers::selected(world) {
+            world.trigger(hamlet_client::messages::ChiefMessage {
+                to,
+                text: "/reflect".into(),
+            });
+        }
+    })
+    .tooltip(|| {
+        note("It writes what it learned so far to its memory")
+    })
+    .boxed()
 }
 
 /// The sheet that takes the place of the thread of `agent` while it
 /// is open.
 pub(super) fn sheet(agent: Entity) -> impl View {
-    with_cx(move |cx| {
-        let line = cx.theme().palette.gold_6;
-        let gap = cx.theme().space.section;
-        column((scroll_area((column((
-            agent_section(agent),
-            pages(),
-            hairline(line),
-            heading(Glyph::Notes, "MEMORY"),
-            memory::view(),
-            hairline(line),
-            skills_and_character(),
-        ))
-        .gap(gap)
-        .width(percent(100.0)),)),))
-        .width(percent(100.0))
-        .min_width(px(0.0))
-        .fills_height()
-    })
+    column((scroll_area((column((
+        facts_sections(agent, head),
+        memory::character_section(),
+        section(
+            Glyph::Notes,
+            "Memory",
+            None,
+            memory::view(|| Some(reflect()), None),
+        ),
+        memory::skills_section(),
+        prompt(),
+        facts_sections(agent, powers),
+    ))
+    .gap(0.0)
+    .width(percent(100.0)),)),))
+    .width(percent(100.0))
+    .min_width(px(0.0))
+    .fills_height()
 }

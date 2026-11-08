@@ -95,6 +95,13 @@ enum Mark {
     Cross,
 }
 
+/// How far a mark reaches from the middle of its 32 pixels, so that
+/// drawn at [`MARK`] it is 12 pixels across.
+const REACH: f32 = 12.0;
+
+/// The side a mark is drawn at on its button.
+const MARK: f32 = 16.0;
+
 /// A mark drawn in white, to be tinted.
 fn mark(mark: Mark) -> Image {
     let side = 32usize;
@@ -105,11 +112,13 @@ fn mark(mark: Mark) -> Image {
                 - Vec2::splat(side as f32 / 2.0);
             // Distance to the mark's strokes, in pixels.
             let away = match mark {
-                Mark::Line if p.x.abs() <= 8.0 => (p.y - 6.0).abs(),
-                Mark::Square => {
-                    (p.x.abs().max(p.y.abs()) - 7.5).abs()
+                Mark::Line if p.x.abs() <= REACH => {
+                    (p.y - REACH * 0.75).abs()
                 }
-                Mark::Cross if p.x.abs().max(p.y.abs()) <= 8.0 => {
+                Mark::Square => {
+                    (p.x.abs().max(p.y.abs()) - (REACH - 0.5)).abs()
+                }
+                Mark::Cross if p.x.abs().max(p.y.abs()) <= REACH => {
                     (p.x - p.y).abs().min((p.x + p.y).abs())
                         * std::f32::consts::FRAC_1_SQRT_2
                 }
@@ -204,7 +213,7 @@ pub fn buttons() -> impl View {
         let one = move |image: Handle<Image>,
                         under: fn(&Palette) -> Color,
                         act: fn(&mut World)| {
-            button(icon(image).size(12.0))
+            button(icon(image).size(MARK))
                 .width(px(side + 8.0))
                 .height(px(side))
                 .rules(plate(under))

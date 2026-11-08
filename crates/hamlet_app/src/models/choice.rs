@@ -11,7 +11,7 @@ use hamlet_ui::styles::{bare, close, description, group, section};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, built};
 
-use super::{Shelf, edit};
+use super::{Shelf, edit, model_name};
 use crate::roll::{agents_moved, either, hamlets_moved, moved};
 
 pub(super) fn home_default(world: &World) -> String {
@@ -38,7 +38,7 @@ fn offered(
     names
 }
 
-pub(super) fn chooser(
+fn chooser(
     read: impl Fn(&World) -> String + Send + Sync + 'static,
     write: impl Fn(&mut World, &str) + Send + Sync + Clone + 'static,
 ) -> impl View {
@@ -64,7 +64,10 @@ pub(super) fn chooser(
         let (names, write, was) =
             (names.clone(), write.clone(), now.clone());
         dropdown(
-            names.clone(),
+            names
+                .iter()
+                .map(|name| model_name(name).to_string())
+                .collect::<Vec<_>>(),
             at,
             Glyph::Chevron.image(hamlet_ui::styles::ICON),
             move |world, chosen| {
@@ -148,7 +151,7 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
         cx.build(group((
             crate::overview::heading(
                 Glyph::Chip,
-                "MODEL THIS HAMLET RUNS",
+                "Model this hamlet runs",
             ),
             super::problem(),
             close((section("Its default model"), default)),

@@ -190,11 +190,38 @@ pub enum Read {
 )]
 #[serde(untagged, deny_unknown_fields)]
 pub enum ReadResult {
-    Prompt { prompt: String, to: RequestId },
-    History { history: Vec<Past>, to: RequestId },
-    Models { models: Vec<Listed>, to: RequestId },
-    Papers { papers: Papers, to: RequestId },
-    Charter { charter: Charter, to: RequestId },
+    Prompt {
+        prompt: Vec<PromptSection>,
+        to: RequestId,
+    },
+    History {
+        history: Vec<Past>,
+        to: RequestId,
+    },
+    Models {
+        models: Vec<Listed>,
+        to: RequestId,
+    },
+    Papers {
+        papers: Papers,
+        to: RequestId,
+    },
+    Charter {
+        charter: Charter,
+        to: RequestId,
+    },
+}
+
+/// A part of a composed prompt, in the order the model reads it.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct PromptSection {
+    /// Where it comes from, such as `charter`, `character`, `memory`
+    /// or `skills`.
+    pub name: String,
+    pub text: String,
 }
 
 #[derive(

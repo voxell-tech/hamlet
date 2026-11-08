@@ -365,13 +365,17 @@ impl Client {
         self.ask(|id| ClientMessage::Read(make(id))).await
     }
 
-    /// Reads an agent's composed prompt.
+    /// Reads an agent's composed prompt, its sections joined.
     pub async fn prompt(&mut self, agent: AgentId) -> String {
         match self.read(|id| Read::Prompt { agent, id }).await {
             ServerMessage::Read(ReadResult::Prompt {
                 prompt,
                 ..
-            }) => prompt,
+            }) => prompt
+                .into_iter()
+                .map(|section| section.text)
+                .collect::<Vec<_>>()
+                .join("\n\n"),
             other => panic!("a prompt read got {other:?}"),
         }
     }

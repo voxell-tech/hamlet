@@ -1,8 +1,8 @@
 //! The gallery's received conversations.
 
 use bevy::ecs::world::World;
-use hamlet_app::links::Roots;
 use hamlet_client::chats::{Entry, Item, Transcript};
+use hamlet_client::realm::{self, LivesIn, Works};
 use hamlet_protocol::client as protocol;
 
 use crate::scenes::Scene;
@@ -112,7 +112,15 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                 .expect("a scratch folder");
             std::fs::write(folder.join("plan.md"), "# Orchard plan")
                 .expect("a local link");
-            world.insert_resource(Roots::new([folder.clone()]));
+            // The chat finds its paths in the agent's hamlet's work
+            // folder.
+            let agent = realm::first_mayor(world).expect("the mayor");
+            let hamlet =
+                world.get::<LivesIn>(agent).expect("a hamlet").0;
+            world
+                .get_mut::<Works>(hamlet)
+                .expect("its work")
+                .folder = Some(folder.to_string_lossy().into_owned());
             if scene == Scene::Pictures {
                 use bevy::render::render_resource::{
                     Extent3d, TextureDimension, TextureFormat,

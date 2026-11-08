@@ -22,8 +22,8 @@ use crate::theme::Themed;
 
 /// How far the attention glow reaches down from the panel's top,
 /// and the flash's, in logical pixels.
-const GLOW_DEEP: f32 = 110.0;
-const FLASH_DEEP: f32 = 60.0;
+const GLOW_DEEP: f32 = 72.0;
+const FLASH_DEEP: f32 = 40.0;
 
 /// The pool of a glow is this many times as far as it is deep, so
 /// that it has faded out at its end.
@@ -158,7 +158,7 @@ pub(super) fn update_highlights(
             // rest.
             glows.push(glow_pool(GLOW_DEEP, |near| {
                 let glow = near * call;
-                let strength = (glow * 0.07 + glow * glow * 0.07)
+                let strength = (glow * 0.045 + glow * glow * 0.045)
                     .clamp(0.0, 1.0);
                 colors
                     .attention
@@ -171,7 +171,7 @@ pub(super) fn update_highlights(
         }
         if flash > 0.0 {
             glows.push(glow_pool(FLASH_DEEP, |near| {
-                colors.flash.with_alpha(flash * flash * near * 0.12)
+                colors.flash.with_alpha(flash * flash * near * 0.08)
             }));
         }
         commands.entity(panel).try_insert(BackgroundGradient(glows));

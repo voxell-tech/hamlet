@@ -125,6 +125,10 @@ pub struct Shown(pub String);
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Pin(pub String);
 
+/// The dollars a hire may spend in its hamlet's budget period.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Allowance(pub f64);
+
 /// The model chosen for an agent, while it has one.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct OwnModel(pub String);
@@ -251,17 +255,6 @@ pub struct Account {
     pub spent: protocol::Amount,
 }
 
-impl Account {
-    /// The received model and cost words for an agent.
-    pub fn summary(&self) -> String {
-        if self.model.is_empty() {
-            self.cost.clone()
-        } else {
-            format!("{}, {}", self.model, self.cost)
-        }
-    }
-}
-
 /// The chief's name supplied by the server.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Chief(pub String);
@@ -347,6 +340,10 @@ pub struct Seen {
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct HouseSkills(pub Vec<String>);
 
+/// The built-in tools a hire has turned off.
+#[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ToolsOff(pub Vec<String>);
+
 /// The library shelf, independent of agents' own skills.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Skills(pub Vec<protocol::Skill>);
@@ -379,6 +376,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Parent>();
     world.register_component::<OfScholar>();
     world.register_component::<Pin>();
+    world.register_component::<Allowance>();
     world.register_component::<Nickname>();
     world.register_component::<Shown>();
     world.register_component::<OwnModel>();
@@ -396,6 +394,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Saying>();
     world.register_component::<Account>();
     world.register_component::<HouseSkills>();
+    world.register_component::<ToolsOff>();
     world.register_component::<Left>();
     world.register_component::<MergedInto>();
     world.register_component::<Absorbed>();
@@ -735,12 +734,14 @@ fn upsert_agent(
     optional(&mut agent, value.parent.map(Parent));
     optional(&mut agent, value.scholar.map(OfScholar));
     optional(&mut agent, value.pin.clone().map(Pin));
+    optional(&mut agent, value.allowance.map(Allowance));
     optional(&mut agent, value.nickname.clone().map(Nickname));
     optional(&mut agent, value.own_model.clone().map(OwnModel));
     optional(&mut agent, value.effort.map(OwnEffort));
     flag(&mut agent, value.fast, Fast);
     put(&mut agent, Purpose(value.purpose));
     put(&mut agent, HouseSkills(value.skills));
+    put(&mut agent, ToolsOff(value.tools_off));
     put(
         &mut agent,
         Lived {

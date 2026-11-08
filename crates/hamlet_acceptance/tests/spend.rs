@@ -116,6 +116,12 @@ async fn a_hires_allowance_stops_its_calls_and_a_lead_may_set_it() {
     let cy = s.hire(ada, "cy", "dig").await;
     let reply = s.chief.command(ada, "/allowance docs#1 0.001").await;
     assert_eq!(reply, "`docs#1` may spend <$0.01 a period.");
+    s.chief
+        .until("its allowance shown", |c| {
+            c.agent("docs#1")
+                .is_some_and(|cy| cy.allowance == Some(0.001))
+        })
+        .await;
     let now = chat(cy);
     s.chief.open(&now).await;
     s.chief.tell(cy, "Say something.").await;

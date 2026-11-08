@@ -102,7 +102,6 @@ mod tests {
     use bevy::time::TimePlugin;
     use bevy_fynix::tokens::Tone;
     use bevy_fynix::{FynixPlugin, mount};
-    use hamlet_assets::Tuning;
     use hamlet_client::chats::Item;
     use hamlet_ui::markdown::{
         Anchor, Kind, PathLinks, document, fixed,
@@ -123,7 +122,7 @@ mod tests {
             resolve: seek,
             generation: 0,
         });
-        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        theme::show(app.world_mut(), HamletTheme::designed());
         app.update();
         app
     }

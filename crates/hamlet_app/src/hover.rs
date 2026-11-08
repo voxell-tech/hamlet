@@ -23,11 +23,9 @@ use bevy::ui::{
     PositionType, UiRect, UiTransform, Val, px,
 };
 use bevy::window::{PrimaryWindow, Window};
-use bevy_fynix::resource;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, overlay,
-};
+use bevy_fynix::views::{FrameProps, column, label, overlay};
+use bevy_fynix::{ScopedExt, resource};
 use hamlet_client::realm::{
     Account, Activity, AgentNumber, Busy, Left, LivesIn, Mayor,
     MergedInto, Mode, Purpose, Roster, Shown, Treasury, Works,
@@ -36,13 +34,15 @@ use hamlet_client::waits::Waiting;
 use hamlet_realm::chief::{Beside, Look};
 use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
+use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::EffectSettings;
-use hamlet_ui::widgets::platform::{DisplayText, show};
+use hamlet_ui::widgets::platform::show;
 use hamlet_ui::{View, built};
 
 use crate::overview::standing;
 use crate::roll::Roll;
+use crate::standing::Standing;
 use crate::world_menu::Open;
 
 /// The layer of the card in the window's stack: over the panels,
@@ -209,7 +209,7 @@ impl Told<'_, '_> {
             .unwrap_or_default();
         Card {
             shown: true,
-            title: self.name(hamlet).to_uppercase(),
+            title: self.name(hamlet),
             state,
             tone,
             purpose: mayor,
@@ -259,8 +259,7 @@ impl Told<'_, '_> {
         };
         Card {
             shown: true,
-            title: format!("CLOCKWORK OF {}", self.name(hamlet))
-                .to_uppercase(),
+            title: format!("Clockwork of {}", self.name(hamlet)),
             state: state.to_string(),
             tone,
             purpose: purpose.to_string(),
@@ -291,8 +290,7 @@ impl Told<'_, '_> {
         };
         Card {
             shown: true,
-            title: format!("WORKBENCH OF {}", self.name(hamlet))
-                .to_uppercase(),
+            title: format!("Workbench of {}", self.name(hamlet)),
             state,
             tone,
             purpose: purpose.to_string(),
@@ -303,7 +301,7 @@ impl Told<'_, '_> {
 
     /// The card of a chief's mascot, or of its place.
     fn of_chief(&self, chief: Entity, place: bool) -> Option<Card> {
-        let name = self.name(chief).to_uppercase();
+        let name = self.name(chief);
         let (look, beside) = self.chiefs.get(chief).ok()?;
         let (state, tone) = match beside.0 {
             Some(agent) => {
@@ -314,7 +312,7 @@ impl Told<'_, '_> {
         Some(Card {
             shown: true,
             title: if place {
-                format!("{name}'S HEARTH")
+                format!("{name}'s hearth")
             } else {
                 name
             },
@@ -323,7 +321,7 @@ impl Told<'_, '_> {
             purpose: if place {
                 "Where the chief lives.".to_string()
             } else {
-                "The chief, who goes by Wickstep.".to_string()
+                "You, the chief.".to_string()
             },
             account: look.words(),
             hint: "Click to change the look".to_string(),
@@ -354,15 +352,22 @@ impl Told<'_, '_> {
                 Tone::Dim,
             ),
             _ if gone || ruin => {
-                ("Removed".to_string(), Tone::Critical)
+                ("Removed".to_string(), Standing::Gone.tone())
             }
-            _ if waiting > 0 => {
-                (format!("Waits for you ({waiting})"), Tone::Critical)
-            }
+            _ if waiting > 0 => (
+                format!("Waits for you ({waiting})"),
+                Standing::Waits.tone(),
+            ),
             _ => {
-                let tone =
-                    if busy { Tone::Accent } else { Tone::Dim };
-                (activity.cloned().unwrap_or_default().words, tone)
+                let standing = if busy {
+                    Standing::Works
+                } else {
+                    Standing::Rests
+                };
+                (
+                    activity.cloned().unwrap_or_default().words,
+                    standing.tone(),
+                )
             }
         };
         let followed = self.following.0 == Some(hovered);
@@ -370,14 +375,14 @@ impl Told<'_, '_> {
             matches!(hovered, Thing::Keeper | Thing::Agent(_));
         Some(Card {
             shown: true,
-            title: self.name(agent).to_uppercase(),
+            title: self.name(agent),
             state,
             tone,
             purpose: purpose
                 .map(|p| short(&p.0, PURPOSE_SHOWN))
                 .unwrap_or_default(),
             account: account
-                .map(Account::summary)
+                .map(crate::models::account_words)
                 .unwrap_or_default(),
             hint: match (gone || ruin, followed) {
                 (true, _) => "Right-click to restore".to_string(),
@@ -591,8 +596,8 @@ pub fn place(
 /// A line of the card that takes no room while it is empty.
 fn line(read: fn(&Card) -> &String, tone: Tone) -> impl View {
     label(resource::<Card, _>(move |card| read(card).clone()))
-        .size(12.0)
         .tone(tone)
+        .rules(small_rules)
 }
 
 /// The card, on the window's top layer. It is built once.
@@ -601,13 +606,12 @@ pub fn view() -> impl View {
         let shadow = cx.theme().shadow();
         let card = column((
             label(resource::<Card, _>(|card| card.title.clone()))
-                .size(13.0)
+                .size(cx.theme().text.heading)
                 .bold(true)
-                .wrap(false)
-                .tagged(DisplayText),
+                .wrap(false),
             label(resource::<Card, _>(|card| card.state.clone()))
-                .size(12.0)
-                .tone(resource::<Card, _>(|card| card.tone)),
+                .tone(resource::<Card, _>(|card| card.tone))
+                .rules(small_rules),
             line(|card| &card.purpose, Tone::Body),
             line(|card| &card.account, Tone::Dim),
             line(|card| &card.hint, Tone::Dim),

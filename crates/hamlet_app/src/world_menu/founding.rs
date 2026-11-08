@@ -18,7 +18,6 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{View, built};
 
 use super::{asks, close};
@@ -129,10 +128,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
             )
         };
         let body = column((
-            label("FOUND A HAMLET")
-                .size(heading)
-                .bold(true)
-                .tagged(DisplayText),
+            label("Found a hamlet").size(heading).bold(true),
             description(
                 "It is built on the next free ground and gets its \
                  own mayor.",
@@ -158,7 +154,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
                 }
             })),
             row((
-                lettered("FOUND")
+                lettered("Found")
                     .rules(primary_button)
                     .tagged(Variant::Primary)
                     .on_activate(|world| {
@@ -175,7 +171,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
                             Founding::default();
                         chat::command(world, command);
                     }),
-                lettered("CANCEL").rules(button).on_activate(close),
+                lettered("Cancel").rules(button).on_activate(close),
             ))
             .gap(gap),
         ))
@@ -229,7 +225,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .for_each(drop);
-        press(&mut app, "FOUND");
+        press(&mut app, "Found");
         let sent = app
             .world_mut()
             .resource_mut::<Outbox>()

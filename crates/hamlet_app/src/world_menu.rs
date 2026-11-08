@@ -9,7 +9,6 @@ mod items;
 mod model;
 mod new_scholar;
 mod road;
-mod search;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::{Component, Mutable};
@@ -37,11 +36,13 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
-pub(crate) use self::model::chip_words;
-pub use self::model::{Favorites, open as open_model};
+pub use self::model::{
+    Favorites, LastSide, open as open_model, search as search_models,
+};
+pub(crate) use self::model::{Hook, chip, is_open as is_picking};
 
 pub fn plugin(app: &mut App) {
-    app.add_plugins((model::plugin, search::plugin))
+    app.add_plugins(model::plugin)
         .init_resource::<Open>()
         .init_resource::<Founding>()
         .init_resource::<new_scholar::Making>()
@@ -57,7 +58,8 @@ pub(crate) enum Open {
     #[default]
     Nothing,
     Menu(Thing, Vec2),
-    Question(Deed, Vec2),
+    /// The question before a deed, against what it was asked from.
+    Question(Deed, Rect),
     /// The menu of the bare ground.
     Ground(Vec2),
     /// The form a hamlet is founded with.
@@ -71,7 +73,7 @@ pub(crate) enum Open {
     /// The skills an agent could be given.
     Skills(Entity, Vec2),
     /// The model an agent runs, its effort and its tier.
-    Model(Entity, Vec2),
+    Model(Entity),
 }
 
 /// On a row of a panel: the thing it stands for, whose menu the
@@ -117,9 +119,8 @@ pub(crate) fn answer_ask(
     // surface too, a moment later and at the same place. It is not
     // a second question about the ground under the thing.
     let same = match &*open {
-        Open::Menu(_, was) | Open::Question(_, was) => {
-            was.distance(at) < 2.0
-        }
+        Open::Menu(_, was) => was.distance(at) < 2.0,
+        Open::Question(_, was) => was.min.distance(at) < 2.0,
         _ => false,
     };
     if !same {
@@ -217,16 +218,24 @@ pub(crate) fn ask_road(world: &mut World, agent: Entity) {
     *world.resource_mut::<Open>() = Open::Road(agent, at);
 }
 
-/// Opens the popup of `agent`'s model, at the pointer.
+/// Opens the popup of `agent`'s model, over its chip.
 pub(crate) fn ask_model(world: &mut World, agent: Entity) {
-    let at = pointer(world);
-    model::open(world, agent, at);
+    model::open(world, agent);
 }
 
 /// Asks before `deed` is done, at the pointer.
 pub(crate) fn ask(world: &mut World, deed: Deed) {
     let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Question(deed, at);
+    ask_against(world, deed, Rect::from_corners(at, at));
+}
+
+/// Asks before `deed` is done, against `anchor` in the window.
+pub(crate) fn ask_against(
+    world: &mut World,
+    deed: Deed,
+    anchor: Rect,
+) {
+    *world.resource_mut::<Open>() = Open::Question(deed, anchor);
 }
 
 /// Brings back `agent`, which was removed or merged away.
@@ -274,7 +283,9 @@ fn menus() -> AnyView {
                     cx.build(menu(at, items))
                 })
             }
-            Open::Question(deed, at) => question(deed, at).boxed(),
+            Open::Question(deed, anchor) => {
+                question(deed, anchor).boxed()
+            }
             Open::Ground(at) => AnyView::new(move |cx: &mut Cx| {
                 if !Deeds::is_allowed(cx.world, "found") {
                     return cx.build(frame());
@@ -294,9 +305,7 @@ fn menus() -> AnyView {
             }
             Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
             Open::Road(agent, at) => road::road(agent, at).boxed(),
-            Open::Model(agent, at) => {
-                model::picker(agent, at).boxed()
-            }
+            Open::Model(agent) => model::picker(agent).boxed(),
             Open::Skills(agent, at) => {
                 AnyView::new(move |cx: &mut Cx| {
                     let items = items::skills(cx.world, agent);
@@ -340,7 +349,7 @@ fn gift_reports() -> AnyView {
                     Rect::new(16.0, 52.0, 16.0, 52.0),
                     (column((
                         column(lines).gap(space.gap / 2.0),
-                        hamlet_ui::styles::lettered("DISMISS")
+                        hamlet_ui::styles::lettered("Dismiss")
                             .rules(hamlet_ui::styles::button)
                             .on_activate(|world| {
                                 world
@@ -422,13 +431,15 @@ mod tests {
         let home = world.query_filtered::<Entity, bevy::ecs::query::With<HamletId>>()
             .single(world).unwrap();
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
-        assert!(
-            !words(&mut app)
-                .iter()
-                .any(|text| text == "Move home...")
-        );
+        for absent in ["Move home...", "Rename home..."] {
+            assert!(
+                !words(&mut app).iter().any(|text| text == absent),
+                "unsupported: {absent}"
+            );
+        }
 
-        state.deeds = realm::deeds(&["found", "move-hamlet"]);
+        state.deeds =
+            realm::deeds(&["found", "move-hamlet", "name-hamlet"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -440,9 +451,12 @@ mod tests {
                 .any(|text| text == "Found a Hamlet...")
         );
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
-        assert!(
-            words(&mut app).iter().any(|text| text == "Move home...")
-        );
+        for offered in ["Move home...", "Rename home..."] {
+            assert!(
+                words(&mut app).iter().any(|text| text == offered),
+                "supported: {offered}"
+            );
+        }
     }
     #[test]
     fn roads_are_offered_only_when_supported_and_sent_to_the_mayor() {
@@ -495,7 +509,7 @@ mod tests {
         // It asks first, as the Hub does.
         press(&mut app, "New Session...");
         app.update();
-        press(&mut app, "NEW SESSION");
+        press(&mut app, "New session");
         // Its chat is opened, then the new session asked for there.
         let messages = sent(&mut app);
         let Some(protocol::ClientMessage::Say(say)) = messages.last()

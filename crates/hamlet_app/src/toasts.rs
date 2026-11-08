@@ -21,25 +21,31 @@ use bevy::ui::{
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row,
+    BehaviorExt, FrameProps, column, frame, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource, style};
 use hamlet_client::messages::{Answer, Response, ServerFault};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{
-    Departure, Faulted, Kind, Left, Scholar, Seen, Shown,
+    Departure, Faulted, Kind, Left, LivesIn, Scholar, Seen, Shown,
+    name_of,
 };
 use hamlet_client::waits::{RaisedBy, Waiting};
 use hamlet_protocol::client::{
     AgentKind, Arrival, ClientMessage, LeftHow, ReplyKind, ScholarId,
     ServerMessage, WaitDetail,
 };
-use hamlet_ui::styles::{action, buttons, caption, close_button};
+use hamlet_ui::styles::{
+    ICON, action, buttons, card_name, close_button, note, quoted,
+};
 use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::{AnyView, Cx, View};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use crate::screens::petition::{Need, button};
+use crate::convo::Convo;
+use crate::hub::Showing;
+use crate::screens::petition::{Need, answers};
+use crate::standing::Standing;
 use crate::{PanelSystems, chat};
 
 /// The most toasts on show at once.
@@ -52,7 +58,7 @@ const STAYS: f32 = 8.0;
 const FADES: f32 = 1.2;
 
 /// The width of the stack, in logical pixels.
-const WIDTH: f32 = 340.0;
+const WIDTH: f32 = 430.0;
 
 /// How the server names the Hand as the one who decided an arrival.
 const HAND: &str = "hand";
@@ -158,7 +164,7 @@ fn raise(
             toasts.push(
                 What::Notice {
                     tone: Tone::Accent,
-                    head: "A WORKER ANSWERED".into(),
+                    head: "A worker answered".into(),
                     line: format!("{name} is done."),
                 },
                 now,
@@ -176,7 +182,7 @@ fn raise(
             toasts.push(
                 What::Notice {
                     tone: Tone::Critical,
-                    head: "FAULT".into(),
+                    head: "Fault".into(),
                     line: format!("{name} failed."),
                 },
                 now,
@@ -242,7 +248,7 @@ fn failed(
     toasts.push(
         What::Notice {
             tone: Tone::Critical,
-            head: "FAULT".into(),
+            head: "Fault".into(),
             line: fault.text.clone(),
         },
         time.elapsed_secs(),
@@ -294,7 +300,7 @@ fn refused(
     toasts.push(
         What::Notice {
             tone: Tone::Critical,
-            head: "NOT DONE".into(),
+            head: "Not done".into(),
             line: text,
         },
         time.elapsed_secs(),
@@ -314,13 +320,18 @@ fn answered(answer: On<Answer>, mut toasts: ResMut<Toasts>) {
 fn keep(
     time: Res<Time>,
     over: Query<(&Hovered, &Body)>,
-    waiting: Query<(), With<Waiting>>,
+    waiting: Query<Option<&RaisedBy>, With<Waiting>>,
+    showing: Option<Res<Showing>>,
+    convo: Option<Res<Convo>>,
     mut toasts: ResMut<Toasts>,
 ) {
     if toasts.shown.is_empty() {
         return;
     }
     let now = time.elapsed_secs();
+    let chatting = convo
+        .filter(|_| showing.is_some_and(|s| *s == Showing::Thread))
+        .map(|convo| convo.agent);
     let mut next = toasts.shown.clone();
     for toast in &mut next {
         if over.iter().any(|(hovered, body)| {
@@ -334,7 +345,12 @@ fn keep(
     next.retain(|toast| {
         toast.opacity > 0.0
             && match &toast.what {
-                What::Petition(wait) => waiting.contains(*wait),
+                // Its chat, open, shows it in full.
+                What::Petition(wait) => {
+                    waiting.get(*wait).is_ok_and(|by| {
+                        by.is_none_or(|by| Some(by.0) != chatting)
+                    })
+                }
                 What::Notice { .. } | What::Verdict { .. } => true,
             }
     });
@@ -343,27 +359,30 @@ fn keep(
     }
 }
 
-/// The stack of toasts, at the top right of the view it is in.
+/// The stack of toasts, at the bottom left of the window over the
+/// status bar, the newest nearest the corner.
 pub fn stack() -> impl View {
-    each(
-        resource::<Toasts, _>(|toasts| {
-            toasts.shown.iter().rev().cloned().collect()
-        }),
-        |toast: &Toast| toast.id,
-        card,
-    )
-    .within(
-        column(())
-            .gap(8.0)
-            .width(px(WIDTH))
-            .position(PositionType::Absolute)
-            .inset(UiRect {
-                left: Val::Auto,
-                top: px(12.0),
-                right: px(12.0),
-                bottom: Val::Auto,
-            }),
-    )
+    with_cx(|cx| {
+        let space = &cx.theme().space;
+        each(
+            resource::<Toasts, _>(|toasts| toasts.shown.clone()),
+            |toast: &Toast| toast.id,
+            card,
+        )
+        .within(
+            column(())
+                .gap(space.gap)
+                .width(px(WIDTH))
+                .position(PositionType::Absolute)
+                .inset(UiRect {
+                    left: px(space.panel + space.gap),
+                    top: Val::Auto,
+                    right: Val::Auto,
+                    // The status bar is less high than the menu bar.
+                    bottom: px(space.bar + space.gap),
+                }),
+        )
+    })
 }
 
 /// The words of a toast's line without the name its wait starts
@@ -375,10 +394,27 @@ fn said(need: &Need) -> &str {
         .trim_start()
 }
 
+/// Where who raised `need` is and how long ago it asked:
+/// `· mill · now`.
+fn origin(world: &World, need: &Need, by: &str) -> String {
+    let age = need.waited.clone();
+    if let WaitDetail::Newcomer { .. } = need.detail {
+        return format!("· harbor · {age}");
+    }
+    match hamlet_client::realm::named(world, by)
+        .and_then(|agent| world.get::<LivesIn>(agent))
+    {
+        Some(lives) => {
+            format!("· {} · {age}", name_of(world, lives.0))
+        }
+        None => format!("· {age}"),
+    }
+}
+
 fn card(toast: &Toast) -> AnyView {
     let (id, what) = (toast.id, toast.what.clone());
     AnyView::new(move |cx: &mut Cx| {
-        let (head, tone, line, answers) = match &what {
+        let (mark, head, from, tone, line, answers) = match &what {
             What::Petition(wait) => {
                 let Some(waiting) = cx.world.get::<Waiting>(*wait)
                 else {
@@ -389,21 +425,25 @@ fn card(toast: &Toast) -> AnyView {
                     WaitDetail::Fault {} => Tone::Critical,
                     _ => Tone::Accent,
                 };
-                let answers = buttons(vec![
-                    button(&need, 0),
-                    button(&need, 1),
-                    button(&need, 2),
-                ])
-                .boxed();
+                let from = origin(cx.world, &need, &waiting.by);
+                let answers = answers(&need);
                 (
-                    need.shown.to_uppercase(),
+                    // The bell of NEEDS YOU.
+                    Some((
+                        Standing::Waits.glyph(),
+                        Standing::Waits.tone(),
+                    )),
+                    need.shown.clone(),
+                    from,
                     tone,
                     said(&need).to_string(),
                     answers,
                 )
             }
             What::Notice { tone, head, line } => (
+                None,
                 head.clone(),
+                String::new(),
                 *tone,
                 line.clone(),
                 column(()).boxed(),
@@ -416,22 +456,24 @@ fn card(toast: &Toast) -> AnyView {
                 let undo = undo_of(*scholar, *housed);
                 let (head, line) = if *housed {
                     (
-                        "THE HAND LET A SCHOLAR IN",
+                        "The Hand let a scholar in",
                         format!("{name} has a house in the city."),
                     )
                 } else {
                     (
-                        "THE HAND TURNED A SCHOLAR AWAY",
+                        "The Hand turned a scholar away",
                         format!("{name} waits at the harbor."),
                     )
                 };
                 (
+                    Some((Glyph::Tower, Tone::Accent)),
                     head.into(),
+                    String::new(),
                     Tone::Accent,
                     line,
                     buttons(vec![action(
                         Glyph::Restore,
-                        "UNDO",
+                        "Undo",
                         move |world| {
                             chat::command(world, undo.clone());
                         },
@@ -440,52 +482,70 @@ fn card(toast: &Toast) -> AnyView {
                 )
             }
         };
-        let own = what.clone();
-        let words = column((
-            caption(head, tone),
-            label(line).size(cx.theme().text.small),
-        ))
-        .gap(2.0)
-        .grow(1.0)
-        .min_width(px(0.0));
-        let body = bevy_fynix::views::button(row((words,)))
-            .grow(1.0)
-            .min_width(px(0.0))
-            .rules(opener)
-            .on_activate(move |world| {
-                if let What::Petition(wait) = &own {
-                    crate::petition::open(world, *wait);
-                }
-                dismiss(world, &own);
-            });
-        let dismissed = what.clone();
-        let space = &cx.theme().space;
-        let palette = &cx.theme().palette;
-        let card = column((
-            row((
-                body,
-                close_button(move |world| dismiss(world, &dismissed)),
-            ))
+        let mark = match mark {
+            Some((which, tone)) => {
+                glyph(which, ICON).tone(tone).boxed()
+            }
+            None => frame().boxed(),
+        };
+        let head = row((mark, card_name(head, tone), note(from)))
             .gap(6.0)
-            .align(AlignItems::FlexStart),
-            answers,
+            .align(AlignItems::Center);
+        let dismissed = what.clone();
+        // The close sits at the end of the head's line, centred on
+        // it.
+        let top = row((
+            opening(what.clone(), head),
+            close_button(move |world| dismiss(world, &dismissed)),
         ))
-        .gap(space.gap)
-        .fill(palette.card)
-        .border(space.border)
-        .border_color(palette.gold_6)
-        .radius(space.round)
-        .padding(UiRect::axes(
-            px(space.card_padding_x),
-            px(space.card_padding_y),
-        ))
-        .rules(fading(id));
+        .gap(6.0)
+        .align(AlignItems::Center);
+        let words =
+            column((top, opening(what.clone(), quoted(&line))))
+                .gap(2.0);
+        let theme = cx.theme();
+        let space = &theme.space;
+        // Edged in the accent while it calls for the chief, and its
+        // shadow doubled, so it stands off the world and the panels.
+        let edge = match tone {
+            Tone::Accent => theme.palette.accent,
+            _ => theme.palette.gold_5,
+        };
+        let mut shadow = theme.shadow();
+        shadow.0.extend(theme.shadow().0);
+        let card = column((words, answers))
+            .gap(space.gap)
+            .fill(theme.palette.card)
+            .border(space.border)
+            .border_color(edge)
+            .radius(space.round)
+            .padding(UiRect::axes(
+                px(space.card_padding_x),
+                px(space.card_padding_y),
+            ))
+            .rules(fading(id))
+            .tagged(shadow);
         let node = cx.build(card);
         cx.world
             .entity_mut(node)
             .insert((Hovered::default(), Body(id)));
         node
     })
+}
+
+/// `content`, a part of the words of the toast of `what`, pressed to
+/// open what it is about.
+fn opening(what: What, content: impl View) -> impl View {
+    bevy_fynix::views::button(row((content,)))
+        .grow(1.0)
+        .min_width(px(0.0))
+        .rules(opener)
+        .on_activate(move |world| {
+            if let What::Petition(wait) = &what {
+                crate::petition::open(world, *wait);
+            }
+            dismiss(world, &what);
+        })
 }
 
 /// A toast's words, pressed to open what it is about: no fill of its
@@ -566,11 +626,11 @@ mod tests {
         let mut app = app_with_a_petition();
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
         let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text == "ADA"), "{shown:?}");
-        assert!(
-            shown.iter().any(|text| text == "wants to run `pwd`")
-        );
-        press(&mut app, "ALLOW ONCE");
+        assert!(shown.iter().any(|text| text == "ada"), "{shown:?}");
+        // The command on a chip of its own, with no backticks.
+        assert!(shown.iter().any(|text| text == "wants to run"));
+        assert!(shown.iter().any(|text| text == "pwd"));
+        press(&mut app, "Allow once");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, ClientMessage::Answer(answer)
@@ -610,10 +670,10 @@ mod tests {
         assert!(
             shown
                 .iter()
-                .any(|text| text == "THE HAND LET A SCHOLAR IN"),
+                .any(|text| text == "The Hand let a scholar in"),
             "{shown:?}"
         );
-        press(&mut app, "UNDO");
+        press(&mut app, "Undo");
         let undone =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, ClientMessage::Say(say)

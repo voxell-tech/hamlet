@@ -61,8 +61,14 @@ pub(super) fn readouts(
         &mut Visibility,
         &ComputedNode,
         &Children,
+        (
+            &mut UiTransform,
+            &mut ZIndex,
+            &mut BackgroundColor,
+            &mut BorderColor,
+        ),
     )>,
-    mut texts: Query<&mut Text, With<ReadoutText>>,
+    mut texts: Query<(&mut Text, &mut TextColor), With<ReadoutText>>,
 ) {
     let (camera, view) = lens.camera();
     let (foot, tall) = COLUMN;
@@ -72,28 +78,35 @@ pub(super) fn readouts(
                 Readout { of: meter },
                 Node {
                     position_type: PositionType::Absolute,
-                    padding: UiRect::axes(px(6), px(1)),
+                    padding: UiRect::axes(px(7), px(2)),
                     border: UiRect::all(px(1)),
                     ..default()
                 },
-                BackgroundColor(Color::srgba_u8(
-                    0x01, 0x0a, 0x13, 0xd8,
-                )),
-                BorderColor::all(Color::srgb_u8(0x7c, 0x5d, 0x2f)),
+                BackgroundColor(PLATE),
+                BorderColor::all(EDGE),
+                UiTransform::default(),
+                ZIndex(-1),
                 Pickable::IGNORE,
                 Visibility::Hidden,
                 children![(
                     ReadoutText,
                     Text::new(""),
-                    TextFont::from_font_size(11.0),
-                    TextColor(Color::srgb_u8(0xf2, 0xe7, 0xd0)),
+                    TextFont::from_font_size(12.0),
+                    TextColor(INK),
                     Pickable::IGNORE,
                 )],
             ));
         }
     }
-    for (entity, readout, mut node, mut seen, computed, parts) in
-        &mut shown
+    for (
+        entity,
+        readout,
+        mut node,
+        mut seen,
+        computed,
+        parts,
+        (mut transform, mut order, mut plate, mut edge),
+    ) in &mut shown
     {
         let Ok((_, meter, was)) = meters.get(readout.of) else {
             commands.entity(entity).try_despawn();
@@ -111,27 +124,37 @@ pub(super) fn readouts(
                     report.period_words.to_uppercase()
                 ))
             });
+        let far = view.translation().distance(top);
         let point = words
             .as_ref()
-            .filter(|_| {
-                view.translation().distance(top) < set.meter_read_far
-            })
+            .filter(|_| far < set.meter_read_far)
             .and_then(|_| camera.world_to_viewport(&view, top).ok());
         let (Some(words), Some(point)) = (words, point) else {
             seen.set_if_neq(Visibility::Hidden);
             continue;
         };
+        let depth = label::depth(far, set.meter_read_far);
+        transform.scale = Vec2::splat(depth.scale);
+        order.set_if_neq(depth.order);
+        plate.0 = PLATE.with_alpha(PLATE.alpha() * depth.shown);
+        *edge = BorderColor::all(EDGE.with_alpha(depth.shown));
         for part in parts.iter() {
-            if let Ok(mut text) = texts.get_mut(part)
-                && text.0 != words
-            {
-                text.0.clone_from(&words);
+            if let Ok((mut text, mut ink)) = texts.get_mut(part) {
+                if text.0 != words {
+                    text.0.clone_from(&words);
+                }
+                ink.0 = INK.with_alpha(depth.shown);
             }
         }
         label::put(&mut node, label::above(computed, point, 0.0));
         seen.set_if_neq(Visibility::Visible);
     }
 }
+
+/// A readout's plate, edge and words, at their nearest.
+const PLATE: Color = Color::srgba(0.004, 0.039, 0.075, 0.85);
+const EDGE: Color = Color::srgb(0.486, 0.365, 0.184);
+const INK: Color = Color::srgb(0.949, 0.906, 0.816);
 
 /// The light a meter throws on what is about it, dark until it is
 /// told how bright.

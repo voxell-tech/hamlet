@@ -17,11 +17,17 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         // The thread with its details open beside it.
         world.insert_resource(Showing::Thread);
         world.insert_resource(hub::Sheet::Details);
+        let agent = world.resource::<Convo>().agent;
+        world.entity_mut(agent).insert((
+            hamlet_client::realm::Allowance(5.0),
+            hamlet_client::realm::ToolsOff(vec!["bash".into()]),
+        ));
     }
     if matches!(
         scene,
         Scene::Hub
             | Scene::Models
+            | Scene::ModelsSearch
             | Scene::Desk
             | Scene::Toasts
             | Scene::Chat
@@ -31,14 +37,18 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Pictures
             | Scene::Rewind
             | Scene::Quiet
+            | Scene::Field
     ) {
         world.insert_resource(Showing::Thread);
     }
     if scene == Scene::Hub {
         world.resource_mut::<hub::Rail>().show_rows();
     }
-    if scene == Scene::Models {
+    if matches!(scene, Scene::Models | Scene::ModelsSearch) {
         offer_models(world);
+    }
+    if scene == Scene::ModelsSearch {
+        hamlet_app::world_menu::search_models(world, "wren");
     }
     if scene == Scene::Scholar {
         let scholar = hamlet_client::realm::scholar(
@@ -47,39 +57,70 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         )
         .expect("the received scholar");
         world.insert_resource(Showing::Scholar(scholar));
+        // As the hub turns its rail to a scholar's page.
+        world.insert_resource(hub::RailTab::City);
         keep_notes(world);
     }
     if scene == Scene::Prompt {
         let agent = world.resource::<Convo>().agent;
-        let text = "You are an agent of Hamlet.\n\nSandbox: \
-                    seatbelt. Network for tools: off.\n\nKeep the \
-                    orchard's notes in order."
-            .into();
+        let section =
+            |name: &str, text: &str| protocol::PromptSection {
+                name: name.into(),
+                text: text.into(),
+            };
         world.insert_resource(hub::Briefing {
             agent: Some(agent),
-            text,
+            prompt: vec![
+                section(
+                    "charter",
+                    "You are an agent of Hamlet, a personal \
+                     assistant shared by a few people.\nBe concise. \
+                     Act rather than describe what you would do.",
+                ),
+                section(
+                    "machine",
+                    "System: Linux.\nSandbox: seatbelt. Network for \
+                     tools: off.",
+                ),
+                section(
+                    "character",
+                    "You are Juniper, the orchard's keeper of \
+                     notes.\n- Speak plainly, in short \
+                     sentences.\n- Say what you do not know.",
+                ),
+                section(
+                    "memory",
+                    "notes.md: Row 4 wants straw at the roots. Pip \
+                     keeps the key to the press.",
+                ),
+                section("skills", "No skills yet."),
+                section("budget", "Spent today: $1.20 of $20.00."),
+            ],
+            ..Default::default()
         });
         world.insert_resource(Showing::Prompt);
     }
 }
 
-/// A catalogue of a few models over two providers, and the popup of
-/// the seated agent's model open over its composer.
-fn offer_models(world: &mut World) {
+/// A catalogue of a few models over several providers.
+pub(super) fn catalogue() -> Vec<protocol::Listed> {
     use hamlet_protocol::Effort;
-    let card = |name: &str, efforts: &[Effort], fast: bool| {
-        protocol::Listed {
-            context: Some(200_000),
-            default_effort: efforts
-                .contains(&Effort::Medium)
-                .then_some(Effort::Medium),
-            efforts: efforts.to_vec(),
-            fast,
-            name: name.into(),
-            note: String::new(),
-            price: None,
-            priced: protocol::ListedPriced::Unknown,
-        }
+    let card = |name: &str,
+                efforts: &[Effort],
+                fast: bool,
+                (input, output): (f64, f64),
+                context: i64| protocol::Listed {
+        context: Some(context),
+        default_effort: efforts
+            .contains(&Effort::Medium)
+            .then_some(Effort::Medium),
+        efforts: efforts.to_vec(),
+        fast,
+        name: name.into(),
+        note: String::new(),
+        price: Some(protocol::Price { input, output }),
+        priced: protocol::ListedPriced::Listed,
+        title: String::new(),
     };
     let thinks = [
         Effort::Low,
@@ -88,21 +129,80 @@ fn offer_models(world: &mut World) {
         Effort::XHigh,
         Effort::Max,
     ];
-    world.resource_mut::<hamlet_app::models::Shelf>().models = vec![
-        card("faux::faux-1", &[], false),
-        card("openai::wren-large", &thinks, true),
-        card("openai::wren-small", &thinks[..3], true),
-        card("google::wren-mini", &[Effort::Off], false),
-        card("anthropic::finch-pro", &thinks[..4], false),
-        card("groq::finch-lite", &thinks[..3], false),
-    ];
+    vec![
+        card("faux::faux-1", &[], false, (0.0, 0.0), 32_000),
+        card(
+            "openai::wren-large",
+            &thinks,
+            true,
+            (3.0, 15.0),
+            200_000,
+        ),
+        card(
+            "openai::wren-small",
+            &thinks[..3],
+            true,
+            (0.4, 1.6),
+            128_000,
+        ),
+        card(
+            "openai::wren-mini",
+            &thinks[..2],
+            false,
+            (0.15, 0.6),
+            128_000,
+        ),
+        card(
+            "openai::sparrow-4",
+            &thinks,
+            false,
+            (2.5, 10.0),
+            128_000,
+        ),
+        card(
+            "openai::sparrow-4-turbo",
+            &thinks[..3],
+            true,
+            (10.0, 30.0),
+            128_000,
+        ),
+        card(
+            "google::wren-flash",
+            &[Effort::Off],
+            false,
+            (0.3, 2.5),
+            1_000_000,
+        ),
+        card(
+            "anthropic::finch-pro",
+            &thinks[..4],
+            false,
+            (15.0, 75.0),
+            200_000,
+        ),
+        card(
+            "groq::finch-lite",
+            &thinks[..3],
+            false,
+            (0.8, 4.0),
+            200_000,
+        ),
+    ]
+}
+
+/// That catalogue, and the popup of the seated agent's model open
+/// over its composer while it runs `openai::wren-large`.
+fn offer_models(world: &mut World) {
+    world.resource_mut::<hamlet_app::models::Shelf>().models =
+        catalogue();
     let agent = world.resource::<Convo>().agent;
-    hamlet_app::world_menu::open_model(
-        world,
-        agent,
-        bevy::math::Vec2::new(1180.0, 760.0),
-    );
-    // Starred after it opens, so it opens on every model.
+    if let Some(mut account) =
+        world.get_mut::<hamlet_client::realm::Account>(agent)
+    {
+        account.model = "openai::wren-large".into();
+    }
+    hamlet_app::world_menu::open_model(world, agent);
+    // Starred after it opens, so it opens on the agent's provider.
     world.resource_mut::<hamlet_app::world_menu::Favorites>().0 =
         vec!["openai::wren-large".into()];
 }

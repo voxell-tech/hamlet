@@ -9,36 +9,39 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
-use bevy::ui::{AlignItems, UiRect, px};
-use bevy_fynix::tokens::Tone;
+use bevy::ui::{AlignItems, PositionType, UiRect, Val, percent, px};
+use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, dropdown, frame, label, row,
-    text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
+    frame, label, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, keyed, resource, style,
+};
 use hamlet_client::realm::Deeds;
-use hamlet_realm::orders::{self, Decree};
+use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    self, Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
-    group, lettered, note, primary_button, scroll_area, text_input,
-    title,
+    self, Fills, ICON, action, bare, breadcrumb, buttons, group,
+    lettered, more_button, note, note_rules, primary_button, raised,
+    scroll_area, status_label, text_input, title,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::ellipsis::one_line;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
-use hamlet_ui::{AnyView, View, built, with_cx};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::heading;
 use super::record::record_of;
-use super::rows::{
-    AgentRow, agent_rows, hamlet_rows, pressable, stale,
-};
+use super::rows::{AgentRow, agent_rows, hamlet_rows, stale};
 use crate::convo::talk_to;
+use crate::dock::{HUB, show_tab};
 use crate::forms::{self, Asking};
 use crate::roll::{either, moved};
 use crate::world_menu;
-use crate::world_menu::Deed;
 
 /// The field a hamlet's new name is typed in.
 #[derive(Component)]
@@ -47,6 +50,14 @@ pub(crate) struct NameField;
 /// The hamlet that is being given a new name, if one is.
 #[derive(Resource, Default, PartialEq)]
 pub struct Naming(pub(super) Option<Entity>);
+
+/// Brings the Hub to the front at the page of `hamlet`, with the
+/// field its new name is typed in.
+pub(crate) fn rename(world: &mut World, hamlet: Entity) {
+    crate::hub::show(world, crate::hub::Showing::Hamlet(hamlet));
+    show_tab(world, HUB);
+    world.resource_mut::<Naming>().0 = Some(hamlet);
+}
 
 /// The words typed in the field under a root marked `M`.
 pub(crate) fn typed<M: Component>(world: &mut World) -> String {
@@ -77,7 +88,7 @@ fn naming(hamlet: Entity, id: String) -> AnyView {
                         .grow(1.0)
                         .rules(text_input)
                         .tagged(NameField),
-                    lettered("SAVE")
+                    lettered("Save")
                         .rules(primary_button)
                         .tagged(Variant::Primary)
                         .on_activate(move |world| {
@@ -89,7 +100,7 @@ fn naming(hamlet: Entity, id: String) -> AnyView {
                                 format!("/name-hamlet {id} {name}"),
                             );
                         }),
-                    lettered("CANCEL")
+                    lettered("Cancel")
                         .rules(styles::button)
                         .on_activate(|world| {
                             world.resource_mut::<Naming>().0 = None;
@@ -118,10 +129,7 @@ fn decree(world: &mut World, id: &str, text: String) {
 const TIERS: [&str; 4] = ["50", "100", "200", "500"];
 
 /// How many hires the hamlet `id` may hold, chosen from its tiers.
-fn size(allowed: bool, id: String) -> AnyView {
-    if !allowed {
-        return column(()).boxed();
-    }
+fn size(id: String) -> AnyView {
     let names = TIERS
         .iter()
         .map(|tier| format!("Holds up to {tier} hires"))
@@ -152,7 +160,7 @@ fn worker_form(hamlet: Entity, id: String) -> AnyView {
         "Start a worker on one task in this hamlet. It answers once \
          and ends.",
         &[("Task", "")],
-        "START",
+        "Start",
         move |world, typed| {
             let [task] = typed else {
                 return false;
@@ -176,88 +184,37 @@ pub enum Page {
 }
 
 const PAGES: [(Page, Glyph, &str); 3] = [
-    (Page::Agents, Glyph::Robot, "AGENTS"),
-    (Page::Bylaws, Glyph::Book, "BYLAWS"),
-    (Page::Record, Glyph::History, "RECORD"),
+    (Page::Agents, Glyph::Robot, "Agents"),
+    (Page::Bylaws, Glyph::Book, "Bylaws"),
+    (Page::Record, Glyph::History, "Record"),
 ];
 
-/// Everyone in `hamlet`, each pressed to talk to.
+/// Everyone in `hamlet`, each pressed to talk to, its hires a step
+/// in from it as the rail shows them.
 fn list_of(hamlet: Entity) -> impl View {
     let people =
         derived(move |world: &World| agent_rows(world, Some(hamlet)))
             .when(stale());
     keyed(people, |rows| {
-        let card = |row: &AgentRow| {
-            let agent = row.agent;
-            let title = if row.mayor {
-                format!("{} (mayor)", row.name.to_uppercase())
-            } else {
-                row.name.to_uppercase()
-            };
-            let state = row.state.clone();
-            let beside = match (row.gone, row.waiting, row.busy) {
-                (true, ..) => (Glyph::Gone, state, Tone::Critical),
-                (_, 0, true) => (Glyph::Bolt, state, Tone::Accent),
-                (_, 0, false) => (Glyph::Moon, state, Tone::Dim),
-                (_, n, _) => (
-                    Glyph::Bell,
-                    format!("Waits for you ({n})"),
-                    Tone::Critical,
-                ),
-            };
-            let gone = row.gone;
-            let thing = if gone {
-                Thing::Ruin(agent)
-            } else {
-                Thing::Agent(agent)
-            };
-            pressable(
-                thing,
-                title,
-                beside,
-                vec![row.purpose.clone(), row.account.clone()],
-                move |world| {
-                    if gone {
-                        select(world, Some(thing));
-                    } else {
-                        talk_to(world, agent);
-                    }
-                },
-            )
+        let tree = |gone: bool| {
+            let rows = rows
+                .iter()
+                .filter(|row| row.gone == gone)
+                .collect::<Vec<_>>();
+            branches(&rows)
+                .into_iter()
+                .zip(rows)
+                .map(|(branch, row)| person(row, branch))
+                .collect::<Vec<_>>()
         };
-        // Each lead's hires stand a step in from it, joined to it by
-        // the tree's lines.
-        let living = rows
-            .iter()
-            .filter(|row| !row.gone)
-            .cloned()
-            .collect::<Vec<_>>();
-        let living = branches(&living)
-            .into_iter()
-            .zip(&living)
-            .enumerate()
-            .map(|(at, (lines, row))| {
-                with_lines(lines, card(row).boxed(), at > 0).boxed()
-            })
-            .collect::<Vec<_>>();
-        let gone = rows
-            .iter()
-            .filter(|row| row.gone)
-            .map(|row| {
-                column((card(row),)).padding(UiRect::left(px(
-                    row.depth as f32 * STEP,
-                )))
-            })
-            .collect::<Vec<_>>();
-        // Under the tab that names them. The rows hold the gap over
-        // them, so the lines run on through it.
+        let (living, gone) = (tree(false), tree(true));
         let mut parts = vec![column(living).gap(0.0).boxed()];
         if !gone.is_empty() {
             parts.push(heading(
                 Glyph::Gone,
-                format!("GONE ({})", gone.len()),
+                format!("Gone ({})", gone.len()),
             ));
-            parts.push(group(gone).boxed());
+            parts.push(column(gone).gap(0.0).boxed());
         }
         group(parts).boxed()
     })
@@ -267,20 +224,26 @@ fn list_of(hamlet: Entity) -> impl View {
 /// How far a hire stands in from its lead.
 const STEP: f32 = 18.0;
 
-/// The tree's lines in front of one agent's card.
+/// How far a row's icon stands in from its left edge.
+const INSET: f32 = 6.0;
+
+/// The room over a row's first line.
+const TOP: f32 = 5.0;
+
+/// The tree's lines in front of one agent's row.
 struct Branch {
     /// For each level between the top and its lead's, whether a
-    /// guide runs down it past this card.
+    /// guide runs down it past this row.
     rails: Vec<bool>,
     /// Whether it is the last of its lead's hires.
     last: bool,
-    /// Whether it is under a lead at all.
-    nested: bool,
+    /// Whether it has hires of its own under it.
+    leads: bool,
 }
 
 /// The lines in front of each of `rows`, which are in the tree's
 /// order.
-fn branches(rows: &[AgentRow]) -> Vec<Branch> {
+fn branches(rows: &[&AgentRow]) -> Vec<Branch> {
     // Whether the agent last seen at each depth has more after it.
     let mut more = Vec::<bool>::new();
     rows.iter()
@@ -295,79 +258,214 @@ fn branches(rows: &[AgentRow]) -> Vec<Branch> {
                 more.get(1..depth).unwrap_or_default().to_vec();
             more.resize(depth + 1, false);
             more[depth] = !last;
-            Branch {
-                rails,
-                last,
-                nested: depth > 0,
-            }
+            let leads = rows
+                .get(at + 1)
+                .is_some_and(|next| next.depth > depth);
+            Branch { rails, last, leads }
         })
         .collect()
 }
 
-/// `card` behind the tree's lines, with the gap to the card before it
-/// over it when there is one, so that the lines run on through it up
-/// to the lead. Each guide runs down the middle of a step, and the
-/// elbow meets the card at its title.
-fn with_lines(
-    branch: Branch,
-    card: AnyView,
-    after: bool,
-) -> impl View {
-    built(move |cx| {
-        let theme = cx.theme();
-        let colour = theme.palette.gold_6;
-        let over = if after { theme.space.gap } else { 0.0 };
-        let elbow = over
-            + theme.space.border
-            + theme.space.card_padding_y
-            + theme.text.heading * 0.6;
-        let line = |on: bool| {
-            frame().width(px(1.0)).fill(if on {
-                colour
-            } else {
-                Color::NONE
-            })
-        };
-        let guide = |on: bool| {
-            row((frame().width(px(STEP / 2.0)), line(on)))
-                .width(px(STEP))
-                .align(AlignItems::Stretch)
-                .boxed()
-        };
-        let mut parts = branch
-            .rails
-            .iter()
-            .map(|on| guide(*on))
-            .collect::<Vec<_>>();
-        if branch.nested {
-            parts.push(
-                row((
-                    frame().width(px(STEP / 2.0)),
-                    column((
-                        line(true).height(px(elbow)),
-                        line(!branch.last).grow(1.0),
-                    ))
-                    .gap(0.0),
-                    column((frame()
-                        .width(px(STEP / 2.0 - 1.0))
-                        .height(px(1.0))
-                        .fill(colour),))
-                    .padding(UiRect::top(px(elbow))),
-                ))
-                .gap(0.0)
-                .align(AlignItems::Stretch)
+/// The lines in front of a row at `depth`: a guide down each level
+/// above its lead's that has more rows after it, then an elbow from
+/// its lead to its icon, running on down while its lead has more.
+/// Each line runs under the icon of the lead it comes from.
+fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
+    let colour = cx.theme().palette.gold_6;
+    let shown = |on: bool| if on { colour } else { Color::NONE };
+    // Where the elbow meets the row: the middle of its first line.
+    let elbow = TOP + cx.theme().text.body * 0.6;
+    let step = |inside: AnyView| {
+        row((inside,))
+            .width(px(STEP))
+            .shrink(0.0)
+            .padding(UiRect::left(px(INSET + ICON / 2.0 - 0.5)))
+            .align(AlignItems::Stretch)
+            .boxed()
+    };
+    let mut parts = branch
+        .rails
+        .iter()
+        .map(|on| {
+            step(frame().width(px(1.0)).fill(shown(*on)).boxed())
+        })
+        .collect::<Vec<_>>();
+    // A line laid over the row, `left` and `top` in from its edges;
+    // one with no height runs to its foot.
+    let over = |left: f32,
+                top: f32,
+                width: f32,
+                height: Option<f32>| {
+        frame()
+            .width(px(width))
+            .height(height.map_or(Val::Auto, px))
+            .fill(colour)
+            .position(PositionType::Absolute)
+            .inset(UiRect::new(
+                px(left),
+                Val::Auto,
+                px(top),
+                if height.is_some() { Val::Auto } else { px(0.0) },
+            ))
+            .boxed()
+    };
+    // Where the line under a row's icon runs, at `depth`.
+    let under_icon =
+        |depth: usize| depth as f32 * STEP + INSET + ICON / 2.0 - 0.5;
+    if depth > 0 {
+        parts.push(step(
+            column((
+                frame()
+                    .width(px(1.0))
+                    .height(px(elbow + 1.0))
+                    .fill(colour),
+                frame()
+                    .width(px(1.0))
+                    .grow(1.0)
+                    .fill(shown(!branch.last)),
+            ))
+            .gap(0.0)
+            .boxed(),
+        ));
+        // The elbow's foot, up to just short of the icon.
+        let from = under_icon(depth - 1);
+        let to = depth as f32 * STEP + INSET - 2.0;
+        parts.push(over(from, elbow, to - from, Some(1.0)));
+    }
+    if branch.leads {
+        // Down from under its icon to its first hire.
+        let top = elbow + ICON / 2.0 + 2.0;
+        parts.push(over(under_icon(depth), top, 1.0, None));
+    }
+    parts
+}
+
+/// One agent as a row of the list: its kind, its name and state, and
+/// its own model and spending at the end of that line, then what its
+/// row says under them, behind the tree's lines.
+fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
+    let agent = row_of.agent;
+    let gone = row_of.gone;
+    let thing = if gone {
+        Thing::Ruin(agent)
+    } else {
+        Thing::Agent(agent)
+    };
+    let kind = if row_of.mayor {
+        Glyph::Mayor
+    } else {
+        Glyph::Robot
+    };
+    let standing = row_of.standing;
+    let (name, under, account, depth) = (
+        row_of.name.clone(),
+        row_of.under.clone(),
+        row_of.account.clone(),
+        row_of.depth,
+    );
+    with_cx(move |cx| {
+        let mut parts = lines(cx, depth, &branch);
+        let space = &cx.theme().space;
+        let mut words = vec![
+            row((
+                raised(glyph(kind, ICON).tone(Tone::Dim)),
+                label(name.clone()).bold(true).wrap(false),
+                status_label(
+                    standing.glyph(),
+                    standing.word(),
+                    standing.tone(),
+                ),
+                frame().grow(1.0),
+                label(account.clone()).wrap(false).rules(note_rules),
+            ))
+            .gap(space.gap)
+            .align(AlignItems::Center)
+            .boxed(),
+        ];
+        if !under.is_empty() {
+            // Under the name, past the icon.
+            words.push(
+                row(
+                    (one_line(label(under.clone()).tone(Tone::Dim)),),
+                )
+                .padding(UiRect::left(px(ICON + space.gap)))
+                .min_width(px(0.0))
                 .boxed(),
             );
         }
         parts.push(
-            column((card,))
-                .grow(1.0)
-                .min_width(px(0.0))
-                .padding(UiRect::top(px(over)))
-                .boxed(),
+            button(
+                column(words).gap(1.0).grow(1.0).min_width(px(0.0)),
+            )
+            .padding(UiRect::new(
+                px(INSET),
+                px(6.0),
+                px(TOP),
+                px(5.0),
+            ))
+            .grow(1.0)
+            .min_width(px(0.0))
+            .rules(row_look)
+            .tagged(Variant::Default)
+            .tagged(world_menu::Asks(thing))
+            .on_activate(move |world| {
+                if gone {
+                    select(world, Some(thing));
+                } else {
+                    talk_to(world, agent);
+                }
+            })
+            .boxed(),
         );
-        cx.build(row(parts).gap(0.0).align(AlignItems::Stretch))
+        row(parts).gap(0.0).align(AlignItems::Stretch)
     })
+    .boxed()
+}
+
+/// A row of the list: bare at rest, a faint fill under the pointer.
+fn row_look(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, t| f.fill(Color::NONE).radius(t.space.round))
+        .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
+        .pressed(|s| s.frame(|f, t| f.fill(t.palette.input)))
+        .transition(Motion::Interact)
+        .apply(cx);
+}
+
+/// The width of the bar of a hamlet's budget.
+const METER: f32 = 120.0;
+
+/// What the hamlet spent of its budget, in words and, when it has a
+/// cap, as a bar filled as far as `spent` says.
+pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
+    with_cx(move |cx| {
+        let palette = &cx.theme().palette;
+        let mut parts = vec![note(words.clone()).boxed()];
+        if let Some(spent) = spent {
+            let fill = if spent >= 1.0 {
+                palette.red
+            } else {
+                palette.accent
+            };
+            parts.push(
+                row((frame()
+                    .width(percent(spent * 100.0))
+                    .height(percent(100.0))
+                    .radius(3.0)
+                    .fill(fill),))
+                .width(px(METER))
+                .height(px(6.0))
+                .radius(3.0)
+                .fill(palette.gold_6)
+                .boxed(),
+            );
+        }
+        row(parts)
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
+            .tagged(Wraps)
+    })
+    .boxed()
 }
 
 /// One hamlet: what it is, what can be done to it, and its pages.
@@ -399,20 +497,14 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         else {
             return column(()).boxed();
         };
-        let id = facts.id.clone();
-        let known = if facts.title == facts.id {
-            String::new()
-        } else {
-            format!("Known to the server as {}", facts.id)
-        };
         let mut actions = Vec::new();
         if *hires {
             // Under its mayor; under another hire from that hire's
             // menu.
             let mayor_of = facts.id.clone();
             actions.push(action(
-                Glyph::Robot,
-                "HIRE A SCHOLAR",
+                Glyph::Scholar,
+                "Hire a scholar",
                 move |world| {
                     if let Some(mayor) =
                         hamlet_client::realm::mayor_of(
@@ -426,37 +518,38 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         }
         if *workers {
             actions.push(action(
-                Glyph::Chip,
-                "START A WORKER",
+                Glyph::Robot,
+                "Start a worker",
                 move |world| {
                     forms::toggle(world, Asking::Worker(hamlet));
                 },
             ));
         }
-        if *rename {
-            actions.push(action(
-                Glyph::Rename,
-                "RENAME",
+        // Everything else done to it, as a right click on its common
+        // in the world offers: renaming, moving, closing it down.
+        if *rename || *carry || *close {
+            actions.push(more_button(
+                "Rename, move or close it down",
                 move |world| {
-                    world.resource_mut::<Naming>().0 = Some(hamlet);
+                    world_menu::open_for(
+                        world,
+                        Thing::Common(hamlet),
+                    );
                 },
             ));
         }
-        if *carry {
-            actions.push(action(Glyph::Move, "MOVE", move |world| {
-                orders::carry(world, hamlet);
-            }));
-        }
-        if *close {
-            actions.push(bad_action(
-                Glyph::Gone,
-                "CLOSE DOWN",
-                move |world| {
-                    world_menu::ask(world, Deed::Close(id.clone()));
-                },
-            ));
-        }
-        group((
+        // What commands call it, when its name says otherwise.
+        let name = if facts.title == facts.id {
+            title(facts.title.clone()).boxed()
+        } else {
+            let id = facts.id.clone();
+            title(facts.title.clone())
+                .tooltip(move || {
+                    note(format!("Commands call it {id}"))
+                })
+                .boxed()
+        };
+        let mut top = vec![
             breadcrumb(
                 vec!["Realm".into()],
                 facts.title.clone(),
@@ -467,17 +560,27 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                         crate::hub::Showing::Realm,
                     );
                 },
-            ),
-            title(facts.title.to_uppercase()),
-            note(facts.account.clone()),
-            note(known),
-            buttons(actions),
-            size(*tier, facts.id.clone()),
-            worker_form(hamlet, facts.id.clone()),
-            naming(hamlet, facts.id.clone()),
-            crate::folder::section(hamlet),
-        ))
-        .boxed()
+            )
+            .boxed(),
+            name,
+            budget(facts.account.clone(), facts.spent),
+        ];
+        // The forms open only from these buttons, so without them
+        // nothing stands under the account.
+        if !actions.is_empty() {
+            top.push(
+                group((
+                    buttons(actions),
+                    worker_form(hamlet, facts.id.clone()),
+                    naming(hamlet, facts.id.clone()),
+                ))
+                .boxed(),
+            );
+        }
+        if *tier {
+            top.push(size(facts.id.clone()));
+        }
+        group(top).boxed()
     })
     .within(bare());
     let pages = tabs::strip(&PAGES, |world, page| {

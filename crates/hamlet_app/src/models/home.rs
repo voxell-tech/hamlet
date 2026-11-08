@@ -1,25 +1,30 @@
 //! The server's endpoints and model catalogue in Settings.
 
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    FrameProps, label, number_field, row, text_field,
+    self, BehaviorExt, FrameProps, TooltipExt, label, number_field,
+    row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, action, bad_action, bare, beside, close, description,
-    good_action, group, list, note, section, text_input,
+    good_action, group, link_row, list, note, note_rules, radio,
+    section, small_rules, text_input,
 };
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_ui::{AnyView, View, built, with_cx};
 
-use super::choice::{chooser, home_default};
+use super::choice::home_default;
 use super::{
-    Asked, Draft, SHOWN, Shelf, catalogue, edit, read_models,
+    Asked, Draft, SHOWN, Shelf, catalogue, context_words, edit, mark,
+    provider_name, provider_of, read_models, title_of,
 };
 use crate::roll::{either, moved};
 
@@ -57,7 +62,7 @@ fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
             row((label(endpoint.name.clone()).bold(true),))
                 .fills_width(),
             note(if endpoint.key { "Key set" } else { "No key" }),
-            bad_action(Glyph::Gone, "REMOVE", move |world| {
+            bad_action(Glyph::Gone, "Remove", move |world| {
                 remove(world, &gone);
             }),
         )),
@@ -100,16 +105,13 @@ pub fn endpoints() -> impl View {
     )
     .within(bare());
     group((
-        description(
-            "Models run through the server. A model is named \
-             endpoint::model. Credentials stay on the server.",
-        ),
+        description("Credentials stay on the server."),
         known,
         super::problem(),
         providers,
         row((good_action(
             Glyph::Plus,
-            "ADD A PLACE FOR MODELS",
+            "Add a place for models",
             crate::welcome::add,
         ),)),
         crate::root::connection_test(),
@@ -141,9 +143,10 @@ fn price(name: &str, output: bool) -> AnyView {
                     | protocol::ListedPriced::Yours
             ) {
                 return row((label(format!("{value:.2}"))
-                    .size(12.0)
-                    .tone(Tone::Faint),))
+                    .tone(Tone::Faint)
+                    .rules(small_rules),))
                 .width(px(PRICE_WIDE))
+                .justify(JustifyContent::FlexEnd)
                 .boxed();
             }
             let name = name.clone();
@@ -184,29 +187,103 @@ fn price(name: &str, output: bool) -> AnyView {
     .boxed()
 }
 
-fn entry(model: &protocol::Listed) -> AnyView {
-    let name = model.name.clone();
-    let source = match model.priced {
-        protocol::ListedPriced::Unknown => "no price",
-        protocol::ListedPriced::Listed => "listed",
-        protocol::ListedPriced::Assigned => "assigned",
-        protocol::ListedPriced::Yours => "yours",
-    };
-    let detail = model.context.map_or(source.into(), |context| {
-        format!("{source}, holds {}k", context / 1000)
-    });
-    let prices = with_cx(move |cx| {
+/// The widths of the table's columns after the model's name: its
+/// provider, its context and what stands at the row's end.
+const PROVIDER_WIDE: f32 = 96.0;
+/// The side of a provider's mark, and the room after it.
+const MARK: f32 = 16.0;
+const MARK_GAP: f32 = 8.0;
+const CONTEXT_WIDE: f32 = 60.0;
+const END_WIDE: f32 = 64.0;
+
+/// The table's columns, `name` first, each as wide as its column, the
+/// numbers set to its right edge and the default mark centred.
+fn columns(
+    name: impl View + 'static,
+    provider: impl View + 'static,
+    prices: (AnyView, AnyView),
+    context: impl View + 'static,
+    end: impl View + 'static,
+) -> impl View {
+    with_cx(move |cx| {
+        let cell =
+            |content: AnyView, wide: f32, at: JustifyContent| {
+                row((content,))
+                    .width(px(wide))
+                    .shrink(0.0)
+                    .justify(at)
+                    .boxed()
+            };
+        let (left, right) =
+            (JustifyContent::FlexStart, JustifyContent::FlexEnd);
         row((
-            section("IN"),
-            price(&name, false),
-            section("OUT"),
-            price(&name, true),
-            note(detail),
+            row((name,)).grow(1.0).min_width(px(0.0)),
+            cell(provider.boxed(), PROVIDER_WIDE, left),
+            cell(prices.0, PRICE_WIDE, right),
+            cell(prices.1, PRICE_WIDE, right),
+            cell(context.boxed(), CONTEXT_WIDE, right),
+            cell(end.boxed(), END_WIDE, JustifyContent::Center),
         ))
         .gap(cx.theme().space.gap)
         .align(AlignItems::Center)
-    });
-    close((section(model.name.clone()), prices)).boxed()
+    })
+}
+
+/// The names over the table's columns.
+fn header() -> AnyView {
+    columns(
+        row((section("Model"),))
+            .padding(UiRect::left(px(MARK + MARK_GAP))),
+        section("Provider"),
+        (section("In $/M").boxed(), section("Out $/M").boxed()),
+        section("Context"),
+        section("Default"),
+    )
+    .boxed()
+}
+
+/// A model as a row of the table: its mark and name, its provider,
+/// its prices, how much it holds, and the way to make it the default
+/// or the mark that it is.
+fn entry(model: &protocol::Listed, default: &str) -> AnyView {
+    let name = model.name.clone();
+    let id = model.name.clone();
+    let words = row((
+        mark(provider_of(&name), MARK),
+        one_line(label(title_of(model))),
+    ))
+    .gap(MARK_GAP)
+    .align(AlignItems::Center)
+    .min_width(px(0.0));
+    let provider = one_line(label(
+        derived(move |world: &World| {
+            provider_name(world, provider_of(&id))
+        })
+        .when(moved::<Providers>()),
+    ))
+    .rules(note_rules);
+    let context =
+        note(model.context.map_or("-".to_string(), context_words));
+    let chosen = model.name.clone();
+    let end = if model.name == default {
+        radio(true).boxed()
+    } else {
+        views::button(radio(false))
+            .padding(UiRect::all(px(4.0)))
+            .rules(link_row)
+            .tagged(Variant::Text)
+            .tooltip(|| note("Make default"))
+            .on_activate(move |world| save_default(world, &chosen))
+            .boxed()
+    };
+    columns(
+        words,
+        provider,
+        (price(&name, false), price(&name, true)),
+        context,
+        end,
+    )
+    .boxed()
 }
 
 /// The names holding every word of `narrow`, as the `page`th page of
@@ -262,7 +339,7 @@ fn save_default(world: &mut World, model: &str) {
 }
 
 pub fn shelf() -> AnyView {
-    let shown = bevy_fynix::derived(|world: &World| {
+    let shown = derived(|world: &World| {
         let shelf = world.resource::<Shelf>();
         let draft = world.resource::<Draft>();
         let (names, page, pages) = narrowed(
@@ -279,10 +356,14 @@ pub fn shelf() -> AnyView {
                 .collect::<Vec<_>>(),
             page,
             pages,
+            home_default(world),
         )
     })
-    .when(either(moved::<Shelf>(), moved::<Draft>()));
-    let models = keyed(shown, |(models, page, pages)| {
+    .when(either(
+        either(moved::<Shelf>(), moved::<Draft>()),
+        moved::<Settings>(),
+    ));
+    let models = keyed(shown, |(models, page, pages, default)| {
         if models.is_empty() {
             return description(
                 "No models yet. Choose List Models to ask the \
@@ -290,16 +371,17 @@ pub fn shelf() -> AnyView {
             )
             .boxed();
         }
-        let mut rows = models.iter().map(entry).collect::<Vec<_>>();
+        let mut rows = vec![header()];
+        rows.extend(models.iter().map(|model| entry(model, default)));
         let (page, pages) = (*page, *pages);
         if pages > 1 {
             rows.push(
                 beside((
-                    action(Glyph::Back, "PREVIOUS", move |world| {
+                    action(Glyph::Back, "Previous", move |world| {
                         turn(world, -1, pages);
                     }),
                     note(format!("Page {} of {pages}", page + 1)),
-                    action(Glyph::ToEnd, "NEXT", move |world| {
+                    action(Glyph::ToEnd, "Next", move |world| {
                         turn(world, 1, pages);
                     }),
                 ))
@@ -310,30 +392,29 @@ pub fn shelf() -> AnyView {
     })
     .within(bare());
     group((
-        close((
-            section("DEFAULT MODEL"),
-            chooser(home_default, save_default),
-            description("Used wherever nobody chose a model."),
-        )),
-        description(
-            "Prices are dollars per million tokens in and out, used \
-             when the endpoint does not bill a call.",
-        ),
         beside((
-            action(Glyph::Restore, "LIST MODELS", |world| {
+            action(Glyph::Restore, "Refresh", |world| {
                 read_models(world, true);
+            })
+            .tooltip(|| {
+                note("Asks every endpoint for its models again")
             }),
-            section("FIND"),
-            text_field(
-                resource::<Draft, _>(|draft| draft.narrow.clone()),
-                |world, text| {
-                    let mut draft = world.resource_mut::<Draft>();
-                    draft.narrow = text;
-                    draft.page = 0;
-                },
-            )
-            .grow(1.0)
-            .rules(text_input),
+            row((built(|cx| {
+                let narrow =
+                    cx.world.resource::<Draft>().narrow.clone();
+                cx.build(crate::search::search(
+                    "Search models",
+                    narrow,
+                    |world, text| {
+                        let mut draft = world.resource_mut::<Draft>();
+                        if draft.narrow != text {
+                            draft.narrow = text;
+                            draft.page = 0;
+                        }
+                    },
+                ))
+            }),))
+            .grow(1.0),
         )),
         note(resource::<Shelf, _>(|shelf| {
             if shelf.asking {

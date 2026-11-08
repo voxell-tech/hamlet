@@ -4,7 +4,9 @@ mod dock;
 mod sample;
 mod sheets;
 
-use bevy::app::{App, Plugin, PostStartup, Startup, Update};
+use bevy::app::{
+    App, Plugin, PostStartup, PostUpdate, Startup, Update,
+};
 use bevy::asset::Handle;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -13,18 +15,22 @@ use bevy::ecs::world::World;
 use bevy::image::Image;
 use bevy::math::Rect;
 use bevy::picking::PickingSettings;
+use bevy::window::WindowTheme;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
+use hamlet_app::appearance::Appearance;
 use hamlet_app::history::History;
 use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
-use hamlet_assets::Tuning;
+use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_realm::sound::{Cue, SoundSettings};
-use hamlet_ui::theme::{self, HamletTheme};
+use hamlet_ui::theme::{self, HamletTheme, Themes};
 
-use self::dock::{panels, seed_dock};
+use self::dock::{open_settings, panels, seed_dock};
 use self::sample::{first_run, setup};
-use self::sheets::{controls, hold, hold_message, icon_sheet};
+use self::sheets::{
+    ask_rewind, controls, hold, hold_message, icon_sheet,
+};
 
 /// A view of the gallery, its type erased.
 type Ui = AnyView<Bevy, HamletTheme>;
@@ -39,7 +45,7 @@ impl Plugin for GalleryPlugin {
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
         ));
-        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        theme::show(app.world_mut(), HamletTheme::designed());
         app.insert_resource(self.0)
             // No pointer moves here, so a held hover stays held.
             .insert_resource(PickingSettings {
@@ -47,10 +53,11 @@ impl Plugin for GalleryPlugin {
                 ..PickingSettings::default()
             })
             .insert_resource(Bar {
-                running: "Running, idle".into(),
+                running: "Idle".into(),
                 running_tone: Tone::Dim,
                 model: "hearth-large".into(),
                 link: "Connected, 1 model".into(),
+                link_tone: Tone::Dim,
                 usage: "12.4k tokens".into(),
                 budget: "$1.20 of $20.00".into(),
                 ..Bar::default()
@@ -65,6 +72,9 @@ impl Plugin for GalleryPlugin {
             .init_resource::<menu::OpenMenu>()
             .insert_resource(first_run(self.0))
             .init_resource::<chrome::ChromeSettings>()
+            .insert_resource(Themes::shipped())
+            .init_resource::<ColorScheme>()
+            .init_resource::<Appearance>()
             .add_message::<Cue>()
             // `theme::plugin` owns it; the gallery sets its theme by
             // hand instead.
@@ -74,14 +84,15 @@ impl Plugin for GalleryPlugin {
                 PostStartup,
                 (seed_dock, mount_scene).chain(),
             )
+            .add_systems(PostUpdate, open_settings)
             .add_systems(
                 Update,
                 (
                     sample::overview::later,
                     hold,
-                    hold_message.run_if(|scene: Res<Scene>| {
-                        *scene == Scene::Rewind
-                    }),
+                    (hold_message, ask_rewind).run_if(
+                        |scene: Res<Scene>| *scene == Scene::Rewind,
+                    ),
                 ),
             )
             // The menus, and what the world tells them was asked
@@ -90,9 +101,12 @@ impl Plugin for GalleryPlugin {
             .init_resource::<hamlet_realm::pick::AskedGround>()
             .add_plugins((
                 hamlet_app::world_menu::plugin,
+                hamlet_app::search::plugin,
                 hamlet_app::desk::plugin,
+                menu::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
+                welcome::key_plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_app::screens::plugin,
                 asking::plugin,
@@ -110,7 +124,7 @@ pub enum Scene {
     Panels,
     /// The panels while something waits for the chief.
     Waiting,
-    /// The panels while the command line is typed in.
+    /// The panels while the chat's field is typed in.
     Field,
     /// A long chat with a turn's steps unfolded.
     Chat,
@@ -148,6 +162,9 @@ pub enum Scene {
     Toasts,
     /// The popup an agent's model is chosen in, over the Hub.
     Models,
+    /// That popup with a search typed in it, found across every
+    /// provider.
+    ModelsSearch,
     /// The Hub's page of the realm, with nothing selected.
     Overview,
     /// One hamlet and everyone in it.
@@ -162,6 +179,8 @@ pub enum Scene {
     Chief,
     /// The Settings panel.
     Settings,
+    /// The Settings panel at its Models page.
+    SettingsModels,
     /// The Settings panel at its Charter page.
     Charter,
     /// The Settings panel at its Workspace page, a remote workspace
@@ -169,12 +188,28 @@ pub enum Scene {
     Workspace,
     /// The Settings panel at its Sight page, with its dials.
     Sight,
+    /// The Settings panel at its Appearance page, the computer and
+    /// the panels light or dark.
+    Appearance(WindowTheme),
     /// Every icon, at each size it is drawn for.
     Icons,
     /// The panels with the HAMLET menu open.
     Menu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
+    /// The first-run key step, its providers searched for the words.
+    KeySearch(&'static str),
+}
+
+impl Scene {
+    /// The first-run step the scene shows, if any.
+    pub fn first_run(self) -> Option<welcome::Step> {
+        match self {
+            Scene::Welcome(step) => Some(step),
+            Scene::KeySearch(_) => Some(welcome::Step::Key),
+            _ => None,
+        }
+    }
 }
 
 /// The picture that stands where the world is drawn, and the part of

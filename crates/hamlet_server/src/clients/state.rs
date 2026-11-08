@@ -177,8 +177,10 @@ fn agent_view(
     })
     .unwrap_or_default();
     let shown = sources.activity.get(&id);
-    let doing =
-        shown.map_or(protocol::Doing::Rest, |a| a.doing.clone());
+    // A conversation shown for its failed turn does nothing now.
+    let doing = shown
+        .filter(|a| a.working)
+        .map_or(protocol::Doing::Rest, |a| a.doing.clone());
     let spent = spend::of_agent(db, id, at)?;
     let left = match (found.ended_at, found.ended_how) {
         (Some(ended), Some(how)) => Some(protocol::Left {
@@ -206,12 +208,18 @@ fn agent_view(
         AgentKind::Hire => hires::get(db, id)?.model,
         AgentKind::Worker => workers::get(db, id)?.model,
     };
-    let (pin, nickname) = match found.kind {
+    let (pin, nickname, allowance, tools_off) = match found.kind {
         AgentKind::Hire => {
             let hire = hires::get(db, id)?;
-            (hire.pin, hire.nickname)
+            (
+                hire.pin,
+                hire.nickname,
+                hire.allowance
+                    .map(|micros| micros as f64 / 1_000_000.0),
+                hires::tools_off(db, id)?,
+            )
         }
-        _ => (None, None),
+        _ => (None, None, None, Vec::new()),
     };
     let skills = match found.kind {
         AgentKind::Worker => Vec::new(),
@@ -229,6 +237,7 @@ fn agent_view(
             step: shown
                 .map_or(0, |a| u64::try_from(a.step).unwrap_or(0)),
         },
+        allowance,
         busy: found.is_living() && inputs::is_agent_busy(db, id)?,
         consulting: found.is_living()
             && crate::talk::errands::is_waited_on(
@@ -270,6 +279,7 @@ fn agent_view(
             ms: spent.ms,
             tokens: spent.tokens,
         },
+        tools_off,
     })
 }
 

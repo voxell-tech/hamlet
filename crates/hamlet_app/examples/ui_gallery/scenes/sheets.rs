@@ -6,6 +6,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::With;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::picking::hover::Hovered;
 use bevy::text::EditableText;
@@ -18,7 +19,6 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{Bevy, Focused, ScopedExt, View, ViewExt};
 use hamlet_app::{chat, lists, menu};
-use hamlet_assets::Tuning;
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::Cx;
 use hamlet_ui::styles::{
@@ -32,6 +32,9 @@ use hamlet_ui::widgets::platform::{self, DisplayText};
 use hamlet_ui::widgets::tabs;
 
 use super::{Scene, Strike, Ui};
+
+/// The update on which the chat is laid out and still.
+const SETTLED: u32 = 120;
 
 /// A control held in one state.
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
@@ -51,12 +54,7 @@ fn caption(text: impl Into<String>) -> Ui {
 }
 
 fn heading(text: &'static str) -> Ui {
-    label(text)
-        .size(12.0)
-        .bold(true)
-        .tone(Tone::Faint)
-        .tagged(DisplayText)
-        .boxed()
+    label(text).size(12.0).bold(true).tone(Tone::Faint).boxed()
 }
 
 /// One cell of a row of states: a caption over what it names.
@@ -84,10 +82,10 @@ fn states(
             .on_activate(|_| {})
     };
     row((
-        cell("AT REST", one().boxed()),
-        cell("UNDER THE POINTER", one().tagged(Held::Hover).boxed()),
-        cell("HELD", one().tagged(Held::Press).boxed()),
-        cell("DONE", one().tagged(Held::Done).boxed()),
+        cell("At rest", one().boxed()),
+        cell("Under the pointer", one().tagged(Held::Hover).boxed()),
+        cell("Held", one().tagged(Held::Press).boxed()),
+        cell("Done", one().tagged(Held::Done).boxed()),
     ))
     .gap(16.0)
     .boxed()
@@ -101,13 +99,13 @@ fn field(text: &'static str) -> impl View<Bevy, HamletTheme> {
 
 fn fields() -> Ui {
     row((
-        cell("AT REST", field("A reason").boxed()),
+        cell("At rest", field("A reason").boxed()),
         cell(
-            "UNDER THE POINTER",
+            "Under the pointer",
             field("A reason").tagged(Held::Hover).boxed(),
         ),
         cell(
-            "TYPED IN",
+            "Typed in",
             field("A reason").tagged(Held::Focus).boxed(),
         ),
     ))
@@ -130,19 +128,19 @@ fn title(name: &'static str) -> impl View<Bevy, HamletTheme> {
 fn titles() -> Ui {
     row((
         cell(
-            "AT REST",
+            "At rest",
             title("HAMLET").tagged(Underglow::new(false)).boxed(),
         ),
         cell(
-            "UNDER THE POINTER",
-            title("VIEW")
+            "Under the pointer",
+            title("View")
                 .tagged(Underglow::new(false))
                 .tagged(Held::Hover)
                 .boxed(),
         ),
         cell(
-            "ITS MENU OPEN",
-            title("VIEW").tagged(Underglow::new(true)).boxed(),
+            "Its menu open",
+            title("View").tagged(Underglow::new(true)).boxed(),
         ),
     ))
     .gap(16.0)
@@ -159,7 +157,7 @@ fn tab(
 fn tabs() -> Ui {
     let theme = HamletTheme::designed();
     let shown = column((
-        tab(Glyph::Talk, "TALK")
+        tab(Glyph::Talk, "Talk")
             .tagged(Underglow::new(true))
             .tagged(tabs::Shown),
         frame().height(px(2.0)).fill(theme.palette.gold_3),
@@ -167,19 +165,19 @@ fn tabs() -> Ui {
     .gap(0.0);
     row((
         cell(
-            "AT REST",
-            tab(Glyph::Notes, "MEMORY")
+            "At rest",
+            tab(Glyph::Notes, "Memory")
                 .tagged(Underglow::new(false))
                 .boxed(),
         ),
         cell(
-            "UNDER THE POINTER",
-            tab(Glyph::Notes, "MEMORY")
+            "Under the pointer",
+            tab(Glyph::Notes, "Memory")
                 .tagged(Underglow::new(false))
                 .tagged(Held::Hover)
                 .boxed(),
         ),
-        cell("THE ONE SHOWN", shown.boxed()),
+        cell("The one shown", shown.boxed()),
     ))
     .gap(16.0)
     .boxed()
@@ -189,17 +187,17 @@ fn tabs() -> Ui {
 fn popups() -> Ui {
     let theme = HamletTheme::designed();
     let card = column((
-        label("JUNIPER")
-            .size(13.0)
+        label("Juniper")
+            .size(theme.text.heading)
             .bold(true)
-            .wrap(false)
-            .tagged(DisplayText),
+            .wrap(false),
         label("Reading the orchard notes")
-            .size(12.0)
+            .size(theme.text.small)
             .tone(Tone::Accent),
-        label("Keeps the orchard's notes in order.").size(12.0),
+        label("Keeps the orchard's notes in order.")
+            .size(theme.text.small),
         label("Click to talk, F to follow")
-            .size(12.0)
+            .size(theme.text.small)
             .tone(Tone::Dim),
     ))
     .gap(3.0)
@@ -215,11 +213,11 @@ fn popups() -> Ui {
             .align(AlignItems::FlexStart)
     };
     row((
-        wide("HOVER CARD", card.boxed()),
+        wide("Hover card", card.boxed()),
         wide(
-            "A CARD IN A LIST",
+            "A card in a list",
             lists::item(
-                "ORCHARD".into(),
+                "Orchard".into(),
                 "Prune, graft and keep the press.".into(),
                 Tone::Body,
             )
@@ -237,44 +235,69 @@ pub(super) fn controls() -> Ui {
     };
     column((
         part(
-            "A PLAIN BUTTON",
+            "A plain button",
             states(
                 Glyph::NewSession,
-                "NEW SESSION",
+                "New session",
                 styles::button,
                 Variant::Default,
             ),
         ),
         part(
-            "THE ONE PRIMARY ACTION",
+            "The one primary action",
             states(
                 Glyph::Check,
-                "ALLOW ONCE",
+                "Allow once",
                 primary_button,
                 Variant::Primary,
             ),
         ),
         part(
-            "WHAT REFUSES OR STOPS",
+            "What refuses or stops",
             states(
                 Glyph::Cross,
-                "DENY",
+                "Deny",
                 danger_button,
                 Variant::Danger,
             ),
         ),
         part(
-            "A WAY BACK",
+            "A way back",
             states(
                 Glyph::Back,
-                "ALL HAMLETS",
+                "All hamlets",
                 back_link,
                 Variant::Text,
             ),
         ),
-        part("A TEXT FIELD", fields()),
+        part("A text field", fields()),
         part(
-            "A SLIDER",
+            "One of a few",
+            row((
+                cell(
+                    "Two",
+                    styles::segmented_words(
+                        ["Manual", "Auto"],
+                        0,
+                        |_, _| {},
+                    )
+                    .boxed(),
+                ),
+                cell(
+                    "Three, under the pointer",
+                    styles::segmented_words(
+                        ["A day", "A week", "A month"],
+                        2,
+                        |_, _| {},
+                    )
+                    .boxed(),
+                ),
+            ))
+            .gap(16.0)
+            .boxed(),
+        ),
+        part(
+            "A slider",
             bevy_fynix::views::slider(bevy_fynix::resource::<
                 SoundSettings,
                 _,
@@ -284,9 +307,9 @@ pub(super) fn controls() -> Ui {
             })
             .boxed(),
         ),
-        part("MENU TITLES", titles()),
-        part("TABS", tabs()),
-        part("CARDS AND POPUPS", popups()),
+        part("Menu titles", titles()),
+        part("Tabs", tabs()),
+        part("Cards and popups", popups()),
     ))
     .width(percent(100.0))
     .height(percent(100.0))
@@ -353,6 +376,20 @@ pub(super) fn hold_message(
     }
 }
 
+/// Asks before a rewind to the last of the chief's messages, as its
+/// mark does, once the chat has settled.
+pub(super) fn ask_rewind(world: &mut World, mut updates: Local<u32>) {
+    *updates += 1;
+    if *updates != SETTLED {
+        return;
+    }
+    let mut rows = world.query::<&chat::Rewinds>();
+    let last = rows.iter(world).max_by_key(|row| row.at).cloned();
+    if let Some(row) = last {
+        chat::ask_rewind(world, row.session, &row.entry);
+    }
+}
+
 /// Keeps every held control in its state, and presses the ones shown
 /// as done when the [`Strike`] comes.
 pub(super) fn hold(
@@ -390,9 +427,7 @@ pub(super) fn hold(
     let typed = line
         .iter()
         .flat_map(|children| children.iter().copied())
-        .filter(|child| texts.contains(*child))
-        // The field made last, of the two that are shown.
-        .max();
+        .find(|child| texts.contains(*child));
     if let Some(typed) = typed
         && focus.get() != Some(typed)
     {

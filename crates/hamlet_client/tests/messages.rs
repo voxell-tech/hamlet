@@ -252,7 +252,7 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
     assert_eq!(seen.rewound[0].text, "removed words");
     assert_eq!(seen.responses.len(), 2);
     for value in [
-        serde_json::json!({"type":"read", "to":id, "prompt":"prompt"}),
+        serde_json::json!({"type":"read", "to":id, "prompt":[{"name":"charter", "text":"prompt"}]}),
         serde_json::json!({"type":"login", "to":id, "login":"flow", "step":{"done":"done"}}),
         serde_json::json!({"type":"fault", "to":id, "text":"addressed failure"}),
         serde_json::json!({"type":"transcript", "to":id, "chat":{"with":2}, "items":[], "earlier":null, "last":null, "pending":0,"working":false, "usage":{"calls":0,"unreported":0,"input":0,"cached":0,"output":0,"reasoning":0,"ms":0,"micros":0,"lastInput":0,"summary":"No model calls yet"}}),

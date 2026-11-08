@@ -353,6 +353,7 @@ async fn lists_prices_and_bills_an_endpoints_models() {
                 output: 3.0
             }),
             priced: ListedPriced::Yours,
+            title: "org/large".into(),
         })
     );
     let hand = s.hand();
@@ -385,8 +386,8 @@ async fn gives_plain_words_for_http_refusals_and_charges_nothing() {
     for (status, expected) in [
         (
             401,
-            "That key was not accepted. Check that you copied all \
-             of it and that it is still active.",
+            "That key was not accepted. Check it was copied whole \
+             and is still active.",
         ),
         (
             402,
@@ -395,8 +396,8 @@ async fn gives_plain_words_for_http_refusals_and_charges_nothing() {
         ),
         (
             403,
-            "That key was not accepted. Check that you copied all \
-             of it and that it is still active.",
+            "That key was not accepted. Check it was copied whole \
+             and is still active.",
         ),
     ] {
         endpoint.enqueue([openai::Response {

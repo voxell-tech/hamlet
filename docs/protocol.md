@@ -171,9 +171,9 @@ Each row is a `Read` form with `type: "read"` and `id`.
 
 | `what` | Fields | `ReadResult` payload |
 |---|---|---|
-| `prompt` | `agent: AgentId` | `prompt: string`: the composed prompt. |
+| `prompt` | `agent: AgentId` | `prompt: [{name, text}]`: the composed prompt, section by section in the order the model reads them, each named for its source (`charter`, `machine`, `project`, `character`, `memory`, `skills`, `place`, `realm`, `scholars`, `budget` or `errand`). |
 | `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
-| `models` | `refresh?: boolean` | `models: Listed[]`: name, price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown) and `fast` (whether its provider has a fast tier). `refresh` refreshes discovery. |
+| `models` | `refresh?: boolean` | `models: Listed[]`: name, `title` (what its provider calls it; empty when it gives no name), price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown) and `fast` (whether its provider has a fast tier). `refresh` refreshes discovery. |
 | `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's lodge `learned` against its scholar, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
 
@@ -217,7 +217,7 @@ full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
 `Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `number`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `<hamlet>#<number>`, `worker#<id>`), a hire's `nickname` (`null` while it goes by its scholar's name), `purpose`, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), `mayor`, `busy` and
-`faulted` flags, `activity`, `saying`, `spent`, `since`, `skills`, `consulting` and
+`faulted` flags, `activity`, `saying`, `spent`, `since`, `skills`, a hire's `allowance` (dollars a budget period, left out while it has none), a hire's `toolsOff` (the built-in tools turned off for it, left out while none are), `consulting` and
 `conversations` (the peer conversations it holds), and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`

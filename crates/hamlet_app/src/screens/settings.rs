@@ -1,8 +1,9 @@
 //! The settings screen: a front page of its parts, each on a page
 //! of its own.
 
+mod appearance;
 mod sight;
-mod workspace;
+pub(crate) mod workspace;
 
 use bevy::app::{App, Update};
 use bevy::ecs::observer::On;
@@ -11,33 +12,40 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{
-    AlignItems, Overflow, OverflowAxis, UiRect, percent, px,
-};
+use bevy::ui::{AlignItems, Overflow, OverflowAxis, percent, px};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    FrameProps, TooltipExt, column, dropdown, frame, label,
-    number_field, row, scroll, slider,
+    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
+    label, number_field, row, scroll, slider,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use bevy_fynix::{
+    Prop, ScopedExt, ViewExt, derived, keyed, resource,
+};
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{Confinement, Grants, Settings};
+use hamlet_client::realm::{
+    Confinement, Grants, Providers, Settings,
+};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::{Effort, client as protocol};
+use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
-    close, description, hairline, list, nav_list, note, parts,
-    section, small_rules, text_input,
+    Fills, ICON, action, bad_action, bare, beside, breadcrumb,
+    buttons, close, description, list, nav_list, note, page_head,
+    parts, pill, section, small_rules, text_input, title, valued_row,
 };
+use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
+use crate::appearance::Appearance;
 use crate::dock::{PanelAppExt, panel};
+use crate::roll::{either, moved};
+use crate::root::Lasting;
 use crate::world_menu::{self, Deed};
 
 pub fn plugin(app: &mut App) {
@@ -90,10 +98,12 @@ pub enum Pane {
     Sound,
     /// How the world is drawn: quality, the hour and the fog.
     Sight,
+    /// Light, dark, or as the computer is set.
+    Appearance,
 }
 
 impl Pane {
-    const PAGES: [Pane; 8] = [
+    const PAGES: [Pane; 9] = [
         Pane::Endpoints,
         Pane::Models,
         Pane::Agents,
@@ -102,58 +112,111 @@ impl Pane {
         Pane::Realm,
         Pane::Sound,
         Pane::Sight,
+        Pane::Appearance,
     ];
 
     fn title(self) -> &'static str {
         match self {
-            Pane::Front => "SETTINGS",
-            Pane::Endpoints => "ENDPOINTS",
-            Pane::Models => "MODELS",
-            Pane::Agents => "AGENTS",
-            Pane::Workspace => "WORKSPACE",
-            Pane::Charter => "CHARTER",
-            Pane::Realm => "REALM",
-            Pane::Sound => "SOUND",
-            Pane::Sight => "SIGHT",
+            Pane::Front => "Settings",
+            Pane::Endpoints => "Endpoints",
+            Pane::Models => "Models",
+            Pane::Agents => "Agent behaviour",
+            Pane::Workspace => "Workspace",
+            Pane::Charter => "Charter",
+            Pane::Realm => "Realm limits",
+            Pane::Sound => "Sound",
+            Pane::Sight => "Sight",
+            Pane::Appearance => "Appearance",
         }
     }
 
     fn glyph(self) -> Glyph {
         match self {
             Pane::Front => Glyph::Sliders,
-            Pane::Endpoints => Glyph::Globe,
+            Pane::Endpoints => Glyph::Signal,
             Pane::Models => Glyph::Chip,
             Pane::Agents => Glyph::Robot,
             Pane::Workspace => Glyph::Shield,
             Pane::Charter => Glyph::Notes,
-            Pane::Realm => Glyph::Signpost,
-            Pane::Sound => Glyph::Bell,
+            Pane::Realm => Glyph::Globe,
+            Pane::Sound => Glyph::Speaker,
             Pane::Sight => Glyph::Sun,
+            Pane::Appearance => Glyph::Eye,
         }
     }
 
-    fn holds(self) -> &'static str {
-        match self {
-            Pane::Front => "",
-            Pane::Endpoints => {
-                "Where models come from, and their keys."
-            }
-            Pane::Models => {
-                "The default model and the models' prices."
-            }
+    /// What the page holds now, as the index shows it beside its
+    /// name. None for a page with no one value to show.
+    fn now(self) -> Option<Prop<String>> {
+        Some(match self {
+            Pane::Endpoints => derived(|world: &World| {
+                let endpoints =
+                    world.resource::<Settings>().0.endpoints.len();
+                let providers = world
+                    .get_resource::<Providers>()
+                    .map_or(0, |providers| {
+                        providers
+                            .0
+                            .iter()
+                            .filter(|provider| provider.configured)
+                            .count()
+                    });
+                match endpoints + providers {
+                    0 => "None".to_string(),
+                    n => format!("{n} connected"),
+                }
+            })
+            .when(either(moved::<Settings>(), moved::<Providers>()))
+            .into(),
+            Pane::Models => shown::<Settings>(|s| {
+                crate::models::model_name(&s.0.model).to_string()
+            }),
             Pane::Agents => {
-                "Reflection, network access and keeping awake."
+                shown::<Settings>(|s| match s.0.reflect_every {
+                    0 => "Reflection off".to_string(),
+                    n => format!("Reflect every {n}"),
+                })
             }
-            Pane::Workspace => {
-                "Where agents' commands run and their lodges are \
-                 kept."
+            Pane::Workspace => shown::<Settings>(|s| {
+                let remote = s.0.workspace.url.is_some();
+                workspace::CHOICES[usize::from(remote)].to_string()
+            }),
+            // Read only while its page is open: shown once it has
+            // been.
+            Pane::Charter => derived(|world: &World| {
+                if !world.resource::<CharterRequests>().loaded {
+                    return String::new();
+                }
+                charter_state(world.resource::<Charter>()).to_string()
+            })
+            .when(either(
+                moved::<Charter>(),
+                moved::<CharterRequests>(),
+            ))
+            .into(),
+            Pane::Sound => shown::<SoundSettings>(|s| {
+                if s.muted { "Off" } else { "On" }.to_string()
+            }),
+            Pane::Sight => {
+                shown::<Quality>(|quality| quality.name().to_string())
             }
-            Pane::Charter => "What every agent is told.",
-            Pane::Realm => "Limits that apply to every hamlet.",
-            Pane::Sound => "Sound, music and the land's noises.",
-            Pane::Sight => "Quality, the time of day and the fog.",
-        }
+            Pane::Appearance => shown::<Appearance>(|appearance| {
+                appearance.pick().mode.name().to_string()
+            }),
+            Pane::Front | Pane::Realm => return None,
+        })
     }
+}
+
+/// What `read` makes of `R`, or nothing while there is no `R`.
+fn shown<R: Resource>(
+    read: impl Fn(&R) -> String + Send + Sync + 'static,
+) -> Prop<String> {
+    derived(move |world: &World| {
+        world.get_resource::<R>().map(&read).unwrap_or_default()
+    })
+    .when(moved::<R>())
+    .into()
 }
 
 /// A setting's switch or field, and under it its words.
@@ -163,6 +226,11 @@ fn told(control: impl View, words: impl View) -> impl View {
             .gap(cx.theme().space.gap / 2.0)
             .align(AlignItems::FlexStart)
     })
+}
+
+/// A setting's control alone, as wide as itself.
+fn alone(control: impl View) -> impl View {
+    column((control,)).align(AlignItems::FlexStart)
 }
 
 /// A warning under the network switch while the confinement does not
@@ -204,15 +272,6 @@ const CHARACTER_MOST: usize = 4000;
 
 /// The key of the default character in the editor.
 const CHARACTER_KEY: &str = "default-character";
-
-/// The start of `text` on one line.
-fn start_of(text: &str) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    match flat.char_indices().nth(CHARACTER_SHOWN) {
-        Some((cut, _)) => format!("{}...", &flat[..cut]),
-        None => flat,
-    }
-}
 
 /// Opens the default character in the editor.
 fn edit_default_character(world: &mut World) {
@@ -337,7 +396,7 @@ fn agents() -> impl View {
         field(
             "Default character",
             told(
-                action(Glyph::Rename, "EDIT", edit_default_character)
+                action(Glyph::Rename, "Edit", edit_default_character)
                     .tooltip(|| {
                         note("Opens the text in your editor")
                     }),
@@ -347,7 +406,7 @@ fn agents() -> impl View {
                     } else {
                         format!(
                             "A scholar made blank starts from: {}",
-                            start_of(&s.0.character)
+                            cut(&s.0.character, CHARACTER_SHOWN)
                         )
                     }
                 })),
@@ -362,20 +421,7 @@ fn agents() -> impl View {
                         save(world, |set| set.allow_net = Some(on));
                     },
                 ),
-                column((
-                    description(resource::<Settings, _>(|s| {
-                        if s.0.allow_net {
-                            "Agents' commands can reach the internet."
-                                .to_string()
-                        } else {
-                            "Agents' commands cannot reach the \
-                             internet."
-                                .to_string()
-                        }
-                    })),
-                    not_enforced(),
-                ))
-                .gap(2.0),
+                not_enforced(),
             ),
         ),
         field(
@@ -428,11 +474,11 @@ fn permissions() -> AnyView {
             })
             .unwrap_or_default()
     })
-    .when(crate::roll::moved::<Grants>());
+    .when(moved::<Grants>());
     keyed(held, |held| {
         if held.is_empty() {
             return description(
-                "None yet. Choosing Always Allow on a petition adds \
+                "None yet. Choosing Allow always on a petition adds \
                  one.",
             )
             .boxed();
@@ -454,7 +500,7 @@ fn permissions() -> AnyView {
                         row((description(says),)).fills_width(),
                         bad_action(
                             Glyph::Cross,
-                            "REVOKE",
+                            "Revoke",
                             move |world| {
                                 crate::chat::command(
                                     world,
@@ -604,46 +650,69 @@ pub(crate) fn default_charter(world: &mut World) {
     requests.edit = Some(id);
 }
 
-/// The words every agent's prompt opens with, and the ways to change
-/// them and to have the built-in ones again.
-fn charter_page(cx: &Cx) -> impl View + use<> {
+/// Whether the realm keeps a charter of its own, as its pill says.
+fn charter_state(charter: &Charter) -> &'static str {
+    if charter.own { "Edited" } else { "Default" }
+}
+
+/// `text` with the lead of each paragraph that opens with one, as
+/// "Tools: ..." or a line "How you improve yourself:" does, made a
+/// heading.
+fn with_heads(text: &str) -> String {
+    let mut lines = Vec::new();
+    let mut opens = true;
+    for line in text.lines() {
+        let lead = line.split_once(':').filter(|(lead, rest)| {
+            opens
+                && (1..=4).contains(&lead.split_whitespace().count())
+                && lead.chars().all(|c| c.is_alphabetic() || c == ' ')
+                && (rest.is_empty() || rest.starts_with(' '))
+        });
+        match lead {
+            Some((lead, rest)) => {
+                lines.push(format!("### {lead}"));
+                if !rest.trim().is_empty() {
+                    lines.push(rest.trim_start().to_string());
+                }
+            }
+            None => lines.push(line.to_string()),
+        }
+        opens = line.trim().is_empty();
+    }
+    lines.join("\n")
+}
+
+/// The words every agent's prompt opens with, set as a document, and
+/// the ways to change them and to have the built-in ones again.
+fn charter_page() -> impl View {
     let actions = keyed(resource::<Charter, _>(|c| c.own), |own| {
-        let edit = action(Glyph::Rename, "EDIT", edit_charter)
+        let edit = action(Glyph::Rename, "Edit", edit_charter)
             .tooltip(|| note("Opens the file in your editor"))
             .boxed();
         let mut actions = vec![edit];
         if *own {
             actions.push(action(
                 Glyph::Restore,
-                "BACK TO THE DEFAULT",
+                "Back to the default",
                 |world| world_menu::ask(world, Deed::DefaultCharter),
             ));
         }
         buttons(actions).boxed()
     })
     .within(bare());
-    let shown =
-        keyed(resource::<Charter, _>(|c| c.text.clone()), |text| {
-            hamlet_ui::markdown::fixed(text, Tone::Body).boxed()
-        })
-        .within(bare());
+    let shown = keyed(
+        resource::<Charter, _>(|c| with_heads(&c.text)),
+        |text| hamlet_ui::markdown::page(text, Tone::Body).boxed(),
+    )
+    .within(bare());
     parts((
-        description(
-            "Every agent reads this at the start of each turn.",
-        ),
-        note(resource::<Charter, _>(|charter| {
-            if charter.own {
-                "The realm's own charter.".to_string()
-            } else {
-                "The default charter.".to_string()
-            }
-        })),
-        actions,
-        label(resource::<CharterRequests, _>(|requests| {
-            requests.error.clone()
-        }))
-        .tone(Tone::Critical),
-        hairline(cx.theme().palette.gold_6),
+        close((
+            actions,
+            label(resource::<CharterRequests, _>(|requests| {
+                requests.error.clone()
+            }))
+            .tone(Tone::Critical),
+        )),
         shown,
     ))
 }
@@ -738,95 +807,111 @@ fn sound() -> impl View {
         ),
         field(
             "Wildlife",
-            told(
-                sound_switch(
-                    |s| s.wildlife_on,
-                    |s, on| s.wildlife_on = on,
-                ),
-                description("Birds, owls and other animals."),
-            ),
+            alone(sound_switch(
+                |s| s.wildlife_on,
+                |s, on| s.wildlife_on = on,
+            )),
         ),
         field(
             "Ambience",
-            told(
-                sound_switch(
-                    |s| s.ambience_on,
-                    |s, on| s.ambience_on = on,
-                ),
-                description(
-                    "The wind and the other sounds of the land.",
-                ),
-            ),
+            alone(sound_switch(
+                |s| s.ambience_on,
+                |s, on| s.ambience_on = on,
+            )),
         ),
     ))
 }
 
 fn nav_item(pane: Pane) -> AnyView {
-    hamlet_ui::styles::nav_row(
-        pane.glyph(),
-        pane.title(),
-        pane.holds(),
-        move |world| *world.resource_mut::<Pane>() = pane,
-    )
+    valued_row(pane.glyph(), pane.title(), pane.now(), move |world| {
+        *world.resource_mut::<Pane>() = pane;
+    })
 }
 
-/// The way back to the first-run screen.
-fn again() -> impl View {
-    with_cx(|cx| {
-        let gap = cx.theme().space.gap;
-        column((
-            description("Choose again where your model comes from."),
-            action(
-                Glyph::Restore,
-                "SET UP AGAIN",
-                crate::welcome::again,
-            ),
-        ))
-        .gap(gap / 2.0)
-        .padding(UiRect::top(px(gap)))
-        .align(AlignItems::FlexStart)
-    })
+/// The way back to the first-run screen, as a row of the index.
+fn again() -> AnyView {
+    hamlet_ui::styles::nav_row(
+        Glyph::Restore,
+        "First-run setup",
+        None,
+        crate::welcome::again,
+    )
 }
 
 /// The Settings panel's contents.
 pub fn screen() -> AnyView {
     let page = keyed(resource::<Pane, _>(|pane| *pane), |pane| {
         if *pane == Pane::Front {
-            let (pages, foot) =
-                (Pane::PAGES.map(nav_item).into(), again().boxed());
-            return with_cx(move |cx| nav_list(cx, pages, foot))
-                .boxed();
+            let mut pages: Vec<AnyView> =
+                Pane::PAGES.map(nav_item).into();
+            pages.push(again());
+            return with_cx(move |cx| {
+                column((
+                    title(Pane::Front.title()),
+                    nav_list(cx, pages),
+                ))
+                .gap(cx.theme().space.section)
+            })
+            .boxed();
         }
         let body = match pane {
             Pane::Endpoints => crate::models::endpoints().boxed(),
             Pane::Models => crate::models::shelf().boxed(),
             Pane::Agents => agents().boxed(),
             Pane::Workspace => workspace::page().boxed(),
-            Pane::Charter => with_cx(charter_page).boxed(),
+            Pane::Charter => charter_page().boxed(),
             Pane::Realm => crate::limits::realm().boxed(),
             Pane::Sight => sight::page().boxed(),
+            Pane::Appearance => appearance::page().boxed(),
             Pane::Front | Pane::Sound => sound().boxed(),
         };
-        let head = breadcrumb(
-            vec!["SETTINGS".into()],
-            pane.title(),
-            |world, _| *world.resource_mut::<Pane>() = Pane::Front,
+        let head = page_head(
+            breadcrumb(
+                vec!["Settings".into()],
+                pane.title(),
+                |world, _| {
+                    *world.resource_mut::<Pane>() = Pane::Front;
+                },
+            ),
+            match pane {
+                Pane::Charter => beside((
+                    title(pane.title()),
+                    pill(resource::<Charter, _>(|charter| {
+                        charter_state(charter).to_string()
+                    })),
+                ))
+                .boxed(),
+                _ => title(pane.title()).boxed(),
+            },
         );
         with_cx(move |cx| {
-            column((head, body)).gap(cx.theme().space.panel)
+            column((head, body)).gap(cx.theme().space.section)
         })
         .boxed()
     });
     AnyView::new(move |cx: &mut Cx| {
-        let width = cx.theme().space.page_width;
-        let page =
-            page.within(column(()).gap(0.0).max_width(px(width)));
+        let space = &cx.theme().space;
+        let (page_width, table_width) =
+            (space.page_width, space.table_width);
+        let width = resource::<Pane, _>(move |pane| {
+            px(if *pane == Pane::Models {
+                table_width
+            } else {
+                page_width
+            })
+        });
+        let page = page.within(column(()).gap(0.0).max_width(width));
         // It scrolls down only: a page is laid out to the panel's
         // width.
-        cx.build(scroll((page,)).fills_height().overflow(Overflow {
-            x: OverflowAxis::Clip,
-            y: OverflowAxis::Scroll,
-        }))
+        cx.build(
+            scroll((page,))
+                .fills_height()
+                .overflow(Overflow {
+                    x: OverflowAxis::Clip,
+                    y: OverflowAxis::Scroll,
+                })
+                .tagged(Lasting("settings".into())),
+        )
     })
 }
 
@@ -919,16 +1004,12 @@ mod tests {
                 .value(),
             "7"
         );
-        assert!(
-            words_and_spans(&mut app).iter().any(|text| text
-                == "Agents' commands can reach the internet.")
-        );
     }
     #[test]
     fn received_grants_show_the_giver_and_revoke_through_the_hand() {
         let mut app = settings_page(Pane::Agents);
         assert!(words_and_spans(&mut app).iter().any(|text| text
-            == "None yet. Choosing Always Allow on a petition \
+            == "None yet. Choosing Allow always on a petition \
                 adds one."));
         let grant = protocol::Grant {
             agent: Some(protocol::AgentId(2)),
@@ -952,7 +1033,7 @@ mod tests {
             words_and_spans(&mut app).iter().any(|text| text
                 == "ada may use: network (given by chief)")
         );
-        crate::testing::press(&mut app, "REVOKE");
+        crate::testing::press(&mut app, "Revoke");
         assert_eq!(
             requests(&mut app),
             [serde_json::json!({
@@ -985,12 +1066,12 @@ mod tests {
         let shown = words_and_spans(&mut app).join("\n");
         assert!(
             shown.contains(
-                "None yet. Choosing Always Allow on a petition adds \
+                "None yet. Choosing Allow always on a petition adds \
                  one."
             ),
             "{shown}"
         );
-        assert!(!shown.contains("REVOKE"));
+        assert!(!shown.contains("Revoke"));
         assert!(!shown.contains("given by limits"));
     }
 
@@ -1028,13 +1109,25 @@ mod tests {
             "{shown:?}"
         );
         assert!(
-            shown
-                .iter()
-                .any(|text| text == "The realm's own charter."),
+            shown.iter().any(|text| text == "Edited"),
             "{shown:?}"
         );
         assert!(
-            shown.iter().any(|text| text == "BACK TO THE DEFAULT")
+            shown.iter().any(|text| text == "Back to the default")
+        );
+    }
+
+    #[test]
+    fn a_paragraphs_lead_becomes_a_heading_and_other_colons_stay() {
+        let text = "You are an agent of ours: kind.\n\nTools: \
+                    `bash` runs.\n- A list: item.\n\nHow you \
+                    improve yourself:\n- Notes.\n\nhttps://a.example \
+                    helps.";
+        assert_eq!(
+            with_heads(text),
+            "You are an agent of ours: kind.\n\n### Tools\n`bash` \
+             runs.\n- A list: item.\n\n### How you improve \
+             yourself\n- Notes.\n\nhttps://a.example helps."
         );
     }
 
@@ -1077,7 +1170,7 @@ mod tests {
         );
         settle(&mut app);
         requests(&mut app);
-        crate::testing::press(&mut app, "EDIT");
+        crate::testing::press(&mut app, "Edit");
         let edits = &app.world().resource::<Edits>().0;
         assert_eq!(edits.len(), 1);
         assert_eq!(edits[0].key, "charter");
@@ -1133,11 +1226,11 @@ mod tests {
             app.world_mut(),
             world_menu::view(),
         );
-        crate::testing::press(&mut app, "BACK TO THE DEFAULT");
+        crate::testing::press(&mut app, "Back to the default");
         settle(&mut app);
         assert!(requests(&mut app).is_empty());
-        assert!(words_and_spans(&mut app).iter().any(|text| text == "GO BACK TO THE DEFAULT CHARTER?"));
-        crate::testing::press(&mut app, "USE THE DEFAULT");
+        assert!(words_and_spans(&mut app).iter().any(|text| text == "Go back to the default charter?"));
+        crate::testing::press(&mut app, "Use the default");
         let id = app
             .world()
             .resource::<Outbox>()
@@ -1189,16 +1282,14 @@ mod tests {
         );
         settle(&mut app);
         let shown = words_and_spans(&mut app);
-        assert!(
-            shown.iter().any(|text| text == "The default charter.")
-        );
+        assert!(shown.iter().any(|text| text == "Default"));
         assert!(
             shown
                 .iter()
                 .any(|text| text == "The server's default words.")
         );
         assert!(
-            !shown.iter().any(|text| text == "BACK TO THE DEFAULT")
+            !shown.iter().any(|text| text == "Back to the default")
         );
         assert!(
             !shown

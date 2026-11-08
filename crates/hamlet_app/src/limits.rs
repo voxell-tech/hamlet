@@ -10,10 +10,10 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, label, number_field, row,
+    BehaviorExt, FrameProps, column, label, number_field, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
@@ -21,8 +21,9 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Bylaws, HamletId, RealmBylaws};
 use hamlet_protocol::client::{self as protocol, Limits, Period};
 use hamlet_ui::styles::{
-    Fills, action, bare, beside, breadcrumb, choices, close,
-    description, group, nav_list, nav_row, note, parts, text_input,
+    Fills, action, bare, beside, breadcrumb, close, description,
+    group, nav_list, nav_row, note, parts, segmented_words,
+    text_input,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch as toggle;
@@ -309,8 +310,8 @@ fn budget(hamlet: Entity) -> impl View {
                 }
             }),
             |chosen| {
-                choices(
-                    ["A DAY", "A MONTH"],
+                segmented_words(
+                    ["A day", "A month"],
                     *chosen,
                     |world, chosen| {
                         let period =
@@ -330,11 +331,8 @@ fn budget(hamlet: Entity) -> impl View {
         .boxed()
     });
     group((
-        heading(Glyph::Meter, "THE BUDGET"),
-        fine(
-            "The most model calls may cost in a period. 0 means no \
-             limit.",
-        ),
+        heading(Glyph::Meter, "The budget"),
+        fine("0 means no limit."),
         line("It starts again every", period),
         line(
             "May spend, in dollars",
@@ -343,7 +341,7 @@ fn budget(hamlet: Entity) -> impl View {
         beside((
             action(
                 Glyph::Restore,
-                "START IT AGAIN NOW",
+                "Start it again now",
                 move |world| {
                     crate::overview::tell(
                         world,
@@ -356,7 +354,7 @@ fn budget(hamlet: Entity) -> impl View {
         ))
         .tagged(hamlet_ui::widgets::platform::Wraps)
         .boxed(),
-        heading(Glyph::Coins, "ONE TASK"),
+        heading(Glyph::Coins, "One task"),
         fine("Counted across every agent the task touches."),
         line(
             "May cost, in dollars",
@@ -374,7 +372,7 @@ fn budget(hamlet: Entity) -> impl View {
 /// tree and its roads.
 fn leads() -> impl View {
     group((
-        heading(Glyph::Mayor, "WAITS FOR YOU"),
+        heading(Glyph::Mayor, "Waits for you"),
         fine("What the leads may not do without asking you first."),
         line(
             "Hire a scholar",
@@ -392,7 +390,7 @@ fn leads() -> impl View {
             "Lay roads",
             switch("reserved", "roads", |l| l.reserved.roads).boxed(),
         ),
-        heading(Glyph::Signpost, "THE TREE AND ITS ROADS"),
+        heading(Glyph::Signpost, "The tree and its roads"),
         line(
             "Deepest tree under the mayor",
             whole("", "depth", |l| l.depth, 1000).boxed(),
@@ -415,7 +413,7 @@ fn leads() -> impl View {
             "Price of a road, in dollars",
             cost("road", "price", |l| Some(l.road.price)).boxed(),
         ),
-        heading(Glyph::Clock, "WHAT HIRES ARE TOLD"),
+        heading(Glyph::Clock, "What hires are told"),
         line(
             "Days of decisions each hire is told",
             whole("", "toldDays", |l| l.told_days, 3650).boxed(),
@@ -445,8 +443,8 @@ pub fn realm() -> AnyView {
                 }
             }),
             |chosen| {
-                choices(
-                    ["A DAY", "A MONTH"],
+                segmented_words(
+                    ["A day", "A month"],
                     *chosen,
                     |world, chosen| {
                         let period =
@@ -498,11 +496,8 @@ pub fn realm() -> AnyView {
         .boxed()
     });
     group((
-        heading(Glyph::Globe, "THE REALM"),
-        fine(
-            "The Hand's budget, and what holds between hamlets. 0 \
-             means no limit.",
-        ),
+        heading(Glyph::Globe, "The realm"),
+        fine("0 means no limit."),
         line("The Hand's budget starts again every", period),
         line("The Hand may spend, in dollars", spend),
         line("Mayors may agree roads between hamlets", roads),
@@ -517,26 +512,64 @@ pub fn panel(hamlet: Entity) -> AnyView {
             if *part == Part::Front {
                 return AnyView::new(
                     move |cx: &mut hamlet_ui::Cx| {
-                        let parts = Part::PAGES
-                            .into_iter()
-                            .map(|part| {
+                        let space = &cx.theme().space;
+                        let padded = |part: AnyView| {
+                            column((part,))
+                                .padding(UiRect::axes(
+                                    px(space.card_padding_x),
+                                    px(space.card_padding_y),
+                                ))
+                                .boxed()
+                        };
+                        // The folder it works on and its approvals
+                        // lead the list, open where the others lead
+                        // to a page.
+                        let open = [
+                            padded(
+                                crate::folder::section(hamlet)
+                                    .boxed(),
+                            ),
+                            padded(
+                                crate::folder::approvals(hamlet)
+                                    .boxed(),
+                            ),
+                        ];
+                        let rows =
+                            Part::PAGES.into_iter().map(|part| {
                                 nav_row(
                                     part.glyph(),
                                     part.title(),
-                                    part.holds(),
+                                    Some(
+                                        resource::<Book, _>(
+                                            move |book| {
+                                                book.limits
+                                                    .as_ref()
+                                                    .map_or(
+                                                    part.holds()
+                                                        .to_string(),
+                                                    |limits| {
+                                                        part.now(
+                                                            limits,
+                                                        )
+                                                    },
+                                                )
+                                            },
+                                        )
+                                        .into(),
+                                    ),
                                     move |world| {
                                         *world
                                             .resource_mut::<Part>() =
                                             part;
                                     },
                                 )
-                            })
+                            });
+                        let parts = open
+                            .into_iter()
+                            .chain(rows)
                             .collect::<Vec<_>>();
-                        let foot =
-                            fine("These apply to this hamlet only.")
-                                .boxed();
                         cx.build(with_cx(move |cx| {
-                            nav_list(cx, parts, foot)
+                            nav_list(cx, parts)
                         }))
                     },
                 );
@@ -550,7 +583,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
             };
             parts((
                 breadcrumb(
-                    vec!["BYLAWS".into()],
+                    vec!["Bylaws".into()],
                     part.title(),
                     |world, _| {
                         *world.resource_mut::<Part>() = Part::Front;
@@ -593,10 +626,10 @@ impl Part {
 
     fn title(self) -> &'static str {
         match self {
-            Part::Front => "BYLAWS",
-            Part::Budget => "BUDGET",
-            Part::Models => "MODELS",
-            Part::Leads => "THE LEADS AND LIMITS",
+            Part::Front => "Bylaws",
+            Part::Budget => "Budget",
+            Part::Models => "Models",
+            Part::Leads => "Leads and limits",
         }
     }
 
@@ -609,6 +642,64 @@ impl Part {
         }
     }
 
+    /// What the part holds now, as its row on the front says it.
+    fn now(self, limits: &Limits) -> String {
+        let dollars = |cost: Option<f64>| match cost {
+            Some(cost) if cost > 0.0 => format!("${cost:.2}"),
+            _ => "No limit".to_string(),
+        };
+        match self {
+            Part::Front => String::new(),
+            Part::Budget => format!(
+                "{} {}, {} a task",
+                dollars(limits.budget.cost),
+                match limits.budget.period {
+                    Period::Day => "a day",
+                    Period::Month => "a month",
+                },
+                dollars(limits.task.cost).to_lowercase(),
+            ),
+            Part::Models => match &limits.model {
+                Some(model) => {
+                    format!(
+                        "Runs {}",
+                        crate::models::model_name(model)
+                    )
+                }
+                None => "Runs the realm's default model".to_string(),
+            },
+            Part::Leads => {
+                let kept = [
+                    (limits.reserved.hire, "hire"),
+                    (limits.reserved.end, "end a hire"),
+                    (limits.reserved.merge, "merge"),
+                    (limits.reserved.roads, "link agents"),
+                ]
+                .into_iter()
+                .filter(|(kept, _)| *kept)
+                .map(|(_, what)| what)
+                .collect::<Vec<_>>();
+                let asks = match kept.split_last() {
+                    None => {
+                        "Leads act without asking you".to_string()
+                    }
+                    Some((last, [])) => {
+                        format!("Leads ask you before they {last}")
+                    }
+                    Some((last, rest)) => format!(
+                        "Leads ask you before they {} or {last}",
+                        rest.join(", ")
+                    ),
+                };
+                format!(
+                    "{asks}. Hires go {} levels deep at most, with \
+                     up to {} links between agents.",
+                    limits.depth, limits.road.most
+                )
+            }
+        }
+    }
+
     fn holds(self) -> &'static str {
         match self {
             Part::Front => "",
@@ -616,7 +707,7 @@ impl Part {
             Part::Models => "Which models this hamlet may run.",
             Part::Leads => {
                 "What the leads may do without asking, and the caps \
-                 on the tree and its roads."
+                 on hires and the links between agents."
             }
         }
     }
@@ -823,7 +914,7 @@ mod tests {
     fn period_is_text_and_a_free_road_is_not_an_uncapped_meter() {
         use crate::testing::press;
         let (mut app, _) = page(Part::Budget);
-        press(&mut app, "A MONTH");
+        press(&mut app, "A month");
         assert_eq!(
             edits(&app)[0]["set"],
             json!({"section": "budget", "key": "period", "value": "month"})

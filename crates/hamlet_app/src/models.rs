@@ -2,6 +2,7 @@
 
 mod choice;
 mod home;
+mod row;
 
 use std::collections::BTreeMap;
 
@@ -18,11 +19,15 @@ use hamlet_client::Connection;
 use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
+use hamlet_client::realm::{Account, Providers};
 use hamlet_protocol::client as protocol;
 
 pub(crate) use self::choice::{efforts, of_hamlet};
 pub(crate) use self::home::narrowed;
 pub use self::home::{endpoints, shelf};
+pub(crate) use self::row::{
+    Detail, ModelRow, legend, mark, model_row, over_rows, tag,
+};
 use crate::PanelSystems;
 use crate::settings::Pane;
 
@@ -76,6 +81,85 @@ enum Asked {
 pub struct Draft {
     narrow: String,
     page: usize,
+}
+
+/// The provider of the catalogue's model `model`, which names it
+/// `provider::id`.
+pub(crate) fn provider_of(model: &str) -> &str {
+    model.split_once("::").map_or("", |(provider, _)| provider)
+}
+
+/// The name `model` is shown by. The catalogue gives a model no name
+/// but `provider::id`, so it is the last part of its id: `large` for
+/// `openrouter::maker/large`.
+pub(crate) fn model_name(model: &str) -> &str {
+    let id = model.split_once("::").map_or(model, |(_, id)| id);
+    id.rsplit('/').next().unwrap_or(id)
+}
+
+/// What `model` is called: what its provider calls it, else its
+/// [`model_name`].
+pub(crate) fn title_of(model: &protocol::Listed) -> String {
+    match model.title.is_empty() {
+        true => model_name(&model.name).to_string(),
+        false => model.title.clone(),
+    }
+}
+
+/// What the catalogue's model `name` is called, as [`title_of`]; its
+/// [`model_name`] while the catalogue does not list it.
+pub(crate) fn model_title(world: &World, name: &str) -> String {
+    world
+        .get_resource::<Shelf>()
+        .and_then(|shelf| {
+            shelf.models.iter().find(|model| model.name == name)
+        })
+        .map_or_else(|| model_name(name).to_string(), title_of)
+}
+
+/// The name of the provider `id`, as the server lists it, else its
+/// id.
+pub(crate) fn provider_name(world: &World, id: &str) -> String {
+    world
+        .get_resource::<Providers>()
+        .and_then(|providers| {
+            providers.0.iter().find(|provider| provider.id == id)
+        })
+        .map_or_else(
+            || id.to_string(),
+            |provider| provider.name.clone(),
+        )
+}
+
+/// Where `model` comes from: its provider's name, and its id where
+/// that says more than its name.
+pub(crate) fn source_of(world: &World, model: &str) -> String {
+    let Some((provider, id)) = model.split_once("::") else {
+        return String::new();
+    };
+    let provider = provider_name(world, provider);
+    if id == model_name(model) {
+        provider
+    } else {
+        format!("{provider} · {id}")
+    }
+}
+
+/// How many tokens a model holds, in thousands or millions.
+fn context_words(context: i64) -> String {
+    match context >= 1_000_000 {
+        true => format!("{}M", context / 1_000_000),
+        false => format!("{}k", context / 1000),
+    }
+}
+
+/// An agent's model by its name, and what it spent.
+pub(crate) fn account_words(account: &Account) -> String {
+    if account.model.is_empty() {
+        account.cost.clone()
+    } else {
+        format!("{} · {}", model_name(&account.model), account.cost)
+    }
 }
 
 fn follow(world: &mut World) {
@@ -232,13 +316,12 @@ mod tests {
         incoming(
             &mut app,
             json!({"type":"read", "to":requests[0]["id"], "models":[
-                {"name":"far::large", "price":{"input":3.0,"output":15.0}, "priced":"listed", "context":200000, "defaultEffort":null, "efforts":[], "fast":false, "note":"For hard questions."}
+                {"name":"far::large", "price":{"input":3.0,"output":15.0}, "priced":"listed", "context":200000, "defaultEffort":null, "efforts":[], "fast":false, "note":"For hard questions.", "title":"Large"}
             ]}),
         );
         mount::<HamletTheme>(app.world_mut(), shelf());
         let shown = all_words(&mut app);
-        for text in ["far::large", "3.00", "15.00", "listed", "200k"]
-        {
+        for text in ["Large", "3.00", "15.00", "200k"] {
             assert!(shown.contains(text), "{shown}");
         }
     }
@@ -250,7 +333,7 @@ mod tests {
         incoming(
             &mut app,
             json!({"type":"read", "to":read["id"], "models":[
-                {"name":"far::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":""}
+                {"name":"far::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":"", "title":""}
             ]}),
         );
         app
@@ -295,7 +378,7 @@ mod tests {
             all_words(&mut app)
                 .contains("The catalogue could not be saved.")
         );
-        press_and_update(&mut app, "LIST MODELS");
+        press_and_update(&mut app, "Refresh");
         let read = sent(&mut app).remove(0);
         assert_eq!(read["what"], "models");
         assert_eq!(read["refresh"], true);
@@ -313,8 +396,8 @@ mod tests {
             .unwrap()
             .0;
         mount::<HamletTheme>(app.world_mut(), of_hamlet(hamlet));
-        press_and_update(&mut app, "faux::faux-1");
-        press_and_update(&mut app, "far::small");
+        press_and_update(&mut app, "faux-1");
+        press_and_update(&mut app, "small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["whole"]["model"], "far::small");
         assert_eq!(edit["whole"]["road"]["most"], 24);

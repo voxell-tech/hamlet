@@ -9,7 +9,7 @@ use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, label, row, text_field,
+    frame, label, menu_button, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
@@ -19,19 +19,21 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, ICON, action, back_link, bad_action, bare, breadcrumb,
-    buttons, good_action, hairline, note, scroll_area,
-    status_label_large, text_input, title,
+    Fills, ICON, action, back_link, bad_action, bare, beside,
+    breadcrumb, buttons, good_action, note, page_head, scroll_area,
+    text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, with_cx};
 
+use super::details::{section, section_line};
 use super::thread::dim;
-use super::{Showing, memory, papers, show};
+use super::{Showing, memory, rail, show};
 use crate::chat;
 use crate::convo::talk_to;
-use crate::overview::{heading, typed};
+use crate::overview::typed;
+use crate::standing::Standing;
 
 /// The deeds a scholar's page offers, in the names the server
 /// advertises them by.
@@ -59,10 +61,13 @@ pub struct Form {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum Act {
+    /// A new name, which its hires go by too.
+    Rename,
     Tag,
     /// A fork from a version, or from `main`.
     Fork(Option<String>),
-    Purge,
+    /// The taking of one file out of its whole history.
+    Purge(String),
     Remove,
     /// The erasing for good of a scholar that was archived.
     Erase,
@@ -170,16 +175,19 @@ fn command(
     second: &str,
 ) -> Option<String> {
     let (first, second) = (first.trim(), second.trim());
-    if first.is_empty() && !matches!(act, Act::Revert(_)) {
+    if first.is_empty()
+        && !matches!(act, Act::Revert(_) | Act::Purge(_))
+    {
         return None;
     }
     Some(match act {
+        Act::Rename => format!("/name-scholar {address} {first}"),
         Act::Tag => format!("/tag {address} {first} {second}"),
         Act::Fork(Some(from)) => {
             format!("/fork {address}@{from} {first}")
         }
         Act::Fork(None) => format!("/fork {address} {first}"),
-        Act::Purge => format!("/purge {address} {first}"),
+        Act::Purge(path) => format!("/purge {address} {path}"),
         Act::Remove => format!("/remove-scholar {address} {first}"),
         // Only when its name is typed, as nothing brings it back.
         Act::Erase if first == name => {
@@ -210,64 +218,77 @@ fn field<M: Component>(marker: M) -> impl View {
 /// The fields and buttons of the deed being asked for.
 fn form(address: String, name: String, act: Act) -> AnyView {
     let (words, first, second) = match &act {
+        Act::Rename => (
+            "Give it a new name. Its hires keep working as it."
+                .to_string(),
+            Some("new name"),
+            None,
+        ),
         Act::Tag => (
             "Name this version of its main, with a note.".to_string(),
-            "version",
+            Some("version"),
             Some("note"),
         ),
         Act::Fork(Some(from)) => (
             format!("Make a new scholar from {from}."),
-            "new scholar's name",
+            Some("new scholar's name"),
             None,
         ),
         Act::Fork(None) => (
             "Make a new scholar from its main.".to_string(),
-            "new scholar's name",
+            Some("new scholar's name"),
             None,
         ),
-        Act::Purge => (
-            "Take a file out of its whole history.".to_string(),
-            "path",
+        Act::Purge(path) => (
+            format!(
+                "Take {path} out of every commit and version, for \
+                 good."
+            ),
+            None,
             None,
         ),
-        Act::Remove => {
-            ("Archive it and end its hires.".to_string(), "why", None)
-        }
+        Act::Remove => (
+            "Archive it and end its hires.".to_string(),
+            Some("why"),
+            None,
+        ),
         Act::Erase => (
             "Erase it, its repository and its hires for good. \
              Nothing brings it back."
                 .to_string(),
-            "type its name",
+            Some("type its name"),
             None,
         ),
         Act::Revert(_) => (
             "Undo that version's commit of its main.".to_string(),
-            "why (optional)",
+            Some("why (optional)"),
             None,
         ),
     };
-    let remove = matches!(act, Act::Remove | Act::Purge | Act::Erase);
+    let remove = is_careful(&act);
     let go = {
         let act = act.clone();
         move |world: &mut World| run(world, &address, &name, &act)
     };
     let ready = if remove {
-        bad_action(Glyph::Check, "DO IT", go)
+        bad_action(Glyph::Check, "Do it", go)
     } else {
-        good_action(Glyph::Check, "DO IT", go)
+        good_action(Glyph::Check, "Do it", go)
     };
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
-        let mut parts = vec![
-            note(words).boxed(),
-            row((
-                label(first).tone(Tone::Faint).wrap(false),
-                field(First),
-            ))
-            .gap(gap)
-            .align(AlignItems::Center)
-            .boxed(),
-        ];
+        let mut parts = vec![note(words).boxed()];
+        if let Some(first) = first {
+            parts.push(
+                row((
+                    label(first).tone(Tone::Faint).wrap(false),
+                    field(First),
+                ))
+                .gap(gap)
+                .align(AlignItems::Center)
+                .boxed(),
+            );
+        }
         if let Some(second) = second {
             parts.push(
                 row((
@@ -282,7 +303,7 @@ fn form(address: String, name: String, act: Act) -> AnyView {
         parts.push(
             buttons(vec![
                 ready,
-                action(Glyph::Cross, "CANCEL", |world| {
+                action(Glyph::Cross, "Cancel", |world| {
                     world.resource_mut::<Form>().act = None;
                 }),
             ])
@@ -293,46 +314,103 @@ fn form(address: String, name: String, act: Act) -> AnyView {
     .boxed()
 }
 
-fn form_view(address: String, name: String) -> impl View {
+/// The form of the deed asked for, where `here` says it belongs to
+/// the part of the page this stands in.
+fn form_view(
+    address: String,
+    name: String,
+    here: fn(&Act) -> bool,
+) -> impl View {
     keyed(resource::<Form, _>(|form| form.act.clone()), move |act| {
         match act {
-            Some(act) => {
+            Some(act) if here(act) => {
                 form(address.clone(), name.clone(), act.clone())
             }
-            None => column(()).boxed(),
+            _ => column(()).boxed(),
         }
     })
     .within(bare())
 }
 
-/// What its arrival says, and the deeds that change it.
+/// Whether `act` changes the scholar for good.
+fn is_careful(act: &Act) -> bool {
+    matches!(act, Act::Purge(_) | Act::Remove | Act::Erase)
+}
+
+/// Whether `act` is done from the foot of the page, where what ends
+/// the scholar is.
+fn is_of_foot(act: &Act) -> bool {
+    matches!(act, Act::Remove | Act::Erase)
+}
+
+/// Whether `act` is done from the menu of a memory file.
+fn is_of_memory(act: &Act) -> bool {
+    matches!(act, Act::Purge(_))
+}
+
+/// Whether `act` is done from the card of its versions.
+fn is_of_versions(act: &Act) -> bool {
+    matches!(act, Act::Tag | Act::Fork(Some(_)) | Act::Revert(_))
+}
+
+/// Whether `act` is done from the buttons under the scholar's name.
+fn is_of_header(act: &Act) -> bool {
+    matches!(act, Act::Rename | Act::Fork(None))
+}
+
+/// Where the scholar stands, said beside its name: in the city, at
+/// the harbor or archived.
+fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
+    match (&scholar.left, scholar.arrival) {
+        (Some(_), _) => ("Archived", Tone::Dim),
+        (None, protocol::Arrival::Housed) => {
+            ("In the city", Tone::Dim)
+        }
+        (None, protocol::Arrival::Waiting) => {
+            ("Waits at the harbor", Standing::Waits.tone())
+        }
+        (None, protocol::Arrival::Turned) => {
+            ("Turned away at the harbor", Tone::Dim)
+        }
+    }
+}
+
+/// The deeds under its name: a new name, and what changes where it
+/// stands short of sending it away.
 fn arrival(shown: &Shown) -> AnyView {
     let address = scholar_address(shown.scholar.id);
     let can = |deed| shown.allowed.contains(&deed);
-    // Living in the city is what a scholar does, so only the rest
-    // is said.
-    let said = match (&shown.scholar.left, shown.scholar.arrival) {
-        (Some(_), _) => {
-            Some((Glyph::Gone, "Archived", Tone::Critical))
-        }
-        (None, protocol::Arrival::Housed) => None,
-        (None, protocol::Arrival::Waiting) => {
-            Some((Glyph::Bell, "Waits at the harbor", Tone::Critical))
-        }
-        (None, protocol::Arrival::Turned) => Some((
-            Glyph::Gone,
-            "Turned away at the harbor",
-            Tone::Dim,
-        )),
-    };
     let mut buttons_row = Vec::new();
+    if shown.scholar.left.is_none() && can("name-scholar") {
+        buttons_row.push(action(Glyph::Rename, "Rename", |world| {
+            ask(world, Act::Rename);
+        }));
+    }
+    if shown.scholar.left.is_none() && can("fork") {
+        buttons_row.push(
+            action(
+                Glyph::Scholar,
+                "New scholar from this one",
+                |world| {
+                    ask(world, Act::Fork(None));
+                },
+            )
+            .tooltip(|| {
+                note(
+                    "Start another scholar knowing all this one \
+                     knows now",
+                )
+            })
+            .boxed(),
+        );
+    }
     match (&shown.scholar.left, shown.scholar.arrival) {
         (Some(_), _) => {
             if can("restore-scholar") {
                 let address = address.clone();
                 buttons_row.push(good_action(
                     Glyph::Restore,
-                    "RESTORE",
+                    "Restore",
                     move |world| {
                         tell_hand(
                             world,
@@ -342,13 +420,13 @@ fn arrival(shown: &Shown) -> AnyView {
                 ));
             }
         }
-        // Picked up and set down in the world; sending it back is
-        // among the careful acts at the foot.
+        // Picked up and set down in the world, or sent back to wait
+        // at the harbor.
         (None, protocol::Arrival::Housed) => {
             if can("move-house") {
                 let scholar = shown.entity;
                 buttons_row.push(
-                    action(Glyph::Move, "MOVE HOUSE", move |world| {
+                    action(Glyph::Move, "Move house", move |world| {
                         hamlet_realm::orders::carry_house(
                             world, scholar,
                         );
@@ -368,7 +446,7 @@ fn arrival(shown: &Shown) -> AnyView {
                 let address = address.clone();
                 buttons_row.push(good_action(
                     Glyph::Check,
-                    "WELCOME INTO THE CITY",
+                    "Welcome into the city",
                     move |world| {
                         tell_hand(
                             world,
@@ -379,20 +457,16 @@ fn arrival(shown: &Shown) -> AnyView {
             }
         }
     }
-    let mut parts = said
-        .map(|(glyph, words, tone)| {
-            status_label_large(glyph, words, tone).boxed()
-        })
-        .into_iter()
-        .collect::<Vec<_>>();
-    parts.push(buttons(buttons_row).boxed());
-    column(parts).gap(6.0).boxed()
+    buttons(buttons_row).boxed()
 }
 
-/// The versions, each with what can be done from it.
+/// The versions in their section, each with what can be done from it,
+/// and the form of what was asked for from them.
 fn versions(shown: &Shown) -> AnyView {
     let can = |deed| shown.allowed.contains(&deed);
-    let mut parts = vec![heading(Glyph::History, "VERSIONS")];
+    let address = scholar_address(shown.scholar.id);
+    let scholar = shown.scholar.name.clone();
+    let mut parts = Vec::new();
     if shown.scholar.versions.is_empty() {
         parts.push(note("No version is named yet.").boxed());
     }
@@ -400,19 +474,6 @@ fn versions(shown: &Shown) -> AnyView {
     // it, named in full there.
     for version in shown.scholar.versions.iter().rev() {
         let name = version.name.clone();
-        let mut choices = Vec::<(String, Act)>::new();
-        if can("fork") {
-            choices.push((
-                format!("Make a new scholar from {name}"),
-                Act::Fork(Some(name.clone())),
-            ));
-        }
-        if can("revert") {
-            choices.push((
-                format!("Undo the change {name} named"),
-                Act::Revert(name.clone()),
-            ));
-        }
         let followers = shown
             .hires
             .iter()
@@ -434,30 +495,24 @@ fn versions(shown: &Shown) -> AnyView {
             );
         }
         line.push(frame().grow(1.0).boxed());
-        if !choices.is_empty() {
-            let names = choices
-                .iter()
-                .map(|(n, _)| n.clone())
-                .collect::<Vec<_>>();
-            let acts = choices
-                .into_iter()
-                .map(|(_, a)| a)
-                .collect::<Vec<_>>();
-            let none = names.len();
-            line.push(
-                dropdown(
-                    names,
-                    none,
-                    Glyph::Chevron.image(ICON),
-                    move |world, chosen| {
-                        if let Some(act) = acts.get(chosen) {
-                            ask(world, act.clone());
-                        }
-                    },
-                )
-                .placeholder("Actions")
-                .boxed(),
-            );
+        let mut deeds = Vec::new();
+        if can("fork") {
+            deeds.push((
+                format!("Make a new scholar from {name}"),
+                Act::Fork(Some(name.clone())),
+            ));
+        }
+        if can("revert") {
+            deeds.push((
+                format!("Undo the change saved as {name}"),
+                Act::Revert(name.clone()),
+            ));
+        }
+        if !deeds.is_empty() {
+            line.push(deed_menu(
+                "What can be done from this version",
+                deeds,
+            ));
         }
         parts.push(
             row(line).gap(8.0).align(AlignItems::Center).boxed(),
@@ -466,46 +521,68 @@ fn versions(shown: &Shown) -> AnyView {
     let mut acts = Vec::new();
     if can("tag") {
         acts.push(
-            action(Glyph::Plus, "SAVE AS A VERSION", |world| {
+            action(Glyph::Plus, "Save as a version", |world| {
                 ask(world, Act::Tag);
             })
             .tooltip(|| note("Name what the scholar knows now"))
             .boxed(),
         );
     }
-    if can("fork") {
-        acts.push(
-            action(
-                Glyph::NewSession,
-                "NEW SCHOLAR FROM THIS ONE",
-                |world| {
-                    ask(world, Act::Fork(None));
-                },
-            )
-            .tooltip(|| {
-                note(
-                    "Start another scholar knowing all this one \
-                     knows now",
-                )
-            })
-            .boxed(),
-        );
-    }
     parts.push(buttons(acts).boxed());
-    column(parts).gap(6.0).boxed()
+    parts.push(form_view(address, scholar, is_of_versions).boxed());
+    section(Glyph::History, "Versions", None, column(parts).gap(4.0))
 }
 
-/// Its hires, each led to and pinned to a version from here.
+/// The "..." button that opens each of `deeds`, named in full, with
+/// what it asks for, and `tip` under the pointer.
+fn deed_menu(
+    tip: &'static str,
+    deeds: Vec<(String, Act)>,
+) -> AnyView {
+    let (words, acts): (Vec<_>, Vec<_>) = deeds.into_iter().unzip();
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let acts = acts.clone();
+        menu_button("", words.clone(), move |world, at| {
+            if let Some(act) = acts.get(at) {
+                ask(world, act.clone());
+            }
+        })
+        .icon(Glyph::More.image(ICON))
+        .padding(UiRect::axes(px(8.0), px(4.0)))
+        .fill(theme.palette.button)
+        .border(theme.space.border)
+        .border_color(theme.palette.gold_5)
+        .radius(theme.space.round)
+        .tooltip(move || note(tip))
+    })
+    .boxed()
+}
+
+/// Its hires in their section, each led to and pinned to a version
+/// from here.
 fn hires(shown: &Shown) -> AnyView {
-    let mut parts = vec![heading(Glyph::Robot, "HIRES")];
     if shown.hires.is_empty() {
-        parts.push(note("Nobody works as it now.").boxed());
+        return section_line(
+            Glyph::Robot,
+            "Hires",
+            dim("Nobody works as it now.").boxed(),
+        );
     }
+    let mut parts = Vec::new();
     let pins = shown.allowed.contains(&"pin");
     let mut names = vec!["main".to_string()];
     names.extend(
         shown.scholar.versions.iter().map(|v| v.name.clone()),
     );
+    // `main` is what the scholar knows now.
+    let words = names
+        .iter()
+        .map(|name| match name.as_str() {
+            "main" => "Latest".to_string(),
+            version => version.to_string(),
+        })
+        .collect::<Vec<_>>();
     for shown_hire in &shown.hires {
         let hire = shown_hire.entity;
         let address = shown_hire.address.clone();
@@ -532,10 +609,20 @@ fn hires(shown: &Shown) -> AnyView {
         ];
         if pins {
             let picked = choices.clone();
-            line.push(label("Follows").tone(Tone::Faint).boxed());
+            line.push(
+                label("Version")
+                    .tone(Tone::Faint)
+                    .tooltip(|| {
+                        note(
+                            "The version of what the scholar knows \
+                             that this hire works from",
+                        )
+                    })
+                    .boxed(),
+            );
             line.push(
                 dropdown(
-                    choices,
+                    words.clone(),
                     now,
                     Glyph::Chevron.image(ICON),
                     move |world, chosen| {
@@ -556,76 +643,86 @@ fn hires(shown: &Shown) -> AnyView {
             row(line).gap(8.0).align(AlignItems::Center).boxed(),
         );
     }
-    column(parts).gap(6.0).boxed()
+    section(Glyph::Robot, "Hires", None, column(parts).gap(4.0))
 }
 
-/// Its skills and the character a chief may edit.
-fn knowledge() -> impl View {
-    column((
-        heading(Glyph::Robot, "CHARACTER"),
-        memory::character(),
-        row((action(Glyph::Rename, "EDIT", papers::edit_character),)),
-        heading(Glyph::Notes, "MEMORY"),
-        memory::view(),
-        heading(Glyph::Book, "SKILLS"),
-        memory::skills(),
-    ))
-    .gap(6.0)
+/// What it knows, each part in its section: the character a chief may
+/// edit, its memory with a dream that tidies it, and its skills.
+fn knowledge(shown: &Shown) -> [AnyView; 3] {
+    [
+        memory::character_section(),
+        section(
+            Glyph::Notes,
+            "Memory",
+            None,
+            column((
+                memory::view(dream(shown), file_menu(shown)),
+                form_view(
+                    scholar_address(shown.scholar.id),
+                    shown.scholar.name.clone(),
+                    is_of_memory,
+                ),
+            ))
+            .gap(8.0),
+        ),
+        memory::skills_section(),
+    ]
 }
 
-/// What the scholar is called, typed over: Enter gives it the name.
-/// Names are labels that may change and repeat, so the scholar stays
-/// the one at its address.
-fn renaming(shown: &Shown) -> AnyView {
-    if shown.scholar.left.is_some()
-        || !shown.allowed.contains(&"name-scholar")
-    {
-        return frame().boxed();
-    }
+/// What makes the button of a dream, which brings home what its hires
+/// learned, while the scholar may have one.
+fn dream(
+    shown: &Shown,
+) -> impl Fn() -> Option<AnyView> + Send + Sync + 'static {
+    let may = shown.scholar.left.is_none()
+        && shown.allowed.contains(&"dream");
     let address = scholar_address(shown.scholar.id);
-    let had = shown.scholar.name.clone();
-    let field = text_field(had.clone(), move |world, typed| {
-        let typed = typed.trim().to_string();
-        if !typed.is_empty() && typed != had {
-            tell_hand(
-                world,
-                format!("/name-scholar {address} {typed}"),
-            );
-        }
-    })
-    .grow(1.0)
-    .min_width(px(0.0))
-    .rules(text_input);
-    with_cx(move |cx| {
-        let gap = cx.theme().space.gap;
-        row((label("Called").tone(Tone::Faint).wrap(false), field))
-            .gap(gap)
-            .align(AlignItems::Center)
+    move || {
+        let address = address.clone();
+        may.then(|| {
+            action(
+                Glyph::Rename,
+                "Note what its hires learned",
+                move |world| {
+                    tell_hand(world, format!("/dream {address}"));
+                },
+            )
+            .tooltip(|| {
+                note(
+                    "Brings home what its hires learned, and tidies \
+                     its memory",
+                )
+            })
             .boxed()
-    })
-    .boxed()
-}
-
-/// What it is good to do to the scholar now and then.
-fn deeds(shown: &Shown) -> AnyView {
-    let address = scholar_address(shown.scholar.id);
-    if shown.scholar.left.is_some()
-        || !shown.allowed.contains(&"dream")
-    {
-        return frame().boxed();
+        })
     }
-    action(Glyph::Moon, "DREAM", move |world| {
-        tell_hand(world, format!("/dream {address}"));
-    })
-    .tooltip(|| {
-        note("Bring home what its hires learned, and tidy its memory")
-    })
-    .boxed()
 }
 
-/// What changes the scholar for good or sends it away, kept at the
-/// foot of its page under its own heading.
+/// What makes the menu of a memory file, while one may be taken out
+/// of the scholar's history.
+fn file_menu(shown: &Shown) -> memory::FileMenu {
+    let may = shown.scholar.left.is_none()
+        && shown.allowed.contains(&"purge");
+    may.then_some(erase_menu)
+}
+
+/// The menu of the memory file at `path`, which takes it out of the
+/// scholar's whole history.
+fn erase_menu(path: &str) -> AnyView {
+    deed_menu(
+        "What can be done to this file",
+        vec![(
+            "Erase from every version".to_string(),
+            // The memory's paths are inside its folder.
+            Act::Purge(format!("memory/{path}")),
+        )],
+    )
+}
+
+/// What changes the scholar for good, kept at the foot of its page
+/// in its own section.
 fn careful(shown: &Shown) -> AnyView {
+    let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
     let can = |deed| shown.allowed.contains(&deed);
     let living = shown.scholar.left.is_none();
@@ -634,41 +731,33 @@ fn careful(shown: &Shown) -> AnyView {
         && shown.scholar.arrival == protocol::Arrival::Housed
         && can("turn-away")
     {
-        acts.push(action(
-            Glyph::Back,
-            "SEND TO THE HARBOR",
-            move |world| {
-                tell_hand(world, format!("/turn-away {address}"));
-            },
-        ));
-    }
-    if living && can("purge") {
+        let address = address.clone();
         acts.push(
-            bad_action(
-                Glyph::Delete,
-                "ERASE A FILE FROM ITS HISTORY",
-                |world| {
-                    ask(world, Act::Purge);
+            action(
+                Glyph::Anchor,
+                "Send to the harbor",
+                move |world| {
+                    tell_hand(world, format!("/turn-away {address}"));
                 },
             )
             .tooltip(|| {
                 note(
-                    "Removes one file, like memory/notes.md, from \
-                     every commit and version, for good",
+                    "Takes its house out of the city. It waits at \
+                     the harbor until it is welcomed back",
                 )
             })
             .boxed(),
         );
     }
     if living && can("remove-scholar") {
-        acts.push(bad_action(Glyph::Gone, "REMOVE", |world| {
+        acts.push(bad_action(Glyph::Gone, "Remove", |world| {
             ask(world, Act::Remove);
         }));
     }
     if !living && can("erase-scholar") {
         acts.push(bad_action(
             Glyph::Delete,
-            "ERASE FOR GOOD",
+            "Erase for good",
             |world| {
                 ask(world, Act::Erase);
             },
@@ -677,56 +766,70 @@ fn careful(shown: &Shown) -> AnyView {
     if acts.is_empty() {
         return frame().boxed();
     }
-    column((heading(Glyph::Stop, "CAREFUL"), buttons(acts)))
-        .gap(6.0)
-        .boxed()
+    section(
+        Glyph::Stop,
+        "Careful",
+        None,
+        column((buttons(acts), form_view(address, name, is_of_foot)))
+            .gap(4.0),
+    )
 }
 
-/// The scholar's page: where it stands, its hires, what it knows, its
-/// versions, then what changes it for good.
+/// The scholar's page: where it stands and what it is called, then a
+/// section each for its hires, what it knows, its versions and what
+/// changes it for good.
 fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
-    let rename = renaming(shown);
-    // The field it is renamed in shows its name, in place of a title.
-    let renamed = shown.scholar.left.is_none()
-        && shown.allowed.contains(&"name-scholar");
-    let heading = if renamed {
-        frame().boxed()
-    } else {
-        title(name.to_uppercase()).boxed()
-    };
-    let (head, versions_part, hires_part, deeds_part, careful_part) = (
+    let (stands, tone) = standing(&shown.scholar);
+    let heading =
+        beside((title(name.clone()), label(stands).tone(tone)));
+    let parts = (
         arrival(shown),
-        versions(shown),
         hires(shown),
-        deeds(shown),
+        knowledge(shown),
+        versions(shown),
         careful(shown),
     );
     with_cx(move |cx| {
-        let line = cx.theme().palette.gold_6;
-        let section = cx.theme().space.section;
-        column((
-            breadcrumb(
-                vec!["Realm".into()],
-                name.clone(),
-                |world, _| show(world, Showing::Realm),
-            ),
-            heading,
+        let (
             head,
-            rename,
-            deeds_part,
-            form_view(address, name),
-            hairline(line),
             hires_part,
-            hairline(line),
-            knowledge(),
-            hairline(line),
+            [character_part, memory_part, skills_part],
             versions_part,
-            hairline(line),
             careful_part,
+        ) = parts;
+        column((
+            page_head(
+                breadcrumb(
+                    vec!["Realm".into(), "City".into()],
+                    name.clone(),
+                    |world, at| {
+                        show(world, Showing::Realm);
+                        // The city is the rail's tab that lists it.
+                        if at == 1
+                            && let Some(mut tab) =
+                                world.get_resource_mut::<rail::Tab>()
+                        {
+                            *tab = rail::Tab::City;
+                        }
+                    },
+                ),
+                heading,
+            ),
+            head,
+            form_view(address, name.clone(), is_of_header),
+            column((
+                hires_part,
+                character_part,
+                memory_part,
+                skills_part,
+                versions_part,
+                careful_part,
+            ))
+            .gap(0.0),
         ))
-        .gap(section)
+        .gap(cx.theme().space.section)
     })
     .boxed()
 }

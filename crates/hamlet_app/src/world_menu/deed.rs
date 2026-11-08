@@ -4,11 +4,15 @@
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::{With, Without};
 use bevy::ecs::world::World;
-use bevy::math::{Rect, Vec2};
+use bevy::math::Rect;
 use bevy::ui::px;
+use bevy::ui_widgets::popover::{
+    PopoverAlign, PopoverPlacement, PopoverSide,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, popup, row,
+    BehaviorExt, FrameProps, column, corners, frame, label, popup,
+    row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::messages::Rewind;
@@ -16,11 +20,8 @@ use hamlet_client::realm::{
     self as agents, AgentNumber, Busy, Deeds, HamletId, Left, LivesIn,
 };
 use hamlet_realm::orders;
-use hamlet_ui::styles::{
-    button, danger_button, description, lettered,
-};
+use hamlet_ui::styles::{button, danger_button, lettered};
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{View, built};
 
 use super::close;
@@ -51,9 +52,14 @@ pub(crate) enum Deed {
     Rewind {
         session: Entity,
         entry: String,
+        /// The time of the message, in milliseconds since 1970.
+        at: u64,
     },
     /// Ends the realm's own charter, so the built-in one stands.
     DefaultCharter,
+    /// Copies every lodge to the saved workspace, over the lodges
+    /// there.
+    MoveLodges,
 }
 
 impl Deed {
@@ -105,7 +111,10 @@ impl Deed {
             Deed::DefaultCharter => {
                 crate::settings::default_charter(world);
             }
-            Deed::Rewind { session, entry } => {
+            Deed::MoveLodges => {
+                crate::settings::workspace::move_lodges(world);
+            }
+            Deed::Rewind { session, entry, .. } => {
                 world.trigger(Rewind {
                     chat: *session,
                     item: entry.clone(),
@@ -125,40 +134,39 @@ impl Deed {
             Self::Mayor(_) => "mayor",
             Self::NewSession
             | Self::DefaultCharter
+            | Self::MoveLodges
             | Self::Rewind { .. } => return true,
         };
         Deeds::is_allowed(world, command)
     }
 
     fn question(&self, world: &World) -> String {
-        let name = |agent: &Entity| {
-            agents::shown_of(world, *agent).to_uppercase()
-        };
+        let name = |agent: &Entity| agents::shown_of(world, *agent);
         match self {
-            Deed::End(agent) => format!("END {}?", name(agent)),
+            Deed::End(agent) => format!("End {}?", name(agent)),
             Deed::Merge { absorbed, kept } => format!(
-                "MERGE {} INTO {}?",
+                "Merge {} into {}?",
                 name(absorbed),
                 name(kept)
             ),
             Deed::Close(hamlet) => {
-                format!("CLOSE DOWN {}?", hamlet.to_uppercase())
+                format!("Close down {}?", hamlet)
             }
             Deed::Erase(agent) => {
-                format!("DELETE {} FOR GOOD?", name(agent))
+                format!("Delete {} for good?", name(agent))
             }
-            Deed::Unshelve(skill) => format!(
-                "TAKE {} OUT OF THE LIBRARY?",
-                skill.to_uppercase()
-            ),
-            Deed::NewSession => "START A NEW SESSION?".to_string(),
+            Deed::Unshelve(skill) => {
+                format!("Take {} out of the library?", skill)
+            }
+            Deed::NewSession => "Start a new session?".to_string(),
             Deed::Mayor(agent) => {
-                format!("MAKE {} MAYOR?", name(agent))
+                format!("Make {} mayor?", name(agent))
             }
-            Deed::Rewind { .. } => "REWIND TO HERE?".to_string(),
+            Deed::Rewind { .. } => "Rewind to here?".to_string(),
             Deed::DefaultCharter => {
-                "GO BACK TO THE DEFAULT CHARTER?".to_string()
+                "Go back to the default charter?".to_string()
             }
+            Deed::MoveLodges => "Move every lodge?".to_string(),
         }
     }
 
@@ -205,29 +213,35 @@ impl Deed {
             ),
             Deed::Rewind { .. } => format!(
                 "{} forgets this message and everything after it, \
-                 and the message goes back in the field. Changed \
-                 files, commands that ran, letters and spending are \
-                 not undone.",
+                 and the message goes back in the message box. \
+                 Changed files, commands that ran, letters and \
+                 spending are not undone.",
                 name(&world.resource::<Convo>().agent)
             ),
             Deed::DefaultCharter => "Your own charter is deleted \
                                      from disk. This cannot be \
                                      undone."
                 .to_string(),
+            Deed::MoveLodges => "Each agent's lodge is copied to \
+                                 the saved workspace, and the \
+                                 lodges already there are replaced. \
+                                 This cannot be undone."
+                .to_string(),
         }
     }
 
     fn verb(&self) -> &'static str {
         match self {
-            Deed::End(_) => "END",
-            Deed::Merge { .. } => "MERGE",
-            Deed::Close(_) => "CLOSE DOWN",
-            Deed::Erase(_) => "DELETE",
-            Deed::Unshelve(_) => "TAKE OUT",
-            Deed::NewSession => "NEW SESSION",
-            Deed::Mayor(_) => "MAKE MAYOR",
-            Deed::Rewind { .. } => "REWIND",
-            Deed::DefaultCharter => "USE THE DEFAULT",
+            Deed::End(_) => "End",
+            Deed::Merge { .. } => "Merge",
+            Deed::Close(_) => "Close down",
+            Deed::Erase(_) => "Delete",
+            Deed::Unshelve(_) => "Take out",
+            Deed::NewSession => "New session",
+            Deed::Mayor(_) => "Make mayor",
+            Deed::Rewind { .. } => "Rewind",
+            Deed::DefaultCharter => "Use the default",
+            Deed::MoveLodges => "Replace them",
         }
     }
 
@@ -250,7 +264,8 @@ impl Deed {
             | Deed::NewSession
             | Deed::Mayor(_)
             | Deed::Rewind { .. }
-            | Deed::DefaultCharter => Vec::new(),
+            | Deed::DefaultCharter
+            | Deed::MoveLodges => Vec::new(),
             Deed::Close(hamlet) => {
                 let mut living =
                     world.query_filtered::<(Entity, &LivesIn), (
@@ -272,9 +287,9 @@ impl Deed {
     }
 }
 
-/// The question before `deed`, with a warning for each agent that is
-/// at work.
-pub(crate) fn question(deed: Deed, at: Vec2) -> impl View {
+/// The question before `deed`, against `anchor`, with a warning for
+/// each agent that is at work.
+pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
     built(move |cx| {
         if !deed.is_available(cx.world) {
             return cx.build(frame());
@@ -297,16 +312,13 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> impl View {
             (
                 theme.space.gap,
                 theme.space.section,
-                theme.space.overlay_padding,
+                theme.space.panel,
                 theme.text.heading,
             )
         };
         let body = column((
-            label(deed.question(cx.world))
-                .size(heading)
-                .bold(true)
-                .tagged(DisplayText),
-            description(deed.outcome(cx.world)),
+            label(deed.question(cx.world)).size(heading).bold(true),
+            label(deed.outcome(cx.world)).wrap(true),
             warning,
             row((
                 lettered(deed.verb())
@@ -316,17 +328,39 @@ pub(crate) fn question(deed: Deed, at: Vec2) -> impl View {
                         close(world);
                         done.run(world);
                     }),
-                lettered("CANCEL").rules(button).on_activate(close),
+                lettered("Cancel").rules(button).on_activate(close),
             ))
             .gap(gap),
         ))
         .gap(section)
         .width(px(300.0));
-        cx.build(
-            popup(Rect::from_corners(at, at), (body,))
-                .on_dismiss(|world, _| close(world))
-                .padding(bevy::ui::UiRect::all(px(padding))),
-        )
+        // The chief's own message, at the chat's right, has its
+        // question hang from its right edge, touching it.
+        let placements = match deed {
+            Deed::Rewind { .. } => {
+                [PopoverSide::Bottom, PopoverSide::Top]
+                    .into_iter()
+                    .map(|side| PopoverPlacement {
+                        side,
+                        align: PopoverAlign::End,
+                        gap: 0.0,
+                    })
+                    .collect()
+            }
+            _ => corners(0.0),
+        };
+        let popup = popup(anchor, (body,))
+            .placements(placements)
+            .on_dismiss(|world, _| close(world))
+            .padding(bevy::ui::UiRect::all(px(padding)));
+        // Ringed as the message it asks about is.
+        match deed {
+            Deed::Rewind { .. } => {
+                let ring = cx.theme().palette.accent;
+                cx.build(popup.border_color(ring))
+            }
+            _ => cx.build(popup),
+        }
     })
 }
 

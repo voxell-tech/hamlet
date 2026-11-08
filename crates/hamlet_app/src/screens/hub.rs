@@ -21,6 +21,7 @@ use bevy::ecs::system::{Local, Res};
 use bevy::ecs::world::World;
 use bevy::ui::{percent, px};
 use bevy_fynix::dock::DockWindowKind;
+use bevy_fynix::shortcut::Scope;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::Left;
@@ -30,9 +31,9 @@ use hamlet_ui::widgets::effects::{Highlight, Updated};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, with_cx};
 
-pub(crate) use self::gone::of_agent;
 pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
+pub(crate) use self::rail::under_name;
 pub use self::rail::{Rail, Tab as RailTab};
 pub use self::thread::{Briefing, Sheet};
 use crate::convo::{Convo, seat};
@@ -52,7 +53,7 @@ pub fn plugin(app: &mut App) {
                 },
             )
         })
-        .icon(Glyph::Lens.image(ICON)),
+        .icon(Glyph::Tree.image(ICON)),
     )
     .add_plugins((rail::plugin, visits::plugin))
     .init_resource::<Showing>()
@@ -105,12 +106,23 @@ pub(crate) fn reads_sessions(showing: Res<Showing>) -> bool {
     matches!(*showing, Showing::Thread | Showing::Sessions)
 }
 
-/// Turns the Hub's page to `showing`.
+/// Turns the Hub's page to `showing`, and the rail to the tab that
+/// lists it.
 pub(crate) fn show(world: &mut World, showing: Showing) {
     if let Some(mut now) = world.get_resource_mut::<Showing>()
         && *now != showing
     {
         *now = showing;
+    }
+    let tab = match showing {
+        Showing::Hamlet(_) => rail::Tab::Hamlets,
+        Showing::Scholar(_) => rail::Tab::City,
+        _ => return,
+    };
+    if let Some(mut now) = world.get_resource_mut::<rail::Tab>()
+        && *now != tab
+    {
+        *now = tab;
     }
 }
 
@@ -149,6 +161,7 @@ pub fn screen() -> impl View {
         .fills_height()
         .width(percent(100.0))
         .tagged(rail::Frame)
+        .tagged(Scope(visits::KEYS))
     })
 }
 

@@ -3,9 +3,7 @@
 use bevy::ecs::resource::Resource;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::{Motion, Tone};
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, row,
-};
+use bevy_fynix::views::{FrameProps, column, frame, label, row};
 use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, each, keyed, resource,
 };
@@ -14,7 +12,6 @@ use hamlet_ui::styles::{
     Fills, action, bad_action, description, hidden,
 };
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
 use crate::dock::{HUB, show_tab};
@@ -48,7 +45,7 @@ fn empty_state<R: Resource>(
                 let section = cx.theme().space.section;
                 column((
                     description(hint),
-                    action(Glyph::Talk, "OPEN CHAT", |w| {
+                    action(Glyph::Talk, "Open chat", |w| {
                         show_tab(w, HUB);
                     }),
                 ))
@@ -83,7 +80,7 @@ pub(crate) fn skills() -> impl View {
                 let gone = r.name.clone();
                 let out = bad_action(
                     Glyph::Delete,
-                    "TAKE OUT",
+                    "Take out",
                     move |world| {
                         world_menu::ask(
                             world,
@@ -124,8 +121,7 @@ pub fn card(
         let name = row((label(title)
             .size(cx.theme().text.heading)
             .bold(true)
-            .tone(tone)
-            .tagged(DisplayText),))
+            .tone(tone),))
         .fills_width()
         .boxed();
         let head =

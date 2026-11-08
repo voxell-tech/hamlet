@@ -3,6 +3,7 @@
 //! details take its place while open, and its sessions and prompt are
 //! pages of their own.
 
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
@@ -14,7 +15,7 @@ use bevy_fynix::views::{
     frame, icon, label, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+    ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
 };
 use hamlet_client::realm::{
     Activity, Busy, Kind, Left, LivesIn, Parent, PeerChats, Works,
@@ -24,14 +25,17 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, back_link, bad_action, bare, close, filling,
-    hairline, lettered, note, scroll_area,
+    Fills, ICON, action, bare, card_name, choice, close, crumb,
+    crumb_here, crumb_slash, crumbs, danger_button, filling, framed,
+    hairline, more_button, note, page_head, primary_button,
+    scroll_area, sentence_title, title,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
-use hamlet_ui::{AnyView, View, built, with_cx};
+use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{Showing, conversations, details, show};
 use crate::convo::Convo;
@@ -39,6 +43,7 @@ use crate::history::History;
 use crate::overview::tell;
 use crate::roll::rolled;
 use crate::screens::petition::{self, Need};
+use crate::standing::Standing;
 use crate::{chat, world_menu};
 
 /// What the thread's page shows: its chat, or its details in the
@@ -52,15 +57,30 @@ pub enum Sheet {
 
 /// The tabs between a thread's chat and its details.
 const SHEETS: [(Sheet, Glyph, &str); 2] = [
-    (Sheet::Chat, Glyph::Talk, "CHAT"),
-    (Sheet::Details, Glyph::Sliders, "DETAILS"),
+    (Sheet::Chat, Glyph::Talk, "Chat"),
+    (Sheet::Details, Glyph::Sliders, "Details"),
 ];
 
 /// The system prompt of an agent, as it was last read for the chief.
 #[derive(Resource, Default, PartialEq)]
 pub struct Briefing {
     pub agent: Option<Entity>,
-    pub text: String,
+    pub prompt: Vec<protocol::PromptSection>,
+    /// Why it could not be read.
+    pub failed: Option<String>,
+    /// Whether it went to the clipboard since it was read.
+    pub copied: bool,
+}
+
+impl Briefing {
+    /// The prompt as the model reads it, in one text.
+    fn whole(&self) -> String {
+        self.prompt
+            .iter()
+            .map(|section| section.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
 }
 
 /// An agent's purpose cut short, whole under the pointer.
@@ -227,20 +247,44 @@ fn session_menu() -> impl View {
     .within(bare())
 }
 
-/// A part of the path over the thread that leads somewhere.
-fn step(
-    text: String,
-    to: impl Fn(&mut World) + Send + Sync + 'static,
-) -> impl View {
-    button(label(text).wrap(false))
-        .padding(UiRect::all(px(0.0)))
-        .rules(back_link)
-        .tagged(Variant::Text)
-        .on_activate(to)
+/// Characters of a past session's title its page shows.
+const TITLE_SHOWN: usize = 36;
+
+/// A page under the thread, as its title names it.
+#[derive(Clone, PartialEq)]
+enum Under {
+    Prompt,
+    Sessions,
+    /// A past session, read from the sessions, by its title cut
+    /// short.
+    Session(String),
 }
 
-fn slash() -> impl View {
-    label("/").tone(Tone::Dim).wrap(false)
+impl Under {
+    fn name(&self) -> String {
+        match self {
+            Under::Prompt => "Prompt".into(),
+            Under::Sessions => "Sessions".into(),
+            Under::Session(title) => title.clone(),
+        }
+    }
+
+    /// The head of its page: a session's title as the sentence it is,
+    /// the rest as names, and the prompt's way to copy it at the end
+    /// of that line.
+    fn title(&self) -> AnyView {
+        match self {
+            Under::Session(_) => sentence_title(self.name()).boxed(),
+            Under::Sessions => title(self.name()).boxed(),
+            Under::Prompt => with_cx(|cx| {
+                row((title("Prompt"), frame().grow(1.0), copy()))
+                    .gap(cx.theme().space.gap)
+                    .align(AlignItems::Center)
+                    .width(percent(100.0))
+            })
+            .boxed(),
+        }
+    }
 }
 
 /// What `agent` is called in the path: its nickname, else its address
@@ -254,70 +298,79 @@ fn called(world: &World, agent: Entity) -> String {
     shown_of(world, agent)
 }
 
-/// The chain of command down to the thread: `Realm / hamlet / mayor /
-/// lead / agent / Session n`. Each step above the agent leads to its
-/// page or its thread, and the session to the menu of the others.
-fn path(agent: Entity) -> impl View {
+/// The steps above `agent` in the chain of command, `Realm / hamlet /
+/// mayor / lead /`, each leading to its page or its thread.
+fn above(world: &World, agent: Entity) -> Vec<AnyView> {
+    let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
+    let mut parts = vec![
+        crumb("Realm", |world| show(world, Showing::Realm)).boxed(),
+        crumb_slash().boxed(),
+    ];
+    if let Some(hamlet) = hamlet {
+        parts.push(
+            crumb(name_of(world, hamlet), move |world| {
+                select(world, Some(Thing::Common(hamlet)));
+                show(world, Showing::Hamlet(hamlet));
+            })
+            .boxed(),
+        );
+        parts.push(crumb_slash().boxed());
+    }
+    // The leads above it in its hamlet, the mayor first.
+    let mut leads = Vec::new();
+    let mut at = agent;
+    while let Some(parent) =
+        world.get::<Parent>(at).and_then(|parent| {
+            hamlet_client::realm::agent(world, parent.0)
+        })
+    {
+        let same = world.get::<LivesIn>(parent).map(|l| l.0);
+        if leads.contains(&parent)
+            || hamlet.is_none()
+            || same != hamlet
+        {
+            break;
+        }
+        leads.insert(0, parent);
+        at = parent;
+    }
+    for lead in leads {
+        parts.push(
+            crumb(called(world, lead), move |world| {
+                crate::convo::talk_to(world, lead);
+            })
+            .boxed(),
+        );
+        parts.push(crumb_slash().boxed());
+    }
+    parts
+}
+
+/// The path to the thread, then the pages `under` it.
+fn path(agent: Entity, under: Vec<Under>) -> impl View {
     built(move |cx| {
         let world = &*cx.world;
-        let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
-        let mut parts = vec![
-            step("Realm".into(), |world| show(world, Showing::Realm))
-                .boxed(),
-        ];
-        if let Some(hamlet) = hamlet {
-            parts.push(slash().boxed());
-            parts.push(
-                step(name_of(world, hamlet), move |world| {
-                    select(world, Some(Thing::Common(hamlet)));
-                    show(world, Showing::Hamlet(hamlet));
-                })
-                .boxed(),
-            );
-        }
-        // The leads above it in its hamlet, the mayor first.
-        let mut above = Vec::new();
-        let mut at = agent;
-        while let Some(parent) =
-            world.get::<Parent>(at).and_then(|parent| {
-                hamlet_client::realm::agent(world, parent.0)
-            })
-        {
-            let same = world.get::<LivesIn>(parent).map(|l| l.0);
-            if above.contains(&parent)
-                || hamlet.is_none()
-                || same != hamlet
-            {
-                break;
+        let mut parts = above(world, agent);
+        let name = called(world, agent);
+        parts.push(if under.is_empty() {
+            crumb_here(name).boxed()
+        } else {
+            crumb(name, |world| show(world, Showing::Thread)).boxed()
+        });
+        for (at, page) in under.iter().enumerate() {
+            // A past session's title is too long for the path, so it
+            // only heads its page.
+            if matches!(page, Under::Session(_)) {
+                continue;
             }
-            above.insert(0, parent);
-            at = parent;
+            parts.push(crumb_slash().boxed());
+            parts.push(if at + 1 == under.len() {
+                crumb_here(page.name()).boxed()
+            } else {
+                crumb(page.name(), crate::history::close).boxed()
+            });
         }
-        for lead in above {
-            parts.push(slash().boxed());
-            parts.push(
-                step(called(world, lead), move |world| {
-                    crate::convo::talk_to(world, lead);
-                })
-                .boxed(),
-            );
-        }
-        parts.push(slash().boxed());
-        let address = name_of(world, agent);
-        parts.push(
-            label(called(world, agent))
-                .bold(true)
-                .wrap(false)
-                .tooltip(move || note(address.clone()))
-                .boxed(),
-        );
-        let gap = cx.theme().space.gap;
-        cx.build(
-            row(parts)
-                .gap(gap)
-                .align(AlignItems::Center)
-                .tagged(Wraps),
-        )
+        cx.build(crumbs(parts))
     })
 }
 
@@ -349,7 +402,7 @@ fn waits(agent: Entity) -> impl View {
                 .iter()
                 .copied()
                 .map(|wait| {
-                    AnyView::new(move |cx: &mut hamlet_ui::Cx| {
+                    AnyView::new(move |cx: &mut Cx| {
                         match cx.world.get::<Waiting>(wait) {
                             Some(waiting) => {
                                 let need = Need::of(wait, waiting);
@@ -363,45 +416,43 @@ fn waits(agent: Entity) -> impl View {
             if cards.is_empty() {
                 return frame().boxed();
             }
-            // Never more than part of the page, so the chat stays in
-            // view; the rest scrolls.
             column((scroll_area((column(cards).gap(8.0),)),))
-                .max_height(percent(40.0))
                 .min_height(px(0.0))
                 .boxed()
         },
     )
-    .within(bare())
+    // As tall as the cards, but never more than part of the page, so
+    // the chat stays in view; the rest scrolls.
+    .within(bare().shrink(0.0).max_height(percent(40.0)))
 }
 
-/// The state shown for `agent`: its waits first, then work or rest.
-fn standing(world: &World, agent: Entity) -> (Glyph, Tone, String) {
-    if !waits_of(world, agent).is_empty() {
-        return (Glyph::Bell, Tone::Critical, "Waits for you".into());
-    }
-    let words = world
-        .get::<Activity>(agent)
-        .cloned()
-        .unwrap_or_default()
-        .words;
-    match world.get::<Busy>(agent) {
-        Some(_) => (Glyph::Bolt, Tone::Accent, words),
-        None => (Glyph::Moon, Tone::Faint, words),
-    }
-}
-
-/// What it is doing, with the mark of its state.
+/// Its state, by its name, and what it works on while it works.
 fn state(agent: Entity) -> impl View {
-    let words = label(rolled(move |world| standing(world, agent).2))
-        .tone(rolled(move |world| standing(world, agent).1));
+    let standing = move |world: &World| Standing::of(world, agent);
     let mark = icon(rolled(move |world| {
-        standing(world, agent).0.image(ICON)
+        standing(world).glyph().image(ICON)
     }))
     .size(ICON)
-    .tone(rolled(move |world| standing(world, agent).1));
-    row((mark, words.wrap(false)))
+    .tone(rolled(move |world| standing(world).tone()));
+    let word = label(rolled(move |world| {
+        standing(world).word().to_string()
+    }))
+    .tone(rolled(move |world| standing(world).tone()))
+    .wrap(false);
+    let doing = label(rolled(move |world| {
+        if standing(world) != Standing::Works {
+            return String::new();
+        }
+        world
+            .get::<Activity>(agent)
+            .map(|activity| activity.words.clone())
+            .unwrap_or_default()
+    }))
+    .tone(Tone::Dim);
+    row((mark, word, column((one_line(doing),)).min_width(px(0.0))))
         .gap(5.0)
         .align(AlignItems::Center)
+        .min_width(px(0.0))
 }
 
 fn header(agent: Entity) -> impl View {
@@ -409,17 +460,9 @@ fn header(agent: Entity) -> impl View {
         // Everything else that can be done to it, as a right click on
         // it in the world offers: a new session, gifts, its prompt,
         // stopping, roads, merging, ending.
-        let more = button(glyph(Glyph::More, ICON))
-            .padding(UiRect::axes(px(8.0), px(4.0)))
-            .rules(hamlet_ui::styles::button)
-            .tagged(Variant::Default)
-            .tooltip(|| {
-                note(
-                    "A new session, its prompt, gifts, roads, \
-                     ending it",
-                )
-            })
-            .on_activate(move |world| {
+        let more = more_button(
+            "A new session, its prompt, gifts, roads, ending it",
+            move |world| {
                 let hall = hamlet_client::realm::first_mayor(world);
                 let thing = if hall == Some(agent) {
                     Thing::Keeper
@@ -427,7 +470,8 @@ fn header(agent: Entity) -> impl View {
                     Thing::Agent(agent)
                 };
                 world_menu::open_for(world, thing);
-            });
+            },
+        );
         // Which of its chats the chat tab shows: this session, an
         // earlier one, its letters and questions, its workers. It is
         // there on both tabs, so that the tabs keep their place.
@@ -437,16 +481,24 @@ fn header(agent: Entity) -> impl View {
                  questions with other agents, or a worker it started",
             )
         });
-        let gap = cx.theme().space.gap;
+        let address = name_of(cx.world, agent);
+        let name = title(called(cx.world, agent))
+            .tooltip(move || note(address.clone()));
+        let space = &cx.theme().space;
+        let (gap, section) = (space.gap, space.section);
         cx.build(
-            // The path with its state; under it the tabs between the
-            // chat and the details, the one shown underlined, with
-            // what the chat tab shows and the rest at their end.
+            // The path, then the name with its state; under them the
+            // tabs between the chat and the details, the one shown
+            // underlined, with what the chat tab shows and the rest
+            // at their end.
             column((
-                row((path(agent), frame().grow(1.0), state(agent)))
-                    .gap(gap)
-                    .align(AlignItems::Center)
-                    .tagged(Wraps),
+                page_head(
+                    path(agent, Vec::new()),
+                    row((name, state(agent)))
+                        .gap(section)
+                        .align(AlignItems::Center)
+                        .min_width(px(0.0)),
+                ),
                 row((
                     column((tabs::strip(&SHEETS, |world, sheet| {
                         *world.resource_mut::<Sheet>() = sheet;
@@ -459,30 +511,52 @@ fn header(agent: Entity) -> impl View {
                 .gap(gap)
                 .align(AlignItems::Center),
             ))
-            .gap(gap),
+            .gap(section),
         )
     })
 }
 
 /// The chip of the model, its effort and its tier, which opens the
-/// popup they are chosen in.
+/// popup they are chosen in and is lit while it is open.
 fn model_chip(agent: Entity) -> impl View {
-    button(
-        row((
-            label(rolled(move |world| {
-                world_menu::chip_words(world, agent)
-            }))
-            .wrap(false),
-            glyph(Glyph::Chevron, ICON),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center),
+    keyed(
+        derived(move |world: &World| {
+            world_menu::is_picking(world, agent)
+        })
+        .when(every_frame()),
+        move |open| {
+            button(
+                row((
+                    world_menu::chip(agent),
+                    glyph(Glyph::Chevron, 12.0),
+                ))
+                .gap(6.0)
+                .align(AlignItems::Center),
+            )
+            .padding(UiRect::axes(px(8.0), px(0.0)))
+            .rules(chip_look(*open))
+            .tagged(Variant::Text)
+            .tagged(world_menu::Hook::Chip)
+            .on_activate(move |world| {
+                world_menu::ask_model(world, agent);
+            })
+            .boxed()
+        },
     )
-    .padding(UiRect::axes(px(8.0), px(0.0)))
-    .min_height(px(hamlet_ui::styles::CONTROL))
-    .rules(hamlet_ui::styles::button)
-    .tagged(Variant::Default)
-    .on_activate(move |world| world_menu::ask_model(world, agent))
+    .within(bare())
+}
+
+/// The look of a chip of the composer: a choice, outlined at rest so
+/// it reads as one.
+fn chip_look(open: bool) -> impl FnOnce(&mut Cx) {
+    move |cx| {
+        choice(open)(cx);
+        if !open {
+            style::<HamletTheme>()
+                .frame(|f, t| f.border_color(t.palette.gold_6))
+                .apply(cx);
+        }
+    }
 }
 
 /// The chip of the hamlet's mode, which a press turns over.
@@ -498,26 +572,36 @@ fn mode_chip(agent: Entity) -> impl View {
                 return frame().boxed();
             };
             let words = match mode {
-                hamlet_client::realm::Mode::Manual => "MANUAL",
-                hamlet_client::realm::Mode::Auto => "AUTO",
+                hamlet_client::realm::Mode::Manual => {
+                    "Approvals: Manual"
+                }
+                hamlet_client::realm::Mode::Auto => "Approvals: Auto",
             };
-            lettered(words)
-                .rules(hamlet_ui::styles::button)
-                .tagged(Variant::Default)
-                .tooltip(|| {
-                    note(
-                        "How this hamlet's work is overseen. Press \
-                         to turn it over.",
-                    )
-                })
-                .on_activate(move |world| {
-                    let to = match mode {
-                        hamlet_client::realm::Mode::Manual => "auto",
-                        hamlet_client::realm::Mode::Auto => "manual",
-                    };
-                    tell(world, hamlet, format!("/mode {to}"));
-                })
-                .boxed()
+            button(
+                row((
+                    glyph(Glyph::Shield, 12.0),
+                    label(words).wrap(false),
+                ))
+                .gap(6.0)
+                .align(AlignItems::Center),
+            )
+            .padding(UiRect::axes(px(8.0), px(0.0)))
+            .rules(chip_look(false))
+            .tagged(Variant::Text)
+            .tooltip(|| {
+                note(
+                    "How this hamlet's work is overseen. Press to \
+                     turn it over.",
+                )
+            })
+            .on_activate(move |world| {
+                let to = match mode {
+                    hamlet_client::realm::Mode::Manual => "auto",
+                    hamlet_client::realm::Mode::Auto => "manual",
+                };
+                tell(world, hamlet, format!("/mode {to}"));
+            })
+            .boxed()
         },
     )
     .within(bare())
@@ -527,10 +611,9 @@ fn mode_chip(agent: Entity) -> impl View {
 fn gifts(agent: Entity) -> impl View {
     row((button(glyph(Glyph::Plus, ICON))
         .padding(UiRect::axes(px(8.0), px(0.0)))
-        .min_height(px(hamlet_ui::styles::CONTROL))
         .tooltip(|| note("Give it a skill"))
-        .rules(hamlet_ui::styles::button)
-        .tagged(Variant::Default)
+        .rules(choice(false))
+        .tagged(Variant::Text)
         .on_activate(move |world| {
             world_menu::open_skills(world, agent);
         }),))
@@ -543,37 +626,71 @@ fn gifts(agent: Entity) -> impl View {
     }))
 }
 
-/// Stops what the agent is doing, there only while it is working.
-fn stop(agent: Entity) -> impl View {
-    row((bad_action(Glyph::Stop, "STOP", move |world| {
-        world_menu::stop(world, agent);
-    }),))
-    .display(rolled(move |world| {
-        if conversations::is_read_only(world) {
-            return Display::None;
-        }
-        match world.get::<Busy>(agent) {
-            Some(_) => Display::Flex,
-            None => Display::None,
-        }
-    }))
+/// The side of the round send and stop buttons.
+const ROUND: f32 = 30.0;
+
+/// On the round button that stops the agent.
+#[derive(Component)]
+struct Stopping;
+
+/// The round button at the end of the toolbar: Send, or Stop while
+/// the agent works.
+fn send_or_stop(agent: Entity) -> impl View {
+    keyed(
+        derived(move |world: &World| {
+            world.get::<Busy>(agent).is_some()
+        })
+        .when(every_frame()),
+        move |busy| {
+            let round = |face: AnyView| {
+                button(face)
+                    .width(px(ROUND))
+                    .height(px(ROUND))
+                    .padding(UiRect::all(px(0.0)))
+                    .radius(ROUND / 2.0)
+            };
+            if *busy {
+                let square = with_cx(|cx| {
+                    frame()
+                        .width(px(10.0))
+                        .height(px(10.0))
+                        .radius(2.0)
+                        .fill(cx.theme().palette.red)
+                });
+                round(square.boxed())
+                    .rules(danger_button)
+                    .tagged(Variant::Danger)
+                    .tagged(Stopping)
+                    .tooltip(|| note("Stop"))
+                    .on_activate(move |world| {
+                        world_menu::stop(world, agent);
+                    })
+                    .boxed()
+            } else {
+                round(glyph(Glyph::Send, 16.0).boxed())
+                    .rules(primary_button)
+                    .tagged(Variant::Primary)
+                    .tooltip(|| note("Send"))
+                    .on_activate(chat::send_typed)
+                    .boxed()
+            }
+        },
+    )
+    .within(bare())
 }
 
-/// Under the message field: the gifts, the model and effort, the
-/// hamlet's mode, and the stop.
+/// The composer's toolbar, under its field: the gifts, the model and
+/// effort and the hamlet's mode, then Send or Stop.
 fn chips(agent: Entity) -> impl View {
-    with_cx(move |cx| {
-        row((
-            gifts(agent),
-            model_chip(agent),
-            mode_chip(agent),
-            frame().grow(1.0),
-            stop(agent),
-        ))
-        .gap(cx.theme().space.gap)
-        .align(AlignItems::Center)
-        .tagged(Wraps)
-    })
+    row((
+        gifts(agent),
+        model_chip(agent),
+        mode_chip(agent),
+        frame().grow(1.0),
+        send_or_stop(agent),
+    ))
+    .gap(2.0)
+    .align(AlignItems::Center)
 }
 
 /// The transcript over its composer, or over a note when the chat
@@ -587,7 +704,7 @@ fn talk(agent: Entity) -> AnyView {
             if conversations::is_read_only(cx.world) {
                 column((
                     chat::transcript(),
-                    close((note("READ ONLY"),)),
+                    close((note("Read only"),)),
                 ))
                 .fills_height()
                 .gap(gap)
@@ -595,8 +712,7 @@ fn talk(agent: Entity) -> AnyView {
             } else {
                 column((
                     chat::transcript(),
-                    chat::message_bar(),
-                    chips(agent),
+                    chat::message_bar(chips(agent)),
                 ))
                 .fills_height()
                 .gap(gap)
@@ -648,7 +764,7 @@ pub(crate) fn show_prompt(world: &mut World) {
     let agent = convo.agent;
     *world.resource_mut::<Briefing>() = Briefing {
         agent: Some(agent),
-        text: String::new(),
+        ..Briefing::default()
     };
     super::papers::prompt(world);
     show(world, Showing::Prompt);
@@ -667,63 +783,175 @@ pub(super) fn leave_prompt(
     }
 }
 
-/// A page about the agent the chat is with, under the way back.
-fn aside(name: &'static str, body: impl View + 'static) -> impl View {
+/// A page about the agent the chat is with, under the path to it and
+/// the pages `under` names, and the title of the last of them.
+fn aside(
+    under: fn(&World) -> Vec<Under>,
+    body: impl View + 'static,
+) -> impl View {
+    let head = keyed(
+        derived(move |world: &World| {
+            (world.resource::<Convo>().agent, under(world))
+        })
+        .when(every_frame()),
+        |(agent, under)| {
+            let name = under
+                .last()
+                .map_or_else(|| title("").boxed(), Under::title);
+            page_head(path(*agent, under.clone()), name).boxed()
+        },
+    )
+    .within(bare());
     with_cx(move |cx| {
-        column((
-            hamlet_ui::styles::breadcrumb(
-                vec!["THREAD".into()],
-                name,
-                |world, _| show(world, Showing::Thread),
-            ),
-            body,
-        ))
-        .fills_height()
-        .gap(cx.theme().space.section)
+        column((head, body))
+            .fills_height()
+            .gap(cx.theme().space.section)
     })
 }
 
-/// The whole of the agent's prompt.
-pub(super) fn prompt_page() -> impl View {
-    let shown =
-        keyed(resource::<Briefing, _>(|b| b.text.clone()), |text| {
+/// What heads each section of a prompt, by the server's names.
+const SOURCES: [(&str, &str); 11] = [
+    ("charter", "Charter"),
+    ("machine", "This computer"),
+    ("project", "The project"),
+    ("character", "Character"),
+    ("memory", "Memory"),
+    ("skills", "Skills"),
+    ("place", "Its place"),
+    ("realm", "The realm"),
+    ("scholars", "Scholars it may hire"),
+    ("budget", "Budget"),
+    ("errand", "Errand"),
+];
+
+/// What heads the section `name`.
+fn source(name: &str) -> &str {
+    SOURCES
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map_or(name, |(_, heading)| heading)
+}
+
+/// Puts the whole prompt on the clipboard.
+fn copy_prompt(world: &mut World) {
+    let text = world.resource::<Briefing>().whole();
+    let Some(mut clipboard) =
+        world.get_resource_mut::<bevy::clipboard::Clipboard>()
+    else {
+        return;
+    };
+    match clipboard.set_text(text) {
+        Ok(()) => world.resource_mut::<Briefing>().copied = true,
+        Err(e) => {
+            bevy::log::warn!("could not copy the prompt: {e:?}");
+        }
+    }
+}
+
+/// The prompt under a heading for each of its sections, or why it
+/// could not be read.
+fn prompt_sections(
+    prompt: &[protocol::PromptSection],
+    failed: Option<&str>,
+) -> AnyView {
+    if let Some(why) = failed {
+        return label(format!("The prompt could not be read: {why}"))
+            .tone(Tone::Critical)
+            .boxed();
+    }
+    let sections = prompt
+        .iter()
+        .map(|section| {
+            let name = source(&section.name).to_string();
             // Each line as the model is given it, where Markdown
             // would run them together.
-            hamlet_ui::markdown::fixed(
-                &text.replace('\n', "  \n"),
+            let text = hamlet_ui::markdown::page(
+                &section.text.replace('\n', "  \n"),
                 Tone::Body,
             )
-            .boxed()
+            .boxed();
+            column((card_name(name, Tone::Body), text))
+                .gap(6.0)
+                .boxed()
         })
-        .within(bare());
+        .collect::<Vec<_>>();
+    // One read-only page, a line between each part and the next,
+    // clear of the scroll bar, which is drawn over the right edge of
+    // the area and dims the letters under it.
     with_cx(move |cx| {
-        let gold = cx.theme().palette.gold_6;
-        let gap = cx.theme().space.section;
-        aside(
-            "PROMPT",
-            column((
-                note(
-                    "What this agent is told at the start of a turn.",
-                ),
-                hairline(gold),
-                scroll_area((shown,)),
-            ))
-            .fills_height()
-            .gap(gap),
-        )
+        let line = cx.theme().palette.gold_6;
+        let gap = cx.theme().space.panel;
+        let mut parts = Vec::new();
+        for section in sections {
+            if !parts.is_empty() {
+                parts.push(hairline(line).boxed());
+            }
+            parts.push(section);
+        }
+        column((framed((column(parts).gap(gap),)),))
+            .padding(UiRect::right(px(12.0)))
     })
+    .boxed()
+}
+
+/// The way to copy the prompt, once it is read.
+fn copy() -> impl View {
+    keyed(
+        resource::<Briefing, _>(|b| (b.prompt.is_empty(), b.copied)),
+        |(empty, copied)| match (empty, copied) {
+            (true, _) => frame().boxed(),
+            (false, true) => {
+                action(Glyph::Check, "Copied", copy_prompt)
+            }
+            (false, false) => {
+                action(Glyph::Notes, "Copy", copy_prompt)
+            }
+        },
+    )
+    .within(bare())
+}
+
+/// The whole of the agent's prompt, part by part.
+pub(super) fn prompt_page() -> impl View {
+    let shown = keyed(
+        resource::<Briefing, _>(|b| {
+            (b.prompt.clone(), b.failed.clone())
+        }),
+        |(prompt, failed)| prompt_sections(prompt, failed.as_deref()),
+    )
+    .within(bare());
+    aside(|_| vec![Under::Prompt], scroll_area((shown,)))
 }
 
 /// The past sessions of the agent the chat is with.
 pub(super) fn sessions() -> impl View {
-    aside("SESSIONS", crate::history::screen())
+    aside(
+        |world| {
+            let history = world.resource::<History>();
+            match (&history.reading, history.read()) {
+                (Some(_), Some(past)) => vec![
+                    Under::Sessions,
+                    Under::Session(cut(&past.title, TITLE_SHOWN)),
+                ],
+                (Some(reading), None) => vec![
+                    Under::Sessions,
+                    Under::Session(format!(
+                        "Session {}",
+                        reading.number
+                    )),
+                ],
+                (None, _) => vec![Under::Sessions],
+            }
+        },
+        crate::history::screen(),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use bevy::app::App;
-    use bevy::ecs::hierarchy::ChildOf;
-    use bevy::ecs::query::With;
+    use bevy::ecs::query::{With, Without};
+    use bevy_fynix::Leaving;
     use hamlet_client::outbox::Outbox;
 
     use super::*;
@@ -748,15 +976,23 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            living(),
-        );
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), living());
         app.update();
         assert!(words(&mut app).iter().any(
             |text| text == "Reading the received orchard ledger"
         ));
-        press(&mut app, "STOP");
+        let stop = |app: &mut App| {
+            let world = app.world_mut();
+            // Past one going out as Send comes in.
+            world
+                .query_filtered::<Entity, (With<Stopping>, Without<Leaving>)>()
+                .iter(world)
+                .next()
+        };
+        let button = stop(&mut app).expect("Stop while she works");
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity: button });
+        app.world_mut().flush();
         let stopped =
             app.world().resource::<Outbox>().iter().any(|message| {
                 let protocol::ClientMessage::Stop(stop) = message
@@ -773,27 +1009,9 @@ mod tests {
             ),
         );
         app.update();
-        let world = app.world_mut();
-        let stop = world
-            .query::<(Entity, &bevy::ui::widget::Text)>()
-            .iter(world)
-            .find(|(_, text)| text.0 == "STOP")
-            .unwrap()
-            .0;
-        let mut at = stop;
-        let mut hidden = false;
-        loop {
-            hidden |= world
-                .get::<bevy::ui::Node>(at)
-                .is_some_and(|node| node.display == Display::None);
-            let Some(parent) = world.get::<ChildOf>(at) else {
-                break;
-            };
-            at = parent.parent();
-        }
         assert!(
-            hidden,
-            "STOP is hidden while the received agent is at rest"
+            stop(&mut app).is_none(),
+            "Send in its place while the received agent is at rest"
         );
     }
 
@@ -807,7 +1025,7 @@ mod tests {
         .insert_resource(Showing::Thread)
         .insert_resource(Sheet::Details);
         app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             crate::hub::screen(),
         );
@@ -893,7 +1111,7 @@ mod tests {
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "orchard"));
         assert!(shown.iter().any(|text| text == "Tends trees"));
-        press(&mut app, "REFLECT NOW");
+        press(&mut app, "Note what it learned");
         let sent = app
             .world()
             .resource::<Outbox>()
@@ -918,29 +1136,23 @@ mod tests {
         assert_eq!(read["agent"], json!(2));
         receive(
             &mut app,
-            json!({"type": "read", "to": read["id"], "prompt": "The received prompt"}),
+            json!({"type": "read", "to": read["id"], "prompt": [{"name": "charter", "text": "The received charter"}, {"name": "memory", "text": "The received memory"}]}),
         );
+        app.update();
         assert_eq!(
-            app.world().resource::<Briefing>().text,
-            "The received prompt"
+            app.world().resource::<Briefing>().whole(),
+            "The received charter\n\nThe received memory"
         );
+        assert!(words(&mut app).contains(&"Memory".into()));
         show_prompt(app.world_mut());
         let read = request(&app, "prompt");
         receive(
             &mut app,
             json!({"type": "reply", "to": read["id"], "kind": "error", "text": "No such agent"}),
         );
-        assert_eq!(
-            app.world().resource::<Briefing>().text,
-            "The prompt could not be read: No such agent"
-        );
-        assert!(
-            app.world_mut()
-                .query::<&bevy::text::TextSpan>()
-                .iter(app.world())
-                .any(|text| text.0
-                    == "The prompt could not be read: No such agent")
-        );
+        assert!(words(&mut app).contains(
+            &"The prompt could not be read: No such agent".into()
+        ));
     }
 
     #[test]
@@ -964,7 +1176,7 @@ mod tests {
             &mut app,
             json!({"type": "read", "to": papers["id"], "papers": {"memory": [{"path": "farm/pears.md", "description": "", "text": "Pears"}], "learned": [], "character": "", "skills": []}}),
         );
-        press(&mut app, "EDIT");
+        press(&mut app, "Edit");
         let read = request(&app, "papers");
         assert_eq!(read["full"], true);
         let text = "character ".repeat(1000);
@@ -1094,7 +1306,7 @@ mod tests {
         );
         receive(
             &mut app,
-            json!({"type": "read", "to": prompt["id"], "prompt": "Wrong prompt"}),
+            json!({"type": "read", "to": prompt["id"], "prompt": [{"name": "charter", "text": "Wrong prompt"}]}),
         );
         // The prompt page is left for the thread of the next agent.
         assert_eq!(
@@ -1107,10 +1319,7 @@ mod tests {
         app.update();
         assert!(has_span(&mut app, "Scout notes"));
         assert!(!has_span(&mut app, "Wrong notes"));
-        assert_ne!(
-            app.world().resource::<Briefing>().text,
-            "Wrong prompt"
-        );
+        assert!(app.world().resource::<Briefing>().prompt.is_empty());
     }
 
     #[test]
@@ -1186,7 +1395,7 @@ mod tests {
                 world.query::<&chat::Rewinds>().iter(world).count(),
                 0
             );
-            assert!(words(&mut app).contains(&"READ ONLY".into()));
+            assert!(words(&mut app).contains(&"Read only".into()));
             // The menu shows which of them is open.
             assert_ne!(entries(app.world()).1, 0);
         }

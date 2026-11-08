@@ -32,11 +32,14 @@ room stays dark so that the world stays the bright thing on screen.
 
 In `hamlet_ui/src/`:
 
-- `theme.rs` holds the theme, whose values are in `assets/theme.toml`.
-  The panels are built only once that file has loaded; one not found or
-  not readable gives way to the copy built into the app. A test holds
-  every text tone to a contrast of 4.5:1 or better on every surface it
-  meets.
+- `theme.rs` holds the theme: one variant's palette, from a family
+  under `assets/themes/`, in the sizes, spacing and motion of
+  `assets/measures.toml`. `theme/themes.rs` reads the families, and
+  `theme/contrast.rs` measures how well one colour reads on another.
+  The panels are built once the first theme is shown.
+- `hamlet_app/src/appearance.rs` picks the theme to show from the
+  chief's appearance and the computer's color scheme. The Appearance
+  page of Settings is `screens/settings/appearance.rs`.
 - `styles.rs` holds the styles of each kind of button and field.
 - `widgets/effects/` holds the behaviour: a control's warmth, press, flame and
   sparks, the light that falls into a panel and the light its tab

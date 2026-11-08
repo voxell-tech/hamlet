@@ -19,10 +19,10 @@ use bevy::text::EditableText;
 use bevy::time::Time;
 use bevy::ui::{
     BackgroundColor, BackgroundGradient, BorderRadius, BoxShadow,
-    CalculatedClip, ComputedNode, CornerRadius, GlobalZIndex, Node,
-    OverflowAxis, PositionType, Pressed, RadialGradient,
-    RadialGradientShape, UiGlobalTransform, UiPosition, UiTransform,
-    Val2, percent, px,
+    CalculatedClip, ComputedNode, CornerRadius, GlobalZIndex,
+    InteractionDisabled, Node, OverflowAxis, PositionType, Pressed,
+    RadialGradient, RadialGradientShape, UiGlobalTransform,
+    UiPosition, UiTransform, Val2, percent, px,
 };
 use bevy::ui_widgets::{Activate, Button};
 use bevy_fynix::Focused;
@@ -66,10 +66,12 @@ pub(super) fn arm(
     buttons: Query<Entity, (With<Button>, Without<ControlEffect>)>,
     fields: Query<&ChildOf, Added<EditableText>>,
 ) {
+    // A field given a look of its own keeps it.
     for field in &fields {
         commands
             .entity(field.parent())
-            .try_insert((ControlEffect::default(), Variant::Input));
+            .try_insert(ControlEffect::default())
+            .try_insert_if_new(Variant::Input);
     }
     for button in &buttons {
         commands.entity(button).try_insert((
@@ -213,6 +215,7 @@ type Animated<'a> = (
     Option<&'a Hovered>,
     Has<Pressed>,
     Option<&'a Variant>,
+    Has<InteractionDisabled>,
 );
 
 pub(super) fn animate(
@@ -230,9 +233,14 @@ pub(super) fn animate(
         hovered,
         held,
         variant,
+        disabled,
     ) in &mut buttons
     {
-        let variant = variant.copied().unwrap_or_default();
+        // A button that cannot be pressed has no glow to invite it.
+        let variant = match variant.copied().unwrap_or_default() {
+            _ if disabled => Variant::Subtle,
+            variant => variant,
+        };
         let over = if variant == Variant::Input {
             focused
         } else {
@@ -317,6 +325,7 @@ type Glowing<'a> = (
     &'a ControlEffect,
     &'a Variant,
     Option<&'a BackgroundGradient>,
+    Has<InteractionDisabled>,
 );
 
 /// Keeps the glow gradient inside every control that has one: a pool
@@ -327,14 +336,15 @@ pub(super) fn update_gradients(
     controls: Query<Glowing>,
 ) {
     let colors = EffectColors::of(&theme);
-    for (control, effect, variant, now) in &controls {
+    for (control, effect, variant, now, disabled) in &controls {
         // Text has no fill for a glow to show in.
         if matches!(*variant, Variant::Subtle | Variant::Text) {
             continue;
         }
-        // Only the primary action shows its fill while it is out.
+        // Only the primary action shows its fill while it is out,
+        // and only while it can be pressed.
         let filled = *variant == Variant::Primary;
-        if effect.glow <= 0.0 && !filled {
+        if disabled || (effect.glow <= 0.0 && !filled) {
             if now.is_some() {
                 commands
                     .entity(control)

@@ -1,0 +1,57 @@
+# The panels' lettering, spacing, shadow fall and motion, shared by
+# every theme under themes/. A time is in seconds. What each value
+# means is written beside its field in crates/hamlet_ui/src/theme.rs.
+
+[text]
+body = 14.0
+small = 13.0
+heading = 14.0
+title = 16.0
+tracking = 1.0
+
+[space]
+gap = 8.0
+row = 28.0
+round = 4.0
+soft = 6.0
+divider = 1.0
+divider_grip = 8.0
+tab_padding = 12.0
+border = 1.0
+panel = 16.0
+section = 12.0
+card_padding_x = 14.0
+card_padding_y = 10.0
+row_padding = 10.0
+bar = 34.0
+bar_padding = 8.0
+title_padding = 16.0
+menu_width = 190.0
+menu_gap = 10.0
+status_padding_x = 16.0
+status_padding_y = 5.0
+status_gap = 18.0
+status_icon = 12.0
+status_icon_gap = 5.0
+page_width = 560.0
+table_width = 640.0
+overlay_width = 600.0
+overlay_padding = 24.0
+tab_height = 30.0
+underline = 2.0
+bottom_start = 0.35
+switch_width = 36.0
+switch_height = 20.0
+switch_inset = 2.0
+track_inset = 4.0
+track_padding = 2.0
+track_radius = 7.0
+track_divider = 14.0
+
+[shadow]
+drop = 6.0
+blur = 18.0
+
+[motion]
+interact = 0.14
+expand = 0.22

@@ -1,8 +1,7 @@
 //! The questions an agent asks the chief, drawn as one card: a
 //! question at a time with its options as a list and a line for words
 //! of the chief's own, and the answers sent once each question has
-//! one. Needs You and the chat show the same card, so an answer begun
-//! in one stands in the other.
+//! one. The card is in the petition; the chat points to it.
 
 use std::collections::HashMap;
 
@@ -30,11 +29,12 @@ use hamlet_client::waits::{
 };
 use hamlet_protocol::client::{Offer, Pick, Questions};
 use hamlet_ui::styles::{
-    self, Fills, back_link, bare, marked, note, note_rules,
+    self, Fills, action, back_link, bare, marked, note, note_rules,
     primary_button, small_rules, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
@@ -232,7 +232,7 @@ fn picked(cx: &mut Cx) {
                 .border_color(t.palette.gold_4)
                 .radius(t.space.round)
         })
-        .hovered(|s| s.frame(|f, t| f.border_color(t.palette.glow)))
+        .hovered(|s| s.frame(|f, t| f.border_color(t.palette.accent)))
         .transition(Motion::Interact)
         .apply(cx);
 }
@@ -414,14 +414,14 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
         );
     }
     let next = match at + 1 < count {
-        true => marked(Glyph::Into, "NEXT")
+        true => marked(Glyph::Into, "Next")
             .rules(styles::button)
             .tagged(Variant::Default)
             .on_activate(move |world| {
                 turn(world, card, count, at + 1);
             })
             .boxed(),
-        false => marked(Glyph::Check, "SUBMIT")
+        false => marked(Glyph::Check, "Submit")
             .rules(primary_button)
             .tagged(Variant::Primary)
             .on_activate(move |world| submit(world, card, count))
@@ -435,7 +435,7 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             let gap = cx.theme().space.gap;
             row((
                 column((done,)).fills_width(),
-                marked(Glyph::Cross, "DISMISS")
+                marked(Glyph::Cross, "Dismiss")
                     .rules(back_link)
                     .tagged(Variant::Text)
                     .on_activate(move |world| dismiss(world, card)),
@@ -485,7 +485,8 @@ pub fn card(card: Entity, asked: Questions) -> impl View {
     })
 }
 
-/// The card the agent of the open chat waits on, over the field.
+/// A line over the field pointing to the question the agent of the
+/// open chat waits on, which is answered in its petition.
 pub fn in_chat() -> impl View {
     keyed(resource::<OpenQuestion, _>(|o| o.0.clone()), |open| {
         let Some((entity, asked)) = open.clone() else {
@@ -494,24 +495,33 @@ pub fn in_chat() -> impl View {
         with_cx(move |cx| {
             let theme = cx.theme();
             let (palette, space) = (&theme.palette, &theme.space);
-            column((
-                row((
-                    glyph(Glyph::Bell, theme.text.small)
+            let who = cx
+                .world
+                .get::<Waiting>(entity)
+                .map_or_else(String::new, |waiting| {
+                    waiting.shown.clone()
+                });
+            let what = match asked.message.is_empty() {
+                true => asked.questions[0].question.clone(),
+                false => asked.message.clone(),
+            };
+            row((
+                glyph(Glyph::Bell, theme.text.small)
+                    .tone(Tone::Accent),
+                column((one_line(
+                    label(format!("{who} asks: {what}"))
+                        .size(theme.text.small)
                         .tone(Tone::Accent),
-                    label("Waiting for your answer")
-                        .size(theme.text.caption)
-                        .wrap(false)
-                        .tone(Tone::Accent),
-                ))
-                .gap(6.0)
-                .align(AlignItems::Center),
-                card(entity, asked.clone()),
+                ),))
+                .grow(1.0)
+                .min_width(px(0.0)),
+                action(Glyph::Talk, "Answer", move |world| {
+                    crate::petition::open(world, entity);
+                }),
             ))
             .gap(space.gap)
-            .padding(UiRect::axes(
-                px(space.card_padding_x),
-                px(space.card_padding_y),
-            ))
+            .align(AlignItems::Center)
+            .padding(UiRect::axes(px(space.card_padding_x), px(6.0)))
             .margin(UiRect::bottom(px(space.gap)))
             .border(space.border)
             .border_color(palette.gold_5)
@@ -536,7 +546,8 @@ mod tests {
     use crate::testing::{panel_app, press, words};
 
     #[test]
-    fn received_questions_share_answers_between_chat_and_petition() {
+    fn the_chat_points_to_its_oldest_question_which_its_petition_answers()
+     {
         let mut app = panel_app();
         app.add_plugins(crate::petition::plugin);
         let session = app.world().resource::<Convo>().session;
@@ -568,18 +579,38 @@ mod tests {
         ];
         hamlet_client::receive(
             app.world_mut(),
-            protocol::ServerMessage::State(state),
+            protocol::ServerMessage::State(state.clone()),
         );
         app.update();
-        bevy_fynix::mount::<HamletTheme>(app.world_mut(), in_chat());
+        let line = bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            in_chat(),
+        );
         app.update();
         let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text == "oldest"));
         assert!(
-            !shown
-                .iter()
-                .any(|text| text == "later" || text == "unrelated")
+            shown.iter().any(|text| text.ends_with("asks: oldest"))
         );
+        assert!(!shown.iter().any(|text| {
+            text.ends_with("asks: later")
+                || text.ends_with("asks: unrelated")
+        }));
+        assert!(!shown.iter().any(|text| text == "Digital"));
+        state.revision += 1;
+        state.waits.retain(|wait| wait.id == "oldest");
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::State(state),
+        );
+        // Its own Answer only opens the petition.
+        app.world_mut().despawn(line);
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            crate::petition::waiting(),
+        );
+        app.update();
+        press(&mut app, "Answer");
+        app.update();
         press(&mut app, "Digital");
         app.update();
         let field = app
@@ -599,20 +630,12 @@ mod tests {
         app.world_mut()
             .trigger(bevy::input_focus::FocusLost { entity: field });
         app.update();
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            crate::petition::waiting(),
-        );
-        app.update();
-        let shown = words(&mut app);
-        assert_eq!(
-            shown
+        assert!(
+            words(&mut app)
                 .iter()
-                .filter(|text| text.as_str() == "2 of 2 answered")
-                .count(),
-            2
+                .any(|text| text.as_str() == "2 of 2 answered")
         );
-        press(&mut app, "SUBMIT");
+        press(&mut app, "Submit");
         let answer = app
             .world()
             .resource::<Outbox>()

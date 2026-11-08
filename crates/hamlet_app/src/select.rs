@@ -927,7 +927,8 @@ fn light(
         &parts,
         |node| texts.text(node),
         |node| texts.level(node),
-    );
+    )
+    .replace(hamlet_ui::markdown::JOINER, "");
     if selecting.chosen != words {
         selecting.chosen = words;
     }
@@ -954,7 +955,7 @@ pub fn quote_button(session: Entity, id: String) -> impl View {
             }) && !s.chosen.trim().is_empty()
         }),
         |on| match on {
-            true => row((marked(Glyph::Talk, "QUOTE")
+            true => row((marked(Glyph::Talk, "Quote")
                 .rules(button)
                 .tagged(Variant::Default)
                 .on_activate(quote_chosen),))

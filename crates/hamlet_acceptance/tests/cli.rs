@@ -142,7 +142,7 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
     let mut chat = Cli::start(s.home.path(), &["chat"], &[]);
     chat.write("Fetch the first.\n").await;
     chat.err_shows(
-        "NEEDS YOU: [approval] hand wants the network for",
+        "NEEDS YOU: [approval] hand wants network access to run",
     )
     .await;
     chat.write("/allow\n").await;
@@ -180,7 +180,7 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
     assert_eq!(chief.waits(), std::slice::from_ref(&wait));
     let mut next = Cli::start(home.path(), &["chat"], &[]);
     next.err_shows(
-        "NEEDS YOU: [approval] hand wants the network for",
+        "NEEDS YOU: [approval] hand wants network access to run",
     )
     .await;
     next.write("/allow\n").await;

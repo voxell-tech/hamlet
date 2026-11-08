@@ -3,8 +3,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::ecs::world::World;
-use hamlet_app::history::{self, History, Reading};
-use hamlet_client::chats::Chat;
+use hamlet_app::history::{self, History};
+use hamlet_client::chats::{Chat, Entry, Item, Transcript};
 use hamlet_protocol::client::{self as protocol, Past};
 
 /// Sample sessions for the History page, one open if `reading`.
@@ -35,7 +35,7 @@ pub(super) fn setup(world: &mut World, reading: bool) {
         })
         .collect::<Vec<_>>();
     let reading = reading.then(|| {
-        let transcript = super::chat::conversation(&[
+        let said = super::chat::conversation(&[
             ("chief", told[1].0),
             (
                 "",
@@ -46,27 +46,52 @@ pub(super) fn setup(world: &mut World, reading: bool) {
             ("chief", "Note the quince for next year."),
             ("", "Noted, under next spring's work."),
         ]);
-        Reading {
-            number: pasts[1].number,
-            said: history::said(&transcript),
-            holder: world
-                .spawn((
-                    Chat(protocol::ChatRef {
-                        kind: None,
-                        from: None,
-                        with: protocol::AgentId(2),
-                        past: Some(pasts[1].number),
-                    }),
-                    transcript,
-                ))
-                .id(),
-            reach: history::PAGE,
+        // It read its notes before it answered.
+        let step = |at: usize, file: &str| Item {
+            id: format!("tool-{at}"),
+            at: 0,
+            entry: Entry::Tool {
+                name: "bash".into(),
+                summary: format!(
+                    "{{\"command\": \"grep -n grafted {file}\"}}"
+                ),
+                exit: Some(0),
+                ms: Some(380),
+                failure: None,
+                change: None,
+            },
+        };
+        let mut items = said.items().to_vec();
+        items.splice(
+            1..1,
+            [step(0, "notes/rows.md"), step(1, "notes/spring.md")],
+        );
+        // A minute apart, the last when the session was last used.
+        let last = items.len() as u64 - 1;
+        for (at, item) in items.iter_mut().enumerate() {
+            item.at = pasts[1].modified as u64
+                - (last - at as u64) * 60_000;
         }
+        let transcript = Transcript::from_items(items);
+        let holder = world
+            .spawn((
+                Chat(protocol::ChatRef {
+                    kind: None,
+                    from: None,
+                    with: protocol::AgentId(2),
+                    past: Some(pasts[1].number),
+                }),
+                transcript,
+            ))
+            .id();
+        (pasts[1].number, holder)
     });
     world.insert_resource(History {
         pasts,
-        reading,
         fresh: true,
         ..Default::default()
     });
+    if let Some((number, holder)) = reading {
+        history::read(world, number, holder);
+    }
 }

@@ -61,7 +61,7 @@ pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
         "world",
         DockWindowKind::new("REALM", || {
-            column((view(), crate::toasts::stack()))
+            column((view(),))
                 .fills_width()
                 .min_height(px(0.0))
                 .gap(0.0)

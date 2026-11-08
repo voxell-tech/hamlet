@@ -12,13 +12,14 @@ mod entry;
 mod field;
 mod lines;
 mod quote;
-mod reply;
+pub(crate) mod reply;
 mod rewind;
 mod timeline;
 
 use std::collections::HashSet;
 
 use bevy::app::{App, PostUpdate, PreUpdate, Update};
+use bevy::color::Color;
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -41,9 +42,10 @@ use bevy::ui::{
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, overlay, row, text_field,
+    BehaviorExt, Frame, FrameProps, column, label, overlay, row,
+    text_field,
 };
-use bevy_fynix::{ScopedExt, resource};
+use bevy_fynix::{ScopedExt, resource, style};
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::{
     ChiefMessage, Response, Rewind, ServerFault,
@@ -53,22 +55,26 @@ use hamlet_client::realm as agents;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders::{Decree, Tell};
 use hamlet_ui::styles::{note, text_input};
-use hamlet_ui::{View, with_cx};
+use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::{Cx, View, with_cx};
 use unicode_segmentation::UnicodeSegmentation;
 
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
 pub use self::entry::OpenTools;
-pub(crate) use self::entry::entry_view;
+pub(crate) use self::entry::Underway;
 pub use self::field::{
     FieldBar, Placeholder, bar, grow, keep_typed, scroll_field,
     show_bar, show_placeholder,
 };
 pub use self::lines::{
-    ChatRow, Lines, Reach, Unfolded, Whole, break_long_words,
-    fold_lines, hide_unseen, read_back, transcript,
+    ChatRow, Lines, PastLines, Reach, Unfolded, Whole,
+    break_long_words, fold_lines, fold_past, hide_unseen, read_back,
+    transcript,
 };
-pub use self::rewind::{Rewinds, asked as rewind_asked};
+pub(crate) use self::lines::{past, read_earlier, read_past};
+pub use self::rewind::{Rewinds, ask as ask_rewind};
 use crate::PanelSystems;
 use crate::convo::{self, Convo};
 
@@ -81,6 +87,9 @@ const LINE_ROOM: f32 = 4.5;
 
 /// The least width of the field a chief types in.
 const FIELD_LEAST: f32 = 150.0;
+
+/// The room the placeholder leaves for the caret before it.
+const CARET_ROOM: f32 = 4.0;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -101,12 +110,15 @@ pub fn plugin(app: &mut App) {
         .add_observer(remember_rewind)
         .add_observer(response)
         .init_resource::<OpenTools>()
+        // A row fades while a rewind that would forget it is asked
+        // about.
+        .init_resource::<crate::world_menu::Open>()
         .add_plugins((rewind::plugin, lines::plugin, reply::plugin))
         // The rows are folded before fynix mounts them, so a received
         // reply shows in the update it arrives.
         .add_systems(
             PreUpdate,
-            (stick_to_bottom, read_back, fold_lines)
+            (stick_to_bottom, read_back, fold_lines, fold_past)
                 .chain()
                 .in_set(PanelSystems::Bind),
         )
@@ -379,6 +391,28 @@ fn commit(world: &mut World, text: String) {
         draft.step = 1;
         return;
     }
+    submit(world, text);
+}
+
+/// Sends what is typed in the field, as Enter does.
+pub(crate) fn send_typed(world: &mut World) {
+    let typed = input_root(world)
+        .and_then(|root| world.get::<Children>(root))
+        .and_then(|children| {
+            children
+                .iter()
+                .find_map(|child| world.get::<EditableText>(*child))
+        })
+        .map(|field| field.value().to_string());
+    let text = typed
+        .unwrap_or_else(|| world.resource::<Draft>().text.clone());
+    world.resource_mut::<Draft>().text = text.clone();
+    submit(world, text);
+}
+
+/// Sends `text` to the open chat, or says why a command is not, and
+/// then clears the field and gives it the focus again.
+fn submit(world: &mut World, text: String) {
     // Commands are not typed here: each has a button or a menu.
     if text.trim_start().starts_with('/') {
         world.resource_mut::<Draft>().notice =
@@ -514,17 +548,25 @@ pub fn stick_to_bottom(
     }
 }
 
-/// The one place to type, under the conversation it adds to.
-pub fn message_bar() -> impl View {
-    with_cx(|cx| {
+/// The one place to type, under the conversation it adds to: the
+/// field and `tools` under it in one rounded card.
+pub fn message_bar(tools: impl View + 'static) -> impl View {
+    with_cx(move |cx| {
         let space = &cx.theme().space;
-        message_bar_in(space.gap, space.border)
+        message_bar_in(space.gap, space.border, tools)
     })
 }
 
+/// The radius of the composer's card.
+const CARD_ROUND: f32 = 12.0;
+
 /// The bar with `gap` between its parts and a field whose frame is
 /// `border` wide.
-fn message_bar_in(gap: f32, border: f32) -> impl View {
+fn message_bar_in(
+    gap: f32,
+    border: f32,
+    tools: impl View + 'static,
+) -> impl View {
     let field = row((
         text_field(resource::<Draft, _>(|d| d.text.clone()), commit)
             .grow(1.0)
@@ -535,25 +577,32 @@ fn message_bar_in(gap: f32, border: f32) -> impl View {
                 bottom: px(LINE_ROOM),
                 ..UiRect::horizontal(px(FIELD_SIDE))
             })
-            .rules(text_input)
+            .rules(in_card)
+            // The card around it shows the focus, not a glow behind
+            // its first line.
+            .tagged(Variant::Subtle)
             .tagged(ChatField),
-        // Shown in the empty field, under the caret.
+        // Shown in the empty field, just after the caret.
         overlay((row((label("Message")
             .wrap(false)
             .tone(Tone::Dim),))
         .align(AlignItems::Center)
         .height(percent(100.0))
-        .padding(UiRect::left(px(gap + border)))
+        .padding(UiRect::left(px(gap + border + CARET_ROOM)))
         .tagged(Placeholder),)),
         bar(),
     ))
     .grow(1.0)
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
+    let card = column((reply::preview(), row((field,)), tools))
+        .gap(gap / 2.0)
+        .padding(UiRect::all(px(gap / 2.0)))
+        .rules(card_look)
+        .tagged(crate::world_menu::Hook::Composer);
     column((
         crate::asking::in_chat(),
-        reply::preview(),
-        row((field,)).gap(gap).align(AlignItems::Center),
+        card,
         // An empty label has no height. Keep one line so a
         // notice does not lift the field above it.
         column((note(resource::<Draft, _>(|draft| {
@@ -562,6 +611,27 @@ fn message_bar_in(gap: f32, border: f32) -> impl View {
         .min_height(px(15.0)),
     ))
     .gap(gap / 2.0)
+}
+
+/// The composer's card: a text field's look, rounder, its frame
+/// brightening while anything in it has the focus.
+fn card_look(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .with(text_input)
+        .frame(|f, _| f.radius(CARD_ROUND))
+        .apply(cx);
+}
+
+/// The field inside the card, which draws no frame of its own.
+fn in_card(cx: &mut Cx) {
+    let bare = |f: Frame, _: &HamletTheme| {
+        f.fill(Color::NONE).border_color(Color::NONE)
+    };
+    style::<HamletTheme>()
+        .frame(bare)
+        .hovered(|s| s.frame(bare))
+        .when::<bevy_fynix::Focused>(|s| s.frame(bare))
+        .apply(cx);
 }
 
 #[cfg(test)]
@@ -580,9 +650,9 @@ mod tests {
             .init_resource::<crate::hub::Showing>()
             .init_resource::<crate::hover::Card>()
             .add_plugins((plugin, crate::sounds::plugin));
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            message_bar(),
+            message_bar(bevy_fynix::views::frame()),
         );
         app.update();
         app
@@ -640,9 +710,12 @@ mod tests {
             }]),
         );
         app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            column((transcript(), message_bar())),
+            column((
+                transcript(),
+                message_bar(bevy_fynix::views::frame()),
+            )),
         );
         app.update();
         let world = app.world_mut();
@@ -935,7 +1008,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::Transcript(pages[0].clone()),
         );
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             transcript(),
         );
@@ -1006,7 +1079,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::Transcript(pages[0].clone()),
         );
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             transcript(),
         );
@@ -1165,7 +1238,7 @@ mod tests {
                 name: "bash".into(),
                 summary: "pwd".into(),
                 exit,
-                ms: Some(3),
+                ms: Some(400),
                 failure: None,
                 change: None,
             },
@@ -1201,14 +1274,14 @@ mod tests {
             ]),
         );
         app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             transcript(),
         );
         app.update();
-        press(&mut app, "+  Worked, 2 steps, 1 failed");
-        press(&mut app, "+  Working, 1 step so far");
-        press(&mut app, "+  Thought it over");
+        // The steps before the first reply join those after it.
+        press(&mut app, "Working, 3 steps so far, 1 failed");
+        press(&mut app, "Thought it over");
         app.update();
         // Each call is a row of its request; a finished one says how
         // long it took, and the failed one opens to its exit.
@@ -1216,7 +1289,7 @@ mod tests {
         let count =
             |text: &str| shown.iter().filter(|s| *s == text).count();
         assert_eq!(count("pwd"), 3, "{shown:?}");
-        assert_eq!(count("0.0s"), 2, "{shown:?}");
+        assert_eq!(count("0.4s"), 2, "{shown:?}");
         assert_eq!(count("A received notice"), 1, "{shown:?}");
         app.world_mut()
             .resource_mut::<OpenTools>()
@@ -1239,8 +1312,7 @@ mod tests {
 
         use crate::testing::{panel_app, press};
         let mut app = panel_app();
-        app.add_plugins(plugin)
-            .init_resource::<crate::world_menu::Open>();
+        app.add_plugins(plugin);
         let session = app.world().resource::<Convo>().session;
         app.world_mut().entity_mut(session).insert(
             Transcript::from_items(vec![Item {
@@ -1253,11 +1325,11 @@ mod tests {
             }]),
         );
         app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             column((
                 transcript(),
-                message_bar(),
+                message_bar(bevy_fynix::views::frame()),
                 crate::world_menu::view(),
             )),
         );
@@ -1278,7 +1350,7 @@ mod tests {
         }
         world.trigger(Activate { entity: mark });
         app.update();
-        press(&mut app, "REWIND");
+        press(&mut app, "Rewind");
         let request = app
             .world()
             .resource::<Outbox>()
@@ -1306,6 +1378,38 @@ mod tests {
                 .query::<&EditableText>()
                 .iter(app.world())
                 .any(|field| field.value() == "Change these words")
+        );
+    }
+
+    #[test]
+    fn a_starter_of_a_quiet_chat_goes_into_the_field() {
+        use hamlet_client::chats::Transcript;
+
+        use crate::testing::{panel_app, press};
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let session = app.world().resource::<Convo>().session;
+        app.world_mut()
+            .entity_mut(session)
+            .insert(Transcript::default());
+        app.update();
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            column((
+                transcript(),
+                message_bar(bevy_fynix::views::frame()),
+            )),
+        );
+        app.update();
+        press(&mut app, "Tell me about yourself.");
+        app.update();
+        app.update();
+        assert!(
+            app.world_mut()
+                .query::<&EditableText>()
+                .iter(app.world())
+                .any(|field| field.value()
+                    == "Tell me about yourself.")
         );
     }
 }

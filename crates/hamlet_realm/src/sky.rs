@@ -419,9 +419,9 @@ impl Quality {
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::Low => "LOW",
-            Self::Medium => "MEDIUM",
-            Self::High => "HIGH",
+            Self::Low => "Low",
+            Self::Medium => "Medium",
+            Self::High => "High",
         }
     }
 

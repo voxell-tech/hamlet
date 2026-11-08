@@ -16,15 +16,18 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    action, bare, beside, choices, description, note, parts,
-    text_input,
+    bad_action, bare, beside, framed, good_action, note, parts,
+    segmented_words, text_input,
 };
+use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View};
 
-use super::{Pane, field, told};
+use super::{Pane, alone, field};
 use crate::PanelSystems;
+use crate::overview::heading;
 use crate::secret::secret_field;
+use crate::world_menu::{self, Deed};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -39,7 +42,8 @@ pub(super) fn plugin(app: &mut App) {
         );
 }
 
-const CHOICES: [&str; 2] = ["THIS COMPUTER", "REMOTE SERVER"];
+pub(super) const CHOICES: [&str; 2] =
+    ["This computer", "Remote server"];
 
 /// The workspace as the page has it until it is saved.
 #[derive(Resource, Default)]
@@ -104,7 +108,7 @@ fn save(world: &mut World) {
 
 /// Asks the server to copy the lodges to the saved workspace. The
 /// settings it sends show how far it has come.
-fn move_lodges(world: &mut World) {
+pub(crate) fn move_lodges(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::MoveLodges(protocol::MoveLodges {
             id,
@@ -217,7 +221,9 @@ fn moving() -> AnyView {
         }),
         |offered| {
             if *offered {
-                action(Glyph::Move, "MOVE LODGES", move_lodges)
+                bad_action(Glyph::Send, "Move lodges", |world| {
+                    world_menu::ask(world, Deed::MoveLodges);
+                })
             } else {
                 frame().boxed()
             }
@@ -246,11 +252,17 @@ fn remote() -> AnyView {
             ),
             field(
                 "Access token",
-                secret_field(
-                    resource::<Draft, _>(|draft| draft.token.clone()),
-                    |world, token| {
-                        world.resource_mut::<Draft>().token = token;
-                    },
+                hinted(
+                    secret_field(
+                        resource::<Draft, _>(|draft| {
+                            draft.token.clone()
+                        }),
+                        |world, token| {
+                            world.resource_mut::<Draft>().token =
+                                token;
+                        },
+                    ),
+                    "The token set on the remote server",
                 ),
             ),
         ))
@@ -263,46 +275,49 @@ fn remote() -> AnyView {
 pub(super) fn page() -> impl View {
     let where_run =
         keyed(resource::<Draft, _>(|draft| draft.remote), |remote| {
-            choices(CHOICES, usize::from(*remote), |world, at| {
-                world.resource_mut::<Draft>().remote = at == 1;
-            })
+            segmented_words(
+                CHOICES,
+                usize::from(*remote),
+                |world, at| {
+                    world.resource_mut::<Draft>().remote = at == 1;
+                },
+            )
             .boxed()
         })
         .within(bare());
     parts((
-        field(
-            "Where agents' commands run",
-            told(
-                where_run,
-                description(resource::<Draft, _>(|draft| {
-                    if draft.remote {
-                        "Agents' commands run on a remote server, \
-                         and their lodges are kept there."
-                    } else {
-                        "Agents' commands run on this computer, and \
-                         their lodges are kept here."
-                    }
-                    .to_string()
-                })),
-            ),
-        ),
+        field("Where agents' commands run", alone(where_run)),
         remote(),
         beside((
-            action(Glyph::Check, "SAVE", save),
+            good_action(Glyph::Check, "Save", save),
             note(resource::<Draft, _>(|draft| {
                 if draft.saved { "Saved." } else { "" }.to_string()
             })),
+            note(resource::<Settings, _>(pending)),
         )),
-        note(resource::<Settings, _>(pending)),
         moved(),
         label(resource::<Draft, _>(|draft| draft.refusal.clone()))
             .tone(Tone::Critical),
     ))
 }
 
-/// Moving the lodges, once a saved workspace waits for a restart.
+/// Moving the lodges, apart in a card of what is done for good, once
+/// a saved workspace waits for a restart.
 fn moved() -> impl View {
-    beside((moving(), note(resource::<Settings, _>(progress))))
+    keyed(resource::<Settings, _>(is_waiting_for_restart), |waits| {
+        if !*waits {
+            return frame().boxed();
+        }
+        framed((
+            heading(Glyph::Stop, "Careful"),
+            beside((
+                moving(),
+                note(resource::<Settings, _>(progress)),
+            )),
+        ))
+        .boxed()
+    })
+    .within(bare())
 }
 
 #[cfg(test)]
@@ -319,6 +334,7 @@ mod tests {
         control, press, requests, settings_page, settle,
         words_and_spans,
     };
+    use crate::world_menu;
 
     fn received(
         app: &mut App,
@@ -407,7 +423,7 @@ mod tests {
             "Takes effect when Hamlet restarts."
         ));
         assert!(!said(&mut app, "Server address"));
-        press(&mut app, "REMOTE SERVER");
+        press(&mut app, "Remote server");
         settle(&mut app);
         type_into(
             &mut app,
@@ -463,7 +479,7 @@ mod tests {
             ]
         );
         requests(&mut app);
-        press(&mut app, "SAVE");
+        press(&mut app, "Save");
         let Some(protocol::ClientMessage::Edit(
             protocol::Edit::Settings { id, .. },
         )) = app.world().resource::<Outbox>().iter().next().cloned()
@@ -507,9 +523,9 @@ mod tests {
             app.world().get::<EditableText>(address).unwrap().value(),
             "https://workspace.example"
         );
-        press(&mut app, "THIS COMPUTER");
+        press(&mut app, "This computer");
         settle(&mut app);
-        press(&mut app, "SAVE");
+        press(&mut app, "Save");
         assert_eq!(
             requests(&mut app),
             [serde_json::json!({
@@ -531,7 +547,7 @@ mod tests {
             words_and_spans(app).iter().any(|shown| shown == text)
         };
         // Nothing waits for a restart, so nothing moves.
-        assert!(!said(&mut app, "MOVE LODGES"));
+        assert!(!said(&mut app, "Move lodges"));
         received(&mut app, 3, url, None);
         assert!(said(
             &mut app,
@@ -539,7 +555,15 @@ mod tests {
              replacing the lodges there."
         ));
         requests(&mut app);
-        press(&mut app, "MOVE LODGES");
+        app.init_resource::<world_menu::Open>();
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+            app.world_mut(),
+            world_menu::view(),
+        );
+        press(&mut app, "Move lodges");
+        settle(&mut app);
+        assert!(requests(&mut app).is_empty(), "asked first");
+        press(&mut app, "Replace them");
         let Some(protocol::ClientMessage::MoveLodges(
             protocol::MoveLodges { id },
         )) = app.world().resource::<Outbox>().iter().next().cloned()

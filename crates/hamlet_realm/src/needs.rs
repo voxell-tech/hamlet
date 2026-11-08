@@ -175,7 +175,8 @@ fn hang(
             None => wanted.push(NeedTag {
                 item,
                 agent: by.0,
-                text: waiting.line(settings.line),
+                // A tag is plain words, with no chip for a command.
+                text: waiting.line(settings.line).replace('`', ""),
                 check: Choice::quick(&waiting.answers, true)
                     .is_some(),
                 cross: Choice::quick(&waiting.answers, false)

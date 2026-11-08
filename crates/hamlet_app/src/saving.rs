@@ -114,13 +114,13 @@ pub(crate) fn screen() -> impl View {
                     column((
                         note(text),
                         note(format!("Recovery copies:\n{copies}")),
-                        action(Glyph::Back, "KEEP OPEN", |world| {
+                        action(Glyph::Back, "Keep open", |world| {
                             world.resource_mut::<Saves>().closing =
                                 false;
                         }),
                         bad_action(
-                            Glyph::Power,
-                            "CLOSE WITH COPIES",
+                            Glyph::Leave,
+                            "Close with copies",
                             |world| {
                                 world.write_message(AppExit::Success);
                             },
@@ -265,7 +265,7 @@ mod tests {
         let shown = all_words(&mut app);
         assert!(shown.contains("Inspect the server document"));
         assert!(shown.contains(file.to_str().unwrap()));
-        press(&mut app, "CLOSE WITH COPIES");
+        press(&mut app, "Close with copies");
         app.update();
         assert_eq!(app.should_exit(), Some(AppExit::Success));
         drop(app);

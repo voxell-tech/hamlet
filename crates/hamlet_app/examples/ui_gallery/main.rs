@@ -20,6 +20,7 @@ use std::time::Duration;
 use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use bevy::window::WindowTheme;
 use hamlet_app::pictures::Pictures;
 use hamlet_app::welcome::Step;
 
@@ -41,7 +42,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 36] = [
+const SHOTS: [Shot; 42] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -51,7 +52,7 @@ const SHOTS: [Shot; 36] = [
     Shot {
         name: "icons",
         scene: Scene::Icons,
-        size: UVec2::new(1200, 760),
+        size: UVec2::new(1200, 920),
         scale: 1.0,
     },
     Shot {
@@ -106,6 +107,18 @@ const SHOTS: [Shot; 36] = [
         name: "models",
         scene: Scene::Models,
         size: UVec2::new(1800, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "models-search",
+        scene: Scene::ModelsSearch,
+        size: UVec2::new(1800, 860),
+        scale: 1.0,
+    },
+    Shot {
+        name: "settings-models",
+        scene: Scene::SettingsModels,
+        size: UVec2::new(1440, 1100),
         scale: 1.0,
     },
     Shot {
@@ -183,7 +196,7 @@ const SHOTS: [Shot; 36] = [
     Shot {
         name: "character",
         scene: Scene::Character,
-        size: UVec2::new(1440, 860),
+        size: UVec2::new(1440, 1100),
         scale: 1.0,
     },
     Shot {
@@ -201,6 +214,18 @@ const SHOTS: [Shot; 36] = [
     Shot {
         name: "sight",
         scene: Scene::Sight,
+        size: UVec2::new(1440, 1100),
+        scale: 1.0,
+    },
+    Shot {
+        name: "appearance",
+        scene: Scene::Appearance(WindowTheme::Dark),
+        size: UVec2::new(1440, 1100),
+        scale: 1.0,
+    },
+    Shot {
+        name: "appearance-light",
+        scene: Scene::Appearance(WindowTheme::Light),
         size: UVec2::new(1440, 1100),
         scale: 1.0,
     },
@@ -243,6 +268,18 @@ const SHOTS: [Shot; 36] = [
     Shot {
         name: "welcome-key",
         scene: Scene::Welcome(Step::Key),
+        size: UVec2::new(1180, 680),
+        scale: 1.0,
+    },
+    Shot {
+        name: "welcome-key-search",
+        scene: Scene::KeySearch("open"),
+        size: UVec2::new(1180, 680),
+        scale: 1.0,
+    },
+    Shot {
+        name: "welcome-key-none",
+        scene: Scene::KeySearch("zzz"),
         size: UVec2::new(1180, 680),
         scale: 1.0,
     },

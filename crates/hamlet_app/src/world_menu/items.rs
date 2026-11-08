@@ -2,9 +2,10 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
-use bevy::math::Vec2;
+use bevy::math::{Rect, Vec2};
 use bevy_fynix::ViewExt;
-use bevy_fynix::views::{BehaviorExt, label, menu_item};
+use bevy_fynix::tokens::Tone;
+use bevy_fynix::views::{BehaviorExt, Label, label, menu_item};
 use hamlet_client::gifts::{give, offers};
 use hamlet_client::realm::{
     self as agents, Busy, Deeds, HamletId, Kind, Left, Mayor,
@@ -47,11 +48,14 @@ pub(super) fn item(
 }
 
 /// An item that asks before it does `deed`.
-fn asking(text: String, deed: Deed, at: Vec2) -> AnyView {
-    menu_item(label(text).wrap(false))
+fn asking(text: Label, deed: Deed, at: Vec2) -> AnyView {
+    menu_item(text.wrap(false))
         .on_activate(move |world| {
-            *world.resource_mut::<Open>() =
-                Open::Question(deed.clone(), at);
+            super::ask_against(
+                world,
+                deed.clone(),
+                Rect::from_corners(at, at),
+            );
         })
         .boxed()
 }
@@ -168,26 +172,26 @@ fn for_agent(
             kept: them,
         };
         items.push(asking(
-            format!("Merge {other} into {me}..."),
+            label(format!("Merge {other} into {me}...")),
             into_me,
             at,
         ));
         items.push(asking(
-            format!("Merge {me} into {other}..."),
+            label(format!("Merge {me} into {other}...")),
             into_other,
             at,
         ));
     }
     if Deeds::is_allowed(world, "mayor") {
         items.push(asking(
-            format!("Make {me} Mayor..."),
+            label(format!("Make {me} Mayor...")),
             Deed::Mayor(agent),
             at,
         ));
     }
     if Deeds::is_allowed(world, "end") {
         items.push(asking(
-            format!("End {me}..."),
+            label(format!("End {me}...")),
             Deed::End(agent),
             at,
         ));
@@ -208,14 +212,21 @@ fn for_common(
         .get::<HamletId>(hamlet)
         .map(|id| id.0.clone())
         .unwrap_or_default();
+    if Deeds::is_allowed(world, "name-hamlet") {
+        items.push(item(format!("Rename {name}..."), move |w| {
+            crate::overview::rename(w, hamlet);
+        }));
+    }
     if Deeds::is_allowed(world, "move-hamlet") {
         items.push(item(format!("Move {name}..."), move |w| {
             orders::carry(w, hamlet);
         }));
     }
+    // Last, and red, as nothing done to it is harder to undo.
     if !id.is_empty() && Deeds::is_allowed(world, "remove-hamlet") {
         items.push(asking(
-            format!("Close Down {name}..."),
+            label(format!("Close Down {name}..."))
+                .tone(Tone::Critical),
             Deed::Close(id),
             at,
         ));

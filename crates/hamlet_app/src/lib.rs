@@ -2,6 +2,8 @@
 //! bar and its menus, the foot and the pointer, on the client's
 //! state and built from the widgets of `hamlet_ui`.
 
+mod age;
+pub mod appearance;
 pub mod asking;
 mod chief;
 pub mod chrome;
@@ -22,11 +24,13 @@ mod remember;
 mod roll;
 mod root;
 mod saving;
+pub mod search;
 pub mod secret;
 
 pub mod screens;
 pub mod select;
 mod sounds;
+mod standing;
 mod status;
 #[cfg(test)]
 mod testing;
@@ -53,11 +57,11 @@ pub use self::convo::Convo;
 pub use self::dock::{highlight_panel, panel};
 pub use self::remember::Remembered;
 pub use self::roll::Roll;
-pub use self::root::toolbar;
+pub use self::root::layout;
 pub use self::screens::{
     chat, hub, links, overview, petition, pictures, settings,
 };
-pub use self::status::{Bar, status_bar};
+pub use self::status::Bar;
 pub use self::window::window_plugin;
 
 /// The panels' steps before fynix mounts the views, in order, after
@@ -129,8 +133,10 @@ impl Plugin for UiPlugin {
             ),
             (
                 world_view::plugin,
+                appearance::plugin,
                 world_menu::plugin,
                 hover::plugin,
+                search::plugin,
                 hamlet_ui::plugin,
                 tuning::plugin,
                 cursor::plugin,
@@ -220,7 +226,6 @@ mod tests {
         use std::time::Duration;
 
         use bevy_fynix::views::label;
-        use hamlet_assets::Tuning;
         use hamlet_client::Tokio;
         use hamlet_client::connection::Wake;
         use hamlet_client::realm::{first_mayor, hamlet, name_of};
@@ -252,7 +257,7 @@ mod tests {
         .insert_resource(Wake::new(move || {
             let _ = woke.send(());
         }));
-        theme::insert_theme(app.world_mut(), HamletTheme::designed());
+        theme::show(app.world_mut(), HamletTheme::designed());
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             label(roll::rolled(|world| {

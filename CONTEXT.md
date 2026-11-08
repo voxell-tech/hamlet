@@ -273,6 +273,25 @@ A named arrangement of the window's panels. A chief keeps several and shows
 one at a time.
 _Avoid_: workspace, layout
 
+**Appearance**:
+How a chief has the window's panels drawn: a theme, and light, dark or as
+the computer's color scheme is. Picked on its Settings page and kept with
+the window, not the realm.
+_Avoid_: look, skin
+
+**Color scheme**:
+Whether the computer is set light or dark, as its desktop says.
+_Avoid_: system appearance
+
+**Theme**:
+A family of colours for the panels, one file under `assets/themes/`, with a
+light variant, a dark one or both.
+_Avoid_: skin
+
+**Variant**:
+A theme's light or dark palette. Lamplight is Hamlet's dark variant.
+_Avoid_: flavor
+
 **Hub**:
 The panel of the realm's agents: a rail of them by what they are doing,
 and beside it a thread, a scholar, a hamlet, the library or the page of
@@ -280,8 +299,8 @@ every hamlet and the Hand.
 _Avoid_: inspector, sidebar
 
 **Toast**:
-A card over the realm view that tells of something new, and answers a
-petition in place.
+A card in a corner of the window that tells of something new, and
+answers a petition in place.
 _Avoid_: notification, popup
 
 **Town**:
