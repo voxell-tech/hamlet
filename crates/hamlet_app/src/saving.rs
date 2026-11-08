@@ -239,6 +239,8 @@ mod tests {
                 upload: None,
                 image: None,
                 images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         app.update();

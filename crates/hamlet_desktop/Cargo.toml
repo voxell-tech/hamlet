@@ -13,6 +13,7 @@ workspace = true
 # Bevy's parts, not the whole: nothing here draws.
 [dependencies]
 hamlet_client.workspace = true
+hamlet_protocol.workspace = true
 arboard.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true

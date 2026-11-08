@@ -2,7 +2,7 @@
 //! transcript shows it. The runtime protocol carries it untyped.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::client::ImageId;
+use hamlet_protocol::client::{AttachedFile, ImageId};
 use hamlet_protocol::runtime;
 use hamlet_store::ids::AgentId;
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,9 @@ pub(crate) enum Mark {
         /// The images the line carried, by their ids.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<String>,
+        /// The files the line carried.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<AttachedFile>,
     },
     /// A failed or stopped turn carried on.
     #[serde(rename = "hamlet.retry")]
@@ -83,6 +86,14 @@ impl Mark {
                 .iter()
                 .filter_map(|image| image.parse().ok())
                 .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The files a chief's line carried.
+    pub fn files(&self) -> Vec<AttachedFile> {
+        match self {
+            Self::Chief { files, .. } => files.clone(),
             _ => Vec::new(),
         }
     }

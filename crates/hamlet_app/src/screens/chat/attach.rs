@@ -1,8 +1,12 @@
-//! Images attached to the next line (C33): dropped on the window,
-//! pasted in the field or chosen in the system's dialog, uploaded at
-//! once, shown as thumbnails over the field, and sent with the line.
-//! A model that takes no images has its attach control greyed out,
-//! and a drag over the window says it cannot be dropped.
+//! Images, files and folders attached to the next line (C33):
+//! dropped on the window, pasted in the field or chosen in the
+//! system's dialog, uploaded at once, shown over the field, and sent
+//! with the line. An image is shown as a thumbnail; a file or a
+//! folder as a chip with its size, which waits for a chief's word
+//! when what is attached is over the cap. A model that takes no
+//! images has its attach control for images greyed out, and a drag of
+//! an image over the window says it cannot be dropped; files and
+//! folders are taken whatever the model.
 //!
 //! The system gives no pointer position with a drop. The hand holds
 //! each dropped file until the pointer is seen over the chat, where
@@ -18,6 +22,7 @@ use bevy::ecs::message::MessageReader;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
@@ -39,19 +44,26 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_client::files::{
+    FilesForget, FilesKept, FilesRefused, Gather, Gathered,
+    UploadFiles,
+};
 use hamlet_client::images::{
     Download, ImageArrived, ImageKept, ImageMissing, ImageRefused,
-    Upload, is_image_file,
+    Upload,
 };
 use hamlet_client::realm::Account;
-use hamlet_desktop::clipboard::{ImagesPasted, PasteImages};
-use hamlet_desktop::images::{ChooseImages, ImagesChosen};
+use hamlet_desktop::choose::{Choose, Chosen, What};
+use hamlet_desktop::clipboard::{Paste, Pasted};
 use hamlet_desktop::open;
-use hamlet_protocol::client::{ImageId, ImageSize};
+use hamlet_protocol::client::{
+    AttachedFile, ImageId, ImageInput, ImageSize,
+};
 use hamlet_realm::hand::FileDropped;
 use hamlet_ui::styles::{ICON, back_link, bare, close_button, note};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, Cx, View};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
@@ -85,13 +97,26 @@ pub(super) fn plugin(app: &mut App) {
         .add_message::<FileDropped>()
         .add_observer(kept)
         .add_observer(refused)
+        .add_observer(gathered)
+        .add_observer(files_kept)
+        .add_observer(files_refused)
         .add_observer(chosen)
         .add_observer(paste)
         .add_observer(pasted)
         .add_observer(open_original)
         .add_observer(original_arrived)
         .add_observer(original_missing)
-        .add_systems(Update, (watch_drag, dropped, finish_reads));
+        .add_systems(
+            Update,
+            (
+                watch_drag,
+                dropped,
+                finish_reads,
+                forgotten.run_if(|attached: Res<Attached>| {
+                    !attached.forget.is_empty()
+                }),
+            ),
+        );
 }
 
 /// The images the open chat's model takes.
@@ -145,37 +170,137 @@ enum Progress {
     Refused(String),
 }
 
-/// The images the next line carries, and a drag over the window.
+/// A file or a folder on its way to the next line.
+struct Parcel {
+    key: u64,
+    /// The name it was attached under.
+    name: String,
+    folder: bool,
+    /// Links and the like inside it that are left out.
+    skipped: usize,
+    load: Load,
+}
+
+#[derive(Clone, PartialEq)]
+enum Load {
+    /// Its folders are walked and its files counted.
+    Reading,
+    /// Its files with those attached already are over the cap, so it
+    /// waits for the chief to say it may be sent.
+    Held {
+        files: usize,
+        bytes: u64,
+    },
+    Sending {
+        files: usize,
+        bytes: u64,
+    },
+    Kept(Vec<AttachedFile>),
+    Refused(String),
+}
+
+/// The kind of thing dragged over the window.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Dragging {
+    #[default]
+    Nothing,
+    /// An image file.
+    Image,
+    /// Any other file or folder.
+    Other,
+}
+
+/// The images, files and folders the next line carries, and a drag
+/// over the window.
 #[derive(Resource, Default)]
 pub struct Attached {
     list: Vec<Attachment>,
+    parcels: Vec<Parcel>,
     next: u64,
-    /// An image file is being dragged over the window.
-    dragging: bool,
+    /// The parcels let go before they were kept, which the client is
+    /// told to stop sending.
+    forget: Vec<u64>,
+    dragging: Dragging,
 }
 
 impl Attached {
-    /// The images of the line, once every one is kept. `None` while
-    /// one still goes up.
-    pub(super) fn ready(&self) -> Option<Vec<ImageId>> {
-        self.list
+    /// The images and files of the line, once every one is kept.
+    /// `None` while one still goes up, waits for a word, or failed.
+    pub(super) fn ready(
+        &self,
+    ) -> Option<(Vec<ImageId>, Vec<AttachedFile>)> {
+        let images = self
+            .list
             .iter()
             .map(|attachment| match &attachment.progress {
                 Progress::Kept(image) => Some(image.clone()),
                 _ => None,
             })
-            .collect()
+            .collect::<Option<Vec<_>>>()?;
+        let mut files = Vec::new();
+        for parcel in &self.parcels {
+            match &parcel.load {
+                Load::Kept(kept) => {
+                    files.extend(kept.iter().cloned());
+                }
+                _ => return None,
+            }
+        }
+        Some((images, files))
     }
 
-    /// Lets the images go, as when their line was sent.
+    /// The files and the bytes of what is attached as files and
+    /// folders, which the cap counts together.
+    fn counted(&self) -> (usize, u64) {
+        self.parcels.iter().fold((0, 0), |(files, bytes), parcel| {
+            match &parcel.load {
+                Load::Held {
+                    files: more,
+                    bytes: size,
+                }
+                | Load::Sending {
+                    files: more,
+                    bytes: size,
+                } => (files + more, bytes + size),
+                Load::Kept(kept) => (
+                    files + kept.len(),
+                    bytes
+                        + kept
+                            .iter()
+                            .map(|file| file.size)
+                            .sum::<u64>(),
+                ),
+                Load::Reading | Load::Refused(_) => (files, bytes),
+            }
+        })
+    }
+
+    /// Lets the parcels go, and tells the client to stop sending
+    /// those not kept yet.
+    fn drop_parcels(&mut self) {
+        let unfinished = self
+            .parcels
+            .drain(..)
+            .filter(|parcel| !matches!(parcel.load, Load::Kept(_)))
+            .map(|parcel| parcel.key);
+        self.forget.extend(unfinished);
+    }
+
+    /// Lets the images and files go.
     pub(super) fn clear(&mut self) {
         self.list.clear();
+        self.drop_parcels();
     }
 
-    /// Puts `images`, which the server keeps, in place of what is
-    /// attached, as when a conversation is rewound to a line.
-    pub(super) fn give_back(&mut self, images: &[ImageId]) {
-        self.list.clear();
+    /// Puts `images` and `files`, which the server keeps, in place
+    /// of what is attached, as when a conversation is rewound to a
+    /// line.
+    pub(super) fn give_back(
+        &mut self,
+        images: &[ImageId],
+        files: &[AttachedFile],
+    ) {
+        self.clear();
         for image in images {
             let key = self.next;
             self.next += 1;
@@ -185,10 +310,41 @@ impl Attached {
                 progress: Progress::Kept(image.clone()),
             });
         }
+        // One parcel for each name the files were attached under.
+        for (name, kept) in by_top(files) {
+            let key = self.next;
+            self.next += 1;
+            self.parcels.push(Parcel {
+                key,
+                name,
+                folder: kept
+                    .iter()
+                    .any(|file| file.name.contains('/')),
+                skipped: 0,
+                load: Load::Kept(kept),
+            });
+        }
     }
 }
 
-/// What is attached: a file to read, or a picture's bytes.
+/// `files` grouped by the first part of their names: each file
+/// attached, and each folder with what it holds.
+fn by_top(
+    files: &[AttachedFile],
+) -> Vec<(String, Vec<AttachedFile>)> {
+    let mut groups: Vec<(String, Vec<AttachedFile>)> = Vec::new();
+    for file in files {
+        let top = file.name.split('/').next().unwrap_or_default();
+        match groups.iter_mut().find(|(name, _)| name == top) {
+            Some((_, group)) => group.push(file.clone()),
+            None => groups.push((top.to_owned(), vec![file.clone()])),
+        }
+    }
+    groups
+}
+
+/// An attachment to take in: a file or a folder to read, or a
+/// picture's bytes.
 pub(super) enum Incoming {
     File(PathBuf),
     Picture(Vec<u8>),
@@ -219,19 +375,35 @@ fn read(path: &std::path::Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|error| error.to_string())
 }
 
-/// Attaches `incoming` to the next line: each is read if it is a
-/// file and sent up, and shows as a thumbnail meanwhile.
+/// Attaches `incoming` to the next line. An image is read if it is a
+/// file and sent up, and shows as a thumbnail meanwhile; any other
+/// file, and a folder, is walked and counted off the frame, and sent
+/// up unless that is over the cap.
 pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
-    let Sight::Sees(most) = sight(world) else {
-        world.resource_mut::<Draft>().notice =
-            "This model cannot see images.".into();
-        return;
-    };
+    let sight = sight(world);
+    world.resource_mut::<Draft>().notice.clear();
     for item in incoming {
+        let image = match &item {
+            Incoming::File(path) => {
+                ImageInput::is_image_file(path) && !path.is_dir()
+            }
+            Incoming::Picture(_) => true,
+        };
+        if !image {
+            if let Incoming::File(path) = item {
+                parcel(world, path);
+            }
+            continue;
+        }
+        let Sight::Sees(most) = sight else {
+            world.resource_mut::<Draft>().notice =
+                "This model cannot see images.".into();
+            continue;
+        };
         if world.resource::<Attached>().list.len() >= most {
             world.resource_mut::<Draft>().notice =
                 format!("A line takes at most {most} images.");
-            return;
+            continue;
         }
         let mut attached = world.resource_mut::<Attached>();
         let key = attached.next;
@@ -272,7 +444,102 @@ pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
             }
         }
     }
-    world.resource_mut::<Draft>().notice.clear();
+}
+
+/// Attaches the file or folder at `path`, which the client counts.
+fn parcel(world: &mut World, path: PathBuf) {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_owned();
+    let folder = path.is_dir();
+    let mut attached = world.resource_mut::<Attached>();
+    let key = attached.next;
+    attached.next += 1;
+    attached.parcels.push(Parcel {
+        key,
+        name,
+        folder,
+        skipped: 0,
+        load: Load::Reading,
+    });
+    world.trigger(Gather {
+        key,
+        paths: vec![path],
+    });
+}
+
+/// Sends what was counted, unless it and what is attached already
+/// are over the cap, when it waits for the chief's word.
+fn gathered(
+    gathered: On<Gathered>,
+    mut attached: ResMut<Attached>,
+    mut commands: Commands,
+) {
+    let (files, bytes) = attached.counted();
+    let over = files + gathered.files > AttachedFile::CAP_FILES
+        || bytes + gathered.bytes > AttachedFile::CAP_BYTES;
+    // A cross may have let it go while it was counted.
+    let Some(parcel) = attached
+        .parcels
+        .iter_mut()
+        .find(|parcel| parcel.key == gathered.key)
+    else {
+        return;
+    };
+    parcel.skipped = gathered.skipped;
+    let (files, bytes) = (gathered.files, gathered.bytes);
+    parcel.load = if over {
+        Load::Held { files, bytes }
+    } else {
+        commands.trigger(UploadFiles { key: gathered.key });
+        Load::Sending { files, bytes }
+    };
+}
+
+/// Sends a parcel that was held, as the chief said it may be.
+fn send_held(world: &mut World, key: u64) {
+    let mut attached = world.resource_mut::<Attached>();
+    let Some(parcel) =
+        attached.parcels.iter_mut().find(|parcel| parcel.key == key)
+    else {
+        return;
+    };
+    if let Load::Held { files, bytes } = parcel.load {
+        parcel.load = Load::Sending { files, bytes };
+        world.trigger(UploadFiles { key });
+    }
+}
+
+fn files_kept(kept: On<FilesKept>, mut attached: ResMut<Attached>) {
+    if let Some(parcel) = attached
+        .parcels
+        .iter_mut()
+        .find(|parcel| parcel.key == kept.key)
+    {
+        parcel.load = Load::Kept(kept.files.clone());
+    }
+}
+
+fn files_refused(
+    refused: On<FilesRefused>,
+    mut attached: ResMut<Attached>,
+) {
+    if let Some(parcel) = attached
+        .parcels
+        .iter_mut()
+        .find(|parcel| parcel.key == refused.key)
+    {
+        parcel.load = Load::Refused(refused.text.clone());
+    }
+}
+
+/// Tells the client to stop sending the parcels that were let go.
+fn forgotten(mut attached: ResMut<Attached>, mut commands: Commands) {
+    for key in std::mem::take(&mut attached.forget) {
+        commands.trigger(FilesForget { key });
+    }
 }
 
 /// Sends up the files that were read.
@@ -326,8 +593,8 @@ fn refused(
     }
 }
 
-/// Attaches the files the dialog gave.
-fn chosen(chosen: On<ImagesChosen>, mut commands: Commands) {
+/// Attaches the files and folders the dialog gave.
+fn chosen(chosen: On<Chosen>, mut commands: Commands) {
     let paths = chosen.paths.clone();
     commands.queue(move |world: &mut World| {
         attach(
@@ -337,9 +604,9 @@ fn chosen(chosen: On<ImagesChosen>, mut commands: Commands) {
     });
 }
 
-/// Asks for the images on the clipboard when Cmd+V, or Ctrl+V where
-/// there is no Cmd, is pressed in the field. Words pasted are the
-/// field's own.
+/// Asks for the files and images on the clipboard when Cmd+V, or
+/// Ctrl+V where there is no Cmd, is pressed in the field. Words
+/// pasted are the field's own.
 fn paste(
     key: On<FocusedInput<KeyboardInput>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -359,14 +626,14 @@ fn paste(
     {
         return;
     }
-    commands.trigger(PasteImages {
+    commands.trigger(Paste {
         asker: convo.session,
     });
 }
 
-/// Attaches the images the clipboard held.
+/// Attaches what the clipboard held.
 fn pasted(
-    pasted: On<ImagesPasted>,
+    pasted: On<Pasted>,
     convo: Res<Convo>,
     mut commands: Commands,
 ) {
@@ -380,7 +647,7 @@ fn pasted(
     commands.queue(move |world: &mut World| attach(world, incoming));
 }
 
-/// Follows the drag of image files over the window.
+/// Follows the drag of files and folders over the window.
 fn watch_drag(
     mut files: MessageReader<FileDragAndDrop>,
     mut attached: ResMut<Attached>,
@@ -388,17 +655,21 @@ fn watch_drag(
     for file in files.read() {
         match file {
             FileDragAndDrop::HoveredFile { path_buf, .. } => {
-                attached.dragging = is_image_file(path_buf);
+                attached.dragging =
+                    match ImageInput::is_image_file(path_buf) {
+                        true => Dragging::Image,
+                        false => Dragging::Other,
+                    };
             }
             FileDragAndDrop::HoveredFileCanceled { .. }
             | FileDragAndDrop::DroppedFile { .. } => {
-                attached.dragging = false;
+                attached.dragging = Dragging::Nothing;
             }
         }
     }
 }
 
-/// Attaches the image files dropped on the chat.
+/// Attaches the files and folders dropped on the chat.
 fn dropped(
     mut images: MessageReader<FileDropped>,
     mut commands: Commands,
@@ -565,20 +836,153 @@ pub(super) fn sent(images: &[ImageId]) -> impl View {
     .padding(UiRect::bottom(px(4.0)))
 }
 
-/// The thumbnails over the field, each with the way to let it go.
+/// A file or folder over the field: what it is, how far it is, and
+/// the way to let it go.
+fn chip(
+    key: u64,
+    name: &str,
+    folder: bool,
+    skipped: usize,
+    load: &Load,
+) -> AnyView {
+    let size = AttachedFile::size_words;
+    let (words, tone) = match load {
+        Load::Reading => ("Reading".to_owned(), Tone::Dim),
+        Load::Sending { files, bytes } => (
+            format!("Sending {} ({})", counted(*files), size(*bytes)),
+            Tone::Dim,
+        ),
+        Load::Held { files, bytes } => (
+            format!(
+                "{} ({}) is over what one message takes: {} MiB or \
+                 {} files.",
+                counted(*files),
+                size(*bytes),
+                AttachedFile::CAP_BYTES >> 20,
+                AttachedFile::CAP_FILES
+            ),
+            Tone::Critical,
+        ),
+        Load::Kept(kept) => (
+            format!(
+                "{} ({})",
+                counted(kept.len()),
+                size(kept.iter().map(|file| file.size).sum())
+            ),
+            Tone::Dim,
+        ),
+        Load::Refused(text) => (text.clone(), Tone::Critical),
+    };
+    let left_out = match skipped {
+        0 => String::new(),
+        n => format!(" {n} left out: not files."),
+    };
+    let held = matches!(load, Load::Held { .. });
+    column((
+        row((
+            glyph(
+                match folder {
+                    true => Glyph::Folder,
+                    false => Glyph::Notes,
+                },
+                ICON,
+            ),
+            label(name.to_owned()).size(12.0).wrap(false),
+            close_button(move |world| {
+                let mut attached = world.resource_mut::<Attached>();
+                if let Some(at) = attached
+                    .parcels
+                    .iter()
+                    .position(|parcel| parcel.key == key)
+                {
+                    let gone = attached.parcels.remove(at);
+                    if !matches!(gone.load, Load::Kept(_)) {
+                        attached.forget.push(gone.key);
+                    }
+                }
+            }),
+        ))
+        .gap(4.0)
+        .align(AlignItems::Center),
+        label(format!("{words}{left_out}")).size(11.0).tone(tone),
+        match held {
+            true => hamlet_ui::styles::lettered("Send anyway")
+                .rules(hamlet_ui::styles::button)
+                .on_activate(move |world| send_held(world, key))
+                .boxed(),
+            false => bare().boxed(),
+        },
+    ))
+    .gap(2.0)
+    .max_width(px(240.0))
+    .boxed()
+}
+
+/// `files` as words: `1 file`, `12 files`.
+fn counted(files: usize) -> String {
+    match files {
+        1 => "1 file".to_owned(),
+        n => format!("{n} files"),
+    }
+}
+
+/// The files and folders a sent line carries, by name.
+pub(super) fn sent_files(files: &[AttachedFile]) -> impl View {
+    let words = by_top(files)
+        .into_iter()
+        .map(|(name, group)| {
+            let size = AttachedFile::size_words(
+                group.iter().map(|file| file.size).sum(),
+            );
+            match group.iter().any(|file| file.name.contains('/')) {
+                true => format!(
+                    "{name}/ ({}, {size})",
+                    counted(group.len())
+                ),
+                false => format!("{name} ({size})"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    row((
+        glyph(Glyph::Notes, ICON).tone(Tone::Dim),
+        label(words).size(11.0).tone(Tone::Dim),
+    ))
+    .gap(4.0)
+    .align(AlignItems::Center)
+    .padding(UiRect::bottom(px(4.0)))
+}
+
+/// The thumbnails and chips over the field, each with the way to let
+/// it go.
 pub(super) fn strip() -> impl View {
     let seen = resource::<Attached, _>(|attached| {
-        attached
-            .list
-            .iter()
-            .map(|a| (a.key, a.shown.clone(), a.progress.clone()))
-            .collect::<Vec<_>>()
+        (
+            attached
+                .list
+                .iter()
+                .map(|a| (a.key, a.shown.clone(), a.progress.clone()))
+                .collect::<Vec<_>>(),
+            attached
+                .parcels
+                .iter()
+                .map(|p| {
+                    (
+                        p.key,
+                        p.name.clone(),
+                        p.folder,
+                        p.skipped,
+                        p.load.clone(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
     });
-    keyed(seen, |seen| {
-        if seen.is_empty() {
+    keyed(seen, |(seen, parcels)| {
+        if seen.is_empty() && parcels.is_empty() {
             return bare().boxed();
         }
-        let items = seen
+        let mut items = seen
             .iter()
             .map(|(key, shown, progress)| {
                 let key = *key;
@@ -617,29 +1021,42 @@ pub(super) fn strip() -> impl View {
                 .boxed()
             })
             .collect::<Vec<_>>();
-        row(items).gap(8.0).boxed()
+        items.extend(parcels.iter().map(
+            |(key, name, folder, skipped, load)| {
+                chip(*key, name, *folder, *skipped, load)
+            },
+        ));
+        row(items).gap(8.0).tagged(Wraps).boxed()
     })
     .within(bare())
 }
 
-/// The control that opens the dialog images are chosen in, greyed
-/// out for a model that takes none.
+/// A control that opens the dialog `what` is chosen in.
+fn chooser(which: Glyph, tip: &'static str, what: What) -> AnyView {
+    button(glyph(which, ICON))
+        .padding(UiRect::all(px(4.0)))
+        .tooltip(move || note(tip))
+        .rules(back_link)
+        .tagged(Variant::Text)
+        .on_activate(move |world| {
+            let asker = world.resource::<Convo>().session;
+            world.trigger(Choose { asker, what });
+        })
+        .boxed()
+}
+
+/// The controls that open the dialogs images, files and folders are
+/// chosen in. The one for images is greyed out for a model that
+/// takes none.
 pub(super) fn control() -> impl View {
     let sees = derived(|world: &World| sight(world)).when(either(
         either(agents_moved(), moved::<Shelf>()),
         moved::<Convo>(),
     ));
-    keyed(sees, |sight| match sight {
-        Sight::Sees(_) => button(glyph(Glyph::Picture, ICON))
-            .padding(UiRect::all(px(4.0)))
-            .tooltip(|| note("Attach images"))
-            .rules(back_link)
-            .tagged(Variant::Text)
-            .on_activate(|world| {
-                let asker = world.resource::<Convo>().session;
-                world.trigger(ChooseImages { asker });
-            })
-            .boxed(),
+    let images = keyed(sees, |sight| match sight {
+        Sight::Sees(_) => {
+            chooser(Glyph::Picture, "Attach images", What::Images)
+        }
         Sight::Blind => {
             column((glyph(Glyph::Picture, ICON).tone(Tone::Faint),))
                 .padding(UiRect::all(px(4.0)))
@@ -647,17 +1064,24 @@ pub(super) fn control() -> impl View {
                 .boxed()
         }
     })
-    .within(bare())
+    .within(bare());
+    row((
+        images,
+        chooser(Glyph::Notes, "Attach files", What::Files),
+        chooser(Glyph::Folder, "Attach a folder", What::Folders),
+    ))
+    .align(AlignItems::Center)
 }
 
-/// The indicator shown while an image is dragged over the window:
-/// where it can be dropped, or that it cannot.
+/// The indicator shown while a file or folder is dragged over the
+/// window: where it can be dropped, or that it cannot.
 pub(super) fn indicator() -> impl View {
     let drag = derived(|world: &World| {
         let dragging = world
             .get_resource::<Attached>()
-            .is_some_and(|attached| attached.dragging);
-        dragging.then(|| sight(world))
+            .map_or(Dragging::Nothing, |attached| attached.dragging);
+        (dragging != Dragging::Nothing)
+            .then(|| (dragging, sight(world)))
     })
     .when(either(
         either(moved::<Attached>(), moved::<Shelf>()),
@@ -665,15 +1089,19 @@ pub(super) fn indicator() -> impl View {
     ));
     keyed(drag, |drag| match drag {
         None => bare().boxed(),
-        Some(sight) => {
-            let (words, tone) = match sight {
-                Sight::Sees(_) => ("Drop to attach", Tone::Accent),
-                Sight::Blind => {
+        Some((dragging, sight)) => {
+            let (words, tone) = match (dragging, sight) {
+                (Dragging::Image, Sight::Blind) => {
                     ("This model cannot see images", Tone::Critical)
                 }
+                _ => ("Drop to attach", Tone::Accent),
+            };
+            let which = match dragging {
+                Dragging::Image => Glyph::Picture,
+                _ => Glyph::Notes,
             };
             row((
-                glyph(Glyph::Picture, ICON).tone(tone),
+                glyph(which, ICON).tone(tone),
                 label(words).size(12.0).tone(tone),
             ))
             .gap(6.0)
@@ -698,9 +1126,7 @@ mod tests {
     use super::*;
     use crate::testing::{panel_app, png, seat_hand};
 
-    fn listed(
-        images: Option<protocol::ImageInput>,
-    ) -> protocol::Listed {
+    fn listed(images: Option<ImageInput>) -> protocol::Listed {
         protocol::Listed {
             context: None,
             default_effort: None,
@@ -738,7 +1164,7 @@ mod tests {
         assert!(!world.resource::<Draft>().notice.is_empty());
         assert_eq!(world.resource::<Outbox>().iter().count(), before);
 
-        let input = protocol::ImageInput {
+        let input = ImageInput {
             per_line: Some(1),
             ..Default::default()
         };
@@ -772,9 +1198,9 @@ mod tests {
     fn a_rewound_line_gives_its_images_back() {
         let mut attached = Attached::default();
         let image = ImageId::try_from("a".repeat(64)).unwrap();
-        attached.give_back(std::slice::from_ref(&image));
-        assert_eq!(attached.ready(), Some(vec![image]));
-        attached.give_back(&[]);
-        assert_eq!(attached.ready(), Some(Vec::new()));
+        attached.give_back(std::slice::from_ref(&image), &[]);
+        assert_eq!(attached.ready(), Some((vec![image], Vec::new())));
+        attached.give_back(&[], &[]);
+        assert_eq!(attached.ready(), Some((Vec::new(), Vec::new())));
     }
 }

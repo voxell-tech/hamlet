@@ -1,6 +1,6 @@
 //! Streaming terminal conversations and the chief's typed lines.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
@@ -58,19 +58,15 @@ pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
 }
 
 /// Chats until EOF has received every submitted line's reply;
-/// disconnecting stops no agent. The first line carries the `images`
-/// (C33).
+/// disconnecting stops no agent. The first line carries what the
+/// paths `attach` name: images, files and folders (C33).
 pub async fn run(
     address: &ServerAddress,
     to: &str,
-    images: &[PathBuf],
+    attach: &[PathBuf],
 ) -> Result<()> {
     let (client, state) = client::connect(address).await?;
     let target = resolve(&state, to)?;
-    let mut attached = Vec::new();
-    for path in images {
-        attached.push(client::upload_image(address, path).await?);
-    }
     let mut screen = Screen::default();
     screen.show(&ServerMessage::State(state.clone()))?;
     eprintln!(
@@ -92,7 +88,9 @@ pub async fn run(
     }
     let mut session = Session {
         address: address.clone(),
-        attached,
+        attached: Vec::new(),
+        files: Vec::new(),
+        held: VecDeque::new(),
         client,
         state,
         target,
@@ -109,6 +107,9 @@ pub async fn run(
     };
     let chat = chat_ref(session.target);
     session.open(RequestId::new(), chat).await?;
+    for path in attach {
+        session.attach(path).await?;
+    }
     let mut input = BufReader::new(tokio::io::stdin()).lines();
     loop {
         tokio::select! {
@@ -131,6 +132,11 @@ struct Session {
     address: ServerAddress,
     /// The images the next line carries.
     attached: Vec<ImageId>,
+    /// The files the next line carries.
+    files: Vec<AttachedFile>,
+    /// What waits for a yes before it is sent, being over what one
+    /// message takes, first one first.
+    held: VecDeque<(String, client::Plan)>,
     client: Client,
     state: State,
     target: AgentId,
@@ -173,7 +179,9 @@ impl Session {
     /// Takes a line the chief typed, or the end of input.
     async fn on_line(&mut self, line: Option<String>) -> Result<()> {
         let Some(line) = line else {
-            if !self.attached.is_empty() {
+            // The end of input answers what is held with no.
+            self.held.clear();
+            if !self.attached.is_empty() || !self.files.is_empty() {
                 self.say(String::new()).await?;
             }
             let barrier = RequestId::new();
@@ -181,6 +189,22 @@ impl Session {
             self.last = Some(barrier);
             return Ok(());
         };
+        if let Some((shown, plan)) = self.held.pop_front() {
+            if matches!(
+                line.trim().to_lowercase().as_str(),
+                "y" | "yes"
+            ) {
+                if let Err(error) =
+                    self.send_plan(&shown, &plan).await
+                {
+                    eprintln!("error: {error:#}");
+                }
+            } else {
+                eprintln!("  (left out {shown})");
+            }
+            self.ask_held();
+            return prompt(&mut self.screen, self.interactive);
+        }
         let trimmed = line.trim();
         if trimmed.is_empty() {
             return prompt(&mut self.screen, self.interactive);
@@ -188,22 +212,11 @@ impl Session {
         let (command, name) = trimmed
             .split_once(char::is_whitespace)
             .unwrap_or((trimmed, ""));
-        if command == "/image" {
-            match client::upload_image(
-                &self.address,
-                Path::new(name.trim()),
-            )
-            .await
+        if command == "/attach" {
+            if let Err(error) =
+                self.attach(Path::new(name.trim())).await
             {
-                Ok(image) => {
-                    self.attached.push(image);
-                    eprintln!(
-                        "  (attached {}; {} with the next line)",
-                        name.trim(),
-                        self.attached.len()
-                    );
-                }
-                Err(error) => eprintln!("error: {error:#}"),
+                eprintln!("error: {error:#}");
             }
             return prompt(&mut self.screen, self.interactive);
         }
@@ -235,14 +248,88 @@ impl Session {
         prompt(&mut self.screen, self.interactive)
     }
 
-    /// Says `text` with the images attached so far.
+    /// Attaches `path` to the next line: an image, or any other file
+    /// or a folder. What is over what one message takes waits for a
+    /// yes, which only a terminal can give.
+    async fn attach(&mut self, path: &Path) -> Result<()> {
+        let shown = path.display().to_string();
+        if ImageInput::is_image_file(path) && !path.is_dir() {
+            let image =
+                client::upload_image(&self.address, path).await?;
+            self.attached.push(image);
+            self.attached_note(&shown);
+            return Ok(());
+        }
+        let plan = client::plan(path)?;
+        let (files, bytes) = self.files.iter().fold(
+            (plan.files.len(), plan.bytes),
+            |(files, bytes), file| (files + 1, bytes + file.size),
+        );
+        if files > AttachedFile::CAP_FILES
+            || bytes > AttachedFile::CAP_BYTES
+        {
+            if !self.interactive {
+                bail!(
+                    "{shown} is more than one message takes ({} MiB \
+                     or {} files); attach it in a terminal to say \
+                     it may be sent.",
+                    AttachedFile::CAP_BYTES >> 20,
+                    AttachedFile::CAP_FILES
+                );
+            }
+            self.held.push_back((shown, plan));
+            if self.held.len() == 1 {
+                self.ask_held();
+            }
+            return Ok(());
+        }
+        self.send_plan(&shown, &plan).await
+    }
+
+    /// Sends the files of `plan`, which `shown` names, with the next
+    /// line.
+    async fn send_plan(
+        &mut self,
+        shown: &str,
+        plan: &client::Plan,
+    ) -> Result<()> {
+        let files = client::upload_files(&self.address, plan).await?;
+        self.files.extend(files);
+        self.attached_note(shown);
+        Ok(())
+    }
+
+    fn attached_note(&self, shown: &str) {
+        eprintln!(
+            "  (attached {shown}; {} with the next line)",
+            self.attached.len() + self.files.len()
+        );
+    }
+
+    /// Asks whether what is held first may be sent.
+    fn ask_held(&self) {
+        if let Some((shown, plan)) = self.held.front() {
+            eprintln!(
+                "  ({shown} is {} files, {}: over what one message \
+                 takes, {} MiB or {} files. Send it anyway? y/N)",
+                plan.files.len(),
+                AttachedFile::size_words(plan.bytes),
+                AttachedFile::CAP_BYTES >> 20,
+                AttachedFile::CAP_FILES
+            );
+        }
+    }
+
+    /// Says `text` with the images and files attached so far.
     async fn say(&mut self, text: String) -> Result<()> {
         let id = RequestId::new();
         self.pending.insert(id.clone());
         let to = self.target;
         let images = std::mem::take(&mut self.attached);
+        let files = std::mem::take(&mut self.files);
         self.client
             .send(ClientMessage::Say(Say {
+                files,
                 id,
                 images,
                 to,

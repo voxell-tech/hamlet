@@ -304,6 +304,7 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
             name: item.chief.unwrap_or_else(|| chief.into()),
             text: item.text,
             images: item.images,
+            files: item.files,
         },
         protocol::ItemKind::Assistant => Entry::Assistant(item.text),
         protocol::ItemKind::Reasoning => Entry::Reasoning(item.text),
@@ -409,6 +410,8 @@ pub enum Entry {
         text: String,
         /// The images the line carries, in order (C33).
         images: Vec<protocol::ImageId>,
+        /// The files the line carries, in order (C33).
+        files: Vec<protocol::AttachedFile>,
     },
     Assistant(String),
     Reasoning(String),

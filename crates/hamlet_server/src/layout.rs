@@ -102,4 +102,10 @@ impl Layout {
     pub fn images(&self) -> PathBuf {
         self.root.join("images")
     }
+
+    /// The files chiefs sent with their lines, each kept once under
+    /// the hash of its bytes, out of agents' reach (S29).
+    pub fn files(&self) -> PathBuf {
+        self.root.join("files")
+    }
 }

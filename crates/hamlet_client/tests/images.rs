@@ -16,6 +16,8 @@ fn reply(
         kind,
         text: String::new(),
         upload: None,
+        file: None,
+        files: Vec::new(),
         image: None,
         images: Vec::new(),
     }

@@ -4486,6 +4486,7 @@ dependencies = [
  "bevy_winit",
  "futures",
  "hamlet_client",
+ "hamlet_protocol",
  "hamlet_testing",
  "image",
  "objc2 0.5.3",

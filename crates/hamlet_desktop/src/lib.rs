@@ -1,19 +1,19 @@
 //! The machine the app runs on: kept awake while an agent works
 //! (`awake`), the programs of the system that show a file or a link
 //! (`open`), temporary documents watched for saves (`editor`), its
-//! dialog a folder is chosen in (`folder`), the one image files are
-//! chosen in (`images`), the images on its clipboard (`clipboard`),
+//! dialog a folder is chosen in (`folder`), the one files to attach
+//! are chosen in (`choose`), what is on its clipboard (`clipboard`),
 //! the app's icon (`app_icon`), whether the computer is light or dark
 //! (`color_scheme`) and the window's drag by its title bar
 //! (`title_bar`).
 
 pub mod app_icon;
 pub mod awake;
+pub mod choose;
 pub mod clipboard;
 pub mod color_scheme;
 pub mod editor;
 pub mod folder;
-pub mod images;
 pub mod open;
 pub mod title_bar;
 
@@ -32,10 +32,10 @@ impl Plugin for DesktopPlugin {
         if self.window {
             app.add_plugins((
                 app_icon::plugin,
+                choose::plugin,
                 clipboard::plugin,
                 color_scheme::plugin,
                 folder::plugin,
-                images::plugin,
                 title_bar::plugin,
             ));
         }

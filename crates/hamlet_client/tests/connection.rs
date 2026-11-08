@@ -93,6 +93,7 @@ async fn window_closed(socket: &mut WebSocketStream<TcpStream>) {
 fn say(app: &mut App, text: &str) -> protocol::RequestId {
     app.world_mut().resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Say(protocol::Say {
+            files: Vec::new(),
             id,
             images: Vec::new(),
             to: protocol::AgentId(2),

@@ -320,10 +320,19 @@ fn said<B: Board>(
                             .boxed(),
                     );
                 }
-                if let Some(Entry::Chief { images, .. }) = entry
-                    && !images.is_empty()
+                if let Some(Entry::Chief { images, files, .. }) =
+                    entry
                 {
-                    inside.push(super::attach::sent(images).boxed());
+                    if !images.is_empty() {
+                        inside.push(
+                            super::attach::sent(images).boxed(),
+                        );
+                    }
+                    if !files.is_empty() {
+                        inside.push(
+                            super::attach::sent_files(files).boxed(),
+                        );
+                    }
                 }
                 let said = linked.unwrap_or_else(|| {
                     label(component::<Transcript, _>(

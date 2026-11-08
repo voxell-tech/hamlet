@@ -23,6 +23,7 @@ pub fn plugin(app: &mut App) {
                 let message = message.event();
                 outbox.send(|id| {
                     protocol::ClientMessage::Say(protocol::Say {
+                        files: message.files.clone(),
                         id,
                         images: message.images.clone(),
                         to: message.to,
@@ -101,6 +102,8 @@ pub struct ChiefMessage {
     pub text: String,
     /// The images the line carries, already uploaded (C33).
     pub images: Vec<protocol::ImageId>,
+    /// The files the line carries, already uploaded (C33).
+    pub files: Vec<protocol::AttachedFile>,
 }
 
 impl ChiefMessage {
@@ -110,6 +113,7 @@ impl ChiefMessage {
             to,
             text,
             images: Vec::new(),
+            files: Vec::new(),
         }
     }
 }
@@ -166,6 +170,7 @@ pub struct Rewound {
     pub chat: Entity,
     pub text: String,
     pub images: Vec<protocol::ImageId>,
+    pub files: Vec<protocol::AttachedFile>,
 }
 
 /// A server answer paired with its request id.
@@ -245,6 +250,7 @@ pub(crate) fn receive(
                 chat,
                 text: reply.text.clone(),
                 images: reply.images.clone(),
+                files: reply.files.clone(),
             });
         }
         let refusal = match message {

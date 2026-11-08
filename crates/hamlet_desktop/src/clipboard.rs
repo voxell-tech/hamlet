@@ -1,5 +1,6 @@
-//! The images on the system's clipboard (C33): image files copied in
-//! a file manager, and raw picture data such as a screenshot.
+//! The system's clipboard, read to attach (C33): files and folders
+//! copied in a file manager, and raw picture data such as a
+//! screenshot.
 
 use std::path::PathBuf;
 
@@ -10,7 +11,6 @@ use bevy_ecs::observer::On;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Commands, Res, ResMut};
 use hamlet_client::Tokio;
-use hamlet_client::images::is_image_file;
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 use tokio::sync::mpsc::{
@@ -23,17 +23,17 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(Update, take);
 }
 
-/// Asks for the images on the clipboard, for `asker`.
+/// Asks for what is on the clipboard, for `asker`.
 #[derive(Event, Clone, Debug)]
-pub struct PasteImages {
+pub struct Paste {
     pub asker: Entity,
 }
 
-/// The images the clipboard held for `asker`: image files, or the
-/// bytes of PNG files made from picture data. Both are empty when it
-/// held no image.
+/// The files and folders, or the bytes of PNG files made from
+/// picture data, the clipboard held for `asker`. Both are empty when
+/// it held neither.
 #[derive(Event, Clone, Debug)]
-pub struct ImagesPasted {
+pub struct Pasted {
     pub asker: Entity,
     pub files: Vec<PathBuf>,
     pub pictures: Vec<Vec<u8>>,
@@ -56,7 +56,7 @@ impl Default for Reader {
 }
 
 fn ask(
-    paste: On<PasteImages>,
+    paste: On<Paste>,
     reader: Res<Reader>,
     tokio: Option<Res<Tokio>>,
 ) {
@@ -70,11 +70,11 @@ fn ask(
     });
 }
 
-/// Tells of the images a read found.
+/// Tells of what a read found.
 fn take(mut reader: ResMut<Reader>, mut commands: Commands) {
     while let Ok((asker, files, pictures)) = reader.rx.try_recv() {
         if !files.is_empty() || !pictures.is_empty() {
-            commands.trigger(ImagesPasted {
+            commands.trigger(Pasted {
                 asker,
                 files,
                 pictures,
@@ -83,19 +83,15 @@ fn take(mut reader: ResMut<Reader>, mut commands: Commands) {
     }
 }
 
-/// The image files, else the picture, on the clipboard.
+/// The files, else the picture, on the clipboard.
 fn read() -> (Vec<PathBuf>, Vec<Vec<u8>>) {
     let Ok(mut clipboard) = arboard::Clipboard::new() else {
         return Default::default();
     };
-    if let Ok(files) = clipboard.get().file_list() {
-        let images = files
-            .into_iter()
-            .filter(|file| is_image_file(file))
-            .collect::<Vec<_>>();
-        if !images.is_empty() {
-            return (images, Vec::new());
-        }
+    if let Ok(files) = clipboard.get().file_list()
+        && !files.is_empty()
+    {
+        return (files, Vec::new());
     }
     // Words on the clipboard are pasted as words, though what they
     // were copied from may have left a picture of them beside.

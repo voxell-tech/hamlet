@@ -1208,6 +1208,8 @@ mod tests {
                 upload: None,
                 image: None,
                 images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         settle(&mut app);
@@ -1253,6 +1255,8 @@ mod tests {
                 upload: None,
                 image: None,
                 images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         let read = app

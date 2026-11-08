@@ -21,6 +21,7 @@ pub(super) fn conversation(lines: &[(&str, &str)]) -> Transcript {
                         name: by.into(),
                         text: (*text).into(),
                         images: Vec::new(),
+                        files: Vec::new(),
                     },
                 },
             })
@@ -194,6 +195,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                            door\nWrite that into the almanac."
                         .into(),
                     images: Vec::new(),
+                    files: Vec::new(),
                 },
             });
             Transcript::from_items(items)

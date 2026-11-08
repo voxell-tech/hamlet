@@ -19,8 +19,8 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
                      [--insecure] [--hot]
        hamlet window
-       hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] \
-                     [--image <path>]...
+       hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] [--attach \
+                     <path>]...
        hamlet edit <charter|limits|settings> [--hamlet <id>]
        hamlet edit character <scholar#id>
        hamlet edit memory <scholar#id|hire#<id>> [path]
@@ -66,8 +66,8 @@ enum Command {
     Window,
     Chat {
         to: String,
-        /// The image files the first line carries.
-        images: Vec<PathBuf>,
+        /// The images, files and folders the first line carries.
+        attach: Vec<PathBuf>,
     },
     Terminal(terminal::Command),
 }
@@ -109,7 +109,7 @@ fn parse(args: &[String]) -> Result<Command> {
             let mut isolation = Isolation::Sandboxed;
             let mut hot = false;
             let mut to = hamlet_protocol::HAND.to_owned();
-            let mut images = Vec::new();
+            let mut attach = Vec::new();
             let mut flags = rest.iter();
             while let Some(flag) = flags.next() {
                 let flag = flag.as_str();
@@ -130,8 +130,8 @@ fn parse(args: &[String]) -> Result<Command> {
                         "the path of a scratch realm"
                     }
                     "--to" if name == "chat" => "an agent's address",
-                    "--image" if name == "chat" => {
-                        "the path of an image"
+                    "--attach" if name == "chat" => {
+                        "the path of an image, a file or a folder"
                     }
                     _ => return Err(unknown(flag)),
                 };
@@ -161,7 +161,7 @@ fn parse(args: &[String]) -> Result<Command> {
                     "--faux" => faux = Some(value.clone()),
                     "--home" => home = Some(value.clone()),
                     "--to" => to = value.clone(),
-                    "--image" => images.push(PathBuf::from(value)),
+                    "--attach" => attach.push(PathBuf::from(value)),
                     _ => unreachable!(),
                 }
             }
@@ -178,7 +178,7 @@ fn parse(args: &[String]) -> Result<Command> {
                     isolation,
                     hot,
                 },
-                _ => Command::Chat { to, images },
+                _ => Command::Chat { to, attach },
             })
         }
         "edit" => {
@@ -363,8 +363,8 @@ fn main() {
                     .await
                 }
                 Command::Window => process::window().await,
-                Command::Chat { to, images } => {
-                    chat::run(&process::address()?, &to, &images)
+                Command::Chat { to, attach } => {
+                    chat::run(&process::address()?, &to, &attach)
                         .await?;
                     Ok(0)
                 }

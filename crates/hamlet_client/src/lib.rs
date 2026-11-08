@@ -2,6 +2,7 @@
 
 pub mod chats;
 pub mod connection;
+pub mod files;
 pub mod images;
 mod index;
 pub mod messages;
@@ -46,6 +47,7 @@ impl Plugin for ClientPlugin {
                 messages::plugin,
                 chats::plugin,
                 connection::plugin,
+                files::plugin,
                 images::plugin,
             ));
     }

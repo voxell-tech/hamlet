@@ -11,14 +11,13 @@ use base64::Engine as _;
 use diesel::dsl::exists;
 use diesel::prelude::*;
 use hamlet_protocol::client::{
-    ImageBytes, ImageId, ImageInput, ImageSize, PutImage,
-    PutImagePart, ReadResult, RequestId, ServerMessage,
+    AttachedFile, ImageBytes, ImageId, ImageInput, ImageSize,
+    PutImage, PutImagePart, ReadResult, RequestId, ServerMessage,
 };
 use hamlet_protocol::runtime::Picture;
 use hamlet_store::Db;
 use hamlet_store::ids::AgentId;
 use hamlet_store::schema::{input, item, marker};
-use hamlet_workspace_wire::{Bytes, MAX_FILE, Write};
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::PngEncoder;
 use image::imageops::FilterType;
@@ -31,6 +30,8 @@ use sha2::{Digest, Sha256};
 use crate::clients::check::reply;
 use crate::core::Core;
 use crate::diagnostic::{Secrets, tell};
+use crate::files::Files;
+use crate::inbox::{INBOX, write_remote};
 use crate::knowledge::folder::Folder;
 use crate::layout::Layout;
 use crate::society::refusal::Refusal;
@@ -550,10 +551,11 @@ fn encode(
     }
 }
 
-/// The images of a line a chief sent.
+/// The images and files of a line a chief sent.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Attached {
     pub ids: Vec<ImageId>,
+    pub files: Vec<AttachedFile>,
     /// The lines that name where each is saved.
     pub captions: String,
 }
@@ -695,11 +697,57 @@ impl Core {
         })
     }
 
+    /// The images `ids` and the files `files` of a line to `agent`,
+    /// with the captions that tell where they are saved (C33). The
+    /// images are the model's too, if it takes them (S30), and are
+    /// saved in the agent's own folder of images; the files are
+    /// saved in its inbox. The remote workspace holds both when the
+    /// agent works there.
+    pub(crate) async fn attach(
+        &mut self,
+        agent: AgentId,
+        ids: &[ImageId],
+        files: &[AttachedFile],
+    ) -> Result<std::result::Result<Attached, Refusal>> {
+        if let Err(refusal) = self.check_files(files) {
+            return Ok(Err(refusal));
+        }
+        let mut attached =
+            match self.attach_images(agent, ids).await? {
+                Ok(attached) => attached,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+        if files.is_empty() {
+            return Ok(Ok(attached));
+        }
+        let kept = Files::new(self.realm.layout().files());
+        let mut inbox = self.open_inbox(agent, INBOX)?;
+        for file in files {
+            let Some(bytes) = kept.read(&file.id)? else {
+                return Ok(Err(usage(&format!(
+                    "The file `{}` was not sent first.",
+                    file.name
+                ))));
+            };
+            if let Err(refusal) =
+                inbox.put(&file.name, &bytes).await?
+            {
+                return Ok(Err(refusal));
+            }
+        }
+        let captions = inbox.captions("of this message");
+        if !attached.captions.is_empty() {
+            attached.captions.push('\n');
+        }
+        attached.captions.push_str(&captions);
+        attached.files = files.to_vec();
+        Ok(Ok(attached))
+    }
+
     /// The images `ids` of a line to `agent`, if its model takes them
     /// (S30), with the captions that tell where they are saved: in
-    /// the agent's own folder of images, which the remote workspace
-    /// holds too when the agent works there.
-    pub(crate) async fn attach(
+    /// the agent's own folder of images.
+    async fn attach_images(
         &mut self,
         agent: AgentId,
         ids: &[ImageId],
@@ -750,26 +798,14 @@ impl Core {
                 }
                 Some(session) => {
                     let path = format!("{LODGE}/{SEEN}/{name}");
-                    // One request carries at most MAX_FILE bytes, so
-                    // a larger image goes up in pieces.
-                    for (piece, bytes) in
-                        stored.bytes.chunks(MAX_FILE).enumerate()
+                    if let Err(failure) =
+                        write_remote(session, &path, &stored.bytes)
+                            .await
                     {
-                        let sent = session
-                            .call(Write {
-                                path: path.clone(),
-                                data: Bytes(bytes.to_vec()),
-                                append: piece > 0,
-                                parents: true,
-                                no_follow: true,
-                            })
-                            .await;
-                        if let Err(failure) = sent {
-                            return Ok(Err(usage(&format!(
-                                "The workspace could not take the \
-                                 image: {failure}"
-                            ))));
-                        }
+                        return Ok(Err(usage(&format!(
+                            "The workspace could not take the \
+                             image: {failure}"
+                        ))));
                     }
                     path
                 }
@@ -849,7 +885,8 @@ impl Core {
         let db = self.realm.store().connection();
         for (id, at) in images.kept() {
             let idle = at.elapsed().is_ok_and(|age| age >= GRACE);
-            if idle && !held.contains(&id) && !used(db, &id)? {
+            if idle && !held.contains(&id) && !used(db, id.as_str())?
+            {
                 images.remove(&id)?;
             }
         }
@@ -858,8 +895,8 @@ impl Core {
 }
 
 /// Whether a kept input, a transcript item or a tool's result names
-/// `image`.
-fn used(db: &mut Db, image: &ImageId) -> Result<bool> {
+/// the image or file `image`.
+pub(crate) fn used(db: &mut Db, image: &str) -> Result<bool> {
     let named = format!("%{image}%");
     Ok(diesel::select(exists(
         input::table.filter(input::mark.like(&named)),

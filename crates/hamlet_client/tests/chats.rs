@@ -595,6 +595,8 @@ fn a_refused_page_can_be_requested_again() {
                 kind: protocol::ReplyKind::Error,
                 text: "No page".into(),
                 upload: None,
+                file: None,
+                files: Vec::new(),
                 image: None,
                 images: Vec::new(),
             })
@@ -625,6 +627,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
             author: None,
             rewindable: None,
             tool: None,
+            files: Vec::new(),
             images: Vec::new(),
         }
     };

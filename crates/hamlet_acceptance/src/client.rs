@@ -212,6 +212,7 @@ impl Client {
     ) -> RequestId {
         let id = RequestId::new();
         self.send(ClientMessage::Say(Say {
+            files: Vec::new(),
             id: id.clone(),
             images: Vec::new(),
             to,
@@ -286,6 +287,7 @@ impl Client {
         let text = text.to_owned();
         self.request(|id| {
             ClientMessage::Say(Say {
+                files: Vec::new(),
                 id,
                 images,
                 to,
@@ -293,6 +295,63 @@ impl Client {
             })
         })
         .await
+    }
+
+    /// Sends a chief's line with `files` and waits for its reply.
+    pub async fn say_files(
+        &mut self,
+        to: AgentId,
+        text: &str,
+        files: Vec<AttachedFile>,
+    ) -> Reply {
+        let text = text.to_owned();
+        self.request(|id| {
+            ClientMessage::Say(Say {
+                files,
+                id,
+                images: Vec::new(),
+                to,
+                text,
+            })
+        })
+        .await
+    }
+
+    /// Uploads a file in parts of `part` bytes. Gives the first
+    /// refusal, else the reply that names the kept file.
+    pub async fn put_file(
+        &mut self,
+        bytes: &[u8],
+        part: usize,
+    ) -> Reply {
+        let size = bytes.len() as u64;
+        let begun = self
+            .request(|id| {
+                ClientMessage::PutFile(PutFile { id, size })
+            })
+            .await;
+        let Some(upload) = begun.upload.clone() else {
+            return begun;
+        };
+        let mut answer = begun;
+        for (n, bytes) in bytes.chunks(part).enumerate() {
+            let data = BASE64_STANDARD.encode(bytes);
+            let upload = upload.clone();
+            answer = self
+                .request(|id| {
+                    ClientMessage::PutFilePart(PutFilePart {
+                        data,
+                        id,
+                        offset: (n * part) as u64,
+                        upload,
+                    })
+                })
+                .await;
+            if answer.kind == ReplyKind::Error {
+                return answer;
+            }
+        }
+        answer
     }
 
     /// Takes `chat` back to before its input `item`.

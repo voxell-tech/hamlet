@@ -274,16 +274,20 @@ pub(crate) fn quote_in_field(world: &mut World, words: &str) {
 /// Sends `text` to the open chat.
 pub fn send(world: &mut World, text: String) {
     let text = text.trim().to_string();
-    let images = world
-        .get_resource::<attach::Attached>()
-        .map_or(Some(Vec::new()), attach::Attached::ready);
-    // A line of images alone is a line, once they are all kept.
-    let Some(images) = images else {
+    let ready = world.get_resource::<attach::Attached>().map_or(
+        Some((Vec::new(), Vec::new())),
+        attach::Attached::ready,
+    );
+    // A line of images or files alone is a line, once they are all
+    // kept.
+    let Some((images, files)) = ready else {
         world.resource_mut::<Draft>().notice =
-            "An image is still being sent, or was not kept.".into();
+            "Something attached is still being sent, waits to be \
+             sent, or was not kept."
+                .into();
         return;
     };
-    if text.is_empty() && images.is_empty() {
+    if text.is_empty() && images.is_empty() && files.is_empty() {
         return;
     }
     if matches!(
@@ -304,7 +308,12 @@ pub fn send(world: &mut World, text: String) {
     };
     // What is sent is at the end of the chat.
     to_end(world);
-    world.trigger(ChiefMessage { to, text, images });
+    world.trigger(ChiefMessage {
+        to,
+        text,
+        images,
+        files,
+    });
     if let Some(mut attached) =
         world.get_resource_mut::<attach::Attached>()
     {
@@ -840,6 +849,7 @@ mod tests {
             chat: session,
             text,
             images: Vec::new(),
+            files: Vec::new(),
         });
         app.update();
         assert_eq!(
@@ -921,6 +931,8 @@ mod tests {
                     upload: None,
                     image: None,
                     images: Vec::new(),
+                    file: None,
+                    files: Vec::new(),
                 })
             };
             hamlet_client::receive(app.world_mut(), message);
@@ -951,6 +963,8 @@ mod tests {
                 upload: None,
                 image: None,
                 images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         app.update();
@@ -1317,6 +1331,7 @@ mod tests {
                         name: "chief".into(),
                         text: "Go".into(),
                         images: Vec::new(),
+                        files: Vec::new(),
                     },
                 },
                 tool("done:0", Some(0)),
@@ -1388,6 +1403,7 @@ mod tests {
                     name: "chief".into(),
                     text: "Change these words".into(),
                     images: Vec::new(),
+                    files: Vec::new(),
                 },
             }]),
         );
@@ -1439,6 +1455,8 @@ mod tests {
                 upload: None,
                 image: None,
                 images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         app.update();

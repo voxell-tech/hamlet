@@ -141,6 +141,7 @@ impl Fold {
                     Item {
                         id: format!("{}:0", entry.entry),
                         at: entry.at,
+                        files: Vec::new(),
                         images: Vec::new(),
                         kind: ItemKind::Answered,
                         text: text.into(),
@@ -274,6 +275,7 @@ pub(crate) fn items_of(
         at,
         author: None,
         chief: None,
+        files: Vec::new(),
         id: id.clone(),
         images: Vec::new(),
         kind,
@@ -295,12 +297,14 @@ pub(crate) fn items_of(
             chief,
             text,
             images,
+            files,
             ..
         }) => {
             return Ok(vec![(
                 0,
                 Item {
                     chief: Some(chief),
+                    files,
                     images: images
                         .iter()
                         .filter_map(|image| image.parse().ok())
@@ -375,6 +379,7 @@ fn blocks_of(
         at,
         author: None,
         chief: None,
+        files: Vec::new(),
         id: id(index),
         images: Vec::new(),
         kind,

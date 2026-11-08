@@ -11,6 +11,8 @@ pub mod transcript;
 
 mod chat;
 mod documents;
+mod files;
+mod hash_id;
 mod images;
 mod limits;
 mod request_id;
@@ -20,6 +22,7 @@ mod waits;
 
 pub use chat::*;
 pub use documents::*;
+pub use files::*;
 pub use images::*;
 pub use limits::*;
 pub use request_id::*;
@@ -35,6 +38,8 @@ impl ClientMessage {
             Self::Say(Say { id, .. })
             | Self::PutImage(PutImage { id, .. })
             | Self::PutImagePart(PutImagePart { id, .. })
+            | Self::PutFile(PutFile { id, .. })
+            | Self::PutFilePart(PutFilePart { id, .. })
             | Self::Answer(Answer { id, .. })
             | Self::Stop(Stop { id, .. })
             | Self::Rewind(Rewind { id, .. })
@@ -111,6 +116,10 @@ pub enum ClientMessage {
     PutImage(PutImage),
     #[serde(rename = "put-image-part")]
     PutImagePart(PutImagePart),
+    #[serde(rename = "put-file")]
+    PutFile(PutFile),
+    #[serde(rename = "put-file-part")]
+    PutFilePart(PutFilePart),
     #[serde(rename = "answer")]
     Answer(Answer),
     #[serde(rename = "stop")]
@@ -180,6 +189,15 @@ pub struct Hello {
 )]
 #[serde(deny_unknown_fields)]
 pub struct Reply {
+    /// The id a file is kept under once its last part arrived, or
+    /// as it was begun when it has no bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "present")]
+    #[schemars(with = "FileId")]
+    pub file: Option<FileId>,
+    /// The files of the line a rewind took back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<AttachedFile>,
     /// The id an image is kept under once its last part arrived.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "present")]

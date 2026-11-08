@@ -15,19 +15,6 @@ use crate::outbox::{Outbox, RequestId};
 /// The most bytes of an image sent in one part.
 const PART: usize = 512 * 1024;
 
-/// The endings of the files an image is taken in (C33), in small
-/// letters.
-pub const ENDINGS: [&str; 5] = ["png", "jpg", "jpeg", "webp", "gif"];
-
-/// Whether the name of `file` says it is an image that is taken.
-pub fn is_image_file(file: &std::path::Path) -> bool {
-    file.extension()
-        .and_then(|ending| ending.to_str())
-        .is_some_and(|ending| {
-            ENDINGS.contains(&ending.to_ascii_lowercase().as_str())
-        })
-}
-
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Steps>()
         .add_observer(upload)

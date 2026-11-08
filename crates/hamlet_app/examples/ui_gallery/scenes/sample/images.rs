@@ -34,6 +34,7 @@ pub(super) fn conversation() -> Transcript {
                 name: "chief".into(),
                 text: "Which of these is the pear tree?".into(),
                 images: vec![id(1), id(2)],
+                files: Vec::new(),
             },
         },
         Item {
@@ -104,6 +105,7 @@ pub(super) fn setup(world: &mut World, scene: Scene, chat: Entity) {
             chat,
             text: String::new(),
             images: vec![id(3), id(4)],
+            files: Vec::new(),
         });
     }
     world.write_message(FileDragAndDrop::HoveredFile {

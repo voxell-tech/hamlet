@@ -65,6 +65,18 @@ impl Folder {
         Ok(out)
     }
 
+    /// Whether anything, a link included, is at `path`.
+    pub fn exists(&self, path: &str) -> bool {
+        let Ok(tree) = TreePath::parse(path) else {
+            return false;
+        };
+        let Ok((dir, name)) = self.0.parent(&tree, Missing::Fail)
+        else {
+            return false;
+        };
+        matches!(dir.stat(name), Ok(Some(_)))
+    }
+
     pub fn read(&self, path: &str) -> Result<Vec<u8>> {
         let path = TreePath::parse(path)?;
         let (dir, name) = self.0.parent(&path, Missing::Fail)?;

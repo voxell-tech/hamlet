@@ -228,7 +228,8 @@ fn retype(
     if rewound.event().chat != convo.session {
         return;
     }
-    attached.give_back(&rewound.event().images);
+    attached
+        .give_back(&rewound.event().images, &rewound.event().files);
     let text = &rewound.event().text;
     let (answers, words) = match unreplied(text) {
         Some((answers, words)) => {

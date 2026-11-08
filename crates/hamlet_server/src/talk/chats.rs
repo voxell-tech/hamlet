@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
-use hamlet_protocol::client::ImageId;
+use hamlet_protocol::client::{AttachedFile, ImageId};
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId, TaskId};
 use hamlet_store::schema::{chat, chat_session};
 
@@ -160,6 +160,7 @@ pub(crate) fn say_with(
                     .iter()
                     .map(|id| id.as_str().to_owned())
                     .collect(),
+                files: attached.files.clone(),
             },
             steer: false,
             boundary: false,
@@ -327,7 +328,7 @@ pub(crate) fn rewind(
     agent: AgentId,
     chief: ChiefId,
     item: &str,
-) -> crate::change::Done<(String, Vec<ImageId>)> {
+) -> crate::change::Done<(String, Vec<ImageId>, Vec<AttachedFile>)> {
     use crate::society::refusal::Refusal;
     let not_a_line = || Refusal::Usage {
         words: "That is not one of your lines in this conversation."
@@ -364,6 +365,7 @@ pub(crate) fn rewind(
         crate::change::refuse!(not_a_line());
     };
     let images = mark.as_ref().map(Mark::images).unwrap_or_default();
+    let files = mark.as_ref().map(Mark::files).unwrap_or_default();
     if *by != name {
         crate::change::refuse!(not_a_line());
     }
@@ -384,7 +386,7 @@ pub(crate) fn rewind(
         .set(chat_session::conversation.eq(fork))
         .execute(cx.db)?;
     cx.touched.agents.insert(agent);
-    Ok(Ok((text.clone(), images)))
+    Ok(Ok((text.clone(), images, files)))
 }
 
 /// Carries on the current session's failed or stopped turn as a new

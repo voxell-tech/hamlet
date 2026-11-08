@@ -26,6 +26,7 @@ use crate::clients::fold::Fold;
 use crate::clock;
 use crate::credentials::Credentials;
 use crate::diagnostic::{self, Secrets, tell};
+use crate::files::FileUploads;
 use crate::images::Uploads;
 use crate::knowledge::runner::{Runner, Writing, run_due};
 use crate::providers::{FAUX, Providers};
@@ -75,6 +76,8 @@ pub(crate) struct Core {
     pub leases: Authority,
     /// The images being sent.
     pub images: Uploads,
+    /// The files being sent.
+    pub files: FileUploads,
     /// The remote workspace the agents' tools run in, chosen before
     /// the server started; none for this machine.
     pub workspace: Option<Transport>,
@@ -184,6 +187,7 @@ impl Core {
             providers,
             leases: Authority::default(),
             images: Uploads::default(),
+            files: FileUploads::default(),
             workspace,
             synced: HashMap::new(),
             moving: None,
@@ -278,6 +282,7 @@ impl Core {
             () = tokio::time::sleep(wait) => {
                 self.dream_tick().await?;
                 self.sweep_images()?;
+                self.sweep_files()?;
                 Ok(false)
             }
         }

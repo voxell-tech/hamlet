@@ -75,6 +75,7 @@ fn hello_carries_the_version_and_token() {
 fn chief_requests_carry_addresses_ids_and_choices() {
     client(
         ClientMessage::Say(Say {
+            files: Vec::new(),
             id: id(),
             images: Vec::new(),
             to: agent(),
@@ -84,12 +85,40 @@ fn chief_requests_carry_addresses_ids_and_choices() {
     );
     client(
         ClientMessage::Say(Say {
+            files: Vec::new(),
             id: id(),
             images: vec![IMAGE.parse().unwrap()],
             to: agent(),
             text: "Look".into(),
         }),
         json!({"type": "say", "id": ID, "images": [IMAGE], "to": 2, "text": "Look"}),
+    );
+    client(
+        ClientMessage::Say(Say {
+            files: vec![AttachedFile {
+                id: IMAGE.parse().unwrap(),
+                name: "notes/a.md".into(),
+                size: 3,
+            }],
+            id: id(),
+            images: Vec::new(),
+            to: agent(),
+            text: "Read".into(),
+        }),
+        json!({"type": "say", "id": ID, "files": [{"id": IMAGE, "name": "notes/a.md", "size": 3}], "to": 2, "text": "Read"}),
+    );
+    client(
+        ClientMessage::PutFile(PutFile { id: id(), size: 3 }),
+        json!({"type": "put-file", "id": ID, "size": 3}),
+    );
+    client(
+        ClientMessage::PutFilePart(PutFilePart {
+            data: "YWJj".into(),
+            id: id(),
+            offset: 0,
+            upload: "u".into(),
+        }),
+        json!({"type": "put-file-part", "id": ID, "data": "YWJj", "offset": 0, "upload": "u"}),
     );
     client(
         ClientMessage::Answer(Answer {

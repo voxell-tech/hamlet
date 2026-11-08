@@ -1,98 +1,17 @@
 //! Images a chief attaches to a line: sent in parts, kept by an id of
 //! their bytes, and fetched by it.
 
-use std::borrow::Cow;
-use std::fmt;
-use std::ops::Deref;
-use std::str::FromStr;
-
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::client::RequestId;
+use crate::client::hash_id::hash_id;
 
-/// An image's id: the SHA-256 of its bytes, as 64 lowercase
-/// hexadecimal digits.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ImageId(String);
-
-/// Text that is not an [`ImageId`].
-#[derive(Debug, PartialEq, thiserror::Error)]
-#[error("an image id is 64 lowercase hexadecimal digits")]
-pub struct InvalidImageId;
-
-impl ImageId {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl TryFrom<String> for ImageId {
-    type Error = InvalidImageId;
-
-    fn try_from(text: String) -> Result<Self, InvalidImageId> {
-        let digit =
-            |byte: u8| matches!(byte, b'0'..=b'9' | b'a'..=b'f');
-        if text.len() == 64 && text.bytes().all(digit) {
-            Ok(Self(text))
-        } else {
-            Err(InvalidImageId)
-        }
-    }
-}
-
-impl FromStr for ImageId {
-    type Err = InvalidImageId;
-
-    fn from_str(text: &str) -> Result<Self, InvalidImageId> {
-        Self::try_from(text.to_owned())
-    }
-}
-
-impl Deref for ImageId {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for ImageId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Serialize for ImageId {
-    fn serialize<S: Serializer>(
-        &self,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.0)
-    }
-}
-
-impl<'de> Deserialize<'de> for ImageId {
-    fn deserialize<D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Self, D::Error> {
-        Self::try_from(String::deserialize(deserializer)?)
-            .map_err(serde::de::Error::custom)
-    }
-}
-
-impl JsonSchema for ImageId {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> Cow<'static, str> {
-        "ImageId".into()
-    }
-
-    fn json_schema(_: &mut SchemaGenerator) -> Schema {
-        json_schema!({"type": "string", "pattern": "^[0-9a-f]{64}$"})
-    }
+hash_id! {
+    /// An image's id: the SHA-256 of its bytes, as 64 lowercase
+    /// hexadecimal digits.
+    ImageId, InvalidImageId,
+    "an image id is 64 lowercase hexadecimal digits"
 }
 
 /// Begins sending one image of `size` bytes; the reply names the
@@ -181,6 +100,21 @@ impl ImageInput {
     pub const HEIGHT: u32 = 2000;
     pub const BYTES: u64 = 4_718_592;
     pub const PER_LINE: u32 = 20;
+
+    /// The endings of the files an image is taken in (C33), in small
+    /// letters.
+    pub const ENDINGS: [&str; 5] =
+        ["png", "jpg", "jpeg", "webp", "gif"];
+
+    /// Whether the name of `file` says it is an image that is taken.
+    pub fn is_image_file(file: &std::path::Path) -> bool {
+        file.extension()
+            .and_then(|ending| ending.to_str())
+            .is_some_and(|ending| {
+                Self::ENDINGS
+                    .contains(&ending.to_ascii_lowercase().as_str())
+            })
+    }
 }
 
 /// How much of an image a read gives.

@@ -77,6 +77,7 @@ fn request(world: &mut World, hamlet: Entity, opening: bool) {
     };
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Say(protocol::Say {
+            files: Vec::new(),
             id,
             images: Vec::new(),
             to,
@@ -246,6 +247,8 @@ mod tests {
                 upload: None,
                 image: None,
                 images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         app.update();
@@ -346,6 +349,8 @@ mod tests {
                 upload: None,
                 image: None,
                 images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         app.update();

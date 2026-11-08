@@ -55,6 +55,7 @@ impl Core {
                 self.clients.gone(client);
                 self.providers.disconnect(client);
                 self.images.disconnect(client);
+                self.files.disconnect(client);
                 self.send_providers().await
             }
         }
@@ -199,12 +200,13 @@ impl Core {
                 };
                 let text = say.text.trim();
                 if text.starts_with('/') {
-                    if !say.images.is_empty() {
+                    if !say.images.is_empty() || !say.files.is_empty()
+                    {
                         return self.answer(
                             client,
                             reply(
                                 &say.id,
-                                Err(Refusal::CommandImages),
+                                Err(Refusal::CommandAttachments),
                             ),
                         );
                     }
@@ -223,16 +225,18 @@ impl Core {
                         reply(&say.id, Err(Refusal::NoModelSetUp)),
                     );
                 }
-                let attached =
-                    match self.attach(agent, &say.images).await? {
-                        Ok(attached) => attached,
-                        Err(refusal) => {
-                            return self.answer(
-                                client,
-                                reply(&say.id, Err(refusal)),
-                            );
-                        }
-                    };
+                let attached = match self
+                    .attach(agent, &say.images, &say.files)
+                    .await?
+                {
+                    Ok(attached) => attached,
+                    Err(refusal) => {
+                        return self.answer(
+                            client,
+                            reply(&say.id, Err(refusal)),
+                        );
+                    }
+                };
                 let request = say.id.as_str().to_owned();
                 let line = self.credentials.scrub_text(&say.text);
                 let said = self
@@ -387,6 +391,14 @@ impl Core {
                 let answer = self.put_image_part(client, part)?;
                 self.answer(client, answer)
             }
+            ClientMessage::PutFile(put) => {
+                let answer = self.put_file(client, put)?;
+                self.answer(client, answer)
+            }
+            ClientMessage::PutFilePart(part) => {
+                let answer = self.put_file_part(client, part)?;
+                self.answer(client, answer)
+            }
             ClientMessage::Rewind(rewind) => {
                 if rewind.chat.from.is_some()
                     || rewind.chat.past.is_some()
@@ -422,9 +434,12 @@ impl Core {
                     .await?;
                 self.rewatch(agent).await?;
                 let answer = match done {
-                    Ok((text, images)) => {
+                    Ok((text, images, files)) => {
                         self.keep_images(&images);
+                        self.keep_files(&files);
                         ServerMessage::Reply(protocol::Reply {
+                            file: None,
+                            files,
                             image: None,
                             images,
                             kind: protocol::ReplyKind::Rewound,

@@ -504,6 +504,8 @@ mod tests {
                 upload: None,
                 image: None,
                 images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         received(
@@ -610,6 +612,8 @@ mod tests {
                 upload: None,
                 image: None,
                 images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         settle(&mut app);

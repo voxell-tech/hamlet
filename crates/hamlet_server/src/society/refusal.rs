@@ -173,8 +173,8 @@ pub(crate) enum Refusal {
     TooManyImages { model: String, most: u32 },
     #[error("no image `{image}` was sent first")]
     NoImage { image: String },
-    #[error("a command takes no images")]
-    CommandImages,
+    #[error("a command takes no images or files")]
+    CommandAttachments,
     #[error("no skill is named `{name}`")]
     NoSkill { name: String },
     #[error("there is no file `{path}` here")]
