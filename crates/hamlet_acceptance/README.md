@@ -74,6 +74,7 @@ endpoint, which bills a fixed price per answer.
 | `chats` | Answers, sessions, `/new`, `/resume`, `/retry`, `/stop`, `Rewind`, history, reflection. |
 | `oversight` | Network approvals and grants, manual and auto modes, `ask_chief`, objections. |
 | `society` | The Hand's and a lead's tools, tell and ask, workers, reserved acts, roads. |
+| `files` | Files on a line saved in the inbox and named in its item, files sent with `tell`, and a send over the cap held for a chief. |
 | `documents` | Charter, character, memory, limits, settings, catalogue, and the prompt that follows them. |
 | `spend` | The realm budget, a task's cap, a hire's allowance. |
 | `sandbox` | Confinement of reads, writes and the network. |

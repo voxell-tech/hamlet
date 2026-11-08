@@ -334,6 +334,17 @@ Each letter, question and reply names its sender (C11, C30). A question
 that would leave a conversation waiting on its own answer, directly or
 through other questions, is refused.
 
+A letter or a question can name `paths`: files or folders in the sender's
+lodge or its hamlet's folder, which the server copies into the receiver's lodge
+under `inbox/from-<sender>/`, links not followed, as far as the sender's
+sandbox lets it read. The message says where each landed. An image among them
+is also given to the receiver's model when that model takes images. One send
+holds at most [32 MiB and 1000 files], images among them; a larger one waits for
+a chief, who is told what is sent and how large, and who allows it or refuses
+it, and the sender is told of a refusal. No send holds more than [256 MiB] in
+one file, [1 GiB] or [10000 files] in all. A remote workspace gives at most 4
+MiB of a file at once, so a sender working there sends no larger file.
+
 A hire can ask its lead for a road to another hire of its hamlet
 (`request_road`).
 

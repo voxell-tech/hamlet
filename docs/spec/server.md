@@ -60,6 +60,14 @@ images is never in any agent's reach. An image no kept input, transcript item or
 agent's folder names, and that was last touched a day ago, is removed, which
 includes uploads never sent with a line.
 
+A file a chief attaches (C33) is kept the same way in the realm's `files/`
+folder, of any kind and at most 256 MiB, and a client names it by its id and
+the name the agent finds it under. The server copies each file named by a line
+into the `inbox/` of the agent's lodge, and into its remote workspace when
+there is one; the realm's folder of files is never in any agent's reach. A
+file named by no kept input, transcript item or tool result, last touched a day
+ago, is removed.
+
 **S30.** The server knows from its listing of a model whether it takes images,
 and its limits: the width, height and bytes of one image and how many a message
 holds. A chief can say that a model takes images and set its limits, as a model

@@ -239,6 +239,22 @@ waits for every image to be kept; one the server refused stays marked until it
 is taken off. Files are read off the frame, and one over 20 MiB is refused
 unread.
 
+## Files and folders on a line
+
+The same ways attach any file or folder (C33): drop, paste, or the file and
+folder buttons beside the picture button. A folder goes with everything under
+it, links left out. Each shows as a chip with its name and size over the field,
+with a cross to take it off, and is uploaded at once as the images are, one
+file at a time (`put-file`). The agent's model is not given a file; the line
+names where each is saved in the agent's `inbox/`, and the agent opens it with
+its tools. Any model takes files, so the file button is never greyed out.
+Images are given to the model as on any line and keep their own limits.
+
+What is attached other than images is held at 32 MiB or 1000 files: its chip
+says so, and it is uploaded only after the chief presses "Send anyway", or taken
+off.
+A rewind puts the files back over the field with the line's words.
+
 A model that takes no images has the button greyed out, and a drag over
 the window says it cannot be dropped; a paste or drop is refused the same way.
 The catalogue entry of the agent's model tells which: a model the catalogue

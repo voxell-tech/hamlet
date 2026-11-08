@@ -208,18 +208,26 @@ conversation or choose a model that holds more.
 **C29.** A model that answers with nothing fails the turn, and says to send
 the message again.
 
-**C33.** A chief can attach images (PNG, JPEG, WebP or GIF, animated or not)
-to a line to an agent, as many as its model takes in a message [20 at most],
-by dropping them on the window, pasting them (an image file copied in a file
-manager, or a picture such as a screenshot) or choosing them in a dialog. The
-agent's model is given each image beside the line, and the line also names
-where the image is saved, a path the agent can open, so a model that takes no
-images can hand the file to a tool. An agent can open only the images given to
-it in its own conversations. A line with images is refused, and nothing is
-kept, when the agent's model takes no images. The conversation shows each image
-with the line as a small copy, and opens the image itself when the chief asks
-to see it. A rewind takes the images back with the line, and the words and
-images return to the chief's input together (C27).
+**C33.** A chief can attach files and folders of any kind to a line to an
+agent, by dropping them on the window, pasting them (files copied in a file
+manager, or a picture such as a screenshot) or choosing them in a dialog; the
+terminal chat takes `--attach <path>` and `/attach <path>`. A folder is
+attached with everything under it, links left out. An image (PNG, JPEG, WebP
+or GIF, animated or not) is also given to the agent's model beside the line, as
+many as the model takes in a message [20 at most]; a line with images is
+refused, and nothing is kept, when the model takes no images, and only images
+are held back for such a model. Every file, an image too, is saved in the
+`inbox/` of the agent's lodge, in its remote workspace when it works there,
+and the line names where each file or folder is saved, a path the agent can
+open. A file is not given to the model as content, so any model takes any file,
+and the agent reads what it is able to. An agent can open only what was given to
+it in its own conversations. One send holds at most [32 MiB and 1000 files] of
+files other than images; a chief is asked to confirm a larger one before it is
+sent, and none holds more than [256 MiB] in one file, [1 GiB] or [10000 files]
+in all. The conversation shows each image with the line as a small copy, opens
+the image itself when the chief asks to see it, and lists each file by its
+name. A rewind takes the images and files back with the line, and the words,
+images and files return to the chief's input together (C27).
 
 **C34.** The `read` tool gives an image file (PNG, JPEG, WebP or GIF) to the
 model as an image, made to fit the model's limits (S30), when the model takes

@@ -309,7 +309,7 @@ Reflections and retries show as notices, as does a compaction.
 
 A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
 `subject`, `change`, `answers`, `since`, `asked`, `chat`) and a `detail`
-discriminated by `kind`: `approval` with its `danger`, the agent's wish as
+discriminated by `kind`: `approval` with its `danger` (`network`, `unconfined`, `reserved`, `edit`, `command` or `send`, files an agent sends over what one send holds), the agent's wish as
 `says` and how long `always` lasts (`session`, `grant`, or `null` when it is
 not offered); `fault`; `question` with its `questions`; `objection`; or
 `newcomer` with the `scholar` waiting at the harbor, whose answers are

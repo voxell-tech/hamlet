@@ -105,7 +105,10 @@ hire asks its lead for one with `request_road`. Hires of different hamlets
 have a road once both mayors call `agree_road`, while the realm's limits allow
 it.
 
-`tell` sends a letter without waiting; `ask` waits for the answer. Each
+`tell` sends a letter without waiting; `ask` waits for the answer. Either can
+name `paths`, files or folders the sender may read, which land in the
+receiver's `inbox/from-<sender>/` (H30); a send over 32 MiB or 1000 files waits
+for a chief. Each
 receiver has separate conversations for the sender's letters and questions,
 both kept across restarts. The task follows their work and charges, and a
 reply is delivered even when the message cap has been reached. Messages

@@ -16,10 +16,12 @@ alone is not sufficient.
 lodge (or a worker's scratch folder), the folder its hamlet works on, the
 realm's folder (never read) and what is only read, the library, the tools
 added by hand. The images saved with a line are in the agent's own lodge, under
-`inbox/images/`, so an agent reads only the images given to it; the realm's
-`images/` folder is never in reach. The pi harness has no host-tool implementation; it submits
-operations to the server (see [the harness](harness.md)). `oversight/gate.rs`
-decides admission and `calls.rs` checks permissions at execution, including
+`inbox/images/`, and the files under `inbox/`, so an agent reads only what was
+given to it; what another agent sends with `tell` or `ask` lands under
+`inbox/from-<sender>/`, read from the sender's own reach without following
+links. The realm's `images/` and `files/` folders are never in reach. The pi
+harness has no host-tool implementation; it submits operations to the
+server (see [the harness](harness.md)). `oversight/gate.rs` decides admission and `calls.rs` checks permissions at execution, including
 after approval or replay.
 
 Without a folder, commands write in their own lodge and a private temporary
