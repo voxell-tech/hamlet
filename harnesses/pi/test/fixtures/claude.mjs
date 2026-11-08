@@ -1,15 +1,18 @@
 // A fake Claude program for tests: it answers the Agent SDK's stream-json as the real one does, running the steps of
-// the script `FAKE_CLAUDE_SCRIPT` names, one run per process, and never reaches a network.
+// the script `FAKE_CLAUDE_SCRIPT` names, one run per process, and never reaches a network. Like the real one, it
+// writes what each run says to its session, the one it resumes or a new one.
 import { randomUUID } from "node:crypto";
 import {
     appendFileSync,
     existsSync,
+    mkdirSync,
     readdirSync,
     readFileSync,
     writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
+import { getSessionPath, normalizeProjectPath } from "cc-session-io";
 
 const scriptFile = process.env.FAKE_CLAUDE_SCRIPT ?? "";
 const script = JSON.parse(readFileSync(scriptFile, "utf8"));
@@ -39,6 +42,15 @@ const resumed = args
     .find((arg) => arg.startsWith("--resume="))
     ?.slice("--resume=".length);
 const session = resumed ?? randomUUID();
+const records =
+    (resumed === undefined ? undefined : sessionFile(resumed)) ??
+    getSessionPath(session, normalizeProjectPath(process.cwd()), config);
+
+/** Writes `record` to the session. */
+function record(what) {
+    mkdirSync(dirname(records), { recursive: true });
+    appendFileSync(records, `${JSON.stringify(what)}\n`);
+}
 const counter = `${scriptFile}.runs`;
 const run = existsSync(counter) ? Number(readFileSync(counter, "utf8")) : 0;
 writeFileSync(counter, String(run + 1));
@@ -66,6 +78,8 @@ async function steps(prompt) {
     note({
         run,
         prompt,
+        session,
+        resume: resumed ?? null,
         resumed: file === undefined ? null : readFileSync(file, "utf8"),
         config,
         apiKey: process.env.ANTHROPIC_API_KEY ?? null,
@@ -84,6 +98,7 @@ async function steps(prompt) {
         slash_commands: [],
         output_style: "default",
     });
+    record({ type: "user", message: { role: "user", content: prompt } });
     for (const step of script.runs[run] ?? []) {
         if (step.call !== undefined) {
             const answer = await mcp("tools/call", {
@@ -92,8 +107,22 @@ async function steps(prompt) {
                 _meta: { "claudecode/toolUseId": step.call.id },
             });
             note({ run, result: answer.result });
+            record({
+                type: "user",
+                message: {
+                    role: "user",
+                    content: [
+                        {
+                            type: "tool_result",
+                            tool_use_id: step.call.id,
+                            content: answer.result.content,
+                        },
+                    ],
+                },
+            });
             continue;
         }
+        record(step.say);
         out({ uuid: randomUUID(), ...step.say, session_id: session });
     }
 }

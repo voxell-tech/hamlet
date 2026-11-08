@@ -198,7 +198,7 @@ runtimes, conversations and the runtime protocol work is in
 | `items.ts` | Kept entries and answers as the protocol shows them |
 | `models.ts` | Provider calls admitted and charged by the server, made with the pi model built from its selection; asks it to scrub snapshots and final responses |
 | `providers.ts`, `provider-set.ts`, `credentials.ts`, `sign-in.ts` | Provider work the server requests, the supported sign-ins, credentials held in memory, and a sign-in owned by one request |
-| `claude.ts`, `claude-query.ts`, `claude-history.ts` | The provider `claude` ([ADR 0014](adr/0014-claude-subscriptions-run-in-anthropics-own-program-under-pi.md)): its models, sign-in and the Claude program's environment; each call answered by a query of the Agent SDK, waiting at Claude's tool calls for pi's results; pi's history written as a Claude Code session a new query resumes |
+| `claude.ts`, `claude-query.ts`, `claude-history.ts` | The provider `claude` ([ADR 0014](adr/0014-claude-subscriptions-run-in-anthropics-own-program-under-pi.md)): its models, sign-in and the Claude program's environment; each call answered by a query of the Agent SDK, waiting at Claude's tool calls for pi's results; a new input resumes the Claude Code session the last query kept while pi's history still matches it, else a session written from pi's history |
 | `faux.ts` | Offline scripts, with queues by agent id and by conversation kind |
 | `faults.ts` | Exact process-crash pauses used by tests |
 

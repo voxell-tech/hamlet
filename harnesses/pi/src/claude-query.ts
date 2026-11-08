@@ -1,5 +1,8 @@
 // One call of the provider `claude`: Claude's tool calls end the call and park its query
-// until pi brings their results in the next call; any other call starts a query resumed from pi's history.
+// until pi brings their results in the next call; any other call starts a query. That query resumes the Claude Code
+// session the last one ended with while pi's history is still that session's, else one written from pi's history.
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
     type EffortLevel,
     type Options,
@@ -33,7 +36,11 @@ import {
     type CallToolResult,
     ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { deleteSession } from "cc-session-io";
+import {
+    deleteSession,
+    getSessionPath,
+    normalizeProjectPath,
+} from "cc-session-io";
 import { emptyAnswer, environment, type Folders } from "./claude.ts";
 import { importSession, TOOL_PREFIX, userContent } from "./claude-history.ts";
 
@@ -72,6 +79,18 @@ type Parked = {
 
 const parked = new Map<string, Parked>();
 
+/** The Claude Code session a query ended with, kept for the next input of the pi session it answered. */
+type Kept = {
+    readonly id: string;
+    readonly model: string;
+    /** The digest of the system prompt the session was given, which Claude Code keeps using on a resume. */
+    readonly instructions: string;
+    /** The digest of each of pi's messages the session holds. */
+    readonly history: readonly string[];
+};
+
+const kept = new Map<string, Kept>();
+
 /** Answers one call of `model` into `out`. */
 export function answer(
     claude: Program,
@@ -95,7 +114,7 @@ export function answer(
         }
         const results = answered(held, messages);
         if (!held.run.closed && results !== undefined) {
-            held.run.resume(reply, results);
+            held.run.resume(reply, messages, results);
             return;
         }
         held.run.close();
@@ -134,8 +153,16 @@ class Run {
     readonly #early = new Map<string, CallToolResult>();
     /** Messages already streamed as events, whose whole copies are passed over. */
     readonly #streamed = new Set<string>();
-    /** The Claude sessions this query wrote, removed once it ends. */
+    /** The Claude sessions this query wrote, removed once it ends but for the one it keeps. */
     readonly #sessions = new Set<string>();
+    readonly #model: string;
+    readonly #instructions: string;
+    /** Whether the query began with `CONTINUE`, a prompt pi's history does not hold, so its session is not kept. */
+    readonly #continued: boolean;
+    /** pi's messages as of the call answered last. */
+    #messages: readonly Message[];
+    /** The Claude Code session the query writes. */
+    #id: string | undefined;
     #reply: Reply | undefined;
     #closed = false;
     #refusal: string | undefined;
@@ -151,14 +178,27 @@ class Run {
     ) {
         this.#claude = claude;
         this.#session = session;
+        this.#messages = messages;
+        this.#model = model.id;
+        const append = getCurrentSystemPrompt(context.messages);
+        this.#instructions = digest(append);
         const turn = messages.findLastIndex((m) => m.role !== "user") + 1;
         const prompt = messages.slice(turn);
+        this.#continued = prompt.length === 0;
         const history =
             prompt.length === 0 ? messages : messages.slice(0, turn);
+        const before = session === undefined ? undefined : kept.get(session);
+        if (session !== undefined) kept.delete(session);
+        const reused =
+            before !== undefined && this.#continues(before, history)
+                ? before.id
+                : undefined;
+        if (before !== undefined) this.#sessions.add(before.id);
         const resume =
-            history.length === 0
+            reused ??
+            (history.length === 0
                 ? undefined
-                : importSession(history, claude.at, model.id);
+                : importSession(history, claude.at, model.id));
         if (resume !== undefined) this.#sessions.add(resume);
         this.#input.push(
             prompt.length === 0
@@ -172,7 +212,6 @@ class Run {
                           : content;
                   }) as Exclude<Content, string>),
         );
-        const append = getCurrentSystemPrompt(context.messages);
         this.#query = query({
             prompt: this.#input,
             options: {
@@ -219,8 +258,13 @@ class Run {
         return this.#refusal;
     }
 
-    /** Answers `reply` once `results` reach the calls they answer. */
-    resume(reply: Reply, results: readonly ToolResultMessage[]): void {
+    /** Answers `reply`, the call of `messages`, once `results` reach the calls they answer. */
+    resume(
+        reply: Reply,
+        messages: readonly Message[],
+        results: readonly ToolResultMessage[],
+    ): void {
+        this.#messages = messages;
         this.#attach(reply);
         for (const result of results) {
             const answer: CallToolResult = {
@@ -259,6 +303,39 @@ class Run {
             this.#refusal ?? "The Claude program stopped before it answered.",
         );
         this.#reply = undefined;
+    }
+
+    /** Whether `before`, a session kept for this pi session, holds just `history`, under this query's model and instructions. */
+    #continues(before: Kept, history: readonly Message[]): boolean {
+        const { at } = this.#claude;
+        return (
+            before.model === this.#model &&
+            before.instructions === this.#instructions &&
+            before.history.length === history.length &&
+            history.every((m, i) => digest(m) === before.history[i]) &&
+            existsSync(
+                getSessionPath(
+                    before.id,
+                    normalizeProjectPath(at.work),
+                    at.config,
+                ),
+            )
+        );
+    }
+
+    /** Keeps the session of a query that answered pi's last call in full, for the pi session's next input. */
+    #keep(answer: AssistantMessage): void {
+        const session = this.#session;
+        const id = this.#id;
+        if (session === undefined || id === undefined || this.#continued)
+            return;
+        kept.set(session, {
+            id,
+            model: this.#model,
+            instructions: this.#instructions,
+            history: [...this.#messages, answer].map(digest),
+        });
+        this.#sessions.delete(id);
     }
 
     #attach(reply: Reply): void {
@@ -318,8 +395,10 @@ class Run {
         const reply = this.#reply;
         switch (message.type) {
             case "system":
-                if (message.subtype === "init")
+                if (message.subtype === "init") {
+                    this.#id = message.session_id;
                     this.#sessions.add(message.session_id);
+                }
                 return;
             case "rate_limit_event":
                 if (message.rate_limit_info.isUsingOverage === true) {
@@ -350,7 +429,10 @@ class Run {
                     );
                 else if (message.is_error)
                     reply?.fail(message.result || "Claude reported an error.");
-                else reply?.finish();
+                else if (reply !== undefined) {
+                    reply.finish();
+                    this.#keep(reply.message);
+                }
                 this.#reply = undefined;
                 return;
             default:
@@ -420,6 +502,10 @@ class Reply {
         this.#out = out;
         this.#signal = signal;
         this.#message = emptyAnswer(model);
+    }
+
+    get message(): AssistantMessage {
+        return this.#message;
     }
 
     get calls(): string[] {
@@ -656,6 +742,21 @@ class Reply {
             usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
         usage.cost = calculateCost(this.#model, usage);
     }
+}
+
+/** A digest of `value`: a system prompt, or what a message of pi's says, leaving out when and at what cost. */
+function digest(value: string | Message): string {
+    const said =
+        typeof value === "string"
+            ? value
+            : JSON.stringify([
+                  value.role,
+                  value.content,
+                  value.role === "toolResult"
+                      ? [value.toolCallId, value.isError]
+                      : null,
+              ]);
+    return createHash("sha256").update(said).digest("hex");
 }
 
 /** The events' name of each kind of content. */

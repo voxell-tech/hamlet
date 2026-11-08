@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
     existsSync,
     mkdtempSync,
@@ -50,6 +51,8 @@ function provider(runs: unknown[][]) {
     if (made === undefined) throw new Error("no Claude program");
     const [model] = made.getModels();
     if (model === undefined) throw new Error("no Claude model");
+    // The provider keeps sessions by pi's, which outlive a test.
+    const sessionId = randomUUID();
     const call = (messages: Message[]) =>
         made
             .streamSimple(
@@ -59,7 +62,7 @@ function provider(runs: unknown[][]) {
                     messages,
                     tools: TOOLS,
                 }),
-                { sessionId: "conversation", apiKey: "marker" },
+                { sessionId, apiKey: "marker" },
             )
             .result();
     return { call };
@@ -148,7 +151,7 @@ const whole = (text: string) => [
     say({ type: "result", subtype: "success", is_error: false, result: text }),
 ];
 
-test("a tool call waits in its query for pi's result, and the next turn resumes pi's history", async () => {
+test("a tool call waits in its query for pi's result, and the next input resumes the same Claude Code session", async () => {
     const { call } = provider([
         [
             say({
@@ -205,10 +208,13 @@ test("a tool call waits in its query for pi's result, and the next turn resumes 
 
     const thanks = await call([asked, calls, result, answered, user("Thanks")]);
     expect(text(thanks)).toBe("You're welcome.");
+    // The next input resumes the first query's own session, given only what is new.
+    const first = String(noted()[0]?.session);
     const resumed = noted()[2];
     expect(resumed).toMatchObject({
         run: 1,
         prompt: [{ type: "text", text: "Thanks" }],
+        resume: first,
         config: join(home, "claude"),
         apiKey: null,
     });
@@ -220,8 +226,30 @@ test("a tool call waits in its query for pi's result, and the next turn resumes 
         "It says hi.",
     ])
         expect(records).toContain(seen);
-    // The imported session is removed once its query ends.
-    await vi.waitFor(() => expect(sessions()).toEqual([]));
+    // That session is kept for the input after, and no other is left.
+    await vi.waitFor(() => expect(sessions()).toEqual([`${first}.jsonl`]));
+});
+
+test("an input after a change to the history before it starts from pi's history in a new session", async () => {
+    const { call } = provider([whole("Hi."), whole("Again, hi.")]);
+    const hello = await call([user("Hello")]);
+    expect(text(hello)).toBe("Hi.");
+    const first = String(noted()[0]?.session);
+
+    // pi summarised or edited what came before, so the first session no longer holds it.
+    const again = await call([user("Hello, edited"), hello, user("Again")]);
+    expect(text(again)).toBe("Again, hi.");
+    const second = noted()[1];
+    expect(second).toMatchObject({
+        run: 1,
+        prompt: [{ type: "text", text: "Again" }],
+    });
+    expect(second?.resume).not.toBe(first);
+    expect(String(second?.resumed)).toContain("Hello, edited");
+    // The first session is removed, and the new one kept.
+    await vi.waitFor(() =>
+        expect(sessions()).toEqual([`${String(second?.session)}.jsonl`]),
+    );
 });
 
 test("a turn Claude bills beyond the plan fails", async () => {
