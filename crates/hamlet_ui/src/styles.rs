@@ -828,8 +828,16 @@ pub fn nav_card(
     holds: impl Into<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, None, Some(holds.into()), button, act)
-        .boxed()
+    nav_item(
+        which,
+        title,
+        None,
+        Some(holds.into()),
+        None,
+        button,
+        act,
+    )
+    .boxed()
 }
 
 /// A [`nav_card`] for the way most should take: outlined in gold,
@@ -846,6 +854,7 @@ pub fn lead_card(
         title,
         Some(tag),
         Some(holds.into()),
+        None,
         lead_button,
         act,
     )
@@ -869,7 +878,18 @@ pub fn nav_row(
     holds: Option<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, None, holds, link_row, act).boxed()
+    nav_item(which, title, None, holds, None, link_row, act).boxed()
+}
+
+/// A [`nav_row`] with `now`, the value of what it leads to, dim
+/// before its mark, when given.
+pub fn valued_row(
+    which: Glyph,
+    title: &'static str,
+    now: Option<Prop<String>>,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    nav_item(which, title, None, None, now, link_row, act).boxed()
 }
 
 fn nav_item(
@@ -877,6 +897,7 @@ fn nav_item(
     title: &'static str,
     tag: Option<&'static str>,
     holds: Option<Prop<String>>,
+    now: Option<Prop<String>>,
     rules: fn(&mut Cx),
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
@@ -904,17 +925,22 @@ fn nav_item(
             .boxed(),
         ];
         named.extend(holds.map(|holds| description(holds).boxed()));
+        let mut parts = vec![
+            column(named)
+                .gap(space.gap / 2.0)
+                .grow(1.0)
+                .min_width(px(0.0))
+                .boxed(),
+        ];
+        parts.extend(now.map(|now| {
+            label(now).wrap(false).rules(note_rules).boxed()
+        }));
+        parts.push(glyph(Glyph::Into, ICON).tone(Tone::Dim).boxed());
         views::button(
-            row((
-                column(named)
-                    .gap(space.gap / 2.0)
-                    .grow(1.0)
-                    .min_width(px(0.0)),
-                glyph(Glyph::Into, ICON).tone(Tone::Dim),
-            ))
-            .gap(space.section)
-            .grow(1.0)
-            .align(AlignItems::Center),
+            row(parts)
+                .gap(space.section)
+                .grow(1.0)
+                .align(AlignItems::Center),
         )
         .padding(UiRect::axes(
             px(space.card_padding_x),

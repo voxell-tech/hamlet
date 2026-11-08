@@ -4,9 +4,11 @@
 
 use std::f32::consts::TAU;
 
+use bevy::color::Alpha;
 use bevy::ecs::component::Component;
 use bevy::ecs::event::EntityEvent;
 use bevy::ecs::observer::On;
+use bevy::ecs::query::Without;
 use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::{Rot2, Vec2};
@@ -16,7 +18,7 @@ use bevy::picking::events::{
 use bevy::picking::pointer::PointerButton;
 use bevy::ui::widget::ImageNode;
 use bevy::ui::{
-    AlignItems, ComputedNode, JustifyContent, PositionType,
+    AlignItems, ComputedNode, Display, JustifyContent, PositionType,
     UiGlobalTransform, UiRect, UiTransform, Val, px,
 };
 use bevy::window::SystemCursorIcon;
@@ -97,12 +99,20 @@ struct Trailed(f32);
 #[derive(Component, Clone, Copy)]
 struct Grip(f32);
 
+/// On a dial's ring while something else sets its amount: it is
+/// shown faint and does not turn.
+#[derive(Component)]
+struct Held;
+
 /// The side of the ring, of its knob, of the dot that trails it and
 /// of the icon in its middle.
-const SIDE: f32 = 112.0;
+const SIDE: f32 = 88.0;
 const KNOB: f32 = 16.0;
 const TRAIL: f32 = 8.0;
 const ICON: f32 = 20.0;
+
+/// How opaque the veil over a held dial is.
+const HELD_VEIL: f32 = 0.65;
 
 /// The length of a short and of a long mark round the rim, and the
 /// gap between the marks and the rim.
@@ -115,16 +125,19 @@ const MARK_GAP: f32 = 4.0;
 /// to. It never turns itself: a drag around it hands the amount
 /// turned to to `change`, and a bound `amount` follows what that
 /// writes. The knob sits on the rim and keeps the angle to the
-/// pointer it had when the drag began, so it never jumps.
+/// pointer it had when the drag began, so it never jumps. While
+/// `held`, something else sets the amount: the dial is veiled and
+/// does not turn.
 pub fn dial(
     face: Face,
     icon: impl Into<Prop<Glyph>>,
     amount: impl Into<Prop<f32>>,
     trail: impl Into<Prop<f32>>,
+    held: impl Into<Prop<bool>>,
     change: impl Fn(&mut World, f32) + Send + Sync + 'static,
 ) -> impl View {
-    let (icon, amount, trail) =
-        (icon.into(), amount.into(), trail.into());
+    let (icon, amount, trail, held) =
+        (icon.into(), amount.into(), trail.into(), held.into());
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (palette, border) = (&theme.palette, theme.space.border);
@@ -136,6 +149,7 @@ pub fn dial(
         );
         let (short_mark, long_mark) =
             (palette.gold_5, palette.gold_3);
+        let veil = theme.background().with_alpha(HELD_VEIL);
         let rim_width = border * 2.0;
         // Places are measured inside the rim; its line is half its
         // width further out.
@@ -160,7 +174,6 @@ pub fn dial(
                 Turns(Some(Box::new(change))),
                 Shown(0.0),
                 Trailed(0.0),
-                EntityCursor(SystemCursorIcon::Grab),
             ))
             .observe(gripped)
             .observe(dragged)
@@ -171,6 +184,18 @@ pub fn dial(
                 && entity.get::<Shown>() != Some(&to)
             {
                 entity.insert(to);
+            }
+        });
+        cx.effect(ring, held, |world, node, &held| {
+            let Ok(mut entity) = world.get_entity_mut(node) else {
+                return;
+            };
+            if held {
+                entity.insert(Held).remove::<EntityCursor>();
+            } else {
+                entity
+                    .insert(EntityCursor(SystemCursorIcon::Grab))
+                    .remove::<Held>();
             }
         });
         cx.effect(ring, trail, move |world, node, &amount| {
@@ -294,6 +319,22 @@ pub fn dial(
                     .border_color(middle)
                     .fill(knob),
             );
+            // Out to the knob's edge, which stands over the rim.
+            let reach = rim_width / 2.0 + KNOB / 2.0;
+            cx.build(
+                frame()
+                    .position(PositionType::Absolute)
+                    .inset(UiRect::all(px(-reach)))
+                    .radius(inner / 2.0 + reach)
+                    .fill(veil)
+                    .display(component::<Held, _>(ring, |held| {
+                        if held.is_some() {
+                            Display::Flex
+                        } else {
+                            Display::None
+                        }
+                    })),
+            );
         });
         ring
     })
@@ -333,7 +374,10 @@ fn amount_at(face: &Face, turn: f32) -> f32 {
 /// go, wherever the pointer goes meanwhile.
 fn gripped(
     mut start: On<PointerDragStart>,
-    rings: Query<(&Face, &Shown, &ComputedNode, &UiGlobalTransform)>,
+    rings: Query<
+        (&Face, &Shown, &ComputedNode, &UiGlobalTransform),
+        Without<Held>,
+    >,
     mut cursor: ResMut<OverrideCursor>,
     mut commands: Commands,
 ) {
@@ -366,7 +410,10 @@ fn let_go(
 
 fn dragged(
     mut drag: On<PointerDrag>,
-    rings: Query<(&Face, &Grip, &ComputedNode, &UiGlobalTransform)>,
+    rings: Query<
+        (&Face, &Grip, &ComputedNode, &UiGlobalTransform),
+        Without<Held>,
+    >,
     mut commands: Commands,
 ) {
     if drag.button != PointerButton::Primary {

@@ -335,8 +335,10 @@ pub struct Spacing {
     pub status_gap: f32,
     pub status_icon: f32,
     pub status_icon_gap: f32,
-    /// The widest a page of Settings is drawn.
+    /// The widest a page of Settings is drawn, and its table of
+    /// models, whose columns need more.
     pub page_width: f32,
+    pub table_width: f32,
     /// The widest a card over the panels is drawn, and the space
     /// inside it.
     pub overlay_width: f32,

@@ -42,7 +42,8 @@ pub(super) fn plugin(app: &mut App) {
         );
 }
 
-const CHOICES: [&str; 2] = ["This computer", "Remote server"];
+pub(super) const CHOICES: [&str; 2] =
+    ["This computer", "Remote server"];
 
 /// The workspace as the page has it until it is saved.
 #[derive(Resource, Default)]

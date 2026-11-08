@@ -90,6 +90,14 @@ pub struct Welcome {
     requests: BTreeMap<protocol::RequestId, Asked>,
 }
 
+impl Welcome {
+    /// Whether first-run setup, or the screen that asks for a server,
+    /// covers the window.
+    pub fn is_shown(&self) -> bool {
+        self.open || self.connection.is_some()
+    }
+}
+
 #[derive(Clone)]
 enum Asked {
     Models,

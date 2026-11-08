@@ -19,25 +19,32 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
     label, number_field, row, scroll, slider,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use bevy_fynix::{
+    Prop, ScopedExt, ViewExt, derived, keyed, resource,
+};
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{Confinement, Grants, Settings};
+use hamlet_client::realm::{
+    Confinement, Grants, Providers, Settings,
+};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::{Effort, client as protocol};
+use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, breadcrumb, buttons,
-    close, description, framed, list, nav_list, note, page_head,
-    parts, pill, section, small_rules, text_input, title,
+    Fills, ICON, action, bad_action, bare, beside, breadcrumb,
+    buttons, close, description, list, nav_list, note, page_head,
+    parts, pill, section, small_rules, text_input, title, valued_row,
 };
 use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
+use crate::appearance::Appearance;
 use crate::dock::{PanelAppExt, panel};
+use crate::roll::{either, moved};
 use crate::root::Lasting;
 use crate::world_menu::{self, Deed};
 
@@ -137,6 +144,79 @@ impl Pane {
             Pane::Appearance => Glyph::Eye,
         }
     }
+
+    /// What the page holds now, as the index shows it beside its
+    /// name. None for a page with no one value to show.
+    fn now(self) -> Option<Prop<String>> {
+        Some(match self {
+            Pane::Endpoints => derived(|world: &World| {
+                let endpoints =
+                    world.resource::<Settings>().0.endpoints.len();
+                let providers = world
+                    .get_resource::<Providers>()
+                    .map_or(0, |providers| {
+                        providers
+                            .0
+                            .iter()
+                            .filter(|provider| provider.configured)
+                            .count()
+                    });
+                match endpoints + providers {
+                    0 => "None".to_string(),
+                    n => format!("{n} connected"),
+                }
+            })
+            .when(either(moved::<Settings>(), moved::<Providers>()))
+            .into(),
+            Pane::Models => shown::<Settings>(|s| {
+                crate::models::model_name(&s.0.model).to_string()
+            }),
+            Pane::Agents => {
+                shown::<Settings>(|s| match s.0.reflect_every {
+                    0 => "Reflection off".to_string(),
+                    n => format!("Reflect every {n}"),
+                })
+            }
+            Pane::Workspace => shown::<Settings>(|s| {
+                let remote = s.0.workspace.url.is_some();
+                workspace::CHOICES[usize::from(remote)].to_string()
+            }),
+            // Read only while its page is open: shown once it has
+            // been.
+            Pane::Charter => derived(|world: &World| {
+                if !world.resource::<CharterRequests>().loaded {
+                    return String::new();
+                }
+                charter_state(world.resource::<Charter>()).to_string()
+            })
+            .when(either(
+                moved::<Charter>(),
+                moved::<CharterRequests>(),
+            ))
+            .into(),
+            Pane::Sound => shown::<SoundSettings>(|s| {
+                if s.muted { "Off" } else { "On" }.to_string()
+            }),
+            Pane::Sight => {
+                shown::<Quality>(|quality| quality.name().to_string())
+            }
+            Pane::Appearance => shown::<Appearance>(|appearance| {
+                appearance.pick().mode.name().to_string()
+            }),
+            Pane::Front | Pane::Realm => return None,
+        })
+    }
+}
+
+/// What `read` makes of `R`, or nothing while there is no `R`.
+fn shown<R: Resource>(
+    read: impl Fn(&R) -> String + Send + Sync + 'static,
+) -> Prop<String> {
+    derived(move |world: &World| {
+        world.get_resource::<R>().map(&read).unwrap_or_default()
+    })
+    .when(moved::<R>())
+    .into()
 }
 
 /// A setting's switch or field, and under it its words.
@@ -394,7 +474,7 @@ fn permissions() -> AnyView {
             })
             .unwrap_or_default()
     })
-    .when(crate::roll::moved::<Grants>());
+    .when(moved::<Grants>());
     keyed(held, |held| {
         if held.is_empty() {
             return description(
@@ -570,12 +650,41 @@ pub(crate) fn default_charter(world: &mut World) {
     requests.edit = Some(id);
 }
 
-/// The widest the charter is set, for lines of about seventy letters.
-const READING: f32 = 560.0;
+/// Whether the realm keeps a charter of its own, as its pill says.
+fn charter_state(charter: &Charter) -> &'static str {
+    if charter.own { "Edited" } else { "Default" }
+}
 
-/// The words every agent's prompt opens with, and the ways to change
-/// them and to have the built-in ones again.
-fn charter_page(cx: &Cx) -> impl View + use<> {
+/// `text` with the lead of each paragraph that opens with one, as
+/// "Tools: ..." or a line "How you improve yourself:" does, made a
+/// heading.
+fn with_heads(text: &str) -> String {
+    let mut lines = Vec::new();
+    let mut opens = true;
+    for line in text.lines() {
+        let lead = line.split_once(':').filter(|(lead, rest)| {
+            opens
+                && (1..=4).contains(&lead.split_whitespace().count())
+                && lead.chars().all(|c| c.is_alphabetic() || c == ' ')
+                && (rest.is_empty() || rest.starts_with(' '))
+        });
+        match lead {
+            Some((lead, rest)) => {
+                lines.push(format!("### {lead}"));
+                if !rest.trim().is_empty() {
+                    lines.push(rest.trim_start().to_string());
+                }
+            }
+            None => lines.push(line.to_string()),
+        }
+        opens = line.trim().is_empty();
+    }
+    lines.join("\n")
+}
+
+/// The words every agent's prompt opens with, set as a document, and
+/// the ways to change them and to have the built-in ones again.
+fn charter_page() -> impl View {
     let actions = keyed(resource::<Charter, _>(|c| c.own), |own| {
         let edit = action(Glyph::Rename, "Edit", edit_charter)
             .tooltip(|| note("Opens the file in your editor"))
@@ -591,27 +700,20 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
         buttons(actions).boxed()
     })
     .within(bare());
-    let shown =
-        keyed(resource::<Charter, _>(|c| c.text.clone()), |text| {
-            hamlet_ui::markdown::fixed(text, Tone::Body).boxed()
-        })
-        .within(bare());
+    let shown = keyed(
+        resource::<Charter, _>(|c| with_heads(&c.text)),
+        |text| hamlet_ui::markdown::fixed(text, Tone::Body).boxed(),
+    )
+    .within(bare());
     parts((
-        row((
-            column((actions,)).grow(1.0),
-            pill(resource::<Charter, _>(|charter| {
-                if charter.own { "Edited" } else { "Default" }
-                    .to_string()
-            })),
-        ))
-        .gap(cx.theme().space.gap)
-        .align(AlignItems::Center)
-        .max_width(px(READING)),
-        label(resource::<CharterRequests, _>(|requests| {
-            requests.error.clone()
-        }))
-        .tone(Tone::Critical),
-        column((framed((shown,)),)).max_width(px(READING)),
+        close((
+            actions,
+            label(resource::<CharterRequests, _>(|requests| {
+                requests.error.clone()
+            }))
+            .tone(Tone::Critical),
+        )),
+        shown,
     ))
 }
 
@@ -721,12 +823,9 @@ fn sound() -> impl View {
 }
 
 fn nav_item(pane: Pane) -> AnyView {
-    hamlet_ui::styles::nav_row(
-        pane.glyph(),
-        pane.title(),
-        None,
-        move |world| *world.resource_mut::<Pane>() = pane,
-    )
+    valued_row(pane.glyph(), pane.title(), pane.now(), move |world| {
+        *world.resource_mut::<Pane>() = pane;
+    })
 }
 
 /// The way back to the first-run screen, as a row of the index.
@@ -760,7 +859,7 @@ pub fn screen() -> AnyView {
             Pane::Models => crate::models::shelf().boxed(),
             Pane::Agents => agents().boxed(),
             Pane::Workspace => workspace::page().boxed(),
-            Pane::Charter => with_cx(charter_page).boxed(),
+            Pane::Charter => charter_page().boxed(),
             Pane::Realm => crate::limits::realm().boxed(),
             Pane::Sight => sight::page().boxed(),
             Pane::Appearance => appearance::page().boxed(),
@@ -774,7 +873,16 @@ pub fn screen() -> AnyView {
                     *world.resource_mut::<Pane>() = Pane::Front;
                 },
             ),
-            title(pane.title()),
+            match pane {
+                Pane::Charter => beside((
+                    title(pane.title()),
+                    pill(resource::<Charter, _>(|charter| {
+                        charter_state(charter).to_string()
+                    })),
+                ))
+                .boxed(),
+                _ => title(pane.title()).boxed(),
+            },
         );
         with_cx(move |cx| {
             column((head, body)).gap(cx.theme().space.section)
@@ -782,9 +890,17 @@ pub fn screen() -> AnyView {
         .boxed()
     });
     AnyView::new(move |cx: &mut Cx| {
-        let width = cx.theme().space.page_width;
-        let page =
-            page.within(column(()).gap(0.0).max_width(px(width)));
+        let space = &cx.theme().space;
+        let (page_width, table_width) =
+            (space.page_width, space.table_width);
+        let width = resource::<Pane, _>(move |pane| {
+            px(if *pane == Pane::Models {
+                table_width
+            } else {
+                page_width
+            })
+        });
+        let page = page.within(column(()).gap(0.0).max_width(width));
         // It scrolls down only: a page is laid out to the panel's
         // width.
         cx.build(
@@ -998,6 +1114,20 @@ mod tests {
         );
         assert!(
             shown.iter().any(|text| text == "Back to the default")
+        );
+    }
+
+    #[test]
+    fn a_paragraphs_lead_becomes_a_heading_and_other_colons_stay() {
+        let text = "You are an agent of ours: kind.\n\nTools: \
+                    `bash` runs.\n- A list: item.\n\nHow you \
+                    improve yourself:\n- Notes.\n\nhttps://a.example \
+                    helps.";
+        assert_eq!(
+            with_heads(text),
+            "You are an agent of ours: kind.\n\n### Tools\n`bash` \
+             runs.\n- A list: item.\n\n### How you improve \
+             yourself\n- Notes.\n\nhttps://a.example helps."
         );
     }
 

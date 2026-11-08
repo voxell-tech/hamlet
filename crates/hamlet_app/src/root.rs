@@ -19,10 +19,10 @@ use bevy::ui::{
     px,
 };
 use bevy_fynix::dock::dock;
-use bevy_fynix::resource;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, row,
 };
+use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
@@ -179,7 +179,26 @@ fn toolbar(cx: &Cx) -> impl View {
     column((
         row((
             menu::titles(),
-            desk::switcher(),
+            // No desk is open under first-run setup.
+            keyed(
+                resource::<welcome::Welcome, _>(
+                    welcome::Welcome::is_shown,
+                ),
+                |shown| {
+                    if *shown {
+                        frame().boxed()
+                    } else {
+                        desk::switcher().boxed()
+                    }
+                },
+            )
+            .within(
+                row(())
+                    .gap(0.0)
+                    .min_width(px(0.0))
+                    .shrink(1.0)
+                    .height(percent(100.0)),
+            ),
             // The rest of the bar is where the window is held.
             frame()
                 .grow(1.0)

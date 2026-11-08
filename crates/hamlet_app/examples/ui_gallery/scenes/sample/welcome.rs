@@ -19,8 +19,8 @@ pub(crate) fn first_run(scene: Scene) -> welcome::Welcome {
         catalogue().into_iter().map(|model| model.name).collect();
     shown.problem = match step {
         welcome::Step::Key => Some(
-            "That key was not accepted. Check that you copied all \
-             of it and that it is still active, then try again."
+            "That key was not accepted. Check it was copied whole \
+             and is still active."
                 .into(),
         ),
         welcome::Step::Local => Some(welcome::NOTHING_LOCAL.into()),

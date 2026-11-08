@@ -1,7 +1,12 @@
 //! The pages of first-run setup.
 
+use bevy::color::Mix;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
+use bevy::ui::{
+    AlignItems, BackgroundGradient, ColorStop, JustifyContent,
+    RadialGradient, RadialGradientShape, UiPosition, UiRect, percent,
+    px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, overlay, row,
@@ -391,10 +396,9 @@ fn screen() -> AnyView {
     .boxed()
 }
 
-/// The height of the tallest step's card. Every card hangs from the
-/// top of a box this tall, so its head stays put from one step to the
-/// next while the card is only as tall as its step.
-const TALL: f32 = 520.0;
+/// How far the warmth at the middle of the first-run ground goes
+/// from the bottom glow toward the lamp's glow.
+const WARMTH: f32 = 0.14;
 
 fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
@@ -417,10 +421,23 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let hung = column((card,))
         .width(percent(100.0))
         .max_width(px(space.overlay_width))
-        .height(px(TALL))
         .max_height(percent(100.0))
-        .gap(0.0)
-        .justify(JustifyContent::FlexStart);
+        .gap(0.0);
+    // A lamp's warmth pooled behind the card, fading to the window's
+    // own colour at its edges.
+    let palette = &theme.palette;
+    let ground = BackgroundGradient::from(RadialGradient::new(
+        UiPosition::CENTER,
+        RadialGradientShape::Ellipse(percent(60.0), percent(70.0)),
+        vec![
+            ColorStop::new(
+                palette.bottom_glow.mix(&palette.glow, WARMTH),
+                percent(0.0),
+            ),
+            ColorStop::new(palette.bottom_glow, percent(45.0)),
+            ColorStop::new(scrim, percent(100.0)),
+        ],
+    ));
     row((hung,))
         .width(percent(100.0))
         .height(percent(100.0))
@@ -428,4 +445,5 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
         .align(AlignItems::Center)
         .justify(JustifyContent::Center)
         .fill(scrim)
+        .tagged(ground)
 }

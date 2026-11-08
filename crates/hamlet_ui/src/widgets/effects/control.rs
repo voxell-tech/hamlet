@@ -325,6 +325,7 @@ type Glowing<'a> = (
     &'a ControlEffect,
     &'a Variant,
     Option<&'a BackgroundGradient>,
+    Has<InteractionDisabled>,
 );
 
 /// Keeps the glow gradient inside every control that has one: a pool
@@ -335,14 +336,15 @@ pub(super) fn update_gradients(
     controls: Query<Glowing>,
 ) {
     let colors = EffectColors::of(&theme);
-    for (control, effect, variant, now) in &controls {
+    for (control, effect, variant, now, disabled) in &controls {
         // Text has no fill for a glow to show in.
         if matches!(*variant, Variant::Subtle | Variant::Text) {
             continue;
         }
-        // Only the primary action shows its fill while it is out.
+        // Only the primary action shows its fill while it is out,
+        // and only while it can be pressed.
         let filled = *variant == Variant::Primary;
-        if effect.glow <= 0.0 && !filled {
+        if disabled || (effect.glow <= 0.0 && !filled) {
             if now.is_some() {
                 commands
                     .entity(control)

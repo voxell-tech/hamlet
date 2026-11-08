@@ -66,7 +66,8 @@ fn quality() -> impl View {
     })
 }
 
-/// The dial of the sky's hour, and whether it follows the clock.
+/// The dial of the sky's hour, faint while it follows the clock, and
+/// whether it does.
 fn hour() -> impl View {
     with_cx(|cx| {
         row((
@@ -92,6 +93,7 @@ fn hour() -> impl View {
                 })
                 .when(every_frame()),
                 resource::<Sky, _>(|sky| sky.hour),
+                resource::<TimeOfDay, _>(|t| *t == TimeOfDay::Clock),
                 |world, hour| {
                     *world.resource_mut::<TimeOfDay>() =
                         TimeOfDay::At(hour);
@@ -126,6 +128,7 @@ fn north() -> impl View {
         Glyph::Compass,
         resource::<NorthTarget, _>(|north| north.0),
         resource::<North, _>(|north| north.0),
+        false,
         |world, degrees| {
             world.resource_mut::<NorthTarget>().0 = degrees;
         },
@@ -335,8 +338,14 @@ pub(super) fn page() -> impl View {
                 },
             )),
         ),
-        field("Time of day", hour()),
-        field("North", north()),
+        with_cx(|cx| {
+            row((
+                field("Time of day", hour()),
+                field("North", north()),
+            ))
+            .gap(cx.theme().space.panel * 2.0)
+            .align(AlignItems::FlexStart)
+        }),
         field(
             "Distance fog",
             track(number::<DistanceFogSettings>(

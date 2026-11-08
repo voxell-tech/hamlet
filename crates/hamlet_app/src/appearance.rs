@@ -53,6 +53,16 @@ pub enum Mode {
     Dark,
 }
 
+impl Mode {
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::System => "System",
+            Mode::Light => "Light",
+            Mode::Dark => "Dark",
+        }
+    }
+}
+
 impl Appearance {
     /// The pick, or the default: Hamlet, following the computer.
     pub fn pick(&self) -> Pick {

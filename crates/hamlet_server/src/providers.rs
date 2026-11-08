@@ -1191,8 +1191,8 @@ fn plainly(error: &str, hello: bool) -> String {
     .iter()
     .any(|s| lower.contains(s))
     {
-        return "That key was not accepted. Check that you copied \
-                all of it and that it is still active."
+        return "That key was not accepted. Check it was copied \
+                whole and is still active."
             .into();
     }
     if ["http 402", "error: 402", "credit", "quota", "billing"]

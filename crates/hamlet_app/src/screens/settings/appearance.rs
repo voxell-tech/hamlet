@@ -102,11 +102,6 @@ fn mode_card(
     scheme: ColorScheme,
     (light, dark): &(Palette, Palette),
 ) -> AnyView {
-    let name = match mode {
-        Mode::System => "System",
-        Mode::Light => "Light",
-        Mode::Dark => "Dark",
-    };
     // System looks as the computer says now, else dark, as the panels
     // then stay.
     let shade = match (mode, scheme) {
@@ -121,7 +116,7 @@ fn mode_card(
         picked,
         column((
             row((swatch(shade),)).width(percent(100.0)),
-            card_name(name, Tone::Body),
+            card_name(mode.name(), Tone::Body),
         ))
         .gap(6.0)
         .width(px(CHOICE)),
