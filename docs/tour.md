@@ -48,7 +48,7 @@ view layer; the workspace excludes it, and it is not edited here.
 
 | Crate or package | Owns |
 |---|---|
-| `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy |
+| `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy; and `hamlet_launch`, what an installed app opens (`src/launch.rs`) |
 | `hamlet_server` | `hamlet_server`: the realm's society, its conversations, the gate, budgets, tools, clients, credentials and harness supervision |
 | `hamlet_store` | The realm's database: `schema.sql` with Diesel's tables generated from it, opening and checking it, transactions, markers and jobs, and the typed ids |
 | `hamlet_git` | Scholars' and the library's repositories through gix, with no git program: refs, commits from files, reads, diffs, merges, reverts, versions, history, purging, and the writes that check a lodge out |

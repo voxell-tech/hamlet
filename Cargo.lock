@@ -4431,6 +4431,7 @@ dependencies = [
  "anyhow",
  "futures",
  "hamlet_protocol",
+ "rfd",
  "rustix 1.1.6",
  "serde",
  "serde_json",
