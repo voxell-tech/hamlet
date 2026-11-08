@@ -64,7 +64,8 @@ Hamlet's words in one minute:
 
 The shortest path to seeing it work:
 
-1. Follow the [Quick start](#quick-start) below.
+1. [Install Hamlet](#install), or follow the [Quick start](#quick-start)
+   to build it from source.
 2. Give Hamlet a model: an API key, a local model endpoint, or a sign-in
    (see [Models and credentials](#models-and-credentials)).
 3. Talk to the Hand and say what you want done.
@@ -85,6 +86,32 @@ Early and moving fast.
 - **Tests** use faux and loopback providers. They do not establish
   exhaustive behavior or platform coverage.
 
+## Install
+
+Download the file for your system from the
+[latest release](https://github.com/voxell-tech/hamlet/releases/latest).
+Each includes everything Hamlet needs, Node too.
+
+| System | File | Then |
+| --- | --- | --- |
+| macOS (Apple Silicon) | `Hamlet-<version>.dmg` | Open it and drag Hamlet onto Applications. |
+| Ubuntu, Debian, Mint | `hamlet_<version>_amd64.deb` | Open it with Software Install (App Center). |
+| Fedora | `hamlet-<version>-1.x86_64.rpm` | Open it with Software. |
+| Windows (x64) | `Hamlet-<version>-Setup.exe` | Run it. Until Windows has a sandbox, the app cannot start the server; see [Tools and platforms](#tools-and-platforms). |
+
+Then open Hamlet from your applications. It starts its server and opens
+the window, which walks you through choosing a model. If Hamlet cannot
+start, it says why in a dialog.
+
+> [!NOTE]
+> Until a release is signed, macOS refuses the app the first time. Open
+> **System Settings → Privacy & Security** and choose **Open Anyway**
+> beside Hamlet. Windows may say it protected your PC: choose
+> **More info**, then **Run anyway**.
+
+The archives beside them hold the same programs for a terminal; see
+[releases](docs/releases.md).
+
 ## Quick start
 
 You need Rust, git and Node **24.1.0** (pinned in `harnesses/pi/.nvmrc`).
@@ -101,14 +128,6 @@ This installs pi's packages, puts `hamlet`, `hamlet_server` and
 > [!NOTE]
 > A source install uses the checkout's `harnesses/pi/`. Keep the checkout,
 > and run `cargo xtask install` again after pulling.
-
-### Release archives
-
-| Platform | What you get | Needs |
-| --- | --- | --- |
-| Linux, macOS, Windows | All three binaries and a `pi/` package with production dependencies | Installed Node. No checkout or npm install. |
-
-See [releases](docs/releases.md).
 
 ## Try it without installing
 
@@ -179,10 +198,11 @@ saved there before the harness continues.
 Installed commands look for the server and window beside the CLI, then on
 `PATH`. Without `HAMLET_PI_HARNESS`, the server prefers a sibling
 `pi/src/main.ts`, then the macOS bundle's `Contents/Resources/pi/src/main.ts`,
-then the build checkout's harness.
+then the build checkout's harness. Without `HAMLET_NODE`, it prefers the
+Node a release ships beside it, then Node on `PATH`.
 
-The macOS bundle launches the CLI, which starts or reuses the server and
-opens its sibling window.
+An installed app opens `hamlet_launch`, which starts or reuses the server
+and opens its sibling window, and shows a failure in a dialog.
 
 ## Using the window
 

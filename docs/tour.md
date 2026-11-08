@@ -233,6 +233,7 @@ built-in ones.
 | A model connection, login or price | `hamlet_server/src/providers.rs`, `credentials.rs`; provider implementation in pi |
 | Folder, mode or tool reach | `hamlet_server/src/calls/place.rs`, `work/tools/environment.rs`, `hamlet_sandbox`; [`sandbox.md`](sandbox.md) |
 | CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |
+| Installers, archives and what they ship | `.github/scripts/package.sh`, `hamlet.iss`, `.github/workflows/release.yml`; [`releases.md`](releases.md) |
 | Client protocol | `hamlet_protocol/src/client/`, then `cargo test -p hamlet_protocol` for `client_schema.fingerprint`; [`protocol.md`](protocol.md) |
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs`, `index.rs` |
