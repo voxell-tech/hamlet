@@ -11,6 +11,12 @@ description = "Hamlet's command-line client and process manager"
 name = "hamlet"
 path = "src/main.rs"
 
+# What a packaged app opens: the server and the window, with no
+# terminal.
+[[bin]]
+name = "hamlet_launch"
+path = "src/bin/hamlet_launch.rs"
+
 [lints]
 workspace = true
 
@@ -18,6 +24,7 @@ workspace = true
 anyhow.workspace = true
 futures.workspace = true
 hamlet_protocol.workspace = true
+rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

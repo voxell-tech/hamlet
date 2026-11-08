@@ -6,14 +6,9 @@
     reason = "a terminal program: printing is its job"
 )]
 
-mod chat;
-mod client;
-mod process;
-mod terminal;
-
 use anyhow::{Result, bail};
-
-use crate::process::{Action, Isolation};
+use hamlet_cli::process::{self, Action, Isolation};
+use hamlet_cli::{chat, terminal};
 
 const USAGE: &str = "usage: hamlet [--insecure]
        hamlet stop
