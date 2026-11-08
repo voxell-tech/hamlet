@@ -315,7 +315,10 @@ pub(super) struct Line {
     pub glyph: Glyph,
     pub name: String,
     pub title: String,
-    pub age: String,
+    /// When what its age counts from happened, in milliseconds; 0
+    /// for none. The age is worked out as it is drawn, so the rows
+    /// are not built anew each minute.
+    pub since: u64,
     pub mark: Option<Standing>,
     /// What the search also finds it by: its address.
     pub address: String,
@@ -357,7 +360,7 @@ struct Agent {
     address: String,
     called: String,
     title: String,
-    age: String,
+    since: u64,
 }
 
 /// How long ago `then` was at `now`, short, or nothing for a time
@@ -459,7 +462,6 @@ fn agents(world: &World) -> Vec<Agent> {
     )>() else {
         return Vec::new();
     };
-    let now = now_ms();
     query
         .iter(world)
         .filter(|(.., (_, left))| !left)
@@ -487,7 +489,7 @@ fn agents(world: &World) -> Vec<Agent> {
                     called: called(&address, shown),
                     address,
                     title,
-                    age: age(now, last.max(lived.since)),
+                    since: last.max(lived.since),
                 }
             },
         )
@@ -598,7 +600,7 @@ fn agent_line(world: &World, agent: &Agent, nested: bool) -> Line {
             agent.called.clone()
         },
         title: agent.title.clone(),
-        age: agent.age.clone(),
+        since: agent.since,
         mark: agent.mark,
         address: agent.address.clone(),
         nested,
@@ -667,7 +669,7 @@ fn page_line(
         glyph,
         name: name.into(),
         title,
-        age: String::new(),
+        since: 0,
         mark,
         address: String::new(),
         nested: false,
@@ -694,7 +696,6 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
     let mut waits = query.iter(world).collect::<Vec<_>>();
     let total = waits.len();
     waits.sort_by_key(|wait| wait.since);
-    let now = now_ms();
     let mut lines = Vec::<Line>::new();
     let mut counts = Vec::<usize>::new();
     for wait in waits {
@@ -714,7 +715,7 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
                 glyph: Glyph::Scholar,
                 name: format!("{name} · harbor"),
                 title: "Wants to move into the city".into(),
-                age: age(now, wait.since),
+                since: wait.since,
                 mark: Some(Standing::Waits),
                 address: name,
                 nested: false,
@@ -763,7 +764,7 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
             glyph,
             name,
             title: capitalised(said),
-            age: age(now, wait.since),
+            since: wait.since,
             mark: Some(Standing::Waits),
             address: wait.by.clone(),
             nested: false,
@@ -1349,7 +1350,7 @@ fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
 /// the end, over what it is doing, which runs the row's whole width
 /// and wraps rather than being cut.
 fn expanded(line: &Line) -> AnyView {
-    let target = line.target;
+    let (target, since) = (line.target, line.since);
     let name_tone = if line.current {
         Tone::Accent
     } else {
@@ -1370,7 +1371,12 @@ fn expanded(line: &Line) -> AnyView {
                 .grow(1.0)
                 .min_width(px(0.0))
                 .overflow(Overflow::clip()),
-                label(line.age.clone()).wrap(false).rules(note_rules),
+                label(
+                    derived(move |_: &World| age(now_ms(), since))
+                        .when(every_frame()),
+                )
+                .wrap(false)
+                .rules(note_rules),
                 mark_icon(line.mark),
             ))
             .gap(6.0)
