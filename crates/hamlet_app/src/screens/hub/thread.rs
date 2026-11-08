@@ -865,7 +865,7 @@ fn prompt_sections(
             let name = source(&section.name).to_string();
             // Each line as the model is given it, where Markdown
             // would run them together.
-            let text = hamlet_ui::markdown::fixed(
+            let text = hamlet_ui::markdown::page(
                 &section.text.replace('\n', "  \n"),
                 Tone::Body,
             )

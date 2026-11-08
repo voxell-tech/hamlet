@@ -10,23 +10,21 @@ use bevy::ecs::observer::On;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, UiRect, percent, px};
-use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, style};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_client::realm::{Mode, Works};
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 use hamlet_ui::styles::{
-    action, bare, buttons, description, link_row, note,
-    segmented_words,
+    ICON, action, bare, button, buttons, description,
+    description_rules, lettered, link_row, note, segmented_words,
 };
-use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::{AnyView, Cx, View, with_cx};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, View, with_cx};
 
 use crate::overview::{heading_line, tell};
 use crate::roll::hamlets_moved;
@@ -117,38 +115,38 @@ fn works_on(hamlet: Entity, work: &Works) -> AnyView {
     .boxed();
     let (now, acts) = match &work.folder {
         Some(folder) => (
-            description(folder.clone()).boxed(),
+            label(folder.clone()).boxed(),
             vec![
                 choose,
-                action(Glyph::Cross, "No folder", move |world| {
-                    tell(world, hamlet, "/folder none".to_string());
-                })
-                .tooltip(|| note("Stop working on this folder"))
-                .boxed(),
+                lettered("Clear")
+                    .rules(button)
+                    .tagged(Variant::Default)
+                    .on_activate(move |world| {
+                        tell(
+                            world,
+                            hamlet,
+                            "/folder none".to_string(),
+                        );
+                    })
+                    .tooltip(|| note("Stop working on this folder"))
+                    .boxed(),
             ],
         ),
         None => {
             (description("No folder selected.").boxed(), vec![choose])
         }
     };
-    let mut more = Vec::new();
-    if !work.before.is_empty() {
-        let earlier = work
-            .before
-            .iter()
-            .take(EARLIER)
-            .map(|folder| earlier_row(hamlet, folder.clone()))
-            .collect::<Vec<_>>();
-        more.push(
-            column((
-                hamlet_ui::styles::section("Worked on before"),
-                column(earlier).gap(0.0).width(percent(100.0)),
-            ))
-            .gap(2.0)
-            .width(percent(100.0))
-            .boxed(),
-        );
-    }
+    let earlier = work
+        .before
+        .iter()
+        .take(EARLIER)
+        .map(|folder| earlier_row(hamlet, folder.clone()))
+        .collect::<Vec<_>>();
+    let more = if earlier.is_empty() {
+        Vec::new()
+    } else {
+        vec![column(earlier).gap(0.0).width(percent(100.0)).boxed()]
+    };
     bylaw(Glyph::Folder, "Works on", buttons(acts).boxed(), now, more)
 }
 
@@ -210,30 +208,21 @@ fn set_mode(world: &mut World, hamlet: Entity, to: Mode) {
 }
 
 /// A folder worked on before, as a quiet row whose press works on it
-/// again, its "Use" drawn as a button.
+/// again: dim, behind the mark of what is past, with "Use" at its
+/// end.
 fn earlier_row(hamlet: Entity, folder: String) -> AnyView {
     bevy_fynix::views::button(
         row((
-            // In the body's words, as the folder it works on now.
-            label(folder.clone()).rules(|cx: &mut Cx| {
-                style::<HamletTheme>()
-                    .label(|l, t| {
-                        l.size(t.text.body)
-                            .bold(false)
-                            .tone(Tone::Body)
-                    })
-                    .apply(cx);
-            }),
+            glyph(Glyph::History, ICON),
+            label(folder.clone()).rules(description_rules),
             frame().grow(1.0),
-            row((label("Use").wrap(false),))
-                .padding(UiRect::axes(px(10.0), px(3.0)))
-                .rules(hamlet_ui::styles::button),
+            label("Use").wrap(false),
         ))
         .gap(8.0)
         .grow(1.0)
         .align(AlignItems::Center),
     )
-    .padding(UiRect::vertical(px(3.0)))
+    .padding(UiRect::axes(px(4.0), px(4.0)))
     .rules(link_row)
     .tagged(Variant::Text)
     .on_activate(move |world| {
@@ -247,6 +236,7 @@ mod tests {
     use hamlet_client::outbox::Outbox;
     use hamlet_client::realm::HamletId;
     use hamlet_protocol::client as protocol;
+    use hamlet_ui::theme::HamletTheme;
 
     use super::*;
     use crate::testing::{panel_app, press, words};
@@ -307,7 +297,7 @@ mod tests {
             folder: "/chosen/on-the-server/with spaces".into(),
         });
         app.world_mut().flush();
-        press(&mut app, "No folder");
+        press(&mut app, "Clear");
         let sent = app
             .world()
             .resource::<Outbox>()

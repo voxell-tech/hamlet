@@ -10,7 +10,7 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    FrameProps, TooltipExt, dropdown, label, row, slider,
+    FrameProps, TooltipExt, column, dropdown, label, row, slider,
 };
 use bevy_fynix::{ViewExt, derived, every_frame, resource};
 use hamlet_realm::pick::Orbit;
@@ -66,11 +66,11 @@ fn quality() -> impl View {
     })
 }
 
-/// The dial of the sky's hour, faint while it follows the clock, and
+/// The dial of the sky's hour, held while it follows the clock, over
 /// whether it does.
 fn hour() -> impl View {
     with_cx(|cx| {
-        row((
+        column((
             dial(
                 Face::HOURS,
                 derived(|world: &World| {
@@ -116,8 +116,8 @@ fn hour() -> impl View {
                 },
             ),
         ))
-        .gap(cx.theme().space.section)
-        .align(AlignItems::Center)
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::FlexStart)
     })
 }
 

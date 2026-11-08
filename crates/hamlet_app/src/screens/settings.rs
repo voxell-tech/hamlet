@@ -702,7 +702,7 @@ fn charter_page() -> impl View {
     .within(bare());
     let shown = keyed(
         resource::<Charter, _>(|c| with_heads(&c.text)),
-        |text| hamlet_ui::markdown::fixed(text, Tone::Body).boxed(),
+        |text| hamlet_ui::markdown::page(text, Tone::Body).boxed(),
     )
     .within(bare());
     parts((

@@ -32,6 +32,7 @@ use hamlet_ui::{View, with_cx};
 
 pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
+pub(crate) use self::rail::under_name;
 pub use self::rail::{Rail, Tab as RailTab};
 pub use self::thread::{Briefing, Sheet};
 use crate::convo::{Convo, seat};

@@ -927,7 +927,8 @@ fn light(
         &parts,
         |node| texts.text(node),
         |node| texts.level(node),
-    );
+    )
+    .replace(hamlet_ui::markdown::JOINER, "");
     if selecting.chosen != words {
         selecting.chosen = words;
     }

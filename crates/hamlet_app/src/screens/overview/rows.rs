@@ -4,21 +4,21 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
 use bevy::ecs::query::Has;
 use bevy::ecs::world::World;
-use bevy::ui::AlignItems;
+use bevy::ui::{AlignItems, px};
 use bevy_fynix::ScopedExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
 };
 use hamlet_client::realm::{
-    Account, Activity, AgentNumber, HamletId, Identity, Left,
-    LivesIn, Mayor, MergedInto, Parent, Purpose, Treasury,
+    Account, AgentNumber, HamletId, Identity, Left, LivesIn, Mayor,
+    MergedInto, OwnModel, Parent, Treasury,
 };
 use hamlet_protocol::client::AgentId;
 use hamlet_realm::pick::Thing;
-use hamlet_ui::styles::{card_button, card_name, status_label};
+use hamlet_ui::styles::{ICON, card_button, card_name, status_label};
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, View, with_cx};
 
@@ -77,19 +77,20 @@ pub(crate) fn standing(
     (state.glyph(), words, state.tone())
 }
 
-/// An agent of a hamlet, living or gone.
+/// An agent of a hamlet, living or gone: a hire, or a worker, which
+/// has no number.
 #[derive(Clone, PartialEq)]
 pub(super) struct AgentRow {
     pub agent: Entity,
-    pub number: u64,
+    pub number: Option<u64>,
     /// What it is shown by.
     pub name: String,
     pub mayor: bool,
-    pub purpose: String,
-    /// Its work, or the way it left.
-    pub doing: String,
+    /// What its row says under its name, or the way it left.
+    pub under: String,
     pub standing: Standing,
     pub gone: bool,
+    /// Its own model and what it spent, where it has either.
     pub account: String,
     /// How many leads there are between it and the top of its
     /// hamlet's tree.
@@ -98,10 +99,9 @@ pub(super) struct AgentRow {
 
 type Told<'a> = (
     Entity,
-    &'a AgentNumber,
+    Option<&'a AgentNumber>,
     &'a LivesIn,
-    Option<&'a Purpose>,
-    Option<&'a Activity>,
+    Option<&'a OwnModel>,
     Option<&'a Account>,
     Option<&'a MergedInto>,
     (Has<Mayor>, Has<Left>),
@@ -170,7 +170,8 @@ fn in_tree(
 }
 
 /// Everyone of `hamlet`, or of every hamlet: the mayor, the living
-/// by their numbers, then those that are gone.
+/// by their numbers and the workers after them, then those that are
+/// gone.
 pub(super) fn agent_rows(
     world: &World,
     hamlet: Option<Entity>,
@@ -190,8 +191,7 @@ pub(super) fn agent_rows(
                 agent,
                 number,
                 _,
-                purpose,
-                activity,
+                own,
                 account,
                 into,
                 (mayor, gone),
@@ -200,41 +200,45 @@ pub(super) fn agent_rows(
             )| {
                 ids.push((agent, id.0));
                 parents.push((id.0, parent.map(|parent| parent.0)));
-                let standing = Standing::of(world, agent);
-                let doing = match (gone, into) {
+                let under = match (gone, into) {
                     (true, Some(host)) => {
                         format!("Merged into {}", named(host.0))
                     }
                     (true, None) => "Removed".to_string(),
-                    // Its standing says the rest.
-                    _ if standing != Standing::Works => String::new(),
-                    _ => activity.cloned().unwrap_or_default().words,
+                    _ => crate::hub::under_name(world, agent).0,
                 };
+                // The hamlet's model and nothing spent go unsaid.
+                let account = account
+                    .map(|account| {
+                        let model = own.map(|_| {
+                            crate::models::model_name(&account.model)
+                        });
+                        let spent = (account.spent.micros > 0)
+                            .then_some(account.cost.as_str());
+                        model
+                            .into_iter()
+                            .chain(spent)
+                            .collect::<Vec<_>>()
+                            .join(" · ")
+                    })
+                    .unwrap_or_default();
                 AgentRow {
                     agent,
-                    number: number.0,
+                    number: number.map(|number| number.0),
                     name: named(agent),
                     mayor,
-                    purpose: purpose
-                        .map(|p| {
-                            crate::hover::short(
-                                &p.0,
-                                crate::hover::PURPOSE_SHOWN,
-                            )
-                        })
-                        .unwrap_or_default(),
-                    doing,
-                    standing,
+                    under,
+                    standing: Standing::of(world, agent),
                     gone,
-                    account: account
-                        .map(crate::models::account_words)
-                        .unwrap_or_default(),
+                    account,
                     depth: 0,
                 }
             },
         )
         .collect::<Vec<_>>();
-    rows.sort_by_key(|row| (row.gone, !row.mayor, row.number));
+    rows.sort_by_key(|row| {
+        (row.gone, !row.mayor, row.number.unwrap_or(u64::MAX))
+    });
     let (gone, living) = rows.into_iter().partition(|row| row.gone);
     let mut rows = in_tree(living, &parents, &ids);
     rows.extend(in_tree(gone, &parents, &ids));
@@ -278,7 +282,8 @@ pub(super) fn hamlet_name(name: String) -> impl View {
 }
 
 /// A row that can be pressed: a title with a word of status beside
-/// it, over `lines`. The right button opens the menu of `thing`.
+/// it, over `lines`, and the mark that it opens at its end. The right
+/// button opens the menu of `thing`.
 pub(super) fn pressable(
     thing: Thing,
     title: String,
@@ -289,17 +294,25 @@ pub(super) fn pressable(
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
         button(
-            column((
-                row((
-                    hamlet_name(title),
-                    status_label(beside.0, beside.1, beside.2),
+            row((
+                column((
+                    row((
+                        hamlet_name(title),
+                        status_label(beside.0, beside.1, beside.2),
+                    ))
+                    .gap(gap)
+                    .align(AlignItems::Center),
+                    column(lines).gap(0.0),
                 ))
-                .gap(gap)
-                .align(AlignItems::Center),
-                column(lines).gap(0.0),
+                .gap(gap / 2.0)
+                .grow(1.0)
+                .min_width(px(0.0))
+                .align(AlignItems::FlexStart),
+                glyph(Glyph::Into, ICON).tone(Tone::Dim),
             ))
-            .gap(gap / 2.0)
-            .align(AlignItems::FlexStart),
+            .gap(gap)
+            .grow(1.0)
+            .align(AlignItems::Center),
         )
         .rules(card_button)
         .tagged(Variant::Default)

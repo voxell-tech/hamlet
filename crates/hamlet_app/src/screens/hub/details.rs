@@ -39,9 +39,8 @@ use crate::overview::heading_line;
 /// How wide the names of the settings are, so their values line up.
 const NAMES: f32 = 76.0;
 
-/// How wide the field of an amount in dollars is, and the least width
-/// of the choice of a version above it.
-const AMOUNT: f32 = 96.0;
+/// How wide the fields of the settings are, so they line up.
+const FIELD: f32 = 168.0;
 
 /// What the sheet shows of the agent, found from the world.
 #[derive(Clone, Debug, PartialEq)]
@@ -151,6 +150,17 @@ fn setting(
     .boxed()
 }
 
+/// A setting's value that is not typed over, its words where a
+/// field's words start.
+fn read_only(text: String) -> AnyView {
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        row((label(text.clone()),))
+            .padding(UiRect::left(px(space.gap + space.border)))
+    })
+    .boxed()
+}
+
 /// What a hire is called in the world, typed over: Enter gives it the
 /// nickname, and a field left empty its own name again.
 fn nickname_field(facts: &Facts) -> AnyView {
@@ -167,8 +177,7 @@ fn nickname_field(facts: &Facts) -> AnyView {
             );
         }
     })
-    .grow(1.0)
-    .min_width(px(0.0))
+    .width(px(FIELD))
     .rules(text_input)
     .boxed()
 }
@@ -202,7 +211,7 @@ fn allowance_field(facts: &Facts) -> AnyView {
         .rules(text_input),
         "No limit",
     ),))
-    .width(px(AMOUNT))
+    .width(px(FIELD))
     .boxed()
 }
 
@@ -211,7 +220,7 @@ fn allowance_field(facts: &Facts) -> AnyView {
 fn version(facts: &Facts) -> AnyView {
     let now = facts.pin.clone().unwrap_or_else(|| "main".into());
     let Some(versions) = &facts.versions else {
-        return label(shown_version(&now)).boxed();
+        return read_only(shown_version(&now));
     };
     let mut names = vec!["main".to_string()];
     names.extend(versions.iter().cloned());
@@ -239,7 +248,7 @@ fn version(facts: &Facts) -> AnyView {
                 }
             },
         )
-        .min_width(px(AMOUNT))
+        .width(px(FIELD))
         .fill(theme.palette.input)
         .border(theme.space.border)
         .border_color(theme.palette.gold_5)
@@ -339,7 +348,7 @@ fn about(facts: &Facts) -> Option<AnyView> {
         parts.push(setting(
             "Spent",
             "What it has spent today",
-            label(facts.spent.clone()),
+            read_only(facts.spent.clone()),
         ));
     }
     (!parts.is_empty()).then(|| {
@@ -508,7 +517,7 @@ pub(super) fn sheet(agent: Entity) -> impl View {
             Glyph::Notes,
             "Memory",
             None,
-            memory::view(|| Some(reflect())),
+            memory::view(|| Some(reflect()), None),
         ),
         memory::skills_section(),
         prompt(),

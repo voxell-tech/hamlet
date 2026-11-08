@@ -34,7 +34,7 @@ use hamlet_ui::styles::{
     group, note, raised, scroll_area, small_rules, title,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::Wraps;
+use hamlet_ui::widgets::platform::{DisplayText, Wraps};
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
@@ -99,21 +99,28 @@ pub(crate) fn heading_line(
     .boxed()
 }
 
-/// A [`heading`] with how many there are after it, dim, as the
-/// rail counts its parts.
-fn counted(which: Glyph, text: &str, count: usize) -> AnyView {
-    let text = text.to_owned();
+/// The title of a part of a list, small in the display face and in
+/// `tone`, as the rail heads its parts.
+pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
     with_cx(move |cx| {
-        row((
-            heading(which, text),
-            label(count.to_string())
-                .size(cx.theme().text.heading)
-                .tone(Tone::Dim)
-                .wrap(false),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center)
+        label(text.clone())
+            .size(cx.theme().text.small)
+            .bold(true)
+            .tone(tone)
+            .wrap(false)
+            .tagged(DisplayText)
     })
+}
+
+/// A [`part_title`] with how many there are after it, dim, as the
+/// rail counts its parts.
+fn counted(text: &str, count: usize) -> AnyView {
+    row((
+        part_title(text.to_owned(), Tone::Faint),
+        label(count.to_string()).tone(Tone::Dim).wrap(false),
+    ))
+    .gap(6.0)
+    .align(AlignItems::Center)
     .boxed()
 }
 
@@ -346,7 +353,7 @@ fn today() -> AnyView {
 /// is any.
 fn needs() -> AnyView {
     let head = keyed(resource(Queue::len), |&count| {
-        counted(Standing::Waits.glyph(), "Needs you", count)
+        counted("Needs you", count)
     })
     .within(bare());
     with_cx(move |cx| {
@@ -426,8 +433,7 @@ fn hamlets() -> AnyView {
         if cards.is_empty() {
             return column(()).boxed();
         }
-        let mut parts =
-            vec![counted(Glyph::Hamlet, "Hamlets", cards.len())];
+        let mut parts = vec![counted("Hamlets", cards.len())];
         parts.extend(cards.iter().cloned().map(|card| {
             let hamlet = card.hamlet;
             let mut lines = Vec::from_iter(
@@ -504,11 +510,8 @@ fn closed() -> AnyView {
             if closed.is_empty() {
                 return column(()).boxed();
             }
-            let mut parts = vec![counted(
-                Glyph::Gone,
-                "Closed down",
-                closed.len(),
-            )];
+            let mut parts =
+                vec![counted("Closed down", closed.len())];
             for hamlet in closed {
                 let mut actions = Vec::new();
                 if *restore {

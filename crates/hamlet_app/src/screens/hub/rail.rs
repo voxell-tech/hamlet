@@ -50,7 +50,6 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
@@ -414,6 +413,39 @@ fn called(address: &str, shown: Option<&Shown>) -> String {
     shown.map_or_else(|| address.to_string(), |shown| shown.0.clone())
 }
 
+/// What an agent's row says under its name: its work while it works,
+/// else the chief's last words to it, else what it was asked, and
+/// nothing where its mark already says the same. Then when its chat
+/// was last added to.
+pub(crate) fn under_name(
+    world: &World,
+    agent: Entity,
+) -> (String, u64) {
+    let (said, last) = world
+        .get::<Identity>(agent)
+        .map_or((None, 0), |id| thread(world, id.0));
+    let words = world
+        .get::<Activity>(agent)
+        .map(|activity| activity.words.clone())
+        .unwrap_or_default();
+    let title = world
+        .get::<Busy>(agent)
+        .map(|_| words.clone())
+        .or(said.map(|said| format!("You: {said}")))
+        .or_else(|| {
+            world
+                .get::<Purpose>(agent)
+                .map(|p| first_line(&p.0, LINE_SHOWN))
+                .filter(|line| !line.is_empty())
+        })
+        .unwrap_or(words);
+    if title.eq_ignore_ascii_case(Standing::of(world, agent).word()) {
+        (String::new(), last)
+    } else {
+        (title, last)
+    }
+}
+
 fn agents(world: &World) -> Vec<Agent> {
     let Some(mut query) = world.try_query::<(
         Entity,
@@ -421,18 +453,16 @@ fn agents(world: &World) -> Vec<Agent> {
         &Kind,
         Option<&Parent>,
         Option<&LivesIn>,
-        &Activity,
         &Lived,
-        Option<&Purpose>,
         Option<&Shown>,
-        (Has<Busy>, Has<Mayor>, Has<Left>),
+        (Has<Mayor>, Has<Left>),
     )>() else {
         return Vec::new();
     };
     let now = now_ms();
     query
         .iter(world)
-        .filter(|(.., (_, _, left))| !left)
+        .filter(|(.., (_, left))| !left)
         .map(
             |(
                 entity,
@@ -440,35 +470,12 @@ fn agents(world: &World) -> Vec<Agent> {
                 kind,
                 parent,
                 lives,
-                activity,
                 lived,
-                purpose,
                 shown,
-                (busy, mayor, _),
+                (mayor, _),
             )| {
                 let address = name_of(world, entity);
-                let (said, last) = thread(world, id.0);
-                let standing = Standing::of(world, entity);
-                // Its work while it works, else what it was asked.
-                let title = if busy {
-                    Some(activity.words.clone())
-                } else {
-                    None
-                }
-                .or(said.map(|said| format!("You: {said}")))
-                .or_else(|| {
-                    purpose
-                        .map(|p| first_line(&p.0, LINE_SHOWN))
-                        .filter(|line| !line.is_empty())
-                })
-                .unwrap_or_else(|| activity.words.clone());
-                // Its mark already says the word of its standing.
-                let title =
-                    if title.eq_ignore_ascii_case(standing.word()) {
-                        String::new()
-                    } else {
-                        title
-                    };
+                let (title, last) = under_name(world, entity);
                 Agent {
                     entity,
                     id: id.0,
@@ -476,7 +483,7 @@ fn agents(world: &World) -> Vec<Agent> {
                     parent: parent.map(|parent| parent.0),
                     hamlet: lives.map(|lives| lives.0),
                     mayor,
-                    mark: Some(standing),
+                    mark: Some(Standing::of(world, entity)),
                     called: called(&address, shown),
                     address,
                     title,
@@ -1027,16 +1034,12 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         if search.is_empty() {
             lines = fold_leads(lines, &folded);
         }
-        let hires = here
-            .iter()
-            .filter(|a| a.kind == protocol::AgentKind::Hire)
-            .count();
         sections.push(Section {
             group,
             title: name,
             opens: Some(Target::Hamlet(hamlet)),
             mark,
-            count: hires,
+            count: here.len(),
             folded: folded.contains(&group)
                 && mark != Some(Standing::Waits),
             lines,
@@ -1457,17 +1460,8 @@ fn header(section: &Section, above: f32) -> AnyView {
     } else {
         Tone::Faint
     };
-    let title = with_cx({
-        let title = section.title.clone();
-        move |cx| {
-            label(title)
-                .size(cx.theme().text.small)
-                .bold(true)
-                .tone(tone)
-                .wrap(false)
-                .tagged(DisplayText)
-        }
-    });
+    let title =
+        crate::overview::part_title(section.title.clone(), tone);
     parts.push(match section.opens {
         Some(target) => button(title)
             .padding(UiRect::all(px(0.0)))

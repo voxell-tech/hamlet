@@ -118,9 +118,12 @@ fn size(text: &str) -> String {
     }
 }
 
-/// A file as a row: its name, its size and the way to open it, then
-/// its text and what changes it while it is open.
-fn file(entry: &Entry, open: bool) -> AnyView {
+/// What makes the menu at the end of a file's row, from its path.
+pub(super) type FileMenu = Option<fn(&str) -> AnyView>;
+
+/// A file as a row: its name, its size, the way to open it and its
+/// `menu`, then its text and what changes it while it is open.
+fn file(entry: &Entry, open: bool, menu: FileMenu) -> AnyView {
     let path = entry.path.clone();
     let name =
         entry.path.rsplit('/').next().unwrap_or("").to_string();
@@ -133,19 +136,18 @@ fn file(entry: &Entry, open: bool) -> AnyView {
             let path = path.clone();
             move |world| toggle(world, path.clone())
         });
-    let head = row((
-        glyph(Glyph::Notes, ICON).tone(Tone::Faint),
-        named,
-        note(size(&entry.text)),
-        frame().grow(1.0),
-        action(
-            Glyph::Into,
-            if open { "Close" } else { "Open" },
-            move |world| toggle(world, path.clone()),
-        ),
-    ))
-    .gap(8.0)
-    .align(AlignItems::Center);
+    let mut head = vec![
+        glyph(Glyph::Notes, ICON).tone(Tone::Faint).boxed(),
+        named.boxed(),
+        note(size(&entry.text)).boxed(),
+        frame().grow(1.0).boxed(),
+        action(Glyph::Into, if open { "Close" } else { "Open" }, {
+            let path = path.clone();
+            move |world| toggle(world, path.clone())
+        }),
+    ];
+    head.extend(menu.map(|menu| menu(&path)));
+    let head = row(head).gap(8.0).align(AlignItems::Center);
     let mut parts = vec![head.boxed()];
     if !entry.description.is_empty() {
         parts.push(note(entry.description.clone()).boxed());
@@ -225,7 +227,11 @@ fn gist(text: &str) -> String {
     lines.join("\n")
 }
 
-fn folder(folder: &Folder, open: Option<&str>) -> AnyView {
+fn folder(
+    folder: &Folder,
+    open: Option<&str>,
+    menu: FileMenu,
+) -> AnyView {
     let mut parts = Vec::new();
     if !folder.name.is_empty() {
         parts.push(
@@ -239,7 +245,11 @@ fn folder(folder: &Folder, open: Option<&str>) -> AnyView {
         }
     }
     for entry in &folder.files {
-        parts.push(file(entry, open == Some(entry.path.as_str())));
+        parts.push(file(
+            entry,
+            open == Some(entry.path.as_str()),
+            menu,
+        ));
     }
     column(parts).gap(6.0).boxed()
 }
@@ -352,16 +362,18 @@ fn character() -> impl View {
     .within(bare())
 }
 
-/// The memory, with the button that adds a file and the one `learn`
-/// gives under it, then the failure of the last save.
+/// The memory, each file with `menu`, with the button that adds a
+/// file and the one `learn` gives under it, then the failure of the
+/// last save.
 pub(super) fn view(
     learn: impl Fn() -> Option<AnyView> + Send + Sync + 'static,
+    menu: FileMenu,
 ) -> impl View {
     let shown = keyed(
         resource::<Papers, _>(|p| {
             (p.memory.clone(), p.learned.clone())
         }),
-        |(memory, learned)| {
+        move |(memory, learned)| {
             if memory.is_empty() {
                 return note("No memory files yet.").boxed();
             }
@@ -376,7 +388,7 @@ pub(super) fn view(
                                 !f.files.is_empty()
                                     || !f.name.is_empty()
                             })
-                            .map(|f| folder(f, open.as_deref()))
+                            .map(|f| folder(f, open.as_deref(), menu))
                             .collect::<Vec<_>>(),
                     )
                     .gap(10.0)

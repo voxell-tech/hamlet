@@ -225,8 +225,9 @@ const STEP: f32 = 18.0;
 /// How far a row's icon stands in from its left edge.
 const INSET: f32 = 6.0;
 
-/// One agent as a row of the list: its kind, its name and state, what
-/// it does under them and its model and spending at the end.
+/// One agent as a row of the list: its kind, its name and state, and
+/// its own model and spending at the end of that line, then what its
+/// row says under them.
 fn person(row_of: &AgentRow) -> AnyView {
     let agent = row_of.agent;
     let gone = row_of.gone;
@@ -241,13 +242,12 @@ fn person(row_of: &AgentRow) -> AnyView {
         Glyph::Robot
     };
     let standing = row_of.standing;
-    let under = if row_of.doing.is_empty() {
-        row_of.purpose.clone()
-    } else {
-        row_of.doing.clone()
-    };
-    let (name, account, depth) =
-        (row_of.name.clone(), row_of.account.clone(), row_of.depth);
+    let (name, under, account, depth) = (
+        row_of.name.clone(),
+        row_of.under.clone(),
+        row_of.account.clone(),
+        row_of.depth,
+    );
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let line = cx.theme().palette.gold_6;
@@ -265,32 +265,36 @@ fn person(row_of: &AgentRow) -> AnyView {
                 .boxed()
             })
             .collect::<Vec<_>>();
-        let words = column((
+        let mut words = vec![
             row((
-                label(name).bold(true).wrap(false),
+                raised(glyph(kind, ICON).tone(Tone::Dim)),
+                label(name.clone()).bold(true).wrap(false),
                 status_label(
                     standing.glyph(),
                     standing.word(),
                     standing.tone(),
                 ),
+                frame().grow(1.0),
+                label(account.clone()).wrap(false).rules(note_rules),
             ))
             .gap(space.gap)
-            .align(AlignItems::Center),
-            one_line(label(under).tone(Tone::Dim)),
-        ))
-        .gap(1.0)
-        .grow(1.0)
-        .min_width(px(0.0));
+            .align(AlignItems::Center)
+            .boxed(),
+        ];
+        if !under.is_empty() {
+            // Under the name, past the icon.
+            words.push(
+                row(
+                    (one_line(label(under.clone()).tone(Tone::Dim)),),
+                )
+                .padding(UiRect::left(px(ICON + space.gap)))
+                .min_width(px(0.0))
+                .boxed(),
+            );
+        }
         parts.push(
             button(
-                row((
-                    raised(glyph(kind, ICON).tone(Tone::Dim)),
-                    words,
-                    label(account).wrap(false).rules(note_rules),
-                ))
-                .gap(space.gap)
-                .grow(1.0)
-                .align(AlignItems::Center),
+                column(words).gap(1.0).grow(1.0).min_width(px(0.0)),
             )
             .padding(UiRect::new(
                 px(INSET),

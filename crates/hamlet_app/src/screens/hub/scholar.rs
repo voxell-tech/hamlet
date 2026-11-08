@@ -66,7 +66,8 @@ enum Act {
     Tag,
     /// A fork from a version, or from `main`.
     Fork(Option<String>),
-    Purge,
+    /// The taking of one file out of its whole history.
+    Purge(String),
     Remove,
     /// The erasing for good of a scholar that was archived.
     Erase,
@@ -174,7 +175,9 @@ fn command(
     second: &str,
 ) -> Option<String> {
     let (first, second) = (first.trim(), second.trim());
-    if first.is_empty() && !matches!(act, Act::Revert(_)) {
+    if first.is_empty()
+        && !matches!(act, Act::Revert(_) | Act::Purge(_))
+    {
         return None;
     }
     Some(match act {
@@ -184,7 +187,7 @@ fn command(
             format!("/fork {address}@{from} {first}")
         }
         Act::Fork(None) => format!("/fork {address} {first}"),
-        Act::Purge => format!("/purge {address} {first}"),
+        Act::Purge(path) => format!("/purge {address} {path}"),
         Act::Remove => format!("/remove-scholar {address} {first}"),
         // Only when its name is typed, as nothing brings it back.
         Act::Erase if first == name => {
@@ -218,42 +221,47 @@ fn form(address: String, name: String, act: Act) -> AnyView {
         Act::Rename => (
             "Give it a new name. Its hires keep working as it."
                 .to_string(),
-            "new name",
+            Some("new name"),
             None,
         ),
         Act::Tag => (
             "Name this version of its main, with a note.".to_string(),
-            "version",
+            Some("version"),
             Some("note"),
         ),
         Act::Fork(Some(from)) => (
             format!("Make a new scholar from {from}."),
-            "new scholar's name",
+            Some("new scholar's name"),
             None,
         ),
         Act::Fork(None) => (
             "Make a new scholar from its main.".to_string(),
-            "new scholar's name",
+            Some("new scholar's name"),
             None,
         ),
-        Act::Purge => (
-            "Take a file out of its whole history.".to_string(),
-            "path",
+        Act::Purge(path) => (
+            format!(
+                "Take {path} out of every commit and version, for \
+                 good."
+            ),
+            None,
             None,
         ),
-        Act::Remove => {
-            ("Archive it and end its hires.".to_string(), "why", None)
-        }
+        Act::Remove => (
+            "Archive it and end its hires.".to_string(),
+            Some("why"),
+            None,
+        ),
         Act::Erase => (
             "Erase it, its repository and its hires for good. \
              Nothing brings it back."
                 .to_string(),
-            "type its name",
+            Some("type its name"),
             None,
         ),
         Act::Revert(_) => (
             "Undo that version's commit of its main.".to_string(),
-            "why (optional)",
+            Some("why (optional)"),
             None,
         ),
     };
@@ -269,16 +277,18 @@ fn form(address: String, name: String, act: Act) -> AnyView {
     };
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
-        let mut parts = vec![
-            note(words).boxed(),
-            row((
-                label(first).tone(Tone::Faint).wrap(false),
-                field(First),
-            ))
-            .gap(gap)
-            .align(AlignItems::Center)
-            .boxed(),
-        ];
+        let mut parts = vec![note(words).boxed()];
+        if let Some(first) = first {
+            parts.push(
+                row((
+                    label(first).tone(Tone::Faint).wrap(false),
+                    field(First),
+                ))
+                .gap(gap)
+                .align(AlignItems::Center)
+                .boxed(),
+            );
+        }
         if let Some(second) = second {
             parts.push(
                 row((
@@ -324,7 +334,18 @@ fn form_view(
 
 /// Whether `act` changes the scholar for good.
 fn is_careful(act: &Act) -> bool {
-    matches!(act, Act::Purge | Act::Remove | Act::Erase)
+    matches!(act, Act::Purge(_) | Act::Remove | Act::Erase)
+}
+
+/// Whether `act` is done from the foot of the page, where what ends
+/// the scholar is.
+fn is_of_foot(act: &Act) -> bool {
+    matches!(act, Act::Remove | Act::Erase)
+}
+
+/// Whether `act` is done from the menu of a memory file.
+fn is_of_memory(act: &Act) -> bool {
+    matches!(act, Act::Purge(_))
 }
 
 /// Whether `act` is done from the card of its versions.
@@ -488,7 +509,10 @@ fn versions(shown: &Shown) -> AnyView {
             ));
         }
         if !deeds.is_empty() {
-            line.push(version_menu(deeds));
+            line.push(deed_menu(
+                "What can be done from this version",
+                deeds,
+            ));
         }
         parts.push(
             row(line).gap(8.0).align(AlignItems::Center).boxed(),
@@ -509,9 +533,12 @@ fn versions(shown: &Shown) -> AnyView {
     section(Glyph::History, "Versions", None, column(parts).gap(4.0))
 }
 
-/// The button that opens what can be done from one version: each of
-/// `deeds`, named in full, with what it asks for.
-fn version_menu(deeds: Vec<(String, Act)>) -> AnyView {
+/// The "..." button that opens each of `deeds`, named in full, with
+/// what it asks for, and `tip` under the pointer.
+fn deed_menu(
+    tip: &'static str,
+    deeds: Vec<(String, Act)>,
+) -> AnyView {
     let (words, acts): (Vec<_>, Vec<_>) = deeds.into_iter().unzip();
     with_cx(move |cx| {
         let theme = cx.theme();
@@ -527,7 +554,7 @@ fn version_menu(deeds: Vec<(String, Act)>) -> AnyView {
         .border(theme.space.border)
         .border_color(theme.palette.gold_5)
         .radius(theme.space.round)
-        .tooltip(|| note("What can be done from this version"))
+        .tooltip(move || note(tip))
     })
     .boxed()
 }
@@ -628,7 +655,15 @@ fn knowledge(shown: &Shown) -> [AnyView; 3] {
             Glyph::Notes,
             "Memory",
             None,
-            memory::view(dream(shown)),
+            column((
+                memory::view(dream(shown), file_menu(shown)),
+                form_view(
+                    scholar_address(shown.scholar.id),
+                    shown.scholar.name.clone(),
+                    is_of_memory,
+                ),
+            ))
+            .gap(8.0),
         ),
         memory::skills_section(),
     ]
@@ -663,6 +698,27 @@ fn dream(
     }
 }
 
+/// What makes the menu of a memory file, while one may be taken out
+/// of the scholar's history.
+fn file_menu(shown: &Shown) -> memory::FileMenu {
+    let may = shown.scholar.left.is_none()
+        && shown.allowed.contains(&"purge");
+    may.then_some(erase_menu)
+}
+
+/// The menu of the memory file at `path`, which takes it out of the
+/// scholar's whole history.
+fn erase_menu(path: &str) -> AnyView {
+    deed_menu(
+        "What can be done to this file",
+        vec![(
+            "Erase from every version".to_string(),
+            // The memory's paths are inside its folder.
+            Act::Purge(format!("memory/{path}")),
+        )],
+    )
+}
+
 /// What changes the scholar for good, kept at the foot of its page
 /// in its own section.
 fn careful(shown: &Shown) -> AnyView {
@@ -693,21 +749,6 @@ fn careful(shown: &Shown) -> AnyView {
             .boxed(),
         );
     }
-    if living && can("purge") {
-        // Plain, so that red is only on the one that ends it.
-        acts.push(
-            action(Glyph::Delete, "Erase a file", |world| {
-                ask(world, Act::Purge);
-            })
-            .tooltip(|| {
-                note(
-                    "Removes one file, like memory/notes.md, from \
-                     every commit and version, for good",
-                )
-            })
-            .boxed(),
-        );
-    }
     if living && can("remove-scholar") {
         acts.push(bad_action(Glyph::Gone, "Remove", |world| {
             ask(world, Act::Remove);
@@ -729,7 +770,7 @@ fn careful(shown: &Shown) -> AnyView {
         Glyph::Stop,
         "Careful",
         None,
-        column((buttons(acts), form_view(address, name, is_careful)))
+        column((buttons(acts), form_view(address, name, is_of_foot)))
             .gap(4.0),
     )
 }

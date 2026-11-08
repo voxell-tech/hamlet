@@ -4,8 +4,8 @@
 
 use std::f32::consts::TAU;
 
-use bevy::color::Alpha;
 use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::Without;
@@ -37,8 +37,9 @@ type Change = Box<dyn Fn(&mut World, f32) + Send + Sync>;
 
 /// What a dial's face shows: the amount in one whole turn, the
 /// amount at the top, how an amount is written in its middle, the
-/// marks round its rim, every so many of them long, and whether the
-/// icon in its middle turns with the amount.
+/// marks round its rim, every so many of them long, whether the icon
+/// in its middle turns with the amount, and what its middle says
+/// while it is held.
 #[derive(Component, Clone, Copy)]
 pub struct Face {
     pub whole: f32,
@@ -47,6 +48,7 @@ pub struct Face {
     pub marks: u32,
     pub long: u32,
     pub turns_icon: bool,
+    pub held: &'static str,
 }
 
 impl Face {
@@ -62,6 +64,7 @@ impl Face {
         marks: 24,
         long: 6,
         turns_icon: false,
+        held: "Following",
     };
 
     /// Degrees of a bearing, nought at the top, a mark each ten and a
@@ -73,6 +76,7 @@ impl Face {
         marks: 36,
         long: 9,
         turns_icon: true,
+        held: "Held",
     };
 
     /// The turn from the top, in radians clockwise, at `amount`.
@@ -99,8 +103,8 @@ struct Trailed(f32);
 #[derive(Component, Clone, Copy)]
 struct Grip(f32);
 
-/// On a dial's ring while something else sets its amount: it is
-/// shown faint and does not turn.
+/// On a dial's ring while something else sets its amount: it has no
+/// knob, its middle says so, and it does not turn.
 #[derive(Component)]
 struct Held;
 
@@ -110,9 +114,6 @@ const SIDE: f32 = 88.0;
 const KNOB: f32 = 16.0;
 const TRAIL: f32 = 8.0;
 const ICON: f32 = 20.0;
-
-/// How opaque the veil over a held dial is.
-const HELD_VEIL: f32 = 0.65;
 
 /// The length of a short and of a long mark round the rim, and the
 /// gap between the marks and the rim.
@@ -126,8 +127,8 @@ const MARK_GAP: f32 = 4.0;
 /// turned to to `change`, and a bound `amount` follows what that
 /// writes. The knob sits on the rim and keeps the angle to the
 /// pointer it had when the drag began, so it never jumps. While
-/// `held`, something else sets the amount: the dial is veiled and
-/// does not turn.
+/// `held`, something else sets the amount: the dial has no knob to
+/// drag, says the face's word for it in its middle and does not turn.
 pub fn dial(
     face: Face,
     icon: impl Into<Prop<Glyph>>,
@@ -149,7 +150,6 @@ pub fn dial(
         );
         let (short_mark, long_mark) =
             (palette.gold_5, palette.gold_3);
-        let veil = theme.background().with_alpha(HELD_VEIL);
         let rim_width = border * 2.0;
         // Places are measured inside the rim; its line is half its
         // width further out.
@@ -251,38 +251,45 @@ pub fn dial(
             let centre = cx
                 .build(column(()).gap(2.0).align(AlignItems::Center));
             cx.under(centre, |cx| {
-                let mark = cx.build(
-                    icon_view(Glyph::Sun.image(ICON))
-                        .size(ICON)
-                        .tone(Tone::Dim)
-                        .rotation(component::<Shown, _>(
-                            ring,
-                            move |shown| {
-                                if face.turns_icon {
-                                    face.turn(
-                                        shown.map_or(0.0, |s| s.0),
-                                    )
-                                    .to_degrees()
-                                } else {
-                                    0.0
+                // Its word takes the icon's room while it is held.
+                let holder = cx.build(
+                    column(()).display(shown_while_held(ring, false)),
+                );
+                cx.under(holder, |cx| {
+                    let mark = cx.build(
+                        icon_view(Glyph::Sun.image(ICON))
+                            .size(ICON)
+                            .tone(Tone::Dim)
+                            .rotation(component::<Shown, _>(
+                                ring,
+                                move |shown| {
+                                    if face.turns_icon {
+                                        face.turn(
+                                            shown
+                                                .map_or(0.0, |s| s.0),
+                                        )
+                                        .to_degrees()
+                                    } else {
+                                        0.0
+                                    }
+                                },
+                            )),
+                    );
+                    cx.effect(
+                        mark,
+                        icon,
+                        |world, node, &glyph: &Glyph| {
+                            if let Some(mut image) =
+                                world.get_mut::<ImageNode>(node)
+                            {
+                                let to = glyph.image(ICON);
+                                if image.image != to {
+                                    image.image = to;
                                 }
-                            },
-                        )),
-                );
-                cx.effect(
-                    mark,
-                    icon,
-                    |world, node, &glyph: &Glyph| {
-                        if let Some(mut image) =
-                            world.get_mut::<ImageNode>(node)
-                        {
-                            let to = glyph.image(ICON);
-                            if image.image != to {
-                                image.image = to;
                             }
-                        }
-                    },
-                );
+                        },
+                    );
+                });
                 cx.build(
                     label(component::<Shown, _>(
                         ring,
@@ -291,6 +298,12 @@ pub fn dial(
                         },
                     ))
                     .size(cx.theme().text.small),
+                );
+                cx.build(
+                    column((label(face.held)
+                        .size(cx.theme().text.small)
+                        .tone(Tone::Dim),))
+                    .display(shown_while_held(ring, true)),
                 );
             });
             cx.build(
@@ -317,27 +330,24 @@ pub fn dial(
                     // it sits on.
                     .border(border * 1.5)
                     .border_color(middle)
-                    .fill(knob),
-            );
-            // Out to the knob's edge, which stands over the rim.
-            let reach = rim_width / 2.0 + KNOB / 2.0;
-            cx.build(
-                frame()
-                    .position(PositionType::Absolute)
-                    .inset(UiRect::all(px(-reach)))
-                    .radius(inner / 2.0 + reach)
-                    .fill(veil)
-                    .display(component::<Held, _>(ring, |held| {
-                        if held.is_some() {
-                            Display::Flex
-                        } else {
-                            Display::None
-                        }
-                    })),
+                    .fill(knob)
+                    .display(shown_while_held(ring, false)),
             );
         });
         ring
     })
+}
+
+/// Shown while the dial `ring` is held, or while it is not.
+fn shown_while_held(ring: Entity, held: bool) -> Prop<Display> {
+    component::<Held, _>(ring, move |on| {
+        if on.is_some() == held {
+            Display::Flex
+        } else {
+            Display::None
+        }
+    })
+    .into()
 }
 
 /// The point `reach` from the middle, `turn` radians clockwise from
