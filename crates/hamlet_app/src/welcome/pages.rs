@@ -20,7 +20,7 @@ use hamlet_ui::styles::{
     parts, scroll_area, small_rules,
 };
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{NOTHING_LOCAL, Step, Welcome, close, go, look, pick};
@@ -30,7 +30,7 @@ use crate::models::{
 use crate::roll::{either, moved};
 
 fn title(which: Glyph, text: &'static str) -> impl View {
-    headed(which, styles::title(text))
+    headed(glyph(which, ICON), styles::title(text))
 }
 
 pub(super) fn said(text: impl Into<String>) -> AnyView {
@@ -128,7 +128,7 @@ fn choice(adding: bool) -> AnyView {
             },
         ),
         nav_card(
-            Glyph::Talk,
+            mark("chatgpt", ICON),
             "Continue with ChatGPT",
             "Use your ChatGPT plan, with no key. You sign in with \
              your browser, and what your hamlet does counts toward \
@@ -137,14 +137,14 @@ fn choice(adding: bool) -> AnyView {
         ),
         claude(),
         nav_card(
-            Glyph::Key,
+            glyph(Glyph::Key, ICON),
             "I have a key",
             "Use a key from a provider such as OpenAI, DeepSeek or \
              OpenRouter. You pay them for what you use.",
             |world| go(world, Step::Key),
         ),
         nav_card(
-            Glyph::Chip,
+            glyph(Glyph::Chip, ICON),
             "I run my own model",
             "Use a model running on this computer, with Ollama or \
              LM Studio.",
@@ -173,7 +173,7 @@ fn claude() -> AnyView {
                 return frame().boxed();
             }
             nav_card(
-                Glyph::Hearth,
+                mark("claude", ICON),
                 "Sign in to Claude",
                 "Run agents on Claude models with your own Claude \
                  plan. You sign in through Claude's own sign-in, in \

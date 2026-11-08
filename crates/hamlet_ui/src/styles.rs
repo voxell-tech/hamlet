@@ -10,8 +10,8 @@ use bevy::ui::{
 };
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    self, BehaviorExt, Frame, FrameProps, Icon, Stack, TooltipExt,
-    column, frame, label, menu_item, row, scroll, tinted_icon,
+    self, BehaviorExt, Frame, FrameProps, Stack, TooltipExt, column,
+    frame, label, menu_item, row, scroll, tinted_icon,
 };
 use bevy_fynix::{
     Bevy, Focused, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
@@ -532,16 +532,16 @@ pub const ICON: f32 = 14.0;
 
 /// An icon set a pixel high, on the middle of the lettering beside
 /// it.
-pub fn raised(mark: Icon) -> impl View + FrameProps {
+pub fn raised(mark: impl View + 'static) -> impl View + FrameProps {
     row((mark,)).padding(UiRect::bottom(px(2.0)))
 }
 
 /// An icon before `words`.
 pub fn headed(
-    which: Glyph,
+    mark: impl View + 'static,
     words: impl View + 'static,
 ) -> impl View + FrameProps {
-    row((raised(glyph(which, ICON)), words))
+    row((raised(mark), words))
         .gap(6.0)
         .align(AlignItems::Center)
 }
@@ -551,7 +551,7 @@ pub fn marked(
     which: Glyph,
     text: impl Into<Prop<String>>,
 ) -> impl View + FrameProps {
-    views::button(headed(which, label(text).wrap(false)))
+    views::button(headed(glyph(which, ICON), label(text).wrap(false)))
         // Less on the icon's side, which has air of its own.
         .padding(UiRect::new(px(10.0), px(13.0), px(0.0), px(0.0)))
         .min_height(px(CONTROL))
@@ -865,23 +865,15 @@ pub fn link_row(cx: &mut Cx) {
 }
 
 /// A card that leads into a part of something: its name under
-/// `which`, what it holds and a mark that it opens. `act` takes it.
+/// `mark`, what it holds and a mark that it opens. `act` takes it.
 pub fn nav_card(
-    which: Glyph,
+    mark: impl View + 'static,
     title: &'static str,
     holds: impl Into<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(
-        which,
-        title,
-        None,
-        Some(holds.into()),
-        None,
-        button,
-        act,
-    )
-    .boxed()
+    nav_item(mark, title, None, Some(holds.into()), None, button, act)
+        .boxed()
 }
 
 /// A [`nav_card`] for the way most should take: outlined in gold,
@@ -894,7 +886,7 @@ pub fn lead_card(
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
     nav_item(
-        which,
+        glyph(which, ICON),
         title,
         Some(tag),
         Some(holds.into()),
@@ -922,7 +914,16 @@ pub fn nav_row(
     holds: Option<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, None, holds, None, link_row, act).boxed()
+    nav_item(
+        glyph(which, ICON),
+        title,
+        None,
+        holds,
+        None,
+        link_row,
+        act,
+    )
+    .boxed()
 }
 
 /// A [`nav_row`] with `now`, the value of what it leads to, dim
@@ -933,11 +934,20 @@ pub fn valued_row(
     now: Option<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, None, None, now, link_row, act).boxed()
+    nav_item(
+        glyph(which, ICON),
+        title,
+        None,
+        None,
+        now,
+        link_row,
+        act,
+    )
+    .boxed()
 }
 
 fn nav_item(
-    which: Glyph,
+    mark: impl View + 'static,
     title: &'static str,
     tag: Option<&'static str>,
     holds: Option<Prop<String>>,
@@ -950,7 +960,7 @@ fn nav_item(
         let mut named = vec![
             row((
                 headed(
-                    which,
+                    mark,
                     label(title).wrap(false).rules(|cx: &mut Cx| {
                         style::<HamletTheme>()
                             .label(|l, t| {

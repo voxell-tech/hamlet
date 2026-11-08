@@ -24,7 +24,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, style};
 
 use super::effects::Underglow;
-use super::icons::Glyph;
+use super::icons::{Glyph, glyph};
 use super::platform::show;
 use crate::styles::{ICON, hairline, headed};
 use crate::theme::{HamletTheme, Themed};
@@ -80,7 +80,7 @@ pub fn tab_look(cx: &mut Cx) {
 
 /// A tab's icon and its name.
 pub fn tab_name(which: Glyph, name: &'static str) -> impl View {
-    headed(which, label(name).wrap(false))
+    headed(glyph(which, ICON), label(name).wrap(false))
 }
 
 /// A strip of `tabs`, each pressed to `choose` its value. The tabs
