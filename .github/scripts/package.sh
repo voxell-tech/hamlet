@@ -54,7 +54,9 @@ for binary in hamlet hamlet_server hamlet_app; do
 done
 cp -R harnesses/pi/src "$pi/"
 cp harnesses/pi/{package.json,package-lock.json,.nvmrc} "$pi/"
-npm ci --omit=dev --prefix "$pi"
+# The Claude program is Anthropic's, under its own terms: pi offers Claude only
+# where its optional packages are installed (ADR 0014).
+npm ci --omit=dev --omit=optional --prefix "$pi"
 cat > "$stage/README.txt" <<INFO
 Hamlet $version
 

@@ -130,7 +130,7 @@ export type RuntimeOptions = {
 export async function run(
     options: RuntimeOptions,
     channel: Channel,
-    available: Provider[] = providers(),
+    available: Provider[] = providers(dirname(options.store)),
 ): Promise<void> {
     const context = BACKGROUND_CONTEXT;
     const exists = existsSync(options.store);

@@ -189,6 +189,12 @@ Each row is a `Login` form with `type: "login"` and `id`.
 
 Sessions belong to the initiating connection. Disconnecting cancels them.
 
+The provider `claude` signs in with `method: "subscription"` alone. pi runs
+Claude's own sign-in and the server sends one `url` step, the link to
+Anthropic's sign-in page, then `done` once the Claude program has the login;
+no `reply` is asked for. The credential the server keeps only marks the
+sign-in. The sign-in completes only in a browser on the server's machine.
+
 ## Server → client
 
 These are all members of `ServerMessage`. Each row has `type` as shown.

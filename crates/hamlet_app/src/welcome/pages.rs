@@ -12,7 +12,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, overlay, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_client::realm::Settings;
+use hamlet_client::realm::{Providers, Settings};
 use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
     self, ICON, back, back_link, bare, beside, description,
@@ -135,6 +135,7 @@ fn choice(adding: bool) -> AnyView {
              your plan's usage.",
             |world| super::providers::start(world, "chatgpt", false),
         ),
+        claude(),
         nav_card(
             Glyph::Key,
             "I have a key",
@@ -158,6 +159,33 @@ fn choice(adding: bool) -> AnyView {
         ))
         .tagged(hamlet_ui::widgets::platform::Wraps),
     ))
+    .boxed()
+}
+
+/// Signing in to Claude, once the server offers it.
+fn claude() -> AnyView {
+    keyed(
+        resource::<Providers, _>(|providers| {
+            providers.0.iter().any(|provider| provider.id == "claude")
+        }),
+        |offered| {
+            if !*offered {
+                return frame().boxed();
+            }
+            nav_card(
+                Glyph::Hearth,
+                "Sign in to Claude",
+                "Run agents on Claude models with your own Claude \
+                 plan. You sign in through Claude's own sign-in, in \
+                 a browser on the server's computer, and what those \
+                 agents do counts toward your plan's usage.",
+                |world| {
+                    super::providers::start(world, "claude", false);
+                },
+            )
+        },
+    )
+    .within(bare())
     .boxed()
 }
 
