@@ -81,22 +81,24 @@ impl Cut {
         self.left || self.right || self.top || self.bottom
     }
 
-    /// How much of a glyph at `at` is shown, `fade` from each edge
-    /// that cuts.
-    fn shown(self, clip: Rect, at: Vec2, fade: f32) -> f32 {
+    /// How much of a glyph drawn over `glyph` is shown, `fade` from
+    /// each edge that cuts. Measured from the glyph's far side, so a
+    /// glyph an edge runs through is not drawn at all, rather than
+    /// drawn faint and cut.
+    fn shown(self, clip: Rect, glyph: Rect, fade: f32) -> f32 {
         let within = |gap: f32| (gap / fade).clamp(0.0, 1.0);
         let mut shown = 1.0;
         if self.left {
-            shown *= within(at.x - clip.min.x);
+            shown *= within(glyph.min.x - clip.min.x);
         }
         if self.right {
-            shown *= within(clip.max.x - at.x);
+            shown *= within(clip.max.x - glyph.max.x);
         }
         if self.top {
-            shown *= within(at.y - clip.min.y);
+            shown *= within(glyph.min.y - clip.min.y);
         }
         if self.bottom {
-            shown *= within(clip.max.y - at.y);
+            shown *= within(clip.max.y - glyph.max.y);
         }
         shown
     }
@@ -146,9 +148,14 @@ fn fade_cut(
                             continue;
                         }
                         for glyph in glyphs.iter_mut() {
+                            let half = glyph.rect.half_size();
+                            let drawn = Rect::from_corners(
+                                place(glyph.translation - half),
+                                place(glyph.translation + half),
+                            );
                             glyph.color.alpha *= cut.shown(
                                 clip.rect,
-                                place(glyph.translation),
+                                drawn,
                                 tall * FADE,
                             );
                         }
@@ -162,9 +169,13 @@ fn fade_cut(
                             Rect::from_center_size(Vec2::ZERO, size);
                         let cut = Cut::of(bounds, clip.rect, place);
                         if cut.any() {
+                            let drawn = Rect::from_corners(
+                                place(bounds.min),
+                                place(bounds.max),
+                            );
                             color.alpha *= cut.shown(
                                 clip.rect,
-                                place(Vec2::ZERO),
+                                drawn,
                                 size.y * FADE,
                             );
                         }
