@@ -20,7 +20,7 @@ use bevy::picking::events::{
 use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, ComputedNode, Display, JustifyContent, Overflow,
-    UiGlobalTransform, UiRect, percent, px,
+    PositionType, UiGlobalTransform, UiRect, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, Tone};
@@ -1349,7 +1349,7 @@ fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
 /// A row: its icon, then its name with how long ago and its mark at
 /// the end, over what it is doing, which runs the row's whole width
 /// and wraps rather than being cut.
-fn expanded(line: &Line) -> AnyView {
+fn expanded(line: &Line, tree: Tree) -> AnyView {
     let (target, since) = (line.target, line.since);
     let name_tone = if line.current {
         Tone::Accent
@@ -1443,11 +1443,72 @@ fn expanded(line: &Line) -> AnyView {
     let step = frame()
         .width(px(if line.nested { STEP_IN } else { 0.0 }))
         .shrink(0.0);
-    row((fold, step, shown))
+    let mut parts = vec![fold, step.boxed(), shown];
+    parts.extend(tree_lines(tree, title.is_empty()));
+    row(parts)
         .gap(0.0)
         .align(AlignItems::Center)
         .width(percent(100.0))
         .boxed()
+}
+
+/// How a row stands among the rows beside it in the tree.
+#[derive(Clone, Copy)]
+struct Tree {
+    /// A row set in under the lead above it.
+    under_lead: bool,
+    /// Whether the row after it is set in under the same lead.
+    more_below: bool,
+}
+
+/// The tree's lines over a row, under the middle of its lead's icon:
+/// down from the lead's icon to its first set-in row, and to each
+/// set-in row an elbow that runs on down while more follow. A row of
+/// `one_line` has its icon on its middle, one of more on its first.
+fn tree_lines(tree: Tree, one_line: bool) -> Vec<AnyView> {
+    // Where the line runs, and where the elbow meets the row.
+    let x = CHEVRON + ROW_INSET + ICON / 2.0 - 0.5;
+    let elbow = 4.0
+        + if one_line {
+            (ROW - 8.0) / 2.0
+        } else {
+            2.0 + ICON / 2.0
+        };
+    // A line laid over the row, `left` and `top` in from its edges;
+    // one with no height runs to its foot.
+    let over =
+        |left: f32, top: f32, width: f32, height: Option<f32>| {
+            with_cx(move |cx| {
+                frame()
+                    .width(px(width))
+                    .height(height.map_or(Val::Auto, px))
+                    .fill(cx.theme().palette.gold_6)
+                    .position(PositionType::Absolute)
+                    .inset(UiRect::new(
+                        px(left),
+                        Val::Auto,
+                        px(top),
+                        if height.is_some() {
+                            Val::Auto
+                        } else {
+                            px(0.0)
+                        },
+                    ))
+            })
+            .boxed()
+        };
+    let mut lines = Vec::new();
+    if tree.under_lead {
+        let icon = CHEVRON + STEP_IN + ROW_INSET;
+        lines.push(over(x, 0.0, 1.0, Some(elbow + 1.0)));
+        lines.push(over(x, elbow, icon - 2.0 - x, Some(1.0)));
+        if tree.more_below {
+            lines.push(over(x, elbow, 1.0, None));
+        }
+    } else if tree.more_below {
+        lines.push(over(x, elbow + ICON / 2.0 + 2.0, 1.0, None));
+    }
+    lines
 }
 
 /// A section's header, set apart from the rows under it in the
@@ -1513,7 +1574,28 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
         if section.folded {
             continue;
         }
-        parts.extend(section.lines.iter().map(expanded));
+        let lines = &section.lines;
+        parts.extend(lines.iter().enumerate().map(|(at, line)| {
+            // Set in under the row above, which is its lead or
+            // another of the lead's.
+            let under_lead = line.nested
+                && at.checked_sub(1).is_some_and(|above| {
+                    lines[above].nested
+                        || matches!(
+                            lines[above].fold,
+                            Some((_, false))
+                        )
+                });
+            let more_below =
+                lines.get(at + 1).is_some_and(|below| below.nested);
+            expanded(
+                line,
+                Tree {
+                    under_lead,
+                    more_below,
+                },
+            )
+        }));
     }
     column(parts).gap(0.0).boxed()
 }
