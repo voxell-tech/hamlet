@@ -177,8 +177,10 @@ fn agent_view(
     })
     .unwrap_or_default();
     let shown = sources.activity.get(&id);
-    let doing =
-        shown.map_or(protocol::Doing::Rest, |a| a.doing.clone());
+    // A conversation shown for its failed turn does nothing now.
+    let doing = shown
+        .filter(|a| a.working)
+        .map_or(protocol::Doing::Rest, |a| a.doing.clone());
     let spent = spend::of_agent(db, id, at)?;
     let left = match (found.ended_at, found.ended_how) {
         (Some(ended), Some(how)) => Some(protocol::Left {
