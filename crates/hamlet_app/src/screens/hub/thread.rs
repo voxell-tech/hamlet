@@ -803,50 +803,27 @@ fn aside(
     })
 }
 
-/// The sources of a prompt's sections by the server's names: what
-/// heads a section, and what the line of sources calls it.
-const SOURCES: [(&str, &str, &str); 11] = [
-    ("charter", "Charter", "the charter"),
-    ("machine", "This computer", "this computer"),
-    ("project", "The project", "the project"),
-    ("character", "Character", "its character"),
-    ("memory", "Memory", "its memory"),
-    ("skills", "Skills", "its skills"),
-    ("place", "Its place", "its place"),
-    ("realm", "The realm", "the realm"),
-    (
-        "scholars",
-        "Scholars it may hire",
-        "the scholars it may hire",
-    ),
-    ("budget", "Budget", "its budget"),
-    ("errand", "Errand", "its errand"),
+/// What heads each section of a prompt, by the server's names.
+const SOURCES: [(&str, &str); 11] = [
+    ("charter", "Charter"),
+    ("machine", "This computer"),
+    ("project", "The project"),
+    ("character", "Character"),
+    ("memory", "Memory"),
+    ("skills", "Skills"),
+    ("place", "Its place"),
+    ("realm", "The realm"),
+    ("scholars", "Scholars it may hire"),
+    ("budget", "Budget"),
+    ("errand", "Errand"),
 ];
 
-/// What heads the section `name`, and what the line of sources calls
-/// it.
-fn source(name: &str) -> (&str, &str) {
+/// What heads the section `name`.
+fn source(name: &str) -> &str {
     SOURCES
         .iter()
-        .find(|(known, ..)| *known == name)
-        .map_or((name, name), |(_, heading, phrase)| {
-            (heading, phrase)
-        })
-}
-
-/// The line that names what the prompt is built from.
-fn built_from(prompt: &[protocol::PromptSection]) -> String {
-    let names = prompt
-        .iter()
-        .map(|section| source(&section.name).1)
-        .collect::<Vec<_>>();
-    match names.split_last() {
-        None => String::new(),
-        Some((last, [])) => format!("Built from {last}."),
-        Some((last, rest)) => {
-            format!("Built from {} and {last}.", rest.join(", "))
-        }
-    }
+        .find(|(known, _)| *known == name)
+        .map_or(name, |(_, heading)| heading)
 }
 
 /// Puts the whole prompt on the clipboard.
@@ -879,7 +856,7 @@ fn prompt_sections(
     let sections = prompt
         .iter()
         .map(|section| {
-            let name = source(&section.name).0.to_string();
+            let name = source(&section.name).to_string();
             // Each line as the model is given it, where Markdown
             // would run them together.
             let text = hamlet_ui::markdown::fixed(
@@ -911,35 +888,29 @@ fn prompt_sections(
     .boxed()
 }
 
-/// What the page says the prompt is, and the way to copy it once it
-/// is read.
+/// The way to copy the prompt and a line under it, once it is read.
 fn prompt_head() -> impl View {
     keyed(
-        resource::<Briefing, _>(|b| {
-            (built_from(&b.prompt), b.copied)
-        }),
-        |(from, copied)| {
-            let intro = column((
-                note(
-                    "What this agent is told at the start of a turn.",
-                ),
-                note(from.clone()),
-            ))
-            .gap(2.0)
-            .grow(1.0)
-            .min_width(px(0.0));
-            if from.is_empty() {
-                return row((intro,)).boxed();
+        resource::<Briefing, _>(|b| (b.prompt.is_empty(), b.copied)),
+        |(empty, copied)| {
+            if *empty {
+                return frame().boxed();
             }
             let copy = if *copied {
                 action(Glyph::Check, "Copied", copy_prompt)
             } else {
                 action(Glyph::Notes, "Copy", copy_prompt)
             };
-            row((intro, copy))
-                .gap(8.0)
-                .align(AlignItems::Center)
-                .boxed()
+            with_cx(move |cx| {
+                let gap = cx.theme().space.section;
+                column((
+                    row((frame().grow(1.0), copy)),
+                    hairline(cx.theme().palette.gold_6),
+                ))
+                .gap(gap)
+                .padding(UiRect::bottom(px(gap)))
+            })
+            .boxed()
         },
     )
     .within(bare())
@@ -954,20 +925,12 @@ pub(super) fn prompt_page() -> impl View {
         |(prompt, failed)| prompt_sections(prompt, failed.as_deref()),
     )
     .within(bare());
-    with_cx(move |cx| {
-        let gold = cx.theme().palette.gold_6;
-        let gap = cx.theme().space.section;
-        aside(
-            |_| vec![Under::Prompt],
-            column((
-                prompt_head(),
-                hairline(gold),
-                scroll_area((shown,)),
-            ))
+    aside(
+        |_| vec![Under::Prompt],
+        column((prompt_head(), scroll_area((shown,))))
             .fills_height()
-            .gap(gap),
-        )
-    })
+            .gap(0.0),
+    )
 }
 
 /// The past sessions of the agent the chat is with.
@@ -1190,9 +1153,7 @@ mod tests {
             app.world().resource::<Briefing>().whole(),
             "The received charter\n\nThe received memory"
         );
-        assert!(words(&mut app).contains(
-            &"Built from the charter and its memory.".into()
-        ));
+        assert!(words(&mut app).contains(&"Memory".into()));
         show_prompt(app.world_mut());
         let read = request(&app, "prompt");
         receive(

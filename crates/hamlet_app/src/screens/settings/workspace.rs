@@ -16,14 +16,14 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    bad_action, bare, beside, description, framed, good_action, note,
-    parts, segmented_words, text_input,
+    bad_action, bare, beside, framed, good_action, note, parts,
+    segmented_words, text_input,
 };
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View};
 
-use super::{Pane, field, told};
+use super::{Pane, alone, field};
 use crate::PanelSystems;
 use crate::overview::heading;
 use crate::secret::secret_field;
@@ -285,22 +285,7 @@ pub(super) fn page() -> impl View {
         })
         .within(bare());
     parts((
-        field(
-            "Where agents' commands run",
-            told(
-                where_run,
-                description(resource::<Draft, _>(|draft| {
-                    if draft.remote {
-                        "Agents' commands run on a remote server, \
-                         and their lodges are kept there."
-                    } else {
-                        "Agents' commands run on this computer, and \
-                         their lodges are kept here."
-                    }
-                    .to_string()
-                })),
-            ),
-        ),
+        field("Where agents' commands run", alone(where_run)),
         remote(),
         beside((
             good_action(Glyph::Check, "Save", save),

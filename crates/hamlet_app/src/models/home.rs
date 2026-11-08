@@ -105,10 +105,7 @@ pub fn endpoints() -> impl View {
     )
     .within(bare());
     group((
-        description(
-            "Models run through the server. A model is named \
-             endpoint::model. Credentials stay on the server.",
-        ),
+        description("Credentials stay on the server."),
         known,
         super::problem(),
         providers,
@@ -395,11 +392,6 @@ pub fn shelf() -> AnyView {
     })
     .within(bare());
     group((
-        description(
-            "The default model is used wherever nobody chose one. \
-             Prices are dollars per million tokens in and out, used \
-             when the endpoint does not bill a call.",
-        ),
         beside((
             action(Glyph::Restore, "Refresh", |world| {
                 read_models(world, true);

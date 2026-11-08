@@ -37,8 +37,8 @@ use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    Fills, action, breadcrumb, choice, description, filling, group,
-    note, scroll_area, section, segmented_words, status_label, title,
+    Fills, action, breadcrumb, choice, filling, group, scroll_area,
+    section, segmented_words, status_label, title,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;
@@ -344,19 +344,9 @@ fn swatches(swatches: Vec<AnyView>) -> impl View {
         .tagged(Wraps)
 }
 
-/// A part of the wardrobe: its name over its choices, and what it
-/// colours besides the chief, if anything.
-fn part(
-    name: &'static str,
-    choices: impl View,
-    also: Option<&'static str>,
-) -> AnyView {
-    match also {
-        Some(also) => {
-            group((section(name), choices, note(also))).boxed()
-        }
-        None => group((section(name), choices)).boxed(),
-    }
+/// A part of the wardrobe: its name over its choices.
+fn part(name: &'static str, choices: impl View) -> AnyView {
+    group((section(name), choices)).boxed()
 }
 
 /// A rounded block of the portrait, `dx` right of its middle and
@@ -534,10 +524,6 @@ fn portrait(facts: &Facts) -> impl View {
     };
     let words = column((
         title(facts.name.clone()),
-        description(
-            "This is you, the chief. What you choose here is how \
-             you look in the world.",
-        ),
         status_label(mark, place, tone),
         // In a row of its own, so it is as wide as its words.
         row((action(Glyph::Aim, "Find me in the world", go_home),)),
@@ -606,21 +592,10 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View + use<> {
     );
     with_cx(move |cx| {
         column((
-            part(
-                "Cloak",
-                swatches(cloaks),
-                Some("Your roof at home takes this colour too."),
-            ),
-            part(
-                "Light",
-                swatches(lights),
-                Some(
-                    "The flame over your head. The orb on your roof \
-                     shines this colour too.",
-                ),
-            ),
-            part("Hat", hats, None),
-            part("Hand", held, None),
+            part("Cloak", swatches(cloaks)),
+            part("Light", swatches(lights)),
+            part("Hat", hats),
+            part("Hand", held),
         ))
         .gap(cx.theme().space.section)
     })

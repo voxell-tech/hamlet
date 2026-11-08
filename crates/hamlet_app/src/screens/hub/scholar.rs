@@ -20,8 +20,8 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bad_action, bare, beside,
-    breadcrumb, buttons, description, framed, good_action, note,
-    page_head, scroll_area, text_input, title,
+    breadcrumb, buttons, framed, good_action, note, page_head,
+    scroll_area, text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -535,10 +535,7 @@ fn version_menu(deeds: Vec<(String, Act)>) -> AnyView {
 /// Its hires on their card, each led to and pinned to a version from
 /// here.
 fn hires(shown: &Shown) -> AnyView {
-    let mut parts = vec![
-        heading(Glyph::Robot, "Hires"),
-        note("Agents at work in hamlets as this scholar.").boxed(),
-    ];
+    let mut parts = vec![heading(Glyph::Robot, "Hires")];
     if shown.hires.is_empty() {
         parts.push(note("Nobody works as it now.").boxed());
     }
@@ -739,14 +736,8 @@ fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
     let (stands, tone) = standing(&shown.scholar);
-    let heading = column((
-        beside((title(name.clone()), label(stands).tone(tone))),
-        description(format!(
-            "What {name}'s hires share: character, memory and \
-             skills."
-        )),
-    ))
-    .gap(4.0);
+    let heading =
+        beside((title(name.clone()), label(stands).tone(tone)));
     let parts = (
         arrival(shown),
         hires(shown),

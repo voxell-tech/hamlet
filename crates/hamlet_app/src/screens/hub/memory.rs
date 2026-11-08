@@ -215,9 +215,7 @@ fn gist(text: &str) -> String {
 
 fn folder(folder: &Folder, open: Option<&str>) -> AnyView {
     let mut parts = Vec::new();
-    if folder.name.is_empty() {
-        parts.push(note("Shown to the agent every turn.").boxed());
-    } else {
+    if !folder.name.is_empty() {
         parts.push(
             label(format!("{}/", folder.name))
                 .bold(true)

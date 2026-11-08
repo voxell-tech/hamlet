@@ -113,10 +113,10 @@ impl Pane {
             Pane::Front => "Settings",
             Pane::Endpoints => "Endpoints",
             Pane::Models => "Models",
-            Pane::Agents => "Agents",
+            Pane::Agents => "Agent behaviour",
             Pane::Workspace => "Workspace",
             Pane::Charter => "Charter",
-            Pane::Realm => "Realm",
+            Pane::Realm => "Realm limits",
             Pane::Sound => "Sound",
             Pane::Sight => "Sight",
             Pane::Appearance => "Appearance",
@@ -137,32 +137,6 @@ impl Pane {
             Pane::Appearance => Glyph::Eye,
         }
     }
-
-    fn holds(self) -> &'static str {
-        match self {
-            Pane::Front => "",
-            Pane::Endpoints => {
-                "Where models come from, and their keys."
-            }
-            Pane::Models => {
-                "The default model and the models' prices."
-            }
-            Pane::Agents => {
-                "Reflection, network access and keeping awake."
-            }
-            Pane::Workspace => {
-                "Where agents' commands run and their lodges are \
-                 kept."
-            }
-            Pane::Charter => "What every agent is told.",
-            Pane::Realm => "Limits that apply to every hamlet.",
-            Pane::Sound => "Sound, music and the land's noises.",
-            Pane::Sight => "Quality, the time of day and the fog.",
-            Pane::Appearance => {
-                "Light, dark, or as your computer is set."
-            }
-        }
-    }
 }
 
 /// A setting's switch or field, and under it its words.
@@ -172,6 +146,11 @@ fn told(control: impl View, words: impl View) -> impl View {
             .gap(cx.theme().space.gap / 2.0)
             .align(AlignItems::FlexStart)
     })
+}
+
+/// A setting's control alone, as wide as itself.
+fn alone(control: impl View) -> impl View {
+    column((control,)).align(AlignItems::FlexStart)
 }
 
 /// A warning under the network switch while the confinement does not
@@ -362,20 +341,7 @@ fn agents() -> impl View {
                         save(world, |set| set.allow_net = Some(on));
                     },
                 ),
-                column((
-                    description(resource::<Settings, _>(|s| {
-                        if s.0.allow_net {
-                            "Agents' commands can reach the internet."
-                                .to_string()
-                        } else {
-                            "Agents' commands cannot reach the \
-                             internet."
-                                .to_string()
-                        }
-                    })),
-                    not_enforced(),
-                ))
-                .gap(2.0),
+                not_enforced(),
             ),
         ),
         field(
@@ -632,10 +598,7 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
         .within(bare());
     parts((
         row((
-            column((description(
-                "Every agent reads this at the start of each turn.",
-            ),))
-            .grow(1.0),
+            column((actions,)).grow(1.0),
             pill(resource::<Charter, _>(|charter| {
                 if charter.own { "Edited" } else { "Default" }
                     .to_string()
@@ -644,7 +607,6 @@ fn charter_page(cx: &Cx) -> impl View + use<> {
         .gap(cx.theme().space.gap)
         .align(AlignItems::Center)
         .max_width(px(READING)),
-        actions,
         label(resource::<CharterRequests, _>(|requests| {
             requests.error.clone()
         }))
@@ -743,25 +705,17 @@ fn sound() -> impl View {
         ),
         field(
             "Wildlife",
-            told(
-                sound_switch(
-                    |s| s.wildlife_on,
-                    |s, on| s.wildlife_on = on,
-                ),
-                description("Birds, owls and other animals."),
-            ),
+            alone(sound_switch(
+                |s| s.wildlife_on,
+                |s, on| s.wildlife_on = on,
+            )),
         ),
         field(
             "Ambience",
-            told(
-                sound_switch(
-                    |s| s.ambience_on,
-                    |s, on| s.ambience_on = on,
-                ),
-                description(
-                    "The wind and the other sounds of the land.",
-                ),
-            ),
+            alone(sound_switch(
+                |s| s.ambience_on,
+                |s, on| s.ambience_on = on,
+            )),
         ),
     ))
 }
@@ -770,7 +724,7 @@ fn nav_item(pane: Pane) -> AnyView {
     hamlet_ui::styles::nav_row(
         pane.glyph(),
         pane.title(),
-        pane.holds(),
+        None,
         move |world| *world.resource_mut::<Pane>() = pane,
     )
 }
@@ -780,7 +734,7 @@ fn again() -> AnyView {
     hamlet_ui::styles::nav_row(
         Glyph::Restore,
         "First-run setup",
-        "Choose again where your models come from.",
+        None,
         crate::welcome::again,
     )
 }
@@ -933,10 +887,6 @@ mod tests {
                 .unwrap()
                 .value(),
             "7"
-        );
-        assert!(
-            words_and_spans(&mut app).iter().any(|text| text
-                == "Agents' commands can reach the internet.")
         );
     }
     #[test]

@@ -19,8 +19,8 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    CONTROL, Fills, ICON, action, back_link, bare, description,
-    framed, lettered, note, scroll_area, text_input,
+    CONTROL, Fills, ICON, action, back_link, bare, framed, lettered,
+    note, scroll_area, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
@@ -430,30 +430,39 @@ pub(super) fn card(
     end: Option<AnyView>,
     body: impl View + 'static,
 ) -> AnyView {
-    let end = end.unwrap_or_else(|| frame().boxed());
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
         framed((
-            row((heading(which, name), frame().grow(1.0), end))
-                .gap(gap)
-                .align(AlignItems::Center)
-                .min_height(px(CONTROL)),
+            card_head(which, name, end),
             column((body,)).padding(UiRect::top(px(gap / 2.0))),
         ))
     })
     .boxed()
 }
 
+/// A card's name under `which`, and `end` at the end of that line.
+fn card_head(
+    which: Glyph,
+    name: &'static str,
+    end: Option<AnyView>,
+) -> impl View {
+    let end = end.unwrap_or_else(|| frame().boxed());
+    with_cx(move |cx| {
+        row((heading(which, name), frame().grow(1.0), end))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
+            .min_height(px(CONTROL))
+    })
+}
+
 /// The way to its whole prompt, on a page of its own.
 fn prompt() -> AnyView {
-    card(
+    framed((card_head(
         Glyph::Notes,
         "Prompt",
         Some(action(Glyph::Into, "Open", super::thread::show_prompt)),
-        description(
-            "Everything it is told at the start of each turn.",
-        ),
-    )
+    ),))
+    .boxed()
 }
 
 /// A reflection asked now, which writes to its memory.

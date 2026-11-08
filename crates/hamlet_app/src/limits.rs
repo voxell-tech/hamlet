@@ -332,10 +332,7 @@ fn budget(hamlet: Entity) -> impl View {
     });
     group((
         heading(Glyph::Meter, "The budget"),
-        fine(
-            "The most model calls may cost in a period. 0 means no \
-             limit.",
-        ),
+        fine("0 means no limit."),
         line("It starts again every", period),
         line(
             "May spend, in dollars",
@@ -500,10 +497,7 @@ pub fn realm() -> AnyView {
     });
     group((
         heading(Glyph::Globe, "The realm"),
-        fine(
-            "The Hand's budget, and what holds between hamlets. 0 \
-             means no limit.",
-        ),
+        fine("0 means no limit."),
         line("The Hand's budget starts again every", period),
         line("The Hand may spend, in dollars", spend),
         line("Mayors may agree roads between hamlets", roads),
@@ -545,11 +539,12 @@ pub fn panel(hamlet: Entity) -> AnyView {
                                 nav_row(
                                     part.glyph(),
                                     part.title(),
-                                    resource::<Book, _>(
-                                        move |book| {
-                                            book.limits
-                                                .as_ref()
-                                                .map_or(
+                                    Some(
+                                        resource::<Book, _>(
+                                            move |book| {
+                                                book.limits
+                                                    .as_ref()
+                                                    .map_or(
                                                     part.holds()
                                                         .to_string(),
                                                     |limits| {
@@ -558,7 +553,9 @@ pub fn panel(hamlet: Entity) -> AnyView {
                                                         )
                                                     },
                                                 )
-                                        },
+                                            },
+                                        )
+                                        .into(),
                                     ),
                                     move |world| {
                                         *world
@@ -572,15 +569,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                             .chain(rows)
                             .collect::<Vec<_>>();
                         cx.build(with_cx(move |cx| {
-                            let gap = cx.theme().space.gap;
-                            column((
-                                fine(
-                                    "These apply to this hamlet \
-                                     only.",
-                                ),
-                                nav_list(cx, parts),
-                            ))
-                            .gap(gap)
+                            nav_list(cx, parts)
                         }))
                     },
                 );

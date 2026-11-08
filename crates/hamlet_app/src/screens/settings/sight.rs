@@ -10,7 +10,7 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    FrameProps, TooltipExt, column, dropdown, label, row, slider,
+    FrameProps, TooltipExt, dropdown, label, row, slider,
 };
 use bevy_fynix::{ViewExt, derived, every_frame, resource};
 use hamlet_realm::pick::Orbit;
@@ -18,7 +18,7 @@ use hamlet_realm::sky::{
     DistanceFogSettings, Quality, SkySettings, VolumetricFogSettings,
 };
 use hamlet_realm::{North, Sky};
-use hamlet_ui::styles::{action, close, description, note, parts};
+use hamlet_ui::styles::{action, close, note, parts};
 use hamlet_ui::widgets::dial::{Face, dial};
 use hamlet_ui::widgets::disclosure::disclosure;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -27,7 +27,7 @@ use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, View, built, with_cx};
 use hamlet_vfx::wind::WindChoice;
 
-use super::{field, told};
+use super::{alone, field};
 use crate::roll::moved;
 use crate::window::{self, Vsync};
 use crate::world_view::{NorthTarget, TimeOfDay};
@@ -97,31 +97,22 @@ fn hour() -> impl View {
                         TimeOfDay::At(hour);
                 },
             ),
-            column((
-                labelled_switch(
-                    "Follow the clock",
-                    resource::<TimeOfDay, _>(|t| {
-                        *t == TimeOfDay::Clock
-                    }),
-                    |world, on| {
-                        let to = if on {
-                            TimeOfDay::Clock
-                        } else {
-                            TimeOfDay::At(
-                                world.resource::<TimeOfDay>().target(
-                                    world.resource::<SkySettings>(),
-                                ),
-                            )
-                        };
-                        *world.resource_mut::<TimeOfDay>() = to;
-                    },
-                ),
-                description("Drag to hold an hour."),
-            ))
-            .gap(cx.theme().space.gap / 2.0)
-            .align(AlignItems::FlexStart)
-            .grow(1.0)
-            .min_width(px(0.0)),
+            labelled_switch(
+                "Follow the clock",
+                resource::<TimeOfDay, _>(|t| *t == TimeOfDay::Clock),
+                |world, on| {
+                    let to = if on {
+                        TimeOfDay::Clock
+                    } else {
+                        TimeOfDay::At(
+                            world.resource::<TimeOfDay>().target(
+                                world.resource::<SkySettings>(),
+                            ),
+                        )
+                    };
+                    *world.resource_mut::<TimeOfDay>() = to;
+                },
+            ),
         ))
         .gap(cx.theme().space.section)
         .align(AlignItems::Center)
@@ -130,27 +121,15 @@ fn hour() -> impl View {
 
 /// The dial of where the sun's path lies.
 fn north() -> impl View {
-    with_cx(|cx| {
-        row((
-            dial(
-                Face::DEGREES,
-                Glyph::Compass,
-                resource::<NorthTarget, _>(|north| north.0),
-                resource::<North, _>(|north| north.0),
-                |world, degrees| {
-                    world.resource_mut::<NorthTarget>().0 = degrees;
-                },
-            ),
-            column((description(
-                "Which way north lies, and so where the sun rises \
-                 and sets.",
-            ),))
-            .grow(1.0)
-            .min_width(px(0.0)),
-        ))
-        .gap(cx.theme().space.section)
-        .align(AlignItems::Center)
-    })
+    dial(
+        Face::DEGREES,
+        Glyph::Compass,
+        resource::<NorthTarget, _>(|north| north.0),
+        resource::<North, _>(|north| north.0),
+        |world, degrees| {
+            world.resource_mut::<NorthTarget>().0 = degrees;
+        },
+    )
 }
 
 /// The side of the icon that names a slider.
@@ -334,77 +313,48 @@ fn volumetric_fog() -> impl View {
 
 pub(super) fn page() -> impl View {
     parts((
-        field(
-            "Visual quality",
-            told(
-                quality(),
-                description("Particles, bloom, fog, shadows."),
-            ),
-        ),
+        field("Visual quality", alone(quality())),
         field(
             "Screen sync",
-            told(
-                labelled_switch(
-                    "On",
-                    derived(|world: &World| {
-                        world
-                            .get_resource::<Vsync>()
-                            .is_none_or(|v| v.0)
-                    })
-                    .when(moved::<Vsync>()),
-                    window::set_vsync,
-                ),
-                description(
-                    "Waits for the screen, so no frame tears.",
-                ),
-            ),
+            alone(labelled_switch(
+                "On",
+                derived(|world: &World| {
+                    world.get_resource::<Vsync>().is_none_or(|v| v.0)
+                })
+                .when(moved::<Vsync>()),
+                window::set_vsync,
+            )),
         ),
         field(
             "Camera",
-            told(
-                action(Glyph::Aim, "Reset", |world: &mut World| {
+            alone(action(
+                Glyph::Aim,
+                "Reset",
+                |world: &mut World| {
                     *world.resource_mut::<Orbit>() = Orbit::default();
-                }),
-                description("Back to where it first looked."),
-            ),
+                },
+            )),
         ),
         field("Time of day", hour()),
         field("North", north()),
         field(
             "Distance fog",
-            told(
-                track(number::<DistanceFogSettings>(
-                    |f| f.distance,
-                    |f, v| f.distance = v,
-                    (200.0, 2000.0),
-                    Unit::Metres,
-                )),
-                description("Further draws more land."),
-            ),
+            track(number::<DistanceFogSettings>(
+                |f| f.distance,
+                |f, v| f.distance = v,
+                (200.0, 2000.0),
+                Unit::Metres,
+            )),
         ),
-        field(
-            "Wind strength",
-            told(
-                wind_strength(),
-                description(
-                    "How hard it blows at its calmest and its \
-                     strongest, as a share of the usual wind.",
-                ),
-            ),
-        ),
+        field("Wind strength", wind_strength()),
         field(
             "Wind unevenness",
-            told(
-                track(number::<WindChoice>(
-                    |wind| wind.turbulence,
-                    |wind, to| wind.turbulence = to,
-                    (0.0, 1.0),
-                    Unit::Share,
-                )),
-                description(
-                    "How differently plants side by side sway.",
-                ),
-            ),
+            track(number::<WindChoice>(
+                |wind| wind.turbulence,
+                |wind, to| wind.turbulence = to,
+                (0.0, 1.0),
+                Unit::Share,
+            )),
         ),
         disclosure(
             "Volumetric fog",

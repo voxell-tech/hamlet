@@ -828,7 +828,8 @@ pub fn nav_card(
     holds: impl Into<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, None, holds.into(), button, act).boxed()
+    nav_item(which, title, None, Some(holds.into()), button, act)
+        .boxed()
 }
 
 /// A [`nav_card`] for the way most should take: outlined in gold,
@@ -840,8 +841,15 @@ pub fn lead_card(
     holds: impl Into<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, Some(tag), holds.into(), lead_button, act)
-        .boxed()
+    nav_item(
+        which,
+        title,
+        Some(tag),
+        Some(holds.into()),
+        lead_button,
+        act,
+    )
+    .boxed()
 }
 
 /// A [`button`] outlined in gold.
@@ -853,55 +861,55 @@ fn lead_button(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The same as a row of a list, with no border about it.
+/// The same as a row of a list, with no border about it, and what it
+/// holds under its name only when given.
 pub fn nav_row(
     which: Glyph,
     title: &'static str,
-    holds: impl Into<Prop<String>>,
+    holds: Option<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(which, title, None, holds.into(), link_row, act).boxed()
+    nav_item(which, title, None, holds, link_row, act).boxed()
 }
 
 fn nav_item(
     which: Glyph,
     title: &'static str,
     tag: Option<&'static str>,
-    holds: Prop<String>,
+    holds: Option<Prop<String>>,
     rules: fn(&mut Cx),
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
     with_cx(move |cx| {
         let space = &cx.theme().space;
+        let mut named = vec![
+            row((
+                headed(
+                    which,
+                    label(title).wrap(false).rules(|cx: &mut Cx| {
+                        style::<HamletTheme>()
+                            .label(|l, t| {
+                                l.size(t.text.heading).bold(true)
+                            })
+                            .apply(cx);
+                    }),
+                ),
+                match tag {
+                    Some(tag) => pill(tag).boxed(),
+                    None => frame().boxed(),
+                },
+            ))
+            .gap(space.gap)
+            .align(AlignItems::Center)
+            .boxed(),
+        ];
+        named.extend(holds.map(|holds| description(holds).boxed()));
         views::button(
             row((
-                column((
-                    row((
-                        headed(
-                            which,
-                            label(title).wrap(false).rules(
-                                |cx: &mut Cx| {
-                                    style::<HamletTheme>()
-                                        .label(|l, t| {
-                                            l.size(t.text.heading)
-                                                .bold(true)
-                                        })
-                                        .apply(cx);
-                                },
-                            ),
-                        ),
-                        match tag {
-                            Some(tag) => pill(tag).boxed(),
-                            None => frame().boxed(),
-                        },
-                    ))
-                    .gap(space.gap)
-                    .align(AlignItems::Center),
-                    description(holds),
-                ))
-                .gap(space.gap / 2.0)
-                .grow(1.0)
-                .min_width(px(0.0)),
+                column(named)
+                    .gap(space.gap / 2.0)
+                    .grow(1.0)
+                    .min_width(px(0.0)),
                 glyph(Glyph::Into, ICON).tone(Tone::Dim),
             ))
             .gap(space.section)
