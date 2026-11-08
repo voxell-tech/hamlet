@@ -9,18 +9,21 @@ mod themes;
 use std::ops::Deref;
 use std::time::Duration;
 
-use bevy::app::App;
+use bevy::app::{App, PostUpdate};
 use bevy::asset::Asset;
 use bevy::color::{Color, Luminance, Mix, Srgba};
 use bevy::ecs::message::{Message, Messages};
+use bevy::ecs::query::{Changed, Or};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{If, Res, SystemParam};
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::{If, Query, Res, SystemParam};
 use bevy::ecs::world::World;
 use bevy::prelude::ClearColor;
 use bevy::reflect::TypePath;
 use bevy::state::app::AppExtStates;
 use bevy::state::state::{NextState, State, States};
-use bevy::ui::{BoxShadow, px};
+use bevy::text::{FontSource, FontWeight, TextColor, TextFont};
+use bevy::ui::{BoxShadow, UiSystems, px};
 use bevy::window::WindowTheme;
 use bevy_fynix::tokens::{
     Curve, Motion, MotionTokens, SpacingTokens, SurfaceTokens,
@@ -31,6 +34,7 @@ use serde::{Deserialize, Serialize};
 
 use self::contrast::Part;
 pub use self::themes::{Theme, ThemeId, Themes, Variant, Variants};
+use crate::widgets::platform::Display;
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<Measures>::default())
@@ -38,7 +42,57 @@ pub fn plugin(app: &mut App) {
         .insert_resource(Themes::shipped())
         .add_message::<ThemeChanged>()
         .init_state::<ThemeState>()
-        .add_plugins(themes::plugin);
+        .add_plugins((themes::plugin, weight_plugin));
+}
+
+/// Sets the weight of regular words by their ink; also for a window
+/// that shows its theme by hand.
+pub fn weight_plugin(app: &mut App) {
+    app.add_systems(
+        PostUpdate,
+        weigh_words.before(UiSystems::Content),
+    );
+}
+
+/// Sets regular words in dark ink at [`TextSizes::dark_ink_weight`],
+/// and back to regular in light ink. Glyph edges blend in linear
+/// light, which thins dark letters on a light ground as much as it
+/// thickens light ones on a dark ground. Bold words and the display
+/// face keep their weight.
+fn weigh_words(
+    theme: Themed,
+    display: Option<Res<Display>>,
+    mut words: Query<
+        (&mut TextFont, &TextColor),
+        Or<(Changed<TextFont>, Changed<TextColor>)>,
+    >,
+) {
+    let heavier = FontWeight(theme.text.dark_ink_weight);
+    for (mut font, ink) in &mut words {
+        let display_face = match (&font.font, &display) {
+            (FontSource::Handle(face), Some(display)) => {
+                *face == display.0
+            }
+            _ => false,
+        };
+        // Anything below bold, so a weight tuned while the window
+        // runs moves the words set at the one before.
+        let plain = (FontWeight::NORMAL.0..FontWeight::BOLD.0)
+            .contains(&font.weight.0);
+        if display_face || !plain {
+            continue;
+        }
+        // Dark ink reads better on white than on black.
+        let dark = contrast::contrast(ink.0, Color::WHITE)
+            > contrast::contrast(ink.0, Color::BLACK);
+        let weight = match dark {
+            true => heavier,
+            false => FontWeight::NORMAL,
+        };
+        if font.weight != weight {
+            font.weight = weight;
+        }
+    }
 }
 
 /// The theme, for a system: one that takes it waits for the theme to
@@ -289,6 +343,10 @@ pub struct TextSizes {
     pub title: f32,
     /// The space between the letters of the display face.
     pub tracking: f32,
+    /// The weight of regular words in dark ink, above the regular
+    /// 400, so dark words on a light ground read as solid as light
+    /// words on a dark one.
+    pub dark_ink_weight: u16,
 }
 
 /// The gaps, heights and corners of the panels.

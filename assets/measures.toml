@@ -8,6 +8,7 @@ small = 13.0
 heading = 14.0
 title = 16.0
 tracking = 1.0
+dark_ink_weight = 460
 
 [space]
 gap = 8.0

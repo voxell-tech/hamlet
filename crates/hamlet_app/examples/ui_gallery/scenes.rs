@@ -46,6 +46,7 @@ impl Plugin for GalleryPlugin {
             DockPlugin::<HamletTheme>::default(),
         ));
         theme::show(app.world_mut(), HamletTheme::designed());
+        app.add_plugins(theme::weight_plugin);
         app.insert_resource(self.0)
             // No pointer moves here, so a held hover stays held.
             .insert_resource(PickingSettings {
