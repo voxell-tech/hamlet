@@ -596,7 +596,8 @@ CREATE TABLE wait (
     kind TEXT NOT NULL CHECK (kind IN
         ('approval', 'fault', 'question', 'objection', 'newcomer')),
     danger TEXT CHECK (danger IS NULL OR danger IN
-        ('network', 'unconfined', 'reserved', 'edit', 'command')),
+        ('network', 'unconfined', 'reserved', 'edit', 'command',
+         'send')),
     agent INTEGER REFERENCES agent(id),
     -- The newcomer a `newcomer` wait asks about.
     scholar INTEGER REFERENCES scholar(id),

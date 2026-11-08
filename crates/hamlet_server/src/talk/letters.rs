@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use diesel::prelude::*;
+use hamlet_protocol::client::ImageId;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ConversationId, TaskId};
 use hamlet_store::schema::{input, message, tool_call};
@@ -83,6 +84,8 @@ pub(crate) struct Send<'a> {
     pub address: &'a str,
     pub task: TaskId,
     pub text: &'a str,
+    /// The images sent with it, kept as images.
+    pub images: &'a [ImageId],
 }
 
 /// Keeps `send` once per call: its row and its input to the receiver.
@@ -120,6 +123,7 @@ pub(crate) fn send(
         from: send.sender,
         author: addresses::name_of(cx.db, send.sender)?,
         at: cx.at,
+        images: send.images.iter().map(ImageId::to_string).collect(),
     };
     let (input_kind, mark) = match send.kind {
         MessageKind::Letter => {
@@ -332,6 +336,7 @@ pub(crate) fn carry(
                 from,
                 author,
                 at: cx.at,
+                images: Vec::new(),
             }),
             steer: false,
             boundary: false,

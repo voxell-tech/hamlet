@@ -42,6 +42,9 @@ pub enum WaitDanger {
     Edit,
     #[serde(rename = "command")]
     Command,
+    /// Files an agent sends that are over what it may send alone.
+    #[serde(rename = "send")]
+    Send,
 }
 
 #[derive(

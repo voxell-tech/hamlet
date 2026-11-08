@@ -138,14 +138,16 @@ async fn pictures(
     model: &ModelRef,
     input: &Input,
 ) -> Result<Vec<Picture>> {
-    let ids = input.mark()?.images();
+    let mut ids = input.mark()?.images();
     if ids.is_empty() {
         return Ok(Vec::new());
     }
     let Some(takes) = providers.images(db, model)? else {
         return Ok(Vec::new());
     };
-    images::pictures(images.to_owned(), ids, Limits::of(&takes)).await
+    let limits = Limits::of(&takes);
+    ids.truncate(limits.per_line as usize);
+    images::pictures(images.to_owned(), ids, limits).await
 }
 
 /// Asks the runtime to make `owed`, or to fork it from its parent

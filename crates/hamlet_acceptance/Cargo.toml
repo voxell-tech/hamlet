@@ -101,6 +101,10 @@ name = "images"
 required-features = ["acceptance"]
 
 [[test]]
+name = "files"
+required-features = ["acceptance"]
+
+[[test]]
 name = "frames"
 path = "tests/frames/main.rs"
 required-features = ["acceptance"]

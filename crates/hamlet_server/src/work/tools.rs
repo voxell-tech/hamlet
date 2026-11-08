@@ -6,6 +6,7 @@ mod diff;
 mod environment;
 mod files;
 mod find;
+mod parcel;
 mod search;
 mod shell;
 mod truncate;
@@ -18,7 +19,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use hamlet_os::fs::path::{self, text};
-use hamlet_protocol::client::ImageId;
+use hamlet_protocol::client::{AttachedFile, ImageId};
 use hamlet_protocol::runtime::{
     Diagnostic, DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
@@ -30,8 +31,10 @@ use hamlet_sandbox::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+pub(crate) use self::parcel::{Sent, To};
 pub(crate) use self::shell::{Dialect, Shells};
 use crate::images::Limits;
+use crate::society::refusal::Refusal;
 
 const FILE_TOOLS: [&str; 5] =
     ["read", "write", "edit", "search", "find"];
@@ -398,6 +401,58 @@ impl ToolSession {
                 let mut env =
                     environment::Remote::new(session.clone());
                 files::preview(&mut env, path).await
+            }
+        }
+    }
+
+    /// The files under `paths` as the agent may read them, without
+    /// following links, saved into `to` when it is given. A remote
+    /// workspace gives at most `MAX_FILE` bytes of a file at once.
+    pub(crate) async fn parcel(
+        &self,
+        paths: &[String],
+        to: Option<To<'_>>,
+    ) -> anyhow::Result<Result<Sent, Refusal>> {
+        match self {
+            Self::Local {
+                place,
+                sandbox,
+                leftovers,
+                ..
+            } => {
+                let mut env = match environment::Local::open(
+                    *sandbox,
+                    place,
+                    false,
+                    leftovers.clone(),
+                )
+                .await
+                {
+                    Ok(env) => env,
+                    Err(unopened) => {
+                        return Ok(Err(Refusal::Usage {
+                            words: unopened.to_string(),
+                        }));
+                    }
+                };
+                parcel::run(
+                    &mut env,
+                    paths,
+                    AttachedFile::MOST_FILE,
+                    to,
+                )
+                .await
+            }
+            Self::Remote { session, .. } => {
+                let mut env =
+                    environment::Remote::new(session.clone());
+                parcel::run(
+                    &mut env,
+                    paths,
+                    hamlet_workspace_wire::MAX_FILE as u64,
+                    to,
+                )
+                .await
             }
         }
     }

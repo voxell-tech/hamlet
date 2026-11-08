@@ -892,6 +892,36 @@ impl Core {
                     return Ok(Decision::Block(words));
                 }
             };
+        if let gate::Call::Society { name, args } = &classified
+            && matches!(call.tool, "tell" | "ask")
+        {
+            let paths = society::list(call, "paths");
+            if !paths.is_empty() {
+                let (name, args) = (name.clone(), args.clone());
+                match session.parcel(&paths, None).await? {
+                    Ok(sent) => {
+                        classified = gate::Call::Parcel {
+                            name,
+                            args,
+                            files: sent.files,
+                            bytes: sent.bytes,
+                        };
+                    }
+                    Err(refusal) => {
+                        let words = refusal.to_string();
+                        let db = self.realm.store().connection();
+                        held::block(
+                            db,
+                            &call.call.runtime,
+                            &call.call.key,
+                            &words,
+                            None,
+                        )?;
+                        return Ok(Decision::Block(words));
+                    }
+                }
+            }
+        }
         if let gate::Call::Edit {
             write: true,
             path,

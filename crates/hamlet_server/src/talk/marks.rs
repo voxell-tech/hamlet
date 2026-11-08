@@ -55,6 +55,9 @@ pub(crate) struct From {
     /// The sender as a transcript shows it.
     pub author: String,
     pub at: i64,
+    /// The images sent with it, by their ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
 }
 
 impl Mark {
@@ -79,10 +82,12 @@ impl Mark {
         .expect("each mark's data is an object")
     }
 
-    /// The images a chief's line carried.
+    /// The images a chief's line or an agent's message carried.
     pub fn images(&self) -> Vec<ImageId> {
         match self {
-            Self::Chief { images, .. } => images
+            Self::Chief { images, .. }
+            | Self::Letter(From { images, .. })
+            | Self::Question(From { images, .. }) => images
                 .iter()
                 .filter_map(|image| image.parse().ok())
                 .collect(),

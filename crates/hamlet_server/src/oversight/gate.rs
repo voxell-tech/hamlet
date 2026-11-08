@@ -5,7 +5,7 @@
 use anyhow::Result;
 use diesel::prelude::*;
 use diesel::upsert::excluded;
-use hamlet_protocol::client::Permission;
+use hamlet_protocol::client::{AttachedFile, Permission};
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId};
 use hamlet_store::schema::{permission_grant, trust, turn_gate};
@@ -36,6 +36,13 @@ pub(crate) enum Call {
     Society {
         name: String,
         args: Value,
+    },
+    /// A `tell` or `ask` that sends files, which were measured.
+    Parcel {
+        name: String,
+        args: Value,
+        files: usize,
+        bytes: u64,
     },
     /// A tool added by hand (C17), with whether its manifest reaches
     /// the network.
@@ -148,6 +155,15 @@ pub(crate) fn call_text(call: &Call) -> String {
         Call::Society { name, args }
         | Call::Added { name, args, .. }
         | Call::Other { name, args } => format!("{name} {args}"),
+        Call::Parcel {
+            name,
+            args,
+            files,
+            bytes,
+        } => format!(
+            "{} in {files} files: {name} {args}",
+            AttachedFile::size_words(*bytes)
+        ),
         Call::Read => String::new(),
     }
 }
@@ -270,6 +286,15 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
     match call {
         Call::Read | Call::Society { .. } | Call::Other { .. } => {
             Verdict::Run { net: false }
+        }
+        Call::Parcel { files, bytes, .. } => {
+            if *bytes > AttachedFile::CAP_BYTES
+                || *files > AttachedFile::CAP_FILES
+            {
+                Verdict::Ask(Danger::Send)
+            } else {
+                Verdict::Run { net: false }
+            }
         }
         Call::Edit { .. } => {
             if standing.asks_edits && !standing.lodge_edit {

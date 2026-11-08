@@ -59,6 +59,8 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                    `worker#<id>`.";
     let reason =
         "Why, in a sentence, if it helps; the record keeps it.";
+    let paths = json!({"type": "array", "items": {"type": "string"},
+        "description": "Files or folders to send with it, in your lodge or your hamlet's folder. They are copied into the receiver's inbox, and the message says where. Links are not followed. A chief approves a send of more than 32 MiB or 1000 files."});
     // A call cut off by a crash may be asked again: its change is
     // kept with its answer, or what it began is found by its call.
     // A write of a scholar's repository is kept by no transaction.
@@ -70,7 +72,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             "Send a letter to an agent you have a road to. It is \
              queued for them; you do not wait for an answer.",
             object(
-                json!({"to": string(address), "text": string("The letter.")}),
+                json!({"to": string(address), "text": string("The letter."), "paths": paths.clone()}),
                 &["to", "text"],
             ),
             safe.clone(),
@@ -81,7 +83,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              for its answer. Ask only what you need; a question to \
              someone waiting on you is refused.",
             object(
-                json!({"to": string(address), "question": string("The question.")}),
+                json!({"to": string(address), "question": string("The question."), "paths": paths}),
                 &["to", "question"],
             ),
             safe.clone(),
@@ -376,7 +378,7 @@ fn text(call: &Call<'_>, key: &str) -> String {
         .to_owned()
 }
 
-fn list(call: &Call<'_>, key: &str) -> Vec<String> {
+pub(super) fn list(call: &Call<'_>, key: &str) -> Vec<String> {
     call.arguments
         .get(key)
         .and_then(Value::as_array)
