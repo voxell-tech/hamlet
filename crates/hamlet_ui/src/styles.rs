@@ -5,15 +5,16 @@ use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::world::World;
 use bevy::ui::{
-    AlignItems, InteractionDisabled, JustifyContent, UiRect, px,
+    AlignItems, InteractionDisabled, JustifyContent, UiRect, percent,
+    px,
 };
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     self, BehaviorExt, Frame, FrameProps, Icon, Stack, TooltipExt,
-    column, frame, label, row, scroll, tinted_icon,
+    column, frame, label, menu_item, row, scroll, tinted_icon,
 };
 use bevy_fynix::{
-    Bevy, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
+    Bevy, Focused, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
 };
 
 use crate::theme::{HamletTheme, TextSizes};
@@ -148,7 +149,7 @@ pub fn text_input(cx: &mut Cx) {
                 f.fill(t.palette.input).border_color(t.palette.grey_1)
             })
         })
-        .when::<bevy_fynix::Focused>(|s| {
+        .when::<Focused>(|s| {
             s.frame(|f, t| {
                 f.fill(t.palette.input).border_color(t.palette.gold_4)
             })
@@ -221,6 +222,49 @@ pub fn filling() -> Stack<()> {
 /// A line one pixel thick, of `colour`.
 pub fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
     frame().height(px(1.0)).fill(colour)
+}
+
+/// A line between parts side by side, top to bottom.
+pub fn upright() -> impl View {
+    with_cx(|cx| {
+        frame().width(px(1.0)).fill(cx.theme().palette.gold_6)
+    })
+}
+
+/// A row of a rail of providers: `face` and `name` on one line, small
+/// and bold at `shown` opacity, lit under the pointer or the focus,
+/// and in the accent while `chosen`.
+pub fn rail_item(
+    face: impl View,
+    name: impl Into<Prop<String>>,
+    chosen: bool,
+    shown: f32,
+) -> impl View {
+    let tone = if chosen { Tone::Accent } else { Tone::Faint };
+    menu_item(
+        row((face, one_line(label(name))))
+            .gap(8.0)
+            .align(AlignItems::Center)
+            .width(percent(100.0)),
+    )
+    .padding(UiRect::horizontal(px(8.0)))
+    .rules(
+        style::<HamletTheme>()
+            .label(move |l, t| {
+                l.size(t.text.small).bold(true).opacity(shown)
+            })
+            .icon(move |i, _| i.opacity(shown))
+            .tone(tone)
+            .frame(|f, t| f.radius(t.space.round))
+            .hovered(|s| {
+                s.fill(|t| t.palette.button_hover).tone(Tone::Body)
+            })
+            .when::<Focused>(|s| {
+                s.fill(|t| t.palette.button_hover).tone(Tone::Body)
+            })
+            .transition(Motion::Interact)
+            .bundle(),
+    )
 }
 
 /// `children` one under another, as far apart as the parts of a

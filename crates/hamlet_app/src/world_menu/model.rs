@@ -27,7 +27,7 @@ use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, Invoke, Layer, Mods, Scope,
     ScopeId, ScopeSpec, ShortcutAppExt,
 };
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
     label, menu_item, overlay, popup, row,
@@ -41,7 +41,8 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{
-    ICON, description, hairline, note, radio, small_rules,
+    ICON, description, hairline, note, radio, rail_item, small_rules,
+    upright,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -654,31 +655,6 @@ fn take_focus(world: &mut World) {
     world.resource_mut::<Picking>().focus = None;
 }
 
-/// The look of a provider down the side: its name small and bold
-/// at `shown` opacity, lit under the pointer or the focus, and in the
-/// accent while chosen, as the check of the model picked is.
-fn rail_look(
-    chosen: bool,
-    shown: f32,
-) -> impl FnOnce(&mut Cx) + Send + Sync {
-    let tone = if chosen { Tone::Accent } else { Tone::Faint };
-    style::<HamletTheme>()
-        .label(move |l, t| {
-            l.size(t.text.small).bold(true).opacity(shown)
-        })
-        .icon(move |i, _| i.opacity(shown))
-        .tone(tone)
-        .frame(|f, t| f.radius(t.space.round))
-        .hovered(|s| {
-            s.fill(|t| t.palette.button_hover).tone(Tone::Body)
-        })
-        .when::<Focused>(|s| {
-            s.fill(|t| t.palette.button_hover).tone(Tone::Body)
-        })
-        .transition(Motion::Interact)
-        .bundle()
-}
-
 /// The favourites over the providers of the catalogue, each by its
 /// mark and its name, the one chosen lit. Faded, none of them lit,
 /// and kept in place while a search runs over all of them, so the
@@ -697,14 +673,12 @@ fn rail() -> impl View {
             let shown = if searching { 0.45 } else { 1.0 };
             let tab = |side: Side, face: AnyView, name: String| {
                 let chosen = *on == side;
-                let item = menu_item(
-                    row((face, one_line(label(name))))
-                        .gap(8.0)
-                        .align(AlignItems::Center)
-                        .width(percent(100.0)),
+                let item = rail_item(
+                    face,
+                    name,
+                    chosen && !searching,
+                    shown,
                 )
-                .padding(UiRect::horizontal(px(8.0)))
-                .rules(rail_look(chosen && !searching, shown))
                 .on_activate(move |world| {
                     let mut picking = world.resource_mut::<Picking>();
                     picking.side = side.clone();
@@ -1064,13 +1038,6 @@ fn tier(agent: Entity) -> impl View {
         },
     )
     .within(column(()))
-}
-
-/// A line between the popup's parts, top to bottom.
-fn upright() -> impl View {
-    with_cx(|cx| {
-        frame().width(px(1.0)).fill(cx.theme().palette.gold_6)
-    })
 }
 
 /// Above the composer first, as it is at the foot of the chat, lined

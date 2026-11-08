@@ -20,7 +20,7 @@ use hamlet_client::realm::{Seen, Settings};
 use hamlet_protocol::client as protocol;
 
 pub use self::pages::view;
-pub use self::providers::Browser;
+pub use self::providers::{Browser, search};
 use crate::PanelSystems;
 
 /// What the local-model search says when nothing answered.
@@ -38,7 +38,7 @@ pub(crate) fn plugin(app: &mut App) {
             commands.queue(providers::reconnected);
         })
         .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
-        .add_plugins(hold_plugin)
+        .add_plugins(key_plugin)
         // After Bevy's text input, in `PreUpdate`, has edited the
         // field.
         // After Bevy tells the field commit() unfocused that it lost
@@ -54,10 +54,18 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
-/// Holds back sending a key while its field is empty or holds the
-/// key already refused.
-pub fn hold_plugin(app: &mut App) {
-    app.add_systems(Update, providers::hold_send);
+/// The key page's keys, its focus and the provider it scrolls to,
+/// and the hold on sending a key while its field is empty or holds
+/// the key already refused.
+pub fn key_plugin(app: &mut App) {
+    app.add_observer(providers::search_keys).add_systems(
+        Update,
+        (
+            providers::hold_send,
+            providers::focus_search,
+            providers::reveal_chosen,
+        ),
+    );
 }
 
 /// A page of first-run setup.
@@ -398,8 +406,13 @@ fn follow(
 mod server_tests {
     use bevy::color::Alpha;
     use bevy::ecs::entity::Entity;
+    use bevy::ecs::hierarchy::{ChildOf, Children};
     use bevy::ecs::query::With;
+    use bevy::input::ButtonState;
+    use bevy::input::keyboard::{Key, KeyCode, KeyboardInput};
     use bevy::text::EditableText;
+    use bevy::ui::widget::Text;
+    use bevy::window::{PrimaryWindow, Window};
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_client::ClientPlugin;
     use hamlet_protocol::client as protocol;
@@ -460,13 +473,35 @@ mod server_tests {
         );
     }
 
+    /// `root` and everything under it.
+    fn under(world: &World, root: Entity) -> Vec<Entity> {
+        let mut all = vec![root];
+        let mut at = 0;
+        while let Some(&node) = all.get(at) {
+            if let Some(children) = world.get::<Children>(node) {
+                all.extend(children.iter());
+            }
+            at += 1;
+        }
+        all
+    }
+
+    /// The text of the key page's field.
+    fn key_field(app: &mut App) -> Entity {
+        let world = app.world_mut();
+        let field = world
+            .query_filtered::<Entity, With<providers::KeyField>>()
+            .single(world)
+            .expect("one key field");
+        under(world, field)
+            .into_iter()
+            .find(|part| world.get::<EditableText>(*part).is_some())
+            .expect("the key field's text")
+    }
+
     /// Types `key` in the key page's field and presses Continue.
     fn send_key(app: &mut App, key: &str) {
-        let input = app
-            .world_mut()
-            .query_filtered::<Entity, With<EditableText>>()
-            .single(app.world())
-            .expect("one field");
+        let input = key_field(app);
         app.world_mut()
             .resource_mut::<InputFocus>()
             .set(input, bevy::input_focus::FocusCause::Pressed);
@@ -502,11 +537,7 @@ mod server_tests {
                 == 1
         };
         assert!(held(&mut app), "held while the field is empty");
-        let input = app
-            .world_mut()
-            .query_filtered::<Entity, With<EditableText>>()
-            .single(app.world())
-            .expect("one field");
+        let input = key_field(&mut app);
         app.world_mut()
             .get_mut::<EditableText>(input)
             .unwrap()
@@ -527,13 +558,12 @@ mod server_tests {
         // anything is sent.
         assert!(sent(&mut app).is_empty());
         press_and_update(&mut app, "OpenRouter");
+        let input = key_field(&mut app);
         let ink = app
-            .world_mut()
-            .query::<(&EditableText, &bevy::text::TextColor)>()
-            .iter(app.world())
-            .map(|(_, color)| color.0)
-            .next()
-            .expect("secret field");
+            .world()
+            .get::<bevy::text::TextColor>(input)
+            .expect("secret field")
+            .0;
         assert_eq!(ink.alpha(), 0.0);
         send_key(&mut app, "fake-key");
         let requests = sent(&mut app);
@@ -566,6 +596,100 @@ mod server_tests {
         assert_eq!(
             requests.last().unwrap()["start"],
             serde_json::json!({"provider":"openrouter", "method":"key"})
+        );
+    }
+
+    /// The name on the provider lit in the key page's list.
+    fn lit(app: &mut App) -> String {
+        let world = app.world_mut();
+        let row = world
+            .query_filtered::<Entity, With<providers::ChosenProvider>>()
+            .single(world)
+            .expect("one provider lit");
+        under(world, row)
+            .into_iter()
+            .find_map(|part| world.get::<Text>(part))
+            .map(|text| text.0.clone())
+            .expect("its name")
+    }
+
+    fn key(app: &mut App, window: Entity, code: KeyCode, key: Key) {
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: code,
+                logical_key: key.clone(),
+                state,
+                text: None,
+                repeat: false,
+                window,
+            });
+            app.update();
+        }
+    }
+
+    #[test]
+    fn the_providers_search_has_the_focus_and_its_keys_choose_from_the_popular_first()
+     {
+        let mut app = welcome_app();
+        app.add_plugins(bevy::input_focus::InputDispatchPlugin);
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        connect(&mut app, true);
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"change", "epoch":1, "revision":1, "changes":[{"type":"providers", "providers":[
+                {"id":"amazon-bedrock", "name":"Amazon Bedrock", "label":"Amazon Bedrock", "configured":false, "methods":["key"]},
+                {"id":"anthropic", "name":"Anthropic", "label":"Anthropic", "configured":false, "methods":["key"]},
+                {"id":"chatgpt", "name":"ChatGPT", "label":"Continue with ChatGPT", "configured":false, "methods":["subscription"]},
+                {"id":"deepseek", "name":"DeepSeek", "label":"DeepSeek", "configured":false, "methods":["key"]},
+                {"id":"openrouter", "name":"OpenRouter", "label":"Sign in with OpenRouter", "configured":false, "methods":["key","subscription"]}
+            ]}]}),
+        );
+        mount::<HamletTheme>(app.world_mut(), view());
+        press_and_update(&mut app, "I have a key");
+        app.update();
+        let focused = app.world().resource::<InputFocus>().get();
+        let in_search = focused.is_some_and(|at| {
+            let world = app.world();
+            std::iter::successors(Some(at), |at| {
+                world.get::<ChildOf>(*at).map(ChildOf::parent)
+            })
+            .any(|up| {
+                world.get::<providers::ProviderSearch>(up).is_some()
+            })
+        });
+        assert!(in_search, "the search has the focus on opening");
+        assert_eq!(lit(&mut app), "OpenRouter");
+        let mut walked = Vec::new();
+        for _ in 0..4 {
+            key(&mut app, window, KeyCode::ArrowDown, Key::ArrowDown);
+            walked.push(lit(&mut app));
+        }
+        assert_eq!(
+            walked,
+            ["Anthropic", "Amazon Bedrock", "DeepSeek", "DeepSeek"]
+        );
+        key(&mut app, window, KeyCode::ArrowUp, Key::ArrowUp);
+        assert_eq!(lit(&mut app), "Amazon Bedrock");
+        // A search that hides the provider chosen chooses what it
+        // finds, and one that finds nothing keeps it.
+        search(app.world_mut(), "deep");
+        app.update();
+        assert_eq!(lit(&mut app), "DeepSeek");
+        search(app.world_mut(), "nothing like it");
+        app.update();
+        assert!(all_words(&mut app).contains("No providers found"));
+        search(app.world_mut(), "");
+        app.update();
+        assert_eq!(lit(&mut app), "DeepSeek");
+        key(&mut app, window, KeyCode::Enter, Key::Enter);
+        let field = key_field(&mut app);
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(field),
+            "Enter moves to the key's field"
         );
     }
 

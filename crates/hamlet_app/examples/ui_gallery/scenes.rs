@@ -106,7 +106,7 @@ impl Plugin for GalleryPlugin {
                 menu::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
-                welcome::hold_plugin,
+                welcome::key_plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_app::screens::plugin,
                 asking::plugin,
@@ -197,6 +197,19 @@ pub enum Scene {
     Menu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
+    /// The first-run key step, its providers searched for the words.
+    KeySearch(&'static str),
+}
+
+impl Scene {
+    /// The first-run step the scene shows, if any.
+    pub fn first_run(self) -> Option<welcome::Step> {
+        match self {
+            Scene::Welcome(step) => Some(step),
+            Scene::KeySearch(_) => Some(welcome::Step::Key),
+            _ => None,
+        }
+    }
 }
 
 /// The picture that stands where the world is drawn, and the part of

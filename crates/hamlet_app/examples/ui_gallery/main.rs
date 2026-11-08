@@ -42,7 +42,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 40] = [
+const SHOTS: [Shot; 42] = [
     Shot {
         name: "menu",
         scene: Scene::Menu,
@@ -268,6 +268,18 @@ const SHOTS: [Shot; 40] = [
     Shot {
         name: "welcome-key",
         scene: Scene::Welcome(Step::Key),
+        size: UVec2::new(1180, 680),
+        scale: 1.0,
+    },
+    Shot {
+        name: "welcome-key-search",
+        scene: Scene::KeySearch("open"),
+        size: UVec2::new(1180, 680),
+        scale: 1.0,
+    },
+    Shot {
+        name: "welcome-key-none",
+        scene: Scene::KeySearch("zzz"),
         size: UVec2::new(1180, 680),
         scale: 1.0,
     },

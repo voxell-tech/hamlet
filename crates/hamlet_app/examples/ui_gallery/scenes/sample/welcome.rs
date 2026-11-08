@@ -8,7 +8,7 @@ use crate::scenes::Scene;
 /// The first-run screen as `scene` shows it: closed, or at a step
 /// with what a provider or the server might have answered.
 pub(crate) fn first_run(scene: Scene) -> welcome::Welcome {
-    let Scene::Welcome(step) = scene else {
+    let Some(step) = scene.first_run() else {
         return welcome::Welcome::default();
     };
     let mut shown = welcome::Welcome::default();
