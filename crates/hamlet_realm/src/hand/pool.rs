@@ -72,12 +72,12 @@ pub(super) fn readouts(
                 Readout { of: meter },
                 Node {
                     position_type: PositionType::Absolute,
-                    padding: UiRect::axes(px(6), px(1)),
+                    padding: UiRect::axes(px(7), px(2)),
                     border: UiRect::all(px(1)),
                     ..default()
                 },
                 BackgroundColor(Color::srgba_u8(
-                    0x01, 0x0a, 0x13, 0xd8,
+                    0x01, 0x0a, 0x13, 0xf0,
                 )),
                 BorderColor::all(Color::srgb_u8(0x7c, 0x5d, 0x2f)),
                 Pickable::IGNORE,
@@ -85,7 +85,7 @@ pub(super) fn readouts(
                 children![(
                     ReadoutText,
                     Text::new(""),
-                    TextFont::from_font_size(11.0),
+                    TextFont::from_font_size(12.0),
                     TextColor(Color::srgb_u8(0xf2, 0xe7, 0xd0)),
                     Pickable::IGNORE,
                 )],

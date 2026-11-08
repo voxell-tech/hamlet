@@ -104,21 +104,23 @@ fn signs(
     for (thing, what, reads) in &new {
         commands.spawn((
             Sign(thing),
+            // Near the hover tag's look, so it reads over sky and
+            // grass alike.
             Node {
                 position_type: PositionType::Absolute,
-                padding: UiRect::axes(px(6), px(1)),
+                padding: UiRect::axes(px(7), px(2)),
                 border: UiRect::all(px(1)),
                 ..default()
             },
-            BackgroundColor(Color::srgba_u8(0x01, 0x0a, 0x13, 0xd8)),
-            BorderColor::all(Color::srgb_u8(0x46, 0x37, 0x14)),
+            BackgroundColor(Color::srgba_u8(0x01, 0x0a, 0x13, 0xf0)),
+            BorderColor::all(Color::srgb_u8(0x78, 0x5a, 0x28)),
             Pickable::IGNORE,
             Visibility::Hidden,
             children![(
                 SignText,
                 Text::new(words(*what, reads, &names)),
-                TextFont::from_font_size(11.0),
-                TextColor(Color::srgb_u8(0xcd, 0xbe, 0x91)),
+                TextFont::from_font_size(12.0),
+                TextColor(Color::srgb_u8(0xf0, 0xe6, 0xd2)),
                 Pickable::IGNORE,
             )],
         ));
