@@ -142,6 +142,7 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Objecting>()
     .init_resource::<Loading>()
     .init_resource::<Lanes>()
+    .init_resource::<house::HouseRules>()
     .insert_resource(Land::new(origin.seed, origin.settings, pal))
     .add_systems(Startup, setup)
     .add_systems(
@@ -394,8 +395,9 @@ mod tests {
         let yard = house::yard_of(&land, AgentId(0), true, 0.0, 0);
         let hall = house::house(
             &land,
+            &house::HouseRules::default(),
             AgentId(0),
-            &style,
+            0,
             true,
             house::Banner::Flown,
             0,

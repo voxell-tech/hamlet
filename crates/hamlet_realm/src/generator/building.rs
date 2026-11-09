@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use bevy::tasks::futures_lite::future::poll_once;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on};
 
-use super::house::{self, Remains, TownStyle};
+use super::house::{self, HouseRules, Remains, TownStyle};
 use super::land::Land;
 use super::layout::{End, Route};
 use super::shift::Way;
@@ -56,15 +56,19 @@ pub(super) struct HouseRecipe {
 
 pub(super) struct HouseBuilt {
     pub body: Mesh,
-    /// The window panes and where the door lantern hangs. Only a
-    /// house that is lived in has them.
-    pub fittings: Option<(Mesh, Vec3)>,
+    /// The window panes and where the door lantern hangs, if it has
+    /// one. Only a house that is lived in has them.
+    pub fittings: Option<(Mesh, Option<Vec3>)>,
     /// The point the mayor's banner hangs from, and its colours.
     pub banner: Option<(Vec3, [Vec3; 2])>,
     pub cost: Cost,
 }
 
-fn build_house(land: &Land, recipe: HouseRecipe) -> HouseBuilt {
+fn build_house(
+    land: &Land,
+    rules: &HouseRules,
+    recipe: HouseRecipe,
+) -> HouseBuilt {
     if let Some(remains) = recipe.remains {
         let rest = match remains {
             Remains::Ruin => {
@@ -81,8 +85,9 @@ fn build_house(land: &Land, recipe: HouseRecipe) -> HouseBuilt {
     }
     let built = house::house(
         land,
+        rules,
         recipe.agent,
-        &TownStyle::of(land, recipe.site),
+        recipe.site,
         recipe.hall,
         if recipe.mayor {
             house::Banner::Flown
@@ -205,15 +210,16 @@ impl Builds {
     pub fn house(
         &mut self,
         land: &Land,
+        rules: &HouseRules,
         recipe: HouseRecipe,
         entity: Entity,
         old: Option<Entity>,
         way: Option<Way>,
         wait: (f32, f32),
     ) {
-        let land = land.clone();
+        let (land, rules) = (land.clone(), rules.clone());
         let task = AsyncComputeTaskPool::get()
-            .spawn(async move { build_house(&land, recipe) });
+            .spawn(async move { build_house(&land, &rules, recipe) });
         self.houses.push(HouseJob {
             agent: recipe.agent,
             entity,

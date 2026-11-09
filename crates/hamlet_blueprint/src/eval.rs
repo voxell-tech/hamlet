@@ -513,6 +513,9 @@ impl Run<'_> {
             Binding::Value(Value::Integer(whole)) => {
                 Ok(*whole as f32)
             }
+            Binding::Value(Value::Bool(flag)) => {
+                Ok(if *flag { 1.0 } else { 0.0 })
+            }
             Binding::Value(Value::Field(field)) => {
                 Ok(field.sample(at.unwrap_or(&ORIGIN)))
             }
@@ -688,7 +691,8 @@ impl Run<'_> {
         }
     }
 
-    /// The field on `port`. A number is the same value everywhere.
+    /// The field on `port`. A number is the same value everywhere,
+    /// and a bool is 1 or 0.
     pub fn field(&self, port: &str) -> Result<Field, Error> {
         match self.binding(port)? {
             Binding::Value(Value::Field(field)) => Ok(field.clone()),
@@ -697,6 +701,9 @@ impl Run<'_> {
             }
             Binding::Value(Value::Integer(whole)) => {
                 Ok(Field::Constant(*whole as f32))
+            }
+            Binding::Value(Value::Bool(flag)) => {
+                Ok(Field::Constant(if *flag { 1.0 } else { 0.0 }))
             }
             _ => Err(self.wrong(port, ValueType::Field)),
         }

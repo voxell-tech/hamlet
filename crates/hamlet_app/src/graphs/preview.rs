@@ -62,12 +62,14 @@ use bevy_fynix::{
     ScopedExt, Theme, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_blueprint::{Frame, Object};
-use hamlet_graph::{Asset, BODY, Catalogue, Paint, Shape};
+use hamlet_graph::{Asset, Catalogue, Shape};
 use hamlet_graph_editor::Editor;
 use hamlet_graph_editor::library::Library;
-use hamlet_realm::generator::house::slope;
-use hamlet_realm::meshes::{Meshing, Rng};
-use hamlet_realm::palette::{Palette as Colours, TownStyle};
+use hamlet_realm::meshes::Meshing;
+use hamlet_realm::objects::{
+    self, Model, Models, Paints, Target, drawn_size,
+};
+use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::pick::{
     Orbit, Pace, Steer, backward, scrolled_lines,
 };
@@ -85,7 +87,6 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use super::Blueprint;
-use super::assets::{Meshes, Model, palette_colour};
 use super::blueprint::{Got, roll_hamlet, roll_item};
 use super::gizmo::{self, Dragging, GizmoMode};
 use crate::roll::moved;
@@ -836,7 +837,7 @@ fn rebuild(
     preview: Option<Res<Preview>>,
     colours: Option<Res<Colours>>,
     mut library: ResMut<Library>,
-    mut models: ResMut<Meshes>,
+    mut models: ResMut<Models>,
     pieces: Query<Entity, With<Piece>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut framing: ResMut<Framing>,
@@ -949,15 +950,11 @@ fn rebuild(
     ));
 }
 
-/// The size an asset is drawn at on `frame`: its own size times the
-/// frame's scale, a metre on each side where it has none.
-fn drawn_size(frame: &Frame, asset: Option<&Asset>) -> Vec3 {
-    frame.scale * asset.map_or(Vec3::ONE, |asset| asset.size)
-}
-
 /// The asset `name`, with the catalogue entry `asset` and the
-/// `model` its file was read as, drawn standing on `frame`: a box
-/// where it has no shape of its own. Gives the middle of its box.
+/// `model` its file was read as, drawn standing on `frame` as the
+/// realm draws it, in the colours of a house of the first town. A
+/// marker, shown where nothing is put, sits on its transform. Gives
+/// the middle of its box.
 pub(super) fn stand(
     meshing: &mut Meshing,
     frame: &Frame,
@@ -966,154 +963,32 @@ pub(super) fn stand(
     model: Option<&Model>,
     colours: Option<&Colours>,
 ) -> Vec3 {
-    let size = drawn_size(frame, asset);
-    let marker = name == MARKER;
-    // An asset stands on its transform; a marker sits on it.
-    let lift = if marker { 0.0 } else { size.y * 0.5 };
-    let middle = frame.translation
-        + frame.rotation * Vec3::new(0.0, lift, 0.0);
-    let colour = match colours {
-        Some(palette) if marker => palette.ochre,
-        _ => paint(colours, asset, BODY, Vec3::splat(0.7)),
-    };
-    let shape = asset.map(|asset| &asset.shape);
-    match (model, shape, colours) {
-        (Some(model), ..) => {
-            model.draw(
-                meshing,
-                middle,
-                size,
-                frame.rotation,
-                |slot, own| paint(colours, asset, slot, own),
-            );
-        }
-        (None, Some(Shape::Wedge { peak }), _) => {
-            wedge(meshing, frame, size, *peak, colour);
-        }
-        (None, Some(Shape::Tiles { taper }), Some(palette)) => {
-            tiles(meshing, frame, size, *taper, colour, palette);
-        }
-        _ => meshing.rbox(
-            middle,
-            size * 0.5,
+    if name == MARKER {
+        let colour =
+            colours.map_or(Vec3::splat(0.7), |palette| palette.ochre);
+        meshing.rbox(
+            frame.translation,
+            drawn_size(frame, asset) * 0.5,
             0.04,
             frame.rotation,
             colour,
-            if marker { 0.0 } else { 0.25 },
-        ),
-    }
-    middle
-}
-
-/// A triangle across x on `frame`, `size.y` high at `peak` along x
-/// and `size.z` thick: a gable's end.
-fn wedge(
-    meshing: &mut Meshing,
-    frame: &Frame,
-    size: Vec3,
-    peak: f32,
-    colour: Vec3,
-) {
-    let at = |x: f32, y: f32, z: f32| {
-        frame.translation
-            + frame.rotation * (Vec3::new(x, y, z) * size)
-    };
-    let turn = |v: Vec3| frame.rotation * v;
-    let (front, back) = (0.5, -0.5);
-    let corner = |x: f32, z: f32| at(x, 0.0, z);
-    let top = |z: f32| at(peak, 1.0, z);
-    meshing.face(
-        [
-            corner(-0.5, front),
-            corner(0.5, front),
-            top(front),
-            top(front),
-        ],
-        turn(Vec3::Z),
-        colour,
-    );
-    meshing.face(
-        [corner(0.5, back), corner(-0.5, back), top(back), top(back)],
-        turn(-Vec3::Z),
-        colour,
-    );
-    // Each sloping side faces out and up, steeper the nearer the
-    // peak.
-    let sides = [
-        (-0.5, Vec3::new(-size.y, (peak + 0.5) * size.x, 0.0)),
-        (0.5, Vec3::new(size.y, (0.5 - peak) * size.x, 0.0)),
-    ];
-    for (x, toward) in sides {
-        meshing.face(
-            [
-                corner(x, back),
-                corner(x, front),
-                top(front),
-                top(back),
-            ],
-            turn(toward),
-            colour * 0.95,
+            0.0,
         );
+        return frame.translation;
     }
-}
-
-/// Lapped tiles over `frame` as the game lays a roof's slope, from
-/// the eave at +z to the ridge at -z, `taper` times as wide. The
-/// roof's own colour drifts as the hamlet's roofs do.
-fn tiles(
-    meshing: &mut Meshing,
-    frame: &Frame,
-    size: Vec3,
-    taper: f32,
-    colour: Vec3,
-    colours: &Colours,
-) {
-    // A slope flat along x or z has no eave or no run to lay on, and
-    // `slope` would give its vertices NaN.
-    if size.x.abs() < 1e-4 || size.z.abs() < 1e-4 {
-        return;
-    }
-    let at = |x: f32, z: f32| {
-        frame.translation
-            + frame.rotation
-                * (Vec3::new(x * size.x, 0.0, z * size.z))
-    };
-    let eave = [at(-0.5, 0.5), at(0.5, 0.5)];
-    let ridge = [at(-0.5 * taper, -0.5), at(0.5 * taper, -0.5)];
-    let town = &colours.towns[0];
-    let style = TownStyle {
-        roof: colour,
-        drift: if colour == town.roof {
-            town.drift
-        } else {
-            colour * 1.15
+    let paints = colours.map(Paints::of);
+    objects::stand(
+        &mut Target {
+            body: meshing,
+            panes: None,
         },
-        banner: town.banner,
-    };
-    // Seeded by where it is, so a slope keeps its tiles from run to
-    // run.
-    let mut rng = Rng::seeded(&format!("{:?}", frame.translation));
-    slope(meshing, &mut rng, eave, ridge, &style, colours);
-}
-
-/// The colour of an asset's material slot, as its catalogue entry
-/// paints it: a palette colour, or `own`, the one its file gives.
-fn paint(
-    colours: Option<&Colours>,
-    asset: Option<&Asset>,
-    slot: &str,
-    own: Vec3,
-) -> Vec3 {
-    let Some(colours) = colours else {
-        return Vec3::splat(0.7);
-    };
-    match asset.and_then(|asset| asset.slots.get(slot)) {
-        Some(Paint::Palette(name)) => {
-            palette_colour(colours, name).unwrap_or(colours.plaster)
-        }
-        Some(Paint::Own) => own,
-        None => colours.plaster,
-    }
+        frame,
+        name,
+        asset,
+        model,
+        paints.as_ref(),
+        0,
+    )
 }
 
 /// Points the camera at what is drawn, from the way it is turned,

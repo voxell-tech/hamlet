@@ -43,13 +43,13 @@ use bevy::ui::{Node, Overflow, percent};
 use bevy::window::{PrimaryWindow, Window};
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 use hamlet_graph::Graph;
+use hamlet_realm::objects::{COLOURS, Paints};
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
 use hamlet_shader::{Compiled, compile, surface_shader};
 use hamlet_ui::{AnyView, Cx};
 
 use super::swatch::Slots;
-use crate::graphs::assets::{COLOURS, palette_colour};
 
 /// The render layer only the material preview's camera, lights and
 /// sphere are on: apart from the shader preview's 9 and the
@@ -311,7 +311,7 @@ fn shade(
         Slots::of(&compiled.values(graph, time.elapsed_secs()));
     let colour = colours
         .as_deref()
-        .and_then(|colours| palette_colour(colours, COLOURS[0]))
+        .and_then(|colours| Paints::of(colours).colour(COLOURS[0]))
         .unwrap_or(Vec3::splat(0.8));
     material.base.base_color =
         Color::linear_rgb(colour.x, colour.y, colour.z);

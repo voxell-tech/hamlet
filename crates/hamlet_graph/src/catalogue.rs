@@ -54,12 +54,16 @@ pub struct Socket {
     pub turn: Quat,
 }
 
-/// How an asset is drawn. Each built-in shape has one slot,
-/// [`BODY`], and stands on its transform, its box above the frame.
+/// How an asset is drawn. Each built-in shape but [`Shape::Builtin`]
+/// has one slot, [`BODY`], and stands on its transform, its box above
+/// the frame.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Shape {
     /// A rounded box filling the transform.
     Box,
+    /// A box filling the transform, its edges bevelled `bevel` metres
+    /// deep and its bottom darkened by `ao`, from 0 to 1.
+    Rounded { bevel: f32, ao: f32 },
     /// A triangle across x, its peak at the top `peak` along x from
     /// the middle (from -0.5 to 0.5), as thick as the transform is
     /// along z: a gable's end. Two with their peaks at an end meet
@@ -71,6 +75,12 @@ pub enum Shape {
     Tiles { taper: f32 },
     /// A glTF file in the folder beside the book, by its path there.
     Mesh(#[serde(deserialize_with = "mesh_path")] String),
+    /// Drawn by Hamlet's own code for the asset's name, about the
+    /// point its transform puts it at, with the slots that name has.
+    Builtin,
+    /// A point the game reads from what a graph puts down, as where a
+    /// house's lantern hangs. Nothing is drawn there in the realm.
+    Mark,
 }
 
 impl Shape {
@@ -103,6 +113,9 @@ pub enum Paint {
     /// A colour of the world's palette, by name, so the asset takes
     /// the hamlet's colours and their grade by day and night.
     Palette(String),
+    /// A colour of the palette times a number: darker below one,
+    /// lighter above.
+    Shade(String, f32),
     /// The colours and textures the asset's file gives it.
     Own,
 }
@@ -113,46 +126,216 @@ pub const BODY: &str = "body";
 const BOX: Shape = Shape::Box;
 const WEDGE: Shape = Shape::Wedge { peak: 0.0 };
 const HALF: Shape = Shape::Wedge { peak: 0.5 };
+const BUILT: Shape = Shape::Builtin;
+const MARK: Shape = Shape::Mark;
 
-/// The built-in assets, each a shape in a colour of the palette.
-const BUILTIN: &[(&str, Shape, &str)] = &[
-    ("box", BOX, "plaster"),
-    ("wall_plaster", BOX, "plaster"),
-    ("wall_ochre", BOX, "ochre"),
-    ("wall_whitewash", BOX, "whitewash"),
-    ("wall_stone", BOX, "limestone"),
-    ("gable_plaster", WEDGE, "plaster"),
-    ("gable_ochre", WEDGE, "ochre"),
-    ("gable_whitewash", WEDGE, "whitewash"),
-    ("gable_stone", WEDGE, "limestone"),
-    ("gable_plaster_half", HALF, "plaster"),
-    ("gable_ochre_half", HALF, "ochre"),
-    ("gable_whitewash_half", HALF, "whitewash"),
-    ("gable_stone_half", HALF, "limestone"),
-    ("plinth", BOX, "limestone_shade"),
-    ("quoin", BOX, "limestone_shade"),
-    ("flagstone", BOX, "limestone"),
-    ("jamb_stone", BOX, "limestone"),
-    ("chimney_cap", BOX, "limestone_shade"),
-    ("door_leaf", BOX, "livery"),
-    ("shutter", BOX, "livery"),
-    ("pane", BOX, "pane"),
-    ("ridge_cap", BOX, "roof"),
-    ("tiles", Shape::Tiles { taper: 1.0 }, "roof"),
-    ("tiles_hip", Shape::Tiles { taper: 0.3 }, "roof"),
-    ("tiles_hip_end", Shape::Tiles { taper: 0.0 }, "roof"),
-    ("post", BOX, "timber"),
-    ("post_timber", BOX, "timber"),
-    ("beam_timber", BOX, "timber_dark"),
-    ("frame_timber", BOX, "timber_dark"),
-    ("door", BOX, "timber_dark"),
-    ("stone_base", BOX, "limestone"),
-    ("stone_chimney", BOX, "limestone"),
-    ("sill_stone", BOX, "limestone"),
-    ("roof_tiles", BOX, "terracotta"),
-    ("roof_slate", BOX, "slate_roof"),
-    ("window", BOX, "slate_roof"),
-    ("flower_box", BOX, "moss"),
+const fn rounded(bevel: f32, ao: f32) -> Shape {
+    Shape::Rounded { bevel, ao }
+}
+
+const ONE: Vec3 = Vec3::ONE;
+
+/// The palette colour of a slot, by name, and the shade it is taken
+/// at.
+type Slot = (&'static str, &'static str, f32);
+
+/// The built-in assets: each one's shape, size and the palette colour
+/// of each of its slots. Those a house is made of may take the
+/// colours each house picks for itself: `wall`, `upper_wall`, `roof`,
+/// `drift` and `livery`. A [`Shape::Builtin`] is drawn about the
+/// point it is put at: a window, a knob or a lantern's lamp at its
+/// middle, the rest at the middle of their foot.
+const BUILTIN: &[(&str, Shape, Vec3, &[Slot])] = &[
+    ("box", BOX, ONE, &[(BODY, "plaster", 1.0)]),
+    ("wall_plaster", BOX, ONE, &[(BODY, "plaster", 1.0)]),
+    ("wall_ochre", BOX, ONE, &[(BODY, "ochre", 1.0)]),
+    ("wall_whitewash", BOX, ONE, &[(BODY, "whitewash", 1.0)]),
+    ("wall_stone", BOX, ONE, &[(BODY, "limestone", 1.0)]),
+    ("gable_plaster", WEDGE, ONE, &[(BODY, "plaster", 1.0)]),
+    ("gable_ochre", WEDGE, ONE, &[(BODY, "ochre", 1.0)]),
+    ("gable_whitewash", WEDGE, ONE, &[(BODY, "whitewash", 1.0)]),
+    ("gable_stone", WEDGE, ONE, &[(BODY, "limestone", 1.0)]),
+    ("gable_plaster_half", HALF, ONE, &[(BODY, "plaster", 1.0)]),
+    ("gable_ochre_half", HALF, ONE, &[(BODY, "ochre", 1.0)]),
+    (
+        "gable_whitewash_half",
+        HALF,
+        ONE,
+        &[(BODY, "whitewash", 1.0)],
+    ),
+    ("gable_stone_half", HALF, ONE, &[(BODY, "limestone", 1.0)]),
+    (
+        "plinth",
+        rounded(0.05, 0.35),
+        ONE,
+        &[(BODY, "limestone_shade", 1.2)],
+    ),
+    (
+        "quoin",
+        rounded(0.03, 0.1),
+        ONE,
+        &[(BODY, "limestone_shade", 1.25)],
+    ),
+    ("flagstone", BOX, ONE, &[(BODY, "limestone", 1.0)]),
+    (
+        "jamb_stone",
+        rounded(0.03, 0.15),
+        ONE,
+        &[(BODY, "limestone", 1.0)],
+    ),
+    (
+        "lintel",
+        rounded(0.03, 0.0),
+        ONE,
+        &[(BODY, "limestone", 1.0)],
+    ),
+    (
+        "chimney_cap",
+        rounded(0.02, 0.0),
+        ONE,
+        &[(BODY, "limestone_shade", 1.0)],
+    ),
+    (
+        "door_leaf",
+        rounded(0.02, 0.25),
+        ONE,
+        &[(BODY, "livery", 1.0)],
+    ),
+    ("shutter", BOX, ONE, &[(BODY, "livery", 1.0)]),
+    ("pane", BOX, ONE, &[(BODY, "pane", 1.0)]),
+    (
+        "ridge_cap",
+        rounded(0.04, 0.0),
+        ONE,
+        &[(BODY, "roof", 0.85)],
+    ),
+    (
+        "tiles",
+        Shape::Tiles { taper: 1.0 },
+        ONE,
+        &[(BODY, "roof", 1.0)],
+    ),
+    (
+        "tiles_hip",
+        Shape::Tiles { taper: 0.3 },
+        ONE,
+        &[(BODY, "roof", 1.0)],
+    ),
+    (
+        "tiles_hip_end",
+        Shape::Tiles { taper: 0.0 },
+        ONE,
+        &[(BODY, "roof", 1.0)],
+    ),
+    ("post", rounded(0.02, 0.2), ONE, &[(BODY, "timber", 1.0)]),
+    ("post_timber", BOX, ONE, &[(BODY, "timber", 1.0)]),
+    ("rail", rounded(0.015, 0.0), ONE, &[(BODY, "timber", 1.0)]),
+    (
+        "brace",
+        rounded(0.012, 0.0),
+        ONE,
+        &[(BODY, "timber_dark", 1.0)],
+    ),
+    ("beam_timber", BOX, ONE, &[(BODY, "timber_dark", 1.0)]),
+    (
+        "jetty",
+        rounded(0.025, 0.0),
+        ONE,
+        &[(BODY, "timber_dark", 1.0)],
+    ),
+    ("frame_timber", BOX, ONE, &[(BODY, "timber_dark", 1.0)]),
+    ("door", BOX, ONE, &[(BODY, "timber_dark", 1.0)]),
+    ("stone_base", BOX, ONE, &[(BODY, "limestone", 1.0)]),
+    (
+        "stone_chimney",
+        rounded(0.03, 0.1),
+        ONE,
+        &[(BODY, "limestone", 1.0)],
+    ),
+    ("sill_stone", BOX, ONE, &[(BODY, "limestone", 1.0)]),
+    ("roof_tiles", BOX, ONE, &[(BODY, "terracotta", 1.0)]),
+    ("roof_slate", BOX, ONE, &[(BODY, "slate_roof", 1.0)]),
+    ("window", BOX, ONE, &[(BODY, "slate_roof", 1.0)]),
+    ("flower_box", BOX, ONE, &[(BODY, "moss", 1.0)]),
+    ("wall", rounded(0.04, 0.14), ONE, &[(BODY, "wall", 1.0)]),
+    (
+        "upper_wall",
+        rounded(0.04, 0.08),
+        ONE,
+        &[(BODY, "upper_wall", 1.0)],
+    ),
+    (
+        "worn_patch",
+        rounded(0.01, 0.0),
+        ONE,
+        &[(BODY, "plaster_worn", 1.0)],
+    ),
+    ("gable", WEDGE, ONE, &[(BODY, "upper_wall", 0.97)]),
+    (
+        "gable_saltbox",
+        Shape::Wedge { peak: -0.27 },
+        ONE,
+        &[(BODY, "upper_wall", 0.97)],
+    ),
+    ("crate", rounded(0.02, 0.3), ONE, &[(BODY, "timber", 1.2)]),
+    ("knob", BUILT, Vec3::splat(0.07), &[(BODY, "brass", 1.0)]),
+    (
+        "shuttered_window",
+        BUILT,
+        Vec3::new(0.9, 0.63, 0.1),
+        &[
+            ("frame", "timber_dark", 1.0),
+            ("shutter", "livery", 1.0),
+            ("pane", "pane", 1.0),
+        ],
+    ),
+    (
+        "lantern",
+        BUILT,
+        Vec3::new(0.2, 0.5, 0.4),
+        &[("bracket", "bed", 1.0), ("cage", "brass", 1.0)],
+    ),
+    (
+        "mast",
+        BUILT,
+        Vec3::new(0.14, 2.0, 0.14),
+        &[("pole", "timber_dark", 1.0), ("finial", "brass", 1.0)],
+    ),
+    (
+        "barrel",
+        BUILT,
+        Vec3::new(0.46, 0.56, 0.46),
+        &[(BODY, "timber", 1.0)],
+    ),
+    (
+        "bush",
+        BUILT,
+        Vec3::new(2.0, 1.6, 2.0),
+        &[("light", "foliage", 1.0), ("shade", "foliage_shade", 1.0)],
+    ),
+    (
+        "woodpile",
+        BUILT,
+        Vec3::new(0.6, 0.5, 0.9),
+        &[(BODY, "log", 1.0)],
+    ),
+    (
+        "tower",
+        BUILT,
+        Vec3::new(1.84, 4.0, 1.84),
+        &[
+            ("stone", "limestone", 1.0),
+            ("shade", "limestone_shade", 1.0),
+        ],
+    ),
+    (
+        "tower_roof",
+        BUILT,
+        Vec3::new(2.24, 1.95, 2.24),
+        &[(BODY, "roof", 1.0), ("drift", "drift", 1.0)],
+    ),
+    ("lamp", MARK, Vec3::splat(0.1), &[]),
+    ("banner", MARK, Vec3::splat(0.1), &[]),
 ];
 
 impl Catalogue {
@@ -161,15 +344,23 @@ impl Catalogue {
         if let Some(asset) = self.0.get(name) {
             return Some(asset.clone());
         }
-        let (_, shape, colour) =
+        let (_, shape, size, slots) =
             BUILTIN.iter().find(|(builtin, ..)| *builtin == name)?;
         Some(Asset {
             shape: shape.clone(),
-            size: Vec3::ONE,
-            slots: BTreeMap::from([(
-                BODY.to_owned(),
-                Paint::Palette((*colour).to_owned()),
-            )]),
+            size: *size,
+            slots: slots
+                .iter()
+                .map(|(slot, colour, shade)| {
+                    let colour = (*colour).to_owned();
+                    let paint = if *shade == 1.0 {
+                        Paint::Palette(colour)
+                    } else {
+                        Paint::Shade(colour, *shade)
+                    };
+                    ((*slot).to_owned(), paint)
+                })
+                .collect(),
             sockets: BTreeMap::new(),
         })
     }

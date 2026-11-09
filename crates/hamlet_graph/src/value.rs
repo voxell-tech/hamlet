@@ -34,7 +34,8 @@ pub enum ValueType {
 impl ValueType {
     /// Whether a port of this type takes a wire carrying `from`. A
     /// number or bool port reads a field where each transform is; a
-    /// field port takes a number as the same value everywhere.
+    /// field port takes a number as the same value everywhere, and a
+    /// bool as 1 or 0.
     pub fn accepts(self, from: ValueType) -> bool {
         self == from
             || matches!(
@@ -44,7 +45,9 @@ impl ValueType {
                     ValueType::Field
                 ) | (
                     ValueType::Field | ValueType::Number,
-                    ValueType::Number | ValueType::Integer
+                    ValueType::Number
+                        | ValueType::Integer
+                        | ValueType::Bool
                 ) | (
                     ValueType::Integer,
                     ValueType::Number | ValueType::Field

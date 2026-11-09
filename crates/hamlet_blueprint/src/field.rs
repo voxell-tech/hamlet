@@ -82,11 +82,13 @@ pub enum Op {
     Less,
     /// 1 where `a` is above `b`, else 0.
     Greater,
+    /// 1 where `a` is `b`, else 0.
+    Equal,
 }
 
 impl Op {
     /// The names math nodes offer, in order, with the op each is.
-    pub const ALL: [(&'static str, Op); 20] = [
+    pub const ALL: [(&'static str, Op); 21] = [
         ("add", Op::Add),
         ("subtract", Op::Subtract),
         ("multiply", Op::Multiply),
@@ -107,6 +109,7 @@ impl Op {
         ("angle", Op::Angle),
         ("less", Op::Less),
         ("greater", Op::Greater),
+        ("equal", Op::Equal),
     ];
 
     pub fn apply(self, a: f32, b: f32) -> f32 {
@@ -133,6 +136,7 @@ impl Op {
             Op::Angle => libm::atan2f(a, b).to_degrees(),
             Op::Less => flag(a < b),
             Op::Greater => flag(a > b),
+            Op::Equal => flag(a == b),
         }
     }
 }

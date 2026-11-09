@@ -30,11 +30,11 @@ use hamlet_graph_editor::library::{
 use hamlet_graph_editor::{
     Dropped, Editor, Nesting, Setup, editor, toolbar,
 };
+use hamlet_realm::objects::Models;
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{self, description, tool};
 use hamlet_ui::widgets::icons::Glyph;
 
-use super::assets::Meshes;
 use super::{assets, gizmo, overlay, preview};
 use crate::dock::{PanelAppExt, flush_panel};
 use crate::roll::moved;
@@ -105,6 +105,8 @@ pub(crate) const SETUP: Setup = Setup {
             "medieval_house",
             include_str!("examples/medieval_house.ron"),
         ),
+        // The book the realm builds every house from.
+        ("house", hamlet_realm::generator::house::BOOK),
     ],
 };
 
@@ -340,7 +342,7 @@ fn shown(value: Value) -> Vec<Object> {
 fn mirror(
     library: Res<Library>,
     mut editor: ResMut<Editor<Blueprint>>,
-    mut meshes: ResMut<Meshes>,
+    mut meshes: ResMut<Models>,
 ) {
     if library.is_changed() || editor.is_added() {
         let mut catalogue = library.catalogue.clone();
@@ -413,7 +415,7 @@ fn write_bundle(
 fn forget(
     chosen: On<FileChosen>,
     files: Res<Files<Blueprint>>,
-    mut meshes: ResMut<Meshes>,
+    mut meshes: ResMut<Models>,
 ) {
     if files.is_asker(chosen.asker)
         && matches!(chosen.mode, FileMode::Open)

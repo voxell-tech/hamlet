@@ -281,6 +281,20 @@ impl Book {
     ) -> Result<Self, ron::error::SpannedError> {
         ron::from_str(text)
     }
+
+    /// What the game runs of the book: its graphs without their
+    /// layout, and its assets.
+    pub fn ruleset(self) -> Ruleset {
+        Ruleset {
+            entry: self.entry,
+            graphs: self
+                .sheets
+                .into_iter()
+                .map(|(name, sheet)| (name, sheet.graph))
+                .collect(),
+            assets: self.assets,
+        }
+    }
 }
 
 /// `value` as pretty RON, as the files hold it.

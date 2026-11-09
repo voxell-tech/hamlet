@@ -160,6 +160,9 @@ fn place_builds(
             ))
             .id();
         crate::adopt(commands, job.entity, panes);
+        let Some(lamp_at) = lamp_at else {
+            continue;
+        };
         let state = society
             .agent(job.agent)
             .map_or(KeeperState::Rest, |agent| agent.state);

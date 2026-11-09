@@ -140,6 +140,7 @@ impl Pass<'_, '_, '_> {
             .id();
         self.builds.house(
             land,
+            self.rules,
             HouseRecipe {
                 agent: agent.id,
                 site: town.site,

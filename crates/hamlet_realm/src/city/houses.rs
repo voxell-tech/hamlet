@@ -9,7 +9,7 @@ use hamlet_client::realm::{Identity, Left, Scholar};
 use hamlet_protocol::client::HouseAt;
 
 use super::{Glass, Level};
-use crate::generator::house::{self, Banner, TownStyle};
+use crate::generator::house::{self, Banner, HouseRules};
 use crate::generator::land::{IslandId, Land};
 use crate::generator::society::{AgentId, Claim, Ground, Society};
 use crate::lantern::NightLight;
@@ -143,6 +143,7 @@ pub(super) fn claim(
 pub(super) fn tend(
     mut commands: Commands,
     land: Res<Land>,
+    rules: Res<HouseRules>,
     glass: Res<Glass>,
     stock: Res<Stock>,
     pick: Res<PickSettings>,
@@ -168,12 +169,12 @@ pub(super) fn tend(
         };
         let number = scholar.0.id.0;
         let agent = AgentId(number as u32);
-        let style = TownStyle::of(&land, number as usize);
         let yard = house::yard_of(&land, agent, false, 0.0, 0);
         let mut built = house::house(
             &land,
+            &rules,
             agent,
-            &style,
+            number as usize,
             false,
             Banner::None,
             0,
@@ -214,7 +215,9 @@ pub(super) fn tend(
                 ChildOf(house),
             ));
         }
-        if !want.shut {
+        if let Some(lamp) = lamp
+            && !want.shut
+        {
             let (lumens, reach) = LANTERN;
             commands.spawn((
                 NightLight(lumens),

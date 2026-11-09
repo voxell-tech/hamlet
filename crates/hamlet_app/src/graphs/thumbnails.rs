@@ -37,9 +37,9 @@ use hamlet_graph_editor::library::thumbnails::{
     Job, Key, SIDE, Thumbnails,
 };
 use hamlet_realm::meshes::Meshing;
+use hamlet_realm::objects::Models;
 use hamlet_realm::palette::Palette as Colours;
 
-use super::assets::Meshes;
 use super::preview::stand;
 
 /// The render layer only the thumbnails' camera, lights and subject
@@ -143,7 +143,7 @@ fn develop(
     mut thumbnails: ResMut<Thumbnails>,
     library: Res<Library>,
     colours: Option<Res<Colours>>,
-    mut models: ResMut<Meshes>,
+    mut models: ResMut<Models>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,

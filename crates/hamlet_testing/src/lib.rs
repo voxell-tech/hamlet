@@ -1,7 +1,9 @@
 //! Fixtures shared by the crates' tests: scratch folders, protocol
 //! values, recorded sessions, faux scripts, a loopback OpenAI
-//! endpoint and a server process on a scratch realm.
+//! endpoint, a server process on a scratch realm and small `.glb`
+//! files.
 
+pub mod glb;
 pub mod links;
 pub mod openai;
 pub mod realm;
