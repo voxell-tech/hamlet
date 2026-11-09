@@ -1,10 +1,11 @@
 //! The chat: the one a typed line goes to and the line it is typed
 //! in. An agent's conversations are laid in one line of time
 //! (`timeline`), kept as rows (`lines`) and drawn as a group chat
-//! (`bubble`) over the `field` a message is typed in. An edit
-//! shows its `change`, and the chief's own messages the way back to
-//! them (`rewind`). A message can `reply` to another, and `quote`
-//! lines as chat apps do.
+//! (`bubble`) over the `field` a message is typed in, where what is
+//! attached sits as chips (`attach`). An edit shows its `change`,
+//! and the chief's own messages the way back to them (`rewind`). A
+//! message can `reply` to another, and `quote` lines as chat apps
+//! do.
 
 mod attach;
 pub(crate) mod bubble;
@@ -26,26 +27,19 @@ use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::Event;
-use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::input::ButtonInput;
-use bevy::input::keyboard::Key;
-use bevy::input_focus::{FocusCause, InputFocus};
-use bevy::text::{EditableText, TextEdit};
 use bevy::ui::{
-    AlignItems, ComputedNode, Overflow, ScrollPosition, UiRect,
-    percent, px,
+    AlignItems, ComputedNode, Overflow, ScrollPosition, UiRect, px,
 };
 use bevy_fynix::scroll::ScrollGoal;
-use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, Frame, FrameProps, column, label, overlay, row,
-    text_field,
+    BehaviorExt, Enter, Frame, FrameProps, Piece, column, rich_field,
+    row,
 };
 use bevy_fynix::{ScopedExt, derived, every_frame, resource, style};
 use hamlet_client::chats::Chat;
@@ -61,16 +55,12 @@ use hamlet_ui::styles::{note, text_input};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{Cx, View, with_cx};
-use unicode_segmentation::UnicodeSegmentation;
 
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
 pub use self::entry::OpenTools;
 pub(crate) use self::entry::Underway;
-pub use self::field::{
-    FieldBar, Placeholder, bar, grow, keep_typed, scroll_field,
-    show_bar, show_placeholder,
-};
+pub use self::field::refocus;
 pub use self::lines::{
     ChatRow, Lines, PastLines, Reach, Unfolded, Whole,
     break_long_words, fold_lines, fold_past, hide_unseen, read_back,
@@ -91,8 +81,8 @@ const LINE_ROOM: f32 = 4.5;
 /// The least width of the field a chief types in.
 const FIELD_LEAST: f32 = 150.0;
 
-/// The room the placeholder leaves for the caret before it.
-const CARET_ROOM: f32 = 4.0;
+/// The most lines the field grows to before it scrolls.
+const MOST_LINES: usize = 8;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -104,8 +94,6 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Reach>()
         .init_resource::<AwayFromEnd>()
         .init_resource::<hamlet_ui::fields::Resized>()
-        .add_observer(keep_typed)
-        .add_observer(scroll_field)
         .add_observer(decreed)
         .add_observer(told)
         .add_observer(fault)
@@ -130,20 +118,12 @@ pub fn plugin(app: &mut App) {
                 .chain()
                 .in_set(PanelSystems::Bind),
         )
-        .add_systems(
-            Update,
-            (
-                hide_unseen,
-                break_long_words,
-                show_placeholder,
-                grow,
-                show_bar,
-            ),
-        )
+        .add_systems(Update, (hide_unseen, break_long_words))
         .add_systems(PostUpdate, refocus);
 }
 
-/// The text field's root, to find its editable child.
+/// The field a chief types in, which holds the line's text and the
+/// chips of what is attached to it.
 #[derive(Component)]
 pub struct ChatField;
 
@@ -151,15 +131,11 @@ pub struct ChatField;
 #[derive(Component)]
 pub struct ChatScroll;
 
-/// The input's bound text and the steps of clearing and refocusing it
-/// after a send.
+/// Whether the field is to be given the focus, and what is said under
+/// it.
 #[derive(Resource, Default)]
 pub struct Draft {
-    pub(crate) text: String,
-    pub(crate) step: u8,
-    /// The characters before the caret, which the caret is put after
-    /// when the input is focused again.
-    caret: Option<usize>,
+    pub(crate) focus: bool,
     notice: String,
 }
 
@@ -259,25 +235,34 @@ pub(crate) fn quote_in_field(world: &mut World, words: &str) {
     if words.trim().is_empty() {
         return;
     }
-    let mut draft = world.resource_mut::<Draft>();
-    let lead =
-        match draft.text.is_empty() || draft.text.ends_with('\n') {
-            true => "",
-            false => "\n",
+    let quoted = format!("{}\n", quote::quoting(words));
+    field::with_field(world, |mut field| {
+        let mut pieces = field.pieces();
+        let lead = match pieces.last() {
+            None => "",
+            Some(Piece::Text(text)) if text.ends_with('\n') => "",
+            Some(_) => "\n",
         };
-    draft.text =
-        format!("{}{lead}{}\n", draft.text, quote::quoting(words));
-    // The field is focused one step on, with the caret at its end.
-    draft.step = 1;
+        pieces.push(Piece::Text(format!("{lead}{quoted}")));
+        // The caret is at the end of what is put in.
+        field.set_content(pieces);
+    });
+    world.resource_mut::<Draft>().focus = true;
 }
 
-/// Sends `text` to the open chat.
-pub fn send(world: &mut World, text: String) {
+/// Sends `text` to the open chat, with its attachments at `places`
+/// in it, and says whether it went.
+pub(crate) fn send(
+    world: &mut World,
+    text: String,
+    places: &attach::Places,
+) -> bool {
     let text = text.trim().to_string();
-    let ready = world.get_resource::<attach::Attached>().map_or(
-        Some((Vec::new(), Vec::new())),
-        attach::Attached::ready,
-    );
+    let ready = world
+        .get_resource::<attach::Attached>()
+        .map_or(Some((Vec::new(), Vec::new())), |attached| {
+            attached.ready(places)
+        });
     // A line of images or files alone is a line, once they are all
     // kept.
     let Some((images, files)) = ready else {
@@ -285,26 +270,26 @@ pub fn send(world: &mut World, text: String) {
             "Something attached is still being sent, waits to be \
              sent, or was not kept."
                 .into();
-        return;
+        return false;
     };
     if text.is_empty() && images.is_empty() && files.is_empty() {
-        return;
+        return false;
     }
     if matches!(
         text.split_whitespace().next(),
         Some("/hand" | "/agent" | "/hamlet")
     ) {
-        return;
+        return false;
     }
     let convo = world.resource::<Convo>();
     if world
         .get::<Chat>(convo.session)
         .is_some_and(|chat| chat.0.past.is_some())
     {
-        return;
+        return false;
     }
     let Some(to) = convo.to(world) else {
-        return;
+        return false;
     };
     // What is sent is at the end of the chat.
     to_end(world);
@@ -319,6 +304,7 @@ pub fn send(world: &mut World, text: String) {
     {
         attached.clear();
     }
+    true
 }
 
 /// A chief's command about a hamlet, addressed to its mayor.
@@ -366,79 +352,50 @@ fn told(tell: On<Tell>, mut commands: Commands) {
     });
 }
 
-fn input_root(world: &mut World) -> Option<Entity> {
-    world
-        .query_filtered::<Entity, With<ChatField>>()
-        .iter(world)
-        .next()
-}
-
-/// `text` with a new line in place of `range`, and the characters up
-/// to after it, as a caret moving right counts them. A range off the
-/// text, or not on its characters, is its end.
-fn new_line(
-    text: &str,
-    range: std::ops::Range<usize>,
-) -> (String, usize) {
-    let range = if range.start <= range.end
-        && text.is_char_boundary(range.start)
-        && text.is_char_boundary(range.end)
-    {
-        range
-    } else {
-        text.len()..text.len()
-    };
-    (
-        format!("{}\n{}", &text[..range.start], &text[range.end..]),
-        text[..range.start].graphemes(true).count() + 1,
-    )
-}
-
-/// Enter sends. A commit from focus leaving only keeps the draft.
-fn commit(world: &mut World, text: String) {
-    let root = input_root(world);
-    let focused = world.resource::<InputFocus>().get();
-    let entering = match (root, focused) {
-        (Some(root), Some(f)) => world
-            .get::<ChildOf>(f)
-            .is_some_and(|c| c.parent() == root),
-        _ => false,
-    };
-    world.resource_mut::<Draft>().text = text.clone();
-    if !entering {
-        return;
-    }
-    // Shift+Enter starts a new line where the caret is, in place of
-    // what is selected, as in the chat apps.
-    if world.resource::<ButtonInput<Key>>().pressed(Key::Shift) {
-        let range = focused
-            .and_then(|input| world.get::<EditableText>(input))
-            .map(|field| field.editor().raw_selection().text_range())
-            .unwrap_or(text.len()..text.len());
-        let (text, letters) = new_line(&text, range);
-        let mut draft = world.resource_mut::<Draft>();
-        draft.text = text;
-        draft.caret = Some(letters);
-        draft.step = 1;
-        return;
-    }
-    submit(world, text);
-}
-
-/// Sends what is typed in the field, as Enter does.
+/// Sends what is typed in the field, as Enter does, or says why a
+/// command is not. The field is cleared once its line is sent.
 pub(crate) fn send_typed(world: &mut World) {
-    let typed = input_root(world)
-        .and_then(|root| world.get::<Children>(root))
-        .and_then(|children| {
-            children
-                .iter()
-                .find_map(|child| world.get::<EditableText>(*child))
+    let Some(plain) = field::typed(world) else {
+        return;
+    };
+    world.resource_mut::<Draft>().focus = true;
+    // Commands are not typed here: each has a button or a menu.
+    if plain.text.trim_start().starts_with('/') {
+        world.resource_mut::<Draft>().notice =
+            "Commands are not typed here. Use the menus, or \
+             right-click an agent or a hamlet."
+                .into();
+        return;
+    }
+    if without_model(world) {
+        // Kept in the field, to send once a model is set up.
+        world.resource_mut::<Draft>().notice =
+            "No model is set up yet. Set one up to start.".into();
+        return;
+    }
+    world.resource_mut::<Draft>().notice.clear();
+    // The words are sent trimmed, and a reply puts a line before
+    // them, so each place moves with the words it is in.
+    let lead = plain.text.len() - plain.text.trim_start().len();
+    let words = plain.text.trim().to_string();
+    let (text, shift) = reply::attach(world, words.clone());
+    let places = plain
+        .atoms
+        .iter()
+        .filter_map(|atom| {
+            let key = atom.key.parse::<u64>().ok()?;
+            let at = atom.at.saturating_sub(lead);
+            Some((key, (at.min(words.len()) + shift) as u64))
         })
-        .map(|field| field.value().to_string());
-    let text = typed
-        .unwrap_or_else(|| world.resource::<Draft>().text.clone());
-    world.resource_mut::<Draft>().text = text.clone();
-    submit(world, text);
+        .collect::<attach::Places>();
+    let empty = text.is_empty() && places.is_empty();
+    let sent = send(world, text, &places);
+    if sent && shift > 0 {
+        world.resource_mut::<reply::Replying>().0 = None;
+    }
+    if sent || empty {
+        field::with_field(world, |mut field| field.clear());
+    }
 }
 
 /// Whether the agent the chat is with runs no model, as before one
@@ -449,72 +406,6 @@ pub(crate) fn without_model(world: &World) -> bool {
             .get::<agents::Account>(convo.agent)
             .is_some_and(|account| account.model.is_empty())
     })
-}
-
-/// Sends `text` to the open chat, or says why a command is not, and
-/// then clears the field and gives it the focus again.
-fn submit(world: &mut World, text: String) {
-    // Commands are not typed here: each has a button or a menu.
-    if text.trim_start().starts_with('/') {
-        world.resource_mut::<Draft>().notice =
-            "Commands are not typed here. Use the menus, or \
-             right-click an agent or a hamlet."
-                .into();
-    } else if without_model(world) {
-        // Kept in the field, to send once a model is set up.
-        world.resource_mut::<Draft>().notice =
-            "No model is set up yet. Set one up to start.".into();
-        return;
-    } else {
-        world.resource_mut::<Draft>().notice.clear();
-        let text = reply::attach(world, text);
-        send(world, text);
-    }
-    world.resource_mut::<Draft>().step = 3;
-}
-
-/// Clears the input after a send, then gives it focus again, with
-/// the caret at the end of what is left in it.
-pub fn refocus(
-    mut draft: ResMut<Draft>,
-    root: Query<&Children, With<ChatField>>,
-    mut texts: Query<&mut EditableText>,
-    mut focus: ResMut<InputFocus>,
-) {
-    if draft.step == 0 {
-        return;
-    }
-    draft.step -= 1;
-    match draft.step {
-        2 => draft.text.clear(),
-        0 => {
-            let input = root
-                .iter()
-                .flat_map(|c| c.iter().copied())
-                .find(|c| texts.contains(*c));
-            if let Some(input) = input {
-                focus.set(input, FocusCause::Pressed);
-                if let Ok(mut text) = texts.get_mut(input) {
-                    match draft.caret.take() {
-                        Some(letters) => {
-                            text.queue_edit(TextEdit::TextStart(
-                                false,
-                            ));
-                            for _ in 0..letters {
-                                text.queue_edit(TextEdit::Right(
-                                    false,
-                                ));
-                            }
-                        }
-                        None => {
-                            text.queue_edit(TextEdit::TextEnd(false));
-                        }
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
 }
 
 /// The furthest the chat can be scrolled, in pixels.
@@ -602,35 +493,19 @@ pub fn message_bar(tools: impl View + 'static) -> impl View {
         // The card is soft and its controls round, so the room
         // between them is what keeps their corners concentric.
         let inset = space.soft - space.round;
-        message_bar_in(space.gap, space.border, inset, tools)
+        message_bar_in(space.gap, inset, tools)
     })
 }
 
-/// The bar with `gap` between its parts, a field whose frame is
-/// `border` wide and `inset` inside the card.
+/// The bar with `gap` between its parts and its field `inset` inside
+/// the card.
 fn message_bar_in(
     gap: f32,
-    border: f32,
     inset: f32,
     tools: impl View + 'static,
 ) -> impl View {
-    let field = row((
-        text_field(resource::<Draft, _>(|d| d.text.clone()), commit)
-            .grow(1.0)
-            // The room above and below one line, kept above the
-            // first line and below the last of many.
-            .padding(UiRect {
-                top: px(LINE_ROOM),
-                bottom: px(LINE_ROOM),
-                ..UiRect::horizontal(px(FIELD_SIDE))
-            })
-            .rules(in_card)
-            // The card around it shows the focus, not a glow behind
-            // its first line.
-            .tagged(Variant::Subtle)
-            .tagged(ChatField),
-        // Shown in the empty field, just after the caret.
-        overlay((row((label(
+    let field = row((rich_field()
+        .placeholder(
             derived(|world: &World| {
                 if without_model(world) {
                     return "Set up a model to start".to_string();
@@ -643,14 +518,23 @@ fn message_bar_in(
             })
             .when(every_frame()),
         )
-        .wrap(false)
-        .tone(Tone::Dim),))
-        .align(AlignItems::Center)
-        .height(percent(100.0))
-        .padding(UiRect::left(px(gap + border + CARET_ROOM)))
-        .tagged(Placeholder),)),
-        bar(),
-    ))
+        .enter(Enter::Submit)
+        .on_submit(|world, _| send_typed(world))
+        .on_change(|world, pieces| attach::reconcile(world, &pieces))
+        .max_lines(MOST_LINES)
+        .grow(1.0)
+        // The room above and below one line, kept above the first
+        // line and below the last of many.
+        .padding(UiRect {
+            top: px(LINE_ROOM),
+            bottom: px(LINE_ROOM),
+            ..UiRect::horizontal(px(FIELD_SIDE))
+        })
+        .rules(in_card)
+        // The card around it shows the focus, not a glow behind its
+        // first line.
+        .tagged(Variant::Subtle)
+        .tagged(ChatField),))
     .grow(1.0)
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
@@ -658,7 +542,7 @@ fn message_bar_in(
         commands::list(),
         reply::preview(),
         attach::indicator(),
-        attach::strip(),
+        attach::holds(),
         row((attach::control(), field))
             .gap(gap)
             .align(AlignItems::Center),
@@ -705,7 +589,11 @@ fn in_card(cx: &mut Cx) {
 
 #[cfg(test)]
 mod tests {
+    use bevy::ecs::hierarchy::{ChildOf, Children};
     use bevy::ecs::message::Messages;
+    use bevy::input::keyboard::Key;
+    use bevy::input_focus::{FocusCause, InputFocus};
+    use bevy_fynix::views::RichField;
     use hamlet_realm::sound::{Cue, Sound};
 
     use super::*;
@@ -727,17 +615,86 @@ mod tests {
         app
     }
 
+    /// Puts `text` in the field of the chat and gives it the focus.
+    fn type_in(app: &mut App, text: &str) -> Entity {
+        let world = app.world_mut();
+        let input = world
+            .query_filtered::<Entity, With<RichField>>()
+            .single(world)
+            .unwrap();
+        world
+            .resource_mut::<InputFocus>()
+            .set(input, FocusCause::Pressed);
+        world
+            .get_mut::<RichField>(input)
+            .unwrap()
+            .set_content([Piece::Text(text.into())]);
+        input
+    }
+
+    fn typed(app: &App, input: Entity) -> String {
+        app.world().get::<RichField>(input).unwrap().plain().text
+    }
+
     #[test]
-    fn a_new_line_replaces_the_selection_and_follows_the_characters()
-    {
-        assert_eq!(new_line("abcd", 2..2), ("ab\ncd".into(), 3));
-        assert_eq!(new_line("abcd", 1..3), ("a\nd".into(), 2));
-        assert_eq!(new_line("é€x", 2..2), ("é\n€x".into(), 2));
+    fn a_line_is_sent_with_its_attachments_where_their_chips_are() {
+        use hamlet_protocol::client::{AttachedImage, ImageId};
+
+        let mut app = sounding_chat();
+        let image = ImageId::try_from("a".repeat(64)).unwrap();
+        // A chip after "  Which", in words typed with white space
+        // around them, and a reply that puts a line before them.
+        let pieces = app
+            .world_mut()
+            .resource_mut::<attach::Attached>()
+            .give_back(
+                &[AttachedImage {
+                    at: Some(7),
+                    id: image.clone(),
+                }],
+                &[],
+                "  Which one is it  ",
+                0,
+            );
+        field::set(app.world_mut(), pieces);
+        let session = app.world().resource::<Convo>().session;
+        app.world_mut().resource_mut::<reply::Replying>().0 = Some((
+            session,
+            reply::Answers {
+                by: "Ada".into(),
+                text: "Pear or plum?".into(),
+            },
+        ));
+        send_typed(app.world_mut());
+        let say = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .find_map(|message| match message {
+                protocol::ClientMessage::Say(say) => {
+                    Some(say.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        let words = "Which one is it";
+        assert!(say.text.ends_with(&format!("\n\n{words}")));
+        let at = say.images[0].at.unwrap() as usize;
+        assert_eq!(&say.text[at..], " one is it");
+        assert_eq!(say.images[0].id, image);
+        // The line is sent, and leaves no words and no chip in the
+        // field, nor an attachment for the next line.
+        let world = app.world_mut();
+        let field = world
+            .query_filtered::<&RichField, With<ChatField>>()
+            .single(world)
+            .unwrap();
+        assert!(field.is_empty());
+        let attached = world.resource::<attach::Attached>();
         assert_eq!(
-            new_line("e\u{301}x", 3..3),
-            ("e\u{301}\nx".into(), 2)
+            attached.ready(&attach::Places::new()),
+            Some((Vec::new(), Vec::new()))
         );
-        assert_eq!(new_line("ab", 9..9), ("ab\n".into(), 3));
     }
 
     fn heard(app: &mut App) -> Vec<Sound> {
@@ -803,19 +760,8 @@ mod tests {
         }
         world.trigger(Activate { entity: mark });
         app.update();
+        let input = type_in(&mut app, "Digital, please.");
         let world = app.world_mut();
-        let input = world
-            .query_filtered::<Entity, With<EditableText>>()
-            .single(world)
-            .unwrap();
-        world
-            .resource_mut::<InputFocus>()
-            .set(input, FocusCause::Pressed);
-        world
-            .get_mut::<EditableText>(input)
-            .unwrap()
-            .editor_mut()
-            .set_text("Digital, please.");
         world.write_message(KeyboardInput {
             key_code: KeyCode::Enter,
             logical_key: Key::Enter,
@@ -852,10 +798,7 @@ mod tests {
             files: Vec::new(),
         });
         app.update();
-        assert_eq!(
-            app.world().get::<EditableText>(input).unwrap().value(),
-            "Digital, please."
-        );
+        assert_eq!(typed(&app, input), "Digital, please.");
         assert!(
             crate::testing::words(&mut app)
                 .iter()
@@ -901,7 +844,11 @@ mod tests {
                     item: "chief:0".into(),
                 });
             } else {
-                send(app.world_mut(), "Find the key".into());
+                send(
+                    app.world_mut(),
+                    "Find the key".into(),
+                    &attach::Places::new(),
+                );
             }
             app.world_mut().flush();
             let id = app
@@ -992,21 +939,9 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
             .id();
-        let world = app.world_mut();
-        let input = world
-            .query_filtered::<Entity, With<EditableText>>()
-            .single(world)
-            .unwrap();
         for command in ["/new", "/agent ada", "/hamlet home"] {
-            app.world_mut()
-                .resource_mut::<InputFocus>()
-                .set(input, FocusCause::Pressed);
+            type_in(&mut app, command);
             app.update();
-            app.world_mut()
-                .get_mut::<EditableText>(input)
-                .unwrap()
-                .editor_mut()
-                .set_text(command);
             app.world_mut().write_message(KeyboardInput {
                 key_code: KeyCode::Enter,
                 logical_key: Key::Enter,
@@ -1022,8 +957,9 @@ mod tests {
                         or right-click an agent or a hamlet."
             ));
         }
-        send(app.world_mut(), "/agent ada".into());
-        send(app.world_mut(), "/hamlet home".into());
+        let places = attach::Places::new();
+        send(app.world_mut(), "/agent ada".into(), &places);
+        send(app.world_mut(), "/hamlet home".into(), &places);
         assert!(!app.world().resource::<Outbox>().iter().any(
             |message| matches!(
                 message,
@@ -1462,9 +1398,10 @@ mod tests {
         app.update();
         assert!(
             app.world_mut()
-                .query::<&EditableText>()
+                .query::<&RichField>()
                 .iter(app.world())
-                .any(|field| field.value() == "Change these words")
+                .any(|field| field.plain().text
+                    == "Change these words")
         );
     }
 
@@ -1493,9 +1430,9 @@ mod tests {
         app.update();
         assert!(
             app.world_mut()
-                .query::<&EditableText>()
+                .query::<&RichField>()
                 .iter(app.world())
-                .any(|field| field.value()
+                .any(|field| field.plain().text
                     == "Help me work on a project folder.")
         );
     }

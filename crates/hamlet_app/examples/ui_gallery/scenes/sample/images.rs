@@ -14,7 +14,7 @@ use hamlet_client::images::{Download, ImageArrived};
 use hamlet_client::messages::Rewound;
 use hamlet_client::realm::Account;
 use hamlet_protocol::client as protocol;
-use protocol::{AttachedImage, ImageId};
+use protocol::{AttachedFile, AttachedImage, FileId, ImageId};
 
 use crate::scenes::Scene;
 
@@ -32,12 +32,25 @@ pub(super) fn conversation() -> Transcript {
             at: 1_791_374_400_000,
             entry: Entry::Chief {
                 name: "chief".into(),
-                text: "Which of these is the pear tree?".into(),
+                text: "Is this the pear tree, or this one? Notes:"
+                    .into(),
                 images: vec![
-                    AttachedImage::last(id(1)),
-                    AttachedImage::last(id(2)),
+                    AttachedImage {
+                        at: Some(7),
+                        id: id(1),
+                    },
+                    AttachedImage {
+                        at: Some(30),
+                        id: id(2),
+                    },
                 ],
-                files: Vec::new(),
+                files: vec![AttachedFile {
+                    at: None,
+                    id: FileId::try_from("c".repeat(64))
+                        .expect("a file id"),
+                    name: "orchard-notes.md".into(),
+                    size: 2048,
+                }],
             },
         },
         Item {

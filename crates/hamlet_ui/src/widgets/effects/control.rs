@@ -26,6 +26,7 @@ use bevy::ui::{
 };
 use bevy::ui_widgets::{Activate, Button};
 use bevy_fynix::Focused;
+use bevy_fynix::views::RichField;
 
 use super::glow::{GlowLayer, GlowPanel, layer_of};
 use super::{
@@ -65,11 +66,15 @@ pub(super) fn arm(
     mut commands: Commands,
     buttons: Query<Entity, (With<Button>, Without<ControlEffect>)>,
     fields: Query<&ChildOf, Added<EditableText>>,
+    rich_fields: Query<Entity, Added<RichField>>,
 ) {
-    // A field given a look of its own keeps it.
-    for field in &fields {
+    // A field given a look of its own keeps it. A text field's
+    // editable text is under its root, a rich field is its own.
+    let roots =
+        fields.iter().map(ChildOf::parent).chain(rich_fields.iter());
+    for root in roots {
         commands
-            .entity(field.parent())
+            .entity(root)
             .try_insert(ControlEffect::default())
             .try_insert_if_new(Variant::Input);
     }

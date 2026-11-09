@@ -28,10 +28,10 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::entry::entry_view;
 use super::lines::{Board, Row, fold_view};
-use super::quote;
 use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
 use super::timeline::{Kind, Line, Who};
+use super::{attach, quote};
 use crate::convo::Convo;
 use crate::markdown;
 use crate::select::{self, Quotable};
@@ -201,6 +201,9 @@ fn said<B: Board>(
         };
         // The message a reply answers is drawn on its own, with what
         // the reply quotes of it.
+        // The bytes the reply line puts before the words, which the
+        // places of attachments count.
+        let head = typed.len() - reply::rest(typed).len();
         let (answers, selected, typed) = match reply::unreplied(typed)
         {
             Some((answers, _)) => {
@@ -292,9 +295,12 @@ fn said<B: Board>(
         };
         // Words with a link in them are set once, span by span.
         let linked = match quote::has_quote(&typed) {
-            true => {
-                Some(quote::drawn(&typed, reserve, palette.gold_4))
-            }
+            true => Some(quote::drawn(
+                &typed,
+                reserve,
+                palette.gold_4,
+                Vec::new(),
+            )),
             false => hamlet_ui::markdown::typed(&typed, reserve),
         };
         let hour = label(time)
@@ -320,41 +326,68 @@ fn said<B: Board>(
                             .boxed(),
                     );
                 }
-                if let Some(Entry::Chief { images, files, .. }) =
-                    entry
-                {
-                    if !images.is_empty() {
-                        inside.push(
-                            super::attach::sent(images).boxed(),
-                        );
+                let chips = match entry {
+                    Some(Entry::Chief { images, files, .. }) => {
+                        attach::sent_chips(images, files)
                     }
-                    if !files.is_empty() {
-                        inside.push(
-                            super::attach::sent_files(files).boxed(),
-                        );
-                    }
-                }
-                let said = linked.unwrap_or_else(|| {
-                    label(component::<Transcript, _>(
-                        session,
-                        move |t| match t.and_then(|t| {
-                            t.item(&typed_id).map(|item| &item.entry)
-                        }) {
-                            Some(Entry::Chief { text, .. }) => {
-                                format!(
-                                    "{}{reserve}",
-                                    reply::own_words(text).1
-                                )
-                            }
-                            Some(Entry::Answered(said)) => {
-                                format!("{said}{reserve}")
-                            }
-                            _ => String::new(),
-                        },
-                    ))
-                    .boxed()
-                });
+                    _ => Vec::new(),
+                };
+                // The words the places count are the ones drawn,
+                // unless the reply's quote was taken out of them.
+                let placed = selected.is_none()
+                    && chips.iter().any(|(at, _)| at.is_some());
+                let (said, after) = if placed {
+                    let chips = chips
+                        .into_iter()
+                        .map(|(at, atom)| {
+                            let at = at.and_then(|at| {
+                                at.checked_sub(head as u64)
+                            });
+                            (at, atom)
+                        })
+                        .collect();
+                    let (words, atoms) =
+                        attach::marked(&typed, chips);
+                    let said = quote::drawn(
+                        &words,
+                        reserve,
+                        palette.gold_4,
+                        atoms,
+                    );
+                    (said, None)
+                } else {
+                    let said = linked.unwrap_or_else(|| {
+                        label(component::<Transcript, _>(
+                            session,
+                            move |t| match t.and_then(|t| {
+                                t.item(&typed_id)
+                                    .map(|item| &item.entry)
+                            }) {
+                                Some(Entry::Chief {
+                                    text, ..
+                                }) => {
+                                    format!(
+                                        "{}{reserve}",
+                                        reply::own_words(text).1
+                                    )
+                                }
+                                Some(Entry::Answered(said)) => {
+                                    format!("{said}{reserve}")
+                                }
+                                _ => String::new(),
+                            },
+                        ))
+                        .boxed()
+                    });
+                    (said, Some(chips))
+                };
                 inside.push(selectable(said));
+                // Attachments with no place follow the words.
+                if let Some(chips) =
+                    after.filter(|chips| !chips.is_empty())
+                {
+                    inside.push(attach::after_words(chips).boxed());
+                }
                 inside.push(hour);
             }
             Words::Markdown => {

@@ -299,7 +299,11 @@ mod tests {
             .get::<Chat>(convo.session)
             .expect("a watched chat");
         assert_eq!(chat.0.with, protocol::AgentId(1));
-        crate::chat::send(app.world_mut(), "Find the key".into());
+        crate::chat::send(
+            app.world_mut(),
+            "Find the key".into(),
+            &Default::default(),
+        );
         let sent = app
             .world()
             .resource::<Outbox>()

@@ -2,14 +2,13 @@
 //! typed is a slash and the start of one, each pressed to put it in
 //! the field.
 
-use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::With;
 use bevy::ecs::world::World;
-use bevy::text::EditableText;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    self, BehaviorExt, FrameProps, button, column, frame, label,
+    self, BehaviorExt, FrameProps, Piece, RichField, button, column,
+    frame, label,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::DeedUsage;
@@ -17,20 +16,16 @@ use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{bare, small_rules};
 use hamlet_ui::{AnyView, View};
 
-use super::{ChatField, Draft};
+use super::{ChatField, field};
 
 /// The most commands listed at once.
 const MOST: usize = 6;
 
-/// What is typed in the chat's field now.
+/// The text typed in the chat's field now, without its chips.
 fn typed(world: &World) -> Option<String> {
-    let mut roots =
-        world.try_query_filtered::<&Children, With<ChatField>>()?;
-    let children = roots.iter(world).next()?;
-    children
-        .iter()
-        .find_map(|child| world.get::<EditableText>(*child))
-        .map(|text| text.value().to_string())
+    let mut fields =
+        world.try_query_filtered::<&RichField, With<ChatField>>()?;
+    fields.iter(world).next().map(|field| field.plain().text)
 }
 
 /// The commands that start with what is typed, while it is a slash
@@ -93,9 +88,7 @@ fn line(deed: protocol::Deed) -> AnyView {
     .justify(JustifyContent::FlexStart)
     .rules(views::tint)
     .on_activate(move |world| {
-        let mut draft = world.resource_mut::<Draft>();
-        draft.text = format!("/{name} ");
-        draft.step = 2;
+        field::set(world, vec![Piece::Text(format!("/{name} "))]);
     })
     .boxed()
 }

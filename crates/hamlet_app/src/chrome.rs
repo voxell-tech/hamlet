@@ -34,7 +34,7 @@ use bevy::window::{
 };
 use bevy_fynix::tokens::Motion;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, frame, icon, row,
+    BehaviorExt, FrameProps, RichField, button, frame, icon, row,
 };
 use bevy_fynix::{OverrideCursor, ScopedExt, style};
 use hamlet_desktop::title_bar::TitleBarDrag;
@@ -310,7 +310,11 @@ fn hold_title_bar(
     hover: Option<Res<HoverMap>>,
     controls: Query<
         (),
-        Or<(With<ButtonBehavior>, With<EditableText>)>,
+        Or<(
+            With<ButtonBehavior>,
+            With<EditableText>,
+            With<RichField>,
+        )>,
     >,
     handles: Query<(), With<Grip>>,
     parents: Query<&ChildOf>,

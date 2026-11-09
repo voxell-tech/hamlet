@@ -1033,10 +1033,12 @@ fn quiet() -> impl View {
                         lettered(*said)
                             .rules(hamlet_ui::styles::button)
                             .on_activate(move |world| {
-                                let mut draft = world
-                                    .resource_mut::<super::Draft>();
-                                draft.text = said.to_string();
-                                draft.step = 2;
+                                super::field::set(
+                                    world,
+                                    vec![super::Piece::Text(
+                                        said.to_string(),
+                                    )],
+                                );
                             })
                             .boxed()
                     })

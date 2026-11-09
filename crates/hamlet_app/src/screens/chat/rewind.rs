@@ -11,7 +11,7 @@ use bevy::ecs::hierarchy::Children;
 use bevy::ecs::lifecycle::Insert;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
-use bevy::ecs::system::{Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::Rect;
 use bevy::picking::hover::Hovered;
@@ -27,9 +27,9 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{Cx, View, built};
 
-use super::Draft;
 use super::attach::Attached;
 use super::bubble::Bubble;
+use super::field::set;
 use super::reply::{Replying, unreplied};
 use crate::convo::Convo;
 use crate::world_menu::{self, Deed, Open};
@@ -221,15 +221,13 @@ fn reveal(
 fn retype(
     rewound: On<Rewound>,
     convo: Res<Convo>,
-    mut draft: ResMut<Draft>,
     mut replying: ResMut<Replying>,
     mut attached: ResMut<Attached>,
+    mut commands: Commands,
 ) {
     if rewound.event().chat != convo.session {
         return;
     }
-    attached
-        .give_back(&rewound.event().images, &rewound.event().files);
     let text = &rewound.event().text;
     let (answers, words) = match unreplied(text) {
         Some((answers, words)) => {
@@ -238,8 +236,11 @@ fn retype(
         None => (None, text.as_str()),
     };
     replying.0 = answers;
-    draft.text = words.to_string();
-    // The field is focused two steps on. A send starts a step
-    // earlier, at the one that clears it.
-    draft.step = 2;
+    let pieces = attached.give_back(
+        &rewound.event().images,
+        &rewound.event().files,
+        words,
+        text.len() - words.len(),
+    );
+    commands.queue(move |world: &mut World| set(world, pieces));
 }
