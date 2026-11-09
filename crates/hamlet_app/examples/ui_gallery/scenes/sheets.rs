@@ -25,7 +25,7 @@ use hamlet_ui::styles::{
     self, back_link, danger_button, marked, primary_button,
     text_input,
 };
-use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::theme::{HamletTheme, StatusKind};
 use hamlet_ui::widgets::effects::{Highlight, Underglow, Variant};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::{self, DisplayText};
@@ -315,6 +315,104 @@ pub(super) fn controls() -> Ui {
     .height(percent(100.0))
     .padding(UiRect::all(px(28.0)))
     .gap(20.0)
+    .fill(theme.palette.surface)
+    .overflow(Overflow::clip())
+    .tagged(platform::Glow)
+    .tagged(Highlight::default())
+    .boxed()
+}
+
+/// The status hues as marks, pills, bars and chips, and the solid
+/// buttons that complete a state.
+pub(super) fn status_sheet() -> Ui {
+    let theme = HamletTheme::designed();
+    let part = |name: &'static str, view: Ui| {
+        column((heading(name), view)).gap(10.0)
+    };
+    let kinds = [
+        (Glyph::Check, "Done", StatusKind::Success),
+        (Glyph::Merge, "Merged", StatusKind::Merged),
+        (Glyph::Progress, "In progress", StatusKind::Warning),
+        (Glyph::Stop, "Stopped", StatusKind::Danger),
+        (Glyph::Bell, "Needs you", StatusKind::Attention),
+        (Glyph::Moon, "At rest", StatusKind::Rest),
+    ];
+    let pills = kinds
+        .into_iter()
+        .map(|(which, text, kind)| {
+            styles::status_pill(which, text, kind).boxed()
+        })
+        .collect::<Vec<_>>();
+    let marks = kinds
+        .into_iter()
+        .map(|(which, _, kind)| {
+            styles::status_mark(which, kind, 22.0).boxed()
+        })
+        .collect::<Vec<_>>();
+    let icons = kinds
+        .into_iter()
+        .map(|(which, text, kind)| {
+            row((glyph(which, 16.0).tone(kind.tone()), caption(text)))
+                .gap(6.0)
+                .align(AlignItems::Center)
+                .boxed()
+        })
+        .collect::<Vec<_>>();
+    column((
+        part(
+            "The merge button",
+            states(
+                Glyph::Merge,
+                "Merge",
+                styles::merge_button,
+                Variant::Subtle,
+            ),
+        ),
+        part(
+            "The done button",
+            states(
+                Glyph::Restore,
+                "Restore",
+                styles::success_button,
+                Variant::Subtle,
+            ),
+        ),
+        part("Pills", row(pills).gap(10.0).boxed()),
+        part("Marks", row(marks).gap(16.0).boxed()),
+        part("Agent states, as icons", row(icons).gap(18.0).boxed()),
+        part(
+            "Bars",
+            column((
+                styles::progress_bar(0.6, StatusKind::Success)
+                    .boxed(),
+                styles::progress_bar(0.4, StatusKind::Warning)
+                    .boxed(),
+                styles::stacked_bar(vec![
+                    (3.0, StatusKind::Success),
+                    (1.0, StatusKind::Rest),
+                    (2.0, StatusKind::Warning),
+                ])
+                .boxed(),
+            ))
+            .gap(10.0)
+            .width(px(420.0))
+            .boxed(),
+        ),
+        part(
+            "References",
+            row((
+                styles::reference("home"),
+                styles::reference("home#2"),
+                styles::reference("feature/orchard-notes"),
+            ))
+            .gap(8.0)
+            .boxed(),
+        ),
+    ))
+    .width(percent(100.0))
+    .height(percent(100.0))
+    .padding(UiRect::all(px(28.0)))
+    .gap(16.0)
     .fill(theme.palette.surface)
     .overflow(Overflow::clip())
     .tagged(platform::Glow)

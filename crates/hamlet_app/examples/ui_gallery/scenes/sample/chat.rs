@@ -146,6 +146,20 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                 conversation(&[("chief", "Read plan.md."), ("", "See plan.md and [the guide](https://example.com).\n\nA missing path stays plain: missing.md.")])
             }
         }
+        Scene::Code => conversation(&[
+            ("chief", "How do I check the almanac, and where is it?"),
+            (
+                "",
+                "Run `cargo test -p almanac` in the hollow, then \
+                 read `src/almanac.rs`. The `count` function returns \
+                 the pears in a row.\n\nThe guide is at [the \
+                 guide](https://example.com/almanac) and the notes \
+                 are in [the orchard \
+                 notes](https://example.com/orchard).\n\n```sh\ncargo \
+                 test -p almanac -- --nocapture\n```\n\nAsk \
+                 `home#2` if a row looks wrong.",
+            ),
+        ]),
         Scene::Rewind => conversation(&[
             ("chief", "Tidy the orchard notes."),
             ("", "The notes are in order."),

@@ -31,6 +31,7 @@ use self::dock::{open_settings, panels, seed_dock};
 use self::sample::{first_run, setup};
 use self::sheets::{
     ask_rewind, controls, hold, hold_message, icon_sheet,
+    status_sheet,
 };
 
 /// A view of the gallery, its type erased.
@@ -231,6 +232,16 @@ pub enum Scene {
     Welcome(welcome::Step),
     /// The first-run key step, its providers searched for the words.
     KeySearch(&'static str),
+    /// The Hub with an agent merged into another: its rail row and
+    /// its page of what is gone.
+    Merged,
+    /// The Hub's page of a hamlet, with agents at work, waiting,
+    /// stopped and at rest in its rail and its list.
+    Agents,
+    /// A chat with inline code and links in it.
+    Code,
+    /// The status marks, pills, bars, chips and solid buttons.
+    Status,
 }
 
 impl Scene {
@@ -257,6 +268,7 @@ fn mount_scene(world: &mut World) {
     let view = match *world.resource::<Scene>() {
         Scene::Controls => controls(),
         Scene::Icons => icon_sheet(),
+        Scene::Status => status_sheet(),
         _ => panels(),
     };
     mount::<HamletTheme>(world, view);
