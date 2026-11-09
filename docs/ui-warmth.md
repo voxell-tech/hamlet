@@ -24,7 +24,10 @@ room stays dark so that the world stays the bright thing on screen.
 | A breath of magic | A faint teal light crosses the top of the Hub when what it shows changes, another page or another agent | The Hub shows something else now. This and its tab's flash are the only teal in the panels |
 | A glowing tab | A panel behind another carries its light on its tab: lamplight rising from the tab's foot, or a teal flash | Something happened in a panel that is not in front |
 | A badge | A small amber pill with a number burns on the tab of a panel behind another while something waits in it | Something waits for you there, and how many |
-| Amber words | Status words are lamp amber | Live, or waiting |
+| A status pill | A solid pill in one hue with an icon and light words: orange for what needs you, yellow for work under way, red for a stop or a removal, purple for a merge, neutral for rest | The main state of an agent or a hamlet |
+| A status mark | An icon in a solid circle with a soft halo of its hue, before a bold title | The outcome of something: a toast, a wait, a failed call |
+| A solid button | A button filled with its hue: green restores or allows, purple merges, red refuses | This completes the action, in the hue of what it does |
+| A blue chip | A small blue box in the code face | A name that commands use, such as a hamlet's id |
 | A speaker's paint | In the chat, a speaker's name and disc are in the paint of its robot | Who said it. The world's colours mark speakers and nothing else |
 | An icon | A small line drawing before a word, in the word's own tone | What the word is, found sooner |
 

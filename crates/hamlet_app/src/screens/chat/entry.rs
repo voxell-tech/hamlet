@@ -13,7 +13,8 @@ use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::shown_of;
 use hamlet_ui::markdown::document;
-use hamlet_ui::styles::{note, small_rules};
+use hamlet_ui::styles::{note, small_rules, status_mark};
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::ellipsis::{Keep, cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
@@ -65,7 +66,7 @@ pub(super) fn status(session: Entity, id: String) -> impl View {
         component::<Transcript, _>(session, move |t| ran(t, &id)),
         |ran| {
             let (which, tone, time) = match ran {
-                Ran::Running => (Glyph::Clock, Tone::Accent, None),
+                Ran::Running => (Glyph::Clock, Tone::Warning, None),
                 Ran::Done(ms) => (Glyph::Check, Tone::Dim, *ms),
                 Ran::Failed(_, ms) => {
                     (Glyph::Cross, Tone::Critical, *ms)
@@ -246,9 +247,16 @@ fn tool_row(session: Entity, id: String) -> impl View {
 fn failed(why: String) -> impl View {
     with_cx(move |cx| {
         let theme = cx.theme();
-        column((label(why.clone())
-            .tone(Tone::Critical)
-            .rules(small_rules),))
+        row((
+            status_mark(Glyph::Cross, StatusKind::Danger, 16.0),
+            row((label(why.clone())
+                .tone(Tone::Critical)
+                .rules(small_rules),))
+            .grow(1.0)
+            .min_width(px(0.0)),
+        ))
+        .gap(theme.space.gap)
+        .align(AlignItems::Center)
         .width(percent(100.0))
         .padding(UiRect::axes(px(8.0), px(4.0)))
         .fill(theme.palette.danger)

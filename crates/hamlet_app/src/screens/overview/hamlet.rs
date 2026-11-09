@@ -39,7 +39,8 @@ use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, ICON, action, bare, buttons, crumb, crumb_here,
     crumb_slash, crumbs, group, more_button, note, note_rules,
-    raised, scroll_area, status_pill, text_input, transparent,
+    raised, reference, scroll_area, status_pill, text_input,
+    transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -545,16 +546,22 @@ fn row_look(cx: &mut Cx) {
 /// The width of the circle of a hamlet's budget.
 const METER: f32 = 14.0;
 
+/// The share of its budget from which a hamlet's circle turns yellow.
+const NEAR_CAP: f32 = 0.8;
+
 /// What the hamlet spent of its budget: when it has a cap, a circle
-/// filled clockwise from the top as far as `spent` says, then the
-/// words.
+/// filled clockwise from the top as far as `spent` says, in the
+/// accent while the budget is fine, yellow near the cap and red at
+/// it, then the words.
 pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
     with_cx(move |cx| {
         let palette = &cx.theme().palette;
         let mut parts = Vec::new();
         if let Some(spent) = spent {
             let fill = if spent >= 1.0 {
-                palette.red
+                palette.status.danger.solid
+            } else if spent >= NEAR_CAP {
+                palette.status.warning.solid
             } else {
                 palette.accent
             };
@@ -671,18 +678,34 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             crumb_slash().boxed(),
             naming(hamlet, facts.id.clone(), facts.title.clone()),
         ]);
-        let mut says = Vec::new();
-        if facts.title != facts.id {
-            says.push(format!("Commands call it {}.", facts.id));
-        }
-        if *rename {
-            says.push("Double-click its name to rename it.".into());
-        }
-        let path = if says.is_empty() {
+        let called = facts.title != facts.id;
+        let rename = *rename;
+        let path = if !called && !rename {
             path.boxed()
         } else {
-            let says = says.join(" ");
-            path.tooltip(move || note(says.clone())).boxed()
+            let id = facts.id.clone();
+            path.tooltip(move || {
+                let mut says = Vec::new();
+                if called {
+                    says.push(
+                        row((
+                            note("Commands call it"),
+                            reference(id.clone()),
+                        ))
+                        .gap(4.0)
+                        .align(AlignItems::Center)
+                        .boxed(),
+                    );
+                }
+                if rename {
+                    says.push(
+                        note("Double-click its name to rename it.")
+                            .boxed(),
+                    );
+                }
+                column(says).gap(4.0)
+            })
+            .boxed()
         };
         let mut top =
             vec![path, budget(facts.account.clone(), facts.spent)];

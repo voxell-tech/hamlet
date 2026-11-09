@@ -86,7 +86,7 @@ pub(crate) fn update_status(
     let next = Bar {
         busy,
         running: if busy { "Working" } else { "Idle" }.into(),
-        running_tone: if busy { Tone::Accent } else { Tone::Dim },
+        running_tone: if busy { Tone::Warning } else { Tone::Dim },
         model: crate::models::model_name(&settings.0.model)
             .to_string(),
         link: if connection.state == Contact::Connected {

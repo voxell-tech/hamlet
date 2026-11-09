@@ -511,7 +511,7 @@ impl Lines {
 
     fn tone(&self, key: &RowKey) -> Tone {
         match self.fold(key) {
-            Some(Row::Fold { running: true, .. }) => Tone::Accent,
+            Some(Row::Fold { running: true, .. }) => Tone::Warning,
             Some(Row::Fold { failed: 0, .. }) | None => Tone::Dim,
             _ => Tone::Critical,
         }
