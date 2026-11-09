@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 
 pub use self::base::{Base, Hue, Mode};
 use self::contrast::Part;
+pub(crate) use self::derive::deepen;
 pub use self::themes::{Theme, ThemeId, Themes, Variant, Variants};
 use crate::widgets::platform::Display;
 

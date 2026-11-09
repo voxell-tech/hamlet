@@ -18,9 +18,6 @@ use super::control::ControlEffect;
 use super::{EffectColors, EffectSettings, ease};
 use crate::theme::Themed;
 
-/// The most a light panel's gain strengthens an underglow: past it
-/// the glow pools into an orange smudge in its box.
-const GAIN_CAP: f32 = 1.5;
 /// How much stronger a lamp's glow is than a title's: it is small
 /// and meant to be seen without the pointer.
 const LAMP_STRENGTH: f32 = 2.2;
@@ -109,7 +106,7 @@ pub(super) fn update_underglow(
         let strength = (set.underglow * level
             + set.underglow_press * flare)
             * boost
-            * set.gain(&theme).min(GAIN_CAP);
+            * set.gain(&theme);
         let mut layers = Vec::new();
         if fills {
             let fill = theme.palette.selected;

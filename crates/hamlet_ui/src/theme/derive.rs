@@ -57,11 +57,11 @@ const DARK: Steps = Steps {
     card: 0.5,
     hover: 0.43,
     code: 0.5,
-    selected: 0.19,
+    selected: 0.20,
     gold_hover: 0.21,
-    bottom: 0.04,
+    bottom: 0.05,
     primary_low: 0.27,
-    primary_high: 0.40,
+    primary_high: 0.42,
     pressable: 0.38,
     mark: 0.70,
     core: 0.60,
@@ -84,7 +84,7 @@ const LIGHT: Steps = Steps {
     primary_high: 1.0,
     pressable: 0.17,
     mark: 1.0,
-    core: 0.70,
+    core: 0.74,
     wash: 0.4,
     fill: -0.022,
     fill_chroma: 0.035,
@@ -108,6 +108,18 @@ const REST_HUE: f32 = 250.0;
 /// The lightness the glow keeps at most over paper, where the bright
 /// hue of the lamp would not be seen.
 const GLOW_LIGHTNESS: f32 = 0.76;
+/// How much more chroma the glow has over paper than the accent: the
+/// lamp is a clean amber there, not a pale one.
+const GLOW_CHROMA: f32 = 1.14;
+/// How far the press sparks are taken from the orange toward the
+/// yellow, so that they are the lamp's and not the orange of a
+/// status.
+const PARTICLE_YELLOW: f32 = 0.2;
+/// How a glow over a light panel is deepened, in OKLCH: its
+/// lightness times, its chroma times. Deeper and more saturated,
+/// never browner, so that a strong glow on cream is clean light.
+const DEEPEN_LIGHTNESS: f32 = 0.9;
+const DEEPEN_CHROMA: f32 = 1.25;
 /// The lightness of the agents' colour over paper.
 const AGENT_LIGHTNESS: f32 = 0.60;
 /// How far the accent's ink is turned toward orange over paper, where
@@ -251,9 +263,10 @@ impl Palette {
             accent
         } else {
             let paint = lch(accent);
-            with_lightness(
-                accent,
+            oklch(
                 paint.lightness.min(GLOW_LIGHTNESS),
+                paint.chroma * GLOW_CHROMA,
+                paint.hue,
             )
         };
         let gold_4 = reach(accent, &[surface], GOLD, Way::Nearest);
@@ -313,7 +326,7 @@ impl Palette {
         } else {
             accent.mix(&base.orange, ACCENT_WARM)
         };
-        let particle = base.orange;
+        let particle = base.orange.mix(&base.yellow, PARTICLE_YELLOW);
 
         Self {
             surface,
@@ -368,6 +381,17 @@ impl Palette {
             status: statuses,
         }
     }
+}
+
+/// `glow` as it is drawn over a light panel, where a pale glow is all
+/// but unseen: deeper and more saturated in OKLCH, with its hue kept.
+pub fn deepen(glow: Color) -> Color {
+    let paint = lch(glow);
+    oklch(
+        paint.lightness * DEEPEN_LIGHTNESS,
+        paint.chroma * DEEPEN_CHROMA,
+        paint.hue,
+    )
 }
 
 /// The mustard of what is in progress, made from `yellow`.

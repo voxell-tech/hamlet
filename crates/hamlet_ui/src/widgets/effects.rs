@@ -27,8 +27,8 @@ pub use self::highlight::{
     Attention, Highlight, Updated, highlight_layer,
 };
 pub use self::underglow::Underglow;
-use crate::theme::HamletTheme;
 use crate::theme::contrast::contrast;
+use crate::theme::{HamletTheme, deepen};
 
 /// The effects of the controls, the dock's drop hint and the
 /// panels' highlights.
@@ -248,21 +248,30 @@ pub struct EffectColors {
 }
 
 impl EffectColors {
-    /// The colours of the effects in `theme`.
+    /// The colours of the effects in `theme`. Over a light panel the
+    /// glows are deepened and more saturated: a pale glow on a pale
+    /// panel is all but unseen.
     pub fn of(theme: &HamletTheme) -> Self {
         let p = &theme.palette;
+        let lamp = |glow: Color| {
+            if lit_panels(theme) {
+                deepen(glow)
+            } else {
+                glow
+            }
+        };
         Self {
-            glow: p.glow,
-            glow_core: p.glow_core,
+            glow: lamp(p.glow),
+            glow_core: lamp(p.glow_core),
             glow_danger: p.danger_glow,
             primary_low: p.primary_low,
             primary_high: p.primary_high,
             particle: p.particle,
             drag_border: p.gold_5,
-            attention: p.glow,
+            attention: lamp(p.glow),
             flash: p.agent,
-            underglow: p.glow,
-            drop_hint: p.glow,
+            underglow: lamp(p.glow),
+            drop_hint: lamp(p.glow),
             drag_ghost: p.surface,
         }
     }
