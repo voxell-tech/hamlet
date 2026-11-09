@@ -140,9 +140,9 @@ fn dismiss(world: &mut World) {
             windows.iter(world).find_map(Window::cursor_position)
         });
     // In the panels' pixels, as the titles' rects are.
-    let Some(pointer) =
-        pointer.map(|at| at / world.resource::<UiScale>().0)
-    else {
+    let Some(pointer) = pointer.map(|at| {
+        at / world.get_resource::<UiScale>().map_or(1.0, |s| s.0)
+    }) else {
         return;
     };
     let pressed = world

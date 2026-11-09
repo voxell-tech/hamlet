@@ -106,12 +106,13 @@ pub(crate) fn answer_ask(
     mut asked: ResMut<Asked>,
     mut ground: ResMut<AskedGround>,
     mut open: ResMut<Open>,
-    scale: Res<UiScale>,
+    scale: Option<Res<UiScale>>,
 ) {
     // Asked at a place in the window, opened at one in the panels.
-    let ground = ground.0.take().map(|at| at / scale.0);
+    let scale = scale.map_or(1.0, |scale| scale.0);
+    let ground = ground.0.take().map(|at| at / scale);
     if let Some((thing, at)) = asked.0.take() {
-        *open = Open::Menu(thing, at / scale.0);
+        *open = Open::Menu(thing, at / scale);
         return;
     }
     let Some(at) = ground else {
@@ -166,7 +167,7 @@ fn pointer(world: &mut World) -> Vec2 {
         .iter(world)
         .find_map(Window::cursor_position)
         .unwrap_or_default();
-    at / world.resource::<UiScale>().0
+    at / world.get_resource::<UiScale>().map_or(1.0, |scale| scale.0)
 }
 
 /// Opens the menu of `thing` at the pointer, as a right click on

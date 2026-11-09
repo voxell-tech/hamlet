@@ -50,6 +50,8 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Kept>()
         .init_resource::<Favorites>()
         .init_resource::<LastSide>()
+        .init_resource::<Zoom>()
+        .init_resource::<LessMotion>()
         // Before the first theme is shown.
         .add_systems(Startup, restore_appearance)
         .add_systems(
