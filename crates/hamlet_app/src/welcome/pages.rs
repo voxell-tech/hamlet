@@ -453,7 +453,7 @@ fn over(cx: &Cx, page: AnyView, dims: bool) -> impl View + use<> {
     .gap(0.0)
     .fill(theme.palette.card)
     .border(space.border)
-    .border_color(theme.palette.gold_5)
+    .border_color(theme.palette.border)
     .radius(space.soft)
     .tagged(theme.shadow())
     .tagged(match dims {

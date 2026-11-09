@@ -60,10 +60,16 @@ pub fn tab_look(cx: &mut Cx) {
         })
         .label(|l, t| l.size(t.text.small).bold(true))
         .tone(Tone::Dim)
-        .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
-        .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Faint))
+        .hovered(|s| {
+            s.fill(|t: &HamletTheme| t.palette.button)
+                .tone(Tone::Body)
+        })
+        .pressed(|s| {
+            s.fill(|t: &HamletTheme| t.palette.button_hover)
+                .tone(Tone::Faint)
+        })
         .when::<Shown>(|s| {
-            s.fill(|t: &HamletTheme| t.palette.selected)
+            s.fill(|t: &HamletTheme| t.palette.button_hover)
                 .tone(Tone::Body)
         })
         .transition(Motion::Interact)

@@ -551,11 +551,15 @@ impl TextTokens for HamletTheme {
 
 impl SurfaceTokens for HamletTheme {
     fn fill(&self) -> Color {
-        self.palette.selected
+        self.palette.button_hover
     }
 
     fn hover(&self) -> Color {
-        self.palette.button_hover
+        self.palette.button
+    }
+
+    fn pressed(&self) -> Color {
+        self.palette.button_hover.mix(&self.palette.selected, 0.5)
     }
 
     fn panel(&self) -> Color {

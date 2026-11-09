@@ -41,14 +41,15 @@ pub fn pad() -> UiRect {
     UiRect::axes(px(14.0), px(0.0))
 }
 
-/// A standard button: bordered, with gold text. It darkens while
-/// pressed and is only an outline while it cannot be pressed.
+/// A standard button: a fill with a faint edge, and gold text. It
+/// steps up under the pointer and down while pressed, and is only an
+/// outline while it cannot be pressed.
 pub fn button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.button)
                 .border(t.space.border)
-                .border_color(t.palette.gold_5)
+                .border_color(t.palette.border)
                 .radius(t.space.round)
         })
         .label(|l, t| {
@@ -56,17 +57,11 @@ pub fn button(cx: &mut Cx) {
         })
         .icon(|i, _| i.tone(Tone::Faint))
         .hovered(|s| {
-            s.frame(|f, t| {
-                f.fill(t.palette.gold_hover)
-                    .border_color(t.palette.gold_3)
-            })
-            .tone(Tone::Body)
+            s.frame(|f, t| f.fill(t.palette.button_hover))
+                .tone(Tone::Body)
         })
         .pressed(|s| {
-            s.frame(|f, t| {
-                f.fill(t.pressed()).border_color(t.palette.gold_5)
-            })
-            .tone(Tone::Body)
+            s.frame(|f, t| f.fill(t.pressed())).tone(Tone::Body)
         })
         .when::<InteractionDisabled>(|s| {
             s.frame(|f, t| {
@@ -150,12 +145,12 @@ pub fn text_input(cx: &mut Cx) {
         .frame(|f, t| {
             f.fill(t.palette.input)
                 .border(t.space.border)
-                .border_color(t.palette.gold_5)
+                .border_color(t.palette.border)
                 .radius(t.space.round)
         })
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.input).border_color(t.palette.grey_1)
+                f.fill(t.palette.input).border_color(t.palette.gold_5)
             })
         })
         .when::<Focused>(|s| {
@@ -1133,7 +1128,7 @@ pub fn card_choice(
                     .border_color(if picked {
                         t.palette.accent
                     } else {
-                        t.palette.gold_6
+                        t.palette.card
                     })
                     .radius(t.space.round)
                     .justify(JustifyContent::FlexStart)
@@ -1145,19 +1140,20 @@ pub fn card_choice(
             })
             .hovered(|s| {
                 s.frame(move |f, t| {
-                    f.fill(card_fill(t, picked)).border_color(
-                        if picked {
-                            t.palette.accent
-                        } else {
-                            t.palette.gold_4
-                        },
-                    )
+                    if picked {
+                        f.fill(card_fill(t, picked))
+                    } else {
+                        f.fill(t.palette.button)
+                    }
                 })
             })
             .pressed(|s| {
                 s.frame(move |f, t| {
-                    f.fill(card_fill(t, picked))
-                        .border_color(t.palette.gold_5)
+                    if picked {
+                        f.fill(card_fill(t, picked))
+                    } else {
+                        f.fill(t.palette.button_hover)
+                    }
                 })
             })
             .transition(Motion::Interact)

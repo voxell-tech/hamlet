@@ -5,7 +5,6 @@
 //! agent works and rests; only its mark changes.
 
 use bevy::app::{App, Update};
-use bevy::color::Mix;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -91,10 +90,6 @@ const STEP_IN: f32 = 16.0;
 
 /// The room inside a row's ends.
 const ROW_INSET: f32 = 6.0;
-
-/// How far the fill under the hamlet whose page is shown is taken
-/// from the panel toward the fill of a selected row: a quieter step.
-const GROUP_STEP: f32 = 0.7;
 
 /// The room over a section's header inside its block.
 const BLOCK_PAD: f32 = 4.0;
@@ -1643,12 +1638,7 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
             .radius(4.0);
         parts.push(if filled_block {
             with_cx(move |cx| {
-                let palette = &cx.theme().palette;
-                block.fill(
-                    palette
-                        .surface
-                        .mix(&palette.selected, GROUP_STEP),
-                )
+                block.fill(cx.theme().palette.button_hover)
             })
             .boxed()
         } else {

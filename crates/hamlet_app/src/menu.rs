@@ -185,8 +185,14 @@ pub fn nav(cx: &mut Cx) {
         .label(|l, t| {
             l.tone(Tone::Faint).size(t.text.heading).bold(true)
         })
-        .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
-        .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Dim))
+        .hovered(|s| {
+            s.fill(|t: &HamletTheme| t.palette.button)
+                .tone(Tone::Body)
+        })
+        .pressed(|s| {
+            s.fill(|t: &HamletTheme| t.palette.button_hover)
+                .tone(Tone::Dim)
+        })
         .transition(Motion::Interact)
         .apply(cx);
 }
