@@ -47,6 +47,11 @@ const STAR: [[f32; 2]; 10] = [
     [6.45, 6.2],
 ];
 
+/// The corners of the stop square, as large as the bell and the moon
+/// read beside it.
+const STOP: [[f32; 2]; 4] =
+    [[4.0, 4.0], [12.0, 4.0], [12.0, 12.0], [4.0, 12.0]];
+
 /// The points of a bolt, from its top to its bottom and back.
 const BOLT: [[f32; 2]; 6] = [
     [9.5, 1.75],
@@ -105,7 +110,7 @@ pub enum Glyph {
     Gone,
     /// A bin.
     Delete,
-    /// A square in a ring.
+    /// A square.
     Stop,
     /// At rest, and the night.
     Moon,
@@ -428,15 +433,7 @@ impl Glyph {
                     [11.75, 4.5],
                 ]),
             ],
-            Glyph::Stop => &[
-                Ring(8.0, 8.0, 6.0),
-                Fill(&[
-                    [5.75, 5.75],
-                    [10.25, 5.75],
-                    [10.25, 10.25],
-                    [5.75, 10.25],
-                ]),
-            ],
+            Glyph::Stop => &[Loop(&STOP), Fill(&STOP)],
             Glyph::Moon => &[
                 Arc(7.5, 8.5, 5.5, 10.24, 259.76),
                 Arc(10.75, 5.25, 4.75, 62.9, 207.1),
