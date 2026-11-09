@@ -29,8 +29,8 @@ use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_graph::{Book, Shape, Sheet};
 use serde::{Deserialize, Serialize};
 
-use super::setup::{EditorKey, Setup};
 use super::Editor;
+use super::setup::{EditorKey, Setup};
 use crate::library::{
     Item, Kind, Library, Source, mesh_path, temp_of, write_atomic,
 };
