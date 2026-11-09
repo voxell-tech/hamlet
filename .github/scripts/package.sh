@@ -233,7 +233,9 @@ ENTITLEMENTS
     mv "$scratch/$name.zip" "dist/$name.zip"
     cp brand/hamlet-icon.ico "$stage/hamlet.ico"
     iscc=$(command -v iscc || echo "/c/Program Files (x86)/Inno Setup 6/ISCC.exe")
-    "$iscc" /Q \
+    # Git's bash would turn each /option into a path; ISCC then reads
+    # it as a second script.
+    MSYS2_ARG_CONV_EXCL='*' "$iscc" /Q \
       "/DVersion=$package_version" \
       "/DStage=$(cygpath -w "$stage")" \
       "/DIcon=$(cygpath -w "$PWD/brand/hamlet-icon.ico")" \
