@@ -10,7 +10,9 @@ use core::f32::consts::{FRAC_PI_2, PI, TAU};
 use bevy::app::{App, Startup, Update};
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::camera::visibility::{RenderLayers, Visibility};
-use bevy::camera::{Camera, ImageRenderTarget, RenderTarget};
+use bevy::camera::{
+    Camera, ImageRenderTarget, Projection, RenderTarget,
+};
 use bevy::color::Alpha;
 use bevy::dev_tools::infinite_grid::{
     InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings,
@@ -31,7 +33,7 @@ use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseButton;
 use bevy::light::DirectionalLight;
-use bevy::math::{Quat, Rect, Vec3};
+use bevy::math::{Mat3, Quat, Rect, Vec3};
 use bevy::mesh::{Mesh, Mesh3d};
 use bevy::pbr::{DistanceFog, MeshMaterial3d, StandardMaterial};
 use bevy::picking::events::{PointerDrag, PointerScroll};
@@ -103,6 +105,14 @@ const YAW: f32 = 0.8;
 
 /// The camera's pitch before a hand has turned it, in radians.
 const PITCH: f32 = 0.55;
+
+/// How much farther than just fitting it the camera first stands
+/// from what is drawn, for room about it.
+const ROOM: f32 = 1.15;
+
+/// The least reach framed, in metres, so that a small part is not
+/// seen from up close.
+const SMALLEST: f32 = 0.6;
 
 /// The lowest a hand turns the camera's pitch, in radians, as near
 /// level as it looks.
@@ -282,11 +292,13 @@ struct Seat {
     stance: (f32, f32),
 }
 
-/// The middle and the reach of what is drawn.
+/// The middle and the reach of what is drawn, and the graph it was
+/// drawn for.
 #[derive(Resource, Default)]
 pub(super) struct Framing {
     pub(super) middle: Vec3,
     pub(super) reach: f32,
+    of: String,
 }
 
 /// What the last drawing was made from.
@@ -916,8 +928,14 @@ fn rebuild(
             model,
             colours.as_deref(),
         );
-        low = low.min(middle - size);
-        high = high.max(middle + size);
+        // Half of its box along each axis, as it is turned.
+        let turned = Mat3::from_quat(object.frame.rotation);
+        let half = size * 0.5;
+        let reach = turned.x_axis.abs() * half.x
+            + turned.y_axis.abs() * half.y
+            + turned.z_axis.abs() * half.z;
+        low = low.min(middle - reach);
+        high = high.max(middle + reach);
     }
     if objects.is_empty() {
         (low, high) = (Vec3::splat(-2.0), Vec3::splat(2.0));
@@ -942,6 +960,7 @@ fn rebuild(
     }
     framing.middle = (low + high) * 0.5;
     framing.reach = (high - low).length() * 0.5;
+    framing.of.clone_from(&editor.name);
     commands.spawn((
         Piece,
         Mesh3d(meshes.add(meshing.build())),
@@ -991,6 +1010,19 @@ pub(super) fn stand(
     )
 }
 
+/// How far from what is drawn, `reach` round its middle, the camera
+/// sees all of it with some room about it, through the narrower of
+/// the angles `projection` sees across and up.
+fn fit(reach: f32, projection: &Projection) -> f32 {
+    let reach = reach.max(SMALLEST);
+    let Projection::Perspective(lens) = projection else {
+        return reach * 3.0;
+    };
+    let up = lens.fov * 0.5;
+    let across = (up.tan() * lens.aspect_ratio).atan();
+    reach * ROOM / up.min(across).sin()
+}
+
 /// Points the camera at what is drawn, from the way it is turned,
 /// with the world's fog and shadows fitted to its distance.
 fn aim(
@@ -1000,19 +1032,23 @@ fn aim(
     mut seat: ResMut<Seat>,
     framing: Res<Framing>,
     set: Res<CameraSettings>,
-    mut cameras: Query<(&mut Transform, &mut DistanceFog)>,
+    mut cameras: Query<(
+        &mut Transform,
+        &mut DistanceFog,
+        &Projection,
+    )>,
     mut anchor: Local<Option<(String, Vec3, f32)>>,
 ) {
     let Some(preview) = preview else {
         return;
     };
-    // Framed once for each graph opened, then moved only by the hand,
-    // so what is drawn and the grid under it keep their size while
-    // the graph is edited.
+    // Framed once for each graph opened, by its own drawing, then
+    // moved only by the hand, so what is drawn and the grid under it
+    // keep their size while the graph is edited.
     let framed = anchor
         .as_ref()
         .is_some_and(|(name, ..)| *name == editor.name);
-    if !framed && framing.reach > 0.0 {
+    if !framed && framing.reach > 0.0 && framing.of == editor.name {
         *anchor = Some((
             editor.name.clone(),
             framing.middle,
@@ -1026,7 +1062,7 @@ fn aim(
     let Some((_, middle, reach)) = anchor.clone() else {
         return;
     };
-    let Ok((mut transform, mut fog)) =
+    let Ok((mut transform, mut fog, projection)) =
         cameras.get_mut(preview.camera)
     else {
         return;
@@ -1042,7 +1078,7 @@ fn aim(
         pitch.cos(),
         -yaw.cos() * pitch.sin(),
     );
-    let distance = (reach * 2.2 + 2.0) * seat.shown.zoom;
+    let distance = fit(reach, projection) * seat.shown.zoom;
     let slid = seat.shown.pan;
     let focus = middle + Vec3::new(slid.x, 0.0, slid.y);
     *transform =
