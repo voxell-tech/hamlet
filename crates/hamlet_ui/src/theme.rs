@@ -721,9 +721,19 @@ impl SurfaceTokens for HamletTheme {
 /// held.
 const HINT_MARGIN: f32 = 2.8;
 /// How far the hairline is from the border toward the mark.
-const HAIRLINE_FIRM: f32 = 0.2;
+const HAIRLINE_FIRM: f32 = 0.35;
+/// How far the edge of a control is from the border toward the
+/// mark: far enough to read against the panel at about 3:1, and
+/// still short of the mark's edge under the pointer.
+const EDGE_FIRM: f32 = 0.6;
 
 impl HamletTheme {
+    /// The edge of a field and the groove of a slider: found at a
+    /// glance, where a divider is a quiet line.
+    pub fn edge(&self) -> Color {
+        self.palette.border.mix(&self.palette.gold_5, EDGE_FIRM)
+    }
+
     /// How opaque the words of an empty field are: as faint as dim
     /// text can be while it still reads on the field.
     pub fn hint_opacity(&self) -> f32 {

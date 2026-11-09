@@ -145,7 +145,7 @@ pub fn text_input(cx: &mut Cx) {
         .frame(|f, t| {
             f.fill(t.palette.input)
                 .border(t.space.border)
-                .border_color(t.hairline())
+                .border_color(t.edge())
                 .radius(t.space.round)
         })
         .hovered(|s| {

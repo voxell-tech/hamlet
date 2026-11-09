@@ -55,7 +55,7 @@ struct Steps {
 }
 
 const DARK: Steps = Steps {
-    card: 0.5,
+    card: 0.9,
     hover: 0.43,
     code: 0.75,
     selected: 0.20,
@@ -112,9 +112,16 @@ const REFERENCE: f32 = 4.75;
 /// in progress by its hue.
 const REST_CHROMA: f32 = 0.02;
 const REST_HUE: f32 = 255.0;
-/// How far the hairline of a card is from the surface toward the
-/// button under the pointer.
-const HAIRLINE: f32 = 0.9;
+/// How far the hairline of a card is from the border toward the
+/// mark.
+const HAIRLINE: f32 = 0.15;
+
+/// The most chroma the accent has where it washes a surface or fills
+/// a tab: past it, it is taken down, so that a saturated accent is
+/// as calm as the amber of Hamlet's own. Hamlet's own is below it.
+const WASH_CHROMA: f32 = 0.15;
+/// The least lightness the accent has over paper where it washes.
+const WASH_LIGHTNESS: f32 = 0.76;
 
 /// The lightness the glow keeps at most over paper, where the bright
 /// hue of the lamp would not be seen.
@@ -198,6 +205,17 @@ fn lch(colour: Color) -> Oklcha {
     paint
 }
 
+/// `colour` with no more chroma than `cap`, its lightness and hue
+/// kept.
+fn tame(colour: Color, cap: f32) -> Color {
+    let paint = lch(colour);
+    if paint.chroma <= cap {
+        colour
+    } else {
+        oklch(paint.lightness, cap, paint.hue)
+    }
+}
+
 /// `colour` with its lightness set to `lightness`.
 fn with_lightness(colour: Color, lightness: f32) -> Color {
     let paint = lch(colour);
@@ -268,14 +286,29 @@ impl Palette {
         } else {
             surface.mix(&button, steps.code)
         };
-        // The hairline of a card: one step from the surface in both
-        // modes, so it is no more an outline in one than in the
-        // other.
-        let gold_6 = surface.mix(&button_hover, HAIRLINE);
-        let glow = if dark {
-            accent
+        // The hairline of a card: the border, a little toward the
+        // mark in both modes, so it is no more an outline in one
+        // than in the other.
+        let gold_6 = border.mix(&mark, HAIRLINE);
+        // The accent as it washes a surface and fills a tab: no more
+        // saturated than `WASH_CHROMA`, and over paper no darker
+        // than `WASH_LIGHTNESS`, so that a deep accent is a pastel
+        // there and not a heavy fill.
+        let tamed = tame(accent, WASH_CHROMA);
+        let wash = if dark {
+            tamed
         } else {
-            let paint = lch(accent);
+            let paint = lch(tamed);
+            oklch(
+                paint.lightness.max(WASH_LIGHTNESS),
+                paint.chroma,
+                paint.hue,
+            )
+        };
+        let glow = if dark {
+            wash
+        } else {
+            let paint = lch(wash);
             oklch(
                 paint.lightness.min(GLOW_LIGHTNESS),
                 paint.chroma * GLOW_CHROMA,
@@ -303,10 +336,10 @@ impl Palette {
         let green_deep = statuses.success.fill;
         let selected = surface.mix(&glow, steps.selected);
         let gold_hover = if dark { surface } else { input }
-            .mix(&accent, steps.gold_hover);
+            .mix(&wash, steps.gold_hover);
         let primary_low = if dark { surface } else { input }
-            .mix(&accent, steps.primary_low);
-        let primary_high = surface.mix(&accent, steps.primary_high);
+            .mix(&wash, steps.primary_low);
+        let primary_high = surface.mix(&wash, steps.primary_high);
 
         // What a button is while it is pressed.
         let pressed = button_hover.mix(&selected, 0.5);
