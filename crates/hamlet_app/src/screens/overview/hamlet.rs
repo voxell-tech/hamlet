@@ -240,7 +240,7 @@ const TIERS: [&str; 4] = ["50", "100", "200", "500"];
 fn size(hamlet: Entity, id: String) -> AnyView {
     let names = TIERS
         .iter()
-        .map(|tier| format!("Holds up to {tier} hires"))
+        .map(|tier| format!("{tier} hires"))
         .collect::<Vec<_>>();
     row((
         label("Size").tone(Tone::Faint).wrap(false),
