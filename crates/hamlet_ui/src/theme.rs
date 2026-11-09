@@ -169,10 +169,12 @@ pub struct Palette {
     pub button: Color,
     #[serde(with = "tint")]
     pub button_hover: Color,
-    /// The line between two surfaces, and the tint of what is
-    /// selected.
+    /// The line between two surfaces.
     #[serde(with = "tint")]
     pub border: Color,
+    /// The fill of what is selected in a list, a step off the panel.
+    #[serde(with = "tint")]
+    pub selected: Color,
     /// The colour of text that is read.
     #[serde(with = "tint")]
     pub gold_1: Color,
@@ -256,7 +258,7 @@ pub struct Palette {
 
 impl Palette {
     /// Every colour by name with the part it plays.
-    pub fn parts(&self) -> [(&'static str, Part, Color); 32] {
+    pub fn parts(&self) -> [(&'static str, Part, Color); 33] {
         // No `..`: a new colour does not build until it has a part.
         let Self {
             surface,
@@ -264,6 +266,7 @@ impl Palette {
             button,
             button_hover,
             border,
+            selected,
             gold_1,
             gold_2,
             gold_3,
@@ -301,6 +304,7 @@ impl Palette {
             ("button_hover", Part::Fill, button_hover),
             ("gold_hover", Part::Fill, gold_hover),
             ("gold_6", Part::Fill, gold_6),
+            ("selected", Part::Fill, selected),
             ("primary_low", Part::Fill, primary_low),
             ("danger", Part::Fill, danger),
             ("danger_hover", Part::Fill, danger_hover),

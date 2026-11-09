@@ -81,7 +81,7 @@ fn switch_of(
         let travel = width - height;
         let tracks = (palette.gold_4, palette.button);
         let frames = (palette.gold_3, palette.gold_5);
-        let knobs = (palette.gold_1, palette.grey_1);
+        let knobs = (palette.glow_core, palette.grey_1);
         cx.scope(|cx| {
             style::<HamletTheme>()
                 .tone(Tone::Faint)

@@ -5,7 +5,7 @@
 //! agent works and rests; only its mark changes.
 
 use bevy::app::{App, Update};
-use bevy::color::{Alpha, Mix};
+use bevy::color::Mix;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -19,9 +19,8 @@ use bevy::picking::events::{
 };
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, BackgroundGradient, ColorStop, ComputedNode, Display,
-    JustifyContent, LinearGradient, Overflow, PositionType,
-    UiGlobalTransform, UiRect, Val, percent, px,
+    AlignItems, ComputedNode, Display, JustifyContent, Overflow,
+    PositionType, UiGlobalTransform, UiRect, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
@@ -47,7 +46,7 @@ use hamlet_ui::styles::{
     text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::widgets::effects::{Variant, lit_panels};
+use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -93,13 +92,9 @@ const STEP_IN: f32 = 16.0;
 /// The room inside a row's ends.
 const ROW_INSET: f32 = 6.0;
 
-/// How strong the glow is where the light over what the panel shows
-/// starts, over dark panels and over light ones.
-const LIT: [f32; 2] = [0.2, 0.5];
-
-/// How far the glow over light panels is taken toward the gold ink:
-/// the pale glow alone is all but unseen on cream.
-const DEEPEN: f32 = 0.7;
+/// How far the fill under the hamlet whose page is shown is taken
+/// from the panel toward the fill of a selected row: a quieter step.
+const GROUP_STEP: f32 = 0.5;
 
 /// The room over a section's header inside its block.
 const BLOCK_PAD: f32 = 4.0;
@@ -1433,15 +1428,15 @@ fn expanded(line: &Line, tree: Tree) -> AnyView {
         .rules(rules)
         .tagged(Variant::Default)
         .on_activate(move |world| go(world, target));
-    // The light goes on a frame around the row: the row's own
-    // gradient is its glow under the pointer, which takes it back.
+    // The fill goes on a frame around the row, whose own fill is
+    // clear at rest.
     let shown = if line.current {
         with_cx(move |cx| {
             row((shown,))
                 .grow(1.0)
                 .min_width(px(0.0))
                 .radius(4.0)
-                .tagged(lit(cx.theme(), Fall::Across))
+                .fill(cx.theme().palette.selected)
         })
         .boxed()
     } else {
@@ -1639,16 +1634,21 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
                 },
             )
         }));
-        // The hamlet whose page is shown, lit whole.
-        let lit_block = section.current
+        // The hamlet whose page is shown, filled whole.
+        let filled_block = section.current
             && matches!(section.group, Group::Hamlet(_));
         let block = column(block)
             .gap(0.0)
             .margin(UiRect::top(px(above)))
             .radius(4.0);
-        parts.push(if lit_block {
+        parts.push(if filled_block {
             with_cx(move |cx| {
-                block.tagged(lit(cx.theme(), Fall::Down))
+                let palette = &cx.theme().palette;
+                block.fill(
+                    palette
+                        .surface
+                        .mix(&palette.selected, GROUP_STEP),
+                )
             })
             .boxed()
         } else {
@@ -1656,38 +1656,6 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
         });
     }
     column(parts).gap(0.0).boxed()
-}
-
-/// The way the light over what the panel shows fades.
-#[derive(Clone, Copy)]
-enum Fall {
-    /// Across a row, from its left.
-    Across,
-    /// Down a hamlet's block, from its header.
-    Down,
-}
-
-/// The light over what the panel shows: the glow, fading the way
-/// `fall` says.
-fn lit(theme: &HamletTheme, fall: Fall) -> BackgroundGradient {
-    let lit = lit_panels(theme);
-    let palette = &theme.palette;
-    let glow = if lit {
-        palette.glow.mix(&palette.gold_3, DEEPEN)
-    } else {
-        palette.glow
-    };
-    let stops = vec![
-        ColorStop::new(
-            glow.with_alpha(LIT[usize::from(lit)]),
-            percent(0.0),
-        ),
-        ColorStop::new(glow.with_alpha(0.0), percent(100.0)),
-    ];
-    BackgroundGradient::from(match fall {
-        Fall::Across => LinearGradient::to_right(stops),
-        Fall::Down => LinearGradient::to_bottom(stops),
-    })
 }
 
 /// Whether `section` is of the realm's own, over the tabs: the realm,

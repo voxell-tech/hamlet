@@ -12,7 +12,7 @@ mod underglow;
 
 use bevy::app::{App, PostUpdate, Update};
 use bevy::asset::Asset;
-use bevy::color::{Color, Mix};
+use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::message::Message;
 use bevy::ecs::resource::Resource;
@@ -248,45 +248,25 @@ pub struct EffectColors {
 }
 
 impl EffectColors {
-    /// The colours of the effects in `theme`. Over a light panel the
-    /// glows are deepened toward the accent: a pale glow on a pale
-    /// panel is all but unseen.
+    /// The colours of the effects in `theme`.
     pub fn of(theme: &HamletTheme) -> Self {
         let p = &theme.palette;
-        let lamp = |glow: Color| {
-            if lit_panels(theme) {
-                glow.mix(&p.accent, LIGHT_DEEPEN)
-            } else {
-                glow
-            }
-        };
         Self {
-            glow: lamp(p.glow),
-            glow_core: lamp(p.glow_core),
+            glow: p.glow,
+            glow_core: p.glow_core,
             glow_danger: p.danger_glow,
             primary_low: p.primary_low,
             primary_high: p.primary_high,
             particle: p.particle,
             drag_border: p.gold_5,
-            attention: lamp(p.glow),
+            attention: p.glow,
             flash: p.agent,
-            underglow: if lit_panels(theme) {
-                p.glow.mix(&p.accent, UNDERGLOW_DEEPEN)
-            } else {
-                p.glow
-            },
-            drop_hint: lamp(p.glow),
+            underglow: p.glow,
+            drop_hint: p.glow,
             drag_ghost: p.surface,
         }
     }
 }
-
-/// How far a glow over a light panel is taken toward the accent.
-const LIGHT_DEEPEN: f32 = 0.45;
-
-/// The same for the glow under a title or a tab, which marks the tab
-/// shown and so is taken further.
-const UNDERGLOW_DEEPEN: f32 = 0.75;
 
 /// Whether `theme`'s panels are light: dark words read better on
 /// them than light ones.

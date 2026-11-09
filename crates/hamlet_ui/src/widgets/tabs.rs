@@ -73,7 +73,10 @@ pub fn tab_look(cx: &mut Cx) {
         .tone(Tone::Dim)
         .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
         .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Faint))
-        .when::<Shown>(|s| s.tone(Tone::Body))
+        .when::<Shown>(|s| {
+            s.fill(|t: &HamletTheme| t.palette.selected)
+                .tone(Tone::Body)
+        })
         .transition(Motion::Interact)
         .apply(cx);
 }
@@ -180,20 +183,16 @@ pub fn fit(
     }
 }
 
-/// Marks the tab of the value of `R`, holds its light and draws its
-/// underline.
+/// Marks the tab of the value of `R` and draws its underline.
 pub fn mark<R: Resource + Copy + PartialEq>(
     mut commands: Commands,
     theme: Themed,
     shown: Res<R>,
-    mut tabs: Query<(Entity, &TabOf<R>, &mut Underglow, Has<Shown>)>,
+    mut tabs: Query<(Entity, &TabOf<R>, Has<Shown>)>,
     mut lines: Query<(&Underline<R>, &mut BackgroundColor)>,
 ) {
-    for (tab, of, mut light, marked) in &mut tabs {
+    for (tab, of, marked) in &mut tabs {
         let on = of.0 == *shown;
-        if light.held != on {
-            light.held = on;
-        }
         if on && !marked {
             commands.entity(tab).try_insert(Shown);
         } else if !on && marked {
