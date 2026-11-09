@@ -15,6 +15,12 @@
 # AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
 # TRUSTED_SIGNING_ENDPOINT, TRUSTED_SIGNING_ACCOUNT and
 # TRUSTED_SIGNING_PROFILE.
+#
+# Updates wait on a key pair (docs/releases.md#updates): the variable
+# HAMLET_UPDATE_KEY, the public key in base64, is built into a tag's
+# programs, and the secret HAMLET_UPDATE_SIGNING_KEY, the private key
+# in PEM, signs the release's latest.json. Without them a release
+# neither looks for updates nor offers one.
 name: Release
 
 on:
@@ -40,6 +46,8 @@ jobs:
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       TARGET: ${{ matrix.target }}
+      # Only a release looks for updates; a run by hand is a test.
+      HAMLET_UPDATE_KEY: ${{ github.ref_type == 'tag' && vars.HAMLET_UPDATE_KEY || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -192,6 +200,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -213,3 +225,20 @@ jobs:
               --title "Hamlet $TAG" \
               --generate-notes
           fi
+
+      # Last, so an installed Hamlet finds the update only once every
+      # file it names is there.
+      - name: Publish the update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          HAMLET_UPDATE_SIGNING_KEY: ${{ secrets.HAMLET_UPDATE_SIGNING_KEY }}
+        run: |
+          if [ -z "$HAMLET_UPDATE_SIGNING_KEY" ]; then
+            echo "No HAMLET_UPDATE_SIGNING_KEY: the release offers no update."
+            exit 0
+          fi
+          .github/scripts/manifest.sh "$TAG" "$REPO"
+          gh release upload "$TAG" dist/latest.json dist/latest.json.sig \
+            --repo "$REPO" --clobber
