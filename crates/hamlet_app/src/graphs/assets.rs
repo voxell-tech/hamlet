@@ -71,7 +71,8 @@ fn mesh(name: String) -> AnyView {
         let added = library.catalogue.0.get(&name).cloned();
         let asset =
             added.clone().or_else(|| library.catalogue.get(&name));
-        let mut rows: Vec<AnyView> = vec![picture(&name, PICTURE)];
+        let mut rows: Vec<AnyView> =
+            vec![picture(Kind::Mesh, &name, PICTURE)];
         if let Some(from) = library.sources.get(&name) {
             rows.push(labelled(
                 "file",

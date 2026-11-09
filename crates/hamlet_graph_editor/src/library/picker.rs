@@ -196,7 +196,7 @@ fn cell(item: Item, pick: impl Pick) -> AnyView {
     let name = item.name.clone();
     button(
         column((
-            picture(&name, PICTURE),
+            picture(Kind::Mesh, &name, PICTURE),
             column((note(name.replace('_', " ")),))
                 .width(percent(100.0))
                 .overflow(Overflow::clip())
@@ -211,20 +211,21 @@ fn cell(item: Item, pick: impl Pick) -> AnyView {
     .boxed()
 }
 
-/// The picture of the mesh `name` in a square of `side` pixels: its
-/// rendering once drawn, a cube until then. Showing it asks for it.
-pub fn picture(name: &str, side: f32) -> AnyView {
+/// The picture of the `kind` asset `name`, a mesh or a blueprint, in
+/// a square of `side` pixels: its rendering once drawn, its kind's
+/// glyph until then. Showing it asks for it.
+pub fn picture(kind: Kind, name: &str, side: f32) -> AnyView {
     let name = name.to_owned();
     AnyView::new(move |cx: &mut Cx| {
-        Thumbnails::ask(cx.world, &name);
+        Thumbnails::ask(cx.world, kind, &name);
         let read = name.clone();
         cx.build(
             keyed(
                 resource::<Thumbnails, _>(move |thumbnails| {
-                    thumbnails.picture(&read)
+                    thumbnails.picture(kind, &read)
                 }),
                 move |image: &Option<Handle<Image>>| {
-                    square(image.clone(), side)
+                    square(image.clone(), kind.glyph(), side)
                 },
             )
             .within(column(()).gap(0.0)),
@@ -232,9 +233,13 @@ pub fn picture(name: &str, side: f32) -> AnyView {
     })
 }
 
-/// A square plate with `image` filling it, or with the cube where
+/// A square plate with `image` filling it, or with `glyph` where
 /// there is none.
-fn square(image: Option<Handle<Image>>, side: f32) -> AnyView {
+fn square(
+    image: Option<Handle<Image>>,
+    glyph_of: Glyph,
+    side: f32,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (fill, round) = (theme.palette.input, theme.space.round);
@@ -264,9 +269,7 @@ fn square(image: Option<Handle<Image>>, side: f32) -> AnyView {
                 node
             }
             None => cx.build(plate(vec![
-                glyph(Glyph::Cube, side * 0.4)
-                    .tone(Tone::Dim)
-                    .boxed(),
+                glyph(glyph_of, side * 0.4).tone(Tone::Dim).boxed(),
             ])),
         }
     })

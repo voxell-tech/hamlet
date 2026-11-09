@@ -596,7 +596,7 @@ fn tile(item: Item, selected: bool) -> AnyView {
         };
         let from = origin(&item);
         let drawn = match item.kind {
-            Kind::Mesh => picture(&item.name, PICTURE),
+            Kind::Mesh => picture(Kind::Mesh, &item.name, PICTURE),
             _ => column((
                 glyph(item.kind.glyph(), 28.0).tint(Some(tint)),
             ))
