@@ -22,7 +22,8 @@ use super::agents::answer;
 /// The script, run in each agent's page before the page's own.
 pub(super) const SCRIPT: &str = include_str!("bridge.js");
 
-/// How long a page is given to carry out an act.
+/// How long a page is given to carry out an act, past the time the
+/// act itself waits.
 const ACT_WITHIN: Duration = Duration::from_secs(25);
 
 pub(super) fn plugin(app: &mut App) {
@@ -50,13 +51,15 @@ struct Act {
     until: Duration,
 }
 
-/// Asks `page` to carry out `act` with `arguments`, for the ask `id`.
+/// Asks `page` to carry out `act` with `arguments`, for the ask `id`,
+/// the act waiting on the page up to `waits`.
 pub(super) fn ask(
     world: &mut World,
     page: Entity,
     id: RequestId,
     act: &str,
     arguments: Value,
+    waits: Duration,
 ) {
     let nonce = RequestId::new().as_str().to_owned();
     let mut asked = json!({"nonce": nonce, "act": act});
@@ -66,7 +69,8 @@ pub(super) fn ask(
         asked.extend(arguments);
     }
     world.trigger(HostEmitEvent::new(page, "hamlet", &asked));
-    let until = world.resource::<Time<Real>>().elapsed() + ACT_WITHIN;
+    let until =
+        world.resource::<Time<Real>>().elapsed() + ACT_WITHIN + waits;
     world
         .resource_mut::<Bridged>()
         .0

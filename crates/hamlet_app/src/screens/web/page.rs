@@ -131,6 +131,22 @@ pub(super) fn of(
         .map(|(entity, _)| entity)
 }
 
+/// Wakes `panel`'s page, if it sleeps, and keeps it awake for another
+/// [`SLEEP_AFTER`], for an agent acting on it.
+pub(super) fn wake(world: &mut World, panel: &PanelId) {
+    let Some(page) = of(world, panel) else {
+        return;
+    };
+    let now = world.resource::<Time<Real>>().elapsed();
+    let mut page = world.entity_mut(page);
+    if page.contains::<OutOfSight>() {
+        page.insert(OutOfSight(now));
+    }
+    if page.get::<WebviewHidden>().is_some_and(|hidden| hidden.0) {
+        page.insert(WebviewHidden(false));
+    }
+}
+
 /// Loads `address` in `panel`'s page; a panel with none gets one at
 /// it by [`open`].
 pub(super) fn navigate(

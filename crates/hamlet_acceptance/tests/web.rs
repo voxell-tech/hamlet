@@ -190,3 +190,46 @@ async fn web_console_asks_for_the_page_console() {
         [("web_console".to_owned(), None)]
     );
 }
+
+#[tokio::test]
+async fn web_wait_asks_for_text_and_holds_to_thirty_seconds() {
+    let faux = Faux::new().agent(
+        2,
+        [
+            call("web_wait", json!({"text": "Saved", "seconds": 90})),
+            words("Done."),
+        ],
+    );
+    let mut s = Session::start(faux).await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
+    let now = chat(ada);
+    s.chief.open(&now).await;
+    s.chief.send(ClientMessage::WebWindow(WebWindow {})).await;
+    s.chief.tell(ada, "Wait for it.").await;
+    s.chief
+        .until("the server to ask for a wait", |c| {
+            !asks(c).is_empty()
+        })
+        .await;
+    let ask = asks(&s.chief).remove(0);
+    assert_eq!(
+        ask.act,
+        WebAct::Wait {
+            text: Some("Saved".into()),
+            selector: None,
+            seconds: WEB_WAIT_MOST,
+        }
+    );
+    s.chief
+        .send(ClientMessage::Web(WebAnswer {
+            to: ask.id,
+            text: "The page shows \"Saved\".".into(),
+            failed: false,
+        }))
+        .await;
+    s.chief.shows(&now, "Done.").await;
+    assert_eq!(
+        tools(&s.chief, &now),
+        [("web_wait".to_owned(), None)]
+    );
+}
