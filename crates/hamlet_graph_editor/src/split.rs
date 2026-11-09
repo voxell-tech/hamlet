@@ -258,6 +258,25 @@ fn inset_at(at: Vec2) -> UiRect {
     UiRect::new(px(at.x), Val::Auto, px(at.y), Val::Auto)
 }
 
+impl Card {
+    /// Where it is drawn: where it was placed, or in its corner by
+    /// the corner's edges until its size is known to place it by.
+    fn inset(&self) -> UiRect {
+        if self.placed {
+            return inset_at(self.shown);
+        }
+        let (edge, free) = (px(MARGIN), Val::Auto);
+        match self.corner {
+            Corner::TopLeft => UiRect::new(edge, free, edge, free),
+            Corner::TopRight => UiRect::new(free, edge, edge, free),
+            Corner::BottomLeft => UiRect::new(edge, free, free, edge),
+            Corner::BottomRight => {
+                UiRect::new(free, edge, free, edge)
+            }
+        }
+    }
+}
+
 /// Marks the line between the canvas and the preview.
 #[derive(Component)]
 struct Divider<K: EditorKey>(PhantomData<K>);
@@ -383,7 +402,7 @@ pub(super) fn floating<K: EditorKey>(
         column((header, shown, grip))
             .position(PositionType::Absolute)
             .inset(resource::<Layout<K>, _>(move |layout| {
-                inset_at(layout.card(pane).shown)
+                layout.card(pane).inset()
             }))
             .width(resource::<Layout<K>, _>(move |layout| {
                 px(layout.card(pane).width)
@@ -449,12 +468,21 @@ fn glide<K: EditorKey>(
         return;
     };
     let area = logical(area);
+    // A canvas not laid out, as one in a tab not shown, keeps its
+    // cards where they are, so they do not glide back from its
+    // corner when it shows again.
+    if area.cmple(Vec2::ZERO).any() {
+        return;
+    }
     if layout.area != area {
         layout.area = area;
     }
     let step = 1.0 - (-GLIDE * time.delta_secs()).exp();
     for (Floating(pane, _), node) in &floating {
         let size = logical(node);
+        if size.cmple(Vec2::ZERO).any() {
+            continue;
+        }
         let now = layout.bypass_change_detection().card(*pane);
         let ghost = now.held.map(|at| {
             Corner::nearest(at + size * 0.5, area * 0.5)
