@@ -40,7 +40,7 @@ danger_hover = "#f3d3dcff"
 danger_glow = "#ff6188ff"
 green = "#3f6518ff"
 green_deep = "#e3eed9ff"
-shadow = "#2d2a2e2e"
+shadow = "#2d2a2e47"
 
 [dark]
 name = "Dark"

@@ -41,7 +41,7 @@ danger_hover = "#efd2d8ff"
 danger_glow = "#e64553ff"
 green = "#235f16ff"
 green_deep = "#dbebd6ff"
-shadow = "#4c4f692e"
+shadow = "#4c4f6947"
 
 [dark]
 name = "Mocha"

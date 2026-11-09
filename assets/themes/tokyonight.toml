@@ -41,7 +41,7 @@ danger_hover = "#e8ced3ff"
 danger_glow = "#c64343ff"
 green = "#405628ff"
 green_deep = "#d4e3e7ff"
-shadow = "#3760bf2e"
+shadow = "#3760bf47"
 
 [dark]
 name = "Night"
