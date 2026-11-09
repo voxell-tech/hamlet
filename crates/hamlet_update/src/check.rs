@@ -166,14 +166,17 @@ fn name_of(url: &str) -> Option<&str> {
         .then_some(name)
 }
 
-/// The SHA-256 of the file at `path`, in hex.
+/// The SHA-256 of the file at `path`, in hex, read a piece at a time.
 async fn sum(path: &Path) -> Option<String> {
-    let bytes = tokio::fs::read(path).await.ok()?;
-    let digest =
-        tokio::task::spawn_blocking(move || Sha256::digest(bytes))
-            .await
-            .ok()?;
-    Some(hex(&digest))
+    let path = path.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let mut file = std::fs::File::open(path).ok()?;
+        let mut hasher = Sha256::new();
+        std::io::copy(&mut file, &mut hasher).ok()?;
+        Some(hex(&hasher.finalize()))
+    })
+    .await
+    .ok()?
 }
 
 fn hex(bytes: &[u8]) -> String {
