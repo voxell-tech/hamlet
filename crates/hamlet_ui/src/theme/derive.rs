@@ -99,9 +99,11 @@ const LIGHT: Steps = Steps {
 const OCHRE_LIGHTNESS: f32 = 0.86;
 const OCHRE_CHROMA: f32 = 0.75;
 const OCHRE_HUE: f32 = 8.0;
-/// How much of its chroma the mark of what is at rest keeps: it is a
-/// neutral, not a tan.
-const REST_CHROMA: f32 = 0.3;
+/// What is at rest is a cool grey of the ramp's lightness, with no
+/// brown or gold in it, so that it is told from the ochre of what is
+/// in progress by its hue.
+const REST_CHROMA: f32 = 0.012;
+const REST_HUE: f32 = 250.0;
 
 /// The lightness the glow keeps at most over paper, where the bright
 /// hue of the lamp would not be seen.
@@ -418,8 +420,8 @@ impl Statuses {
                 fill_hover,
             ];
             let ink = reach(hue, &grounds, steps.ink, Way::Nearest);
-            // A mark is read as a shape, so it keeps its hue as far as
-            // it can: it needs only the contrast of a mark.
+            // A mark is read as a shape, so it keeps its hue as far
+            // as it can: it needs only the contrast of a mark.
             let marks = [
                 on.surface,
                 on.card,
@@ -455,11 +457,8 @@ impl Statuses {
                 on.button_hover,
             ];
             let paint = lch(on.dim);
-            let neutral = oklch(
-                paint.lightness,
-                paint.chroma * REST_CHROMA,
-                paint.hue,
-            );
+            let neutral =
+                oklch(paint.lightness, REST_CHROMA, REST_HUE);
             let ink =
                 reach(neutral, &grounds, steps.ink, Way::Nearest);
             Status {

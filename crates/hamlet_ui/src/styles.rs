@@ -19,7 +19,7 @@ use bevy_fynix::{
 
 use crate::theme::{HamletTheme, StatusKind, TextSizes};
 use crate::widgets::edges::faded;
-use crate::widgets::effects::Variant;
+use crate::widgets::effects::{Underglow, Variant};
 use crate::widgets::ellipsis::one_line;
 use crate::widgets::icons::{Glyph, glyph};
 use crate::widgets::platform::{DisplayText, MonoText, Wraps};
@@ -627,10 +627,34 @@ fn status_label_at(
     })
 }
 
-/// The main state of something, beside its name: a solid pill in
-/// the hue of `kind`, with an icon and light words. What is in
-/// progress is no pill but its [`status_mark`] and words in the body
-/// tone; what is at rest is its icon and words, dim.
+/// The state of something beside its name, as its icon alone in the
+/// mark of `kind`, with `words` under the pointer. What is in
+/// progress has a small glow under its icon while it lasts.
+pub fn status_icon(
+    which: Glyph,
+    words: impl Into<String>,
+    kind: StatusKind,
+) -> impl View {
+    let words = words.into();
+    with_cx(move |cx| {
+        let size = cx.theme().text.body;
+        let mark = glyph(which, size).tone(kind.tone());
+        let mark = row((mark,))
+            .padding(UiRect::axes(px(3.0), px(2.0)))
+            .shrink(0.0);
+        let words = words.clone();
+        if kind == StatusKind::Warning {
+            mark.tagged(Underglow::lamp())
+                .tooltip(move || note(words.clone()))
+                .boxed()
+        } else {
+            mark.tooltip(move || note(words.clone())).boxed()
+        }
+    })
+}
+
+/// A solid pill in the hue of `kind`, with an icon and light words:
+/// the fate of something that is gone, or a state that has ended.
 pub fn status_pill(
     which: Glyph,
     text: impl Into<Prop<String>>,
@@ -640,23 +664,6 @@ pub fn status_pill(
     with_cx(move |cx| {
         let theme = cx.theme();
         let size = theme.text.small;
-        if matches!(kind, StatusKind::Warning | StatusKind::Rest) {
-            let (mark, tone) = match kind {
-                StatusKind::Warning => (
-                    status_mark(which, kind, size).boxed(),
-                    Tone::Body,
-                ),
-                _ => (glyph(which, size).tone(Tone::Dim).boxed(), Tone::Dim),
-            };
-            return row((
-                mark,
-                label(text).size(size).tone(tone).wrap(false),
-            ))
-            .gap(theme.space.status_icon_gap)
-            .align(AlignItems::Center)
-            .shrink(0.0)
-            .boxed();
-        }
         row((
             glyph(which, size).tone(Tone::OnSolid),
             label(text)
@@ -692,15 +699,17 @@ pub fn status_mark(
         let status = theme.palette.status.get(kind);
         if kind == StatusKind::Warning {
             let outer = size * 1.4;
-            return row((glyph(which, size * 0.8).tone(Tone::Warning),))
-                .width(px(outer))
-                .height(px(outer))
-                .radius(outer / 2.0)
-                .fill(status.fill)
-                .shrink(0.0)
-                .justify(JustifyContent::Center)
-                .align(AlignItems::Center)
-                .boxed();
+            return row((
+                glyph(which, size * 0.8).tone(Tone::Warning),
+            ))
+            .width(px(outer))
+            .height(px(outer))
+            .radius(outer / 2.0)
+            .fill(status.fill)
+            .shrink(0.0)
+            .justify(JustifyContent::Center)
+            .align(AlignItems::Center)
+            .boxed();
         }
         let circle =
             row((glyph(which, size * 0.55).tone(Tone::OnSolid),))
@@ -1455,9 +1464,9 @@ pub fn radio(on: bool) -> impl View {
     })
 }
 
-/// A word that marks a state, such as "In use" or "Default": small
-/// amber letters on a filled amber plate with no border, so it does
-/// not read as a button.
+/// A word that marks a state, such as "Edited" or "Default": small
+/// dim letters on a neutral plate with no border, so it does not read
+/// as a button. The accent is for what is picked, not for a state.
 pub fn pill(text: impl Into<Prop<String>>) -> impl View {
     let text = text.into();
     with_cx(move |cx| {
@@ -1465,11 +1474,11 @@ pub fn pill(text: impl Into<Prop<String>>) -> impl View {
         row((label(text)
             .size(theme.text.small)
             .bold(true)
-            .tone(Tone::Accent)
+            .tone(Tone::Dim)
             .wrap(false),))
         .padding(UiRect::axes(px(8.0), px(2.0)))
         .shrink(0.0)
-        .fill(theme.palette.primary_low)
+        .fill(theme.palette.button_hover)
         .radius(theme.space.round)
     })
 }

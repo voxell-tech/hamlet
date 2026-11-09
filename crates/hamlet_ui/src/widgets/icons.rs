@@ -170,6 +170,8 @@ pub enum Glyph {
     Anchor,
     /// Two chevrons forward: the fast tier.
     Fast,
+    /// Two points joined into one: a merge.
+    Merge,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -198,7 +200,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 64] = [
+    pub const ALL: [Glyph; 65] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -263,6 +265,7 @@ impl Glyph {
         Glyph::Speaker,
         Glyph::Anchor,
         Glyph::Fast,
+        Glyph::Merge,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -725,6 +728,13 @@ impl Glyph {
             Glyph::Fast => &[
                 Path(&[[3.0, 4.0], [7.0, 8.0], [3.0, 12.0]]),
                 Path(&[[8.5, 4.0], [12.5, 8.0], [8.5, 12.0]]),
+            ],
+            Glyph::Merge => &[
+                Dot(4.0, 3.5, 1.6),
+                Dot(4.0, 12.5, 1.6),
+                Ring(12.0, 8.0, 1.6),
+                Line(4.0, 5.1, 4.0, 10.9),
+                Curve(4.0, 5.1, 4.0, 8.0, 10.4, 8.0),
             ],
         }
     }

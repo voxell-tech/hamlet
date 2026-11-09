@@ -262,10 +262,10 @@ pub struct Palette {
     pub status: Statuses,
 }
 
-/// How one status is drawn: its mark for icons, dots and bars, its ink
-/// for words, a tinted fill with the ink to use on it, and its solid
-/// form for a pill, a circle or a button, with the colour of what is
-/// on it.
+/// How one status is drawn: its mark for icons, dots and bars, its
+/// ink for words, a tinted fill with the ink to use on it, and its
+/// solid form for a pill, a circle or a button, with the colour of
+/// what is on it.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Status {
     /// The hue kept as far as a shape needs only its contrast of a
@@ -302,8 +302,18 @@ pub enum StatusKind {
 }
 
 impl StatusKind {
-    /// The tone of its mark, for an icon, a dot or a bar. Words beside
-    /// it stay in the body tone, and a danger is red either way.
+    /// The tone of the words that say it: the body tone beside its
+    /// mark, dim at rest, and red for a danger, which reads as text.
+    pub fn words(self) -> Tone {
+        match self {
+            Self::Danger => Tone::Critical,
+            Self::Rest => Tone::Dim,
+            _ => Tone::Body,
+        }
+    }
+
+    /// The tone of its mark, for an icon, a dot or a bar. A danger is
+    /// red either way.
     pub fn tone(self) -> Tone {
         match self {
             Self::Success => Tone::Success,
@@ -312,7 +322,7 @@ impl StatusKind {
             Self::Danger => Tone::Critical,
             Self::Info => Tone::Info,
             Self::Attention => Tone::Attention,
-            Self::Rest => Tone::Dim,
+            Self::Rest => Tone::Rest,
         }
     }
 }
@@ -641,6 +651,7 @@ impl TextTokens for HamletTheme {
             Tone::Warning => palette.status.warning.mark,
             Tone::Info => palette.status.info.mark,
             Tone::Attention => palette.status.attention.mark,
+            Tone::Rest => palette.status.rest.mark,
             Tone::Reference => palette.status.info.ink,
             Tone::OnSolid => palette.status.success.on_solid,
         }

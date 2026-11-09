@@ -1,5 +1,7 @@
 //! The glow under a title or a tab.
 
+use core::f32::consts::TAU;
+
 use bevy::color::Alpha;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -19,6 +21,14 @@ use crate::theme::Themed;
 /// The most a light panel's gain strengthens an underglow: past it
 /// the glow pools into an orange smudge in its box.
 const GAIN_CAP: f32 = 1.5;
+/// How much stronger a lamp's glow is than a title's: it is small
+/// and meant to be seen without the pointer.
+const LAMP_STRENGTH: f32 = 2.2;
+/// A lamp's level swings by `LAMP_SWING` around `LAMP_LEVEL`, once
+/// every `LAMP_PERIOD` seconds: a slow breath.
+const LAMP_LEVEL: f32 = 0.85;
+const LAMP_SWING: f32 = 0.15;
+const LAMP_PERIOD: f32 = 4.0;
 
 /// A title or a tab that glows from below under the pointer, at a
 /// press, and for as long as it is `held`, when it also takes the
@@ -26,6 +36,9 @@ const GAIN_CAP: f32 = 1.5;
 #[derive(Component, Default)]
 pub struct Underglow {
     pub held: bool,
+    /// A lamp: held on while what it marks is at work, with no
+    /// selected fill, stronger, and breathing slowly.
+    lamp: bool,
     level: f32,
     /// Whether the gradient last set has the selected fill in it.
     filled: bool,
@@ -36,6 +49,17 @@ impl Underglow {
     pub fn new(held: bool) -> Self {
         Self {
             held,
+            lamp: false,
+            level: 0.0,
+            filled: false,
+        }
+    }
+
+    /// A small glow under a mark, on for as long as it exists.
+    pub fn lamp() -> Self {
+        Self {
+            held: true,
+            lamp: true,
             level: 0.0,
             filled: false,
         }
@@ -64,22 +88,30 @@ pub(super) fn update_underglow(
     let dt = time.delta_secs();
     for (node, mut glow, hovered, effect, shown) in &mut glows {
         let over = hovered.is_some_and(|h| h.0);
-        let want = f32::from(over || glow.held);
+        let want = if glow.lamp {
+            let turn = time.elapsed_secs() / LAMP_PERIOD * TAU;
+            LAMP_LEVEL + LAMP_SWING * turn.sin()
+        } else {
+            f32::from(over || glow.held)
+        };
         let level = ease(glow.level, want, set.glow_rate, dt);
         let flare = effect.map_or(0.0, |effect| effect.pulse);
+        let fills = glow.held && !glow.lamp;
         let steady = level == glow.level
             && flare == 0.0
-            && glow.filled == glow.held;
+            && glow.filled == fills;
         if steady && (shown || level == 0.0) {
             continue;
         }
         glow.level = level;
-        glow.filled = glow.held;
+        glow.filled = fills;
+        let boost = if glow.lamp { LAMP_STRENGTH } else { 1.0 };
         let strength = (set.underglow * level
             + set.underglow_press * flare)
+            * boost
             * set.gain(&theme).min(GAIN_CAP);
         let mut layers = Vec::new();
-        if glow.held {
+        if fills {
             let fill = theme.palette.selected;
             layers.push(Gradient::from(LinearGradient::to_right(
                 vec![

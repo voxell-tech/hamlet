@@ -223,15 +223,20 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
                         TextColor(theme.tone(tone)),
                         ChildOf(root),
                     ));
+                    // Names and links are references, in blue.
                     if code {
                         entity.insert((
                             MonoText,
-                            TextBackgroundColor(theme.palette.code),
+                            TextColor(theme.tone(Tone::Reference)),
+                            TextBackgroundColor(
+                                theme.palette.status.info.fill,
+                            ),
                         ));
                     }
                     if let Some(anchor) = anchor {
                         entity.insert((
                             anchor,
+                            TextColor(theme.tone(Tone::Reference)),
                             Underline,
                             EntityCursor(SystemCursorIcon::Pointer),
                         ));
