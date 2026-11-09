@@ -12,7 +12,7 @@ and at its own size.
 
 | Mode | Picture | When |
 |---|---|---|
-| `Point` | The lit taper | Nothing else holds |
+| `Point` | The glowing taper | Nothing else holds |
 | `Press` | The glove with one finger out | Over a button, a tab, a link, or a thing of the world that takes a click or can be selected |
 | `Grab` | The open glove | Over a robot that can be lifted, or a dock tab |
 | `Carry` | The closed glove | A robot is off the ground, or a dock tab is being dragged |

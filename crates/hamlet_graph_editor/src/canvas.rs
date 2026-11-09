@@ -120,7 +120,8 @@ pub(super) fn plugin<K: EditorKey>(app: &mut App) {
         .add_systems(
             Update,
             (titles::<K>, retitled::<K>, drop_hint::<K>),
-        );
+        )
+        .add_systems(Update, frame_opened::<K>.before(place::<K>));
 }
 
 /// Outlines the canvas while a carried asset is over it, where
@@ -288,6 +289,8 @@ struct Sight<K: EditorKey> {
     zoom: f32,
     /// The zoom a scroll asked for, which [`ease_zoom`] goes to.
     goal: Option<ZoomGoal>,
+    /// The graph last fitted in sight when it was opened.
+    framed: Option<String>,
     key: PhantomData<K>,
 }
 
@@ -297,6 +300,7 @@ impl<K: EditorKey> Sight<K> {
             pan,
             zoom,
             goal: None,
+            framed: None,
             key: PhantomData,
         }
     }
@@ -453,7 +457,34 @@ pub fn fit<K: EditorKey>(world: &mut World) {
         .min_element()
         .clamp(LEAST_ZOOM, 1.0);
     let pan = size * 0.5 - (low + high) * 0.5 * zoom;
-    *world.resource_mut::<Sight<K>>() = Sight::new(pan, zoom);
+    let mut sight = world.resource_mut::<Sight<K>>();
+    sight.pan = pan;
+    sight.zoom = zoom;
+    sight.goal = None;
+}
+
+/// The canvas's size once it is laid out; none while it is not, as
+/// while its tab is not the one shown.
+fn laid_out<K: EditorKey>(world: &mut World) -> Option<Vec2> {
+    world
+        .query_filtered::<&ComputedNode, With<Canvas<K>>>()
+        .iter(world)
+        .next()
+        .map(|node| node.size() * node.inverse_scale_factor())
+        .filter(|size| size.cmpgt(Vec2::ZERO).all())
+}
+
+/// Fits each graph opened in sight, however it was opened, once the
+/// canvas is laid out to fit it in.
+fn frame_opened<K: EditorKey>(world: &mut World) {
+    let name = world.resource::<Editor<K>>().name.clone();
+    if world.resource::<Sight<K>>().framed.as_ref() == Some(&name)
+        || laid_out::<K>(world).is_none()
+    {
+        return;
+    }
+    fit::<K>(world);
+    world.resource_mut::<Sight<K>>().framed = Some(name);
 }
 
 /// Where the window's point `at` is on the sheet, if it is over the

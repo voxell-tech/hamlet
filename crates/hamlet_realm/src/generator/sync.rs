@@ -10,6 +10,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use super::building::{Builds, Cost, Course};
+use super::house::HouseRules;
 use super::land::Land;
 use super::layout::Route;
 use super::lights::Lamp;
@@ -31,6 +32,8 @@ pub(super) struct HouseSignature {
     pub(super) cleared: bool,
     pub(super) mayor: bool,
     pub(super) wings: u8,
+    /// The revision of the rules it was built by.
+    pub(super) rules: u64,
 }
 
 pub(super) struct RoadDrawn {
@@ -118,6 +121,7 @@ struct Pass<'a, 'w, 's> {
     commands: &'a mut Commands<'w, 's>,
     society: &'a Society,
     land: &'a Land,
+    rules: &'a HouseRules,
     kit: &'a Kit,
     drawn: &'a mut Drawn,
     builds: &'a mut Builds,
@@ -152,6 +156,7 @@ impl Pass<'_, '_, '_> {
 pub(super) struct Makings<'w, 's> {
     society: Res<'w, Society>,
     land: Res<'w, Land>,
+    rules: Res<'w, HouseRules>,
     kit: Res<'w, Kit>,
     robot_kit: Res<'w, keeper::Kit>,
     sky: Res<'w, SkySettings>,
@@ -183,6 +188,7 @@ pub(super) fn sync(
     let Makings {
         society,
         land,
+        rules,
         kit,
         robot_kit,
         sky,
@@ -202,6 +208,7 @@ pub(super) fn sync(
         commands: &mut commands,
         society: &society,
         land: &land,
+        rules: &rules,
         kit: &kit,
         drawn: &mut drawn,
         builds: &mut loading.builds,

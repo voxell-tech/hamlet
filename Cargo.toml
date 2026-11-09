@@ -30,6 +30,10 @@ hamlet_vfx = { version = "0.1.0", path = "crates/hamlet_vfx" }
 hamlet_realm = { version = "0.1.0", path = "crates/hamlet_realm" }
 hamlet_ui = { version = "0.1.0", path = "crates/hamlet_ui" }
 hamlet_testing = { version = "0.1.0", path = "crates/hamlet_testing" }
+hamlet_acceptance = { version = "0.1.0", path = "crates/hamlet_acceptance" }
+hamlet_store = { version = "0.1.0", path = "crates/hamlet_store" }
+hamlet_git = { version = "0.1.0", path = "crates/hamlet_git" }
+hamlet_sandbox = { version = "0.1.0", path = "crates/hamlet_sandbox" }
 hamlet_workspace_wire = { version = "0.1.0", path = "crates/hamlet_workspace_wire" }
 
 # fynix
@@ -57,13 +61,18 @@ bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", rev = "d277555d4
 anyhow = "1"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+diesel = { version = "2.3", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35", "32-column-tables"] }
 # Its maths is sqrt, trunc and abs through libm, so a seed gives the
 # same noise on every platform.
 fastnoise-lite = { version = "1.1", default-features = false, features = ["libm"] }
 futures = "0.3"
+# Each scholar's repository, kept by the server with no git program.
+gix = { version = "0.90", default-features = false, features = ["sha1", "merge", "revision"] }
 gltf = { version = "1.4", default-features = false, features = ["names", "utils"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 interprocess = "2"
+# SQLite itself, built in, for Diesel.
+libsqlite3-sys = { version = "0.38", features = ["bundled"] }
 keyring = "4"
 libc = "0.2"
 # Trigonometry that gives the same bits on every platform.
@@ -80,7 +89,8 @@ rfd = "0.17"
 ron = "0.12"
 ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
+# The model providers' marks, drawn from their SVGs. No text or fonts.
+resvg = { version = "0.48.1", default-features = false }
 rustix = "1"
 serde = { version = "1.0.229", features = ["derive"] }
 schemars = "1.2.3"
@@ -98,6 +108,8 @@ objc2-foundation = { version = "0.2", default-features = false, features = ["std
 winit = { version = "0.30", default-features = false }
 windows-sys = "0.61"
 toml = "1"
+# The desktop portal, asked whether the computer is light or dark.
+zbus = { version = "6", default-features = false, features = ["tokio", "proxy"] }
 
 [workspace.lints.rust]
 # Unsafe code lives only in the modules that say so.

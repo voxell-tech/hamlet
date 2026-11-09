@@ -5,7 +5,7 @@ use std::f32::consts::TAU;
 use bevy::prelude::*;
 use hamlet_vfx::ground::SoilUniform;
 
-use super::{HOLD_EASE, LandData, Unfit};
+use super::{Frame, HOLD_EASE, IslandId, LandData, Unfit};
 use crate::generator::noise::{fbm, key, perlin, unit};
 use crate::meshes::{lerp, smoothstep};
 
@@ -14,10 +14,12 @@ use crate::meshes::{lerp, smoothstep};
 const OPEN: f32 = 40.0;
 
 impl LandData {
-    /// `p`, moved straight away from the nearest river if nearer
-    /// than `min`.
+    /// `p` on the hamlet island, moved straight away from the
+    /// nearest river if nearer than `min`.
     pub(super) fn clear_of_river(&self, p: Vec2, min: f32) -> Vec2 {
-        let Some((k, u, off)) = self.river_by(p) else {
+        let Some((k, u, off)) =
+            self.river_by(p - self.hamlet_centre())
+        else {
             return p;
         };
         let min = min * self.river_slant(k, u);
@@ -64,8 +66,9 @@ impl LandData {
                 * perlin(Vec2::new(u * set.kinks.0, 9.1), seed)
     }
 
-    /// The river that runs near `p`, if one does: its number, the
-    /// distance along it, and how far to its side `p` lies.
+    /// The river that runs near `p`, measured from the hamlet
+    /// island's middle, if one does: its number, the distance along
+    /// it, and how far to its side `p` lies.
     fn river_by(&self, p: Vec2) -> Option<(i32, f32, f32)> {
         let (u, v) = self.river_frame(p);
         let set = &self.set.land;
@@ -83,9 +86,18 @@ impl LandData {
     }
 
     /// Distance from `p` to the middle line of the nearest river.
-    /// Very large where none runs near.
+    /// Very large where none runs near, or on the city island.
     pub(crate) fn river_dist(&self, p: Vec2) -> f32 {
-        match self.river_by(p) {
+        self.river_dist_in(&self.frame(p))
+    }
+
+    /// [`LandData::river_dist`] for a point already framed. Only the
+    /// hamlet island has rivers.
+    fn river_dist_in(&self, frame: &Frame) -> f32 {
+        if frame.isle != IslandId::Hamlet {
+            return f32::MAX;
+        }
+        match self.river_by(frame.local) {
             Some((k, u, off)) => off.abs() / self.river_slant(k, u),
             None => f32::MAX,
         }
@@ -97,14 +109,21 @@ impl LandData {
             .min(1.0)
     }
 
-    /// The hills at `p`: how high the tallest of them lifts the
-    /// ground there. Each hill is a stroke: a short line with a level
-    /// top about it, its sides falling away in a skirt as steep as
-    /// the stroke's own angle. Where two meet, the taller wins. One
-    /// may stand in each cell of a grid, beyond the plains about the
-    /// middle and clear of the towns.
+    /// The hills of the hamlet island at `p`: how high the tallest
+    /// of them lifts the ground there.
     pub(crate) fn hill(&self, p: Vec2) -> f32 {
+        self.hill_in(p - self.hamlet_centre())
+    }
+
+    /// The hills at `p`, measured from the hamlet island's middle.
+    /// Each hill is a stroke: a short line with a level top about it,
+    /// its sides falling away in a skirt as steep as the stroke's own
+    /// angle. Where two meet, the taller wins. One may stand in each
+    /// cell of a grid, beyond the plains about the middle and clear
+    /// of the towns.
+    fn hill_in(&self, p: Vec2) -> f32 {
         let set = &self.set.land;
+        let centre = self.hamlet_centre();
         let (side, share) = set.mounds;
         let edge = p.length()
             + set.edge.1 * perlin(p * set.edge.0, self.seed + 50);
@@ -143,9 +162,10 @@ impl LandData {
                 let skirt =
                     lerp_by(set.mound_skirt, h(7)).to_radians();
                 let run = tall / skirt.tan().max(0.05);
-                if self
-                    .near_town(mid, flat + run + half.length() + 8.0)
-                {
+                if self.near_town(
+                    mid + centre,
+                    flat + run + half.length() + 8.0,
+                ) {
                     continue;
                 }
                 let along = segment_dist(p, mid - half, mid + half);
@@ -174,18 +194,28 @@ impl LandData {
     /// True when a town stands within `reach` of `p`.
     fn near_town(&self, p: Vec2, reach: f32) -> bool {
         let clear = reach + self.set.town.radius;
-        self.shores().any(|at| at.distance(p) < clear)
+        self.island(IslandId::Hamlet)
+            .shores
+            .iter()
+            .any(|at| at.distance(p) < clear)
     }
 
     /// The ground as it lies before any site levels it or a river
-    /// cuts it, `d` from the nearest river.
-    fn wild(&self, p: Vec2, d: f32) -> f32 {
+    /// cuts it, `d` from the nearest river. The city island is
+    /// plains without hills.
+    fn wild(&self, frame: &Frame, d: f32) -> f32 {
         let (seed, set) = (self.seed, &self.set.land);
+        let p = frame.local;
         // Rolling plains, four octaves.
         let h = set.plain_y
             + set.hills.1 * fbm(p * set.hills.0, 4, seed + 20)
             + set.grain.1 * perlin(p * set.grain.0, seed + 30);
-        h + self.hill(p) * smoothstep(8.0, 40.0, d)
+        match frame.isle {
+            IslandId::City => h,
+            IslandId::Hamlet => {
+                h + self.hill_in(p) * smoothstep(8.0, 40.0, d)
+            }
+        }
     }
 
     pub fn height(&self, p: Vec2) -> f32 {
@@ -216,20 +246,44 @@ impl LandData {
         }
     }
 
-    /// How far `p` lies inside the island's coast, below zero out at
-    /// sea. The island is the land within reach of the middle and of
-    /// every town, the reaches run smoothly together.
-    pub(crate) fn inside(&self, p: Vec2) -> f32 {
+    /// Which island `p` belongs to, and its place there. Each island
+    /// is the land within reach of its middle and of everything on
+    /// it, the reaches running smoothly together, and the two never
+    /// reach one another. A point belongs to the island it lies
+    /// nearer.
+    pub(crate) fn frame(&self, p: Vec2) -> Frame {
         let set = &self.set.land;
-        let near = self
-            .shores()
-            .map(|at| at.distance(p))
-            .fold(f32::MAX, |a, b| {
-                smooth_min(a, b, set.island * 0.3)
-            });
-        set.island
-            - near
-            - set.coast.1 * perlin(p * set.coast.0, self.seed + 40)
+        let near = |id: IslandId| {
+            self.island(id)
+                .shores
+                .iter()
+                .map(|at| at.distance(p))
+                .fold(f32::MAX, |a, b| {
+                    smooth_min(a, b, set.island * 0.3)
+                })
+        };
+        let (city, hamlet) =
+            (near(IslandId::City), near(IslandId::Hamlet));
+        let (isle, near) = if city < hamlet {
+            (IslandId::City, city)
+        } else {
+            (IslandId::Hamlet, hamlet)
+        };
+        let local = p - self.island(isle).centre;
+        Frame {
+            isle,
+            local,
+            inside: set.island
+                - near
+                - set.coast.1
+                    * perlin(local * set.coast.0, self.seed + 40),
+        }
+    }
+
+    /// How far `p` lies inside the coast of its island, below zero
+    /// out at sea.
+    pub fn inside(&self, p: Vec2) -> f32 {
+        self.frame(p).inside
     }
 
     /// True when all the square at `corner`, `side` across, is the
@@ -237,36 +291,33 @@ impl LandData {
     /// it. It lies so far out that the coast at its nearest, pushed
     /// out as far as the coast's wobble, its raggedness and the
     /// smooth joining of every reach can push it, is further than
-    /// [`OPEN`] off.
+    /// [`OPEN`] off. Joining lowers the distance by less than its
+    /// own width, however many reaches there are.
     pub(crate) fn is_open_floor(
         &self,
         corner: Vec2,
         side: f32,
     ) -> bool {
         let set = &self.set.land;
-        let joined = self.shores().count().saturating_sub(1) as f32
-            * set.island
-            * 0.3
-            / 4.0;
         let reach =
-            set.island + set.coast.1 + set.ragged + joined + OPEN;
+            set.island * 1.3 + set.coast.1 + set.ragged + OPEN;
         self.shores().all(|at| {
             at.distance(at.clamp(corner, corner + side)) > reach
         })
     }
 
-    /// The ground `h` high at `p` as the coast leaves it. The island
-    /// is one stroke: level inland, its rim falling in a skirt to the
-    /// sea floor, steep in some stretches and gentle in others. Out
-    /// at sea the floor shelves away from the shore.
-    fn shore(&self, p: Vec2, h: f32) -> f32 {
+    /// The ground `h` high at a point as the coast leaves it. The
+    /// island is one stroke: level inland, its rim falling in a skirt
+    /// to the sea floor, steep in some stretches and gentle in
+    /// others. Out at sea the floor shelves away from the shore.
+    fn shore(&self, frame: &Frame, h: f32) -> f32 {
         let set = &self.set.land;
         let water = set.water_y;
-        let inside = self.inside(p) + self.ragged(p);
+        let inside = frame.inside + self.ragged(frame.local);
         let run = lerp(
             set.rim.0,
             set.rim.1,
-            0.5 + 0.5 * perlin(p * 0.012, self.seed + 41),
+            0.5 + 0.5 * perlin(frame.local * 0.012, self.seed + 41),
         );
         let floor = lerp(
             water - set.shelf,
@@ -279,8 +330,9 @@ impl LandData {
     /// The height with every river `wide` wider on each side, for
     /// ground drawn too coarsely to hold a river's true bed.
     pub(crate) fn height_wide(&self, p: Vec2, wide: f32) -> f32 {
-        let d = self.river_dist(p);
-        let mut h = self.wild(p, d);
+        let frame = self.frame(p);
+        let d = self.river_dist_in(&frame);
+        let mut h = self.wild(&frame, d);
 
         let ds = self.site_dist(p);
         let gentle = smoothstep(
@@ -298,7 +350,7 @@ impl LandData {
         let d = (d - wide).max(0.0);
         h = lerp(0.3, h, smoothstep(4.0, 22.0, d));
         h = lerp(h, -1.3, smoothstep(5.2, 2.2, d));
-        h = self.shore(p, h);
+        h = self.shore(&frame, h);
         for hold in &self.holds {
             let away = hold.at.distance(p);
             h = lerp(
@@ -359,33 +411,42 @@ impl LandData {
             at + Vec2::from_angle(i as f32 / 8.0 * TAU) * town.radius
         });
         for p in rim.chain([at]) {
-            if self.mound(p) > 0.03 {
+            let frame = self.frame(p);
+            if frame.isle == IslandId::Hamlet && self.mound(p) > 0.03
+            {
                 return Err(Unfit::Steep);
             }
-            if self.wild(p, self.river_dist(p)) < water + 0.6 {
+            if self.wild(&frame, self.river_dist_in(&frame))
+                < water + 0.6
+            {
                 return Err(Unfit::Water);
             }
         }
         Ok(())
     }
 
-    /// Distance of `p` out of the home plains, from 0 on them to 1
-    /// well beyond.
-    fn afar(&self, p: Vec2) -> f32 {
+    /// Distance out of the home plains, from 0 on them to 1 well
+    /// beyond. The city island has only plains.
+    fn afar(&self, frame: &Frame) -> f32 {
+        if frame.isle == IslandId::City {
+            return 0.0;
+        }
         let plains = self.set.land.plains;
-        smoothstep(plains, plains + 500.0, p.length())
+        smoothstep(plains, plains + 500.0, frame.local.length())
     }
 
     /// 0 in open meadow, 1 in thick forest.
     pub(crate) fn forest(&self, p: Vec2) -> f32 {
-        let n = fbm(p * 0.017, 3, self.seed + 70);
+        let frame = self.frame(p);
+        let q = frame.local;
+        let n = fbm(q * 0.017, 3, self.seed + 70);
         let ds = self.site_dist(p);
         // Far out, whole regions are wooded and others bare.
-        let afar = self.afar(p);
+        let afar = self.afar(&frame);
         let bare = if afar > 0.0 {
             self.set.land.wilds
                 * afar
-                * fbm(p * 0.0021, 2, self.seed + 72)
+                * fbm(q * 0.0021, 2, self.seed + 72)
         } else {
             0.0
         };

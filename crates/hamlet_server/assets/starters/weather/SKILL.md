@@ -10,6 +10,6 @@ Needs tool network access and python3. Uses wttr.in, which needs no API key.
 python3 skills/weather/scripts/weather.py "Toronto" [metric|us]
 ```
 
-Use the unit system the user prefers (check NOTES.md); metric is the default.
-With no place given, wttr.in guesses from the network address, which is often
-wrong, so ask the user or use the place in NOTES.md.
+Use the unit system the chief prefers (check your memory); metric is the
+default. With no place given, wttr.in guesses from the network address, which
+is often wrong, so ask the chief or use the place in your memory.

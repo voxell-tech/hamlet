@@ -68,8 +68,13 @@ fn mark(point: &str, marker: &str) -> Pass {
 }
 
 /// Whether `HAMLET_FAULT_SPLIT_MARKER` asks for a change and its
-/// marker committed apart.
+/// marker committed apart, the order a crash test must catch.
 #[cfg(feature = "faults")]
 pub(crate) fn is_marker_split() -> bool {
     std::env::var_os("HAMLET_FAULT_SPLIT_MARKER").is_some()
+}
+
+#[cfg(not(feature = "faults"))]
+pub(crate) fn is_marker_split() -> bool {
+    false
 }

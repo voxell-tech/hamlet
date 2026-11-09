@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
-use hamlet_testing::{Home, Script};
 use serde_json::json;
 
 fn fault(text: &str, to: Option<&RequestId>) -> ServerMessage {
@@ -17,22 +16,21 @@ fn fault(text: &str, to: Option<&RequestId>) -> ServerMessage {
 
 #[tokio::test]
 async fn refuses_a_wrong_token_and_closes() {
-    let s = Session::start(Script::new()).await;
+    let s = Session::start(Faux::new()).await;
     let mut wire = Wire::open(&s.server.url).await;
-    let hello =
-        json!({"type": "hello", "v": V, "token": "not-the-token"});
+    let hello = json!({"type": "hello", "v": VERSION.to_string(), "token": "not-the-token"});
     wire.send_text(&hello.to_string()).await;
     let (got, ending) = wire.rest().await;
     assert_eq!(
         got,
-        [fault("That is not this server's token.", None)]
+        [fault("That token is not this server's.", None)]
     );
-    assert_eq!(ending, Ending::Closed(1008));
+    assert_eq!(ending, Ending::Closed(4001));
 }
 
 #[tokio::test]
 async fn refuses_a_message_before_hello_and_closes() {
-    let s = Session::start(Script::new()).await;
+    let s = Session::start(Faux::new()).await;
     let mut wire = Wire::open(&s.server.url).await;
     wire.send_text(
         &serde_json::to_string(
@@ -42,22 +40,15 @@ async fn refuses_a_message_before_hello_and_closes() {
     )
     .await;
     let (got, ending) = wire.rest().await;
-    assert_eq!(
-        got,
-        [fault(
-            "A connection begins with hello and the home's token.",
-            None
-        )]
-    );
+    assert_eq!(got, [fault("The first message is a hello.", None)]);
     assert_eq!(ending, Ending::Closed(1008));
 }
 
 #[tokio::test]
 async fn refuses_another_protocol_version() {
-    let s = Session::start(Script::new()).await;
+    let s = Session::start(Faux::new()).await;
     let mut wire = Wire::open(&s.server.url).await;
-    let hello =
-        json!({"type": "hello", "v": V + 1, "token": s.server.token});
+    let hello = json!({"type": "hello", "v": "0.2.0", "token": s.server.token});
     wire.send_text(&hello.to_string()).await;
     let (got, ending) = wire.rest().await;
     assert_eq!(
@@ -65,17 +56,17 @@ async fn refuses_another_protocol_version() {
         [fault(
             &format!(
                 "This `hello` message does not fit the protocol: \
-                 `v` must be `{V}`."
+                 `v` 0.2.0 is not compatible with {VERSION}."
             ),
             None
         )]
     );
-    assert_eq!(ending, Ending::Closed(1008));
+    assert_eq!(ending, Ending::Closed(4002));
 }
 
 #[tokio::test]
 async fn closes_a_connection_that_never_says_hello() {
-    let s = Session::start(Script::new()).await;
+    let s = Session::start(Faux::new()).await;
     let mut wire = Wire::open(&s.server.url).await;
     let began = Instant::now();
     let (got, ending) = wire.rest().await;
@@ -84,35 +75,30 @@ async fn closes_a_connection_that_never_says_hello() {
         "{:?}",
         began.elapsed()
     );
-    assert_eq!(
-        got,
-        [fault(
-            "A connection begins with hello and the home's token.",
-            None
-        )]
-    );
+    assert_eq!(got, [fault("No hello came in time.", None)]);
     assert_eq!(ending, Ending::Closed(1008));
 }
 
 #[tokio::test]
 async fn answers_malformed_messages_with_faults_and_stays_open() {
-    let s = Session::start(Script::new()).await;
+    let s = Session::start(Faux::new()).await;
     let mut chief = s.join().await;
+    let hand = s.hand();
     let cases = [
         (
-            json!({"type": "say", "id": "1", "to": mayor(), "text": "Hi"}),
+            json!({"type": "say", "id": "1", "to": hand, "text": "Hi"}),
             "This `say` message does not fit the protocol: `id` \
              must be a UUID.",
             false,
         ),
         (
-            json!({"type": "say", "id": "ID", "to": mayor()}),
+            json!({"type": "say", "id": "ID", "to": hand}),
             "This `say` message does not fit the protocol: it lacks \
              `text`.",
             true,
         ),
         (
-            json!({"type": "say", "id": "ID", "to": mayor(), "text": "Hi", "loud": true}),
+            json!({"type": "say", "id": "ID", "to": hand, "text": "Hi", "loud": true}),
             "This `say` message does not fit the protocol: it has \
              no field `loud`.",
             true,
@@ -125,7 +111,7 @@ async fn answers_malformed_messages_with_faults_and_stays_open() {
         (
             json!({"type": "edit", "id": "ID", "doc": "bylaws"}),
             "This `edit` message does not fit the protocol: `doc` \
-             must be one of `charter`, `character`, `notes`, \
+             must be one of `charter`, `character`, `memory`, \
              `limits`, `settings`, `catalogue`.",
             true,
         ),
@@ -159,20 +145,9 @@ async fn answers_malformed_messages_with_faults_and_stays_open() {
             .until(text, |c| c.messages().contains(&fault(text, to)))
             .await;
     }
-    let reply = chief.say(mayor(), "/queue").await;
+    let reply = chief.say(hand, "/queue").await;
     assert_eq!(reply.text, "Nothing waits for you.");
-    let hello = ClientMessage::Hello(Hello {
-        token: s.server.token.clone(),
-        v: V,
-    });
-    chief.send(hello).await;
-    let again = fault("This connection said hello already.", None);
-    chief
-        .until("a second hello refused", |c| {
-            c.messages().contains(&again)
-        })
-        .await;
-    let reply = chief.say(mayor(), "/queue").await;
+    let reply = chief.say(hand, "/queue").await;
     assert_eq!(reply.text, "Nothing waits for you.");
 }
 
@@ -182,10 +157,11 @@ async fn chief_send_raw(chief: &mut Client, text: &str) {
 
 #[tokio::test]
 async fn closes_a_connection_that_sends_more_than_a_mebibyte() {
-    let s = Session::start(Script::new()).await;
+    let s = Session::start(Faux::new()).await;
     let mut chief = s.join().await;
+    let hand = s.hand();
     let text = "x".repeat(1_048_576);
-    let message = json!({"type": "say", "id": RequestId::new(), "to": mayor(), "text": text});
+    let message = json!({"type": "say", "id": RequestId::new(), "to": hand, "text": text});
     chief.send_raw(&message.to_string()).await;
     let (got, ending) = chief.into_wire().rest().await;
     assert!(
@@ -198,19 +174,19 @@ async fn closes_a_connection_that_sends_more_than_a_mebibyte() {
 
 #[tokio::test]
 async fn sends_every_connection_the_realms_changes() {
-    let mut s = Session::start(Script::new()).await;
+    let mut s = Session::start(Faux::new()).await;
     let mut other = s.join().await;
-    let reply = s.chief.say(mayor(), "/mode auto").await;
-    assert_eq!(reply.kind, ReplyKind::Notice);
+    let hand = s.hand();
+    s.chief.command(hand, "/scholar new ada").await;
     other
         .until("the change on the other connection", |c| {
-            c.realm().hamlets[0].mode == HamletMode::Auto
+            c.scholar("ada").is_some()
         })
         .await;
     let first = other.realm();
     let late = s.join().await;
     let realm = late.realm();
-    assert_eq!(realm.hamlets, first.hamlets);
+    assert_eq!(realm.scholars, first.scholars);
     assert_eq!(realm.chief, "chief");
     let revisions = other
         .messages()
@@ -228,7 +204,7 @@ async fn sends_every_connection_the_realms_changes() {
 
 #[tokio::test]
 async fn closes_its_connections_with_going_away_when_it_stops() {
-    let mut s = Session::start(Script::new()).await;
+    let mut s = Session::start(Faux::new()).await;
     let chief = s.join().await;
     let mut wire = chief.into_wire();
     assert_eq!(s.server.stop().await, Some(0));
@@ -238,7 +214,7 @@ async fn closes_its_connections_with_going_away_when_it_stops() {
 
 #[tokio::test]
 async fn publishes_its_address_without_the_token() {
-    let s = Session::start(Script::new()).await;
+    let s = Session::start(Faux::new()).await;
     let published =
         std::fs::read_to_string(s.home.file("server.json")).unwrap();
     assert!(!published.contains(&s.server.token));
@@ -259,9 +235,9 @@ async fn publishes_its_address_without_the_token() {
 #[tokio::test]
 async fn keeps_its_token_and_refuses_a_second_server_on_one_home() {
     let mut home = Home::new();
-    let mut first = home.serve(&Script::new(), QUIET).await;
+    let mut first = home.serve(&Faux::new(), QUIET).await;
     let token = first.token.clone();
-    let second = home.try_serve(&Script::new(), QUIET).await;
+    let second = home.try_serve(&Faux::new(), QUIET).await;
     assert!(
         second.contains(&format!(
             "A server already runs for {}",
@@ -270,6 +246,24 @@ async fn keeps_its_token_and_refuses_a_second_server_on_one_home() {
         "{second}"
     );
     first.stop().await;
-    let again = home.serve(&Script::new(), QUIET).await;
+    let again = home.serve(&Faux::new(), QUIET).await;
     assert_eq!(again.token, token);
+}
+
+#[tokio::test]
+async fn refuses_a_second_hello_and_stays_open() {
+    let mut s = Session::start(Faux::new()).await;
+    let hello = ClientMessage::Hello(Hello {
+        token: s.server.token.clone(),
+        v: VERSION,
+    });
+    s.chief.send(hello).await;
+    let again = fault("This connection said hello already.", None);
+    s.chief
+        .until("a second hello refused", |c| {
+            c.messages().contains(&again)
+        })
+        .await;
+    let hand = s.hand();
+    s.chief.command(hand, "/queue").await;
 }

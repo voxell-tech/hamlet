@@ -23,10 +23,11 @@ use bevy::picking::mesh_picking::{
 use bevy::prelude::*;
 use bevy::shape::Aabb3d;
 use bevy::window::PrimaryWindow;
+use hamlet_client::realm::Shown;
 
 pub use self::camera::{
     Centre, Following, Glide, Leash, Orbit, Pace, Stance, Steer,
-    backward, focus_on, scrolled_lines,
+    backward, bring_into_view, focus_on, glide_to, scrolled_lines,
 };
 pub use self::reach::Reach;
 use self::reach::aim;
@@ -126,6 +127,11 @@ pub enum Thing {
     ChiefPlace(Entity),
     /// The library every agent shares.
     Library,
+    /// The Hand's tower, at the middle of the city.
+    Hand,
+    /// The house of a scholar: the entity that carries its
+    /// `Scholar` and `Name`.
+    Scholar(Entity),
     /// The clockwork on a hamlet's workbench, which sets its mode.
     Clockwork(Entity),
     /// The workbench on a hamlet's common, which stands for its
@@ -133,13 +139,17 @@ pub enum Thing {
     Workbench(Entity),
 }
 
+/// The names things go by in the world: an agent's `Shown` name, a
+/// hire's nickname or else its scholar's name, over its `Name`.
+pub type Names<'w, 's> =
+    Query<'w, 's, (&'static Name, Option<&'static Shown>)>;
+
 impl Thing {
-    pub fn name(self, names: &Query<&Name>) -> String {
-        let named = |agent: Entity| {
-            names
-                .get(agent)
-                .map(|name| name.as_str().to_string())
-                .unwrap_or_default()
+    pub fn name(self, names: &Names) -> String {
+        let named = |agent: Entity| match names.get(agent) {
+            Ok((_, Some(shown))) => shown.0.clone(),
+            Ok((name, None)) => name.as_str().to_string(),
+            Err(_) => String::new(),
         };
         match self {
             Thing::Keeper => "The Mayor".into(),
@@ -161,6 +171,10 @@ impl Thing {
                 format!("{}'s Hearth", named(chief))
             }
             Thing::Library => "The Library".into(),
+            Thing::Hand => "The Hand's Tower".into(),
+            Thing::Scholar(scholar) => {
+                format!("{}'s House", named(scholar))
+            }
             Thing::Clockwork(hamlet) => {
                 format!("The Clockwork of {}", named(hamlet))
             }
@@ -188,7 +202,7 @@ impl Thing {
     }
 
     /// The few words shown over it all the time, when it is `Named`.
-    fn sign(self, names: &Query<&Name>) -> String {
+    fn sign(self, names: &Names) -> String {
         match self {
             Thing::Cottage => "Mayor".into(),
             Thing::House(agent) | Thing::Ruin(agent) => {
@@ -196,6 +210,10 @@ impl Thing {
             }
             // A hamlet is known by the name over its common.
             Thing::Common(hamlet) => Thing::Agent(hamlet).name(names),
+            // A scholar's house carries its scholar's name.
+            Thing::Scholar(scholar) => {
+                Thing::Agent(scholar).name(names)
+            }
             other => other.name(names),
         }
     }
@@ -467,12 +485,9 @@ fn click_surface(
     }
 }
 
-fn press(
-    press: On<PointerPress>,
-    surfaces: Query<(), With<WorldSurface>>,
-    mut travel: ResMut<Travel>,
-) {
-    if surfaces.contains(press.event_target()) {
-        travel.0 = 0.0;
-    }
+/// Every press starts the count of how far the pointer travels, on a
+/// robot or a house as on the bare ground, so a click on a thing is
+/// judged by its own press and not by the drag before it.
+fn press(_: On<PointerPress>, mut travel: ResMut<Travel>) {
+    travel.0 = 0.0;
 }

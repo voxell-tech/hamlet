@@ -4,10 +4,14 @@
 
 mod deed;
 mod founding;
+mod hire;
 mod items;
+mod model;
+mod new_scholar;
+mod road;
 
 use bevy::app::{App, Update};
-use bevy::ecs::component::Component;
+use bevy::ecs::component::{Component, Mutable};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
@@ -32,10 +36,18 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
+pub use self::model::{
+    Favorites, LastSide, open as open_model, search as search_models,
+};
+pub(crate) use self::model::{Hook, chip, is_open as is_picking};
 
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Open>()
+pub fn plugin(app: &mut App) {
+    app.add_plugins(model::plugin)
+        .init_resource::<Open>()
         .init_resource::<Founding>()
+        .init_resource::<new_scholar::Making>()
+        .init_resource::<hire::Hiring>()
+        .init_resource::<road::Roading>()
         .add_observer(ask_of_row)
         .add_systems(Update, answer_ask);
 }
@@ -46,13 +58,22 @@ pub(crate) enum Open {
     #[default]
     Nothing,
     Menu(Thing, Vec2),
-    Question(Deed, Vec2),
+    /// The question before a deed, against what it was asked from.
+    Question(Deed, Rect),
     /// The menu of the bare ground.
     Ground(Vec2),
     /// The form a hamlet is founded with.
     Founding(Vec2),
+    /// The form a scholar is made in the city with.
+    NewScholar(Vec2),
+    /// The form a scholar is hired under a lead with.
+    Hire(Entity, Vec2),
+    /// The form a road from an agent is built with.
+    Road(Entity, Vec2),
     /// The skills an agent could be given.
     Skills(Entity, Vec2),
+    /// The model an agent runs, its effort and its tier.
+    Model(Entity),
 }
 
 /// On a row of a panel: the thing it stands for, whose menu the
@@ -98,9 +119,8 @@ pub(crate) fn answer_ask(
     // surface too, a moment later and at the same place. It is not
     // a second question about the ground under the thing.
     let same = match &*open {
-        Open::Menu(_, was) | Open::Question(_, was) => {
-            was.distance(at) < 2.0
-        }
+        Open::Menu(_, was) => was.distance(at) < 2.0,
+        Open::Question(_, was) => was.min.distance(at) < 2.0,
         _ => false,
     };
     if !same {
@@ -110,6 +130,25 @@ pub(crate) fn answer_ask(
 
 fn close(world: &mut World) {
     *world.resource_mut::<Open>() = Open::Nothing;
+}
+
+/// One line of a popup's form: the question `what` over a field of
+/// the text in resource `R` that `read` and `write` reach.
+fn asks<R: Resource<Mutability = Mutable>>(
+    what: &'static str,
+    read: fn(&R) -> &String,
+    write: fn(&mut R, String),
+) -> impl View {
+    hamlet_ui::styles::close((
+        hamlet_ui::styles::section(what),
+        bevy_fynix::views::text_field(
+            bevy_fynix::resource::<R, _>(move |r| read(r).clone()),
+            move |world, text| {
+                write(&mut world.resource_mut::<R>(), text);
+            },
+        )
+        .rules(hamlet_ui::styles::text_input),
+    ))
 }
 
 /// Stops what `agent` is doing now.
@@ -134,6 +173,13 @@ pub(super) fn open_for(world: &mut World, thing: Thing) {
     *world.resource_mut::<Open>() = Open::Menu(thing, at);
 }
 
+/// Opens the menu of the skills `agent` could be given, at the
+/// pointer.
+pub(super) fn open_skills(world: &mut World, agent: Entity) {
+    let at = pointer(world);
+    *world.resource_mut::<Open>() = Open::Skills(agent, at);
+}
+
 /// Opens the form a hamlet is founded with, at the pointer.
 pub(super) fn ask_found(world: &mut World) {
     if !Deeds::is_allowed(world, "found") {
@@ -143,10 +189,53 @@ pub(super) fn ask_found(world: &mut World) {
     *world.resource_mut::<Open>() = Open::Founding(at);
 }
 
+/// Opens the form a scholar is made in the city with, at the
+/// pointer.
+pub(crate) fn ask_new_scholar(world: &mut World) {
+    if !Deeds::is_allowed(world, "scholar") {
+        return;
+    }
+    let at = pointer(world);
+    *world.resource_mut::<Open>() = Open::NewScholar(at);
+}
+
+/// Opens the form a scholar is hired under `lead` with, at the
+/// pointer.
+pub(crate) fn ask_hire(world: &mut World, lead: Entity) {
+    if !Deeds::is_allowed(world, "hire") {
+        return;
+    }
+    let at = pointer(world);
+    *world.resource_mut::<Open>() = Open::Hire(lead, at);
+}
+
+/// Opens the form a road from `agent` is built with, at the pointer.
+pub(crate) fn ask_road(world: &mut World, agent: Entity) {
+    if !Deeds::is_allowed(world, "road") {
+        return;
+    }
+    let at = pointer(world);
+    *world.resource_mut::<Open>() = Open::Road(agent, at);
+}
+
+/// Opens the popup of `agent`'s model, over its chip.
+pub(crate) fn ask_model(world: &mut World, agent: Entity) {
+    model::open(world, agent);
+}
+
 /// Asks before `deed` is done, at the pointer.
 pub(crate) fn ask(world: &mut World, deed: Deed) {
     let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Question(deed, at);
+    ask_against(world, deed, Rect::from_corners(at, at));
+}
+
+/// Asks before `deed` is done, against `anchor` in the window.
+pub(crate) fn ask_against(
+    world: &mut World,
+    deed: Deed,
+    anchor: Rect,
+) {
+    *world.resource_mut::<Open>() = Open::Question(deed, anchor);
 }
 
 /// Brings back `agent`, which was removed or merged away.
@@ -194,7 +283,9 @@ fn menus() -> AnyView {
                     cx.build(menu(at, items))
                 })
             }
-            Open::Question(deed, at) => question(deed, at).boxed(),
+            Open::Question(deed, anchor) => {
+                question(deed, anchor).boxed()
+            }
             Open::Ground(at) => AnyView::new(move |cx: &mut Cx| {
                 if !Deeds::is_allowed(cx.world, "found") {
                     return cx.build(frame());
@@ -209,6 +300,12 @@ fn menus() -> AnyView {
                 cx.build(menu(at, vec![found]))
             }),
             Open::Founding(at) => founding::founding(at).boxed(),
+            Open::NewScholar(at) => {
+                new_scholar::new_scholar(at).boxed()
+            }
+            Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
+            Open::Road(agent, at) => road::road(agent, at).boxed(),
+            Open::Model(agent) => model::picker(agent).boxed(),
             Open::Skills(agent, at) => {
                 AnyView::new(move |cx: &mut Cx| {
                     let items = items::skills(cx.world, agent);
@@ -252,7 +349,7 @@ fn gift_reports() -> AnyView {
                     Rect::new(16.0, 52.0, 16.0, 52.0),
                     (column((
                         column(lines).gap(space.gap / 2.0),
-                        hamlet_ui::styles::lettered("DISMISS")
+                        hamlet_ui::styles::lettered("Dismiss")
                             .rules(hamlet_ui::styles::button)
                             .on_activate(|world| {
                                 world
@@ -277,7 +374,7 @@ fn gift_reports() -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
-    use hamlet_client::realm::{HOME, HamletId};
+    use hamlet_client::realm::HamletId;
     use hamlet_protocol::client as protocol;
     use hamlet_realm::pick::{Also, Selected};
     use hamlet_testing::realm;
@@ -320,7 +417,7 @@ mod tests {
     #[test]
     fn ground_and_town_offer_only_received_deeds() {
         let mut state = realm::state();
-        state.deeds = realm::deeds(&["new", "undo"]);
+        state.deeds = realm::deeds(&["new", "stop"]);
         let mut app = app(state.clone());
         app.world_mut().resource_mut::<AskedGround>().0 =
             Some(Vec2::ZERO);
@@ -334,13 +431,15 @@ mod tests {
         let home = world.query_filtered::<Entity, bevy::ecs::query::With<HamletId>>()
             .single(world).unwrap();
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
-        assert!(
-            !words(&mut app)
-                .iter()
-                .any(|text| text == "Move home...")
-        );
+        for absent in ["Move home...", "Rename home..."] {
+            assert!(
+                !words(&mut app).iter().any(|text| text == absent),
+                "unsupported: {absent}"
+            );
+        }
 
-        state.deeds = realm::deeds(&["found", "move-hamlet"]);
+        state.deeds =
+            realm::deeds(&["found", "move-hamlet", "name-hamlet"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -352,20 +451,23 @@ mod tests {
                 .any(|text| text == "Found a Hamlet...")
         );
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
-        assert!(
-            words(&mut app).iter().any(|text| text == "Move home...")
-        );
+        for offered in ["Move home...", "Rename home..."] {
+            assert!(
+                words(&mut app).iter().any(|text| text == offered),
+                "supported: {offered}"
+            );
+        }
     }
     #[test]
     fn roads_are_offered_only_when_supported_and_sent_to_the_mayor() {
         let mut state = realm::state();
         state.agents.extend([
-            realm::agent(HOME, 1, "scout"),
-            realm::agent(HOME, 2, "scribe"),
+            realm::agent(3, "home", 1),
+            realm::agent(4, "home", 2),
         ]);
         let mut app = app(state.clone());
-        let a = agents::named(app.world_mut(), "scout").unwrap();
-        let b = agents::named(app.world_mut(), "scribe").unwrap();
+        let a = agents::named(app.world_mut(), "home#1").unwrap();
+        let b = agents::named(app.world_mut(), "home#2").unwrap();
         app.world_mut().resource_mut::<Selected>().0 =
             Some(Thing::Agent(a));
         app.world_mut().resource_mut::<Also>().0 =
@@ -373,10 +475,9 @@ mod tests {
         open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
         let shown = words(&mut app);
         for absent in [
-            "Build a road to scribe",
-            "Remove scout...",
-            "Make scout Mayor...",
-            "Merge scout into scribe...",
+            "End home#1...",
+            "Make home#1 Mayor...",
+            "Merge home#1 into home#2...",
         ] {
             assert!(
                 !shown.iter().any(|text| text == absent),
@@ -389,42 +490,33 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         open(&mut app, Open::Nothing);
-        open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
-        press(&mut app, "Build a road to scribe");
+        open(&mut app, Open::Road(a, Vec2::ZERO));
+        press(&mut app, "home#2");
         let messages = sent(&mut app);
         let [protocol::ClientMessage::Say(say)] = &messages[..]
         else {
             panic!("one road: {messages:?}");
         };
-        assert_eq!(
-            say.to,
-            protocol::Address {
-                hamlet: HOME.into(),
-                agent: "mayor".into()
-            }
-        );
-        assert_eq!(say.text, "/road scout scribe");
+        assert_eq!(say.to, protocol::AgentId(2));
+        assert_eq!(say.text, "/road home#1 home#2");
     }
 
     #[test]
-    fn the_founders_menu_keeps_new_prompt_stop_and_undo() {
+    fn the_first_mayors_menu_keeps_new_and_stop() {
         let mut app = app(realm::state());
-        let founder = agents::mayor(app.world_mut()).unwrap();
+
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
-        assert!(words(&mut app).iter().any(|text| text == "Prompt"));
-        press(&mut app, "New Conversation");
+        // It asks first, as the Hub does.
+        press(&mut app, "New Session...");
+        app.update();
+        press(&mut app, "New session");
+        // Its chat is opened, then the new session asked for there.
         let messages = sent(&mut app);
-        let [protocol::ClientMessage::Say(say)] = &messages[..]
+        let Some(protocol::ClientMessage::Say(say)) = messages.last()
         else {
-            panic!("one new: {messages:?}");
+            panic!("a new session last: {messages:?}");
         };
-        assert_eq!(
-            say.to,
-            protocol::Address {
-                hamlet: HOME.into(),
-                agent: "founder".into()
-            }
-        );
+        assert_eq!(say.to, protocol::AgentId(2));
         assert_eq!(say.text, "/new");
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
         press(&mut app, "Stop the Mayor");
@@ -433,61 +525,39 @@ mod tests {
         else {
             panic!("one stop: {messages:?}");
         };
-        assert_eq!(
-            stop.agent,
-            agents::address_of(app.world(), founder)
-        );
-        open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
-        press(&mut app, "Undo the Last Change");
-        assert!(sent(&mut app).iter().any(|message| matches!(message, protocol::ClientMessage::Say(say) if say.text == "/undo")));
+        assert_eq!(stop.agent, Some(protocol::AgentId(2)));
     }
 
     #[test]
-    fn the_founders_skill_menu_sends_a_received_starter_or_agents_skill()
-     {
+    fn the_first_mayors_skill_menu_sends_another_agents_skill() {
         let mut state = realm::state();
         state.deeds = realm::deeds(&["give"]);
-        state.starters = vec![protocol::Skill {
-            name: "research".into(),
-            description: "Find sources".into(),
-        }];
-        let mut scout = realm::agent(HOME, 1, "scout");
+        let mut scout = realm::agent(3, "home", 1);
         scout.skills = vec!["maps".into()];
         state.agents.push(scout);
         let mut app = app(state);
-        for (label, expected) in [
-            (
-                "research (starter)",
-                protocol::GiveSkillSource::Starter {
-                    starter: "research".into(),
-                },
-            ),
-            (
-                "maps (of scout)",
-                protocol::GiveSkillSource::From {
-                    from: protocol::Address {
-                        hamlet: HOME.into(),
-                        agent: "scout".into(),
-                    },
-                    name: "maps".into(),
-                },
-            ),
-        ] {
-            open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
-            press(&mut app, "Give a skill...");
-            app.update();
-            press(&mut app, label);
-            let messages = sent(&mut app);
-            let [
-                protocol::ClientMessage::Give(
-                    protocol::Give::Skill { skill, to, .. },
-                ),
-            ] = &messages[..]
-            else {
-                panic!("one skill: {messages:?}");
-            };
-            assert_eq!(skill, &expected);
-            assert_eq!(to.agent, "founder");
-        }
+        open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
+        press(&mut app, "Give a skill...");
+        app.update();
+        press(&mut app, "maps (of home#1)");
+        let messages = sent(&mut app);
+        let [
+            protocol::ClientMessage::Give(protocol::Give::Skill {
+                skill,
+                to,
+                ..
+            }),
+        ] = &messages[..]
+        else {
+            panic!("one skill: {messages:?}");
+        };
+        assert_eq!(
+            skill,
+            &protocol::GiveSkillSource {
+                from: protocol::Keeper::Agent(protocol::AgentId(3)),
+                name: "maps".into(),
+            }
+        );
+        assert_eq!(*to, protocol::ScholarId(2));
     }
 }

@@ -3,10 +3,16 @@ import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 
 /** Built-in providers with Hamlet's supported sign-in methods. */
 export function providers(): Provider[] {
     const openai: Provider = openaiProvider();
+    const served = new Set(
+        openaiCodexProvider()
+            .getModels()
+            .map((m) => m.id),
+    );
     const result = builtinProviders()
         .filter((p) => p.id !== "zai" && p.id !== "zai-coding-cn")
         .map((p) => ({
@@ -31,8 +37,11 @@ export function providers(): Provider[] {
                         loginLabel: "Continue with ChatGPT",
                     },
                 },
+                // A ChatGPT sign-in serves only the models of the
+                // Codex list, not every model of the API.
                 models: openai
                     .getModels()
+                    .filter((m) => served.has(m.id))
                     .map((m) => ({ ...m, provider: "chatgpt" })),
                 api: {
                     stream: (model, input, options) =>

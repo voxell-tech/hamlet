@@ -4,16 +4,19 @@
 
 pub mod bubble;
 pub mod chief;
+pub mod city;
 pub mod debug;
 pub mod generator;
 pub mod hamlet;
 pub mod hand;
+pub mod harbor;
 pub mod keeper;
 pub mod lantern;
 pub mod library;
 pub mod meshes;
 pub mod moving;
 pub mod needs;
+pub mod objects;
 pub mod orders;
 pub mod palette;
 pub mod pick;
@@ -62,6 +65,8 @@ impl Plugin for RealmPlugin {
                 orders::plugin,
                 chief::plugin,
                 library::plugin,
+                city::plugin,
+                harbor::plugin,
                 moving::plugin,
                 works::plugin,
                 lantern::plugin,

@@ -20,8 +20,8 @@ const MATH: NodeKind = NodeKind {
     doc: "A number worked out from a and b, at each transform. Abs, \
           floor, ceil, round, sqrt, sin, cos and tan take a alone, \
           in degrees for the last three. Angle is the angle in \
-          degrees whose rise is a over a run of b. Less and greater \
-          give 1 or 0",
+          degrees whose rise is a over a run of b. Less, greater \
+          and equal give 1 or 0",
     inputs: &[
         PortSpec::new("op", ValueType::Choice, "What to work out")
             .initial(Initial::Choice("add"))
@@ -29,7 +29,7 @@ const MATH: NodeKind = NodeKind {
                 "add", "subtract", "multiply", "divide", "min",
                 "max", "power", "modulo", "abs", "floor", "ceil",
                 "round", "sqrt", "sin", "cos", "tan", "hypot",
-                "angle", "less", "greater",
+                "angle", "less", "greater", "equal",
             ])
             .names(),
         PortSpec::new("a", ValueType::Field, "The first number")
@@ -39,7 +39,7 @@ const MATH: NodeKind = NodeKind {
             .used_with(&[
                 "add", "subtract", "multiply", "divide", "min",
                 "max", "power", "modulo", "hypot", "angle", "less",
-                "greater",
+                "greater", "equal",
             ]),
     ],
     outputs: &[PortSpec::new(

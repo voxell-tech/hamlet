@@ -17,7 +17,7 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::{ShaderRef, load_shader_library};
 
-use crate::wind::{WindSettings, WindUniform};
+use crate::wind::{WindChoice, WindSettings, WindUniform};
 use crate::{NowOffset, VfxSystems};
 
 pub type LeafMaterial = ExtendedMaterial<StandardMaterial, LeafExt>;
@@ -231,9 +231,10 @@ fn sway(
     set: Res<LeafSettings>,
     view: Res<LeafView>,
     wind: Res<WindSettings>,
+    strength: Res<WindChoice>,
     mut materials: ResMut<Assets<LeafMaterial>>,
 ) {
-    let blowing = wind.uniform();
+    let blowing = wind.uniform(*strength);
     let ids = materials.ids().collect::<Vec<_>>();
     for id in ids {
         let Some(leaves) = materials.get(id) else {
@@ -297,9 +298,18 @@ impl Stroke {
         Stroke::Pad,
     ];
 
-    /// The stroke's cell of the texture, as its UV corners: the top
-    /// left, then the bottom right. Down the cell is down the stroke.
+    /// The UV corners a card painted with the stroke takes, the top
+    /// left, then the bottom right: a little inside its cell, in its
+    /// bare margin, so that a card's edge never reads a texel of the
+    /// cell beside it. Down the cell is down the stroke.
     pub fn cell(self) -> (Vec2, Vec2) {
+        let (lo, hi) = self.whole();
+        let inset = (hi - lo) * 0.04;
+        (lo + inset, hi - inset)
+    }
+
+    /// The stroke's whole cell of the texture, as its UV corners.
+    fn whole(self) -> (Vec2, Vec2) {
         let (x, y) = match self {
             Stroke::Dab => (0, 0),
             Stroke::Blot => (1, 0),
@@ -427,16 +437,26 @@ const CELL: (usize, usize) = ((SIDE - SOLID) / 2, SIDE / 3);
 /// The strokes' texture, with all its mip levels. Red, green and
 /// blue are the paint's tone, alpha how much of a stroke covers it.
 fn strokes() -> Image {
-    let mut level = vec![[1.0f32; 2]; SIDE * SIDE];
+    // Bare paper everywhere but the left half of the solid band, so
+    // that no cell has paint beside it to take into its edge.
+    let mut level = (0..SIDE * SIDE)
+        .map(|i| {
+            if i % SIDE < SOLID / 2 {
+                [1.0f32, 1.0]
+            } else {
+                [0.9, 0.0]
+            }
+        })
+        .collect::<Vec<_>>();
     for stroke in Stroke::ALL {
-        let (lo, _) = stroke.cell();
+        let (lo, _) = stroke.whole();
         let (x0, y0) = (
             (lo.x * SIDE as f32).round() as usize,
             (lo.y * SIDE as f32).round() as usize,
         );
         // A margin about each stroke, so that the levels far down
         // do not bleed one cell into the next.
-        const MARGIN: f32 = 0.04;
+        const MARGIN: f32 = 0.1;
         for y in 0..CELL.1 {
             for x in 0..CELL.0 {
                 let p = Vec2::new(
@@ -498,9 +518,11 @@ fn strokes() -> Image {
     image.texture_descriptor.mip_level_count = levels;
     image.sampler =
         ImageSampler::Descriptor(ImageSamplerDescriptor {
-            // Below this the cells run together.
-            lod_max_clamp: 4.0,
-            anisotropy_clamp: 8,
+            // Below this a texel reaches past a cell's margin, and a
+            // card's edge takes the paint of the next cell as a thin
+            // line; so do more taps along a slanted card.
+            lod_max_clamp: 3.0,
+            anisotropy_clamp: 4,
             ..ImageSamplerDescriptor::linear()
         });
     image

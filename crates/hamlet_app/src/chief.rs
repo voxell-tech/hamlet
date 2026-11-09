@@ -1,9 +1,9 @@
 //! The chief in the panels (docs/chief.md): the company its mascot
 //! keeps, the look kept between launches, and the chief's page of the
-//! Inspector.
+//! Hub.
 
 use bevy::app::{App, PreUpdate, Startup, Update};
-use bevy::color::Color;
+use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
@@ -14,14 +14,20 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{
+    AlignItems, BoxShadow, Overflow, PositionType, ShadowStyle,
+    UiRect, Val, px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, frame, label, row,
+    BehaviorExt, Frame, FrameProps, button, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, component, derived, keyed};
+use bevy_fynix::{
+    ScopedExt, ViewExt, component, derived, keyed, style,
+};
 use hamlet_client::ViewFolder;
 use hamlet_client::messages::ChiefMessage;
+use hamlet_client::realm::Identity;
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
@@ -29,14 +35,15 @@ use hamlet_realm::generator::society::Ground;
 use hamlet_realm::library::{Library, Stood};
 use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
-use hamlet_realm::pick::{Selected, Thing, focus_on, select};
+use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    Fills, action, breadcrumb, buttons, choice, choices, description,
-    filling, group, note, scroll_area, section, title,
+    Fills, action, breadcrumb, choice, filling, group, scroll_area,
+    section, segmented_words, status_label, title,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::PanelSystems;
 use crate::convo::Convo;
@@ -99,7 +106,7 @@ pub(crate) fn go_home(world: &mut World) {
     };
     let thing = Thing::ChiefPlace(chief);
     select(world, Some(thing));
-    focus_on(world, thing, false);
+    bring_into_view(world, thing);
 }
 
 /// The company of the mascot of a chief who has chosen `selected`,
@@ -146,9 +153,12 @@ pub(crate) fn accompany(
 pub(crate) fn spoke(
     message: On<ChiefMessage>,
     convo: Res<Convo>,
+    identities: Query<&Identity>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
-    if message.to != convo.to {
+    if identities.get(convo.agent).map(|identity| identity.0)
+        != Ok(message.to)
+    {
         return;
     }
     for (chief, mut beside) in &mut chiefs {
@@ -181,6 +191,31 @@ struct Facts {
     with: Option<String>,
     cloaks: [Color; 8],
     lights: [Color; 5],
+    tints: Tints,
+}
+
+/// The colours of the figure's face, hair, hats and things held, as
+/// the mascot wears them.
+#[derive(Clone, Copy, PartialEq)]
+struct Tints {
+    face: Color,
+    blush: Color,
+    hair: Color,
+    mantle: Color,
+    brass: Color,
+    leaves: Color,
+    quill: Color,
+    ink: Color,
+    china: Color,
+    leather: Color,
+    page: Color,
+}
+
+impl Tints {
+    /// The trim of a cloak of `cloak` and of its hat.
+    fn trim(&self, cloak: Color) -> Color {
+        self.mantle.mix(&cloak, 0.25)
+    }
 }
 
 fn facts(world: &World, chief: Entity) -> Option<Facts> {
@@ -189,8 +224,7 @@ fn facts(world: &World, chief: Entity) -> Option<Facts> {
     let with = world
         .get::<Beside>(chief)
         .and_then(|beside| beside.0)
-        .and_then(|agent| world.get::<Name>(agent))
-        .map(|name| name.as_str().to_string());
+        .map(|agent| hamlet_client::realm::shown_of(world, agent));
     let own;
     let pal = match world.get_resource::<Palette>() {
         Some(pal) => pal,
@@ -206,6 +240,19 @@ fn facts(world: &World, chief: Entity) -> Option<Facts> {
         with,
         cloaks: Cloak::ALL.map(|cloak| shown(cloak.colour(pal))),
         lights: Light::ALL.map(|light| shown(light.colour(pal))),
+        tints: Tints {
+            face: shown(pal.face),
+            blush: shown(pal.blush),
+            hair: shown(pal.hair),
+            mantle: shown(pal.mantle),
+            brass: shown(pal.brass),
+            leaves: shown(pal.foliage_shade),
+            quill: shown(pal.autumn),
+            ink: shown(pal.ink),
+            china: shown(pal.whitewash),
+            leather: shown(pal.leather),
+            page: shown(pal.page),
+        },
     })
 }
 
@@ -222,40 +269,274 @@ fn change(world: &mut World, chief: Entity, to: impl Fn(&mut Look)) {
 }
 
 /// The side of a swatch.
-const SWATCH: f32 = 16.0;
+const SWATCH: f32 = 28.0;
 
-/// A square of `colour` to press, a choice like those of words. The
-/// one chosen is lit.
+/// The width of a swatch with its name under it.
+const SWATCH_WIDTH: f32 = 50.0;
+
+/// The width of the ring about a chosen swatch, and of the gap
+/// inside it.
+const RING: f32 = 2.0;
+
+/// The side of the chief's portrait, which is drawn in hundredths
+/// of it.
+const FIGURE: f32 = 150.0;
+
+/// `units` hundredths of the portrait, in pixels.
+fn u(units: f32) -> f32 {
+    units * FIGURE / 100.0
+}
+
+/// A disc of `colour` with `name` under it, to press, a choice like
+/// those of words. The one chosen has a ring about its disc and its
+/// name lit.
 fn swatch(
     colour: Color,
+    name: &'static str,
     on: bool,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    button(
-        frame()
-            .width(px(SWATCH))
-            .height(px(SWATCH))
-            .fill(colour)
-            .radius(SWATCH / 2.0),
-    )
-    .rules(choice(on))
-    .on_activate(act)
+    with_cx(move |cx| {
+        let ring = if on {
+            cx.theme().palette.accent
+        } else {
+            Color::NONE
+        };
+        let word = label(name).wrap(false);
+        let word = if on { word.tone(Tone::Accent) } else { word };
+        // Regular, not the bold of a choice's words, so that the
+        // longest name fits its swatch's width.
+        let word = word.rules(|cx: &mut Cx| {
+            style::<HamletTheme>()
+                .label(|l, _| l.bold(false))
+                .apply(cx);
+        });
+        button(
+            column((
+                row((frame()
+                    .width(px(SWATCH))
+                    .height(px(SWATCH))
+                    .fill(colour)
+                    .radius(SWATCH / 2.0),))
+                .padding(UiRect::all(px(RING)))
+                .border(RING)
+                .border_color(ring)
+                .radius(SWATCH / 2.0 + 2.0 * RING),
+                word,
+            ))
+            .gap(2.0)
+            .align(AlignItems::Center),
+        )
+        .width(px(SWATCH_WIDTH))
+        .padding(UiRect::vertical(px(4.0)))
+        .rules(choice(false))
+        .on_activate(act)
+    })
     .boxed()
 }
 
-/// `swatches` side by side, wrapping where the panel is narrow.
+/// `swatches` side by side, wrapping where the panel is narrow. A
+/// swatch's name is its own room, so they touch.
 fn swatches(swatches: Vec<AnyView>) -> impl View {
-    with_cx(move |cx| {
-        row(swatches)
-            .gap(cx.theme().space.gap / 2.0)
-            .align(AlignItems::Center)
-            .tagged(Wraps)
-    })
+    row(swatches)
+        .gap(0.0)
+        .align(AlignItems::Center)
+        .tagged(Wraps)
 }
 
 /// A part of the wardrobe: its name over its choices.
-fn part(name: &'static str, choices: impl View) -> impl View {
-    group((section(name), choices))
+fn part(name: &'static str, choices: impl View) -> AnyView {
+    group((section(name), choices)).boxed()
+}
+
+/// A rounded block of the portrait, `dx` right of its middle and
+/// `top` down from its top, `width` by `height`, of `colour`.
+fn block(
+    dx: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+    colour: Color,
+) -> Frame {
+    frame()
+        .width(px(u(width)))
+        .height(px(u(height)))
+        .radius(u(width.min(height) / 2.0))
+        .fill(colour)
+        .position(PositionType::Absolute)
+        .inset(UiRect {
+            left: px(u(50.0 + dx - width / 2.0)),
+            top: px(u(top)),
+            right: Val::Auto,
+            bottom: Val::Auto,
+        })
+}
+
+/// A ring of the portrait, as [`block`] places one, its line
+/// `colour`.
+fn hoop(
+    dx: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+    colour: Color,
+) -> Frame {
+    block(dx, top, width, height, Color::NONE)
+        .border(u(2.5))
+        .border_color(colour)
+}
+
+/// What sits on the head, drawn over the face but for a hood, which
+/// is behind it.
+fn hat(hat: Hat, cloak: Color, tints: &Tints) -> Vec<Frame> {
+    let felt = cloak.mix(&Color::BLACK, 0.2);
+    let trim = tints.trim(cloak);
+    match hat {
+        Hat::Pointed => vec![
+            block(9.0, 2.0, 7.0, 8.0, felt),
+            block(6.0, 6.0, 11.0, 9.0, felt).radius(u(3.0)),
+            block(3.0, 11.0, 19.0, 10.0, felt).radius(u(3.0)),
+            block(1.0, 17.0, 28.0, 11.0, felt).radius(u(3.0)),
+            block(0.0, 24.0, 34.0, 5.0, trim).radius(u(2.0)),
+            block(0.0, 29.0, 58.0, 7.0, felt),
+            block(12.0, 0.0, 7.0, 7.0, tints.brass),
+        ],
+        Hat::Crown => vec![
+            block(-10.0, 23.0, 6.0, 10.0, tints.brass).radius(u(1.5)),
+            block(0.0, 21.0, 6.0, 12.0, tints.brass).radius(u(1.5)),
+            block(10.0, 23.0, 6.0, 10.0, tints.brass).radius(u(1.5)),
+            block(0.0, 29.0, 34.0, 7.0, tints.brass).radius(u(1.5)),
+        ],
+        Hat::Wreath => {
+            vec![hoop(0.0, 29.0, 42.0, 12.0, tints.leaves)]
+        }
+        Hat::Hood | Hat::Bare => Vec::new(),
+    }
+}
+
+/// What is held, and the hand that holds it, by the shoulder.
+fn held(holds: Holds, tints: &Tints) -> Vec<Frame> {
+    let hand = block(31.0, 79.0, 12.0, 12.0, tints.face);
+    match holds {
+        Holds::Quill => vec![
+            block(34.0, 50.0, 8.0, 28.0, tints.quill),
+            block(34.0, 76.0, 2.5, 10.0, tints.ink),
+            hand,
+        ],
+        Holds::Teacup => vec![
+            hoop(40.0, 71.0, 9.0, 9.0, tints.china),
+            block(31.0, 69.0, 17.0, 13.0, tints.china).radius(u(3.0)),
+            hand,
+        ],
+        Holds::Book => vec![
+            block(32.0, 61.0, 18.0, 22.0, tints.leather)
+                .radius(u(2.0)),
+            block(35.0, 63.0, 5.0, 18.0, tints.page).radius(u(1.0)),
+            hand,
+        ],
+        Holds::Nothing => Vec::new(),
+    }
+}
+
+/// The chief as a portrait of its mascot: the wick and its glow over
+/// its head, its hat, its face and the cloak on its shoulders, and
+/// what it holds.
+fn figure(facts: &Facts) -> impl View {
+    let light = facts.lights[facts.look.light as usize];
+    let cloak = facts.cloaks[facts.look.cloak as usize];
+    let (tints, look) = (facts.tints, facts.look);
+    with_cx(move |cx| {
+        // Over a pointed hat the wick floats by its tip.
+        let (wick, high) = match look.hat {
+            Hat::Pointed => (26.0, 10.0),
+            _ => (0.0, 13.0),
+        };
+        let glow = BoxShadow(vec![ShadowStyle {
+            color: light.with_alpha(0.9),
+            x_offset: px(0.0),
+            y_offset: px(0.0),
+            spread_radius: px(u(8.0)),
+            blur_radius: px(u(30.0)),
+        }]);
+        let flame = block(wick, high - 7.0, 11.0, 15.0, light)
+            .tagged(glow)
+            .boxed();
+        let mut parts = vec![
+            block(
+                wick,
+                high - 1.0,
+                5.0,
+                7.0,
+                light.mix(&Color::WHITE, 0.6),
+            ),
+            block(0.0, 68.0, 86.0, 70.0, cloak),
+        ];
+        match look.hat {
+            Hat::Hood => {
+                parts.push(block(0.0, 25.0, 54.0, 54.0, cloak));
+            }
+            Hat::Bare => {
+                parts.push(block(0.0, 28.0, 42.0, 22.0, tints.hair));
+            }
+            _ => {}
+        }
+        parts.extend([
+            block(0.0, 67.0, 36.0, 9.0, tints.trim(cloak)),
+            block(0.0, 72.0, 7.0, 7.0, tints.brass),
+            block(0.0, 31.0, 40.0, 38.0, tints.face),
+        ]);
+        for side in [-1.0, 1.0] {
+            parts.push(block(side * 8.0, 45.0, 5.0, 8.0, tints.ink));
+            parts.push(block(
+                side * 13.0,
+                55.0,
+                7.0,
+                4.0,
+                tints.blush.with_alpha(0.8),
+            ));
+        }
+        parts.extend(hat(look.hat, cloak, &tints));
+        parts.extend(held(look.holds, &tints));
+        let palette = &cx.theme().palette;
+        let views = std::iter::once(flame)
+            .chain(parts.into_iter().map(ViewExt::boxed))
+            .collect::<Vec<_>>();
+        column(views)
+            .width(px(FIGURE))
+            .height(px(FIGURE))
+            .shrink(0.0)
+            .overflow(Overflow::clip())
+            .radius(cx.theme().space.round * 3.0)
+            .fill(palette.input)
+            .border(cx.theme().space.border)
+            .border_color(palette.gold_6)
+    })
+}
+
+/// The chief's figure beside its name, where it is, and the way to
+/// it in the world.
+fn portrait(facts: &Facts) -> impl View {
+    let (place, mark, tone) = match &facts.with {
+        Some(agent) => {
+            (format!("With {agent}"), Glyph::Robot, Tone::Accent)
+        }
+        None => ("At home".to_string(), Glyph::Hearth, Tone::Dim),
+    };
+    let words = column((
+        title(facts.name.clone()),
+        status_label(mark, place, tone),
+        // In a row of its own, so it is as wide as its words.
+        row((action(Glyph::Aim, "Find me in the world", go_home),)),
+    ))
+    .gap(6.0)
+    .grow(1.0)
+    .min_width(px(0.0));
+    let figure = figure(facts);
+    with_cx(move |cx| {
+        row((figure, words))
+            .gap(cx.theme().space.section)
+            .align(AlignItems::FlexStart)
+    })
 }
 
 /// The choices of a look, each pressed to take it.
@@ -265,21 +546,31 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View + use<> {
         .into_iter()
         .zip(facts.cloaks)
         .map(|(cloak, colour)| {
-            swatch(colour, look.cloak == cloak, move |world| {
-                change(world, chief, |look| look.cloak = cloak);
-            })
+            swatch(
+                colour,
+                cloak.name(),
+                look.cloak == cloak,
+                move |world| {
+                    change(world, chief, |look| look.cloak = cloak);
+                },
+            )
         })
         .collect::<Vec<_>>();
     let lights = Light::ALL
         .into_iter()
         .zip(facts.lights)
         .map(|(light, colour)| {
-            swatch(colour, look.light == light, move |world| {
-                change(world, chief, |look| look.light = light);
-            })
+            swatch(
+                colour,
+                light.name(),
+                look.light == light,
+                move |world| {
+                    change(world, chief, |look| look.light = light);
+                },
+            )
         })
         .collect::<Vec<_>>();
-    let hats = choices(
+    let hats = segmented_words(
         Hat::ALL.map(Hat::name),
         Hat::ALL
             .iter()
@@ -289,7 +580,7 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View + use<> {
             change(world, chief, |look| look.hat = Hat::ALL[at]);
         },
     );
-    let held = choices(
+    let held = segmented_words(
         Holds::ALL.map(Holds::name),
         Holds::ALL
             .iter()
@@ -301,10 +592,10 @@ fn wardrobe(chief: Entity, facts: &Facts) -> impl View + use<> {
     );
     with_cx(move |cx| {
         column((
-            part("CLOAK, AND THE ROOF AT HOME", swatches(cloaks)),
-            part("THE LIGHT OF THE WICK", swatches(lights)),
-            part("ON THE HEAD", hats),
-            part("IN THE HAND", held),
+            part("Cloak", swatches(cloaks)),
+            part("Light", swatches(lights)),
+            part("Hat", hats),
+            part("Hand", held),
         ))
         .gap(cx.theme().space.section)
     })
@@ -334,31 +625,13 @@ pub fn panel(chief: Entity) -> AnyView {
         let Some(facts) = facts else {
             return column(()).boxed();
         };
-        let (place, tone) = match &facts.with {
-            Some(agent) => (format!("With {agent}"), Tone::Accent),
-            None => ("At home".to_string(), Tone::Dim),
-        };
         let views = (
             breadcrumb(
-                vec!["HAMLETS".into()],
-                facts.name.to_uppercase(),
+                vec!["Realm".into()],
+                facts.name.clone(),
                 |world, _| select(world, None),
             ),
-            hamlet_ui::styles::beside((
-                title(facts.name.to_uppercase()),
-                label(place).tone(tone).wrap(false),
-            )),
-            description(
-                "This is you. Whoever you talk to knows your mascot \
-                 as Wickstep.",
-            ),
-            note(facts.look.words()),
-            buttons(vec![action(
-                Glyph::Hearth,
-                "THE HEARTH",
-                go_home,
-            )]),
-            scroll_area((wardrobe(chief, facts),)),
+            scroll_area((portrait(facts), wardrobe(chief, facts))),
         );
         with_cx(move |cx| {
             column(views).fills_height().gap(cx.theme().space.section)
@@ -415,8 +688,7 @@ mod tests {
         library.write_at(&Stood::file(&dir.join("view"))).unwrap();
         let make = || {
             let mut app = App::new();
-            let agent =
-                app.world_mut().spawn(Name::new("founder")).id();
+            let agent = app.world_mut().spawn(Name::new("ada")).id();
             let chat = app.world_mut().spawn_empty().id();
             app.insert_resource(ViewFolder(dir.join("view")))
                 .insert_resource(

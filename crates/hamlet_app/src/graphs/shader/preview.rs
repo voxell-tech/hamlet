@@ -52,6 +52,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, resource};
 use hamlet_graph_editor::Editor;
+use hamlet_realm::objects::{COLOURS, Paints};
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
 use hamlet_shader::surface_shader;
@@ -61,7 +62,6 @@ use hamlet_ui::{AnyView, Cx};
 
 use super::swatch::Slots;
 use super::{Got, ShaderGraph};
-use crate::graphs::assets::{COLOURS, palette_colour};
 
 /// The render layer only the shader preview's camera, lights and
 /// shape are on: apart from the blueprint preview's 8 and the
@@ -451,7 +451,7 @@ fn pose(
     let colour = colours
         .as_deref()
         .and_then(|colours| {
-            palette_colour(colours, COLOURS[stand.colour])
+            Paints::of(colours).colour(COLOURS[stand.colour])
         })
         .unwrap_or(Vec3::splat(0.8));
     if let Some(mut material) = materials.get_mut(&stage.material) {

@@ -1,9 +1,10 @@
-//! The pictures of the library's meshes: one square image for each
-//! mesh asked for, drawn by the window and drawn again only when the
-//! mesh changes.
+//! The pictures of the library's meshes and blueprints: one square
+//! image for each asked for, drawn by the window and drawn again only
+//! when what it shows changes.
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use bevy::asset::Handle;
@@ -12,7 +13,7 @@ use bevy::ecs::world::World;
 use bevy::image::Image;
 use hamlet_graph::{Asset, Shape};
 
-use super::Library;
+use super::{Kind, Library, Source};
 
 /// The side of a picture, in pixels.
 pub const SIDE: u32 = 128;
@@ -21,10 +22,11 @@ pub const SIDE: u32 = 128;
 /// one replaced outside the window.
 const RECHECK: Duration = Duration::from_secs(3);
 
-/// The pictures asked for and what each was drawn from.
+/// The pictures asked for, by kind and name, and what each was drawn
+/// from. A mesh and a blueprint may share a name.
 #[derive(Resource, Default)]
 pub struct Thumbnails {
-    entries: BTreeMap<String, Entry>,
+    entries: BTreeMap<(Kind, String), Entry>,
     /// The library's revision the keys were last worked out for.
     seen: Option<u64>,
     /// When they were last worked out.
@@ -41,41 +43,76 @@ struct Entry {
     queued: Option<Key>,
 }
 
-/// What a picture is drawn from: the mesh's entry in the catalogue
-/// and its file, as it was when last written.
+/// What a picture is drawn from, and its file as it was when last
+/// written.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Key {
-    asset: Asset,
+    subject: Subject,
     file: Option<Stamp>,
+}
+
+/// What a picture shows.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Subject {
+    /// A mesh, as the catalogue has it.
+    Mesh(Asset),
+    /// A blueprint, as the library was at this revision, which a
+    /// change to a graph it runs or an asset it puts down moves.
+    Blueprint(u64),
 }
 
 /// A file's length and the time it was last written.
 type Stamp = (u64, SystemTime);
 
+fn stamp(path: &Path) -> Option<Stamp> {
+    let data = fs::metadata(path).ok()?;
+    Some((data.len(), data.modified().ok()?))
+}
+
 impl Key {
-    fn of(library: &Library, name: &str) -> Option<Self> {
-        let asset = library.catalogue.get(name)?;
-        let file = match &asset.shape {
-            Shape::Mesh(path) => library
-                .root()
-                .and_then(|root| fs::metadata(root.join(path)).ok())
-                .and_then(|data| {
-                    Some((data.len(), data.modified().ok()?))
-                }),
-            _ => None,
-        };
-        Some(Self { asset, file })
+    fn of(library: &Library, kind: Kind, name: &str) -> Option<Self> {
+        match kind {
+            Kind::Mesh => {
+                let asset = library.catalogue.get(name)?;
+                let file = match &asset.shape {
+                    Shape::Mesh(path) => library
+                        .root()
+                        .and_then(|root| stamp(&root.join(path))),
+                    _ => None,
+                };
+                Some(Self {
+                    subject: Subject::Mesh(asset),
+                    file,
+                })
+            }
+            Kind::Blueprint => {
+                let item = library.find(Kind::Blueprint, name)?;
+                let file = match &item.source {
+                    Source::File(path) => stamp(path),
+                    _ => None,
+                };
+                Some(Self {
+                    subject: Subject::Blueprint(library.revision),
+                    file,
+                })
+            }
+            Kind::Shader
+            | Kind::Material
+            | Kind::Prefab
+            | Kind::Texture => None,
+        }
     }
 
-    /// The catalogue entry the picture shows.
-    pub fn asset(&self) -> &Asset {
-        &self.asset
+    /// What the picture shows.
+    pub fn subject(&self) -> &Subject {
+        &self.subject
     }
 }
 
 /// A picture to draw.
 #[derive(Debug)]
 pub struct Job {
+    pub kind: Kind,
     pub name: String,
     pub key: Key,
     /// The image it was drawn into before, if it was.
@@ -83,14 +120,16 @@ pub struct Job {
 }
 
 impl Thumbnails {
-    /// A request for the picture of the mesh `name`, made once.
-    pub fn ask(world: &mut World, name: &str) {
-        if world.resource::<Self>().entries.contains_key(name) {
+    /// A request for the picture of the `kind` asset `name`, made
+    /// once.
+    pub fn ask(world: &mut World, kind: Kind, name: &str) {
+        let key = (kind, name.to_owned());
+        if world.resource::<Self>().entries.contains_key(&key) {
             return;
         }
         let mut thumbnails = world.resource_mut::<Self>();
         thumbnails.entries.insert(
-            name.to_owned(),
+            key,
             Entry {
                 image: None,
                 drawn: None,
@@ -100,9 +139,13 @@ impl Thumbnails {
         thumbnails.asked = true;
     }
 
-    /// The image of the mesh `name`, once it has been drawn.
-    pub fn picture(&self, name: &str) -> Option<Handle<Image>> {
-        let entry = self.entries.get(name)?;
+    /// The image of the `kind` asset `name`, once it has been drawn.
+    pub fn picture(
+        &self,
+        kind: Kind,
+        name: &str,
+    ) -> Option<Handle<Image>> {
+        let entry = self.entries.get(&(kind, name.to_owned()))?;
         entry.drawn.as_ref()?;
         entry.image.clone()
     }
@@ -115,7 +158,7 @@ impl Thumbnails {
                 || now.saturating_sub(self.checked) >= RECHECK)
     }
 
-    /// The pictures that show something else than their mesh now,
+    /// The pictures that show something else than their asset now,
     /// each given out once until it is [`drawn`](Self::drawn).
     pub fn due(
         &mut self,
@@ -126,8 +169,8 @@ impl Thumbnails {
         self.checked = now;
         self.asked = false;
         let mut jobs = Vec::new();
-        for (name, entry) in &mut self.entries {
-            let Some(key) = Key::of(library, name) else {
+        for ((kind, name), entry) in &mut self.entries {
+            let Some(key) = Key::of(library, *kind, name) else {
                 continue;
             };
             let current =
@@ -137,6 +180,7 @@ impl Thumbnails {
             }
             entry.queued = Some(key.clone());
             jobs.push(Job {
+                kind: *kind,
                 name: name.clone(),
                 key,
                 image: entry.image.clone(),
@@ -145,15 +189,18 @@ impl Thumbnails {
         jobs
     }
 
-    /// The record that `image` shows the mesh `name` as `key` has
-    /// it.
+    /// The record that `image` shows the `kind` asset `name` as
+    /// `key` has it.
     pub fn drawn(
         &mut self,
+        kind: Kind,
         name: &str,
         key: Key,
         image: Handle<Image>,
     ) {
-        let Some(entry) = self.entries.get_mut(name) else {
+        let Some(entry) =
+            self.entries.get_mut(&(kind, name.to_owned()))
+        else {
             return;
         };
         if entry.queued.as_ref() == Some(&key) {
@@ -182,7 +229,7 @@ mod tests {
         let mut library = Library::default();
         let mut thumbnails = Thumbnails::default();
         thumbnails.entries.insert(
-            "box".to_owned(),
+            (Kind::Mesh, "box".to_owned()),
             Entry {
                 image: None,
                 drawn: None,
@@ -197,8 +244,13 @@ mod tests {
             "a job under way is not given out again"
         );
         let job = first.into_iter().next().unwrap();
-        thumbnails.drawn(&job.name, job.key, Handle::default());
-        assert!(thumbnails.picture("box").is_some());
+        thumbnails.drawn(
+            job.kind,
+            &job.name,
+            job.key,
+            Handle::default(),
+        );
+        assert!(thumbnails.picture(Kind::Mesh, "box").is_some());
         assert!(due(&mut thumbnails, &library).is_empty());
 
         let mut asset = library.catalogue.get("box").unwrap();

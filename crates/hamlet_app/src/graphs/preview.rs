@@ -10,7 +10,9 @@ use core::f32::consts::{FRAC_PI_2, PI, TAU};
 use bevy::app::{App, Startup, Update};
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::camera::visibility::{RenderLayers, Visibility};
-use bevy::camera::{Camera, ImageRenderTarget, RenderTarget};
+use bevy::camera::{
+    Camera, ImageRenderTarget, Projection, RenderTarget,
+};
 use bevy::color::Alpha;
 use bevy::dev_tools::infinite_grid::{
     InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings,
@@ -31,7 +33,7 @@ use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseButton;
 use bevy::light::DirectionalLight;
-use bevy::math::{Quat, Rect, Vec3};
+use bevy::math::{Mat3, Quat, Rect, Vec3};
 use bevy::mesh::{Mesh, Mesh3d};
 use bevy::pbr::{DistanceFog, MeshMaterial3d, StandardMaterial};
 use bevy::picking::events::{PointerDrag, PointerScroll};
@@ -51,8 +53,8 @@ use bevy::ui_widgets::popover::{
 };
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, Invoke, Layer, Mods, Scope,
-    ScopeId, ScopeSpec, ShortcutAppExt,
+    Chord, CommandId, CommandSpec, Layer, Mods, Scope, ScopeId,
+    ScopeSpec, ShortcutAppExt,
 };
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
@@ -62,12 +64,14 @@ use bevy_fynix::{
     ScopedExt, Theme, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_blueprint::{Frame, Object};
-use hamlet_graph::{Asset, BODY, Catalogue, Paint, Shape};
+use hamlet_graph::{Asset, Catalogue, Shape};
 use hamlet_graph_editor::Editor;
 use hamlet_graph_editor::library::Library;
-use hamlet_realm::generator::house::slope;
-use hamlet_realm::meshes::{Meshing, Rng};
-use hamlet_realm::palette::{Palette as Colours, TownStyle};
+use hamlet_realm::meshes::Meshing;
+use hamlet_realm::objects::{
+    self, Model, Models, Paints, Target, drawn_size,
+};
+use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::pick::{
     Orbit, Pace, Steer, backward, scrolled_lines,
 };
@@ -85,7 +89,6 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use super::Blueprint;
-use super::assets::{Meshes, Model, palette_colour};
 use super::blueprint::{Got, roll_hamlet, roll_item};
 use super::gizmo::{self, Dragging, GizmoMode};
 use crate::roll::moved;
@@ -102,6 +105,14 @@ const YAW: f32 = 0.8;
 
 /// The camera's pitch before a hand has turned it, in radians.
 const PITCH: f32 = 0.55;
+
+/// How much farther than just fitting it the camera first stands
+/// from what is drawn, for room about it.
+const ROOM: f32 = 1.15;
+
+/// The least reach framed, in metres, so that a small part is not
+/// seen from up close.
+const SMALLEST: f32 = 0.6;
 
 /// The lowest a hand turns the camera's pitch, in radians, as near
 /// level as it looks.
@@ -281,11 +292,13 @@ struct Seat {
     stance: (f32, f32),
 }
 
-/// The middle and the reach of what is drawn.
+/// The middle and the reach of what is drawn, and the graph it was
+/// drawn for.
 #[derive(Resource, Default)]
 pub(super) struct Framing {
     pub(super) middle: Vec3,
     pub(super) reach: f32,
+    of: String,
 }
 
 /// What the last drawing was made from.
@@ -532,6 +545,7 @@ fn time_dial() -> AnyView {
                             resource::<Daytime, _>(|daytime| {
                                 daytime.0
                             }),
+                            false,
                             |world, hour| {
                                 world.resource_mut::<Daytime>().0 =
                                     hour;
@@ -835,7 +849,7 @@ fn rebuild(
     preview: Option<Res<Preview>>,
     colours: Option<Res<Colours>>,
     mut library: ResMut<Library>,
-    mut models: ResMut<Meshes>,
+    mut models: ResMut<Models>,
     pieces: Query<Entity, With<Piece>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut framing: ResMut<Framing>,
@@ -914,8 +928,14 @@ fn rebuild(
             model,
             colours.as_deref(),
         );
-        low = low.min(middle - size);
-        high = high.max(middle + size);
+        // Half of its box along each axis, as it is turned.
+        let turned = Mat3::from_quat(object.frame.rotation);
+        let half = size * 0.5;
+        let reach = turned.x_axis.abs() * half.x
+            + turned.y_axis.abs() * half.y
+            + turned.z_axis.abs() * half.z;
+        low = low.min(middle - reach);
+        high = high.max(middle + reach);
     }
     if objects.is_empty() {
         (low, high) = (Vec3::splat(-2.0), Vec3::splat(2.0));
@@ -940,6 +960,7 @@ fn rebuild(
     }
     framing.middle = (low + high) * 0.5;
     framing.reach = (high - low).length() * 0.5;
+    framing.of.clone_from(&editor.name);
     commands.spawn((
         Piece,
         Mesh3d(meshes.add(meshing.build())),
@@ -948,15 +969,11 @@ fn rebuild(
     ));
 }
 
-/// The size an asset is drawn at on `frame`: its own size times the
-/// frame's scale, a metre on each side where it has none.
-fn drawn_size(frame: &Frame, asset: Option<&Asset>) -> Vec3 {
-    frame.scale * asset.map_or(Vec3::ONE, |asset| asset.size)
-}
-
 /// The asset `name`, with the catalogue entry `asset` and the
-/// `model` its file was read as, drawn standing on `frame`: a box
-/// where it has no shape of its own. Gives the middle of its box.
+/// `model` its file was read as, drawn standing on `frame` as the
+/// realm draws it, in the colours of a house of the first town. A
+/// marker, shown where nothing is put, sits on its transform. Gives
+/// the middle of its box.
 pub(super) fn stand(
     meshing: &mut Meshing,
     frame: &Frame,
@@ -965,154 +982,45 @@ pub(super) fn stand(
     model: Option<&Model>,
     colours: Option<&Colours>,
 ) -> Vec3 {
-    let size = drawn_size(frame, asset);
-    let marker = name == MARKER;
-    // An asset stands on its transform; a marker sits on it.
-    let lift = if marker { 0.0 } else { size.y * 0.5 };
-    let middle = frame.translation
-        + frame.rotation * Vec3::new(0.0, lift, 0.0);
-    let colour = match colours {
-        Some(palette) if marker => palette.ochre,
-        _ => paint(colours, asset, BODY, Vec3::splat(0.7)),
-    };
-    let shape = asset.map(|asset| &asset.shape);
-    match (model, shape, colours) {
-        (Some(model), ..) => {
-            model.draw(
-                meshing,
-                middle,
-                size,
-                frame.rotation,
-                |slot, own| paint(colours, asset, slot, own),
-            );
-        }
-        (None, Some(Shape::Wedge { peak }), _) => {
-            wedge(meshing, frame, size, *peak, colour);
-        }
-        (None, Some(Shape::Tiles { taper }), Some(palette)) => {
-            tiles(meshing, frame, size, *taper, colour, palette);
-        }
-        _ => meshing.rbox(
-            middle,
-            size * 0.5,
+    if name == MARKER {
+        let colour =
+            colours.map_or(Vec3::splat(0.7), |palette| palette.ochre);
+        meshing.rbox(
+            frame.translation,
+            drawn_size(frame, asset) * 0.5,
             0.04,
             frame.rotation,
             colour,
-            if marker { 0.0 } else { 0.25 },
-        ),
-    }
-    middle
-}
-
-/// A triangle across x on `frame`, `size.y` high at `peak` along x
-/// and `size.z` thick: a gable's end.
-fn wedge(
-    meshing: &mut Meshing,
-    frame: &Frame,
-    size: Vec3,
-    peak: f32,
-    colour: Vec3,
-) {
-    let at = |x: f32, y: f32, z: f32| {
-        frame.translation
-            + frame.rotation * (Vec3::new(x, y, z) * size)
-    };
-    let turn = |v: Vec3| frame.rotation * v;
-    let (front, back) = (0.5, -0.5);
-    let corner = |x: f32, z: f32| at(x, 0.0, z);
-    let top = |z: f32| at(peak, 1.0, z);
-    meshing.face(
-        [
-            corner(-0.5, front),
-            corner(0.5, front),
-            top(front),
-            top(front),
-        ],
-        turn(Vec3::Z),
-        colour,
-    );
-    meshing.face(
-        [corner(0.5, back), corner(-0.5, back), top(back), top(back)],
-        turn(-Vec3::Z),
-        colour,
-    );
-    // Each sloping side faces out and up, steeper the nearer the
-    // peak.
-    let sides = [
-        (-0.5, Vec3::new(-size.y, (peak + 0.5) * size.x, 0.0)),
-        (0.5, Vec3::new(size.y, (0.5 - peak) * size.x, 0.0)),
-    ];
-    for (x, toward) in sides {
-        meshing.face(
-            [
-                corner(x, back),
-                corner(x, front),
-                top(front),
-                top(back),
-            ],
-            turn(toward),
-            colour * 0.95,
+            0.0,
         );
+        return frame.translation;
     }
-}
-
-/// Lapped tiles over `frame` as the game lays a roof's slope, from
-/// the eave at +z to the ridge at -z, `taper` times as wide. The
-/// roof's own colour drifts as the hamlet's roofs do.
-fn tiles(
-    meshing: &mut Meshing,
-    frame: &Frame,
-    size: Vec3,
-    taper: f32,
-    colour: Vec3,
-    colours: &Colours,
-) {
-    // A slope flat along x or z has no eave or no run to lay on, and
-    // `slope` would give its vertices NaN.
-    if size.x.abs() < 1e-4 || size.z.abs() < 1e-4 {
-        return;
-    }
-    let at = |x: f32, z: f32| {
-        frame.translation
-            + frame.rotation
-                * (Vec3::new(x * size.x, 0.0, z * size.z))
-    };
-    let eave = [at(-0.5, 0.5), at(0.5, 0.5)];
-    let ridge = [at(-0.5 * taper, -0.5), at(0.5 * taper, -0.5)];
-    let town = &colours.towns[0];
-    let style = TownStyle {
-        roof: colour,
-        drift: if colour == town.roof {
-            town.drift
-        } else {
-            colour * 1.15
+    let paints = colours.map(Paints::of);
+    objects::stand(
+        &mut Target {
+            body: meshing,
+            panes: None,
         },
-        banner: town.banner,
-    };
-    // Seeded by where it is, so a slope keeps its tiles from run to
-    // run.
-    let mut rng = Rng::seeded(&format!("{:?}", frame.translation));
-    slope(meshing, &mut rng, eave, ridge, &style, colours);
+        frame,
+        name,
+        asset,
+        model,
+        paints.as_ref(),
+        0,
+    )
 }
 
-/// The colour of an asset's material slot, as its catalogue entry
-/// paints it: a palette colour, or `own`, the one its file gives.
-fn paint(
-    colours: Option<&Colours>,
-    asset: Option<&Asset>,
-    slot: &str,
-    own: Vec3,
-) -> Vec3 {
-    let Some(colours) = colours else {
-        return Vec3::splat(0.7);
+/// How far from what is drawn, `reach` round its middle, the camera
+/// sees all of it with some room about it, through the narrower of
+/// the angles `projection` sees across and up.
+fn fit(reach: f32, projection: &Projection) -> f32 {
+    let reach = reach.max(SMALLEST);
+    let Projection::Perspective(lens) = projection else {
+        return reach * 3.0;
     };
-    match asset.and_then(|asset| asset.slots.get(slot)) {
-        Some(Paint::Palette(name)) => {
-            palette_colour(colours, name).unwrap_or(colours.plaster)
-        }
-        Some(Paint::Own) => own,
-        None => colours.plaster,
-    }
+    let up = lens.fov * 0.5;
+    let across = (up.tan() * lens.aspect_ratio).atan();
+    reach * ROOM / up.min(across).sin()
 }
 
 /// Points the camera at what is drawn, from the way it is turned,
@@ -1124,19 +1032,23 @@ fn aim(
     mut seat: ResMut<Seat>,
     framing: Res<Framing>,
     set: Res<CameraSettings>,
-    mut cameras: Query<(&mut Transform, &mut DistanceFog)>,
+    mut cameras: Query<(
+        &mut Transform,
+        &mut DistanceFog,
+        &Projection,
+    )>,
     mut anchor: Local<Option<(String, Vec3, f32)>>,
 ) {
     let Some(preview) = preview else {
         return;
     };
-    // Framed once for each graph opened, then moved only by the hand,
-    // so what is drawn and the grid under it keep their size while
-    // the graph is edited.
+    // Framed once for each graph opened, by its own drawing, then
+    // moved only by the hand, so what is drawn and the grid under it
+    // keep their size while the graph is edited.
     let framed = anchor
         .as_ref()
         .is_some_and(|(name, ..)| *name == editor.name);
-    if !framed && framing.reach > 0.0 {
+    if !framed && framing.reach > 0.0 && framing.of == editor.name {
         *anchor = Some((
             editor.name.clone(),
             framing.middle,
@@ -1150,7 +1062,7 @@ fn aim(
     let Some((_, middle, reach)) = anchor.clone() else {
         return;
     };
-    let Ok((mut transform, mut fog)) =
+    let Ok((mut transform, mut fog, projection)) =
         cameras.get_mut(preview.camera)
     else {
         return;
@@ -1166,7 +1078,7 @@ fn aim(
         pitch.cos(),
         -yaw.cos() * pitch.sin(),
     );
-    let distance = (reach * 2.2 + 2.0) * seat.shown.zoom;
+    let distance = fit(reach, projection) * seat.shown.zoom;
     let slid = seat.shown.pan;
     let focus = middle + Vec3::new(slid.x, 0.0, slid.y);
     *transform =

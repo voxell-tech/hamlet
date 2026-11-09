@@ -6,10 +6,12 @@ use anyhow::{Result, bail};
 use bevy::DefaultPlugins;
 use bevy::app::PluginGroup;
 use bevy_app::{App, AppExit};
+use hamlet_app::assets_folder::DefaultAssets;
 use hamlet_app::{Remembered, UiPlugin, window_plugin};
 use hamlet_client::connection::LocalServer;
 use hamlet_client::{ClientPlugin, Connection, Tokio, ViewFolder};
 use hamlet_desktop::DesktopPlugin;
+use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_protocol::client::discovery::{self, Chosen};
 use hamlet_realm::RealmPlugin;
 use hamlet_realm::chief::Kept;
@@ -26,7 +28,9 @@ Start a server with hamlet server; chat in the terminal with hamlet \
 env: HAMLET_SERVER and HAMLET_TOKEN select a server;
      otherwise HAMLET_HOME (~/.hamlet) locates the local server.
      HAMLET_VIEW selects the window's layout, size and look folder;
-     otherwise the OS's config folder for Hamlet is used.";
+     otherwise the OS's config folder for Hamlet is used.
+     HAMLET_ASSETS selects the assets folder until one is chosen in
+     the window; otherwise Hamlet in the documents folder is used.";
 
 /// Whether `args` open the window, rather than ask for its usage.
 fn parse(mut args: impl Iterator<Item = String>) -> Result<bool> {
@@ -77,8 +81,17 @@ fn main() -> Result<()> {
     let remembered = Remembered::read(&view)?;
     let kept = Kept::read(&view)?;
     let rt = tokio::runtime::Runtime::new()?;
+    let scheme = rt.block_on(ColorScheme::ask());
     let mut app = App::new();
+    if let Some(assets) =
+        DefaultAssets::of(std::env::consts::OS, |key| {
+            std::env::var_os(key)
+        })
+    {
+        app.insert_resource(assets);
+    }
     app.insert_resource(Tokio(rt.handle().clone()))
+        .insert_resource(scheme)
         .insert_resource(ViewFolder(view))
         .insert_resource(remembered)
         .insert_resource(kept)

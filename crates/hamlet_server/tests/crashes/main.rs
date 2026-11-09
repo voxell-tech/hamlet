@@ -1,354 +1,268 @@
-//! The `hamlet_server` executable serving a home: crashed, killed
-//! and driven through its fault points and the pi harness. Every
-//! server here starts pi for its model providers, so the target needs
-//! Node and the `harness` feature.
+//! The `hamlet_server` executable stopped at its fault points, killed
+//! there, and started again on the same realm: what it kept is
+//! carried on and nothing runs twice. Every server here starts pi, so
+//! the target needs Node and the `harness` feature.
 
 #![cfg(unix)]
 
 mod remote;
-mod society;
 
-use std::io::{BufRead, BufReader};
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use futures::{SinkExt, StreamExt};
-use hamlet_server::{Held, Home};
-use hamlet_testing::openai::{Endpoint, Response};
-use hamlet_testing::{
-    Models, Scratch, Server, Socket, answers, strip_overrides,
-};
-use serde_json::{Value, json};
-use tokio_tungstenite::tungstenite::Message;
+use hamlet_acceptance::{Client, Faux, call, chat, words};
+use hamlet_protocol::client::ServerMessage;
+use hamlet_testing::{Models, Scratch, Server};
+use serde_json::json;
 
 /// The `hamlet_server` these tests are built with.
 const SERVER: &str = env!("CARGO_BIN_EXE_hamlet_server");
 
-/// Starts [`SERVER`] on `home`.
-async fn start(
-    home: &Path,
-    env: &[(&str, &str)],
-    models: Models<'_>,
-) -> Server {
-    Server::start(&[SERVER.into()], home, models, env)
-        .await
-        .unwrap_or_else(|failure| panic!("{failure}"))
+/// A realm on a scratch home, and a folder beside it for its faux
+/// scripts and the markers of its fault points.
+struct Realm {
+    home: Scratch,
+    side: Scratch,
+    started: u32,
+    env: Vec<(String, String)>,
 }
 
-#[test]
-fn the_server_holds_its_home_until_terminated() {
-    let dir = Scratch::new("server-binary");
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test runs the server executable"
-    )]
-    let mut server = strip_overrides(&mut Command::new(SERVER))
-        .args(["--home".as_ref(), dir.as_os_str()])
-        .args(["--port", "0"])
-        .env_remove("HAMLET_HOME")
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut line = String::new();
-    BufReader::new(server.stderr.take().unwrap())
-        .read_line(&mut line)
-        .unwrap();
-    assert!(line.contains("holding"), "{line}");
-    let refused = Home::open(&dir).err().unwrap();
-    assert!(refused.downcast_ref::<Held>().is_some(), "{refused}");
-    hamlet_testing::signals::terminate(server.id()).unwrap();
-    assert!(server.wait().unwrap().success());
-    let mut home = Home::open(&dir).unwrap();
-    assert!(!dir.join("server.json").exists());
-    assert_eq!(
-        home.store().record("home").unwrap().unwrap().agents[0].name,
-        "founder"
-    );
-}
-
-#[tokio::test]
-async fn requests_sent_before_close_are_kept_in_order() {
-    let home = Scratch::new("protocol-disconnected-edit");
-    let mut server = start(&home, &[], Models::Providers).await;
-    let (mut socket, _) = server.connect().await;
-    for text in ["first", "second", "last"] {
-        socket.send(Message::Text(json!({"type":"edit","doc":"charter","id":uuid::Uuid::new_v4().to_string(),"text":text}).to_string().into())).await.unwrap();
-    }
-    socket.close(None).await.unwrap();
-    drop(socket);
-    let (mut reader, _) = server.connect().await;
-    tokio::time::timeout(Duration::from_secs(3),async {
-        loop {
-            reader.send(Message::Text(json!({"type":"read","what":"charter","id":uuid::Uuid::new_v4().to_string()}).to_string().into())).await.unwrap();
-            let result = reader.next().await.unwrap().unwrap();
-            let result = serde_json::from_str::<Value>(result.to_text().unwrap()).unwrap();
-            if result["charter"]["text"] == "last" { break; }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+impl Realm {
+    /// A new realm, whose agents do not reflect between turns.
+    fn new() -> Self {
+        Self {
+            home: Scratch::new("crash-home"),
+            side: Scratch::new("crash-side"),
+            started: 0,
+            env: vec![("HAMLET_REFLECT_EVERY".into(), "0".into())],
         }
-    }).await.unwrap();
-    drop(reader);
-    assert_eq!(server.stop().await, Some(0));
-}
-
-#[tokio::test]
-async fn a_request_whose_handler_fails_is_faulted_and_the_next_answered()
- {
-    let home = Scratch::new("server-handler-fails");
-    let mut server = start(&home, &[], Models::Providers).await;
-    let (mut socket, _) = server.connect().await;
-    // The founder's house becomes a file, so opening it fails.
-    let house = home.join("houses/home/0");
-    std::fs::rename(&house, home.join("house-moved-away")).unwrap();
-    std::fs::write(&house, "not a folder").unwrap();
-    let edit = json!({"type": "edit", "doc": "notes",
-        "id": uuid::Uuid::new_v4().to_string(),
-        "agent": {"hamlet": "home", "agent": "founder"},
-        "text": "Kept?"});
-    let read = json!({"type": "read", "what": "charter",
-        "id": uuid::Uuid::new_v4().to_string()});
-    let answers = answers(&mut socket, &[&edit, &read]).await;
-    assert_eq!(answers[0]["type"], "fault", "{answers:?}");
-    assert_eq!(answers[0]["to"], edit["id"]);
-    assert_eq!(
-        answers[0]["text"],
-        "The server could not complete this request."
-    );
-    assert_eq!(answers[1]["type"], "read", "{answers:?}");
-    drop(socket);
-    assert_eq!(server.stop().await, Some(0));
-}
-
-#[tokio::test]
-async fn overrides_and_secrets_stay_in_memory_but_the_chief_is_retained()
- {
-    let home = Scratch::new("protocol-overrides");
-    let key = "process-only-key-123456789";
-    let mut server = start(
-        &home,
-        &[
-            ("HAMLET_MODEL", "local::other"),
-            ("HAMLET_BASE_URL", "http://localhost:9999/v1"),
-            ("HAMLET_REFLECT_EVERY", "+2"),
-            ("HAMLET_NET", "1"),
-            ("HAMLET_API_KEY", key),
-        ],
-        Models::Providers,
-    )
-    .await;
-    let (mut socket, state) = server.connect().await;
-    assert_eq!(state["settings"]["model"], "local::other");
-    assert_eq!(
-        state["settings"]["endpoints"][0]["baseUrl"],
-        "http://localhost:9999/v1"
-    );
-    assert_eq!(state["settings"]["reflectEvery"], 2);
-    assert_eq!(state["settings"]["allowNet"], true);
-    socket
-        .send(Message::Text(json!({"type":key}).to_string().into()))
-        .await
-        .unwrap();
-    let answer = socket.next().await.unwrap().unwrap();
-    assert!(answer.to_text().unwrap().contains("[REDACTED]"));
-    assert!(!answer.to_text().unwrap().contains(key));
-    drop(socket);
-    assert_eq!(server.stop().await, Some(0));
-    let token = server.token.clone();
-    drop(server);
-    let mut server = start(
-        &home,
-        &[("HAMLET_USER", "someone-else")],
-        Models::Providers,
-    )
-    .await;
-    assert_eq!(server.token, token);
-    let (socket, state) = server.connect().await;
-    assert_eq!(state["chief"], "chief");
-    assert_eq!(state["settings"]["model"], "local::qwen3.6:35b-a3b");
-    assert_eq!(
-        state["settings"]["endpoints"][0]["baseUrl"],
-        "http://localhost:11434/v1"
-    );
-    assert_eq!(state["settings"]["reflectEvery"], 10);
-    assert_eq!(state["settings"]["allowNet"], false);
-    drop(socket);
-    assert_eq!(server.stop().await, Some(0));
-    for file in ["realm.sqlite", "credentials.json"] {
-        let bytes = std::fs::read(home.join(file)).unwrap();
-        assert!(
-            !bytes.windows(key.len()).any(|w| w == key.as_bytes())
-        );
     }
-}
 
-#[tokio::test]
-async fn ctrl_c_stops_even_with_unresponsive_clients_and_a_second_interrupt_forces_exit()
- {
-    for twice in [false, true] {
-        let home = Scratch::new("protocol-interrupt");
-        let mut server = start(&home, &[], Models::Providers).await;
-        let (mut reader, _) = server.connect().await;
-        let (_unresponsive, _) = server.connect().await;
-        server.interrupt();
-        let closed = tokio::time::timeout(
-            Duration::from_secs(2),
-            reader.next(),
+    /// A new realm whose servers stop at `point` once.
+    fn faulting(point: &str) -> Self {
+        let realm = Self::new().with("HAMLET_FAULT", point);
+        let side = realm.side.display().to_string();
+        realm.with("HAMLET_FAULT_DIR", &side)
+    }
+
+    /// The same, with the environment variable `name` set too.
+    fn with(mut self, name: &str, value: &str) -> Self {
+        self.env.push((name.into(), value.into()));
+        self
+    }
+
+    /// Starts a server on the realm answering with `faux`, and
+    /// connects the chief.
+    async fn serve(&mut self, faux: Faux) -> (Server, Client) {
+        self.started += 1;
+        let file =
+            self.side.join(format!("faux-{}.json", self.started));
+        faux.write(&file);
+        let env = self
+            .env
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect::<Vec<_>>();
+        let server = Server::start(
+            &[SERVER.to_owned()],
+            &self.home,
+            Models::Faux(&file),
+            &env,
         )
         .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-        assert!(
-            matches!(closed,Message::Close(Some(frame)) if u16::from(frame.code)==1001)
-        );
-        if twice {
-            server.interrupt();
-        }
-        assert_eq!(
-            server.ended().await,
-            Some(if twice { 130 } else { 0 })
-        );
-        if !twice {
-            assert!(!home.join("server.json").exists());
-        }
+        .unwrap_or_else(|failure| panic!("{failure}"));
+        let chief = Client::join(&server).await;
+        (server, chief)
     }
+
+    /// Waits until the server stopped at its fault point.
+    async fn paused(&self) {
+        let marker = self.side.join("server-paused");
+        for _ in 0..300 {
+            if marker.exists() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("the server never stopped at its fault point");
+    }
+
+    fn path(&self, relative: &str) -> PathBuf {
+        self.home.join(relative)
+    }
+}
+
+/// The lines of `file`.
+fn lines(file: &Path) -> Vec<String> {
+    std::fs::read_to_string(file)
+        .unwrap_or_default()
+        .lines()
+        .map(String::from)
+        .collect()
 }
 
 #[tokio::test]
-async fn a_request_whose_handler_panics_is_faulted_and_the_server_goes_on()
+async fn a_request_whose_handler_panics_is_faulted_and_the_next_answered()
  {
-    let home = Scratch::new("server-handler-panics");
-    let faults = home.join("faults");
-    std::fs::create_dir_all(&faults).unwrap();
-    let mut server = start(
-        &home,
-        &[
-            ("HAMLET_FAULT", "edit_document"),
-            ("HAMLET_FAULT_DIR", faults.to_str().unwrap()),
-        ],
-        Models::Providers,
-    )
-    .await;
-    let published = std::fs::read(home.join("server.json")).unwrap();
-    let (mut socket, _) = server.connect().await;
-    let edit = json!({"type": "edit", "doc": "charter",
-        "id": uuid::Uuid::new_v4().to_string(), "text": "Kept?"});
-    let read = json!({"type": "read", "what": "charter",
-        "id": uuid::Uuid::new_v4().to_string()});
-    let answers = answers(&mut socket, &[&edit, &read]).await;
-    assert!(faults.join("server-panicked").exists());
-    assert_eq!(answers[0]["type"], "fault", "{answers:?}");
-    assert_eq!(answers[0]["to"], edit["id"]);
-    assert_eq!(
-        answers[0]["text"],
-        "The server could not complete this request."
-    );
-    assert_eq!(answers[1]["type"], "read", "{answers:?}");
-    assert_ne!(answers[1]["charter"]["text"], "Kept?");
-    assert!(server.is_running());
-    assert_eq!(
-        std::fs::read(home.join("server.json")).unwrap(),
-        published
-    );
-    drop(socket);
-    assert_eq!(server.stop().await, Some(0));
-    let log = server.log();
-    // The fault is the caught panic's, not some other failure's.
-    assert!(
-        log.contains(
-            "the handler panicked: the fault point edit_document \
-             panics"
+    let mut realm = Realm::faulting("request");
+    let (mut server, mut chief) = realm.serve(Faux::new()).await;
+    let hand = chief.hand();
+    let first = chief.tell(hand, "/budget").await;
+    match chief.answer(&first).await {
+        ServerMessage::Fault(fault) => assert!(
+            fault.text.contains("the handler panicked"),
+            "{}",
+            fault.text
         ),
-        "{log}"
-    );
+        other => panic!("a panic got {other:?}, not a fault"),
+    }
+    assert!(realm.side.join("server-panicked").exists());
+    chief.command(hand, "/budget").await;
+    assert!(server.is_running());
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn other_known_credentials_are_absent_from_both_stores() {
-    let endpoint = Endpoint::start().await;
-    endpoint.enqueue([Response {
-        text: "Hello sk-other-secret.".into(),
-        ..Default::default()
-    }]);
-    let home = Scratch::new("server-other-credential");
-    std::fs::write(
-        home.join("credentials.json"),
-        json!({
-            "installationId": "scratch",
-            "connection": {"token": "scratch-connection-token"},
-            "models": {
-                "local": {"type": "api_key", "key": "sk-held"},
-                "other": {"type": "api_key", "key": "sk-other-secret"}
-            }
+#[tokio::test]
+async fn a_job_cut_off_by_a_crash_runs_at_the_next_start() {
+    let mut realm = Realm::faulting("jobs");
+    let (mut server, mut chief) = realm.serve(Faux::new()).await;
+    let hand = chief.hand();
+    chief
+        .tell(hand, "/scholar new sam: A careful reader.")
+        .await;
+    realm.paused().await;
+    server.kill();
+    // The scholar is kept and its repository is a job still to run:
+    // only the Hand's own scholar has one.
+    let scholars = realm.path("scholars");
+    let planted = || std::fs::read_dir(&scholars).unwrap().count();
+    assert_eq!(planted(), 1);
+
+    // The next start runs it: sam's main gets its first commit.
+    let (_server, mut chief) = realm.serve(Faux::new()).await;
+    let mut versions = String::new();
+    for _ in 0..100 {
+        versions = chief.command(hand, "/versions scholar#2").await;
+        if versions.contains("Latest commits of main") {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("sam's main has no commit: {versions}");
+}
+
+#[tokio::test]
+async fn a_turn_ended_before_a_crash_is_followed_at_the_next_start() {
+    let mut realm = Realm::faulting("followed");
+    let (mut server, mut chief) =
+        realm.serve(Faux::new().responses([words("Three.")])).await;
+    let hand = chief.hand();
+    chief.command(hand, "/worker Count to three.").await;
+    realm.paused().await;
+    let worker = chief
+        .realm()
+        .agents
+        .into_iter()
+        .find(|agent| agent.name.starts_with("worker"))
+        .expect("the worker is in the realm");
+    assert!(worker.left.is_none());
+    server.kill();
+
+    // Its answer is kept; following it ends the worker.
+    let (_server, mut chief) = realm.serve(Faux::new()).await;
+    chief
+        .until("the worker to end", |c| {
+            c.agent(&worker.name).is_some_and(|a| a.left.is_some())
         })
-        .to_string(),
-    )
-    .unwrap();
-    let mut server = start(
-        &home,
-        &[
-            ("HAMLET_MODEL", "local::org/large"),
-            ("HAMLET_BASE_URL", &endpoint.url),
-            ("HAMLET_REFLECT_EVERY", "0"),
-        ],
-        Models::Providers,
-    )
-    .await;
-    let (mut socket, _) = server.connect().await;
-    let request = uuid::Uuid::new_v4().to_string();
-    for message in [
-        json!({"type": "open", "id": uuid::Uuid::new_v4().to_string(),
-            "chat": {"with": {"hamlet": "home", "agent": "mayor"}}}),
-        json!({"type": "say", "id": request,
-            "to": {"hamlet": "home", "agent": "mayor"}, "text": "Hello?"}),
-    ] {
-        socket
-            .send(Message::Text(message.to_string().into()))
-            .await
-            .unwrap();
-    }
-    tokio::time::timeout(Duration::from_secs(20), async {
-        let mut answered = false;
-        let mut shown = false;
-        while !answered || !shown {
-            let frame = socket.next().await.unwrap().unwrap();
-            let text = frame.to_text().unwrap();
-            assert!(!text.contains("sk-other-secret"), "{text}");
-            assert!(!text.contains("sk-held"), "{text}");
-            shown |= text.contains("Hello [REDACTED].");
-            let message =
-                serde_json::from_str::<Value>(text).unwrap();
-            if message["type"] == "reply" && message["to"] == request
-            {
-                assert_eq!(message["kind"], "notice", "{message}");
-                answered = true;
-            }
-        }
-    })
-    .await
-    .unwrap();
-    drop(socket);
-    assert_eq!(server.stop().await, Some(0));
-    let mut files = vec![home.join("realm.sqlite")];
-    for runtime in std::fs::read_dir(home.join("harnesses")).unwrap()
-    {
-        for file in
-            std::fs::read_dir(runtime.unwrap().path()).unwrap()
-        {
-            files.push(file.unwrap().path());
-        }
-    }
-    assert!(files.len() > 1, "the Pi store must exist");
-    for file in files {
-        let bytes = std::fs::read(&file).unwrap();
-        for secret in [b"sk-held".as_slice(), b"sk-other-secret"] {
-            assert!(
-                !bytes
-                    .windows(secret.len())
-                    .any(|part| part == secret),
-                "credential persisted in {}",
-                file.display()
-            );
-        }
-    }
+        .await;
+}
+
+#[tokio::test]
+async fn a_command_cut_off_after_it_ran_is_not_run_again() {
+    let mut realm = Realm::faulting("ran");
+    let command = call(
+        "bash",
+        json!({"command": "echo ran >> ran.txt", "description": "Count."}),
+    );
+    let (mut server, mut chief) =
+        realm.serve(Faux::new().responses([command])).await;
+    let hand = chief.hand();
+    let hand_chat = chat(hand);
+    chief.open(&hand_chat).await;
+    chief.tell(hand, "Count once.").await;
+    realm.paused().await;
+    server.kill();
+    let ran = realm.path("hand/ran.txt");
+    assert_eq!(lines(&ran), ["ran"]);
+
+    let (_server, mut chief) = realm
+        .serve(Faux::new().responses([words("Counted.")]))
+        .await;
+    chief.open(&hand_chat).await;
+    chief.shows(&hand_chat, "Counted.").await;
+    let failure = chief
+        .items(&hand_chat)
+        .into_iter()
+        .find_map(|item| item.tool?.failure)
+        .expect("the call's failure is kept");
+    assert!(failure.contains("interrupted"), "{failure}");
+    assert_eq!(lines(&ran), ["ran"]);
+}
+
+/// The Hand makes the scholar `sam`, and the server is killed after
+/// the change and before the call is answered; how many scholars
+/// named `sam` there are once the Hand asked again, and how the call
+/// failed, if it did.
+async fn scholar_made_across_a_crash(
+    mut realm: Realm,
+) -> (usize, Option<String>) {
+    let make = call(
+        "create_scholar",
+        json!({"name": "sam", "character": "A careful reader."}),
+    );
+    let (mut server, mut chief) =
+        realm.serve(Faux::new().responses([make])).await;
+    let hand = chief.hand();
+    let hand_chat = chat(hand);
+    chief.open(&hand_chat).await;
+    chief.tell(hand, "Make sam.").await;
+    realm.paused().await;
+    server.kill();
+
+    let (_server, mut chief) =
+        realm.serve(Faux::new().responses([words("Made.")])).await;
+    chief.open(&hand_chat).await;
+    chief.shows(&hand_chat, "Made.").await;
+    let made = chief
+        .realm()
+        .scholars
+        .iter()
+        .filter(|s| s.name == "sam")
+        .count();
+    let failure = chief
+        .items(&hand_chat)
+        .into_iter()
+        .find_map(|item| item.tool)
+        .expect("the call's result is kept")
+        .failure;
+    (made, failure)
+}
+
+#[tokio::test]
+async fn a_society_call_cut_off_after_its_change_is_answered_the_same()
+ {
+    let (made, failure) =
+        scholar_made_across_a_crash(Realm::faulting("carried")).await;
+    assert_eq!((made, failure), (1, None));
+}
+
+#[tokio::test]
+async fn control_a_change_and_its_answer_kept_apart_lose_the_answer()
+{
+    // The crash test above must catch a change kept apart from its
+    // call's answer: asked again, the call makes a second scholar,
+    // since scholar names may repeat.
+    let realm = Realm::faulting("carried")
+        .with("HAMLET_FAULT_SPLIT_MARKER", "1");
+    let (made, _) = scholar_made_across_a_crash(realm).await;
+    assert_eq!(made, 2);
 }

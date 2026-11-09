@@ -2,11 +2,13 @@
 //! (`awake`), the programs of the system that show a file or a link
 //! (`open`), temporary documents watched for saves (`editor`), its
 //! dialogs a folder (`folder`) or a file (`file`) is chosen in, the
-//! app's icon (`app_icon`) and the window's drag by its title bar
+//! app's icon (`app_icon`), whether the computer is light or dark
+//! (`color_scheme`) and the window's drag by its title bar
 //! (`title_bar`).
 
 pub mod app_icon;
 pub mod awake;
+pub mod color_scheme;
 pub mod editor;
 pub mod file;
 pub mod folder;
@@ -28,6 +30,7 @@ impl Plugin for DesktopPlugin {
         if self.window {
             app.add_plugins((
                 app_icon::plugin,
+                color_scheme::plugin,
                 folder::plugin,
                 file::plugin,
                 title_bar::plugin,

@@ -29,8 +29,8 @@ use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_graph::{Book, Shape, Sheet};
 use serde::{Deserialize, Serialize};
 
+use super::Editor;
 use super::setup::{EditorKey, Setup};
-use super::{Editor, canvas};
 use crate::library::{
     Item, Kind, Library, Source, mesh_path, temp_of, write_atomic,
 };
@@ -380,9 +380,7 @@ pub fn open_item<K: EditorKey>(
     let mut files = world.resource_mut::<Files<K>>();
     files.note = note;
     files.naming = None;
-    if opened.is_ok() {
-        canvas::fit::<K>(world);
-    }
+    // The canvas fits what was opened in sight once it is shown.
     opened.map(|_| ())
 }
 

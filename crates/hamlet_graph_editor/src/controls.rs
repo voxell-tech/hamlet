@@ -372,7 +372,11 @@ fn choice<K: EditorKey>(node: NodeId, input: Input) -> AnyView {
             }
         }),
         |asset: &Option<String>| match asset {
-            Some(asset) => picker::picture(asset, PICTURE),
+            Some(asset) => picker::picture(
+                super::library::Kind::Mesh,
+                asset,
+                PICTURE,
+            ),
             None => frame().boxed(),
         },
     )

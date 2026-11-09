@@ -1,24 +1,33 @@
 //! The pages of first-run setup.
 
-use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
+use bevy::color::Mix;
+use bevy::ecs::world::World;
+use bevy::ui::{
+    AlignItems, BackgroundGradient, ColorStop, JustifyContent,
+    RadialGradient, RadialGradientShape, UiPosition, UiRect, percent,
+    px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, frame, label, overlay,
-    row, text_field,
+    BehaviorExt, FrameProps, column, frame, label, overlay, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_client::realm::Settings;
+use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
-    self, back, back_link, bare, beside, description, good_action,
-    group, headed, marked, nav_card, note, pad, parts,
-    scroll_area_on, small_rules, text_input,
+    self, ICON, back, back_link, bare, beside, description,
+    good_action, group, headed, lead_card, marked, nav_card, note,
+    parts, scroll_area, small_rules,
 };
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::fade::FadeSurface;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
-use super::{Narrowing, Step, Welcome, close, go, look, pick};
-use crate::models::narrowed;
+use super::{NOTHING_LOCAL, Step, Welcome, close, go, look, pick};
+use crate::models::{
+    Detail, ModelRow, legend, mark, model_row, narrowed, provider_of,
+};
+use crate::roll::{either, moved};
 
 fn title(which: Glyph, text: &'static str) -> impl View {
     headed(which, styles::title(text))
@@ -37,6 +46,11 @@ pub(super) fn news(waiting: &'static str) -> AnyView {
         }),
         move |(asking, problem)| match problem {
             _ if *asking => said(waiting).boxed(),
+            Some(why) if why == NOTHING_LOCAL => linked(
+                NOTHING_LOCAL,
+                "ollama.com",
+                "https://ollama.com",
+            ),
             Some(why) => label(why.clone())
                 .tone(Tone::Critical)
                 .rules(small_rules)
@@ -48,30 +62,65 @@ pub(super) fn news(waiting: &'static str) -> AnyView {
     .boxed()
 }
 
+/// `text` with `site` in it as a link to `url`.
+pub(super) fn linked(
+    text: &str,
+    site: &'static str,
+    url: &'static str,
+) -> AnyView {
+    let (before, after) = text.split_once(site).unwrap_or((text, ""));
+    let span = |text: &str, link| Span {
+        text: text.into(),
+        style: Style::default(),
+        link,
+    };
+    let spans = [
+        span(before, None),
+        span(site, Some(Target::Web(url.into()))),
+        span(after, None),
+    ];
+    with_cx(move |cx| {
+        rich(
+            &spans,
+            Ink {
+                size: Some(cx.theme().text.small),
+                tone: Tone::Body,
+                face: Face::Body,
+            },
+        )
+    })
+    .boxed()
+}
+
 fn choice(adding: bool) -> AnyView {
     let (name, says, leave, after) = if adding {
         (
-            "ADD A PLACE FOR MODELS",
+            "Add a place for models",
             "Where do the models come from? Your current model \
              stays as it is.",
-            "CANCEL",
+            "Cancel",
             "Its models are listed under Models, for you to allow.",
         )
     } else {
         (
-            "WELCOME TO HAMLET",
+            "Welcome to Hamlet",
             "Your hamlet needs a model to think with. How would you \
              like to give it one?",
-            "I'LL SET THIS UP LATER",
+            "I'll set this up later",
             "You can come back to this from Settings.",
         )
     };
     parts((
-        title(Glyph::Hearth, name),
+        beside((
+            title(Glyph::Hearth, name),
+            frame().grow(1.0),
+            counted(1),
+        )),
         said(says),
-        nav_card(
-            Glyph::Signal,
-            "SIGN IN WITH OPENROUTER",
+        lead_card(
+            Glyph::Globe,
+            "Sign in with OpenRouter",
+            "Recommended",
             "The quickest way. You sign in with your browser and \
              pay OpenRouter for what you use.",
             |world| {
@@ -80,24 +129,24 @@ fn choice(adding: bool) -> AnyView {
         ),
         nav_card(
             Glyph::Talk,
-            "CONTINUE WITH CHATGPT",
+            "Continue with ChatGPT",
             "Use your ChatGPT plan, with no key. You sign in with \
              your browser, and what your hamlet does counts toward \
              your plan's usage.",
             |world| super::providers::start(world, "chatgpt", false),
         ),
         nav_card(
-            Glyph::Globe,
-            "I HAVE A KEY",
+            Glyph::Key,
+            "I have a key",
             "Use a key from a provider such as OpenAI, DeepSeek or \
              OpenRouter. You pay them for what you use.",
             |world| go(world, Step::Key),
         ),
         nav_card(
             Glyph::Chip,
-            "I RUN MY OWN MODEL",
-            "Use a model served on the server's machine, with \
-             Ollama or LM Studio.",
+            "I run my own model",
+            "Use a model running on this computer, with Ollama or \
+             LM Studio.",
             look,
         ),
         beside((
@@ -112,81 +161,190 @@ fn choice(adding: bool) -> AnyView {
     .boxed()
 }
 
-/// The head of a step: the way back to the first, and its name.
-pub(super) fn head(which: Glyph, text: &'static str) -> impl View {
+/// The head of a step after the first: the way back to the first,
+/// its name, and where it stands among the steps.
+pub(super) fn head(
+    which: Glyph,
+    text: &'static str,
+    step: usize,
+) -> impl View {
     beside((
-        back("BACK", |world| go(world, Step::Choice)),
+        back("Back", |world| go(world, Step::Choice)),
         title(which, text),
+        frame().grow(1.0),
+        counted(step),
     ))
 }
 
-/// One model, as a button that chooses it.
-fn offered(id: &str) -> AnyView {
-    let chosen = id.to_string();
-    button(row((label(id.to_string()),)).grow(1.0))
-        .padding(pad())
-        .min_height(px(styles::CONTROL))
-        .rules(styles::button)
-        .tagged(Variant::Default)
-        .on_activate(move |world| pick(world, &chosen))
-        .boxed()
+/// Where the step `step` stands among them: two while a place for
+/// models is added, as its models go to Settings, else three.
+fn counted(step: usize) -> impl View {
+    note(resource::<Welcome, _>(move |welcome| {
+        let of = if welcome.adding { 2 } else { 3 };
+        format!("Step {step} of {of}")
+    }))
+}
+
+/// The model a new hamlet is offered first: the realm's default
+/// when it is listed, else the first listed.
+fn recommended(models: &[String], default: &str) -> Option<String> {
+    models
+        .iter()
+        .find(|name| *name == default)
+        .or(models.first())
+        .cloned()
+}
+
+/// The model recommended of those listed.
+fn best(world: &World) -> Option<String> {
+    let default = world
+        .get_resource::<Settings>()
+        .map(|settings| settings.0.model.clone())
+        .unwrap_or_default();
+    recommended(&world.resource::<Welcome>().models, &default)
+}
+
+/// The model Continue tries: the one picked, else the one
+/// recommended.
+fn chosen(world: &World) -> Option<String> {
+    let welcome = world.resource::<Welcome>();
+    welcome
+        .chosen
+        .clone()
+        .filter(|name| welcome.models.contains(name))
+        .or_else(|| best(world))
+}
+
+/// The provider every listed model comes from, when they share one.
+fn one_provider(models: &[String]) -> Option<String> {
+    let first = provider_of(models.first()?);
+    models
+        .iter()
+        .all(|name| provider_of(name) == first)
+        .then(|| first.to_string())
 }
 
 fn models() -> AnyView {
     let list = keyed(
-        resource::<Welcome, _>(|welcome| {
-            narrowed(welcome.models.iter(), &welcome.narrow)
-        }),
-        |(ids, more)| {
-            let mut rows =
-                ids.iter().map(|id| offered(id)).collect::<Vec<_>>();
+        derived(|world: &World| {
+            let welcome = world.resource::<Welcome>();
+            let best = best(world);
+            // The one recommended leads the list until a search.
+            let mut order = welcome.models.clone();
+            if welcome.narrow.trim().is_empty()
+                && let Some(at) = order
+                    .iter()
+                    .position(|name| Some(name) == best.as_ref())
+            {
+                let first = order.remove(at);
+                order.insert(0, first);
+            }
+            let (ids, _, pages) =
+                narrowed(order.iter(), &welcome.narrow, 0);
+            let detail = match one_provider(&welcome.models) {
+                Some(_) => Detail::Id,
+                None => Detail::Source,
+            };
+            (ids, pages, best, chosen(world), detail)
+        })
+        .when(either(moved::<Welcome>(), moved::<Settings>())),
+        |(ids, pages, best, chosen, detail)| {
+            let mut rows = ids
+                .iter()
+                .map(|id| {
+                    let picked = id.clone();
+                    model_row(
+                        ModelRow {
+                            name: id.clone(),
+                            picked: Some(id) == chosen.as_ref(),
+                            tag: (Some(id) == best.as_ref())
+                                .then_some("Recommended"),
+                            end: None,
+                            detail: *detail,
+                        },
+                        move |world| {
+                            world.resource_mut::<Welcome>().chosen =
+                                Some(picked.clone());
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
             if ids.is_empty() {
+                rows.push(said("No models found. Try another name."));
+            }
+            if *pages > 1 {
                 rows.push(said(
-                    "No model has those words in its name.",
+                    "There are more. Type part of a name to narrow \
+                     them.",
                 ));
             }
-            if *more > 0 {
-                rows.push(said(format!(
-                    "{more} more. Type part of a name to narrow \
-                     them."
-                )));
-            }
-            group(rows).boxed()
+            column((legend(*detail), column(rows).gap(2.0)))
+                .gap(4.0)
+                .boxed()
         },
     )
     .within(bare());
-    parts((
-        head(Glyph::Check, "PICK A MODEL"),
-        description(resource::<Welcome, _>(|welcome| {
-            format!(
-                "{} listed these models. Pick the model your hamlet \
-                 will think with.",
-                welcome.from
-            )
-        })),
-        text_field(
-            resource::<Welcome, _>(|welcome| welcome.narrow.clone()),
+    let search = built(|cx| {
+        let narrow = cx.world.resource::<Welcome>().narrow.clone();
+        cx.build(crate::search::search(
+            "Search models",
+            narrow,
             |world, text| {
-                world.resource_mut::<Welcome>().narrow = text;
+                let mut welcome = world.resource_mut::<Welcome>();
+                if welcome.narrow != text {
+                    welcome.narrow = text;
+                }
             },
-        )
-        .rules(text_input)
-        .tagged(Narrowing),
-        news("Asking it to say hello..."),
-        list,
+        ))
+    });
+    // The provider's mark leads what it listed, once for every row.
+    let from = keyed(
+        resource::<Welcome, _>(|welcome| {
+            (welcome.from.clone(), one_provider(&welcome.models))
+        }),
+        |(from, provider)| {
+            let says = description(format!(
+                "{from} listed these models. Pick the one your \
+                 hamlet will think with."
+            ));
+            match provider {
+                Some(id) => beside((mark(id, ICON), says)).boxed(),
+                None => says.boxed(),
+            }
+        },
+    )
+    .within(bare());
+    let send =
+        row((good_action(Glyph::Check, "Continue", |world| {
+            if let Some(model) = chosen(world) {
+                pick(world, &model);
+            }
+        }),));
+    parts((
+        head(Glyph::Chip, "Pick a model", 3),
+        from,
+        group((search, news("Asking it to say hello..."), list)),
+        send,
+        note(
+            "You can change it later in Settings, under Models, and \
+             for one agent from the model under its chat.",
+        ),
     ))
     .boxed()
 }
 
 fn local() -> AnyView {
     parts((
-        head(Glyph::Chip, "YOUR OWN MODEL"),
+        head(Glyph::Chip, "Your own model", 2),
         said(
-            "Hamlet asks the endpoints configured on the server. \
-             Ollama or LM Studio must run on the server's machine.",
+            "Hamlet looks for Ollama or LM Studio on this computer.",
         ),
         news("Looking..."),
-        good_action(Glyph::Restore, "LOOK AGAIN", look),
+        row((good_action(Glyph::Restore, "Look again", look),)),
+        note(
+            "A model server at another address can be added later \
+             in Settings, under Endpoints.",
+        ),
     ))
     .boxed()
 }
@@ -213,7 +371,7 @@ fn screen() -> AnyView {
         |(open, step, adding, connection)| {
             let page = if let Some(words) = connection {
                 parts((
-                    title(Glyph::Signal, "CONNECT TO A SERVER"),
+                    title(Glyph::Signal, "Connect to a server"),
                     said(words.clone()),
                     said(
                         "Start a server with hamlet server, then \
@@ -240,17 +398,21 @@ fn screen() -> AnyView {
     .boxed()
 }
 
+/// How far the warmth at the middle of the first-run ground goes
+/// from the bottom glow toward the lamp's glow.
+const WARMTH: f32 = 0.14;
+
 fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
-    let card = column((scroll_area_on(
-        FadeSurface::Card,
-        (column((page,))
-            .gap(0.0)
-            .padding(UiRect::all(px(space.overlay_padding))),),
-    ),))
+    // The window's own colour, opaque: colours mix in linear light,
+    // so any scrim thin enough to show the realm leaves its words
+    // readable behind the card.
+    let scrim = theme.background();
+    let card = column((scroll_area((column((page,))
+        .gap(0.0)
+        .padding(UiRect::all(px(space.overlay_padding))),)),))
     .width(percent(100.0))
-    .max_width(px(space.overlay_width))
     .max_height(percent(100.0))
     .gap(0.0)
     .fill(theme.palette.card)
@@ -258,13 +420,32 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     .border_color(theme.palette.gold_5)
     .radius(space.soft)
     .tagged(theme.shadow());
-    // A row, so the card is as tall as its words once they wrap to
-    // its width.
-    row((card,))
+    let hung = column((card,))
+        .width(percent(100.0))
+        .max_width(px(space.overlay_width))
+        .max_height(percent(100.0))
+        .gap(0.0);
+    // A lamp's warmth pooled behind the card, fading to the window's
+    // own colour at its edges.
+    let palette = &theme.palette;
+    let ground = BackgroundGradient::from(RadialGradient::new(
+        UiPosition::CENTER,
+        RadialGradientShape::Ellipse(percent(60.0), percent(70.0)),
+        vec![
+            ColorStop::new(
+                palette.bottom_glow.mix(&palette.glow, WARMTH),
+                percent(0.0),
+            ),
+            ColorStop::new(palette.bottom_glow, percent(45.0)),
+            ColorStop::new(scrim, percent(100.0)),
+        ],
+    ));
+    row((hung,))
         .width(percent(100.0))
         .height(percent(100.0))
         .padding(UiRect::all(px(space.panel)))
         .align(AlignItems::Center)
         .justify(JustifyContent::Center)
-        .fill(theme.shadow.color)
+        .fill(scrim)
+        .tagged(ground)
 }

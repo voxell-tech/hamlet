@@ -1,5 +1,5 @@
 //! The endless world from far-apart places, with no window
-//! (docs/endless-world.md): many towns, the land a long way from any
+//! (docs/islands.md): many towns, the land a long way from any
 //! of them, and a town picked up and set down somewhere else.
 //!
 //! Stills: `cargo run --release --example far_lands -- --out <dir>`
@@ -19,12 +19,14 @@ use std::time::{Duration, Instant};
 use bevy::audio::AudioPlugin;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
-use hamlet_realm::generator::land::Land;
+use hamlet_client::realm::{Busy, HandId, Identity, Scholar};
+use hamlet_protocol::client as protocol;
+use hamlet_realm::generator::land::{IslandId, Land};
 use hamlet_realm::generator::society::{Ground, Society, TownId};
 use hamlet_realm::generator::{GeneratorView, Loading, Tally};
 use hamlet_realm::moving::{self, Carrying};
-use hamlet_realm::pick::Reach;
-use hamlet_realm::sky::SkySettings;
+use hamlet_realm::pick::{Centre, Glide, Orbit, Reach};
+use hamlet_realm::sky::{CameraSettings, SkySettings};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_realm::{Clock, Hour, RealmPlugin, Stage, WorldCamera};
 
@@ -49,6 +51,18 @@ enum Step {
         pitch: f32,
     },
     Night(bool),
+    /// Gives the city scholars, each with a spot for its house, the
+    /// hires that live and whether it has left, as the server
+    /// would send them.
+    Scholars(Vec<(Vec2, usize, bool)>),
+    /// Gives the city this many scholars waiting on its pier, some of
+    /// them turned away.
+    Newcomers(usize),
+    /// Lets the first scholar waiting on the pier in, to a house at
+    /// this spot.
+    LetIn(Vec2),
+    /// Sets the Hand to work, or to rest.
+    Hand(bool),
     /// Saves a still under this name once everything is built.
     Shot(&'static str),
     /// Waits until everything is built.
@@ -73,13 +87,19 @@ enum Step {
 /// A place in the world, some of them found when they are needed.
 #[derive(Clone, Copy)]
 enum Spot {
-    At(Vec2),
+    City(Vec2),
+    /// A place measured from the middle of the hamlet island.
+    Hamlet(Vec2),
+    /// Halfway between the middles of the two islands.
+    Mid,
+    /// The middle of the pier of an island.
+    Pier(IslandId),
     /// The site of a town, and so far to its side.
     Town(u32, Vec2),
-    /// The nearest ground to a point that the carried or moved town
-    /// fits on.
+    /// The nearest ground to a point, measured from the middle of the
+    /// hamlet island, that the carried or moved town fits on.
     FitNear(Vec2),
-    /// The nearest water to a point.
+    /// The nearest water to a point, measured as that is.
     WaterNear(Vec2),
     /// The last place that was found.
     Last,
@@ -113,8 +133,8 @@ fn look(at: Spot, dist: f32) -> Step {
     }
 }
 
-/// The stills: the home ground, the far land, the widest view, many
-/// towns, and a move.
+/// The stills: both islands, the home ground, the hamlet island,
+/// many towns, and a move.
 fn stills() -> Vec<Step> {
     use Spot::*;
     use Step::*;
@@ -122,32 +142,87 @@ fn stills() -> Vec<Step> {
     vec![
         Found(vec![9, 5, 12, 6, 8, 4, 7, 10]),
         Hold,
+        Look {
+            at: Mid,
+            dist: 2300.0,
+            yaw: 0.0,
+            pitch: 55.0,
+        },
+        Shot("01-both-islands"),
+        Scholars(vec![
+            (Vec2::new(70.0, 45.0), 2, false),
+            (Vec2::new(85.0, -25.0), 1, false),
+            (Vec2::new(-75.0, 55.0), 0, false),
+            (Vec2::new(-65.0, -60.0), 0, true),
+            (Vec2::new(25.0, -85.0), 3, false),
+        ]),
+        Newcomers(3),
+        Hand(true),
+        look(City(Vec2::ZERO), 420.0),
+        Shot("02-the-city-island"),
+        Look {
+            at: City(Vec2::ZERO),
+            dist: 150.0,
+            yaw: 0.4,
+            pitch: 22.0,
+        },
+        Shot("02b-the-hands-tower"),
+        look(City(Vec2::new(60.0, 10.0)), 130.0),
+        Shot("02c-the-scholars-houses"),
+        Look {
+            at: Pier(IslandId::City),
+            dist: 60.0,
+            yaw: 0.6,
+            pitch: 24.0,
+        },
+        Shot("02e-the-city-pier"),
+        Look {
+            at: Pier(IslandId::Hamlet),
+            dist: 60.0,
+            yaw: 0.6,
+            pitch: 24.0,
+        },
+        Shot("02f-the-hamlet-pier"),
+        Look {
+            at: Pier(IslandId::City),
+            dist: 40.0,
+            yaw: 0.6,
+            pitch: 24.0,
+        },
+        Settle,
+        LetIn(Vec2::new(-40.0, 70.0)),
+        Run(7.0),
+        Snap("02g-walking-home"),
+        Hold,
+        Night(true),
+        Look {
+            at: City(Vec2::new(30.0, 0.0)),
+            dist: 150.0,
+            yaw: 0.4,
+            pitch: 30.0,
+        },
+        Shot("02d-the-city-at-night"),
+        Night(false),
         look(home, 78.0),
-        Shot("01-home"),
+        Shot("03-home"),
         look(home, 330.0),
-        Shot("02-eight-towns"),
+        Shot("04-eight-towns"),
         look(home, 1150.0),
-        Shot("03-as-far-as-the-camera-goes"),
+        Shot("05-as-far-as-the-camera-goes"),
         Look {
             at: home,
             dist: 120.0,
             yaw: 0.9,
             pitch: 14.0,
         },
-        Shot("04-toward-the-horizon"),
-        look(At(Vec2::new(1700.0, -900.0)), 260.0),
-        Shot("05-far-east"),
-        look(At(Vec2::new(-3600.0, 2900.0)), 700.0),
-        Shot("06-far-north-west"),
+        Shot("06-toward-the-horizon"),
         Look {
-            at: At(Vec2::new(40_000.0, -65_000.0)),
-            dist: 420.0,
-            yaw: 2.2,
-            pitch: 30.0,
+            at: Mid,
+            dist: 700.0,
+            yaw: 1.3,
+            pitch: 12.0,
         },
-        Shot("07-very-far"),
-        look(At(Vec2::new(40_000.0, -65_000.0)), 1150.0),
-        Shot("08-very-far-wide"),
+        Shot("07-the-channel"),
         Night(true),
         look(home, 300.0),
         Shot("09-night"),
@@ -156,7 +231,7 @@ fn stills() -> Vec<Step> {
         // over another town.
         look(Town(2, Vec2::ZERO), 150.0),
         Shot("10-before-the-move"),
-        Carry(2, FitNear(Vec2::new(420.0, 260.0))),
+        Carry(2, FitNear(Vec2::new(250.0, 160.0))),
         look(Last, 170.0),
         Shot("11-in-hand-fits"),
         Carry(2, WaterNear(Vec2::new(60.0, 20.0))),
@@ -170,7 +245,7 @@ fn stills() -> Vec<Step> {
         look(Town(2, Vec2::ZERO), 150.0),
         Settle,
         Run(0.05),
-        Move(2, FitNear(Vec2::new(420.0, 260.0))),
+        Move(2, FitNear(Vec2::new(250.0, 160.0))),
         // The trees about the two sites are replanted meanwhile, so
         // the still waits for them.
         Run(0.22),
@@ -192,21 +267,21 @@ fn stills() -> Vec<Step> {
         Shot("19-forty-two-towns"),
         look(Town(41, Vec2::ZERO), 240.0),
         Shot("20-the-outermost-town"),
+        Look {
+            at: Mid,
+            dist: 2600.0,
+            yaw: 0.0,
+            pitch: 55.0,
+        },
+        Shot("21-both-islands-grown"),
         // Low over broken ground, where tiles of several sizes meet.
         Look {
-            at: At(Vec2::new(-3300.0, 2700.0)),
+            at: Hamlet(Vec2::new(-300.0, 200.0)),
             dist: 230.0,
             yaw: 0.6,
             pitch: 15.0,
         },
-        Shot("21-low-over-the-ranges"),
-        Look {
-            at: At(Vec2::new(1500.0, -700.0)),
-            dist: 600.0,
-            yaw: -0.8,
-            pitch: 22.0,
-        },
-        Shot("22-a-river-into-the-haze"),
+        Shot("22-low-over-the-hills"),
         // While the view slides fast, with the ground still coming:
         // the tiles in by then depend on the threads that build
         // them, so this still differs from run to run.
@@ -258,8 +333,8 @@ fn bench() -> Vec<Step> {
         look(home, 1150.0),
         Count("42 towns, from as far as it goes"),
         Slide("the same, still", Vec2::ZERO, 240),
-        look(At(Vec2::new(40_000.0, -65_000.0)), 78.0),
-        Count("42 towns, looking far from all of them"),
+        look(Mid, 78.0),
+        Count("42 towns, looking at the sea between the islands"),
         Slide("the same, still", Vec2::ZERO, 240),
     ]
 }
@@ -337,19 +412,51 @@ fn place(
             .find(|&p| fits(p))
             .unwrap_or(near)
     };
+    let centre = land.hamlet_centre();
     match spot {
-        Spot::At(at) => at,
+        Spot::City(at) => at,
+        Spot::Hamlet(off) => centre + off,
+        Spot::Mid => centre * 0.5,
+        Spot::Pier(isle) => {
+            land.coast_toward_other(isle)
+                + land.toward_other(isle) * 8.0
+        }
         Spot::Town(town, off) => society
             .town(TownId(town))
             .map_or(off, |town| land.sites[town.site].at + off),
-        Spot::FitNear(near) => around(near, &|p| {
+        Spot::FitNear(near) => around(centre + near, &|p| {
             society
                 .fits(land, Ground::Town(TownId(run.town)), p)
                 .is_ok()
         }),
-        Spot::WaterNear(near) => around(near, &|p| land.is_water(p)),
+        Spot::WaterNear(near) => {
+            around(centre + near, &|p| land.is_water(p))
+        }
         Spot::Last => run.last,
     }
+}
+
+/// Takes the camera to `to` through the hand's own orbit, which the
+/// realm frames its view from: it measures the pan from the middle
+/// of the places and the distance from the stand it takes to see them
+/// all, which the view it made last frame gives back.
+fn steer(
+    to: GeneratorView,
+    seen: &GeneratorView,
+    centre: &Centre,
+    camera: &CameraSettings,
+    orbit: &mut Orbit,
+    glide: &mut Glide,
+) {
+    let base = seen.dist / glide.0.zoom;
+    let held = Orbit {
+        pan: to.focus - centre.0,
+        zoom: to.dist / base,
+        yaw: to.yaw,
+        pitch: (to.pitch - camera.pitch).to_radians(),
+    };
+    *orbit = held;
+    glide.0 = held;
 }
 
 fn run(
@@ -360,7 +467,13 @@ fn run(
     tally: Option<Res<Tally>>,
     mut land: ResMut<Land>,
     mut society: ResMut<Society>,
-    mut view: ResMut<GeneratorView>,
+    view: Res<GeneratorView>,
+    (mut orbit, mut glide, centre, camera_settings): (
+        ResMut<Orbit>,
+        ResMut<Glide>,
+        Res<Centre>,
+        Res<CameraSettings>,
+    ),
     (mut stage, sky, mut hour, mut pace): (
         ResMut<Stage>,
         Res<SkySettings>,
@@ -371,7 +484,7 @@ fn run(
     mut reach: ResMut<Reach>,
     mut carrying: ResMut<Carrying>,
     camera: Single<&Transform, With<WorldCamera>>,
-    entities: Query<Entity>,
+    (entities, scholars): (Query<Entity>, Query<(Entity, &Scholar)>),
     mut exit: MessageWriter<AppExit>,
 ) {
     run.settled = if loading.is_done() {
@@ -415,16 +528,110 @@ fn run(
             pitch,
         } => {
             let focus = place(at, &run, &land, &society);
-            *view = GeneratorView {
+            let to = GeneratorView {
                 focus,
                 dist,
                 yaw,
                 pitch,
             };
+            steer(
+                to,
+                &view,
+                &centre,
+                &camera_settings,
+                &mut orbit,
+                &mut glide,
+            );
         }
         Step::Night(night) => {
             stage.night = night;
             hour.0 = Some(sky.held(night));
+        }
+        Step::Scholars(scholars) => {
+            for (k, (at, hires, left)) in
+                scholars.into_iter().enumerate()
+            {
+                let id = 100 + k as u64;
+                let hired = (0..hires as u64)
+                    .map(|n| protocol::AgentId(1000 + id * 10 + n))
+                    .collect::<Vec<_>>();
+                for hire in &hired {
+                    commands.spawn(Identity(*hire));
+                }
+                commands.spawn((
+                    Name::new(format!("Scholar {k}")),
+                    Scholar(protocol::Scholar {
+                        arrival: protocol::Arrival::Housed,
+                        arrival_by: None,
+                        chief: String::new(),
+                        hires: hired,
+                        house: Some(protocol::HouseAt {
+                            turn: f64::from((-at.x).atan2(-at.y)),
+                            x: f64::from(at.x),
+                            z: f64::from(at.y),
+                        }),
+                        id: protocol::ScholarId(id),
+                        left: left.then(|| protocol::ScholarLeft {
+                            at: 0,
+                            by: String::new(),
+                            reason: String::new(),
+                        }),
+                        name: format!("Scholar {k}"),
+                        since: 0,
+                        skills: Vec::new(),
+                        versions: Vec::new(),
+                    }),
+                ));
+            }
+        }
+        Step::Newcomers(count) => {
+            for k in 0..count {
+                let id = 200 + k as u64;
+                commands.spawn((
+                    Name::new(format!("Newcomer {k}")),
+                    Scholar(protocol::Scholar {
+                        arrival: if k % 2 == 0 {
+                            protocol::Arrival::Waiting
+                        } else {
+                            protocol::Arrival::Turned
+                        },
+                        arrival_by: None,
+                        chief: String::new(),
+                        hires: Vec::new(),
+                        house: None,
+                        id: protocol::ScholarId(id),
+                        left: None,
+                        name: format!("Newcomer {k}"),
+                        since: 0,
+                        skills: Vec::new(),
+                        versions: Vec::new(),
+                    }),
+                ));
+            }
+        }
+        Step::LetIn(at) => {
+            if let Some((entity, scholar)) =
+                scholars.iter().find(|(_, s)| {
+                    s.0.arrival == protocol::Arrival::Waiting
+                })
+            {
+                let mut let_in = scholar.0.clone();
+                let_in.arrival = protocol::Arrival::Housed;
+                let_in.house = Some(protocol::HouseAt {
+                    turn: f64::from((-at.x).atan2(-at.y)),
+                    x: f64::from(at.x),
+                    z: f64::from(at.y),
+                });
+                commands.entity(entity).insert(Scholar(let_in));
+            }
+        }
+        Step::Hand(busy) => {
+            let hand = protocol::AgentId(9000);
+            commands.insert_resource(HandId(hand));
+            let mut agent = commands.spawn(Identity(hand));
+            if busy {
+                agent.insert(Busy);
+            }
         }
         Step::Hold => clock.frozen = true,
         Step::Run(secs) => {
@@ -519,7 +726,9 @@ fn run(
                 let now = run.began.elapsed().as_secs_f32();
                 run.times.push(now);
             }
-            view.focus += by / frames as f32;
+            let step = by / frames as f32;
+            orbit.pan += step;
+            glide.0.pan += step;
             done = run.frames > frames;
             if done {
                 let mut each = run
@@ -537,7 +746,8 @@ fn run(
                     each[each.len() * 99 / 100],
                     each[each.len() - 1],
                 );
-                view.focus -= by;
+                orbit.pan -= by;
+                glide.0.pan -= by;
             }
         }
     }

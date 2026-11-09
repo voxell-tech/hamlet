@@ -1,50 +1,51 @@
-//! The theme of the panels (docs/ui-warmth.md): warm near-black
-//! surfaces, gold borders, and one accent colour that glows. Its
-//! values are in `assets/theme.toml`, and nothing of the panels is
-//! built until that file has loaded.
+//! The theme of the panels (docs/ui-warmth.md): one variant's
+//! palette, from a family under `assets/themes/`, in the measures of
+//! `assets/measures.toml`. Nothing of the panels is built until a
+//! theme is shown.
+
+pub mod contrast;
+mod themes;
 
 use std::ops::Deref;
 use std::time::Duration;
 
-use bevy::app::{App, Update};
+use bevy::app::App;
 use bevy::asset::Asset;
-use bevy::color::{Color, LinearRgba, Luminance};
-use bevy::ecs::message::Message;
-use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, If, Res, ResMut, SystemParam};
+use bevy::color::{Color, Luminance, Mix, Srgba};
+use bevy::ecs::message::{Message, Messages};
+use bevy::ecs::resource::Resource;
+use bevy::ecs::system::{If, Res, SystemParam};
 use bevy::ecs::world::World;
-use bevy::log::error;
 use bevy::prelude::ClearColor;
 use bevy::reflect::TypePath;
 use bevy::state::app::AppExtStates;
-use bevy::state::condition::in_state;
-use bevy::state::state::{NextState, States};
+use bevy::state::state::{NextState, State, States};
 use bevy::ui::{BoxShadow, px};
-use bevy_fynix::Theme;
+use bevy::window::WindowTheme;
 use bevy_fynix::tokens::{
     Curve, Motion, MotionTokens, SpacingTokens, SurfaceTokens,
     TextTokens, Tone,
 };
-use hamlet_assets::{
-    File, Loaded, Loading, Tuning, TuningPlugin, tint,
-};
+use hamlet_assets::{File, Tuning, TuningPlugin, tint};
 use serde::{Deserialize, Serialize};
 
+use self::contrast::Part;
+pub use self::themes::{Theme, ThemeId, Themes, Variant, Variants};
+
 pub fn plugin(app: &mut App) {
-    app.add_plugins(TuningPlugin::<HamletTheme>::default())
+    app.add_plugins(TuningPlugin::<Measures>::default())
+        .insert_resource(Measures::designed())
+        .insert_resource(Themes::shipped())
         .add_message::<ThemeChanged>()
         .init_state::<ThemeState>()
-        .add_systems(
-            Update,
-            apply_loaded.run_if(in_state(ThemeState::Loading)),
-        );
+        .add_plugins(themes::plugin);
 }
 
 /// The theme, for a system: one that takes it waits for the theme to
 /// load.
 #[derive(SystemParam)]
 pub struct Themed<'w> {
-    theme: If<Res<'w, Theme<HamletTheme>>>,
+    theme: If<Res<'w, bevy_fynix::Theme<HamletTheme>>>,
 }
 
 impl Deref for Themed<'_> {
@@ -55,8 +56,8 @@ impl Deref for Themed<'_> {
     }
 }
 
-/// Whether the theme has loaded. The panels are built on
-/// [`ThemeState::Ready`].
+/// Whether a theme has been shown. The panels are built on
+/// [`ThemeState::Ready`], which [`show`] sets the first time.
 #[derive(
     States, Clone, Copy, PartialEq, Eq, Hash, Debug, Default,
 )]
@@ -66,33 +67,39 @@ pub enum ThemeState {
     Ready,
 }
 
-/// The panels' theme, as `assets/theme.toml` has it.
-#[derive(
-    Asset, TypePath, Clone, PartialEq, Debug, Serialize, Deserialize,
-)]
-#[serde(deny_unknown_fields)]
+/// The theme the panels are drawn in: one variant's palette in the
+/// shared measures.
+#[derive(Clone, PartialEq, Debug)]
 pub struct HamletTheme {
     pub palette: Palette,
     pub text: TextSizes,
     pub space: Spacing,
-    pub shadow: Shadow,
+    pub shadow: Fall,
     pub motion: Timing,
 }
 
-impl Tuning for HamletTheme {
-    const FILE: File = hamlet_assets::THEME;
+/// `assets/measures.toml`: everything of the panels that is not a
+/// colour.
+#[derive(
+    Asset, TypePath, Resource, Clone, PartialEq, Debug, Deserialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Measures {
+    pub text: TextSizes,
+    pub space: Spacing,
+    pub shadow: Fall,
+    pub motion: Timing,
+}
+
+impl Tuning for Measures {
+    const FILE: File = hamlet_assets::MEASURES;
 
     fn apply(&self, was: &Self, world: &mut World) {
-        // Until the panels are built, the theme comes in by
-        // `apply_loaded`.
-        if self != was && world.contains_resource::<Theme<Self>>() {
-            insert_theme(world, self.clone());
-            world.write_message(ThemeChanged);
-        }
+        hamlet_assets::follow(world, was, self);
     }
 }
 
-/// Every colour of the panels.
+/// Every colour of one variant.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Palette {
@@ -129,7 +136,12 @@ pub struct Palette {
     /// A button's fill under the pointer.
     #[serde(with = "tint")]
     pub gold_hover: Color,
-    /// What is live, what waits, and every glow.
+    /// Text and icons that are live, wait or can be followed, a
+    /// border under the pointer, and the ring of what has focus.
+    #[serde(with = "tint")]
+    pub accent: Color,
+    /// The colour of light: a control's warmth, the lamp over a
+    /// panel, the underglow, the cursor's lamp. Never read as text.
     #[serde(with = "tint")]
     pub glow: Color,
     /// The bright centre of a glow.
@@ -150,7 +162,7 @@ pub struct Palette {
     /// A card in a list: a shade above the panel, and no more.
     #[serde(with = "tint")]
     pub card: Color,
-    /// The fill of a text input, darker than the panel.
+    /// The fill of a text input, a shade off the panel.
     #[serde(with = "tint")]
     pub input: Color,
     /// The background under code in a reply.
@@ -183,6 +195,84 @@ pub struct Palette {
     /// The background under a line put in a file.
     #[serde(with = "tint")]
     pub green_deep: Color,
+    /// The shadow under what floats, with its alpha.
+    #[serde(with = "tint")]
+    pub shadow: Color,
+}
+
+impl Palette {
+    /// Every colour by name with the part it plays.
+    pub fn parts(&self) -> [(&'static str, Part, Color); 32] {
+        // No `..`: a new colour does not build until it has a part.
+        let Self {
+            surface,
+            grey_1,
+            button,
+            button_hover,
+            border,
+            gold_1,
+            gold_2,
+            gold_3,
+            gold_4,
+            gold_5,
+            gold_6,
+            gold_hover,
+            accent,
+            glow,
+            glow_core,
+            particle,
+            primary_low,
+            primary_high,
+            agent,
+            card,
+            input,
+            code,
+            text_selection,
+            bottom_glow,
+            red,
+            danger,
+            danger_border,
+            danger_hover,
+            danger_glow,
+            green,
+            green_deep,
+            shadow,
+        } = *self;
+        [
+            ("surface", Part::Panel, surface),
+            ("card", Part::Panel, card),
+            ("input", Part::Fill, input),
+            ("code", Part::Fill, code),
+            ("button", Part::Fill, button),
+            ("button_hover", Part::Fill, button_hover),
+            ("gold_hover", Part::Fill, gold_hover),
+            ("gold_6", Part::Fill, gold_6),
+            ("primary_low", Part::Fill, primary_low),
+            ("danger", Part::Fill, danger),
+            ("danger_hover", Part::Fill, danger_hover),
+            ("green_deep", Part::Fill, green_deep),
+            ("bottom_glow", Part::Fill, bottom_glow),
+            ("text_selection", Part::Fill, text_selection),
+            ("gold_1", Part::Ink, gold_1),
+            ("grey_1", Part::Ink, grey_1),
+            ("gold_2", Part::Ink, gold_2),
+            ("accent", Part::Ink, accent),
+            ("red", Part::Ink, red),
+            ("green", Part::Ink, green),
+            ("gold_5", Part::Mark, gold_5),
+            ("gold_3", Part::Mark, gold_3),
+            ("gold_4", Part::Mark, gold_4),
+            ("danger_border", Part::Mark, danger_border),
+            ("border", Part::Light, border),
+            ("glow", Part::Light, glow),
+            ("glow_core", Part::Light, glow_core),
+            ("particle", Part::Light, particle),
+            ("primary_high", Part::Light, primary_high),
+            ("agent", Part::Light, agent),
+            ("danger_glow", Part::Light, danger_glow),
+            ("shadow", Part::Light, shadow),
+        ]
+    }
 }
 
 /// The sizes of the lettering.
@@ -190,14 +280,13 @@ pub struct Palette {
 #[serde(deny_unknown_fields)]
 pub struct TextSizes {
     pub body: f32,
-    /// Notes, buttons, tabs and the names of a panel's parts.
+    /// Notes, buttons, tabs, breadcrumbs and the names of a panel's
+    /// parts. The least size of any lettering.
     pub small: f32,
-    /// A menu's title and a card's.
+    /// A menu's title and a card's, never below the body.
     pub heading: f32,
-    /// The name at the head of a page.
+    /// The name at the head of a page, in the display face.
     pub title: f32,
-    /// The line over a card that waits for the person.
-    pub caption: f32,
     /// The space between the letters of the display face.
     pub tracking: f32,
 }
@@ -246,8 +335,10 @@ pub struct Spacing {
     pub status_gap: f32,
     pub status_icon: f32,
     pub status_icon_gap: f32,
-    /// The widest a page of Settings is drawn.
+    /// The widest a page of Settings is drawn, and its table of
+    /// models, whose columns need more.
     pub page_width: f32,
+    pub table_width: f32,
     /// The widest a card over the panels is drawn, and the space
     /// inside it.
     pub overlay_width: f32,
@@ -273,17 +364,13 @@ pub struct Spacing {
     /// The height of the line that sets the track apart from the
     /// menus.
     pub track_divider: f32,
-    /// How far into a scroll area the fade over an edge with more
-    /// past it reaches.
-    pub scroll_fade: f32,
 }
 
-/// The shadow under what floats over the panels and the world.
+/// How far the shadow under what floats falls, and how softly. Its
+/// colour is the palette's.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Shadow {
-    #[serde(with = "tint")]
-    pub color: Color,
+pub struct Fall {
     /// How far below what floats it falls.
     pub drop: f32,
     pub blur: f32,
@@ -299,51 +386,62 @@ pub struct Timing {
     pub expand: f32,
 }
 
-/// A theme saved while the app runs has replaced the one the panels
-/// were built with. Fynix lends [`Theme`] out each update, which
-/// marks it changed, so this is how a change is told.
+/// Another theme is shown than the one the panels were built with.
+/// Fynix lends [`bevy_fynix::Theme`] out each update, which marks it
+/// changed, so this is how a change is told.
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ThemeChanged;
 
-/// Puts `theme` in, for the views and the window behind them.
-pub fn insert_theme(world: &mut World, theme: HamletTheme) {
+/// Shows `theme`, for the views and the window behind them, and the
+/// first time lets the panels be built. A theme equal to the shown
+/// one changes nothing.
+pub fn show(world: &mut World, theme: HamletTheme) {
+    let shown =
+        world.get_resource::<bevy_fynix::Theme<HamletTheme>>();
+    if shown.is_some_and(|shown| shown.0 == theme) {
+        return;
+    }
     world.insert_resource(ClearColor(theme.background()));
-    world.insert_resource(Theme(theme));
-}
-
-/// Puts the theme in once its file has loaded, and so lets the
-/// panels be built. A theme not found or not readable leaves the one
-/// built into the app.
-fn apply_loaded(
-    file: Loading<HamletTheme>,
-    mut state: ResMut<NextState<ThemeState>>,
-    mut commands: Commands,
-) {
-    let theme = match file.loaded() {
-        Loaded::Waiting => return,
-        Loaded::Read(theme) => theme,
-        Loaded::Failed(why) => {
-            error!(
-                "assets/{}: {why}; the panels take the theme built \
-                 in",
-                hamlet_assets::THEME.name
-            );
-            HamletTheme::designed()
-        }
-    };
-    commands.queue(|world: &mut World| insert_theme(world, theme));
-    state.set(ThemeState::Ready);
-}
-
-/// The contrast of two colours, as WCAG 2 has it.
-pub fn contrast(one: Color, other: Color) -> f32 {
-    let light =
-        |color: Color| LinearRgba::from(color).luminance() + 0.05;
-    let (a, b) = (light(one), light(other));
-    a.max(b) / a.min(b)
+    world.insert_resource(bevy_fynix::Theme(theme));
+    // A bare test app has neither.
+    if world.contains_resource::<Messages<ThemeChanged>>() {
+        world.write_message(ThemeChanged);
+    }
+    if world
+        .get_resource::<State<ThemeState>>()
+        .is_some_and(|state| *state.get() == ThemeState::Loading)
+    {
+        world
+            .resource_mut::<NextState<ThemeState>>()
+            .set(ThemeState::Ready);
+    }
 }
 
 impl HamletTheme {
+    pub fn new(palette: Palette, measures: &Measures) -> Self {
+        let Measures {
+            text,
+            space,
+            shadow,
+            motion,
+        } = measures.clone();
+        Self {
+            palette,
+            text,
+            space,
+            shadow,
+            motion,
+        }
+    }
+
+    /// Hamlet's dark variant in the designed measures.
+    pub fn designed() -> Self {
+        let hamlet = themes::hamlet();
+        let palette =
+            hamlet.variants.get(WindowTheme::Dark).palette.clone();
+        Self::new(palette, &Measures::designed())
+    }
+
     /// The window background, behind the panels.
     pub fn background(&self) -> Color {
         self.palette.surface
@@ -353,7 +451,7 @@ impl HamletTheme {
     pub fn shadow(&self) -> BoxShadow {
         let shadow = &self.shadow;
         BoxShadow::new(
-            shadow.color,
+            self.palette.shadow,
             px(0.0),
             px(shadow.drop),
             px(0.0),
@@ -370,8 +468,12 @@ impl TextTokens for HamletTheme {
             Tone::Dim => palette.grey_1,
             // Gold 2 marks what can be pressed.
             Tone::Faint => palette.gold_2,
-            Tone::Accent => palette.glow,
-            Tone::OnAccent => palette.surface,
+            Tone::Accent => palette.accent,
+            Tone::OnAccent => contrast::clearer(
+                palette.surface,
+                palette.gold_1,
+                palette.gold_4,
+            ),
             Tone::Critical => palette.red,
         }
     }
@@ -406,8 +508,59 @@ impl SurfaceTokens for HamletTheme {
         self.palette.gold_6
     }
 
+    #[expect(
+        clippy::misnamed_getters,
+        reason = "fynix's accent is a fill; the palette's is an ink"
+    )]
     fn accent(&self) -> Color {
         self.palette.gold_4
+    }
+
+    /// The accent fill under the pointer, moved away from the
+    /// on-accent tone so its words keep their contrast.
+    fn accent_hover(&self) -> Color {
+        self.away_from_on_accent(0.08)
+    }
+
+    fn accent_pressed(&self) -> Color {
+        self.away_from_on_accent(0.1)
+    }
+}
+
+impl HamletTheme {
+    /// How opaque the words of an empty field are: as faint as dim
+    /// text can be while it still reads on the field.
+    pub fn hint_opacity(&self) -> f32 {
+        (0..=100)
+            .map(|step| step as f32 / 100.0)
+            // Above the need by a little, so the colour rounded to
+            // 8 bits still meets it.
+            .find(|&opacity| {
+                contrast::contrast(
+                    self.hint(opacity),
+                    self.palette.input,
+                ) >= contrast::TEXT + 0.1
+            })
+            .unwrap_or(1.0)
+    }
+
+    /// Dim text at `opacity` as seen on a field.
+    pub(crate) fn hint(&self, opacity: f32) -> Color {
+        let ground = Srgba::from(self.palette.input);
+        ground
+            .mix(&Srgba::from(self.palette.grey_1), opacity)
+            .into()
+    }
+
+    fn away_from_on_accent(&self, by: f32) -> Color {
+        let accent = self.accent();
+        if contrast::light(self.tone(Tone::OnAccent))
+            < contrast::light(accent)
+        {
+            accent.lighter(by)
+        } else {
+            accent.darker(by)
+        }
     }
 }
 

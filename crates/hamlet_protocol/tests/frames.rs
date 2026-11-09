@@ -26,7 +26,7 @@ fn every_recorded_message_reads_and_writes_back_unchanged() {
         .filter(|path| path.extension().is_some_and(|e| e == "jsonl"))
         .collect::<Vec<_>>();
     files.sort();
-    assert!(files.len() >= 18, "{files:?}");
+    assert!(files.len() >= 17, "{files:?}");
     for file in files {
         for line in std::fs::read_to_string(&file).unwrap().lines() {
             let frame = serde_json::from_str::<Value>(line).unwrap();
@@ -92,7 +92,7 @@ fn a_recorded_held_write_carries_its_preview_through_the_wait_and_close()
             "the approval recording needs a held write with a \
              preview",
         );
-    assert_eq!(preview.path, "result.txt");
+    assert!(preview.path.ends_with("/work/result.txt"));
     assert_eq!(
         preview
             .lines
@@ -134,25 +134,22 @@ fn a_recorded_held_write_carries_its_preview_through_the_wait_and_close()
 }
 
 #[test]
-fn a_recorded_rewind_returns_words_and_an_adjacent_reset_and_transcript()
- {
+fn a_recorded_rewind_returns_words_after_the_replacement_transcript()
+{
     let messages = messages("rewind");
     assert!(messages.iter().any(|message| matches!(message, ServerMessage::Reply(reply) if reply.kind == ReplyKind::Rewound && reply.text == "Take back this line.")), "the rewind recording needs its receipt");
-    let reset = messages
+    let rewound = messages
         .iter()
-        .position(|message| matches!(message, ServerMessage::Turn(turn) if turn.operations.iter().any(|operation| matches!(operation, TranscriptOperation::Reset {}))))
-        .expect("the rewind recording needs a reset");
-    let ServerMessage::Transcript(transcript) = &messages[reset + 1]
+        .position(|message| matches!(message, ServerMessage::Reply(reply) if reply.kind == ReplyKind::Rewound))
+        .unwrap();
+    let ServerMessage::Transcript(transcript) =
+        &messages[rewound - 1]
     else {
         panic!(
-            "a reset must be immediately followed by its \
-             replacement transcript"
+            "the rewound reply must follow the replacement \
+             transcript"
         );
     };
-    let ServerMessage::Turn(turn) = &messages[reset] else {
-        unreachable!();
-    };
-    assert_eq!(transcript.chat, turn.chat);
     assert_eq!(
         transcript
             .items

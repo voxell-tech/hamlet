@@ -301,15 +301,22 @@ async fn inspect(
     }
     bail!(
         "Process {} for {} is alive but does not answer with the \
-         home's token; it is not ours to touch. Inspect it on its \
+         realm's token; it is not ours to touch. Inspect it on its \
          machine; no signal was sent.",
         record.pid,
         home.display()
     )
 }
 
+/// The checkout, as a plain path: Bevy's file watcher strips it from
+/// the paths it is told of, which never hold a `..`. Two folders up
+/// from this crate, which Cargo names in full; with its links
+/// resolved where it can be found.
 fn repo() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root =
+        manifest.parent().and_then(Path::parent).unwrap_or(manifest);
+    root.canonicalize().unwrap_or_else(|_| root.to_path_buf())
 }
 
 fn server_command(
@@ -734,7 +741,7 @@ fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
     anyhow::ensure!(
         chosen != Some("~/.hamlet")
             && canonical(&path)? != canonical(&ordinary)?,
-        "hamlet dev refuses ~/.hamlet; choose a scratch home with \
+        "hamlet dev refuses ~/.hamlet; choose a scratch realm with \
          --home or HAMLET_HOME."
     );
     if !path.exists() {
@@ -749,7 +756,7 @@ fn dev_home(chosen: Option<&str>) -> Result<PathBuf> {
         shared(&stat)
     };
     if let Some(reason) = unsafe_reason {
-        bail!("unsafe scratch home {}: {reason}.", path.display());
+        bail!("unsafe scratch realm {}: {reason}.", path.display());
     }
     Ok(path)
 }
@@ -959,6 +966,7 @@ pub async fn develop(
         );
         let mut command = window_command(&app, &address);
         command.env("HAMLET_VIEW", home.join("window"));
+        command.env("HAMLET_ASSETS", home.join("assets"));
         // Bevy watches the files under CARGO_MANIFEST_DIR, which must
         // be the checkout for it to see the saved shaders and tuning.
         if hot {

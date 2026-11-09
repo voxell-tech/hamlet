@@ -33,6 +33,7 @@ impl Plugin for ClientPlugin {
             app.insert_resource(Server(server.clone()));
         }
         app.init_resource::<realm::Chief>()
+            .init_resource::<realm::RealmBylaws>()
             .init_resource::<realm::Confinement>()
             .init_resource::<realm::Settings>()
             .init_resource::<realm::Providers>()
@@ -40,7 +41,6 @@ impl Plugin for ClientPlugin {
             .init_resource::<realm::Deeds>()
             .init_resource::<realm::Skills>()
             .init_resource::<realm::Closed>()
-            .init_resource::<realm::Starters>()
             .add_plugins((
                 index::plugin,
                 messages::plugin,
@@ -55,7 +55,7 @@ impl Plugin for ClientPlugin {
 #[derive(Resource, Clone)]
 pub struct Tokio(pub Handle);
 
-/// The folder for this window's layout, size and look.
+/// The folder for this window's layout, size and theme.
 #[derive(Resource, Clone, Debug)]
 pub struct ViewFolder(pub PathBuf);
 

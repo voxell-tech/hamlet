@@ -13,16 +13,18 @@ whether the skill gets used.
    of adding another.
 2. **Name** it in lowercase with hyphens, after what it does: `convert-units`.
 3. **Description**: one line saying what it does and when to use it, in words
-   the user would use. Not "helper for X".
+   a chief would use. Not "helper for X".
 4. **Script**: put the working commands in `scripts/`. Take inputs as arguments.
    Prefer python3 with only the standard library, or plain shell.
-5. **Front matter**: add `usage: <the command that runs it>`, from the workspace
+5. **Front matter**: add `usage: <the command that runs it>`, from your lodge's
    root, with example arguments. It is shown beside the description every turn.
 6. **Body of SKILL.md**: the exact command to run with example arguments, what it
    prints, and what it needs (network access, an API key, a program).
-7. **Test it** by running the exact command from SKILL.md, from the workspace
+7. **Test it** by running the exact command from SKILL.md, from your lodge's
    root. Do not save a skill you have not run successfully.
-8. **Paths**: always workspace-relative (`skills/<name>/scripts/<file>`).
+8. **Paths**: always relative to your lodge (`skills/<name>/scripts/<file>`).
+9. **Share it** with `submit_skill` when other agents would use it too; the
+   librarian judges it for the library.
 
 ## Rules that keep skills trustworthy
 

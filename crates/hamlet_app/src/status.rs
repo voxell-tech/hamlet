@@ -18,7 +18,7 @@ use hamlet_client::Connection;
 use hamlet_client::chats::{Status, Usage};
 use hamlet_client::connection::Contact;
 use hamlet_client::realm::{
-    Confinement, HOME, HamletId, Settings, Treasury,
+    Confinement, LivesIn, Settings, Treasury,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{hairline, note, small_rules};
@@ -29,6 +29,7 @@ use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::links::Aimed;
 use crate::petition::Queue;
+use crate::standing::{Standing, need_you};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>().add_systems(
@@ -51,7 +52,8 @@ pub struct Bar {
     pub connection: String,
     /// Tokens and cost (or model time) of the current session.
     pub usage: String,
-    /// The hamlet's spend against its budget.
+    /// The spend against the budget of the hamlet the chat's agent
+    /// lives in.
     pub budget: String,
 }
 
@@ -60,34 +62,33 @@ pub(crate) fn update_status(
     sessions: Query<(Ref<Status>, Ref<Usage>)>,
     settings: Res<Settings>,
     connection: Res<Connection>,
-    treasury: Query<(&HamletId, Ref<Treasury>)>,
+    lives: Query<&LivesIn>,
+    treasury: Query<Ref<Treasury>>,
     mut bar: ResMut<Bar>,
 ) {
     let session = sessions.get(convo.session).ok();
-    let home = treasury
-        .iter()
-        .find(|(id, _)| id.0 == HOME)
-        .map(|(_, treasury)| treasury);
+    // The Hand is of no hamlet, and has no budget to show here.
+    let spend = lives
+        .get(convo.agent)
+        .ok()
+        .and_then(|lives| treasury.get(lives.0).ok());
     let moved = convo.is_changed()
         || settings.is_changed()
         || connection.is_changed()
         || session.as_ref().is_some_and(|(status, usage)| {
             status.is_changed() || usage.is_changed()
         })
-        || home.as_ref().is_some_and(DetectChanges::is_changed);
+        || spend.as_ref().is_some_and(DetectChanges::is_changed);
     if !moved {
         return;
     }
     let busy = session.as_ref().is_some_and(|(s, _)| s.is_working());
     let next = Bar {
         busy,
-        running: if busy {
-            "Working".into()
-        } else {
-            "Running, idle".into()
-        },
+        running: if busy { "Working" } else { "Idle" }.into(),
         running_tone: if busy { Tone::Accent } else { Tone::Dim },
-        model: settings.0.model.clone(),
+        model: crate::models::model_name(&settings.0.model)
+            .to_string(),
         link: if connection.state == Contact::Connected {
             settings.0.link.words.clone().unwrap_or_default()
         } else {
@@ -105,7 +106,9 @@ pub(crate) fn update_status(
         },
         connection: connection.words.clone(),
         usage: session.map(|(_, u)| u.summary()).unwrap_or_default(),
-        budget: home.map(|t| t.0.summary.clone()).unwrap_or_default(),
+        budget: spend
+            .map(|t| t.0.summary.clone())
+            .unwrap_or_default(),
     };
     if *bar != next {
         *bar = next;
@@ -141,9 +144,16 @@ fn mark(
     })
 }
 
-/// Bold words of the small size in `tone`, as the bar tells what is
-/// on.
+/// Words of the small size in `tone`, as the bar tells what is on.
 fn told(
+    text: impl Into<Prop<String>> + 'static,
+    tone: impl Into<Prop<Tone>> + 'static,
+) -> impl View {
+    label(text).tone(tone).rules(small_rules)
+}
+
+/// [`told`] in bold, for what needs the chief.
+fn alarm(
     text: impl Into<Prop<String>> + 'static,
     tone: impl Into<Prop<Tone>> + 'static,
 ) -> impl View {
@@ -166,7 +176,7 @@ fn fact(
             }
             pair(
                 mark(which, Tone::Dim),
-                note(resource::<Bar, _>(text)),
+                told(resource::<Bar, _>(text), Tone::Dim),
             )
             .tooltip(move || note(tip))
             .boxed()
@@ -182,15 +192,18 @@ fn confinement() -> AnyView {
     keyed(
         resource::<Confinement, _>(|c| c.0.clone()),
         |confinement| match confinement {
-            protocol::Confinement::Sandbox { name } => pair(
-                mark(Glyph::Shield, Tone::Dim),
-                note(name.clone()),
-            )
-            .tooltip(|| note("The sandbox agents' commands run in"))
-            .boxed(),
+            protocol::Confinement::Sandbox { name } => {
+                let tip = format!("Agents' commands run in {name}");
+                pair(
+                    mark(Glyph::Shield, Tone::Dim),
+                    told("Sandboxed", Tone::Dim),
+                )
+                .tooltip(move || note(tip.clone()))
+                .boxed()
+            }
             protocol::Confinement::Insecure => pair(
                 mark(Glyph::Shield, Tone::Critical),
-                told("Insecure mode", Tone::Critical),
+                alarm("Insecure mode", Tone::Critical),
             )
             .tooltip(|| {
                 note(
@@ -199,16 +212,14 @@ fn confinement() -> AnyView {
                 )
             })
             .boxed(),
-            protocol::Confinement::Remote => {
-                pair(mark(Glyph::Shield, Tone::Dim), note("Remote"))
-                    .tooltip(|| {
-                        note(
-                            "Agents' commands run on the remote \
-                             machine",
-                        )
-                    })
-                    .boxed()
-            }
+            protocol::Confinement::Remote => pair(
+                mark(Glyph::Shield, Tone::Dim),
+                told("Remote", Tone::Dim),
+            )
+            .tooltip(|| {
+                note("Agents' commands run on the remote machine")
+            })
+            .boxed(),
         },
     )
     .within(row(()).gap(0.0))
@@ -221,11 +232,98 @@ fn waiting() -> impl View {
     keyed(resource::<Queue, _>(Queue::len), |waiting| match waiting {
         0 => frame().boxed(),
         n => pair(
-            mark(Glyph::Bell, Tone::Accent),
-            told(format!("{n} waiting for you"), Tone::Accent),
+            mark(Standing::Waits.glyph(), Standing::Waits.tone()),
+            alarm(
+                format!("{n} {}", need_you(*n)),
+                Standing::Waits.tone(),
+            ),
         )
         .boxed(),
     })
+    .within(row(()).gap(0.0))
+}
+
+/// How the agents reach their models: what confines their commands,
+/// the default model and the link.
+fn setup() -> impl View {
+    with_cx(|cx| {
+        row((
+            confinement(),
+            fact(
+                Glyph::Chip,
+                |bar| {
+                    if bar.model.is_empty() {
+                        String::new()
+                    } else {
+                        format!("Default model: {}", bar.model)
+                    }
+                },
+                "The model agents use unless given another",
+            ),
+            pair(
+                mark(
+                    Glyph::Signal,
+                    resource::<Bar, _>(|bar| bar.link_tone),
+                ),
+                keyed(
+                    resource::<Bar, _>(|bar| bar.link_tone),
+                    |tone| {
+                        let words =
+                            resource::<Bar, _>(|s| s.link.clone());
+                        match tone {
+                            Tone::Critical => {
+                                alarm(words, Tone::Critical).boxed()
+                            }
+                            _ => told(words, *tone).boxed(),
+                        }
+                    },
+                )
+                .within(row(()).gap(0.0)),
+            )
+            .tooltip(|| {
+                note(resource::<Bar, _>(|bar| bar.connection.clone()))
+            }),
+        ))
+        .gap(cx.theme().space.status_gap)
+        .align(AlignItems::Center)
+    })
+}
+
+/// What the current session used, after a short upright line that
+/// sets it apart from [`setup`]. Nothing while there is no session.
+fn session() -> impl View {
+    keyed(
+        resource::<Bar, _>(|bar| {
+            bar.usage.is_empty() && bar.budget.is_empty()
+        }),
+        |none| {
+            if *none {
+                return frame().boxed();
+            }
+            with_cx(|cx| {
+                let space = &cx.theme().space;
+                row((
+                    frame()
+                        .width(px(1.0))
+                        .height(px(space.status_icon))
+                        .fill(cx.theme().palette.border),
+                    fact(
+                        Glyph::Coins,
+                        |bar| bar.usage.clone(),
+                        "Used by this session",
+                    ),
+                    fact(
+                        Glyph::Meter,
+                        |bar| bar.budget.clone(),
+                        "Spent of the hamlet's budget",
+                    ),
+                ))
+                .gap(space.status_gap)
+                .align(AlignItems::Center)
+            })
+            .boxed()
+        },
+    )
     .within(row(()).gap(0.0))
 }
 
@@ -250,38 +348,8 @@ pub fn status_bar() -> impl View {
             column((
                 hairline(palette.border),
                 row((
-                    confinement(),
-                    fact(
-                        Glyph::Chip,
-                        |bar| bar.model.clone(),
-                        "Model",
-                    ),
-                    pair(
-                        mark(
-                            Glyph::Signal,
-                            resource::<Bar, _>(|bar| bar.link_tone),
-                        ),
-                        label(resource::<Bar, _>(|s| s.link.clone()))
-                            .tone(resource::<Bar, _>(|bar| {
-                                bar.link_tone
-                            }))
-                            .rules(small_rules),
-                    )
-                    .tooltip(|| {
-                        note(resource::<Bar, _>(|bar| {
-                            bar.connection.clone()
-                        }))
-                    }),
-                    fact(
-                        Glyph::Coins,
-                        |bar| bar.usage.clone(),
-                        "Used by this session",
-                    ),
-                    fact(
-                        Glyph::Meter,
-                        |bar| bar.budget.clone(),
-                        "Spent of the hamlet's budget",
-                    ),
+                    setup(),
+                    session(),
                     aimed(),
                     waiting(),
                     pair(
@@ -289,11 +357,11 @@ pub fn status_bar() -> impl View {
                             let side = cx.theme().space.status_icon;
                             icon(resource::<Bar, _>(move |bar| {
                                 let which = if bar.busy {
-                                    Glyph::Bolt
+                                    Standing::Works
                                 } else {
-                                    Glyph::Moon
+                                    Standing::Rests
                                 };
-                                which.image(side)
+                                which.glyph().image(side)
                             }))
                             .size(side)
                             .tone(

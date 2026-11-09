@@ -110,7 +110,7 @@ pub struct SoundSettings {
     /// The chief's own level for the music, 0 to 1.
     pub music_level: f32,
     /// The volume of each kind of sound, before the master volume:
-    /// birds and crickets; wind; footsteps; hammer, wheel, steam,
+    /// birds and owls; wind; footsteps; hammer, wheel, steam,
     /// quill and kite; doors and letters; the chime and the fault
     /// note.
     pub wildlife: f32,
@@ -130,8 +130,7 @@ pub struct SoundSettings {
     pub magic: f32,
     /// Balloons and the thinking light.
     pub talk: f32,
-    /// Agents made, removed and restored, votes, mayors and new
-    /// hamlets.
+    /// Agents made, removed and restored, mayors and new hamlets.
     pub lives: f32,
     /// The chief's answers, and a stop.
     pub answers: f32,
@@ -173,7 +172,7 @@ pub struct SoundSettings {
     pub alerts_everywhere: bool,
     /// Seconds the ambience takes to change with the hour.
     pub fade: f32,
-    /// Height of the ears below which birds and crickets are at
+    /// Height of the ears below which birds and owls are at
     /// their loudest.
     pub close: f32,
     /// Seconds the music takes to come in and to go out.

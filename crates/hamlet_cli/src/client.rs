@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
 pub use hamlet_protocol::client::discovery::ServerAddress;
 use hamlet_protocol::client::{
-    ClientMessage, Hello, RequestId, ServerMessage, State, V,
+    ClientMessage, Hello, RequestId, ServerMessage, State, VERSION,
 };
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -26,7 +26,7 @@ pub async fn connect(
     client
         .send(ClientMessage::Hello(Hello {
             token: address.token.clone(),
-            v: V,
+            v: VERSION,
         }))
         .await?;
     match client.next().await? {

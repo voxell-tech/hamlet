@@ -222,7 +222,9 @@ fn walked(cast: &mut Cast) -> Vec<protocol::ClientMessage> {
 
 #[test]
 fn four_files_dropped_together_send_one_manifest_with_four_roots() {
-    use hamlet_client::realm::{AgentNumber, Deeds, LivesIn};
+    use hamlet_client::realm::{
+        AgentNumber, Deeds, Identity, LivesIn,
+    };
     let dir = hamlet_testing::Scratch::new("hand-four-files");
     let mut cast = Cast::new(1);
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -231,6 +233,7 @@ fn four_files_dropped_together_send_one_manifest_with_four_roots() {
     let hamlet =
         cast.app.world_mut().spawn(HamletId("home".into())).id();
     cast.app.world_mut().entity_mut(cast.agents[0]).insert((
+        Identity(protocol::AgentId(2)),
         AgentNumber(0),
         Name::new("founder"),
         LivesIn(hamlet),
@@ -258,7 +261,7 @@ fn four_files_dropped_together_send_one_manifest_with_four_roots() {
     else {
         panic!("one manifest: {messages:?}");
     };
-    assert_eq!(to.agent, "founder");
+    assert_eq!(to, &protocol::AgentId(2));
     assert_eq!(
         files
             .iter()
@@ -288,7 +291,8 @@ fn a_file_dropped_on_the_founder_begins_a_protocol_gift_without_a_house()
     state.deeds = realm::deeds(&["give"]);
     receive_state(&mut cast.app, state);
     let founder =
-        hamlet_client::realm::mayor(cast.app.world_mut()).unwrap();
+        hamlet_client::realm::mayor_of(cast.app.world_mut(), "home")
+            .unwrap();
     cast.app
         .world_mut()
         .entity_mut(cast.agents[0])
@@ -320,7 +324,7 @@ fn a_file_dropped_on_the_founder_begins_a_protocol_gift_without_a_house()
     else {
         panic!("one manifest: {messages:?}");
     };
-    assert_eq!(to.agent, "founder");
+    assert_eq!(to, &protocol::AgentId(2));
     assert_eq!(
         files,
         &[protocol::GiveFile {

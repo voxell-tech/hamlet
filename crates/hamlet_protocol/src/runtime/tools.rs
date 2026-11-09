@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::runtime::VERSION;
+use crate::Version;
 
 /// Replaces the runtime's tool definitions before its next request.
 #[derive(
@@ -18,8 +18,7 @@ pub struct Tools {
     #[schemars(length(min = 1))]
     pub id: String,
     pub tools: Vec<ToolSpec>,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// A tool the server runs, as the model is offered it.
@@ -86,8 +85,7 @@ pub struct Allow {
     pub key: String,
     #[schemars(length(min = 1))]
     pub tool: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The call may run.
@@ -100,8 +98,7 @@ pub struct Allowed {
     pub id: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The call waits for a chief; nothing is kept of it as a result.
@@ -117,8 +114,7 @@ pub struct Waiting {
     pub key: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     pub words: String,
 }
 
@@ -132,8 +128,7 @@ pub struct Refusal {
     pub id: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     pub words: String,
 }
 
@@ -148,8 +143,7 @@ pub struct Answered {
     pub id: String,
     #[schemars(length(min = 1))]
     pub key: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// Carries out a tool call under its operation key; the server
@@ -174,8 +168,7 @@ pub struct Operation {
     pub key: String,
     #[schemars(length(min = 1))]
     pub tool: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The marked result of an operation, for the agent.
@@ -198,8 +191,7 @@ pub struct Result {
     #[schemars(length(min = 1))]
     pub re: String,
     pub text: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The server's note on a tool's run, shown to the model after its

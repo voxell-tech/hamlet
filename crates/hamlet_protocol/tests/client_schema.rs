@@ -1,8 +1,12 @@
-//! The client protocol's version moves whenever its shapes do.
+//! The client protocol's shapes, recorded with its version, so a
+//! change to them is seen and committed.
 
 use std::path::Path;
 
-use hamlet_protocol::client::{ClientMessage, ServerMessage, V};
+use hamlet_protocol::Version;
+use hamlet_protocol::client::{
+    ClientMessage, ServerMessage, VERSION,
+};
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -77,7 +81,7 @@ fn sorted(entries: impl Iterator<Item = (String, Value)>) -> Value {
 }
 
 /// The fingerprint file for version `v` of the schema `schema`.
-fn fingerprint(v: u64, schema: &str) -> String {
+fn fingerprint(v: Version, schema: &str) -> String {
     let hash = Sha256::digest(format!("v {v}\n{schema}"));
     format!(
         "# The client protocol's version and a sha256 of its schema \
@@ -86,34 +90,23 @@ fn fingerprint(v: u64, schema: &str) -> String {
     )
 }
 
-/// The version a fingerprint file records.
-fn recorded(file: &str) -> Option<u64> {
-    file.lines()
-        .find_map(|line| line.strip_prefix("v ")?.parse().ok())
-}
-
 #[test]
-fn the_client_schema_changes_only_with_its_version() {
+fn the_client_schema_is_recorded() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(FINGERPRINT);
-    let expected = fingerprint(V, &schema());
-    let file = std::fs::read_to_string(&path).ok();
-    if file.as_deref() == Some(&expected) {
+    let expected = fingerprint(VERSION, &schema());
+    if std::fs::read_to_string(&path).ok().as_deref()
+        == Some(&expected)
+    {
         return;
-    }
-    if file.as_deref().and_then(recorded) == Some(V) {
-        panic!(
-            "The client protocol's shapes changed, but its version \
-             is still {V}. Move V in \
-             crates/hamlet_protocol/src/client.rs, update \
-             docs/protocol.md, and run the test again to rewrite \
-             {FINGERPRINT}."
-        );
     }
     std::fs::write(&path, expected).unwrap();
     panic!(
-        "{FINGERPRINT} was stale and is rewritten for version {V} \
-         of the client protocol; commit it."
+        "The client protocol's shapes changed, so {FINGERPRINT} is \
+         rewritten; commit it. Its version stays {VERSION} until \
+         Hamlet's first release; after it, a change that breaks a \
+         peer moves VERSION in crates/hamlet_protocol/src/client.rs \
+         by semver."
     );
 }

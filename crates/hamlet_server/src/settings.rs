@@ -1,185 +1,186 @@
-//! Saved settings and process-only model overrides.
+//! The realm's settings, as the chief saved them, and what the
+//! process puts over them.
 
-use anyhow::{Result, bail};
-use hamlet_protocol::client::{
-    EditSettingsSet, Endpoint, Link, LinkState,
-};
-use rusqlite::Connection;
+use anyhow::Result;
+use diesel::prelude::*;
+use hamlet_protocol::client::{Link, LinkState, Newcomers};
+use hamlet_protocol::runtime::ModelRef;
+use hamlet_store::Db;
+use hamlet_store::ids::ChiefId;
+use hamlet_store::schema::document;
 use serde::{Deserialize, Serialize};
-use url::Url;
 
-use crate::credentials::WorkspaceAddress;
-use crate::protocol::{Refusable, Refusal};
-use crate::sandbox::Isolation;
-use crate::service::{document, save};
+use crate::society::agents::Effort;
 
-/// The home's settings, as the chief saved them.
+/// A model's endpoint by the name models are chosen through.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct Endpoint {
+    pub name: String,
+    pub base_url: String,
+}
+
+/// When agents dream, and what a dream may cost.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub(crate) struct Dreams {
+    pub on: bool,
+    /// The local hours in which dreams start, from and to.
+    pub hours: (u8, u8),
+    /// The most one dream may cost, in millionths of a dollar.
+    pub cost: i64,
+}
+
+impl Default for Dreams {
+    fn default() -> Self {
+        Self {
+            on: false,
+            hours: (1, 6),
+            cost: 200_000,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub(crate) struct Settings {
-    /// The model the home runs, as `endpoint::model`.
+    /// The realm's model, as `endpoint::model`.
     pub model: String,
-    /// The answered turns after which an agent reflects; none for 0.
-    pub reflect_every: u64,
-    pub allow_net: bool,
-    /// How hard agents' models think unless their own effort says
-    /// otherwise; the model's own default when absent.
-    #[serde(default)]
-    pub effort: Option<hamlet_protocol::Effort>,
     pub endpoints: Vec<Endpoint>,
-    /// How the last check of the model went.
+    /// The answered turns after which an agent reflects; never for 0
+    /// (C5).
+    pub reflect_every: u64,
+    /// Whether every agent's commands may reach the network (C19).
+    pub allow_net: bool,
+    /// How hard models think unless an agent's own effort says
+    /// otherwise (H29a).
+    pub effort: Option<Effort>,
+    pub dreams: Dreams,
+    /// Who lets a scholar an agent made into the city.
+    pub newcomers: Newcomers,
+    /// The character a scholar made blank starts from.
+    pub character: String,
+    /// How the last check of the model's provider went.
+    #[serde(default = "untested")]
     pub link: Link,
-    /// Whether the chief saved them, rather than the defaults
-    /// standing.
+    /// Whether the chief saved them.
     pub saved: bool,
+}
+
+fn untested() -> Link {
+    Link {
+        models: None,
+        state: LinkState::Untested,
+        words: None,
+    }
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             model: "local::qwen3.6:35b-a3b".into(),
-            reflect_every: 10,
-            allow_net: false,
-            effort: None,
             endpoints: vec![Endpoint {
                 name: "local".into(),
                 base_url: "http://localhost:11434/v1".into(),
             }],
-            link: Link {
-                state: LinkState::Untested,
-                models: None,
-                words: None,
-            },
+            reflect_every: 10,
+            allow_net: false,
+            effort: None,
+            dreams: Dreams::default(),
+            newcomers: Newcomers::default(),
+            character: CHARACTER.into(),
+            link: untested(),
             saved: false,
         }
     }
 }
 
+/// The character a scholar made blank starts from, until a chief
+/// gives the realm its own.
+pub(crate) const CHARACTER: &str =
+    "You are a scholar new to this realm. You know nothing of your \
+     own yet: use the library's skills, learn from the work you are \
+     given, and keep what is worth keeping in your memory so that \
+     it lasts.";
+
 impl Settings {
-    /// The endpoint of the home's model.
+    /// The endpoint the realm's model is served by.
     pub fn provider(&self) -> Option<&str> {
         self.model.split_once("::").map(|(provider, _)| provider)
     }
 
-    /// The address of the endpoint `name`.
-    pub fn base_url(&self, name: &str) -> Option<&str> {
+    /// The address of the endpoint `provider`, when the settings name
+    /// one.
+    pub fn base_url(&self, provider: &str) -> Option<&str> {
         self.endpoints
             .iter()
-            .find(|endpoint| endpoint.name == name)
-            .map(|endpoint| endpoint.base_url.as_str())
+            .find(|e| e.name == provider)
+            .map(|e| e.base_url.as_str())
     }
+}
+
+/// Keeps `settings` as the realm's, saved by `chief`.
+pub(crate) fn keep(
+    db: &mut Db,
+    settings: &Settings,
+    at: i64,
+    chief: Option<ChiefId>,
+) -> Result<()> {
+    diesel::replace_into(document::table)
+        .values((
+            document::kind.eq("settings"),
+            document::value.eq(serde_json::to_string(settings)?),
+            document::at.eq(at),
+            document::chief.eq(chief),
+        ))
+        .execute(db)?;
+    Ok(())
 }
 
 /// The settings the chief saved, else the defaults.
-pub(crate) fn stored(db: &Connection) -> Result<Settings> {
-    Ok(document(db, "settings", "home")?
-        .map(serde_json::from_value)
-        .transpose()?
-        .unwrap_or_default())
+pub(crate) fn stored(db: &mut Db) -> Result<Settings> {
+    let text = document::table
+        .find("settings")
+        .select(document::value)
+        .first::<String>(db)
+        .optional()?;
+    Ok(match text {
+        Some(text) => serde_json::from_str(&text)?,
+        None => Settings::default(),
+    })
 }
 
-/// Keeps `settings` as the chief's.
-pub(crate) fn keep(
-    db: &Connection,
-    settings: &Settings,
-) -> Result<()> {
-    save(db, "settings", "home", &serde_json::to_value(settings)?)
-}
-
-/// The model a faux home runs, whatever its settings say.
-const FAUX_MODEL: &str = "faux::faux-1";
-
-/// What the process puts over the saved settings: the environment's
-/// variables, read once when the server starts, the faux model in
-/// place of the home's when its models are faux, and the isolation
-/// the chief started it with.
-#[derive(Clone)]
-pub struct Overrides {
-    /// Whether the home's models are faux.
-    pub(crate) faux: bool,
-    model: Option<String>,
-    base_url: Option<String>,
-    reflect_every: Option<u64>,
-    allow_net: Option<bool>,
-    pub(crate) workspace: Option<WorkspaceAddress>,
-    pub(crate) isolation: Isolation,
+/// What the process puts over the saved settings, read once at
+/// start: the environment's overrides, and faux models in place of
+/// every model.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Overrides {
+    pub faux: bool,
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+    pub reflect_every: Option<u64>,
+    pub allow_net: Option<bool>,
 }
 
 impl Overrides {
-    /// None from the environment, so a test's server is the same
-    /// whatever its shell carries. `faux` still puts the faux model
-    /// over the settings' one.
-    #[cfg(test)]
-    pub fn none(faux: bool) -> Self {
+    /// `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and
+    /// `HAMLET_NET`.
+    pub fn from_env(faux: bool) -> Self {
+        let set =
+            |name| std::env::var(name).ok().filter(|v| !v.is_empty());
         Self {
             faux,
-            model: faux.then(|| FAUX_MODEL.into()),
-            base_url: None,
-            reflect_every: None,
-            allow_net: None,
-            workspace: None,
-            isolation: Isolation::TESTING,
+            model: set("HAMLET_MODEL"),
+            base_url: set("HAMLET_BASE_URL"),
+            reflect_every: set("HAMLET_REFLECT_EVERY")
+                .and_then(|v| v.parse().ok()),
+            allow_net: set("HAMLET_NET")
+                .map(|v| v == "1" || v == "true"),
         }
     }
 
-    /// The overrides the environment gives, with the faux model over
-    /// `HAMLET_MODEL` when `faux`.
-    pub fn from_env(
-        faux: bool,
-        isolation: Isolation,
-    ) -> Result<Self> {
-        let get =
-            |key| std::env::var(key).ok().filter(|v| !v.is_empty());
-        let reflect_every = match get("HAMLET_REFLECT_EVERY") {
-            Some(text) => match text.parse::<u64>() {
-                Ok(n) => Some(n),
-                Err(_) => bail!(
-                    "HAMLET_REFLECT_EVERY must be a whole number, \
-                     not `{text}`"
-                ),
-            },
-            None => None,
-        };
-        let model = get("HAMLET_MODEL");
-        if let Some(name) = &model
-            && name
-                .split_once("::")
-                .is_none_or(|(p, id)| p.is_empty() || id.is_empty())
-        {
-            bail!("HAMLET_MODEL is `endpoint::id`, not `{name}`");
-        }
-        Ok(Self {
-            faux,
-            model: faux.then(|| FAUX_MODEL.into()).or(model),
-            base_url: get("HAMLET_BASE_URL"),
-            reflect_every,
-            allow_net: get("HAMLET_NET").map(|v| v == "1"),
-            workspace: match (
-                get("HAMLET_WORKSPACE_URL"),
-                get("HAMLET_WORKSPACE_TOKEN"),
-            ) {
-                (None, None) => None,
-                (Some(url), Some(token)) => {
-                    let workspace = WorkspaceAddress { url, token };
-                    check_workspace(&workspace)?;
-                    Some(workspace)
-                }
-                _ => bail!(
-                    "HAMLET_WORKSPACE_URL and \
-                     HAMLET_WORKSPACE_TOKEN are set together, or \
-                     neither is."
-                ),
-            },
-            isolation,
-        })
-    }
-
-    /// `settings` with the overrides, refused when `HAMLET_BASE_URL`
-    /// is for an endpoint they do not list.
-    pub(crate) fn apply(
-        &self,
-        mut settings: Settings,
-    ) -> Result<Settings> {
+    /// `settings` as this process runs them.
+    pub fn apply(&self, mut settings: Settings) -> Settings {
         if let Some(model) = &self.model {
             settings.model.clone_from(model);
         }
@@ -189,165 +190,42 @@ impl Overrides {
         if let Some(net) = self.allow_net {
             settings.allow_net = net;
         }
-        if let Some(url) = &self.base_url {
-            let model = settings.model.clone();
-            let Some(provider) =
-                settings.provider().map(String::from)
-            else {
-                bail!(
-                    "HAMLET_BASE_URL needs a model: set \
-                     HAMLET_MODEL or choose one in Settings."
-                );
-            };
-            let Some(endpoint) = settings
-                .endpoints
-                .iter_mut()
-                .find(|endpoint| endpoint.name == provider)
-            else {
-                if builtins().contains(&provider) {
-                    bail!(
-                        "HAMLET_BASE_URL is for the endpoint of the \
-                         model `{model}`, a provider pi knows the \
-                         address of. Unset HAMLET_BASE_URL."
-                    );
-                }
-                bail!(
-                    "HAMLET_BASE_URL is for the endpoint of the \
-                     model `{model}`, which the settings do not \
-                     list. Add the endpoint in Settings, or unset \
-                     HAMLET_BASE_URL."
-                );
-            };
-            endpoint.base_url.clone_from(url);
-        }
-        Ok(settings)
-    }
-}
-
-/// The names of pi's own providers.
-fn builtins() -> Vec<String> {
-    serde_json::from_str(include_str!(
-        "../assets/provider-names.json"
-    ))
-    .expect("bundled provider names")
-}
-
-pub(crate) fn validate(
-    set: &EditSettingsSet,
-) -> Refusable<Option<Option<WorkspaceAddress>>> {
-    let invalid = |text: &str| Refusal::Invalid(text.into());
-    let workspace = match &set.workspace {
-        None => None,
-        Some(None) => Some(None),
-        Some(Some(workspace)) => {
-            let connection = WorkspaceAddress {
-                url: workspace.url.clone(),
-                token: workspace.token.clone(),
-            };
-            check_workspace(&connection)
-                .map_err(|bad| invalid(&bad.to_string()))?;
-            Some(Some(connection))
-        }
-    };
-    if set.reflect_every.is_some_and(|every| every < 0) {
-        return Err(invalid("reflectEvery must be a whole number"));
-    }
-    let mut names = Vec::new();
-    let builtins = builtins();
-    for endpoint in set.endpoints.iter().flatten() {
-        let name = &endpoint.name;
-        if name.is_empty()
-            || !name.bytes().all(|b| {
-                b.is_ascii_lowercase()
-                    || b.is_ascii_digit()
-                    || b == b'-'
-            })
-            || builtins.contains(name)
-            || names.contains(&name)
+        if let (Some(url), Some((endpoint, _))) =
+            (&self.base_url, settings.model.clone().split_once("::"))
         {
-            return Err(Refusal::Invalid(format!(
-                "`{name}` is not a unique custom endpoint name."
-            )));
+            for kept in &mut settings.endpoints {
+                if kept.name == endpoint {
+                    kept.base_url.clone_from(url);
+                }
+            }
         }
-        names.push(name);
-        let url = Url::parse(&endpoint.base_url)
-            .map_err(|_| invalid("Invalid URL"))?;
-        if !["http", "https"].contains(&url.scheme()) {
-            return Err(invalid(
-                "The address should start with https:// or http://.",
-            ));
-        }
-        if !url.username().is_empty() || url.password().is_some() {
-            return Err(invalid(
-                "Keep credentials out of an endpoint's address.",
-            ));
-        }
+        settings
     }
-    Ok(workspace)
 }
 
-/// The fault in a workspace's address.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum BadAddress {
-    #[error(
-        "The workspace address must start with https://, or http:// \
-         for localhost, and have no password or query."
-    )]
-    Url,
-    #[error("The workspace token needs at least 16 characters.")]
-    ShortToken,
+/// The faux model every agent runs in a faux realm.
+pub(crate) fn faux_model() -> ModelRef {
+    ModelRef {
+        base_url: None,
+        id: "faux-1".into(),
+        provider: "faux".into(),
+    }
 }
 
-pub(crate) fn check_workspace(
-    workspace: &WorkspaceAddress,
-) -> Result<(), BadAddress> {
-    let valid = Url::parse(&workspace.url).ok().is_some_and(|url| {
-        (url.scheme() == "https"
-            || (url.scheme() == "http"
-                && matches!(
-                    url.host_str(),
-                    Some("localhost" | "127.0.0.1" | "[::1]")
-                )))
-            && url.username().is_empty()
-            && url.password().is_none()
-            && url.query().is_none()
-            && url.fragment().is_none()
-            && url.port() != Some(0)
-    });
-    if !valid {
-        return Err(BadAddress::Url);
-    }
-    if workspace.token.chars().count() < 16 {
-        return Err(BadAddress::ShortToken);
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_workspace_is_refused_for_its_address_or_its_token() {
-        let check = |url: &str, token: &str| {
-            check_workspace(&WorkspaceAddress {
-                url: url.into(),
-                token: token.into(),
-            })
-            .map_err(|bad| bad.to_string())
-        };
-        let token = "0123456789abcdef";
-        assert_eq!(
-            check("http://workspace.example", token),
-            Err("The workspace address must start with https://, or \
-                 http:// for localhost, and have no password or query."
-                .into())
-        );
-        assert_eq!(
-            check("http://localhost:8080", "short"),
-            Err("The workspace token needs at least 16 characters."
-                .into())
-        );
-        assert_eq!(check("https://workspace.example", token), Ok(()));
+/// The model `endpoint::model` names, with its endpoint's address.
+pub(crate) fn model_ref(
+    settings: &Settings,
+    model: &str,
+) -> ModelRef {
+    let (endpoint, id) =
+        model.split_once("::").unwrap_or(("", model));
+    ModelRef {
+        base_url: settings
+            .endpoints
+            .iter()
+            .find(|e| e.name == endpoint)
+            .map(|e| e.base_url.clone()),
+        id: id.into(),
+        provider: endpoint.into(),
     }
 }

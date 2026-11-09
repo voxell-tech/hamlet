@@ -5,8 +5,10 @@
 use std::f32::consts::TAU;
 
 use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
 use bevy::ecs::observer::On;
+use bevy::ecs::query::Without;
 use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::{Rot2, Vec2};
@@ -16,7 +18,7 @@ use bevy::picking::events::{
 use bevy::picking::pointer::PointerButton;
 use bevy::ui::widget::ImageNode;
 use bevy::ui::{
-    AlignItems, ComputedNode, JustifyContent, PositionType,
+    AlignItems, ComputedNode, Display, JustifyContent, PositionType,
     UiGlobalTransform, UiRect, UiTransform, Val, px,
 };
 use bevy::window::SystemCursorIcon;
@@ -35,8 +37,9 @@ type Change = Box<dyn Fn(&mut World, f32) + Send + Sync>;
 
 /// What a dial's face shows: the amount in one whole turn, the
 /// amount at the top, how an amount is written in its middle, the
-/// marks round its rim, every so many of them long, and whether the
-/// icon in its middle turns with the amount.
+/// marks round its rim, every so many of them long, whether the icon
+/// in its middle turns with the amount, and what its middle says
+/// while it is held.
 #[derive(Component, Clone, Copy)]
 pub struct Face {
     pub whole: f32,
@@ -45,6 +48,7 @@ pub struct Face {
     pub marks: u32,
     pub long: u32,
     pub turns_icon: bool,
+    pub held: &'static str,
 }
 
 impl Face {
@@ -60,6 +64,7 @@ impl Face {
         marks: 24,
         long: 6,
         turns_icon: false,
+        held: "Following",
     };
 
     /// Degrees of a bearing, nought at the top, a mark each ten and a
@@ -71,6 +76,7 @@ impl Face {
         marks: 36,
         long: 9,
         turns_icon: true,
+        held: "Held",
     };
 
     /// The turn from the top, in radians clockwise, at `amount`.
@@ -97,9 +103,14 @@ struct Trailed(f32);
 #[derive(Component, Clone, Copy)]
 struct Grip(f32);
 
+/// On a dial's ring while something else sets its amount: it has no
+/// knob, its middle says so, and it does not turn.
+#[derive(Component)]
+struct Held;
+
 /// The side of the ring, of its knob, of the dot that trails it and
 /// of the icon in its middle.
-const SIDE: f32 = 112.0;
+const SIDE: f32 = 88.0;
 const KNOB: f32 = 16.0;
 const TRAIL: f32 = 8.0;
 const ICON: f32 = 20.0;
@@ -115,16 +126,19 @@ const MARK_GAP: f32 = 4.0;
 /// to. It never turns itself: a drag around it hands the amount
 /// turned to to `change`, and a bound `amount` follows what that
 /// writes. The knob sits on the rim and keeps the angle to the
-/// pointer it had when the drag began, so it never jumps.
+/// pointer it had when the drag began, so it never jumps. While
+/// `held`, something else sets the amount: the dial has no knob to
+/// drag, says the face's word for it in its middle and does not turn.
 pub fn dial(
     face: Face,
     icon: impl Into<Prop<Glyph>>,
     amount: impl Into<Prop<f32>>,
     trail: impl Into<Prop<f32>>,
+    held: impl Into<Prop<bool>>,
     change: impl Fn(&mut World, f32) + Send + Sync + 'static,
 ) -> impl View {
-    let (icon, amount, trail) =
-        (icon.into(), amount.into(), trail.into());
+    let (icon, amount, trail, held) =
+        (icon.into(), amount.into(), trail.into(), held.into());
     AnyView::new(move |cx: &mut Cx| {
         let theme = cx.theme();
         let (palette, border) = (&theme.palette, theme.space.border);
@@ -160,7 +174,6 @@ pub fn dial(
                 Turns(Some(Box::new(change))),
                 Shown(0.0),
                 Trailed(0.0),
-                EntityCursor(SystemCursorIcon::Grab),
             ))
             .observe(gripped)
             .observe(dragged)
@@ -171,6 +184,18 @@ pub fn dial(
                 && entity.get::<Shown>() != Some(&to)
             {
                 entity.insert(to);
+            }
+        });
+        cx.effect(ring, held, |world, node, &held| {
+            let Ok(mut entity) = world.get_entity_mut(node) else {
+                return;
+            };
+            if held {
+                entity.insert(Held).remove::<EntityCursor>();
+            } else {
+                entity
+                    .insert(EntityCursor(SystemCursorIcon::Grab))
+                    .remove::<Held>();
             }
         });
         cx.effect(ring, trail, move |world, node, &amount| {
@@ -226,38 +251,45 @@ pub fn dial(
             let centre = cx
                 .build(column(()).gap(2.0).align(AlignItems::Center));
             cx.under(centre, |cx| {
-                let mark = cx.build(
-                    icon_view(Glyph::Sun.image(ICON))
-                        .size(ICON)
-                        .tone(Tone::Dim)
-                        .rotation(component::<Shown, _>(
-                            ring,
-                            move |shown| {
-                                if face.turns_icon {
-                                    face.turn(
-                                        shown.map_or(0.0, |s| s.0),
-                                    )
-                                    .to_degrees()
-                                } else {
-                                    0.0
+                // Its word takes the icon's room while it is held.
+                let holder = cx.build(
+                    column(()).display(shown_while_held(ring, false)),
+                );
+                cx.under(holder, |cx| {
+                    let mark = cx.build(
+                        icon_view(Glyph::Sun.image(ICON))
+                            .size(ICON)
+                            .tone(Tone::Dim)
+                            .rotation(component::<Shown, _>(
+                                ring,
+                                move |shown| {
+                                    if face.turns_icon {
+                                        face.turn(
+                                            shown
+                                                .map_or(0.0, |s| s.0),
+                                        )
+                                        .to_degrees()
+                                    } else {
+                                        0.0
+                                    }
+                                },
+                            )),
+                    );
+                    cx.effect(
+                        mark,
+                        icon,
+                        |world, node, &glyph: &Glyph| {
+                            if let Some(mut image) =
+                                world.get_mut::<ImageNode>(node)
+                            {
+                                let to = glyph.image(ICON);
+                                if image.image != to {
+                                    image.image = to;
                                 }
-                            },
-                        )),
-                );
-                cx.effect(
-                    mark,
-                    icon,
-                    |world, node, &glyph: &Glyph| {
-                        if let Some(mut image) =
-                            world.get_mut::<ImageNode>(node)
-                        {
-                            let to = glyph.image(ICON);
-                            if image.image != to {
-                                image.image = to;
                             }
-                        }
-                    },
-                );
+                        },
+                    );
+                });
                 cx.build(
                     label(component::<Shown, _>(
                         ring,
@@ -266,6 +298,12 @@ pub fn dial(
                         },
                     ))
                     .size(cx.theme().text.small),
+                );
+                cx.build(
+                    column((label(face.held)
+                        .size(cx.theme().text.small)
+                        .tone(Tone::Dim),))
+                    .display(shown_while_held(ring, true)),
                 );
             });
             cx.build(
@@ -292,11 +330,24 @@ pub fn dial(
                     // it sits on.
                     .border(border * 1.5)
                     .border_color(middle)
-                    .fill(knob),
+                    .fill(knob)
+                    .display(shown_while_held(ring, false)),
             );
         });
         ring
     })
+}
+
+/// Shown while the dial `ring` is held, or while it is not.
+fn shown_while_held(ring: Entity, held: bool) -> Prop<Display> {
+    component::<Held, _>(ring, move |on| {
+        if on.is_some() == held {
+            Display::Flex
+        } else {
+            Display::None
+        }
+    })
+    .into()
 }
 
 /// The point `reach` from the middle, `turn` radians clockwise from
@@ -333,7 +384,10 @@ fn amount_at(face: &Face, turn: f32) -> f32 {
 /// go, wherever the pointer goes meanwhile.
 fn gripped(
     mut start: On<PointerDragStart>,
-    rings: Query<(&Face, &Shown, &ComputedNode, &UiGlobalTransform)>,
+    rings: Query<
+        (&Face, &Shown, &ComputedNode, &UiGlobalTransform),
+        Without<Held>,
+    >,
     mut cursor: ResMut<OverrideCursor>,
     mut commands: Commands,
 ) {
@@ -366,7 +420,10 @@ fn let_go(
 
 fn dragged(
     mut drag: On<PointerDrag>,
-    rings: Query<(&Face, &Grip, &ComputedNode, &UiGlobalTransform)>,
+    rings: Query<
+        (&Face, &Grip, &ComputedNode, &UiGlobalTransform),
+        Without<Held>,
+    >,
     mut commands: Commands,
 ) {
     if drag.button != PointerButton::Primary {

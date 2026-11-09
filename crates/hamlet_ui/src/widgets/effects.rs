@@ -10,7 +10,7 @@ mod highlight;
 mod tab;
 mod underglow;
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PostUpdate, Update};
 use bevy::asset::Asset;
 use bevy::color::Color;
 use bevy::ecs::component::Component;
@@ -19,7 +19,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::world::World;
 use bevy::reflect::TypePath;
-use bevy::ui::{ColorStop, percent};
+use bevy::ui::{ColorStop, UiSystems, percent};
 use hamlet_assets::{File, Tuning, TuningPlugin, follow};
 
 pub use self::glow::{GlowPanel, glow_layer};
@@ -56,6 +56,12 @@ pub fn plugin(app: &mut App) {
                 (highlight::update_highlights, tab::highlight_tabs)
                     .chain(),
             ),
+        )
+        // Once the clips are worked out for the frame, as that sets
+        // each glow's clip back to its layer's.
+        .add_systems(
+            PostUpdate,
+            control::cut_glows.after(UiSystems::PostLayout),
         );
 }
 
@@ -261,7 +267,7 @@ fn pool(sharp: f32, paint: impl Fn(f32) -> Color) -> Vec<ColorStop> {
 }
 
 /// Moves `value` toward `to` at `rate` per second.
-fn ease(value: f32, to: f32, rate: f32, dt: f32) -> f32 {
+pub(crate) fn ease(value: f32, to: f32, rate: f32, dt: f32) -> f32 {
     let next = to + (value - to) * (-rate * dt).exp();
     if (next - to).abs() < 0.002 { to } else { next }
 }

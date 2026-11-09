@@ -43,9 +43,9 @@ pub struct Setup {
     /// The room a card leaves under its header for something drawn
     /// there, in sheet pixels; 0 for none.
     pub room: f32,
-    /// Example graphs, by asset name and text; the first opens at
-    /// launch.
-    pub examples: &'static [(&'static str, &'static str)],
+    /// The graphs that come with the window, by asset name and text;
+    /// the first opens at launch.
+    pub examples: fn() -> &'static [(&'static str, &'static str)],
 }
 
 /// Leaves a graph as it is, for graphs that need no upgrade.

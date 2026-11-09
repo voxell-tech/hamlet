@@ -126,6 +126,15 @@ pub fn show(path: &Path, roots: &[PathBuf]) -> Launch {
     started(&mut program(&path, way(&path)))
 }
 
+/// Shows the file `path` in its folder, selected, unopened, if it is
+/// still there.
+pub fn reveal(path: &Path) -> Launch {
+    match path.canonicalize() {
+        Ok(path) => started(&mut program(&path, Way::Reveal)),
+        Err(_) => Launch::Failed,
+    }
+}
+
 /// Shows the file `path` if it is still there, with no link leading
 /// out of its folder.
 pub fn show_file(path: &Path) -> Launch {

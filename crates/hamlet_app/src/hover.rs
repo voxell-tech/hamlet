@@ -23,26 +23,26 @@ use bevy::ui::{
     PositionType, UiRect, UiTransform, Val, px,
 };
 use bevy::window::{PrimaryWindow, Window};
-use bevy_fynix::resource;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, overlay,
-};
+use bevy_fynix::views::{FrameProps, column, label, overlay};
+use bevy_fynix::{ScopedExt, resource};
 use hamlet_client::realm::{
     Account, Activity, AgentNumber, Busy, Left, LivesIn, Mayor,
-    MergedInto, Mode, Purpose, Roster, Treasury, Works,
+    MergedInto, Mode, Purpose, Roster, Shown, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_realm::chief::{Beside, Look};
 use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
+use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::EffectSettings;
-use hamlet_ui::widgets::platform::{DisplayText, show};
+use hamlet_ui::widgets::platform::show;
 use hamlet_ui::{View, built};
 
 use crate::overview::standing;
 use crate::roll::Roll;
+use crate::standing::Standing;
 use crate::world_menu::Open;
 
 /// The layer of the card in the window's stack: over the panels,
@@ -64,7 +64,8 @@ type Doing<'a> = (
 
 /// An agent that lives in a hamlet, that it is at work and that it is
 /// the mayor.
-type Living<'a> = (&'a Name, &'a LivesIn, Has<Busy>, Has<Mayor>);
+type Living<'a> =
+    (Entity, &'a Name, &'a LivesIn, Has<Busy>, Has<Mayor>);
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Card>()
@@ -113,7 +114,7 @@ pub(crate) fn short(text: &str, most: usize) -> String {
 #[derive(SystemParam)]
 pub(crate) struct Told<'w, 's> {
     roster: Roster<'w, 's>,
-    names: Query<'w, 's, &'static Name>,
+    names: Query<'w, 's, (&'static Name, Option<&'static Shown>)>,
     agents: Query<'w, 's, Doing<'static>, With<AgentNumber>>,
     living: Query<
         'w,
@@ -132,7 +133,12 @@ impl Told<'_, '_> {
     fn name(&self, of: Entity) -> String {
         self.names
             .get(of)
-            .map(|name| name.as_str().to_string())
+            .map(|(name, shown)| {
+                shown.map_or_else(
+                    || name.as_str().to_string(),
+                    |shown| shown.0.clone(),
+                )
+            })
             .unwrap_or_default()
     }
 
@@ -140,7 +146,7 @@ impl Told<'_, '_> {
     fn agent_of(&self, thing: Thing) -> Option<(Entity, bool)> {
         match thing {
             Thing::Keeper | Thing::Cottage => {
-                self.roster.mayor().map(|mayor| (mayor, false))
+                self.roster.first_mayor().map(|mayor| (mayor, false))
             }
             Thing::Agent(agent) | Thing::House(agent) => {
                 Some((agent, false))
@@ -150,6 +156,8 @@ impl Told<'_, '_> {
             | Thing::Chief(_)
             | Thing::ChiefPlace(_)
             | Thing::Library
+            | Thing::Hand
+            | Thing::Scholar(_)
             | Thing::Clockwork(_)
             | Thing::Workbench(_) => None,
         }
@@ -178,28 +186,30 @@ impl Told<'_, '_> {
         let people = self
             .living
             .iter()
-            .filter(|(_, lives, ..)| lives.0 == hamlet)
-            .map(|(name, _, busy, mayor)| {
-                (name.as_str(), busy, mayor)
+            .filter(|(_, _, lives, ..)| lives.0 == hamlet)
+            .map(|(agent, name, _, busy, mayor)| {
+                (agent, name.as_str(), busy, mayor)
             })
             .collect::<Vec<_>>();
         let at_work =
-            people.iter().filter(|(_, busy, _)| *busy).count();
+            people.iter().filter(|(_, _, busy, _)| *busy).count();
         let waiting = self
             .waits
             .iter()
-            .filter(|w| people.iter().any(|(n, ..)| *n == w.by))
+            .filter(|w| people.iter().any(|(_, n, ..)| *n == w.by))
             .count();
         let (_, state, tone) =
             standing(people.len(), at_work, waiting);
         let mayor = people
             .iter()
-            .find(|(_, _, mayor)| *mayor)
-            .map(|(name, ..)| format!("Mayor: {name}"))
+            .find(|(_, _, _, mayor)| *mayor)
+            .map(|(agent, ..)| {
+                format!("Mayor: {}", self.name(*agent))
+            })
             .unwrap_or_default();
         Card {
             shown: true,
-            title: self.name(hamlet).to_uppercase(),
+            title: self.name(hamlet),
             state,
             tone,
             purpose: mayor,
@@ -249,8 +259,7 @@ impl Told<'_, '_> {
         };
         Card {
             shown: true,
-            title: format!("CLOCKWORK OF {}", self.name(hamlet))
-                .to_uppercase(),
+            title: format!("Clockwork of {}", self.name(hamlet)),
             state: state.to_string(),
             tone,
             purpose: purpose.to_string(),
@@ -281,8 +290,7 @@ impl Told<'_, '_> {
         };
         Card {
             shown: true,
-            title: format!("WORKBENCH OF {}", self.name(hamlet))
-                .to_uppercase(),
+            title: format!("Workbench of {}", self.name(hamlet)),
             state,
             tone,
             purpose: purpose.to_string(),
@@ -293,19 +301,18 @@ impl Told<'_, '_> {
 
     /// The card of a chief's mascot, or of its place.
     fn of_chief(&self, chief: Entity, place: bool) -> Option<Card> {
-        let name =
-            self.names.get(chief).ok()?.as_str().to_uppercase();
+        let name = self.name(chief);
         let (look, beside) = self.chiefs.get(chief).ok()?;
-        let with =
-            beside.0.and_then(|agent| self.names.get(agent).ok());
-        let (state, tone) = match with {
-            Some(agent) => (format!("With {agent}"), Tone::Accent),
+        let (state, tone) = match beside.0 {
+            Some(agent) => {
+                (format!("With {}", self.name(agent)), Tone::Accent)
+            }
             None => ("At home".to_string(), Tone::Dim),
         };
         Some(Card {
             shown: true,
             title: if place {
-                format!("{name}'S HEARTH")
+                format!("{name}'s hearth")
             } else {
                 name
             },
@@ -314,7 +321,7 @@ impl Told<'_, '_> {
             purpose: if place {
                 "Where the chief lives.".to_string()
             } else {
-                "The chief, who goes by Wickstep.".to_string()
+                "You, the chief.".to_string()
             },
             account: look.words(),
             hint: "Click to change the look".to_string(),
@@ -336,24 +343,31 @@ impl Told<'_, '_> {
             purpose,
             account,
         ) = self.agents.get(agent).ok()?;
-        let name = name.as_str();
+        let address = name.as_str();
         let waiting =
-            self.waits.iter().filter(|w| w.by == name).count();
+            self.waits.iter().filter(|w| w.by == address).count();
         let (state, tone) = match into {
             Some(host) if gone => (
                 format!("Merged into {}", self.name(host.0)),
                 Tone::Dim,
             ),
             _ if gone || ruin => {
-                ("Removed".to_string(), Tone::Critical)
+                ("Removed".to_string(), Standing::Gone.tone())
             }
-            _ if waiting > 0 => {
-                (format!("Waits for you ({waiting})"), Tone::Critical)
-            }
+            _ if waiting > 0 => (
+                format!("Waits for you ({waiting})"),
+                Standing::Waits.tone(),
+            ),
             _ => {
-                let tone =
-                    if busy { Tone::Accent } else { Tone::Dim };
-                (activity.cloned().unwrap_or_default().words, tone)
+                let standing = if busy {
+                    Standing::Works
+                } else {
+                    Standing::Rests
+                };
+                (
+                    activity.cloned().unwrap_or_default().words,
+                    standing.tone(),
+                )
             }
         };
         let followed = self.following.0 == Some(hovered);
@@ -361,14 +375,14 @@ impl Told<'_, '_> {
             matches!(hovered, Thing::Keeper | Thing::Agent(_));
         Some(Card {
             shown: true,
-            title: name.to_uppercase(),
+            title: self.name(agent),
             state,
             tone,
             purpose: purpose
                 .map(|p| short(&p.0, PURPOSE_SHOWN))
                 .unwrap_or_default(),
             account: account
-                .map(Account::summary)
+                .map(crate::models::account_words)
                 .unwrap_or_default(),
             hint: match (gone || ruin, followed) {
                 (true, _) => "Right-click to restore".to_string(),
@@ -407,7 +421,7 @@ impl Told<'_, '_> {
                 let (agent, ruin) = self.agent_of(thing)?;
                 self.of_agent(agent, ruin, thing)
             }
-            Thing::Library => None,
+            Thing::Library | Thing::Hand | Thing::Scholar(_) => None,
         }
     }
 }
@@ -582,8 +596,8 @@ pub fn place(
 /// A line of the card that takes no room while it is empty.
 fn line(read: fn(&Card) -> &String, tone: Tone) -> impl View {
     label(resource::<Card, _>(move |card| read(card).clone()))
-        .size(12.0)
         .tone(tone)
+        .rules(small_rules)
 }
 
 /// The card, on the window's top layer. It is built once.
@@ -592,13 +606,12 @@ pub fn view() -> impl View {
         let shadow = cx.theme().shadow();
         let card = column((
             label(resource::<Card, _>(|card| card.title.clone()))
-                .size(13.0)
+                .size(cx.theme().text.heading)
                 .bold(true)
-                .wrap(false)
-                .tagged(DisplayText),
+                .wrap(false),
             label(resource::<Card, _>(|card| card.state.clone()))
-                .size(12.0)
-                .tone(resource::<Card, _>(|card| card.tone)),
+                .tone(resource::<Card, _>(|card| card.tone))
+                .rules(small_rules),
             line(|card| &card.purpose, Tone::Body),
             line(|card| &card.account, Tone::Dim),
             line(|card| &card.hint, Tone::Dim),

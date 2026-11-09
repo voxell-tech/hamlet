@@ -6,7 +6,7 @@ use crate::play::Play;
 /// A kind of sound, with a volume and a limit of its own.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Family {
-    /// The animals: birds and crickets.
+    /// The animals: birds and owls.
     Wildlife,
     /// The environment: wind.
     Ambience,
@@ -112,7 +112,7 @@ pub enum Sound {
     /// A letter or a page changing hands.
     Letter,
     Birds,
-    Crickets,
+    Owl,
     Wind,
     /// The pointer coming onto a button.
     Tick,
@@ -174,8 +174,6 @@ pub enum Sound {
     Born,
     Gone,
     Restored,
-    VoteCalled,
-    Ballot,
     /// A hamlet has another mayor.
     Mayor,
     Founded,
@@ -204,7 +202,7 @@ pub enum Sound {
 }
 
 impl Sound {
-    pub const ALL: [Self; 70] = [
+    pub const ALL: [Self; 68] = [
         Self::Step,
         Self::RoadStep,
         Self::Hammer,
@@ -217,7 +215,7 @@ impl Sound {
         Self::Fault,
         Self::Letter,
         Self::Birds,
-        Self::Crickets,
+        Self::Owl,
         Self::Wind,
         Self::Tick,
         Self::Tap,
@@ -258,8 +256,6 @@ impl Sound {
         Self::Born,
         Self::Gone,
         Self::Restored,
-        Self::VoteCalled,
-        Self::Ballot,
         Self::Mayor,
         Self::Founded,
         Self::PopOpen,
@@ -279,7 +275,7 @@ impl Sound {
 
     pub fn family(self) -> Family {
         match self {
-            Self::Birds | Self::Crickets => Family::Wildlife,
+            Self::Birds | Self::Owl => Family::Wildlife,
             Self::Wind => Family::Ambience,
             Self::Step | Self::RoadStep => Family::Steps,
             Self::Hammer
@@ -336,8 +332,6 @@ impl Sound {
             Self::Born
             | Self::Gone
             | Self::Restored
-            | Self::VoteCalled
-            | Self::Ballot
             | Self::Mayor
             | Self::Founded => Family::Lives,
             Self::Allowed | Self::Denied | Self::Stopped => {
@@ -405,7 +399,7 @@ impl Sound {
             | Self::Door
             | Self::Letter
             | Self::Birds
-            | Self::Crickets
+            | Self::Owl
             | Self::Wind
             | Self::Tap
             | Self::Menu
@@ -415,7 +409,6 @@ impl Sound {
             | Self::HouseShudder
             | Self::HouseFall
             | Self::Embers
-            | Self::Ballot
             | Self::PopOpen
             | Self::PopClose
             | Self::Fold
@@ -452,7 +445,7 @@ impl Sound {
             Self::Fault => "fault",
             Self::Letter => "letter",
             Self::Birds => "birds",
-            Self::Crickets => "crickets",
+            Self::Owl => "owl",
             Self::Wind => "wind",
             Self::Tick => "tick",
             Self::Tap => "tap",
@@ -493,8 +486,6 @@ impl Sound {
             Self::Born => "born",
             Self::Gone => "gone",
             Self::Restored => "restored",
-            Self::VoteCalled => "vote-called",
-            Self::Ballot => "ballot",
             Self::Mayor => "mayor",
             Self::Founded => "founded",
             Self::PopOpen => "pop-open",

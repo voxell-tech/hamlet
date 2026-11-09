@@ -13,6 +13,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::world::World;
 use bevy::text::{LineBreak, TextLayout};
 use bevy::ui::{
     AlignItems, ComputedNode, JustifyContent, Overflow, OverflowAxis,
@@ -21,35 +22,40 @@ use bevy::ui::{
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, ghost,
-    label, overlay, scroll,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    ghost, label, overlay, row, scroll,
 };
-use bevy_fynix::{ScopedExt, ViewExt, each, resource};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, each, every_frame, resource,
+};
 use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
-use hamlet_ui::View;
-use hamlet_ui::styles::{Fills, note};
+use hamlet_ui::styles::{Fills, lettered, note, small_rules};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{View, with_cx};
 
-use super::entry::entry_view;
+use super::entry::{edit_view, entry_view};
 use super::timeline::{Line, People, Who, timeline};
 use super::{AwayFromEnd, ChatScroll, bubble};
 use crate::convo::Convo;
-
-/// Messages are people talking, so they get the width of a readable
-/// line.
-const LINE: f32 = 760.0;
 
 /// The least width the conversation is laid out at. A panel
 /// narrower than this cuts it off.
 const LEAST: f32 = 240.0;
 
-const EMPTY: &str = "Nothing has been said here yet. Agents can \
-                     make mistakes, so check anything important.";
+/// What can be said first in a chat nothing has been said in.
+const STARTERS: [&str; 3] = [
+    "What can you help me with?",
+    "What do you remember so far?",
+    "Tell me about yourself.",
+];
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Reading>().add_observer(page_received);
+    app.init_resource::<Reading>()
+        .init_resource::<PastLines>()
+        .add_observer(page_received);
 }
 
 fn page_received(
@@ -132,6 +138,9 @@ pub(super) fn rows(
     open: &[(Entity, String)],
 ) -> Vec<Row> {
     let mut rows = Vec::<Row>::new();
+    // Whether the last row is a fold that opened its turn, and
+    // whether the last entry was a reply.
+    let (mut opening, mut replied) = (false, false);
     for item in transcript.items() {
         let step = match &item.entry {
             // Nothing said is no message: a model that calls a tool
@@ -147,13 +156,23 @@ pub(super) fn rows(
             _ => None,
         };
         let Some((tool, exit)) = step else {
-            rows.push(Row::Entry {
+            let reply = matches!(item.entry, Entry::Assistant(_));
+            let row = Row::Entry {
                 session,
                 id: item.id.clone(),
-            });
+            };
+            // Steps stand under the reply before them, and those
+            // that open a turn under its first reply.
+            if reply && opening {
+                rows.insert(rows.len() - 1, row);
+            } else {
+                rows.push(row);
+            }
+            (opening, replied) = (false, reply);
             continue;
         };
         if !matches!(rows.last(), Some(Row::Fold { .. })) {
+            opening = !replied;
             rows.push(Row::Fold {
                 session,
                 first: item.id.clone(),
@@ -200,8 +219,17 @@ pub(super) fn rows(
     rows
 }
 
-/// The steps of a turn as one line that opens.
-pub(super) fn fold_view(
+/// How far in from a fold's edge the line down from its chevron is,
+/// and how far from that line its steps are.
+const GUIDE: f32 = 5.0;
+
+/// How far in from a fold's edge its chevron is, as a bubble's words
+/// are from its edge.
+pub(super) const INSET: f32 = 10.0;
+
+/// The steps of a turn as one line that opens, as board `B` holds
+/// them.
+pub(super) fn fold_view<B: Board>(
     key: RowKey,
     session: Entity,
     first: String,
@@ -211,24 +239,47 @@ pub(super) fn fold_view(
     // builds neither the row nor its button again.
     let heading_key = key.clone();
     let tone_key = key.clone();
-    let head = button(
-        label(resource::<Lines, _>(move |l| l.heading(&heading_key)))
-            .size(12.0)
-            .tone(resource::<Lines, _>(move |l| l.tone(&tone_key))),
-    )
-    .rules(ghost)
-    .on_activate(move |world| {
-        let unfolded = &mut world.resource_mut::<Unfolded>().0;
-        let fold = (session, first.clone());
-        match unfolded.iter().position(|open| *open == fold) {
-            Some(at) => {
-                unfolded.remove(at);
-            }
-            None => unfolded.push(fold),
-        }
+    let turn_key = key.clone();
+    let words = row((
+        glyph(Glyph::Chevron, 10.0).tone(Tone::Dim).rotation(
+            resource::<B, _>(move |b| {
+                if b.lines().is_open(&turn_key) {
+                    180.0
+                } else {
+                    90.0
+                }
+            }),
+        ),
+        label(resource::<B, _>(move |b| {
+            b.lines().heading(&heading_key)
+        }))
+        .tone(resource::<B, _>(move |b| b.lines().tone(&tone_key)))
+        .rules(small_rules),
+    ))
+    .gap(6.0)
+    .align(AlignItems::Center);
+    // Unframed, so it reads as a note on the reply, its chevron in
+    // line with the bubbles' words.
+    let head = with_cx(move |cx| {
+        button(words)
+            .padding(UiRect::axes(px(INSET), px(2.0)))
+            .radius(cx.theme().space.round)
+            .rules(ghost)
+            .on_activate(move |world| {
+                let unfolded =
+                    &mut world.resource_mut::<Unfolded>().0;
+                let fold = (session, first.clone());
+                match unfolded.iter().position(|open| *open == fold) {
+                    Some(at) => {
+                        unfolded.remove(at);
+                    }
+                    None => unfolded.push(fold),
+                }
+            })
     });
+    let kept_key = key.clone();
     let inside = each(
-        resource::<Lines, _>(move |l| l.shown(&key)),
+        resource::<B, _>(move |b| b.lines().shown(&key)),
         |id: &String| id.clone(),
         move |id| entry_view(session, id.clone()),
     )
@@ -237,7 +288,33 @@ pub(super) fn fold_view(
     .within(
         column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
     );
-    column((head, inside)).gap(4.0).align(AlignItems::FlexStart)
+    // A line down from the chevron holds what is shown inside, under
+    // its heading.
+    let inside = with_cx(move |cx| {
+        let guide = frame()
+            .width(px(1.0))
+            .shrink(0.0)
+            .margin(UiRect::left(px(GUIDE)))
+            .fill(cx.theme().palette.gold_6);
+        row((guide, inside))
+            .gap(GUIDE)
+            .align(AlignItems::Stretch)
+            .width(percent(100.0))
+            .min_width(px(0.0))
+    });
+    let kept = each(
+        resource::<B, _>(move |b| b.lines().kept(&kept_key)),
+        |id: &String| id.clone(),
+        move |id| edit_view(session, id.clone()),
+    )
+    .within(
+        column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
+    );
+    column((head, inside, kept))
+        .gap(4.0)
+        .align(AlignItems::FlexStart)
+        .width(percent(100.0))
+        .min_width(px(0.0))
 }
 
 /// The identity of a row for as long as it is the same row: the agent
@@ -316,6 +393,18 @@ pub struct Lines {
     cast: Vec<Who>,
 }
 
+/// A resource that holds the rows of a conversation as the chat
+/// draws them.
+pub(crate) trait Board: Resource {
+    fn lines(&self) -> &Lines;
+}
+
+impl Board for Lines {
+    fn lines(&self) -> &Lines {
+        self
+    }
+}
+
 impl Lines {
     fn of(
         rows: Vec<Line>,
@@ -352,11 +441,6 @@ impl Lines {
         &self.cast
     }
 
-    /// The row `key` is the last message of its run.
-    pub(super) fn is_run_end(&self, key: &RowKey) -> bool {
-        self.line(key).is_some_and(|line| line.last)
-    }
-
     /// The words on a fold's button.
     fn heading(&self, key: &RowKey) -> String {
         let Some(Row::Fold {
@@ -364,8 +448,6 @@ impl Lines {
             failed,
             running,
             helpers,
-            open,
-            steps,
             ..
         }) = self.fold(key)
         else {
@@ -387,13 +469,27 @@ impl Lines {
         if !helpers.is_empty() {
             text.push_str(&format!(", with {}", helpers.join(", ")));
         }
-        // Nothing to open in a fold of another agent's work alone.
-        let mark = match (steps.is_empty(), *open) {
-            (true, _) => " ",
-            (false, true) => "-",
-            (false, false) => "+",
-        };
-        format!("{mark}  {text}")
+        text
+    }
+
+    /// Whether a fold is open. A fold of edits alone is open until it
+    /// is shut, as its edits are shown under a shut fold of more.
+    fn is_open(&self, key: &RowKey) -> bool {
+        match self.fold(key) {
+            Some(Row::Fold {
+                steps, edits, open, ..
+            }) => *open != (steps.len() == edits.len()),
+            _ => false,
+        }
+    }
+
+    /// Whether a fold holds steps besides its edits.
+    fn has_more(&self, key: &RowKey) -> bool {
+        matches!(
+            self.fold(key),
+            Some(Row::Fold { steps, edits, .. })
+                if steps.len() > edits.len()
+        )
     }
 
     fn tone(&self, key: &RowKey) -> Tone {
@@ -404,14 +500,28 @@ impl Lines {
         }
     }
 
-    /// The steps of a fold that is open, and the edits of one that
-    /// is shut.
+    /// The steps of a fold that is open.
     fn shown(&self, key: &RowKey) -> Vec<String> {
         match self.fold(key) {
-            Some(Row::Fold {
-                steps, open: true, ..
-            }) => steps.clone(),
-            Some(Row::Fold { edits, .. }) => edits.clone(),
+            Some(Row::Fold { steps, .. })
+                if self.has_more(key) && self.is_open(key) =>
+            {
+                steps.clone()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The edits that stand under a fold's heading as their own
+    /// cards: those of a shut fold of more, or of an open fold of
+    /// edits alone.
+    fn kept(&self, key: &RowKey) -> Vec<String> {
+        match self.fold(key) {
+            Some(Row::Fold { edits, .. })
+                if self.has_more(key) != self.is_open(key) =>
+            {
+                edits.clone()
+            }
             _ => Vec::new(),
         }
     }
@@ -426,6 +536,85 @@ pub struct Whole {
     /// The last row of the window while it is read back, and the
     /// rows after it then.
     anchor: Option<(RowKey, usize)>,
+}
+
+/// Rows of a past session added each time more of it is asked for.
+const PAST_PAGE: usize = 40;
+
+/// The past session read in the Hub, drawn as the chat is: the entity
+/// with its transcript, and its last rows.
+#[derive(Resource, Default)]
+pub struct PastLines {
+    holder: Option<Entity>,
+    /// Rows built, counted from the end.
+    reach: usize,
+    lines: Lines,
+}
+
+impl Board for PastLines {
+    fn lines(&self) -> &Lines {
+        &self.lines
+    }
+}
+
+impl PastLines {
+    /// Rows before those built, here or still on the server.
+    pub(crate) fn has_earlier(&self) -> bool {
+        self.lines.more
+    }
+}
+
+/// Reads the transcript held by `holder` as the past session, or
+/// none.
+pub(crate) fn read_past(world: &mut World, holder: Option<Entity>) {
+    *world.resource_mut::<PastLines>() = PastLines {
+        holder,
+        reach: PAST_PAGE,
+        lines: Lines::default(),
+    };
+}
+
+/// Builds a page more of the past session, and asks the server for
+/// its earlier rows once every row it has is built.
+pub(crate) fn read_earlier(world: &mut World) {
+    let mut past = world.resource_mut::<PastLines>();
+    let Some(holder) = past.holder else {
+        return;
+    };
+    let all_built = past.lines.earlier == 0;
+    past.reach += PAST_PAGE;
+    if all_built {
+        chats::earlier(world, holder);
+    }
+}
+
+/// The rows of the past session.
+pub fn fold_past(
+    convo: Res<Convo>,
+    unfolded: Res<Unfolded>,
+    transcripts: Query<Ref<Transcript>>,
+    people: People,
+    mut past: ResMut<PastLines>,
+) {
+    let said = past.holder.and_then(|at| transcripts.get(at).ok());
+    let moved = past.is_changed()
+        || convo.is_changed()
+        || unfolded.is_changed()
+        || people.has_moved()
+        || said.as_ref().is_some_and(DetectChanges::is_changed);
+    let (Some(holder), Some(said), true) = (past.holder, said, moved)
+    else {
+        return;
+    };
+    let (rows, cast) =
+        timeline(&convo, holder, &said, &unfolded.0, &people);
+    let earlier = rows.len().saturating_sub(past.reach);
+    let mut now =
+        Lines::of(rows[earlier..].to_vec(), earlier, 0, cast);
+    now.more |= said.earlier().is_some();
+    if past.lines != now {
+        past.lines = now;
+    }
 }
 
 /// The visible rows of the received chat.
@@ -463,8 +652,13 @@ pub fn fold_lines(
         return;
     }
     if moved {
-        let (rows, cast) =
-            timeline(&convo, &transcript, &unfolded.0, &people);
+        let (rows, cast) = timeline(
+            &convo,
+            convo.session,
+            &transcript,
+            &unfolded.0,
+            &people,
+        );
         let anchor = whole.anchor.take();
         *whole = Whole {
             from,
@@ -653,38 +847,36 @@ pub fn read_back(
         {
             reading.at_top = true;
             let chat = convo.session;
-            commands.queue(
-                move |world: &mut bevy::ecs::world::World| {
-                    let Some(reference) = world
-                        .get::<chats::Chat>(chat)
-                        .map(|chat| chat.0.clone())
-                    else {
-                        return;
-                    };
-                    chats::earlier(world, chat);
-                    let id = world
-                        .resource::<Outbox>()
-                        .iter()
-                        .filter_map(|message| match message {
-                            protocol::ClientMessage::Open(open)
-                                if open.chat == reference
-                                    && open.before.is_some() =>
-                            {
-                                Some(open.id.clone())
-                            }
-                            _ => None,
-                        })
-                        .last();
-                    if let Some(id) = &id {
-                        world
-                            .resource_mut::<super::Requests>()
-                            .0
-                            .insert(id.clone());
-                    }
-                    world.resource_mut::<Reading>().page =
-                        id.map(|id| (id, reference));
-                },
-            );
+            commands.queue(move |world: &mut World| {
+                let Some(reference) = world
+                    .get::<chats::Chat>(chat)
+                    .map(|chat| chat.0.clone())
+                else {
+                    return;
+                };
+                chats::earlier(world, chat);
+                let id = world
+                    .resource::<Outbox>()
+                    .iter()
+                    .filter_map(|message| match message {
+                        protocol::ClientMessage::Open(open)
+                            if open.chat == reference
+                                && open.before.is_some() =>
+                        {
+                            Some(open.id.clone())
+                        }
+                        _ => None,
+                    })
+                    .last();
+                if let Some(id) = &id {
+                    world
+                        .resource_mut::<super::Requests>()
+                        .0
+                        .insert(id.clone());
+                }
+                world.resource_mut::<Reading>().page =
+                    id.map(|id| (id, reference));
+            });
         }
     }
 }
@@ -701,24 +893,16 @@ pub fn transcript() -> impl View {
         resource::<Lines, _>(|l| l.rows.clone()),
         |line: &Line| line.key(),
         |line| {
-            bubble::line_view(line)
+            bubble::line_view::<Lines>(line)
                 .tagged(ChatRow(line.key()))
                 .boxed()
         },
     )
-    .within(
-        column(())
-            .gap(GAP)
-            .width(percent(100.0))
-            .min_width(px(LEAST))
-            .max_width(px(LINE)),
-    );
+    .within(rows_column());
     let said = scroll((
         note(resource::<Lines, _>(|l| {
             if l.more {
                 "Earlier lines. Scroll up to read them.".to_string()
-            } else if l.rows.is_empty() {
-                EMPTY.to_string()
             } else {
                 String::new()
             }
@@ -747,12 +931,10 @@ pub fn transcript() -> impl View {
         }),
         |_: &()| 0u8,
         |_| {
-            button(hamlet_ui::styles::raised(
-                hamlet_ui::widgets::icons::glyph(
-                    hamlet_ui::widgets::icons::Glyph::ToEnd,
-                    hamlet_ui::styles::ICON,
-                ),
-            ))
+            button(hamlet_ui::styles::raised(glyph(
+                Glyph::ToEnd,
+                hamlet_ui::styles::ICON,
+            )))
             .padding(UiRect::all(px(8.0)))
             .tooltip(|| note("Scroll to the latest"))
             .rules(hamlet_ui::styles::back_link)
@@ -765,9 +947,91 @@ pub fn transcript() -> impl View {
     let corner = overlay((back,))
         .justify(JustifyContent::FlexEnd)
         .align(AlignItems::FlexEnd);
-    column((bubble::header(), column((said, corner)).fills_height()))
-        .fills_height()
-        .gap(6.0)
+    column((said, quiet(), corner)).fills_height()
+}
+
+/// The window's words over a chat nothing has been said in: whom to
+/// say hello to and what could be said first, which a press puts in
+/// the field.
+fn quiet() -> impl View {
+    let empty = each(
+        derived(|world: &World| {
+            let lines = world.resource::<Lines>();
+            let convo = world.resource::<Convo>();
+            let own = world
+                .get::<chats::Chat>(convo.session)
+                .is_some_and(|chat| chat.0.from.is_none());
+            match (
+                lines.rows.is_empty() && !lines.more,
+                lines.cast.first(),
+            ) {
+                (true, Some(agent)) => {
+                    vec![(agent.name.clone(), own)]
+                }
+                _ => Vec::new(),
+            }
+        })
+        .when(every_frame()),
+        |shown: &(String, bool)| shown.clone(),
+        |(name, own)| {
+            let (name, own) = (name.clone(), *own);
+            with_cx(move |cx| {
+                let theme = cx.theme();
+                let starters = STARTERS
+                    .iter()
+                    .filter(|_| own)
+                    .map(|said| {
+                        lettered(*said)
+                            .rules(hamlet_ui::styles::button)
+                            .on_activate(move |world| {
+                                let mut draft = world
+                                    .resource_mut::<super::Draft>();
+                                draft.text = said.to_string();
+                                draft.step = 2;
+                            })
+                            .boxed()
+                    })
+                    .collect::<Vec<_>>();
+                column((
+                    label(format!("Say hello to {name}"))
+                        .size(theme.text.heading)
+                        .bold(true),
+                    column(starters)
+                        .gap(theme.space.gap)
+                        .align(AlignItems::Center),
+                    note(
+                        "Agents can make mistakes, so check \
+                         anything important.",
+                    ),
+                ))
+                .gap(theme.space.section)
+                .align(AlignItems::Center)
+                .padding(UiRect::all(px(theme.space.section)))
+            })
+            .boxed()
+        },
+    );
+    overlay((empty,))
+        .justify(JustifyContent::Center)
+        .align(AlignItems::Center)
+}
+
+/// The column the rows of a conversation stand in.
+fn rows_column() -> impl View {
+    column(())
+        .gap(GAP)
+        .width(percent(100.0))
+        .min_width(px(LEAST))
+}
+
+/// The past session's rows, drawn as the chat's are.
+pub(crate) fn past() -> impl View {
+    each(
+        resource::<PastLines, _>(|p| p.lines.rows.clone()),
+        |line: &Line| line.key(),
+        bubble::line_view::<PastLines>,
+    )
+    .within(rows_column())
 }
 
 /// A row of the chat.

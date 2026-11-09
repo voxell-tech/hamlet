@@ -68,7 +68,7 @@ pub fn plugin<K: EditorKey>(
         }
         app.world_mut()
             .resource_mut::<Library>()
-            .add_examples(setup.kind, setup.examples);
+            .add_examples(setup.kind, (setup.examples)());
         app.insert_resource(Editor::<K>::new(setup)).add_plugins((
             canvas::plugin::<K>,
             menu::plugin::<K>,
@@ -177,7 +177,7 @@ impl<K: EditorKey> Editor<K> {
             errors: Vec::new(),
             key: PhantomData,
         };
-        if let Some((name, text)) = setup.examples.first() {
+        if let Some((name, text)) = (setup.examples)().first() {
             let sheet =
                 parse_book(text).map(lone).unwrap_or_default();
             editor.open(

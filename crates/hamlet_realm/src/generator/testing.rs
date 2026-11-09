@@ -7,9 +7,7 @@ use super::land::Land;
 use super::society::AgentId;
 use super::sync::Drawn;
 use super::traffic::Trips;
-use super::work::{
-    Engine, Lot, Rehearsal, Robot, Voting, pass, work_robots,
-};
+use super::work::{Engine, Lot, Rehearsal, Robot, pass, work_robots};
 use super::{
     DetailSettings, GeneratorSettings, Kit, flora, house, layout,
 };
@@ -19,12 +17,30 @@ use crate::palette::Palette;
 use crate::{Clock, Stock};
 
 /// The land as designed, from `seed`.
-pub(crate) fn land(seed: u32) -> Land {
+pub(crate) fn designed_land(seed: u32) -> Land {
     Land::new(seed, GeneratorSettings::default(), Palette::default())
 }
 
-/// [`land`] with a town on every site it has, so that the island
-/// reaches about all of them.
+/// The settings with islands whose radii round up to a step too wide
+/// to cross, so that founding towns never moves the hamlet island,
+/// and wide enough that every site of the first rings is on dry land
+/// before any town is founded, as the tests of sites and woods want.
+pub(crate) fn still() -> GeneratorSettings {
+    let mut set = GeneratorSettings::default();
+    set.land.island_step = 3000.0;
+    set.land.island = 190.0;
+    set.land.coast.1 = 30.0;
+    set.land.channel = 220.0;
+    set
+}
+
+/// [`designed_land`] with the hamlet island held still.
+pub(crate) fn land(seed: u32) -> Land {
+    Land::new(seed, still(), Palette::default())
+}
+
+/// [`land`] with a town on every site it has, so that the hamlet
+/// island reaches about all of them.
 pub(crate) fn settled_land(seed: u32) -> Land {
     let mut land = land(seed);
     land.settle(&(0..land.sites.len()).collect::<Vec<_>>());
@@ -75,7 +91,6 @@ pub(crate) fn rehearse(app: &mut App) {
         .init_resource::<Drawn>()
         .init_resource::<Trips>()
         .init_resource::<Rehearsal>()
-        .init_resource::<Voting>()
         .init_resource::<crate::Sky>()
         .init_resource::<DetailSettings>()
         .init_resource::<Motion>()

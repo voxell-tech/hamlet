@@ -1,6 +1,9 @@
-//! The Needs You screen: everything that waits for the chief, oldest
-//! first and in full, with the answers each one takes. Questions are
-//! answered on their `asking` card.
+//! What waits for the chief: each wait in full, with the answers it
+//! takes, shown in the thread of the agent that asks and all of them
+//! on the realm's page. Questions are answered on their `asking`
+//! card.
+
+use std::collections::HashSet;
 
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::entity::Entity;
@@ -12,57 +15,47 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
-use bevy_fynix::dock::DockWindowKind;
+use bevy::ui::{AlignItems, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label,
+    BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, each, resource};
+use bevy_fynix::{ScopedExt, ViewExt, derived, each};
 use hamlet_client::chats::{Entry, Transcript};
-use hamlet_client::messages::{Answer, Veto};
+use hamlet_client::messages::Answer;
 use hamlet_client::waits::{Choice, ChoiceExt, Waiting};
 use hamlet_protocol::client::{
-    Change, Lasting, WaitDanger, WaitDetail,
+    Change, Lasting, Questions, WaitDanger, WaitDetail,
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::styles::{
-    self, Fills, ICON, bad_action, buttons, caption, danger_button,
-    description, framed, marked, note, primary_button, scroll_area,
-    title,
+    self, buttons, caption, command_block, danger_button, framed,
+    marked, note, primary_button,
 };
-use hamlet_ui::widgets::effects::{Highlight, Variant};
+use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
+use crate::age::Age;
 use crate::convo::talk_at;
-use crate::dock::{PanelAppExt, highlight_panel, show_tab};
+use crate::dock::{HUB, show_tab};
+use crate::hub::Showing;
+use crate::roll::{either, moved};
 use crate::{PanelSystems, asking, chat};
 
-const EMPTY: &str = "Nothing waits for you. Petitions, objections, \
-                     questions and faults come here, oldest first.";
-
-/// Seconds between two looks at the time each has waited.
+/// Seconds between two refreshes of the time each has waited.
 const TICK: f32 = 10.0;
 
 pub fn plugin(app: &mut App) {
-    app.add_panel(
-        "needs",
-        DockWindowKind::new("PETITIONS", || {
-            highlight_panel(
-                screen(),
-                Highlight {
-                    attention: true,
-                    flash: false,
-                },
-            )
-        })
-        .icon(Glyph::Bell.image(ICON)),
-    )
-    .init_resource::<Queue>()
-    .add_observer(tag_answered)
-    .add_observer(tag_opened)
-    .add_systems(PreUpdate, keep_queue.in_set(PanelSystems::Bind));
+    app.init_resource::<Queue>()
+        .init_resource::<Unfolded>()
+        .add_observer(tag_answered)
+        .add_observer(tag_opened)
+        .add_systems(
+            PreUpdate,
+            keep_queue.in_set(PanelSystems::Bind),
+        );
 }
 
 /// Everything that waits for the chief, oldest first, as the panels
@@ -80,37 +73,34 @@ impl Queue {
     }
 }
 
+/// The questions opened in full on the realm's page.
+#[derive(Resource, Default)]
+struct Unfolded(HashSet<Entity>);
+
 #[derive(Clone, Debug, PartialEq)]
-struct Need {
-    entity: Entity,
-    detail: WaitDetail,
-    by: String,
+pub(crate) struct Need {
+    pub(crate) entity: Entity,
+    pub(crate) detail: WaitDetail,
+    /// What who raised it is shown by.
+    pub(crate) shown: String,
     about: String,
-    line: String,
-    waited: String,
+    pub(crate) line: String,
+    /// How long it has waited, short: `now`, `5m`.
+    pub(crate) waited: String,
     asked: u64,
-    answers: Vec<Choice>,
+    pub(crate) answers: Vec<Choice>,
     change: Option<Change>,
     chat: Option<hamlet_protocol::client::ChatRef>,
 }
 
 impl Need {
-    fn of(entity: Entity, waiting: &Waiting) -> Self {
-        let seconds =
-            waiting.waited(crate::status::now_ms()).as_secs();
-        let waited = match seconds {
-            0..=59 => "under a minute".into(),
-            60..=3599 => format!("{} min", seconds / 60),
-            _ => format!(
-                "{} h {:02} min",
-                seconds / 3600,
-                seconds % 3600 / 60
-            ),
-        };
+    pub(crate) fn of(entity: Entity, waiting: &Waiting) -> Self {
+        let waited =
+            Age::of(crate::status::now_ms(), waiting.since).short();
         Self {
             entity,
             detail: waiting.detail.clone(),
-            by: waiting.by.clone(),
+            shown: waiting.shown.clone(),
             about: waiting.about.clone(),
             line: waiting.line(80),
             waited,
@@ -124,12 +114,13 @@ impl Need {
 
 /// Keeps the [`Queue`] in step with the waits and the time each has
 /// waited.
-pub(crate) fn keep_queue(
+fn keep_queue(
     time: Res<Time>,
     waiting: Query<(Entity, &Waiting)>,
     moved: Query<(), Changed<Waiting>>,
     mut answered: RemovedComponents<Waiting>,
     mut queue: ResMut<Queue>,
+    mut unfolded: ResMut<Unfolded>,
     mut due: Local<f32>,
 ) {
     let now = time.elapsed_secs();
@@ -146,6 +137,7 @@ pub(crate) fn keep_queue(
         .map(|(entity, waiting)| Need::of(entity, waiting))
         .collect::<Vec<_>>();
     if queue.0 != needs {
+        unfolded.0.retain(|wait| waiting.contains(*wait));
         queue.0 = needs;
     }
 }
@@ -155,7 +147,7 @@ pub(crate) fn keep_queue(
 fn answer(world: &mut World, need: &Need, choice: Choice) {
     if choice == Choice::Reply {
         if let Some(chat) = &need.chat {
-            talk_at(world, &chat.with);
+            talk_at(world, chat.with);
         }
         return;
     }
@@ -188,29 +180,58 @@ pub(crate) fn tag_answered(
     }
 }
 
-/// A click on a tag's paper opens this screen, which has the full
-/// text.
-pub(crate) fn tag_opened(_: On<TagOpened>, mut commands: Commands) {
-    commands.queue(|world: &mut World| show_tab(world, "needs"));
+/// A click on a tag's paper shows where it is answered in full.
+pub(crate) fn tag_opened(
+    opened: On<TagOpened>,
+    mut commands: Commands,
+) {
+    let wait = opened.item;
+    commands.queue(move |world: &mut World| open(world, wait));
 }
 
+/// Turns the Hub to where `wait` is answered: a newcomer's scholar,
+/// the thread of the agent that asks, else the realm's page, which
+/// has every wait.
+pub(crate) fn open(world: &mut World, wait: Entity) {
+    let Some(waiting) = world.get::<Waiting>(wait) else {
+        return;
+    };
+    let scholar = match &waiting.detail {
+        WaitDetail::Newcomer { scholar } => {
+            hamlet_client::realm::scholar(world, *scholar)
+        }
+        _ => None,
+    };
+    let asker = hamlet_client::realm::named(world, &waiting.by);
+    show_tab(world, HUB);
+    match (scholar, asker) {
+        (Some(scholar), _) => {
+            crate::hub::show(world, Showing::Scholar(scholar));
+        }
+        (None, Some(agent)) => crate::convo::talk_to(world, agent),
+        (None, None) => crate::hub::show(world, Showing::Realm),
+    }
+}
+
+/// The buttons of the answers `need` takes, the lasting one telling
+/// what it lets go in its tooltip.
+pub(crate) fn answers(need: &Need) -> AnyView {
+    buttons(vec![button(need, 0), button(need, 1), button(need, 2)])
+        .boxed()
+}
+
+/// The button for the answer at `at` of `need`, or nothing.
 fn button(need: &Need, at: usize) -> AnyView {
     let Some(choice) = need.answers.get(at).cloned() else {
         return frame().boxed();
     };
-    let always = match need.detail {
-        WaitDetail::Approval {
-            always: Some(Lasting::Session),
-            ..
-        } => "FOR THIS SESSION",
-        _ => "ALWAYS ALLOW",
-    };
+    let always = lasting_words(need);
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
     let (which, text, rules, variant): (_, _, fn(&mut Cx), _) =
         match choice {
             Choice::Allow => (
                 Check,
-                "ALLOW ONCE",
+                "Allow once",
                 primary_button,
                 Variant::Primary,
             ),
@@ -218,32 +239,97 @@ fn button(need: &Need, at: usize) -> AnyView {
                 (CheckAll, always, styles::button, Variant::Default)
             }
             Choice::Deny => {
-                (Cross, "DENY", danger_button, Variant::Danger)
+                (Cross, "Deny", danger_button, Variant::Danger)
             }
             Choice::Go => {
-                (Check, "GO AHEAD", primary_button, Variant::Primary)
+                (Check, "Go ahead", primary_button, Variant::Primary)
             }
             Choice::Withdraw => {
-                (Restore, "WITHDRAW", danger_button, Variant::Danger)
+                (Restore, "Withdraw", danger_button, Variant::Danger)
             }
             Choice::Reply => (
                 Talk,
-                "REPLY IN CHAT",
+                "Reply in chat",
                 primary_button,
                 Variant::Primary,
             ),
-            Choice::Dismiss => {
-                (Cross, "DISMISS", styles::button, Variant::Default)
-            }
+            // A newcomer dismissed waits on at the harbor.
+            Choice::Dismiss => match need.detail {
+                WaitDetail::Newcomer { .. } => (
+                    Restore,
+                    "Later",
+                    styles::button,
+                    Variant::Default,
+                ),
+                _ => (
+                    Cross,
+                    "Dismiss",
+                    styles::button,
+                    Variant::Default,
+                ),
+            },
+            Choice::Welcome => (
+                Check,
+                "Welcome into the city",
+                primary_button,
+                Variant::Primary,
+            ),
         };
+    let scope = matches!(choice, Choice::Always)
+        .then(|| scope(need))
+        .flatten();
     let need = need.clone();
-    marked(which, text)
+    let button = marked(which, text)
         .rules(rules)
         .tagged(variant)
         .on_activate(move |world| {
             answer(world, &need, choice.clone());
-        })
-        .boxed()
+        });
+    match scope {
+        Some(words) => {
+            button.tooltip(move || note(words.clone())).boxed()
+        }
+        None => button.boxed(),
+    }
+}
+
+/// The button of the lasting answer of `need`.
+fn lasting_words(need: &Need) -> &'static str {
+    match need.detail {
+        WaitDetail::Approval {
+            always: Some(Lasting::Session),
+            ..
+        } => "Allow this session",
+        _ => "Allow always",
+    }
+}
+
+/// What the lasting answer of `need` lets go, and for how long.
+fn scope(need: &Need) -> Option<String> {
+    let WaitDetail::Approval {
+        always: Some(lasting),
+        danger,
+        ..
+    } = &need.detail
+    else {
+        return None;
+    };
+    let who = &need.shown;
+    let lets = match (lasting, danger) {
+        (Lasting::Session, WaitDanger::Edit) => {
+            format!("{who}'s edits go ahead until it ends")
+        }
+        (Lasting::Session, _) => {
+            format!("{who}'s commands go ahead until it ends")
+        }
+        (Lasting::Grant, WaitDanger::Network) => {
+            format!("{who} keeps network access until you revoke it")
+        }
+        (Lasting::Grant, _) => {
+            format!("{who} may leave the sandbox until you revoke it")
+        }
+    };
+    Some(format!("{lets}."))
 }
 
 /// The edit that waits as `need`: its entry in the conversation
@@ -287,7 +373,80 @@ fn held(
     ))
 }
 
-fn strip(need: &Need) -> AnyView {
+/// The line over the card of `need`: what waits, in its tone, and
+/// how long it has waited. A newcomer's is about `scholar`, the one
+/// at the harbor.
+fn head(need: &Need, scholar: &str) -> impl View + use<> {
+    let what = match &need.detail {
+        WaitDetail::Approval { says, .. } => {
+            format!("{} {says}", need.shown)
+        }
+        WaitDetail::Question { questions } => {
+            match questions.questions.len() {
+                1 => format!("{} has a question", need.shown),
+                n => format!("{} has {n} questions", need.shown),
+            }
+        }
+        WaitDetail::Objection {} => {
+            format!("Objection from {}", need.shown)
+        }
+        WaitDetail::Fault {} => format!("Fault in {}", need.shown),
+        WaitDetail::Newcomer { .. } => {
+            format!("{scholar} wants to move into the city")
+        }
+    };
+    let when = match need.asked {
+        1 => need.waited.clone(),
+        n => format!("{} · asked {n} times", need.waited),
+    };
+    let tone = match need.detail {
+        WaitDetail::Fault {} => Tone::Critical,
+        _ => Tone::Accent,
+    };
+    with_cx(move |cx| {
+        row((caption(what, tone), frame().grow(1.0), note(when)))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
+    })
+}
+
+/// The card of a question folded to its first question and how many
+/// more there are, with the button that unfolds it in place.
+fn brief(need: &Need, asked: &Questions) -> AnyView {
+    let wait = need.entity;
+    let first = asked
+        .questions
+        .first()
+        .map(|one| one.question.clone())
+        .unwrap_or_default();
+    let more = match asked.questions.len() {
+        0 | 1 => frame().boxed(),
+        n => note(format!("+{} more", n - 1)).boxed(),
+    };
+    let head = head(need, "");
+    with_cx(move |cx| {
+        let open = marked(Glyph::Talk, "Answer")
+            .rules(primary_button)
+            .tagged(Variant::Primary)
+            .on_activate(move |world| {
+                world.resource_mut::<Unfolded>().0.insert(wait);
+            });
+        framed((
+            head,
+            row((
+                row((label(first).size(cx.theme().text.heading),))
+                    .min_width(px(0.0)),
+                more,
+            ))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Baseline),
+            row((open,)),
+        ))
+    })
+    .boxed()
+}
+
+pub(crate) fn strip(need: &Need) -> AnyView {
     let need = need.clone();
     AnyView::new(move |cx: &mut Cx| {
         let questions = match &need.detail {
@@ -298,10 +457,30 @@ fn strip(need: &Need) -> AnyView {
             (Some(asked), _) => {
                 asking::card(need.entity, asked.clone()).boxed()
             }
-            (None, Some((session, id, change))) => {
-                chat::change_view(session, id, change)
+            (None, Some((session, id, change))) => chat::change_view(
+                session,
+                id,
+                change,
+                chat::Underway::Waiting,
+            ),
+            // A newcomer's line says it all.
+            (None, None)
+                if matches!(
+                    need.detail,
+                    WaitDetail::Newcomer { .. }
+                ) =>
+            {
+                frame().boxed()
             }
-            // The exact text, which a tag in the world may cut.
+            // The exact command, which a tag in the world may cut.
+            (None, None)
+                if matches!(
+                    need.detail,
+                    WaitDetail::Approval { .. }
+                ) =>
+            {
+                command_block(need.about.clone()).boxed()
+            }
             (None, None) => {
                 note(need.about.clone()).tagged(MonoText).boxed()
             }
@@ -309,74 +488,79 @@ fn strip(need: &Need) -> AnyView {
         // A form has its own answers.
         let answers = match questions {
             Some(_) => frame().boxed(),
-            None => buttons(vec![
-                button(&need, 0),
-                button(&need, 1),
-                button(&need, 2),
-            ])
-            .boxed(),
+            None => answers(&need),
         };
-        let what = match need.detail {
-            WaitDetail::Approval { .. } => "APPROVAL",
-            WaitDetail::Objection {} => "OBJECTION",
-            WaitDetail::Question { .. } => "QUESTION",
-            WaitDetail::Fault {} => "FAULT",
+        let scholar = match &need.detail {
+            WaitDetail::Newcomer { scholar } => {
+                hamlet_client::realm::scholar(cx.world, *scholar)
+                    .and_then(|scholar| {
+                        cx.world.get::<hamlet_client::realm::Scholar>(
+                            scholar,
+                        )
+                    })
+                    .map_or_else(
+                        || "A new scholar".to_string(),
+                        |scholar| scholar.0.name.clone(),
+                    )
+            }
+            _ => String::new(),
         };
-        let asked = match need.asked {
-            1 => String::new(),
-            n => format!(", asked {n} times"),
+        let head = head(&need, &scholar);
+        // A form says its questions itself, and an approval's
+        // subject is its head and, in full, its body.
+        let line = match &need.detail {
+            WaitDetail::Question { .. }
+            | WaitDetail::Approval { .. } => None,
+            WaitDetail::Newcomer { .. } => Some(format!(
+                "Made by {}, it waits at the harbor until you let \
+                 it in.",
+                need.shown
+            )),
+            _ => Some(need.line.clone()),
         };
-        let head = format!(
-            "{what} FROM {}  (waited {}{asked})",
-            need.by.to_uppercase(),
-            need.waited
-        );
-        let tone = match need.detail {
-            WaitDetail::Fault {} => Tone::Critical,
-            _ => Tone::Accent,
+        let line = match line {
+            Some(line) => {
+                label(line).size(cx.theme().text.heading).boxed()
+            }
+            None => frame().boxed(),
         };
-        // A form says its questions itself.
-        let line = match questions {
-            Some(_) => frame().boxed(),
-            None => label(need.line.clone())
-                .size(cx.theme().text.heading)
-                .boxed(),
-        };
-        cx.build(framed((caption(head, tone), line, about, answers)))
+        cx.build(framed((head, line, about, answers)))
     })
 }
 
-/// The Needs You panel's contents.
-pub fn screen() -> impl View {
-    with_cx(|cx| {
+/// Everything that waits for the chief, oldest first, with the
+/// answers each takes, a question folded until it is opened; nothing
+/// while nothing waits.
+pub fn waiting() -> impl View {
+    // The time each has waited is part of the row.
+    let rows = derived(|world: &World| {
+        let unfolded = world.get_resource::<Unfolded>();
+        world
+            .resource::<Queue>()
+            .0
+            .iter()
+            .map(|need| {
+                let open = unfolded.is_some_and(|open| {
+                    open.0.contains(&need.entity)
+                });
+                (need.clone(), open)
+            })
+            .collect::<Vec<_>>()
+    })
+    .when(either(moved::<Queue>(), moved::<Unfolded>()));
+    with_cx(move |cx| {
         let space = &cx.theme().space;
-        column((
-            title(resource::<Queue, _>(|queue| match queue.len() {
-                0 => "NOTHING NEEDS YOU".to_string(),
-                1 => "1 THING NEEDS YOU".to_string(),
-                n => format!("{n} THINGS NEED YOU"),
-            })),
-            bad_action(Glyph::Stop, "STOP ALL", |world| {
-                world.trigger(Veto { agent: None });
-                world.flush();
-            }),
-            description(resource::<Queue, _>(|queue| {
-                if queue.is_empty() {
-                    EMPTY.to_string()
-                } else {
-                    String::new()
+        each(
+            rows,
+            |(need, open): &(Need, bool)| format!("{need:?}{open}"),
+            |(need, open)| match (&need.detail, open) {
+                (WaitDetail::Question { questions }, false) => {
+                    brief(need, questions)
                 }
-            })),
-            scroll_area((each(
-                // The time each has waited is part of the row.
-                resource::<Queue, _>(|queue| queue.0.clone()),
-                |n: &Need| format!("{n:?}"),
-                strip,
-            )
-            .within(column(()).gap(space.gap)),)),
-        ))
-        .fills_height()
-        .gap(space.section)
+                _ => strip(need),
+            },
+        )
+        .within(column(()).gap(space.gap))
     })
 }
 
@@ -428,8 +612,9 @@ mod tests {
     }
 
     #[test]
-    fn a_received_approval_offers_its_answers_and_stop_all() {
+    fn a_received_approval_offers_its_answers() {
         let mut app = panel_app();
+        crate::testing::seat_ada(&mut app);
         let mut state = hamlet_testing::realm::state();
         state.waits.push(hamlet_testing::realm::wait("approve-pwd"));
         hamlet_client::receive(
@@ -440,23 +625,21 @@ mod tests {
         app.update();
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
-            screen(),
+            waiting(),
         );
         app.update();
         let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text.starts_with("APPROVAL FROM FOUNDER")), "{shown:?}");
-        for text in [
-            "ALLOW ONCE",
-            "FOR THIS SESSION",
-            "DENY",
-            "1 THING NEEDS YOU",
-        ] {
+        assert!(
+            shown.iter().any(|text| text == "ada wants to run"),
+            "{shown:?}"
+        );
+        for text in ["Allow once", "Allow this session", "Deny"] {
             assert!(
                 shown.iter().any(|shown| shown == text),
                 "missing {text}: {shown:?}"
             );
         }
-        press(&mut app, "ALLOW ONCE");
+        press(&mut app, "Allow once");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, protocol::ClientMessage::Answer(answer)
@@ -464,13 +647,6 @@ mod tests {
                     && answer.choice == Choice::Allow)
             });
         assert!(allowed);
-        press(&mut app, "STOP ALL");
-        let stopped =
-            app.world().resource::<Outbox>().iter().any(|message| {
-                matches!(message, protocol::ClientMessage::Stop(stop)
-                if stop.agent.is_none())
-            });
-        assert!(stopped);
         let mut state = hamlet_testing::realm::state();
         let mut wait = hamlet_testing::realm::wait("approve-pwd");
         wait.about = "git".into();
@@ -512,7 +688,7 @@ mod tests {
         app.update();
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
-            screen(),
+            waiting(),
         );
         app.update();
         assert!(

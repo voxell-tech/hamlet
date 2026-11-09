@@ -200,7 +200,7 @@ impl Task {
         task.command
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
-            .env("HOME", "/house")
+            .env("HOME", "/lodge")
             .env("LANG", "C.UTF-8")
             .stdin(if task.file {
                 Stdio::piped()

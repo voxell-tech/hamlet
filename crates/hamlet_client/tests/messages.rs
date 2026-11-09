@@ -3,7 +3,7 @@ use bevy_ecs::prelude::*;
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::*;
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{HOME, MAYOR, mayor};
+use hamlet_client::realm::mayor_of;
 use hamlet_client::waits::{Choice, Waiting};
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
@@ -15,28 +15,24 @@ fn app() -> App {
     app
 }
 
-fn address(name: &str) -> protocol::Address {
-    protocol::Address {
-        hamlet: HOME.into(),
-        agent: name.into(),
-    }
+fn ada() -> protocol::AgentId {
+    protocol::AgentId(2)
 }
 
 #[test]
-fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_addresses()
- {
+fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_ids() {
     let mut app = app();
     let world = app.world_mut();
     let mut initial = state();
     initial.waits.push(wait("held"));
     receive(world, protocol::ServerMessage::State(initial));
-    let founder = mayor(world).unwrap();
+    let ada_entity = mayor_of(world, "home").unwrap();
     let wait =
         world.query::<(Entity, &Waiting)>().single(world).unwrap().0;
     let reference = protocol::ChatRef {
         kind: None,
         from: None,
-        with: address(MAYOR),
+        with: ada(),
         past: Some(3),
     };
     let chat = world.spawn(Chat(reference.clone())).id();
@@ -46,7 +42,7 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_addresses()
         [protocol::ClientMessage::Open(_)]
     ));
     world.trigger(ChiefMessage {
-        to: address(MAYOR),
+        to: ada(),
         text: "hello".into(),
     });
     world.trigger(Answer {
@@ -55,7 +51,7 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_addresses()
         text: Some("go".into()),
     });
     world.trigger(Veto {
-        agent: Some(founder),
+        agent: Some(ada_entity),
     });
     world.trigger(Veto { agent: None });
     world.trigger(Rewind {
@@ -76,13 +72,13 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_addresses()
         assert!(ids.insert(id.to_string()));
     }
     assert!(
-        matches!(&requests[0], protocol::ClientMessage::Say(say) if say.to == address(MAYOR) && say.text == "hello")
+        matches!(&requests[0], protocol::ClientMessage::Say(say) if say.to == ada() && say.text == "hello")
     );
     assert!(
         matches!(&requests[1], protocol::ClientMessage::Answer(answer) if answer.wait == "held" && answer.choice == Choice::Allow && answer.text.as_deref() == Some("go"))
     );
     assert!(
-        matches!(&requests[2], protocol::ClientMessage::Stop(stop) if stop.agent == Some(address("founder")))
+        matches!(&requests[2], protocol::ClientMessage::Stop(stop) if stop.agent == Some(ada()))
     );
     assert!(
         matches!(&requests[3], protocol::ClientMessage::Stop(stop) if stop.agent.is_none())
@@ -220,7 +216,7 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
         .spawn(Chat(protocol::ChatRef {
             kind: None,
             from: None,
-            with: address(MAYOR),
+            with: ada(),
             past: None,
         }))
         .id();
@@ -256,10 +252,10 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
     assert_eq!(seen.rewound[0].text, "removed words");
     assert_eq!(seen.responses.len(), 2);
     for value in [
-        serde_json::json!({"type":"read", "to":id, "prompt":"prompt"}),
+        serde_json::json!({"type":"read", "to":id, "prompt":[{"name":"charter", "text":"prompt"}]}),
         serde_json::json!({"type":"login", "to":id, "login":"flow", "step":{"done":"done"}}),
         serde_json::json!({"type":"fault", "to":id, "text":"addressed failure"}),
-        serde_json::json!({"type":"transcript", "to":id, "chat":{"with":{"hamlet":"home","agent":"mayor"}}, "items":[], "earlier":null, "last":null, "pending":0,"working":false, "usage":{"calls":0,"unreported":0,"input":0,"cached":0,"output":0,"reasoning":0,"ms":0,"micros":0,"lastInput":0,"summary":"No model calls yet"}}),
+        serde_json::json!({"type":"transcript", "to":id, "chat":{"with":2}, "items":[], "earlier":null, "last":null, "pending":0,"working":false, "usage":{"calls":0,"unreported":0,"input":0,"cached":0,"output":0,"reasoning":0,"ms":0,"micros":0,"lastInput":0,"summary":"No model calls yet"}}),
     ] {
         receive(world, serde_json::from_value(value).unwrap());
     }

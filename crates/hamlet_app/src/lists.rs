@@ -3,9 +3,7 @@
 use bevy::ecs::resource::Resource;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::{Motion, Tone};
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, row,
-};
+use bevy_fynix::views::{FrameProps, column, frame, label, row};
 use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, each, keyed, resource,
 };
@@ -14,10 +12,9 @@ use hamlet_ui::styles::{
     Fills, action, bad_action, description, hidden,
 };
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
-use crate::dock::show_tab;
+use crate::dock::{HUB, show_tab};
 use crate::world_menu::{self, Deed};
 
 #[derive(Clone, PartialEq)]
@@ -48,8 +45,8 @@ fn empty_state<R: Resource>(
                 let section = cx.theme().space.section;
                 column((
                     description(hint),
-                    action(Glyph::Talk, "OPEN CHAT", |w| {
-                        show_tab(w, "agent");
+                    action(Glyph::Talk, "Open chat", |w| {
+                        show_tab(w, HUB);
                     }),
                 ))
                 .gap(section)
@@ -83,7 +80,7 @@ pub(crate) fn skills() -> impl View {
                 let gone = r.name.clone();
                 let out = bad_action(
                     Glyph::Delete,
-                    "TAKE OUT",
+                    "Take out",
                     move |world| {
                         world_menu::ask(
                             world,
@@ -124,8 +121,7 @@ pub fn card(
         let name = row((label(title)
             .size(cx.theme().text.heading)
             .bold(true)
-            .tone(tone)
-            .tagged(DisplayText),))
+            .tone(tone),))
         .fills_width()
         .boxed();
         let head =
@@ -162,10 +158,13 @@ mod tests {
     fn the_library_shows_the_clients_empty_shelf_and_received_skills()
     {
         let mut app = panel_app();
-        app.insert_resource(Selected(Some(Thing::Library)));
+        app.insert_resource(Selected(Some(Thing::Library)))
+            .insert_resource(crate::hub::Showing::Library)
+            .init_resource::<crate::hub::Rail>()
+            .init_resource::<crate::hub::RailTab>();
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
-            crate::inspector::screen(),
+            crate::hub::screen(),
         );
         app.update();
         assert!(words(&mut app).iter().any(|text| text.starts_with("The library is empty.")));

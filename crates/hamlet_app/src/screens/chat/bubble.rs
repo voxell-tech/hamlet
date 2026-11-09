@@ -1,30 +1,33 @@
 //! The chat drawn as a group chat: a bubble for each message, each
 //! speaker's picture and name by its run of them, and who is in it.
 
-use bevy::color::{Color, Oklcha};
+use std::sync::Arc;
+
+use bevy::color::Color;
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::picking::hover::Hovered;
 use bevy::text::TextColor;
 use bevy::ui::{
-    AlignItems, BorderRadius, Display, FlexWrap, JustifyContent,
-    Node, Overflow, PositionType, UiRect, Val, percent, px,
+    AlignItems, BorderRadius, JustifyContent, Overflow, PositionType,
+    UiRect, Val, percent, px,
 };
 use bevy_fynix::patch::Paint;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    label, row,
+    BehaviorExt, FrameProps, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
-use hamlet_client::chats::{Entry, Transcript};
-use hamlet_ui::markdown::Area;
-use hamlet_ui::styles::{Fills, bare, hairline};
-use hamlet_ui::theme::{Palette, contrast};
-use hamlet_ui::widgets::platform::DisplayText;
+use bevy_fynix::{ScopedExt, ViewExt, component};
+use hamlet_client::chats::{Chat, Entry, Transcript};
+use hamlet_ui::markdown::{Area, Block, Kind as Shape, Span, Style};
+use hamlet_ui::styles::small_rules;
+use hamlet_ui::theme::Palette;
+use hamlet_ui::theme::contrast::{self, TEXT};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::entry::entry_view;
-use super::lines::{Lines, Row, fold_view};
+use super::lines::{Board, Row, fold_view};
 use super::quote;
 use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
@@ -32,7 +35,6 @@ use super::timeline::{Kind, Line, Who};
 use crate::convo::Convo;
 use crate::markdown;
 use crate::select::{self, Quotable};
-use crate::world_menu::{self, Deed};
 
 /// The room at the left of the chat that a speaker's picture stands
 /// in, and the width of the picture.
@@ -46,7 +48,7 @@ const FAR: f32 = 26.0;
 /// The room over a run, above the room between any two rows.
 const RUN: f32 = 9.0;
 
-/// The corner of a bubble, and the one by the picture of the last
+/// The corner of a bubble, and the one by the picture of the first
 /// bubble of a run.
 const ROUND: f32 = 10.0;
 const TAIL: f32 = 3.0;
@@ -55,22 +57,12 @@ const TAIL: f32 = 3.0;
 const RESERVE: &str =
     "\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}\u{a0}";
 
-/// `colour` made lighter, its hue kept, until it reads on
-/// `surface`, or `parchment` if it never does.
-fn legible(colour: Color, surface: Color, parchment: Color) -> Color {
-    let paint = Oklcha::from(colour);
-    (0..=12)
-        .map(|step| {
-            let lightness =
-                (paint.lightness + 0.05 * step as f32).min(1.0);
-            Color::from(Oklcha { lightness, ..paint })
-        })
-        .find(|lighter| contrast(*lighter, surface) >= 4.5)
-        .unwrap_or(parchment)
-}
-
 /// A line of text in a colour that is not one of the theme's tones.
-fn inked(text: String, colour: Color, size: f32) -> AnyView {
+pub(super) fn inked(
+    text: String,
+    colour: Color,
+    size: f32,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let node =
             cx.build(label(text).size(size).bold(true).wrap(false));
@@ -85,36 +77,33 @@ fn inked(text: String, colour: Color, size: f32) -> AnyView {
     })
 }
 
-/// A speaker's picture: its first letter on its robot's paint. The
-/// mayor's is ringed in gold, and a chief's is square.
+/// A speaker's picture: the mark the Hub's tree gives it, on its
+/// robot's paint. The mayor's is ringed in gold, and a chief's is
+/// square.
 fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
     let theme = cx.theme();
-    let letter = who
-        .name
-        .chars()
-        .next()
-        .map(|first| first.to_uppercase().collect::<String>())
-        .unwrap_or_default();
-    let ground = who.paint;
-    let tone = if contrast(theme.palette.gold_1, ground) >= 3.0 {
-        Tone::Body
-    } else {
-        Tone::OnAccent
+    let mark = match who.kind {
+        Kind::Agent => Glyph::Robot,
+        Kind::Mayor => Glyph::Mayor,
+        Kind::Hand => Glyph::Tower,
+        Kind::Me | Kind::Chief => Glyph::Hearth,
     };
-    let face = row((label(letter)
-        .size(size * 0.5)
-        .bold(true)
-        .wrap(false)
-        .tone(tone),))
-    .width(px(size))
-    .height(px(size))
-    .shrink(0.0)
-    .justify(JustifyContent::Center)
-    .align(AlignItems::Center)
-    .fill(who.paint);
+    let ink = contrast::clearer(
+        theme.palette.gold_1,
+        theme.palette.surface,
+        who.paint,
+    );
+    let face =
+        row((glyph(mark, (size * 0.6).round()).tint(Some(ink)),))
+            .width(px(size))
+            .height(px(size))
+            .shrink(0.0)
+            .justify(JustifyContent::Center)
+            .align(AlignItems::Center)
+            .fill(who.paint);
     match who.kind {
         Kind::Agent => face.radius(size / 2.0),
-        Kind::Mayor => face
+        Kind::Mayor | Kind::Hand => face
             .radius(size / 2.0)
             .border(1.5)
             .border_color(theme.palette.gold_3),
@@ -125,19 +114,33 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
     }
 }
 
-/// `first` and then `last` on one line where there is room for
-/// both, and `last` on a line of its own under it where there is
-/// not.
-fn wrapping(first: AnyView, last: AnyView) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
-        let node = cx.build(
-            row((first, last)).gap(0.0).align(AlignItems::FlexEnd),
-        );
-        if let Some(mut node) = cx.world.get_mut::<Node>(node) {
-            node.flex_wrap = FlexWrap::Wrap;
-        }
-        node
-    })
+/// `blocks` with room for the hour at the end of the last line: on
+/// the last paragraph, or on a line of its own after any other block.
+fn kept_room(
+    mut blocks: Vec<Arc<Block>>,
+    reserve: &'static str,
+) -> Vec<Arc<Block>> {
+    if reserve.is_empty() {
+        return blocks;
+    }
+    let room = Span {
+        text: reserve.to_string(),
+        style: Style::default(),
+        link: None,
+    };
+    match blocks.last_mut().map(Arc::make_mut) {
+        Some(Block {
+            kind: Shape::Paragraph(spans),
+            ..
+        }) => spans.push(room),
+        _ => blocks.push(Arc::new(Block {
+            quote: 0,
+            indent: 0,
+            marker: None,
+            kind: Shape::Paragraph(vec![room]),
+        })),
+    }
+    blocks
 }
 
 /// The hour and minute of `at`, in milliseconds since 1970.
@@ -152,6 +155,10 @@ fn hour(at: u64) -> String {
         .unwrap_or_default()
 }
 
+/// The bubble of a message.
+#[derive(Component)]
+pub(super) struct Bubble;
+
 /// The words of a message, by how they are set.
 #[derive(Clone, Copy, PartialEq)]
 enum Words {
@@ -163,10 +170,17 @@ enum Words {
 
 /// One message: a bubble at the right for the chief's own, and at
 /// the left by its speaker's picture for anyone else's.
-fn said(line: Line, session: Entity, id: String) -> AnyView {
+fn said<B: Board>(
+    line: Line,
+    session: Entity,
+    id: String,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let cast = cx.world.resource::<Lines>().cast();
+        let cast = cx.world.resource::<B>().lines().cast();
         let who = cast.get(line.by).cloned().unwrap_or_default();
+        // Beside the agent and the chief, a picture alone does not
+        // say who speaks.
+        let group = cast.len() > 2;
         // The agent the chat is with comes first, and what is said
         // to it or to the chief needs no saying.
         let to = cast
@@ -187,19 +201,30 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             Some(Entry::Error(_)) => (Words::Fault, ""),
             _ => (Words::Markdown, ""),
         };
-        // The message a reply answers is drawn on its own.
-        let (answers, typed) = match reply::unreplied(typed) {
-            Some((answers, words)) => (Some(answers), words),
-            None => (None, typed),
+        // The message a reply answers is drawn on its own, with what
+        // the reply quotes of it.
+        let (answers, selected, typed) = match reply::unreplied(typed)
+        {
+            Some((answers, _)) => {
+                let (selected, own) = reply::own_words(typed);
+                (Some(answers), selected, own)
+            }
+            None => (None, None, typed.to_string()),
         };
+        // A past session is only read.
+        let past = cx
+            .world
+            .get::<Chat>(session)
+            .is_some_and(|chat| chat.0.past.is_some());
         let replies = words != Words::Fault
+            && !past
             && entry.is_some_and(reply::can_reply_to);
         let mine = who.kind == Kind::Me;
         // The chief's own words in its own conversation with the
         // agent are what that conversation can be taken back to.
         let back = cx
             .world
-            .get::<hamlet_client::chats::Chat>(session)
+            .get::<Chat>(session)
             .is_none_or(|chat| chat.0.from.is_none())
             && mine
             && matches!(entry, Some(Entry::Chief { .. }))
@@ -209,21 +234,20 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
         let fill: fn(&Palette) -> Color =
             if mine { |p| p.gold_6 } else { |p| p.card };
         let time = hour(line.at);
-        let key = line.key();
 
         let mut inside = Vec::new();
-        if line.named && !mine {
+        if line.named && !mine && group {
             let mut head = vec![inked(
                 who.name.clone(),
-                legible(who.paint, fill(palette), palette.gold_1),
+                contrast::reach(who.paint, &[fill(palette)], TEXT),
                 12.0,
             )];
             if let Some(to) = to {
                 head.push(
                     label(format!("to {to}"))
-                        .size(11.0)
                         .wrap(false)
                         .tone(Tone::Dim)
+                        .rules(small_rules)
                         .boxed(),
                 );
             }
@@ -231,14 +255,14 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             // The panel over the chat says what its own agent is
             // for.
             let tag = if line.by == 0 { "" } else { &who.tag };
-            let tag = label(tag.to_string()).size(10.0).wrap(false);
+            let tag = label(tag.to_string()).wrap(false);
             head.push(match who.kind {
-                Kind::Mayor => tag
+                Kind::Mayor | Kind::Hand => tag
                     .bold(true)
                     .tone(Tone::Faint)
-                    .tagged(DisplayText)
+                    .rules(small_rules)
                     .boxed(),
-                _ => tag.tone(Tone::Dim).boxed(),
+                _ => tag.tone(Tone::Dim).rules(small_rules).boxed(),
             });
             inside.push(
                 row(head)
@@ -267,23 +291,34 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
                 .boxed(),
         };
         // Words with a link in them are set once, span by span.
-        let linked = match quote::has_quote(typed) {
+        let linked = match quote::has_quote(&typed) {
             true => {
-                Some(quote::drawn(typed, reserve, palette.gold_4))
+                Some(quote::drawn(&typed, reserve, palette.gold_4))
             }
-            false => hamlet_ui::markdown::typed(typed, reserve),
+            false => hamlet_ui::markdown::typed(&typed, reserve),
         };
-        let hour = label(time).size(10.0).wrap(false).tone(if mine {
-            Tone::Faint
-        } else {
-            Tone::Dim
-        });
+        let hour = label(time)
+            .wrap(false)
+            .tone(if mine { Tone::Faint } else { Tone::Dim })
+            .rules(small_rules);
+        // The hour stands outside the words, so it is never selected
+        // with them, in the room kept at the end of their last line.
+        let hour = row((hour,))
+            .position(PositionType::Absolute)
+            .inset(UiRect::new(
+                Val::Auto,
+                px(9.0),
+                Val::Auto,
+                px(5.0),
+            ))
+            .boxed();
         match words {
-            // The hour sits in the room kept at the end of the
-            // last line.
             Words::Plain => {
                 if let Some(answers) = &answers {
-                    inside.push(reply::answered(answers).boxed());
+                    inside.push(
+                        reply::answered(answers, selected.clone())
+                            .boxed(),
+                    );
                 }
                 let said = linked.unwrap_or_else(|| {
                     label(component::<Transcript, _>(
@@ -294,7 +329,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
                             Some(Entry::Chief { text, .. }) => {
                                 format!(
                                     "{}{reserve}",
-                                    reply::rest(text)
+                                    reply::own_words(text).1
                                 )
                             }
                             Some(Entry::Answered(said)) => {
@@ -306,43 +341,26 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
                     .boxed()
                 });
                 inside.push(selectable(said));
-                inside.push(
-                    row((hour,))
-                        .position(PositionType::Absolute)
-                        .inset(UiRect::new(
-                            Val::Auto,
-                            px(9.0),
-                            Val::Auto,
-                            px(5.0),
-                        ))
-                        .boxed(),
-                );
+                inside.push(hour);
             }
-            // The hour sits beside a reply of one short line, and
-            // under any other.
-            Words::Markdown | Words::Fault => {
-                let body = match words {
-                    Words::Fault => entry_view(session, id.clone()),
-                    _ => hamlet_ui::markdown::document(
-                        markdown::entry(session, id.clone()),
-                        Tone::Body,
-                    )
-                    .boxed(),
-                };
-                // The hour stands outside the words, so it is never
-                // selected with them.
-                inside.push(wrapping(
-                    selectable(body),
-                    row((hour,))
-                        .margin(UiRect::left(Val::Auto))
-                        .padding(UiRect::left(px(10.0)))
+            Words::Markdown => {
+                let blocks = markdown::entry(session, id.clone())
+                    .map(move |blocks| kept_room(blocks, reserve));
+                inside.push(selectable(
+                    hamlet_ui::markdown::document(blocks, Tone::Body)
                         .boxed(),
                 ));
+                inside.push(hour);
+            }
+            // Beside the button that tries again.
+            Words::Fault => {
+                inside.push(selectable(entry_view(
+                    session,
+                    id.clone(),
+                )));
+                inside.push(hour);
             }
         }
-        let ends_key = key.clone();
-        let ends = move |lines: &Lines| lines.is_run_end(&ends_key);
-        let corner_ends = ends.clone();
         let bubble = column(inside)
             .gap(2.0)
             .padding(UiRect::axes(px(10.0), px(6.0)))
@@ -352,27 +370,28 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
             .max_width(percent(100.0))
             .fill(fill(palette))
             .border(1.0)
-            .border_color(if mine {
-                palette.gold_6
-            } else {
-                palette.border
-            })
-            .corners(resource::<Lines, _>(move |lines| {
-                let tail =
-                    px(if corner_ends(lines) { TAIL } else { ROUND });
+            .border_color(rewind::ringed(
+                session,
+                id.clone(),
+                if mine { palette.gold_6 } else { palette.border },
+                palette.accent,
+            ))
+            .corners({
+                let tail = px(if line.named { TAIL } else { ROUND });
                 let round = BorderRadius::all(px(ROUND));
                 if mine {
                     BorderRadius {
-                        bottom_right: tail.into(),
+                        top_right: tail.into(),
                         ..round
                     }
                 } else {
                     BorderRadius {
-                        bottom_left: tail.into(),
+                        top_left: tail.into(),
                         ..round
                     }
                 }
-            }));
+            })
+            .tagged(Bubble);
         let above = px(if line.lead { RUN } else { 0.0 });
         let (replying, reply_room) = match replies {
             true => (
@@ -390,7 +409,9 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
                 ),
                 false => (frame().boxed(), 0.0),
             };
-            row((replying, mark, bubble))
+            let marks = row((replying, mark))
+                .rules(rewind::hiding(session, id.clone()));
+            row((marks, bubble))
                 .gap(0.0)
                 .justify(JustifyContent::FlexEnd)
                 .padding(UiRect::new(
@@ -401,20 +422,17 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
                 ))
                 .boxed()
         } else {
-            let picture =
-                column((with_cx(move |cx| face(cx, &who, FACE)),))
-                    .display(resource::<Lines, _>(move |lines| {
-                        if ends(lines) {
-                            Display::Flex
-                        } else {
-                            Display::None
-                        }
-                    }));
+            let picture = match line.named {
+                true => {
+                    with_cx(move |cx| face(cx, &who, FACE)).boxed()
+                }
+                false => frame().boxed(),
+            };
             row((
                 column((picture,))
                     .width(px(GUTTER))
                     .shrink(0.0)
-                    .justify(JustifyContent::FlexEnd),
+                    .justify(JustifyContent::FlexStart),
                 bubble,
                 replying,
             ))
@@ -435,6 +453,7 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
         if back {
             built.insert(Rewinds {
                 session,
+                entry: id.clone(),
                 at: line.at,
             });
         }
@@ -445,124 +464,29 @@ fn said(line: Line, session: Entity, id: String) -> AnyView {
     })
 }
 
-/// A row of the chat.
-pub(super) fn line_view(line: &Line) -> AnyView {
-    match &line.row {
+/// A row of the chat, as board `B` holds it.
+pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
+    let (view, session) = match &line.row {
         Row::Entry { session, id } => {
-            said(line.clone(), *session, id.clone())
+            (said::<B>(line.clone(), *session, id.clone()), *session)
         }
         // A turn's steps are the agent's own, so they sit where its
         // bubbles do.
-        Row::Fold { session, first, .. } => {
-            row((fold_view(line.key(), *session, first.clone()),))
-                .padding(UiRect::new(
-                    px(GUTTER),
-                    px(0.0),
-                    px(if line.lead { RUN } else { 0.0 }),
-                    px(0.0),
-                ))
-                .boxed()
-        }
-    }
-}
-
-/// The most pictures the head of the chat shows.
-const FACES: usize = 6;
-
-/// The names of everyone in `cast`, the chief at this window last.
-fn names(cast: &[Who]) -> String {
-    let mut names = cast
-        .iter()
-        .filter(|who| who.kind != Kind::Me)
-        .map(|who| who.name.clone())
-        .collect::<Vec<_>>();
-    if cast.iter().any(|who| who.kind == Kind::Me) {
-        names.push("you".to_string());
-    }
-    match names.split_last() {
-        Some((last, rest)) if !rest.is_empty() => {
-            format!("{} and {last}", rest.join(", "))
-        }
-        _ => names.concat(),
-    }
-}
-
-/// The way to a new session: a small mark with no plate at the chat's
-/// head, which asks before it acts.
-fn fresh() -> impl View {
-    button(hamlet_ui::styles::raised(
-        hamlet_ui::widgets::icons::glyph(
-            hamlet_ui::widgets::icons::Glyph::NewSession,
-            hamlet_ui::styles::ICON,
-        ),
-    ))
-    .padding(UiRect::axes(px(8.0), px(0.0)))
-    .min_height(px(hamlet_ui::styles::CONTROL))
-    .tooltip(|| {
-        hamlet_ui::styles::note(
-            "Start a new session. This one goes to the Archive.",
-        )
-    })
-    .rules(hamlet_ui::styles::back_link)
-    .tagged(hamlet_ui::widgets::effects::Variant::Text)
-    .on_activate(|world| world_menu::ask(world, Deed::NewSession))
-}
-
-/// The head of the chat: the house it is and everyone who speaks in
-/// it.
-pub(super) fn header() -> AnyView {
-    keyed(
-        resource::<Lines, _>(|lines| lines.cast().to_vec()),
-        |cast| {
-            let cast = cast.clone();
-            with_cx(move |cx| head(cx, &cast)).boxed()
-        },
-    )
-    .within(bare())
-    .boxed()
-}
-
-/// The house `cast` speaks in and everyone in it.
-fn head(cx: &Cx, cast: &[Who]) -> AnyView {
-    let Some(owner) = cast.first() else {
-        return frame().boxed();
-    };
-    let title = match owner.kind {
-        Kind::Mayor => "THE MAYOR'S HALL".to_string(),
-        _ => format!("{}'S HOUSE", owner.name.to_uppercase()),
-    };
-    let me = |who: &&Who| who.kind == Kind::Me;
-    let faces = cast
-        .iter()
-        .filter(|who| !me(who))
-        .chain(cast.iter().filter(me))
-        .take(FACES)
-        .map(|who| face(cx, who, 20.0))
-        .collect::<Vec<_>>();
-    column((
-        row((
-            row(faces).gap(3.0).shrink(0.0),
-            column((
-                label(title)
-                    .size(11.0)
-                    .bold(true)
-                    .wrap(false)
-                    .tone(Tone::Faint)
-                    .tagged(DisplayText),
-                label(names(cast))
-                    .size(12.0)
-                    .wrap(false)
-                    .tone(Tone::Dim),
+        Row::Fold { session, first, .. } => (
+            row((fold_view::<B>(
+                line.key(),
+                *session,
+                first.clone(),
+            ),))
+            .padding(UiRect::new(
+                px(GUTTER),
+                px(0.0),
+                px(if line.lead { RUN } else { 0.0 }),
+                px(0.0),
             ))
-            .gap(1.0)
-            .fills_width(),
-            fresh(),
-        ))
-        .gap(10.0)
-        .align(AlignItems::Center)
-        .padding(UiRect::axes(px(0.0), px(7.0))),
-        hairline(cx.theme().palette.border),
-    ))
-    .gap(0.0)
-    .boxed()
+            .boxed(),
+            *session,
+        ),
+    };
+    view.rules(rewind::fading(session, line.at)).boxed()
 }

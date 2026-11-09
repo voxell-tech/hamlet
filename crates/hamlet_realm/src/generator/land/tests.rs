@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use super::{HOLD_CLEAR, Land};
+use super::{HOLD_CLEAR, IslandId, Land};
 use crate::generator::testing;
 
 fn land() -> Land {
@@ -50,9 +50,10 @@ fn there_is_always_one_more_site() {
         }
     }
     // The new ground lies ever further out, not all at one side.
+    let centre = land.hamlet_centre();
     let far = land.sites[37..]
         .iter()
-        .map(|s| s.at.length())
+        .map(|s| s.at.distance(centre))
         .fold(0.0, f32::max);
     assert!(far > 400.0, "{far}");
 }
@@ -60,10 +61,11 @@ fn there_is_always_one_more_site() {
 #[test]
 fn the_land_is_the_same_far_out_whatever_was_asked_first() {
     let (a, b) = (testing::settled_land(1), testing::settled_land(1));
-    let spots = (0..200)
+    let centre = a.hamlet_centre();
+    let spots = (0..400)
         .map(|i| {
             let turn = Vec2::from_angle(i as f32 * 2.4);
-            turn * (i as f32 * 97.0 + 50.0)
+            centre + turn * (i as f32 * 2.0 + 50.0)
         })
         .collect::<Vec<_>>();
     let near_first =
@@ -74,7 +76,7 @@ fn the_land_is_the_same_far_out_whatever_was_asked_first() {
     // It is not all one plain: there is water and high ground
     // out there.
     assert!(spots.iter().any(|&p| a.is_water(p)));
-    assert!(near_first.iter().any(|&h| h > 12.0));
+    assert!(spots.iter().any(|&p| a.mound(p) > 0.3));
 }
 
 #[test]
@@ -83,7 +85,9 @@ fn a_moved_site_takes_its_level_ground_along() {
     let was = land.sites[4].at;
     let to = (0..400)
         .map(|i| {
-            Vec2::from_angle(i as f32) * (300.0 + i as f32 * 5.0)
+            land.hamlet_centre()
+                + Vec2::from_angle(i as f32)
+                    * (150.0 + i as f32 * 0.5)
         })
         .find(|&p| {
             land.suits(p).is_ok()
@@ -112,7 +116,9 @@ fn roads_reach_a_town_that_was_moved_far_away() {
     let radius = land.set.town.radius;
     let to = (0..400)
         .map(|i| {
-            Vec2::from_angle(i as f32) * (1500.0 + i as f32 * 5.0)
+            land.hamlet_centre()
+                + Vec2::from_angle(i as f32)
+                    * (1500.0 + i as f32 * 5.0)
         })
         .find(|&p| land.suits(p).is_ok())
         .unwrap();
@@ -139,4 +145,80 @@ fn roads_reach_a_town_that_was_moved_far_away() {
             }
         }
     }
+}
+
+fn designed() -> Land {
+    testing::designed_land(1)
+}
+
+#[test]
+fn the_islands_never_join_however_far_either_grows() {
+    let mut land = designed();
+    let water = land.set.land.water_y;
+    let channel = land.set.land.channel;
+    let line = |land: &Land| {
+        let (a, b) = (Vec2::ZERO, land.hamlet_centre());
+        (a.midpoint(b), (b - a).normalize())
+    };
+    let mut pushes = 0;
+    for step in 0..120 {
+        let before = land.hamlet_centre();
+        if step % 3 == 0 && land.sites.len() < 80 {
+            land.open_site(|_| false);
+        }
+        let settled =
+            (0..land.sites.len().min(step / 2)).collect::<Vec<_>>();
+        land.settle(&settled);
+        let spots = (0..step / 2)
+            .map(|i| {
+                Vec2::from_angle(i as f32 * 2.4)
+                    * (30.0 + i as f32 * 9.0)
+            })
+            .collect::<Vec<_>>();
+        land.fill_city(&spots);
+        pushes += usize::from(land.hamlet_centre() != before);
+        let (mid, along) = line(&land);
+        for k in -10..=10 {
+            let p = mid + along * (k as f32 * 0.05 * channel);
+            assert!(
+                land.height(p) < water,
+                "step {step}: land at {p}"
+            );
+        }
+    }
+    assert!(pushes > 0);
+}
+
+#[test]
+fn open_sites_stay_on_the_hamlet_island() {
+    let mut land = designed();
+    for _ in 0..70 {
+        let at = {
+            let new = land.open_site(|_| false);
+            land.settle(&(0..=new).collect::<Vec<_>>());
+            land.sites[new].at
+        };
+        assert_eq!(land.island_at(at), IslandId::Hamlet);
+        assert!(land.inside(at) > 0.0);
+    }
+}
+
+#[test]
+fn a_push_moves_every_site_by_one_vector() {
+    let mut land = designed();
+    let before = land.sites.clone();
+    let centre = land.hamlet_centre();
+    land.settle(&(0..land.sites.len()).collect::<Vec<_>>());
+    let push = land.hamlet_centre() - centre;
+    assert!(push.length() > 1.0);
+    for (was, now) in before.iter().zip(&land.sites) {
+        assert!((now.at - was.at - push).length() < 1e-2);
+        assert!((now.home - was.home - push).length() < 1e-2);
+        assert_eq!(
+            (now.turn, now.buildable),
+            (was.turn, was.buildable)
+        );
+    }
+    // The city does not move.
+    assert_eq!(land.island(IslandId::City).centre, Vec2::ZERO);
 }

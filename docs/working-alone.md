@@ -4,7 +4,7 @@ Each house has a work yard, and its robot does a chore there that matches
 what the agent is doing. The chores are `hamlet_realm/src/keeper/work.rs`,
 their motions `keeper/acts/chores.rs` and the yard `generator/yard.rs`.
 
-See it with `cargo run --example town_gen`, then B to set the town to
+See it with `cargo run --example town_gen`, then B to set the hamlet to
 work.
 
 ## The yard

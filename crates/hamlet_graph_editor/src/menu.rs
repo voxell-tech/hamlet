@@ -42,7 +42,7 @@ use hamlet_ui::{AnyView, Cx, View};
 
 use super::canvas::Input;
 use super::library::picker::picker;
-use super::library::{Item, Library};
+use super::library::{Item, Kind, Library};
 use super::setup::EditorKey;
 use super::{Editor, Place, canvas, controls, files};
 
@@ -888,6 +888,16 @@ fn asset_menu<K: EditorKey>(
     AnyView::new(move |cx: &mut Cx| {
         let at = in_layer::<K>(cx.world, at);
         let input = input.clone();
+        let chosen = match controls::current(
+            cx.world.resource::<Editor<K>>(),
+            node,
+            &input,
+        ) {
+            Some(Setting::Fixed(Constant::Choice(name))) => {
+                Some(name)
+            }
+            _ => None,
+        };
         let pick = move |world: &mut World, item: &Item| {
             close::<K>(world);
             controls::put::<K>(
@@ -902,7 +912,7 @@ fn asset_menu<K: EditorKey>(
         cx.build(
             popup(
                 Rect::from_corners(at, at),
-                (column((picker(pick),))
+                (column((picker(Kind::Mesh, chosen, pick),))
                     .width(px(PICKER))
                     .height(px(TALLEST)),),
             )

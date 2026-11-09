@@ -1,11 +1,15 @@
 //! What every panel is built from.
 
+pub mod cut;
 pub mod dial;
 pub mod disclosure;
 pub mod effects;
-pub mod fade;
+pub mod ellipsis;
+pub mod hint;
 pub mod icons;
 pub mod platform;
+pub mod providers;
+pub mod range;
 pub mod switch;
 pub mod tabs;
 
@@ -18,6 +22,9 @@ pub fn plugin(app: &mut App) {
         icons::plugin,
         effects::plugin,
         switch::plugin,
-        fade::plugin,
+        cut::CutPlugin,
+        ellipsis::plugin,
+        hint::plugin,
+        providers::plugin,
     ));
 }

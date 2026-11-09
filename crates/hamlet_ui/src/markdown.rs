@@ -1,8 +1,8 @@
 //! Markdown: its blocks ([`parse()`]), the links in its words and the
-//! views that draw them ([`document`], [`fixed`], [`typed`]). Where a
-//! written path leads and how a picture is drawn are the app's, set
-//! with [`PathLinks`] and [`PictureView`]; without them a path is
-//! plain text and a picture is its caption.
+//! views that draw them ([`document`], [`fixed`], [`page`],
+//! [`typed`]). Where a written path leads and how a picture is drawn
+//! are the app's, set with [`PathLinks`] and [`PictureView`]; without
+//! them a path is plain text and a picture is its caption.
 
 mod draw;
 mod links;
@@ -15,7 +15,8 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 
 pub use self::draw::{
-    Face, Ink, document, fixed, picture_words, rich, typed, unsettle,
+    Face, Ink, JOINER, document, fixed, page, picture_words, rich,
+    typed, unsettle,
 };
 pub use self::parse::{Reading, hashed, parse};
 use crate::AnyView;

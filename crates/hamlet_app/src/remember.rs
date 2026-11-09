@@ -1,11 +1,12 @@
 //! The view kept between launches: the desks, the sky as the Sight
-//! page sets it, and the selection.
+//! page sets it, the appearance, the folder of assets and the
+//! selection.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use bevy::app::{App, PreUpdate, Update};
+use bevy::app::{App, PreUpdate, Startup, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
@@ -25,12 +26,16 @@ use hamlet_realm::sky::{
 };
 use hamlet_realm::sound::SoundSettings;
 use hamlet_realm::{North, chief};
+use hamlet_vfx::wind::WindChoice;
 use serde::{Deserialize, Serialize};
 
 use crate::PanelSystems;
+use crate::appearance::{Appearance, Pick};
+use crate::assets_folder::AssetChoice;
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
+use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
 
 /// Seconds a change waits before it is written, so that dragging a
@@ -45,6 +50,11 @@ const PATIENCE: Duration = Duration::from_secs(10);
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Pending>()
         .init_resource::<Kept>()
+        .init_resource::<Favorites>()
+        .init_resource::<LastSide>()
+        .init_resource::<AssetChoice>()
+        // Before the first theme is shown.
+        .add_systems(Startup, restore_appearance)
         .add_systems(
             PreUpdate,
             reselect
@@ -104,6 +114,10 @@ pub struct View {
     volumetric_fog: VolumetricFogSettings,
     #[serde(default, deserialize_with = "kept_or_designed")]
     distance_fog: DistanceFogSettings,
+    /// How the wind blows as the chief left it; `assets/vfx.toml`'s
+    /// before it was kept.
+    #[serde(default, deserialize_with = "kept_or_designed")]
+    wind: WindChoice,
     /// Degrees the sun's path is turned.
     #[serde(default)]
     north: f32,
@@ -114,6 +128,23 @@ pub struct View {
     desks: Option<Desks>,
     /// The selection when the window closed.
     selected: Option<Chosen>,
+    /// The models the chief starred.
+    #[serde(default)]
+    favorite_models: Favorites,
+    /// The side of the models' popup last chosen.
+    #[serde(default)]
+    model_side: LastSide,
+    /// The appearance as the chief picked it; none until a pick.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "kept_or_designed"
+    )]
+    appearance: Option<Pick>,
+    /// The folder of assets chosen, and whether the realm builds
+    /// with them.
+    #[serde(default, deserialize_with = "kept_or_designed")]
+    assets: AssetChoice,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -151,12 +182,12 @@ pub enum Chosen {
     /// The first hamlet's mayor, and its hall.
     Mayor,
     Hall,
-    /// An agent and its house, by the agent's name.
+    /// An agent and its house, by the agent's address.
     Agent(String),
     House(String),
     /// The ruin of one that is gone.
     Ruin(String),
-    /// A hamlet's common, by the hamlet's own name.
+    /// A hamlet's common, by the hamlet's id.
     Hamlet(String),
     /// This window's chief, and its Hearth.
     Chief,
@@ -180,7 +211,8 @@ impl Pending {
 }
 
 impl Chosen {
-    /// `thing` by the names it will still have at the next launch.
+    /// `thing` by the addresses and ids it will still have at the
+    /// next launch.
     fn of(
         names: &Query<&Name>,
         hamlets: &Query<&HamletId>,
@@ -201,6 +233,8 @@ impl Chosen {
             Thing::Chief(_) => Chosen::Chief,
             Thing::ChiefPlace(_) => Chosen::Hearth,
             Thing::Library
+            | Thing::Hand
+            | Thing::Scholar(_)
             | Thing::Clockwork(_)
             | Thing::Workbench(_) => {
                 return None;
@@ -210,7 +244,7 @@ impl Chosen {
 
     /// The thing it names, once the world has it.
     fn thing(&self, world: &mut World) -> Option<Thing> {
-        // An agent by its name, living or gone as asked.
+        // An agent by its address, living or gone as asked.
         let agent = |world: &mut World, name: &str, gone: bool| {
             world
                 .query_filtered::<(Entity, &Name, Has<Left>), With<AgentNumber>>()
@@ -295,6 +329,7 @@ pub fn restore(world: &mut World) {
     *world.resource_mut::<Quality>() = view.quality;
     world.insert_resource(view.volumetric_fog);
     world.insert_resource(view.distance_fog);
+    world.insert_resource(view.wind);
     // North starts where it was left, without a glide.
     let north = view.north.rem_euclid(360.0);
     world.insert_resource(NorthTarget(north));
@@ -305,9 +340,22 @@ pub fn restore(world: &mut World) {
     });
     let desks = match view.desks {
         Some(desks) => desks.cleaned(),
-        None => Desks::first(view.dock),
+        None => Desks::first(view.dock).cleaned(),
     };
     world.insert_resource(desks);
+    world.insert_resource(view.favorite_models);
+    world.insert_resource(view.model_side);
+    world.insert_resource(view.assets);
+}
+
+/// Puts back the kept appearance.
+pub(crate) fn restore_appearance(
+    remembered: Res<Remembered>,
+    mut appearance: ResMut<Appearance>,
+) {
+    if let Some(view) = &remembered.0 {
+        appearance.0.clone_from(&view.appearance);
+    }
 }
 
 /// The selection, by the names it is kept under.
@@ -338,14 +386,19 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north): (
+    (pending, kept, north, favorites, side): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
+        Res<Favorites>,
+        Res<LastSide>,
     ),
-    (fog, far): (
+    (fog, far, wind, appearance, assets): (
         Res<VolumetricFogSettings>,
         Res<DistanceFogSettings>,
+        Res<WindChoice>,
+        Res<Appearance>,
+        Res<AssetChoice>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -359,7 +412,12 @@ pub fn keep(
         || awake.is_changed()
         || fog.is_changed()
         || far.is_changed()
+        || wind.is_changed()
         || north.is_changed()
+        || favorites.is_changed()
+        || side.is_changed()
+        || appearance.is_changed()
+        || assets.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -380,10 +438,15 @@ pub fn keep(
         quality: *quality,
         volumetric_fog: fog.clone(),
         distance_fog: far.clone(),
+        wind: *wind,
         north: north.0,
         dock: Vec::new(),
         desks: Some(desks.clone()),
         selected: kept.0.clone(),
+        favorite_models: favorites.clone(),
+        model_side: side.clone(),
+        appearance: appearance.0.clone(),
+        assets: assets.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -398,27 +461,18 @@ pub fn keep(
 
 #[cfg(test)]
 mod tests {
-    use bevy_fynix::dock::{
-        DockAreaStyle, DockLeaf, DockRegistry, DockTree, Edge,
-    };
+    use bevy_fynix::dock::{DockRegistry, DockTree};
     use hamlet_ui::theme::HamletTheme;
 
     use super::*;
 
     fn dock() -> DockTree {
         let mut tree = DockTree::new();
-        let centre = tree.set_root_leaf(
-            DockLeaf::new("centre", DockAreaStyle::TabBar)
-                .with_windows(vec!["world".into()]),
-        );
-        let (queue, _) =
-            tree.split(centre, Edge::Left, "needs".into()).unwrap();
-        let parent = tree.parent_of(queue).unwrap();
-        tree.set_fraction(parent, 0.2);
-        let (side, agent) =
-            tree.split(centre, Edge::Right, "agent".into()).unwrap();
-        tree.add_tab(side, "skills");
-        tree.set_active(side, agent);
+        crate::dock::designed(&mut tree);
+        let side = tree.find_leaf_with_window("hub").unwrap();
+        let hub = tree.active(side).unwrap();
+        tree.add_tab(side, "settings");
+        tree.set_active(side, hub);
         tree
     }
 
@@ -438,10 +492,19 @@ mod tests {
                 ..VolumetricFogSettings::default()
             },
             distance_fog: DistanceFogSettings { distance: 1200.0 },
+            wind: WindChoice {
+                least: 0.3,
+                most: 1.4,
+                turbulence: 0.6,
+            },
             north: 45.0,
             dock: Vec::new(),
             desks,
             selected: Some(Chosen::House("juniper".into())),
+            favorite_models: Favorites(vec!["faux::faux-1".into()]),
+            model_side: LastSide("faux".into()),
+            assets: AssetChoice::default(),
+            appearance: None,
         }
     }
 
@@ -450,31 +513,14 @@ mod tests {
         use bevy_fynix::ViewExt;
         use bevy_fynix::dock::DockWindowKind;
         use bevy_fynix::views::column;
-        use hamlet_client::ViewFolder;
         use hamlet_testing::Scratch;
 
         let dir = Scratch::new("view-dock");
         let make = || {
             let mut app = App::new();
-            app.insert_resource(ViewFolder(dir.join("view")))
-                .init_resource::<Time>()
-                .init_resource::<Selected>()
-                .init_resource::<Roll>()
-                .init_resource::<DockTree>()
-                .init_resource::<TimeOfDay>()
-                .init_resource::<SoundSettings>()
-                .init_resource::<Quality>()
-                .init_resource::<VolumetricFogSettings>()
-                .init_resource::<DistanceFogSettings>()
-                .init_resource::<North>()
-                .init_resource::<NorthTarget>()
-                .init_resource::<KeepAwake>()
-                .init_resource::<DockRegistry<HamletTheme>>()
-                .init_resource::<Desks>()
-                .init_resource::<desk::Shown>()
-                .add_systems(Update, desk::capture)
-                .add_plugins(plugin);
-            for name in ["world", "needs", "agent", "skills"] {
+            app.init_resource::<Time>();
+            crate::testing::keeping(&mut app, dir.join("view"));
+            for name in ["world", "needs", "hub", "settings"] {
                 app.world_mut()
                     .resource_mut::<DockRegistry<HamletTheme>>()
                     .register(
@@ -533,24 +579,32 @@ mod tests {
             .run_system_cached(desk::show)
             .unwrap();
         let tree = relaunched.world().resource::<DockTree>();
-        let needs = tree.find_leaf_with_window("needs").unwrap();
-        assert_eq!(
-            tree.get(tree.parent_of(needs).unwrap())
-                .unwrap()
-                .as_split()
-                .unwrap()
-                .fraction,
-            0.2
-        );
-        let side = tree.find_leaf_with_window("agent").unwrap();
+        let side = tree.find_leaf_with_window("hub").unwrap();
         assert_eq!(
             tree.leaf(side)
                 .unwrap()
                 .tabs()
                 .map(|(name, _)| name)
                 .collect::<Vec<_>>(),
-            ["agent", "skills"]
+            ["hub", "settings"]
         );
+    }
+
+    #[test]
+    fn a_window_that_never_picked_its_appearance_keeps_none() {
+        let dir = hamlet_testing::Scratch::new("view-unpicked");
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        crate::testing::keeping(&mut app, dir.join("view"));
+        app.update();
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.update();
+        let kept =
+            std::fs::read_to_string(dir.join("view/view.toml"))
+                .unwrap();
+        assert!(!kept.contains("appearance"), "{kept}");
     }
 
     #[test]

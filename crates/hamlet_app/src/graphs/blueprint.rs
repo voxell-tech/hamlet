@@ -30,11 +30,12 @@ use hamlet_graph_editor::library::{
 use hamlet_graph_editor::{
     Dropped, Editor, Nesting, Setup, editor, toolbar,
 };
+use hamlet_realm::generator::house;
+use hamlet_realm::objects::Models;
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{self, description, tool};
 use hamlet_ui::widgets::icons::Glyph;
 
-use super::assets::Meshes;
 use super::{assets, gizmo, overlay, preview};
 use crate::dock::{PanelAppExt, flush_panel};
 use crate::roll::moved;
@@ -86,26 +87,8 @@ pub(crate) const SETUP: Setup = Setup {
     nesting: Nesting::Runs,
     outputs: true,
     room: 0.0,
-    // The small examples first, each one idea; the house runs the
-    // three after it.
-    examples: &[
-        ("fence", include_str!("examples/fence.ron")),
-        ("stone_wall", include_str!("examples/stone_wall.ron")),
-        ("window", include_str!("examples/window.ron")),
-        ("stone_tower", include_str!("examples/stone_tower.ron")),
-        (
-            "stepping_stones",
-            include_str!("examples/stepping_stones.ron"),
-        ),
-        ("garden_bed", include_str!("examples/garden_bed.ron")),
-        ("house_wall", include_str!("examples/house_wall.ron")),
-        ("house_roof", include_str!("examples/house_roof.ron")),
-        ("house_window", include_str!("examples/house_window.ron")),
-        (
-            "medieval_house",
-            include_str!("examples/medieval_house.ron"),
-        ),
-    ],
+    // The graphs the realm builds every house from, the house first.
+    examples: house::blueprints,
 };
 
 /// Adds the blueprint editor in a panel of the dock, run again on
@@ -340,7 +323,7 @@ fn shown(value: Value) -> Vec<Object> {
 fn mirror(
     library: Res<Library>,
     mut editor: ResMut<Editor<Blueprint>>,
-    mut meshes: ResMut<Meshes>,
+    mut meshes: ResMut<Models>,
 ) {
     if library.is_changed() || editor.is_added() {
         let mut catalogue = library.catalogue.clone();
@@ -413,7 +396,7 @@ fn write_bundle(
 fn forget(
     chosen: On<FileChosen>,
     files: Res<Files<Blueprint>>,
-    mut meshes: ResMut<Meshes>,
+    mut meshes: ResMut<Models>,
 ) {
     if files.is_asker(chosen.asker)
         && matches!(chosen.mode, FileMode::Open)
@@ -458,11 +441,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_example_runs_with_the_others_available_and_puts_something_down()
+    fn every_built_in_graph_runs_with_the_others_and_the_house_puts_something_down()
      {
-        let sheets = SETUP
-            .examples
-            .iter()
+        let all = || (SETUP.examples)().iter();
+        let sheets = all()
             .map(|(name, text)| {
                 let book = parse_book(text).unwrap_or_else(|| {
                     panic!("{name} does not parse")
@@ -472,7 +454,7 @@ mod tests {
             .collect::<BTreeMap<_, _>>();
         let mut editor = Editor::<Blueprint>::new(SETUP);
         let mut got = Got::default();
-        for (name, text) in SETUP.examples {
+        for (name, text) in all() {
             editor.open(
                 (*name).to_owned(),
                 Source::Example(text),
@@ -488,9 +470,14 @@ mod tests {
                     .collect(),
             );
             evaluate(&mut editor, &mut got);
+            // A part of the house may put nothing down by its
+            // defaults, as a garden that is none.
             match &got.outcome {
                 Ok(objects) => {
-                    assert!(!objects.is_empty(), "{name}");
+                    assert!(
+                        *name != "house" || !objects.is_empty(),
+                        "{name}"
+                    );
                 }
                 Err(error) => panic!("{name}: {error}"),
             }

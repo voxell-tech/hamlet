@@ -4,8 +4,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use hamlet_acceptance::Cli;
-use hamlet_testing::{Home, Script, cli, openai};
+use hamlet_acceptance::{Cli, Home};
+use hamlet_testing::{cli, openai};
 use rustix::process::{Pid, Signal, kill_process};
 use serde_json::Value;
 
@@ -138,7 +138,7 @@ async fn dev_uses_binary_overrides_and_stops_the_server_at_ctrl_c() {
         ),
     );
     let script = home.side().join("faux.json");
-    Script::new().write(&script);
+    hamlet_acceptance::Faux::new().write(&script);
     let mut dev = Cli::start(
         home.path(),
         &["dev", "--faux", script.to_str().unwrap()],
@@ -206,7 +206,7 @@ async fn dev_launches_cargos_reported_server_and_window() {
     )
     .unwrap();
     let script = home.side().join("faux.json");
-    Script::new().write(&script);
+    hamlet_acceptance::Faux::new().write(&script);
     let mut dev = Cli::start(
         home.path(),
         &["dev", "--faux", script.to_str().unwrap()],

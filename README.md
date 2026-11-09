@@ -12,9 +12,9 @@
 [![Hamlet Discord](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Fv10%2Finvites%2FhJjjTkXRKw%3Fwith_counts%3Dtrue&query=%24.approximate_member_count&label=Hamlet&suffix=%20members&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/hJjjTkXRKw)
 [![Voxell Discord](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Fv10%2Finvites%2FMhnyp6VYEQ%3Fwith_counts%3Dtrue&query=%24.approximate_member_count&label=Voxell&suffix=%20members&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/Mhnyp6VYEQ)
 
-**Hamlet** is an agent orchestrator. You lead a hamlet of AI agents and
-watch them work in a small 3D world where each agent has a house and a
-robot. Free and open-source forever.
+**Hamlet** is an agent orchestrator. You lead hamlets of AI agents and
+watch them work in a small 3D world where each agent is a robot. Free
+and open-source forever.
 
 <p align="center">
   <img src="brand/hamlet-window.png" alt="The Hamlet window" width="860">
@@ -22,18 +22,27 @@ robot. Free and open-source forever.
 
 ## Features
 
-- **One lead, many agents**: You are the chief and talk to the mayor, the
-  agent that creates the others the work needs and lays the roads. Each
-  agent has its own notes, skills and log.
+- **The Hand**: You are the chief and talk to the Hand, your own agent
+  above every hamlet. It founds hamlets, hires into them and starts
+  workers for small jobs.
+- **Scholars that learn**: Every agent but the Hand and its workers is a
+  hire of a scholar, a git repository of a character, memory and skills.
+  A hire works on a branch of its own, and what it learns is merged into
+  its scholar's `main`. Tag versions, pin a hire to one, revert or fork a
+  scholar.
+- **Hamlets that run themselves**: A hamlet's mayor hires, leads and lays
+  the roads its agents' letters and questions travel along. Leads review
+  their hires' work.
 - **Agents that grow**: An agent starts with a sandboxed shell, a file
-  editor and a notes file, and writes its own skills from there.
-- **Agents talk to each other**: Messages travel along roads the mayor
-  lays between houses.
+  editor and its memory, and writes its own skills. A librarian shelves
+  the useful ones in a library every agent shares, and an idle scholar
+  dreams to tidy what it knows.
 - **Point a hamlet at your code**: Give a hamlet a folder and its agents
   work in it, as a coding agent does.
 - **You stay in charge**: In manual mode every edit and command waits for
   your approval. In auto mode the sandbox keeps writes inside the folder.
-  Agents can vote a mayor out, and the chief can overrule anything.
+  An agent may object to an instruction, and the chief rules on it and can
+  overrule anything.
 - **Many hamlets at once**: Hamlets sit side by side, each with its own
   agents, budget and folder.
 - **Any model**: Any OpenAI-compatible endpoint, a local
@@ -46,29 +55,31 @@ Hamlet's words in one minute:
 | Word | Meaning |
 | --- | --- |
 | **Chief** | You, the human who leads. |
-| **Hamlet** | A group of agents with a budget and, optionally, a folder to work in. |
-| **Mayor** | The lead agent. You talk to it, and it creates the other agents and lays the roads. |
-| **Agent** | An AI worker with a house, a robot, and its own notes, skills and log. |
-| **Road** | A path between houses that agents' messages travel along. |
+| **Realm** | Everything one server keeps: its chiefs, the Hand, the scholars and the hamlets. |
+| **Hand** | Your own agent, always there, above every hamlet. |
+| **Scholar** | Who an agent is: a git repository of its character, memory and skills. |
+| **Hamlet** | Hires of scholars with a budget and, optionally, a folder to work in. |
+| **Mayor** | The hire that leads a hamlet. |
+| **Road** | A path between two agents that their letters travel along. |
 
 The shortest path to seeing it work:
 
 1. Follow the [Quick start](#quick-start) below.
 2. Give Hamlet a model: an API key, a local model endpoint, or a sign-in
    (see [Models and credentials](#models-and-credentials)).
-3. Click a robot or house in the window and say what you want done.
+3. Talk to the Hand and say what you want done.
 4. Watch the agents work. Approve edits and commands as they ask.
 
 Not ready to install anything? [Try it without
-installing](#try-it-without-installing) uses a scratch home that leaves
+installing](#try-it-without-installing) uses a scratch folder that leaves
 your real files alone.
 
 ## Status
 
 Early and moving fast.
 
-- **`hamlet_server`** (Rust) owns the agents, roads, letters, votes,
-  library, approvals and budgets.
+- **`hamlet_server`** (Rust) owns the realm: the agents, scholars'
+  repositories, roads, letters, library, approvals and budgets.
 - **pi harness** (Node processes) owns conversations and model calls.
 - **The window** is a protocol client. Closing it stops no agent.
 - **Tests** use faux and loopback providers. They do not establish
@@ -85,7 +96,7 @@ hamlet
 ```
 
 This installs pi's packages, puts `hamlet`, `hamlet_server` and
-`hamlet_app` in `~/.cargo/bin`, and starts on your home, `~/.hamlet`.
+`hamlet_app` in `~/.cargo/bin`, and starts your realm in `~/.hamlet`.
 
 > [!NOTE]
 > A source install uses the checkout's `harnesses/pi/`. Keep the checkout,
@@ -101,7 +112,7 @@ See [releases](docs/releases.md).
 
 ## Try it without installing
 
-Use a scratch home so your real `~/.hamlet` is untouched:
+Use a scratch folder so your real `~/.hamlet` is untouched:
 
 ```sh
 HAMLET_HOME=/tmp/hamlet-try cargo xtask dev
@@ -110,7 +121,8 @@ HAMLET_HOME=/tmp/hamlet-try cargo xtask dev
 `dev` builds the local server and window, starts the server on a free
 port, and opens the window. No global npm command is needed.
 
-- The home is kept between runs. The window's files go in `<home>/window`.
+- The realm is kept between runs. The window's files go in
+  `$HAMLET_HOME/window`.
 - Closing the window leaves `hamlet dev` serving. Ctrl-C stops it.
 - `--hot` builds a window that reloads saved shaders and tuning files.
 - To run other commands without installing, use
@@ -143,9 +155,10 @@ saved there before the harness continues.
 ### Tools and platforms
 
 - Local tools need Seatbelt on macOS or working bubblewrap on Linux.
-- Settings can select a remote workspace for tools and houses. It takes
-  effect on restart and never falls back to local execution.
-- Windows has no sandbox yet. A Windows server starts only in insecure
+- Settings can select a remote workspace for the agents' tools and
+  lodges. It takes effect on restart and never falls back to local
+  execution.
+- Windows has no sandbox. A Windows server starts only in insecure
   mode, with `hamlet --insecure`, and agents' commands then reach whatever
   your account can. Agents get `powershell`, and `bash` where Git for
   Windows is installed. Linux and macOS refuse `--insecure`.
@@ -155,7 +168,7 @@ saved there before the harness continues.
 
 | Variable | Meaning |
 | --- | --- |
-| `HAMLET_HOME` | The server's home. Defaults to `~/.hamlet`. Use a scratch folder when trying things out. |
+| `HAMLET_HOME` | The folder the server keeps its realm in. Defaults to `~/.hamlet`. Use a scratch folder when trying things out. |
 | `HAMLET_VIEW` | Where the window keeps its size, layout and look. Defaults to the OS's config folder for Hamlet. Set it to a scratch folder when running the window outside `hamlet dev`. |
 | `HAMLET_SERVER_BIN` | An existing server binary. Skips the server build in `dev`. |
 | `HAMLET_APP` | An existing window binary. Skips the window build in `dev`. |
@@ -178,7 +191,7 @@ opens its sibling window.
 | Slide the ground | Drag it |
 | Turn | Drag with the right button |
 | Zoom | Scroll |
-| Talk to an agent | Click its robot or house |
+| Talk to an agent | Click its robot |
 | See what can be done to something | Right-click it |
 
 ## Working on the code

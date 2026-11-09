@@ -1,7 +1,5 @@
 //! The things waiting for a chief and their presentation.
 
-use std::time::Duration;
-
 use bevy_ecs::prelude::*;
 use hamlet_protocol::client as protocol;
 pub use protocol::Choice;
@@ -23,7 +21,10 @@ pub struct Refused(pub String);
 )]
 pub struct Waiting {
     pub id: String,
+    /// The address of who raised it, or `the realm`.
     pub by: String,
+    /// What who raised it is shown by.
+    pub shown: String,
     pub about: String,
     /// The line of `about` a one-line view quotes.
     pub subject: String,
@@ -37,7 +38,8 @@ pub struct Waiting {
 }
 
 impl Waiting {
-    /// One line of at most about `max` characters of the subject.
+    /// One line of at most about `max` characters of the subject, a
+    /// command in it between backticks.
     pub fn line(&self, max: usize) -> String {
         let flat = self
             .subject
@@ -48,28 +50,33 @@ impl Waiting {
             matches!(self.detail, protocol::WaitDetail::Objection {});
         // An objection's line has no name before it, so its subject
         // takes the name's room too.
-        let max = if objection { max + self.by.len() } else { max };
+        let max = if objection {
+            max + self.shown.len()
+        } else {
+            max
+        };
         let clipped = match flat.char_indices().nth(max) {
             Some((cut, _)) => format!("{}...", &flat[..cut]),
             None => flat,
         };
         match &self.detail {
             protocol::WaitDetail::Approval { says, .. } => {
-                format!("{} {says} `{clipped}`", self.by)
+                format!("{} {says} `{clipped}`", self.shown)
             }
             protocol::WaitDetail::Objection {} => clipped,
             protocol::WaitDetail::Question { .. } => {
-                format!("{} asks: {clipped}", self.by)
+                format!("{} asks: {clipped}", self.shown)
             }
             protocol::WaitDetail::Fault {} => {
-                format!("{} failed: {clipped}", self.by)
+                format!("{} failed: {clipped}", self.shown)
+            }
+            protocol::WaitDetail::Newcomer { .. } => {
+                format!(
+                    "{clipped}, whom {} made, waits at the harbor",
+                    self.shown
+                )
             }
         }
-    }
-
-    /// The elapsed time since this need was raised.
-    pub fn waited(&self, now_ms: u64) -> Duration {
-        Duration::from_millis(now_ms.saturating_sub(self.since))
     }
 }
 
@@ -125,8 +132,11 @@ pub(crate) fn upsert(
         .unwrap_or_else(|| world.spawn_empty().id());
     let agent = wait
         .agent
-        .as_ref()
         .and_then(|agent| crate::realm::agent(world, agent));
+    let shown = match agent {
+        Some(agent) => crate::realm::shown_of(world, agent),
+        None => wait.by.clone(),
+    };
     let mut entity = world.entity_mut(entity);
     if let protocol::WaitDetail::Question { questions } = &wait.detail
     {
@@ -135,6 +145,7 @@ pub(crate) fn upsert(
     entity.insert(Waiting {
         id: wait.id,
         by: wait.by,
+        shown,
         about: wait.about,
         subject: wait.subject,
         change: wait.change,

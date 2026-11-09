@@ -2,7 +2,7 @@
 // hamlet_protocol::runtime, whose JSON Schema protocol-schema.ts holds.
 import type { Static } from "typebox";
 import Schema from "typebox/schema";
-import { schema } from "./protocol-schema.ts";
+import { schema, version } from "./protocol-schema.ts";
 
 type Defs = typeof schema.$defs;
 
@@ -23,6 +23,7 @@ type Message<T extends string> = Extract<
 
 export type Block = Def<"Block">;
 export type Capability = Def<"Capability">;
+export type ConversationKind = Def<"ConversationKind">;
 export type Credential = Def<"Credential">;
 export type Item = Def<"Item">;
 export type Mark = Def<"Mark">;
@@ -39,8 +40,7 @@ export type ProviderResult = Message<"provider_result">;
 export type Waiting = Message<"waiting">;
 
 /** The protocol version this runtime speaks, the one every message carries as `v`. */
-export const PROTOCOL_VERSION =
-    schema.$defs.ServerMessage.oneOf[0].properties.v.const;
+export const PROTOCOL_VERSION = version;
 
 /** The kind of an entry written for people alone. */
 export const NOTICE = "hamlet.notice";

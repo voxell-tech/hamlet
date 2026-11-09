@@ -14,8 +14,8 @@
   proposals for what is not built in [`docs/proposals/`](docs/proposals/).
 - [`CONTEXT.md`](CONTEXT.md) is the glossary: the words for Hamlet's
   concepts, and the ones to avoid.
-- [`docs/endless-world.md`](docs/endless-world.md) before touching the
-  ground, the sites or `crates/hamlet_realm/src/moving.rs`.
+- [`docs/islands.md`](docs/islands.md) before touching the ground, the
+  islands, the sites, the harbor or `crates/hamlet_realm/src/moving.rs`.
 - What is known and deliberately left for later is kept outside this
   repository, in `../hamlet_backlog/README.md` where that folder exists.
   Check it before reporting something as a new problem, and add to it when
@@ -30,11 +30,11 @@ Prefix every branch with the name of the person it is for, as in
 
 ## Pull requests
 
-A pull request's description says what changes, why, and what was
-left out. It has no testing section that only lists the checks that
-passed or the tests that were added: CI and the diff already show
-those. Say only what a reviewer cannot see there, such as something
-not yet tried by hand.
+A pull request's description says only what changed. It has no
+section for what was left out, what was not tried or what comes next,
+and none that lists the checks that passed or the tests that were
+added: CI and the diff already show those. Say those things in chat
+with the owner instead, not in the pull request.
 
 ## Running safely
 
@@ -66,7 +66,7 @@ paths for bare `hamlet` and for `hamlet window`. `HAMLET_APP` can name a
 window built outside the repository's `target/` folder.
 
 The server keeps the agents' files; the window keeps its size, layout and
-look in `HAMLET_VIEW`, else the OS's config folder for Hamlet. Closing the
+theme in `HAMLET_VIEW`, else the OS's config folder for Hamlet. Closing the
 window ends only its process; agents keep working on the server. Stop
 `hamlet dev` with Ctrl-C when done.
 
@@ -117,7 +117,7 @@ npm test
 ```
 
 The acceptance suite in `crates/hamlet_acceptance` starts real server
-processes on scratch homes and drives them through the client protocol, so plain
+processes on scratch realms and drives them through the client protocol, so plain
 `cargo test` compiles none of it. It needs the built CLI and server,
 and `npm ci --prefix harnesses/pi`. It must be clean before a commit too. It never
 contacts a model server or the internet: models are faux, or a loopback
@@ -129,9 +129,9 @@ cargo clippy -p hamlet_acceptance --all-targets --features acceptance
 cargo test -p hamlet_acceptance --features acceptance
 ```
 
-The server's tests that start pi serving a home, crashes included, are
-its `crashes` and `harness` targets, compiled only with the `harness`
-feature, so plain `cargo test` needs no Node. They need
+The server's tests that start pi serving a realm, crashes included, are
+its `crashes` target and its tests of the core, compiled only with the
+`harness` feature, so plain `cargo test` needs no Node. They need
 `npm ci --prefix harnesses/pi`, never contact a model server or the
 internet, and must be clean before a commit too. They build the server
 with fault points, so run them after the acceptance suite, which needs
@@ -159,17 +159,21 @@ by the Rust types in `hamlet_protocol::client`, one module per area. Their
 a list's length; a rule a type can hold, such as `RequestId`'s UUID form,
 is in the type. The server checks every client message against the
 schema derived from them. Update `docs/protocol.md` when the protocol
-changes. Move `V` in `hamlet_protocol::client` when a message's shape
-or a type's name changes: `cargo test -p hamlet_protocol` fails until
-it moves, then
-rewrites `crates/hamlet_protocol/client_schema.fingerprint` and fails
-once, so commit the rewritten file.
+changes. When a message's shape or a type's name changes,
+`cargo test -p hamlet_protocol` rewrites
+`crates/hamlet_protocol/client_schema.fingerprint` and fails once, so
+commit the rewritten file.
+
+Versions are semver. Every version, the crates', the client, runtime
+and workspace protocols' and the realm database's, stays at 0.1.0
+until Hamlet's first release; none moves before it. Peers check that
+their versions are compatible by semver's caret.
 
 The client tests replay the faux sessions in `crates/hamlet_protocol/frames/`.
 See `docs/protocol.md` for their recording workflow.
 
 On Linux, tools run under bubblewrap rather than Seatbelt. After changing
-`crates/hamlet_server/src/sandbox/`, run the real sandbox acceptance tests
+`crates/hamlet_sandbox/`, run the real sandbox acceptance tests
 on Linux with working bubblewrap, git, curl and Python 3. Linux checks do
 not prove macOS Seatbelt behavior. Windows has no server sandbox, so a
 Windows server runs only with `--insecure`, and Linux and macOS refuse

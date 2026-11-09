@@ -1,29 +1,30 @@
 //! The change of an `edit` call drawn: its file, its count, and its
 //! lines taken out and put in.
 
+use bevy::color::Color;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use bevy::text::{
-    FontSize, FontSource, TextBackgroundColor, TextColor, TextFont,
-    TextSpan,
-};
 use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, ghost, label, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, ghost,
+    label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_protocol::client::{
     Change, ChangeLines as Line, ChangeLinesMark as Mark,
 };
-use hamlet_ui::styles::{Fills, bare, note};
-use hamlet_ui::widgets::platform::{Mono, MonoText};
-use hamlet_ui::{AnyView, Cx, View};
+use hamlet_ui::markdown::Area;
+use hamlet_ui::styles::{bare, note, small_rules};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::MonoText;
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use super::entry::state;
+use super::bubble::inked;
+use super::entry::{Underway, status};
+use super::lines::INSET;
 
 /// The tuning of the chat.
 #[derive(Resource, Clone, PartialEq, serde::Deserialize)]
@@ -85,71 +86,62 @@ fn flip(all: &mut Vec<(Entity, String)>, one: (Entity, String)) {
     }
 }
 
-/// The lines of a change as one block of text, each run of lines of
-/// one kind a span of it.
+/// The lines of a change, one row each, the lines taken out and put
+/// in tinted across the whole plate. Their words are selected as one.
 fn block(lines: &[Line]) -> AnyView {
-    let mut runs = Vec::<(Mark, String)>::new();
-    for (at, line) in lines.iter().enumerate() {
-        let lead = match line.mark {
-            Mark::Space => "  ",
-            Mark::Minus => "- ",
-            Mark::Plus => "+ ",
-        };
-        let end = if at + 1 == lines.len() { "" } else { "\n" };
-        let text = format!("{lead}{}{end}", line.text);
-        match runs.last_mut() {
-            Some((mark, run)) if *mark == line.mark => {
-                run.push_str(&text);
-            }
-            _ => runs.push((line.mark.clone(), text)),
-        }
-    }
-    AnyView::new(move |cx: &mut Cx| {
-        let root = cx.build(label("").size(SIZE));
+    let lines = lines.to_vec();
+    with_cx(move |cx| {
         let theme = cx.theme();
-        let mono =
-            cx.world.get_resource::<Mono>().map(|m| m.0.clone());
-        for (mark, text) in runs {
-            let (ink, plate) = match mark {
-                Mark::Space => (theme.tone(Tone::Dim), None),
-                Mark::Minus => (
-                    theme.tone(Tone::Critical),
-                    Some(theme.palette.danger),
-                ),
-                Mark::Plus => (
-                    theme.palette.green,
-                    Some(theme.palette.green_deep),
-                ),
-            };
-            let font = TextFont {
-                font: mono
-                    .clone()
-                    .map(FontSource::from)
-                    .unwrap_or_default(),
-                font_size: FontSize::Px(SIZE),
-                ..TextFont::default()
-            };
-            let mut span = cx.world.spawn((
-                TextSpan(text),
-                font,
-                TextColor(ink),
-                MonoText,
-                ChildOf(root),
-            ));
-            if let Some(plate) = plate {
-                span.insert(TextBackgroundColor(plate));
-            }
-        }
-        root
+        let rows = lines
+            .iter()
+            .map(|line| {
+                let (lead, ink, fill) = match line.mark {
+                    Mark::Space => ("  ", None, Color::NONE),
+                    Mark::Minus => (
+                        "- ",
+                        Some(theme.tone(Tone::Critical)),
+                        theme.palette.danger,
+                    ),
+                    Mark::Plus => (
+                        "+ ",
+                        Some(theme.palette.green),
+                        theme.palette.green_deep,
+                    ),
+                };
+                let tone = match line.mark {
+                    Mark::Space => Tone::Dim,
+                    Mark::Minus | Mark::Plus => Tone::Body,
+                };
+                let lead = match ink {
+                    Some(ink) => inked(lead.to_string(), ink, SIZE),
+                    None => {
+                        label(lead).size(SIZE).wrap(false).boxed()
+                    }
+                };
+                row((
+                    lead.tagged(MonoText),
+                    label(line.text.clone())
+                        .size(SIZE)
+                        .tone(tone)
+                        .tagged(MonoText),
+                ))
+                .min_width(px(0.0))
+                .padding(UiRect::horizontal(px(PAD)))
+                .fill(fill)
+                .boxed()
+            })
+            .collect::<Vec<_>>();
+        column(rows).min_width(px(0.0)).tagged(Area)
     })
+    .boxed()
 }
 
 /// The size of a change's lines.
-const SIZE: f32 = 12.5;
+const SIZE: f32 = 13.0;
 
-/// The room at the left of what is under a change's head, which
-/// sets it under the name of its file.
-const INSET: f32 = 12.0;
+/// The room between a change's plate and its words, across and down.
+const PAD: f32 = 10.0;
+const DOWN: f32 = 8.0;
 
 /// The lines of `change` on their plate, the first `most` of them,
 /// with a count of the rest.
@@ -161,22 +153,57 @@ fn plate(
 ) -> impl View {
     let theme = cx.theme();
     let shown = &change.lines[..most.min(change.lines.len())];
-    let mut parts = vec![block(shown)];
-    parts.extend(more);
+    let mut after = Vec::from_iter(more);
     // Past what a transcript keeps of a change.
     let lost =
         (change.total as usize).saturating_sub(change.lines.len());
     if most >= change.lines.len() && lost > 0 {
-        parts.push(note(format!("... {lost} more lines")).boxed());
+        after.push(note(format!("... {lost} more lines")).boxed());
     }
-    column(parts)
+    let after = column(after).padding(UiRect::horizontal(px(PAD)));
+    column((block(shown), after))
         .gap(4.0)
-        .padding(UiRect::axes(px(10.0), px(8.0)))
+        .padding(UiRect::vertical(px(DOWN)))
         .min_width(px(0.0))
         .fill(theme.palette.code)
         .border(1.0)
         .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
+}
+
+/// The lines a change adds in green and takes out in red, its count
+/// in words under the pointer; the words alone when it changed none.
+fn counted(change: &Change) -> AnyView {
+    let words = change.count.clone();
+    if change.added == 0 && change.removed == 0 {
+        return note(words).boxed();
+    }
+    let (added, removed) = (change.added, change.removed);
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let size = theme.text.small;
+        let mut parts = Vec::new();
+        if added > 0 {
+            parts.push(inked(
+                format!("+{added}"),
+                theme.palette.green,
+                size,
+            ));
+        }
+        if removed > 0 {
+            parts.push(inked(
+                format!("-{removed}"),
+                theme.tone(Tone::Critical),
+                size,
+            ));
+        }
+        let words = words.clone();
+        row(parts)
+            .gap(6.0)
+            .shrink(0.0)
+            .tooltip(move || note(words.clone()))
+    })
+    .boxed()
 }
 
 /// The end of a tool call's entry, and the words for an edit that
@@ -199,11 +226,12 @@ fn ended(entry: Option<&Entry>) -> (Option<i64>, Option<String>) {
 }
 
 /// The change of the edit at entry `id` of `session`: its file, its
-/// count and how the call ended, over its lines.
+/// count and how the call stands, over its lines.
 pub(crate) fn change_view(
     session: Entity,
     id: String,
     change: Change,
+    underway: Underway,
 ) -> AnyView {
     let key = (session, id.clone());
     let entry_id = id.clone();
@@ -217,17 +245,24 @@ pub(crate) fn change_view(
     let fold_key = key.clone();
     let toggle_key = key.clone();
     let fold = button(
-        label(resource::<Changes, _>(move |changes| {
-            let mark = match changes.extent(&fold_key) {
-                Extent::Shut => "+",
-                _ => "-",
-            };
-            format!("{mark}  {verb}")
-        }))
-        .size(12.0)
-        .wrap(false)
-        .tone(Tone::Dim),
+        row((
+            glyph(Glyph::Chevron, 10.0).tone(Tone::Faint).rotation(
+                resource::<Changes, _>(move |changes| match changes
+                    .extent(&fold_key)
+                {
+                    Extent::Shut => 90.0,
+                    _ => 180.0,
+                }),
+            ),
+            label(verb)
+                .wrap(false)
+                .tone(Tone::Dim)
+                .rules(small_rules),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center),
     )
+    .padding(UiRect::axes(px(INSET), px(4.0)))
     .rules(ghost)
     .on_activate(move |world| {
         flip(
@@ -247,10 +282,14 @@ pub(crate) fn change_view(
                 .unwrap_or_else(|| label(path.clone()).boxed())
         },
     )
-    .within(bare().fills_width().min_width(px(0.0)));
-    let head = row((fold, file, state(session, id)))
-        .gap(10.0)
-        .align(AlignItems::Center);
+    .within(bare().shrink(1.0).min_width(px(0.0)));
+    let mut parts =
+        vec![fold.boxed(), file.boxed(), counted(&change)];
+    // A held call's card says that it waits, so its head does not.
+    if underway == Underway::Running {
+        parts.push(status(session, id).boxed());
+    }
+    let head = row(parts).gap(10.0).align(AlignItems::Center);
 
     let mut moved = component::<Transcript, _>(session, |_| ());
     let mut turned = resource::<Changes, _>(|_| ());
@@ -280,22 +319,19 @@ pub(crate) fn change_view(
         },
     );
     let body = keyed(drawn, move |(extent, refused)| {
-        let mut parts = vec![note(change.count.clone()).boxed()];
+        let mut parts = Vec::new();
         if let Some(refused) = refused {
             parts.push(
                 label(refused.clone())
-                    .size(12.0)
                     .tone(Tone::Critical)
+                    .rules(small_rules)
                     .boxed(),
             );
         }
         if *extent != Extent::Shut && !change.lines.is_empty() {
             parts.push(lines_view(key.clone(), &change, *extent));
         }
-        column(parts)
-            .gap(4.0)
-            .padding(UiRect::left(px(INSET)))
-            .boxed()
+        column(parts).gap(4.0).boxed()
     })
     .within(bare());
     column((head, body)).gap(2.0).width(percent(100.0)).boxed()
@@ -321,7 +357,7 @@ fn lines_view(
             )
         };
         let more = (change.lines.len() > most).then(|| {
-            button(label(words).size(12.0).tone(Tone::Dim))
+            button(label(words).tone(Tone::Dim).rules(small_rules))
                 .rules(ghost)
                 .on_activate(move |world| {
                     flip(

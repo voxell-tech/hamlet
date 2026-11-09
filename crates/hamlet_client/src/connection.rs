@@ -343,11 +343,12 @@ fn send(
 /// Names the protocol version in the words of a connection the server
 /// answered.
 fn greeted(world: &mut World) {
-    // The server answers only a hello whose `v` is its own version.
+    // The server answers only a hello whose version is compatible
+    // with its own.
     let url = &world.resource::<Server>().0.url;
     let words = format!(
         "Connected to {url}, which speaks protocol version {}.",
-        protocol::V
+        protocol::VERSION
     );
     let connection = world.resource::<Connection>();
     if connection.state == Contact::Connected
@@ -378,7 +379,7 @@ async fn connect(
         {
             let hello =
                 protocol::ClientMessage::Hello(protocol::Hello {
-                    v: protocol::V,
+                    v: protocol::VERSION,
                     token: server.token.clone(),
                 });
             if socket.send(wire(&hello)).await.is_ok() {
@@ -709,7 +710,7 @@ mod tests {
             format!(
                 "Connected to {url}, which speaks protocol version \
                  {}.",
-                protocol::V
+                protocol::VERSION
             )
         );
     }

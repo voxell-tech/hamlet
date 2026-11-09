@@ -1,5 +1,6 @@
 //! The server's diagnostics, on stderr, which is its log.
 
+use std::any::Any;
 use std::fmt::Display;
 
 use serde_json::Value;
@@ -24,4 +25,14 @@ pub(crate) fn tell(secrets: Secrets<'_>, words: impl Display) {
         credentials.scrub(&mut line);
     }
     eprintln!("{line}");
+}
+
+/// The words a handler that panicked gives for it.
+pub(crate) fn panicked(panic: &(dyn Any + Send)) -> String {
+    let words = panic
+        .downcast_ref::<&str>()
+        .map(|words| (*words).to_owned())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_default();
+    format!("the handler panicked: {words}")
 }

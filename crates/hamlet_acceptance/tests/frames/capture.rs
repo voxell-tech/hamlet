@@ -2,13 +2,16 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use hamlet_acceptance::{QUIET, Wire, chat, fold, mayor, realm};
-pub use hamlet_protocol::MAYOR;
+use hamlet_acceptance::{Faux, Home, QUIET, Wire, chat, fold, realm};
 use hamlet_protocol::client::{
-    ClientMessage, Item, RequestId, ServerMessage, State, V,
+    AgentId, ClientMessage, Item, RequestId, ServerMessage, State,
+    VERSION,
 };
-use hamlet_testing::{Home, Script, Server};
+use hamlet_testing::Server;
 use serde_json::{Value, json};
+
+/// The Hand's id, which every realm gives the same.
+pub const HAND: u64 = 1;
 
 /// The recorder owns the process and captures both directions in
 /// observed order, using the same checked wire as acceptance tests.
@@ -23,9 +26,13 @@ pub struct Capture {
 }
 
 impl Capture {
-    pub async fn start(script: Script) -> Self {
-        let mut home = Home::new();
-        let server = home.serve(&script, QUIET).await;
+    pub async fn start(faux: Faux) -> Self {
+        Self::start_in(Home::new(), faux).await
+    }
+
+    /// Serves `home`, for a scenario that needs its paths first.
+    pub async fn start_in(mut home: Home, faux: Faux) -> Self {
+        let server = home.serve(&faux, QUIET).await;
         Self::join(home, server).await
     }
 
@@ -42,7 +49,11 @@ impl Capture {
             secrets: vec![token.clone()],
         };
         result
-            .send(json!({"type":"hello","v":V,"token":token}))
+            .send(json!({
+                "type": "hello",
+                "v": VERSION.to_string(),
+                "token": token,
+            }))
             .await;
         result.next().await;
         assert_eq!(result.frames[1]["message"]["type"], "state");
@@ -128,17 +139,74 @@ impl Capture {
         .unwrap()
     }
 
-    pub async fn say(&mut self, agent: &str, text: &str) {
-        let reply = self.ask(json!({"type":"say","to":{"hamlet":"home","agent":agent},"text":text})).await;
+    /// A chief's line, or command, to `agent`; its reply is a
+    /// notice.
+    pub async fn say(&mut self, agent: u64, text: &str) {
+        let reply = self
+            .ask(json!({"type":"say","to":agent,"text":text}))
+            .await;
         assert_eq!(reply["kind"], "notice", "{reply}");
     }
 
-    pub async fn open(&mut self) -> Value {
-        self.ask(json!({"type":"open","chat":{"with":{"hamlet":"home","agent":"mayor"}}})).await
+    /// The id of the scholar named `name`, once the state has it.
+    pub fn scholar(&self, name: &str) -> u64 {
+        self.state()
+            .scholars
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap()
+            .id
+            .0
     }
 
-    pub fn items(&self) -> Vec<Item> {
-        fold::items(&self.messages, &chat(mayor()), &self.pages)
+    /// Makes the scholar `name` in the city and waits for it.
+    pub async fn make(&mut self, name: &str) -> u64 {
+        self.say(HAND, &format!("/scholar new {name}")).await;
+        self.until(|c| {
+            c.state().scholars.iter().any(|s| s.name == name)
+        })
+        .await;
+        self.scholar(name)
+    }
+
+    /// Founds `hamlet` under a new scholar `name`.
+    pub async fn found(
+        &mut self,
+        hamlet: &str,
+        name: &str,
+        purpose: &str,
+    ) {
+        let scholar = self.make(name).await;
+        self.say(
+            HAND,
+            &format!("/found {hamlet} scholar#{scholar} {purpose}"),
+        )
+        .await;
+    }
+
+    /// Has the agent `lead` hire a new scholar `name`.
+    pub async fn hire(
+        &mut self,
+        lead: u64,
+        name: &str,
+        purpose: &str,
+    ) {
+        let scholar = self.make(name).await;
+        self.say(lead, &format!("/hire scholar#{scholar} {purpose}"))
+            .await;
+    }
+
+    /// Watches the chief's current chat with `agent`.
+    pub async fn open(&mut self, agent: u64) -> Value {
+        self.ask(json!({"type":"open","chat":{"with":agent}})).await
+    }
+
+    pub fn items(&self, agent: u64) -> Vec<Item> {
+        fold::items(
+            &self.messages,
+            &chat(AgentId(agent)),
+            &self.pages,
+        )
     }
 
     pub fn state(&self) -> State {
@@ -151,8 +219,8 @@ impl Capture {
             .any(|f| f["from"] == "server" && matches(&f["message"]))
     }
 
-    pub async fn shows(&mut self, text: &str) {
-        self.until(|c| c.items().iter().any(|i| i.text == text))
+    pub async fn shows(&mut self, agent: u64, text: &str) {
+        self.until(|c| c.items(agent).iter().any(|i| i.text == text))
             .await;
     }
 

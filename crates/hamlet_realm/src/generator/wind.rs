@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use hamlet_vfx::Density;
 use hamlet_vfx::magic::chance;
-use hamlet_vfx::wind::{Breeze, WindSettings, gust};
+use hamlet_vfx::wind::{Breeze, WindChoice, WindSettings, gust};
 
 use super::land::Land;
 use super::view::GeneratorView;
@@ -24,6 +24,7 @@ pub(super) fn gusts(
     mut commands: Commands,
     clock: Res<Clock>,
     set: Res<WindSettings>,
+    strength: Res<WindChoice>,
     density: Res<Density>,
     breeze: Option<Res<Breeze>>,
     view: Res<GeneratorView>,
@@ -60,7 +61,7 @@ pub(super) fn gusts(
                     roll(salt + 0.08) - 0.5,
                 ) * 2.0
                     * reach;
-            (over, set.strength(over, clock.t))
+            (over, set.strength(*strength, over, clock.t))
         })
         .max_by(|a, b| a.1.total_cmp(&b.1))
         .unwrap_or((view.focus, 1.0));

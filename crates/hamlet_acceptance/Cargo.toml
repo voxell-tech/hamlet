@@ -20,6 +20,7 @@ base64.workspace = true
 futures.workspace = true
 hamlet_protocol.workspace = true
 hamlet_testing.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
@@ -28,19 +29,19 @@ tokio-tungstenite.workspace = true
 rustix = { workspace = true, features = ["process"] }
 
 [[test]]
-name = "mayor"
+name = "connection"
 required-features = ["acceptance"]
 
 [[test]]
-name = "documents"
+name = "city"
 required-features = ["acceptance"]
 
 [[test]]
-name = "models"
+name = "chats"
 required-features = ["acceptance"]
 
 [[test]]
-name = "gifts"
+name = "oversight"
 required-features = ["acceptance"]
 
 [[test]]
@@ -48,15 +49,11 @@ name = "society"
 required-features = ["acceptance"]
 
 [[test]]
-name = "realm"
+name = "documents"
 required-features = ["acceptance"]
 
 [[test]]
-name = "connection"
-required-features = ["acceptance"]
-
-[[test]]
-name = "cli"
+name = "spend"
 required-features = ["acceptance"]
 
 [[test]]
@@ -64,9 +61,46 @@ name = "sandbox"
 required-features = ["acceptance"]
 
 [[test]]
-name = "frames"
+name = "restart"
+required-features = ["acceptance"]
+
+[[test]]
+name = "models"
 required-features = ["acceptance"]
 
 [[test]]
 name = "oauth"
+required-features = ["acceptance"]
+
+[[test]]
+name = "cli"
+required-features = ["acceptance"]
+
+[[test]]
+name = "gifts"
+required-features = ["acceptance"]
+
+[[test]]
+name = "versions"
+required-features = ["acceptance"]
+
+[[test]]
+name = "merges"
+required-features = ["acceptance"]
+
+[[test]]
+name = "library"
+required-features = ["acceptance"]
+
+[[test]]
+name = "review"
+required-features = ["acceptance"]
+
+[[test]]
+name = "dreams"
+required-features = ["acceptance"]
+
+[[test]]
+name = "frames"
+path = "tests/frames/main.rs"
 required-features = ["acceptance"]

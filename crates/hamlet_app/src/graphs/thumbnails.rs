@@ -1,9 +1,10 @@
-//! Draws the library's meshes into the pictures of [`Thumbnails`].
-//! One camera, lit by lights of its own on a render layer no other
-//! camera sees, shoots each mesh asked for in turn, and again when
-//! its picture is out of date.
+//! Draws the library's meshes and blueprints into the pictures of
+//! [`Thumbnails`]. One camera, lit by lights of its own on a render
+//! layer no other camera sees, shoots each asked for in turn, and
+//! again when its picture is out of date. A blueprint is drawn as
+//! what it puts down by its defaults.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::f32::consts::FRAC_PI_4;
 
 use bevy::app::{App, Startup, Update};
@@ -30,16 +31,16 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::time::Time;
 use bevy::transform::components::Transform;
 use bevy::window::RequestRedraw;
-use hamlet_blueprint::Frame;
-use hamlet_graph::Shape;
-use hamlet_graph_editor::library::Library;
+use hamlet_blueprint::{Frame, Seeds, Value, evaluate};
+use hamlet_graph::{Asset, Ruleset, Shape};
 use hamlet_graph_editor::library::thumbnails::{
-    Job, Key, SIDE, Thumbnails,
+    Job, Key, SIDE, Subject, Thumbnails,
 };
+use hamlet_graph_editor::library::{Kind, Library, lone};
 use hamlet_realm::meshes::Meshing;
+use hamlet_realm::objects::Models;
 use hamlet_realm::palette::Palette as Colours;
 
-use super::assets::Meshes;
 use super::preview::stand;
 
 /// The render layer only the thumbnails' camera, lights and subject
@@ -73,6 +74,7 @@ struct Studio {
 
 /// A picture being drawn.
 struct Shot {
+    kind: Kind,
     name: String,
     key: Key,
     image: Handle<Image>,
@@ -143,7 +145,7 @@ fn develop(
     mut thumbnails: ResMut<Thumbnails>,
     library: Res<Library>,
     colours: Option<Res<Colours>>,
-    mut models: ResMut<Meshes>,
+    mut models: ResMut<Models>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -159,6 +161,7 @@ fn develop(
         }
     }
     if let Some(Shot {
+        kind,
         name,
         key,
         image,
@@ -168,43 +171,27 @@ fn develop(
     {
         camera.is_active = false;
         commands.entity(subject).despawn();
-        thumbnails.drawn(&name, key, image);
+        thumbnails.drawn(kind, &name, key, image);
     }
-    let Some(Job { name, key, image }) = studio.queue.pop_front()
+    let Some(Job {
+        kind,
+        name,
+        key,
+        image,
+    }) = studio.queue.pop_front()
     else {
         return;
     };
     redraw.write(RequestRedraw);
-    let asset = key.asset();
-    let model = match (&asset.shape, library.root()) {
-        (Shape::Mesh(path), Some(root)) => {
-            // A picture drawn before is drawn again for a changed
-            // file, which is read again.
-            if image.is_some() {
-                models.forget_file(path);
-            }
-            models.get(root, path).ok()
+    let colours = colours.as_deref();
+    let meshing = match key.subject() {
+        Subject::Mesh(asset) => {
+            mesh(&library, &mut models, &name, asset, &image, colours)
         }
-        _ => None,
+        Subject::Blueprint(_) => {
+            blueprint(&library, &mut models, &name, colours)
+        }
     };
-    // A mesh keeps the proportions of its file in a box of one; an
-    // asset is drawn at its own size, which this scale undoes.
-    let scale = model.map_or(Vec3::ONE, |model| {
-        let extent = model.extent();
-        extent / extent.max_element().max(1e-4)
-    }) / asset.size.max(Vec3::splat(1e-4));
-    let mut meshing = Meshing::new();
-    stand(
-        &mut meshing,
-        &Frame {
-            scale,
-            ..Frame::IDENTITY
-        },
-        &name,
-        Some(asset),
-        model,
-        colours.as_deref(),
-    );
     let mesh = meshing.build();
     let Some(aabb) = mesh.get_aabb() else {
         return;
@@ -248,10 +235,116 @@ fn develop(
         .insert(RenderTarget::Image(image.clone().into()));
     camera.is_active = true;
     studio.shot = Some(Shot {
+        kind,
         name,
         key,
         image,
         subject,
         held: 0,
     });
+}
+
+/// The mesh `name`, `asset` in the catalogue, alone in a box of one.
+/// `image` is the picture it was drawn into before, if it was.
+fn mesh(
+    library: &Library,
+    models: &mut Models,
+    name: &str,
+    asset: &Asset,
+    image: &Option<Handle<Image>>,
+    colours: Option<&Colours>,
+) -> Meshing {
+    let model = match (&asset.shape, library.root()) {
+        (Shape::Mesh(path), Some(root)) => {
+            // A picture drawn before is drawn again for a changed
+            // file, which is read again.
+            if image.is_some() {
+                models.forget_file(path);
+            }
+            models.get(root, path).ok()
+        }
+        _ => None,
+    };
+    // A mesh keeps the proportions of its file in a box of one; an
+    // asset is drawn at its own size, which this scale undoes.
+    let scale = model.map_or(Vec3::ONE, |model| {
+        let extent = model.extent();
+        extent / extent.max_element().max(1e-4)
+    }) / asset.size.max(Vec3::splat(1e-4));
+    let mut meshing = Meshing::new();
+    stand(
+        &mut meshing,
+        &Frame {
+            scale,
+            ..Frame::IDENTITY
+        },
+        name,
+        Some(asset),
+        model,
+        colours,
+    );
+    meshing
+}
+
+/// What the blueprint `name` puts down by its defaults, with the
+/// library's other blueprints to run, its own before the built-in
+/// ones of the same name. Nothing for one that does not run.
+fn blueprint(
+    library: &Library,
+    models: &mut Models,
+    name: &str,
+    colours: Option<&Colours>,
+) -> Meshing {
+    let mut graphs = BTreeMap::new();
+    for item in &library.items {
+        if item.kind != Kind::Blueprint {
+            continue;
+        }
+        let Ok(book) = item.read() else {
+            continue;
+        };
+        let mut graph = lone(book).graph;
+        hamlet_blueprint::upgrade(&mut graph);
+        graphs.entry(item.name.clone()).or_insert(graph);
+    }
+    let ruleset = Ruleset {
+        entry: name.to_owned(),
+        graphs,
+        assets: library.catalogue.clone(),
+    };
+    let mut meshing = Meshing::new();
+    let Ok(made) = evaluate(
+        &hamlet_blueprint::registry(),
+        &ruleset,
+        Seeds::default(),
+        &BTreeMap::new(),
+    ) else {
+        return meshing;
+    };
+    for value in made.values() {
+        let Value::Objects(objects) = value else {
+            continue;
+        };
+        for object in objects {
+            let asset = ruleset.assets.get(&object.asset);
+            let model = match (
+                asset.as_ref().map(|a| &a.shape),
+                library.root(),
+            ) {
+                (Some(Shape::Mesh(path)), Some(root)) => {
+                    models.get(root, path).ok()
+                }
+                _ => None,
+            };
+            stand(
+                &mut meshing,
+                &object.frame,
+                &object.asset,
+                asset.as_ref(),
+                model,
+                colours,
+            );
+        }
+    }
+    meshing
 }

@@ -58,6 +58,8 @@ pub fn plugin(app: &mut App) {
         .add_observer(forget_press::<PointerDragEnd>)
         .add_observer(forget_press::<PointerCancel>)
         .add_systems(Startup, install_fonts)
+        // After the views are built, so a label built this frame is
+        // drawn in its own face in the same frame, not the default's.
         .add_systems(
             Update,
             (
@@ -68,11 +70,13 @@ pub fn plugin(app: &mut App) {
                 apply_wrap,
                 (make_focusable, focus_ring.run_if(focus_moved))
                     .chain(),
-            ),
+            )
+                .after(bevy_fynix::FynixSystems::Mount),
         );
 }
 
-/// The display face, for headers and buttons.
+/// The display face, for the app's name, the dock's tabs and a page's
+/// title.
 #[derive(Resource)]
 pub struct Display(pub Handle<Font>);
 

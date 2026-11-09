@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::runtime::VERSION;
+use crate::Version;
 
 /// Asks for a conversation's prompt sections before each model call.
 #[derive(
@@ -23,8 +23,7 @@ pub struct Prompt {
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub input: Option<String>,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// A prompt section by name, rendered in order before each model
@@ -50,8 +49,7 @@ pub struct Sections {
     #[schemars(length(min = 1))]
     pub re: String,
     pub sections: Vec<Section>,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// Asks to remove the server's known credentials from a value before
@@ -63,8 +61,7 @@ pub struct Sections {
 pub struct Scrub {
     #[schemars(length(min = 1))]
     pub id: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     pub value: Value,
 }
 
@@ -78,7 +75,6 @@ pub struct Scrubbed {
     pub id: String,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     pub value: Value,
 }

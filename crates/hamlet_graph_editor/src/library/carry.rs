@@ -1,6 +1,6 @@
 //! An asset being carried: while a tile is dragged, a card of what it
-//! is follows the pointer, until it is let go. The canvas lights up
-//! under it where a drop would land.
+//! is follows the pointer, which grabs, until it is let go. The
+//! canvas lights up under it where a drop would land.
 
 use bevy::app::App;
 use bevy::color::Alpha;
@@ -20,8 +20,9 @@ use bevy::picking::events::{
 };
 use bevy::picking::pointer::PointerButton;
 use bevy::ui::{AlignItems, Node, PositionType, UiRect, UiScale, px};
-use bevy_fynix::ViewExt;
+use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{BehaviorExt, FrameProps, MENU_Z, row};
+use bevy_fynix::{OverrideCursor, ViewExt};
 use hamlet_ui::styles::note;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::glyph;
@@ -85,6 +86,11 @@ fn lift(start: On<PointerDragStart>, mut commands: Commands) {
             bevy_fynix::mount::<HamletTheme>(world, card(&item));
         world.entity_mut(card).insert(Card);
         place(world, card, at);
+        if let Some(mut cursor) =
+            world.get_resource_mut::<OverrideCursor>()
+        {
+            cursor.0 = Some(SystemCursorIcon::Grabbing);
+        }
         let mut carried = world.resource_mut::<Carried>();
         carried.card = Some(card);
         carried.item = Some(item);
@@ -123,10 +129,16 @@ fn set_down(end: On<PointerDragEnd>, mut commands: Commands) {
 fn drop_card(world: &mut World) {
     let mut carried = world.resource_mut::<Carried>();
     carried.item = None;
-    if let Some(card) = carried.card.take()
-        && let Ok(entity) = world.get_entity_mut(card)
-    {
+    let Some(card) = carried.card.take() else {
+        return;
+    };
+    if let Ok(entity) = world.get_entity_mut(card) {
         entity.despawn();
+    }
+    if let Some(mut cursor) =
+        world.get_resource_mut::<OverrideCursor>()
+    {
+        cursor.0 = None;
     }
 }
 
@@ -155,7 +167,9 @@ fn card(item: &Item) -> AnyView {
         let (gap, round) = (theme.space.gap, theme.space.round);
         let palette = theme.palette.clone();
         let thumb = match item.kind {
-            Kind::Mesh => picture(&item.name, PICTURE),
+            Kind::Mesh | Kind::Blueprint | Kind::Shader => {
+                picture(item.kind, &item.name, PICTURE)
+            }
             kind => glyph(kind.glyph(), 20.0).boxed(),
         };
         row((thumb, note(item.name.replace('_', " "))))

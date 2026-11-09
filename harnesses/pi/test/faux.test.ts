@@ -83,7 +83,7 @@ test("reads a script of shared responses and refuses malformed agent keys", asyn
 test("takes each list's steps in the order calls are made, whenever the server allows them", async () => {
     const ask = provider(
         {
-            agents: { "home:0": ["first", "second"], "home:1": ["scout"] },
+            agents: { "0": ["first", "second"], "1": ["scout"] },
             responses: ["fallback"],
         },
         // The first call is allowed last.
@@ -91,9 +91,9 @@ test("takes each list's steps in the order calls are made, whenever the server a
     );
     // Made together: each takes its step as it is made.
     const answers = await Promise.all([
-        ask("home:0"),
-        ask("home:1"),
-        ask("home:0"),
+        ask("agent:0"),
+        ask("agent:1"),
+        ask("agent:0"),
     ]);
     expect(answers).toEqual([
         [{ type: "text", text: "first" }],
@@ -101,8 +101,8 @@ test("takes each list's steps in the order calls are made, whenever the server a
         [{ type: "text", text: "second" }],
     ]);
     // A list that ran out fails, and never falls back to `responses`.
-    expect(await ask("home:0")).toBe("No more faux responses queued");
-    expect(await ask("home:2")).toEqual([{ type: "text", text: "fallback" }]);
+    expect(await ask("agent:0")).toBe("No more faux responses queued");
+    expect(await ask("agent:2")).toEqual([{ type: "text", text: "fallback" }]);
 });
 
 test("charges before returning an answer and scrubs credentials from kept text, thinking, arguments and failures", async () => {

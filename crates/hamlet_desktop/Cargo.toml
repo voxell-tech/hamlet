@@ -17,8 +17,13 @@ bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_log.workspace = true
 bevy_time.workspace = true
+bevy_window.workspace = true
 rfd.workspace = true
 tokio.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+futures.workspace = true
+zbus.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
@@ -29,7 +34,6 @@ objc2-foundation.workspace = true
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 bevy_asset.workspace = true
 bevy_image = { workspace = true, features = ["png"] }
-bevy_window.workspace = true
 # winit builds on Linux only with a display protocol named; the app
 # adds Wayland.
 bevy_winit = { workspace = true, features = ["x11"] }

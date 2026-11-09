@@ -1,6 +1,6 @@
 //! A picture in a reply drawn (docs/chat.md): the picture in its
 //! frame, the plate that holds its place while it is read, and the
-//! card of one that is on the web.
+//! chip of one that is on the web or cannot be shown.
 
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::world::World;
@@ -12,13 +12,15 @@ use bevy::ui::{
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{Frame, FrameProps, column, frame, label};
-use bevy_fynix::{EntityCursor, ViewExt, derived, keyed, resource};
-use hamlet_ui::markdown::{
-    Face, Ink, Span, Style, Target, picture_words as words, rich,
+use bevy_fynix::views::{
+    Frame, FrameProps, column, frame, label, row,
 };
-use hamlet_ui::styles::{action, bare, note};
-use hamlet_ui::widgets::icons::Glyph;
+use bevy_fynix::{
+    EntityCursor, ScopedExt, ViewExt, derived, keyed, resource,
+};
+use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
+use hamlet_ui::styles::{ICON, action, bare, note, small_rules};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use crate::chat::ChatSettings;
@@ -56,16 +58,20 @@ fn shown(
     let size = drawn.fitted(most);
     let (image, anchor) = (drawn.image.clone(), source.anchor());
     let picture = AnyView::new(move |cx: &mut Cx| {
-        let within = cx.build(bare().width(percent(100.0)));
+        let edge = 1.0;
+        let outer = size + 2.0 * edge;
+        // The picture's width, or the room there is, set on a node
+        // apart from the picture's own: with both on one, its height
+        // is laid out at the width it would have had uncapped.
+        let within = cx.build(
+            bare().width(px(outer.x)).max_width(percent(100.0)),
+        );
         let theme = cx.theme();
         // A node of its own, whose image no paint of a view tints
         // and whose height follows the width it ends up with.
-        let edge = 1.0;
-        let outer = size + 2.0 * edge;
         cx.world.spawn((
             Node {
-                width: px(outer.x),
-                max_width: percent(100.0),
+                width: percent(100.0),
                 aspect_ratio: Some(outer.x / outer.y),
                 border: UiRect::all(px(edge)),
                 border_radius: BorderRadius::all(px(theme
@@ -92,71 +98,109 @@ fn shown(
         .align(AlignItems::FlexStart)
 }
 
-/// The card of the picture at `address`, which is fetched when its
-/// button is pressed.
-fn card(
+/// The small words of a picture's chip.
+const SMALL: Ink = Ink {
+    size: Some(12.0),
+    tone: Tone::Dim,
+    face: Face::Body,
+};
+
+/// The chip of the picture at `address`, on the web, which is fetched
+/// when its button is pressed.
+fn web_chip(
     cx: &Cx,
     address: &str,
     caption: &str,
     state: &State,
 ) -> impl View {
-    let theme = cx.theme();
     let said = if caption.is_empty() {
         "A picture"
     } else {
         caption
     };
     let from = [
-        plain("On the web, at "),
+        plain(&format!("{said} · ")),
         Span {
             link: Some(Target::Web(address.to_string())),
             ..plain(&host(address).unwrap_or_default())
         },
-        plain(". It is fetched only when you ask."),
     ];
-    let small = Ink {
-        size: Some(12.0),
-        tone: Tone::Dim,
-        face: Face::Body,
-    };
-    let mut parts =
-        vec![label(said.to_string()).boxed(), rich(&from, small)];
+    let mut parts = vec![
+        glyph(Glyph::Mountains, ICON).tone(Tone::Faint).boxed(),
+        row((rich(&from, SMALL),)).min_width(px(0.0)).boxed(),
+    ];
     if *state == State::Failed {
         parts.push(
-            label("No picture came from there.")
-                .size(12.0)
+            label("Nothing came from there.")
                 .tone(Tone::Critical)
+                .rules(small_rules)
                 .boxed(),
         );
     }
     parts.push(match state {
-        State::Loading => note("Fetching the picture...").boxed(),
+        State::Loading => note("Fetching...").boxed(),
         _ => {
             let address = address.to_string();
-            action(Glyph::Globe, "SHOW PICTURE", move |world| {
+            action(Glyph::Eye, "Show picture", move |world| {
                 fetch(world, &address);
             })
         }
     });
-    column(parts)
-        .gap(6.0)
-        .padding(UiRect::axes(px(10.0), px(8.0)))
-        .align(AlignItems::FlexStart)
+    chip(cx, row(parts).gap(8.0).align(AlignItems::Center))
+}
+
+/// `content` on a chip the window draws in a reply, set apart from
+/// what the agent wrote around it without a second frame in the
+/// bubble's.
+fn chip<V: View + FrameProps>(cx: &Cx, content: V) -> impl View {
+    let theme = cx.theme();
+    content
+        .padding(UiRect::axes(px(8.0), px(4.0)))
         .min_width(px(0.0))
         .max_width(percent(100.0))
         .fill(theme.palette.code)
-        .border(1.0)
-        .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
 }
 
+/// The chip of a picture that cannot be shown: its caption, the name
+/// it was written by and `why`.
+fn missing(
+    cx: &Cx,
+    caption: &str,
+    target: &Target,
+    why: &str,
+) -> impl View {
+    let written = match target {
+        Target::Web(address) => address,
+        Target::Path(path) => path,
+    };
+    let mut said = Vec::new();
+    if !caption.is_empty() && caption != written {
+        said.push(plain(&format!("{caption} · ")));
+    }
+    said.push(Span {
+        link: Some(target.clone()),
+        ..plain(written)
+    });
+    said.push(plain(&format!(" {why}")));
+    chip(
+        cx,
+        row((
+            glyph(Glyph::Mountains, ICON).tone(Tone::Faint),
+            row((rich(&said, SMALL),)).min_width(px(0.0)),
+        ))
+        .gap(8.0)
+        .align(AlignItems::Center),
+    )
+}
+
 /// The picture written as `target` with the words `caption`: the
-/// picture itself once it is read, and its words as a link if it is
+/// picture itself once it is read, and a card that says so if it is
 /// none that can be drawn.
 pub(crate) fn picture_view(
     caption: &str,
     target: &Target,
-    ink: Ink,
+    _: Ink,
 ) -> AnyView {
     let (caption, target) = (caption.to_string(), target.clone());
     keyed(
@@ -168,7 +212,18 @@ pub(crate) fn picture_view(
             let (caption, target) = (caption.clone(), target.clone());
             AnyView::new(move |cx: &mut Cx| {
                 let Some(source) = find(cx.world, &target) else {
-                    return cx.build(words(&caption, &target, ink));
+                    let why = match &target {
+                        Target::Path(path)
+                            if crate::links::seek(cx.world, path)
+                                .is_some() =>
+                        {
+                            "is no picture"
+                        }
+                        Target::Path(_) => "not found",
+                        Target::Web(_) => "is no web address",
+                    };
+                    let card = missing(cx, &caption, &target, why);
+                    return cx.build(card);
                 };
                 cx.world.init_resource::<Pictures>();
                 let settings = cx
@@ -198,14 +253,24 @@ pub(crate) fn picture_view(
                                 state.clone(),
                             );
                             AnyView::new(move |cx: &mut Cx| {
-                                let card = card(
+                                let card = web_chip(
                                     cx, &address, &caption, &state,
                                 );
                                 cx.build(card)
                             })
                         }
                         (Source::File(_), State::Failed) => {
-                            words(&caption, &target, ink)
+                            let (caption, target) =
+                                (caption.clone(), target.clone());
+                            AnyView::new(move |cx: &mut Cx| {
+                                let card = missing(
+                                    cx,
+                                    &caption,
+                                    &target,
+                                    "could not be read",
+                                );
+                                cx.build(card)
+                            })
                         }
                         (Source::File(_), _) => {
                             let (wide, tall) =
