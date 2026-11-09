@@ -39,7 +39,7 @@ pub(crate) use self::founding::Founding;
 pub use self::model::{
     Favorites, LastSide, open as open_model, search as search_models,
 };
-pub(crate) use self::model::{Hook, chip, is_open as is_picking};
+pub(crate) use self::model::{Hook, chip};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(model::plugin)

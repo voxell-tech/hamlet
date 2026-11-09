@@ -334,11 +334,6 @@ pub fn open(world: &mut World, agent: Entity) {
     *world.resource_mut::<Open>() = Open::Model(agent);
 }
 
-/// True while the popup of `agent`'s model is open.
-pub(crate) fn is_open(world: &World, agent: Entity) -> bool {
-    *world.resource::<Open>() == Open::Model(agent)
-}
-
 /// Types `text` into the search of the popup open.
 pub fn search(world: &mut World, text: &str) {
     world.resource_mut::<Picking>().search = text.to_string();

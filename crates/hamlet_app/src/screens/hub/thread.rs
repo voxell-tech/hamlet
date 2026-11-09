@@ -3,10 +3,12 @@
 //! details take its place while open, and its sessions and prompt are
 //! pages of their own.
 
+use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::query::Has;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, Display, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
@@ -519,67 +521,98 @@ fn header(agent: Entity) -> impl View {
     })
 }
 
-/// The chip of the model, its effort and its tier, which opens the
-/// popup they are chosen in and is lit while it is open.
-fn model_chip(agent: Entity) -> impl View {
-    keyed(
-        derived(move |world: &World| {
-            world_menu::is_picking(world, agent)
-        })
-        .when(every_frame()),
-        move |open| {
-            button(
-                row((
-                    world_menu::chip(agent),
-                    glyph(Glyph::Chevron, 12.0),
-                ))
-                .gap(6.0)
-                .align(AlignItems::Center),
-            )
-            .padding(UiRect::axes(px(8.0), px(0.0)))
-            .rules(chip_look(*open))
-            .tagged(Variant::Text)
-            .tagged(world_menu::Hook::Chip)
-            .on_activate(move |world| {
-                world_menu::ask_model(world, agent);
-            })
-            .boxed()
-        },
-    )
-    .within(bare())
+pub(super) fn plugin(app: &mut App) {
+    app.add_systems(Update, light_chips);
 }
 
-/// The look of a chip of the composer: a choice, outlined at rest so
-/// it reads as one.
-fn chip_look(open: bool) -> impl FnOnce(&mut Cx) {
-    move |cx| {
-        choice(open)(cx);
-        if !open {
-            style::<HamletTheme>()
-                .frame(|f, t| f.border_color(t.palette.gold_6))
-                .apply(cx);
+/// On the chip of the model of the agent it holds.
+#[derive(Component, Clone, Copy)]
+struct ModelChip(Entity);
+
+/// On the chip of the model while its popup is open, which lights it.
+#[derive(Component)]
+struct ChipOpen;
+
+/// The chip of the model, its effort and its tier, which opens the
+/// popup they are chosen in and is lit while it is open. Built once,
+/// and lit in place, so it does not come in again as it opens.
+fn model_chip(agent: Entity) -> impl View {
+    button(
+        row((world_menu::chip(agent), glyph(Glyph::Chevron, 12.0)))
+            .gap(6.0)
+            .align(AlignItems::Center),
+    )
+    .padding(UiRect::axes(px(8.0), px(0.0)))
+    .rules(chip_look)
+    .tagged(Variant::Text)
+    .tagged(world_menu::Hook::Chip)
+    .tagged(ModelChip(agent))
+    .on_activate(move |world| {
+        world_menu::ask_model(world, agent);
+    })
+}
+
+/// Lights the chip of the model whose popup is open.
+fn light_chips(
+    open: Res<world_menu::Open>,
+    chips: Query<(Entity, &ModelChip, Has<ChipOpen>)>,
+    mut commands: Commands,
+) {
+    for (chip, of, lit) in &chips {
+        let wanted = *open == world_menu::Open::Model(of.0);
+        if wanted && !lit {
+            commands.entity(chip).try_insert(ChipOpen);
+        } else if !wanted && lit {
+            commands.entity(chip).try_remove::<ChipOpen>();
         }
     }
 }
 
-/// The chip of the hamlet's mode, which a press turns over.
+/// The look of a chip of the composer: a choice, outlined at rest so
+/// it reads as one, and picked while [`ChipOpen`].
+fn chip_look(cx: &mut Cx) {
+    choice(false)(cx);
+    style::<HamletTheme>()
+        .frame(|f, t| f.border_color(t.palette.gold_6))
+        .when::<ChipOpen>(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.primary_low)
+                    .border_color(t.palette.gold_4)
+            })
+            .tone(Tone::Body)
+        })
+        .apply(cx);
+}
+
+/// The hamlet `agent` lives in and how its work is overseen.
+fn mode_of(
+    world: &World,
+    agent: Entity,
+) -> Option<(Entity, hamlet_client::realm::Mode)> {
+    let lives = world.get::<LivesIn>(agent)?.0;
+    Some((lives, world.get::<Works>(lives)?.mode))
+}
+
+/// The chip of the hamlet's mode, which a press turns over. Built
+/// once for its hamlet; its words follow the mode in place.
 fn mode_chip(agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
-            let lives = world.get::<LivesIn>(agent)?.0;
-            Some((lives, world.get::<Works>(lives)?.mode))
+            mode_of(world, agent).map(|at| at.0)
         })
         .when(every_frame()),
-        move |at| {
-            let Some((hamlet, mode)) = *at else {
+        move |hamlet| {
+            let Some(hamlet) = *hamlet else {
                 return frame().boxed();
             };
-            let words = match mode {
-                hamlet_client::realm::Mode::Manual => {
-                    "Approvals: Manual"
+            let words = derived(move |world: &World| {
+                match mode_of(world, agent).map(|at| at.1) {
+                    Some(hamlet_client::realm::Mode::Auto) => "Auto",
+                    _ => "Manual",
                 }
-                hamlet_client::realm::Mode::Auto => "Approvals: Auto",
-            };
+                .to_string()
+            })
+            .when(every_frame());
             button(
                 row((
                     glyph(Glyph::Shield, 12.0),
@@ -589,18 +622,20 @@ fn mode_chip(agent: Entity) -> impl View {
                 .align(AlignItems::Center),
             )
             .padding(UiRect::axes(px(8.0), px(0.0)))
-            .rules(chip_look(false))
+            .rules(chip_look)
             .tagged(Variant::Text)
             .tooltip(|| {
                 note(
-                    "How this hamlet's work is overseen. Press to \
-                     turn it over.",
+                    "Approvals: how this hamlet's work is overseen. \
+                     Press to turn it over.",
                 )
             })
             .on_activate(move |world| {
-                let to = match mode {
-                    hamlet_client::realm::Mode::Manual => "auto",
-                    hamlet_client::realm::Mode::Auto => "manual",
+                let to = match mode_of(world, agent).map(|at| at.1) {
+                    Some(hamlet_client::realm::Mode::Auto) => {
+                        "manual"
+                    }
+                    _ => "auto",
                 };
                 tell(world, hamlet, format!("/mode {to}"));
             })
