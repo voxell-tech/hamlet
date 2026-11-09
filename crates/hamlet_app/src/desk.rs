@@ -48,6 +48,10 @@ pub fn plugin(app: &mut App) {
 #[derive(Resource, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DeskSettings {
+    /// The strength, 0 to 1, of the glow about the shown desk's
+    /// underline, and its blur in pixels.
+    pub underline_glow: f32,
+    pub underline_glow_blur: f32,
     /// How far, in pixels, a desk's tab is dragged before it moves.
     pub drag_start: f32,
 }

@@ -8,7 +8,7 @@ mod motion;
 
 use bevy::app::{App, Update};
 use bevy::camera::visibility::Visibility;
-use bevy::color::Color;
+use bevy::color::{Alpha, Color};
 use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -18,6 +18,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
@@ -30,8 +31,9 @@ use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, Display, FlexDirection, Overflow, OverflowAxis,
-    PositionType, UiRect, UiTransform, Val, percent, px,
+    AlignItems, BackgroundGradient, BoxShadow, ColorStop, Display,
+    FlexDirection, LinearGradient, Overflow, OverflowAxis,
+    PositionType, ShadowStyle, UiRect, UiTransform, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::scroll::{
@@ -55,13 +57,14 @@ use hamlet_ui::styles::{
     ICON, action, bad_action, close_button, description, note,
     section, text_input,
 };
-use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::theme::{HamletTheme, Themed};
+use hamlet_ui::widgets::effects::{EffectColors, EffectSettings};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use self::motion::TabDrag;
-use crate::desk::{Desks, Turn};
+use crate::desk::{DeskSettings, Desks, Turn};
 use crate::menu::rect_of;
 
 /// Ctrl, on macOS too, where the primary key is Command.
@@ -112,6 +115,8 @@ pub(crate) fn plugin(app: &mut App) {
                 mark_shown,
                 show_close,
                 (focus_field, end_rename).chain(),
+                retune_underline_glow
+                    .run_if(resource_changed::<DeskSettings>),
             ),
         );
 }
@@ -201,6 +206,10 @@ struct TabRow;
 /// On the raised segment under the shown tab.
 #[derive(Component, Clone, Copy)]
 struct Indicator;
+
+/// On the glowing line under the shown tab.
+#[derive(Component, Clone, Copy)]
+struct Underline;
 
 /// On the "x" that closes the desk at its index.
 #[derive(Component, Clone, Copy)]
@@ -323,15 +332,40 @@ fn tabs_view(tabs: &Tabs) -> impl View {
     })
 }
 
-/// The segment under the shown tab, in the fill of what is
-/// selected.
+/// The raised segment under the shown tab, lit inside from below
+/// and underlined with a glowing line.
 fn indicator() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let (space, palette) = (&theme.space, &theme.palette);
+        let effects = cx.world.resource::<EffectSettings>();
+        let underglow = effects.underglow * effects.gain(theme);
+        let glow = underline_glow(
+            cx.world.resource::<DeskSettings>(),
+            palette.glow,
+        );
         let radius =
             (space.track_radius - space.track_padding).max(0.0);
-        frame()
+        let light =
+            EffectColors::of(theme).underglow.with_alpha(underglow);
+        let inner =
+            BackgroundGradient::from(LinearGradient::to_top(vec![
+                ColorStop::new(light, percent(0.0)),
+                ColorStop::new(light.with_alpha(0.0), percent(100.0)),
+            ]));
+        let line = frame()
+            .position(PositionType::Absolute)
+            .inset(UiRect {
+                left: px(radius),
+                right: px(radius),
+                top: Val::Auto,
+                bottom: px(0.0),
+            })
+            .height(px(space.underline))
+            .fill(palette.gold_4)
+            .tagged(glow)
+            .tagged(Underline);
+        column((line,))
             .position(PositionType::Absolute)
             .inset(UiRect {
                 left: px(0.0),
@@ -342,9 +376,35 @@ fn indicator() -> impl View {
             .display(Display::None)
             .fill(palette.selected)
             .radius(radius)
+            .tagged(inner)
             .tagged(Indicator)
             .tagged(Pickable::IGNORE)
     })
+}
+
+/// The glow about the shown desk's underline, in `color`.
+fn underline_glow(
+    settings: &DeskSettings,
+    color: Color,
+) -> BoxShadow {
+    BoxShadow(vec![ShadowStyle {
+        color: color.with_alpha(settings.underline_glow),
+        x_offset: px(0.0),
+        y_offset: px(0.0),
+        spread_radius: px(0.0),
+        blur_radius: px(settings.underline_glow_blur),
+    }])
+}
+
+/// Sets the underline's glow again as the tuning changes.
+fn retune_underline_glow(
+    settings: Res<DeskSettings>,
+    theme: Themed,
+    mut lines: Query<&mut BoxShadow, With<Underline>>,
+) {
+    for mut line in &mut lines {
+        *line = underline_glow(&settings, theme.palette.glow);
+    }
 }
 
 /// A segment of the track: no plate of its own, dim until the

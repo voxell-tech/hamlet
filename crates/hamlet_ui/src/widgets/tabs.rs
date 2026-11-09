@@ -170,14 +170,17 @@ pub fn fit(
     }
 }
 
-/// Marks the tab of the value of `R`.
+/// Marks the tab of the value of `R` and holds its light.
 pub fn mark<R: Resource + Copy + PartialEq>(
     mut commands: Commands,
     shown: Res<R>,
-    tabs: Query<(Entity, &TabOf<R>, Has<Shown>)>,
+    mut tabs: Query<(Entity, &TabOf<R>, &mut Underglow, Has<Shown>)>,
 ) {
-    for (tab, of, marked) in &tabs {
+    for (tab, of, mut light, marked) in &mut tabs {
         let on = of.0 == *shown;
+        if light.held != on {
+            light.held = on;
+        }
         if on && !marked {
             commands.entity(tab).try_insert(Shown);
         } else if !on && marked {
