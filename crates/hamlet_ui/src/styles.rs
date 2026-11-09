@@ -910,6 +910,11 @@ pub fn merge_button(cx: &mut Cx) {
     solid_button(cx, StatusKind::Merged);
 }
 
+/// The button that carries on with what went wrong: try again.
+pub fn warning_button(cx: &mut Cx) {
+    solid_button(cx, StatusKind::Warning);
+}
+
 /// A [`success_button`] with an icon before its text, that runs
 /// `act`.
 pub fn success_action(
@@ -918,6 +923,17 @@ pub fn success_action(
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
     acting(which, text, (success_button, Variant::Subtle), act)
+        .boxed()
+}
+
+/// A [`warning_button`] with an icon before its text, that runs
+/// `act`.
+pub fn warning_action(
+    which: Glyph,
+    text: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    acting(which, text, (warning_button, Variant::Subtle), act)
         .boxed()
 }
 
