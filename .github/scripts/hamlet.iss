@@ -50,13 +50,22 @@ Filename: "{app}\hamlet.exe"; Parameters: "stop"; Flags: runhidden waituntilterm
 
 [Code]
 // A running server holds its programs and Node open, so an update
-// stops it first. Its agents carry on once Hamlet is opened again.
+// stops it first, and does not go on while it serves. Its agents
+// carry on once Hamlet is opened again.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
+  Hamlet: String;
   Code: Integer;
 begin
   Result := '';
-  if FileExists(ExpandConstant('{app}\hamlet.exe')) then
-    Exec(ExpandConstant('{app}\hamlet.exe'), 'stop', '', SW_HIDE,
-      ewWaitUntilTerminated, Code);
+  Hamlet := ExpandConstant('{app}\hamlet.exe');
+  if not FileExists(Hamlet) then
+    Exit;
+  if not Exec(Hamlet, 'stop', '', SW_HIDE, ewWaitUntilTerminated, Code) then
+    Result := 'Setup could not run "' + Hamlet + ' stop": '
+      + SysErrorMessage(Code) + '. Close Hamlet and try again.'
+  else if Code <> 0 then
+    Result := 'Hamlet''s server did not stop ("hamlet stop" exited with '
+      + IntToStr(Code) + '). Run "hamlet stop" in a terminal to see '
+      + 'why, then try again.';
 end;
