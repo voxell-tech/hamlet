@@ -195,6 +195,10 @@ pub struct EffectSettings {
     /// control.
     pub light_gain: f32,
     pub dark_gain: f32,
+    /// How many times as strong the glow over the top of a light
+    /// panel and the glow of a control are, on top of the gain: a
+    /// deep amber on cream steps far less than a bright one on dark.
+    pub light_lift: f32,
     /// Seconds a popup, a menu or a tooltip takes to fade in.
     pub popup_in: f32,
 }
@@ -208,6 +212,17 @@ impl EffectSettings {
             self.light_gain
         } else {
             self.dark_gain
+        }
+    }
+
+    /// How many times as strong the glow over a panel's top and a
+    /// control's glow are on `theme`'s panels: [`Self::light_lift`]
+    /// over a light one, and none over a dark one.
+    pub fn lift(&self, theme: &HamletTheme) -> f32 {
+        if lit_panels(theme) {
+            self.light_lift
+        } else {
+            1.0
         }
     }
 }

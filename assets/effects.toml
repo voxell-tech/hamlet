@@ -41,4 +41,5 @@ highlight_boost = 0.4
 highlight_rest = 0.5
 light_gain = 3.0
 dark_gain = 2.2
+light_lift = 2.2
 popup_in = 0.2

@@ -118,6 +118,7 @@ pub(super) fn update_highlights(
     let attention = f32::from(count > 0);
     let colors = EffectColors::of(&theme);
     let gain = set.gain(&theme);
+    let lift = set.lift(&theme);
     // A glow is never quite still.
     let brightness =
         1.0 + set.flicker * flicker(time.elapsed_secs(), 1.0);
@@ -166,7 +167,8 @@ pub(super) fn update_highlights(
             glows.push(glow_pool(GLOW_DEEP, |near| {
                 let glow = near * call;
                 let strength = ((glow * 0.045 + glow * glow * 0.045)
-                    * gain)
+                    * gain
+                    * lift)
                     .clamp(0.0, 1.0);
                 colors
                     .attention

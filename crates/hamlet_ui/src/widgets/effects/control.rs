@@ -563,7 +563,8 @@ pub(super) fn outer_glow(
             }
             _ => set.outer_glow,
         };
-        let strength = effect.glow * thrown;
+        let strength =
+            (effect.glow * thrown * set.lift(&theme)).min(1.0);
         let now = shadows.get(target).ok();
         let shape = shapes
             .get(target)
