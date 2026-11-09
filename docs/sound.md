@@ -31,7 +31,7 @@ and `synth/` builds the clips.
 
 | Family | What is in it |
 |---|---|
-| `wildlife` | Birds by day, crickets at night, and every animal added later |
+| `wildlife` | Birds by day, a far owl at night, and every animal added later |
 | `ambience` | Wind always, and other sounds of the land |
 | `steps`, `work`, `doors` | A robot's feet, its chores, its door, a letter changing hands |
 | `alerts` | An agent begins to wait for the chief, or faults |
@@ -39,7 +39,7 @@ and `synth/` builds the clips.
 | `hand` | What the chief's hand does in the world |
 | `magic` | Houses rising and falling, merges, roads, dawn and dusk |
 | `talk` | Speech and thought balloons |
-| `lives` | Agents born, restored and gone, votes, a new mayor, a founding |
+| `lives` | Agents born, restored and gone, a new mayor, a founding |
 | `interface` | The panels: buttons, menus, tabs, sending a message |
 
 The alert and the answers are written as a pair: the chime leaves a
@@ -64,7 +64,7 @@ no edge where a click could be.
   home to D at least every fifth breath.
 - **Time of day**: by day higher and brighter. At night the chords are
   minor, the tune is lower and rarer, and there is real silence between
-  breaths for the crickets.
+  breaths for the owl.
 - **Activity**: agents at work add notes and shorten the rests. All at
   rest, it thins to a note every several seconds.
 - **Moments**: a house settled, the chief's yes or no, a founding, dawn

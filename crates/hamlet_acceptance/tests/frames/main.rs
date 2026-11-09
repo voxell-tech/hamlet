@@ -2,5 +2,6 @@
 //! checked-in fixtures during the ordinary acceptance suite.
 
 mod capture;
-mod mayor;
+mod chats;
+mod documents;
 mod society;

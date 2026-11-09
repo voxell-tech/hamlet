@@ -202,6 +202,29 @@ impl Meshing {
         self.positions.len() * vertex + self.indices.len() * index
     }
 
+    /// Moves the first `quads` quads out into a mesh of their own.
+    /// It holds only what [`Meshing::face`] made, one quad after
+    /// another, as the panes of a house are.
+    pub fn take_quads(&mut self, quads: usize) -> Meshing {
+        let quads = quads.min(self.positions.len() / 4);
+        let (verts, indices) = (quads * 4, quads * 6);
+        let taken = Meshing {
+            positions: self.positions.drain(..verts).collect(),
+            normals: self.normals.drain(..verts).collect(),
+            colors: self.colors.drain(..verts).collect(),
+            uvs: self
+                .uvs
+                .drain(..verts.min(self.uvs.len()))
+                .collect(),
+            indices: self.indices.drain(..indices).collect(),
+            ..Meshing::default()
+        };
+        for index in &mut self.indices {
+            *index -= verts as u32;
+        }
+        taken
+    }
+
     pub fn at(&mut self, transform: Affine3A) -> &mut Self {
         self.transform = transform;
         self

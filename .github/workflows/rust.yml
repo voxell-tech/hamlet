@@ -196,8 +196,6 @@ jobs:
       # is a loopback address nothing answers.
       - name: Start, report and stop a server
         shell: bash
-        env:
-          HAMLET_USER: chief
         run: |
           set -eu
           hamlet=target/debug/hamlet.exe

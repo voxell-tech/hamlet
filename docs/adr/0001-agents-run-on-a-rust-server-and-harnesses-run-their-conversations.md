@@ -10,11 +10,10 @@ run on it. So agents run on a server, and the window, in Rust and Bevy, is
 a client of it (ADR 0004).
 
 The server is Rust, the crate `hamlet_server`, and keeps everything Hamlet
-means: agents, hamlets, the mayor's office, roads, letters, questions,
-votes, tasks and their caps, budgets and spend, what waits for a chief,
-standing permissions, objections, the charter, characters and settings,
-which tools an agent may run and where, the client protocol and the connection's
-token.
+means: the Hand, scholars, hamlets, hires and their tree, workers, roads,
+letters, questions, tasks and their caps, budgets and spend, what waits for a
+chief, standing permissions, objections, the charter and settings, which tools
+an agent may run and where, the client protocol and the connection's token.
 
 An agent's conversations run in a harness: a separate process the server
 starts and watches, which makes the model calls and keeps the history,
@@ -24,7 +23,7 @@ at 1.2.0. pi-durable commits every turn and tool call before anything is
 shown, so work cut off mid-turn carries on when its process opens again;
 agents that work while nobody watches need that. The server and a harness
 talk through a private, versioned interface of Hamlet's own, and neither
-opens the other's store (ADR 0005).
+opens the other's store (ADR 0012).
 
 The chief wants Hamlet in Rust, beside the window and the `hamlet`
 command, and wants agents free to run on different harnesses that change

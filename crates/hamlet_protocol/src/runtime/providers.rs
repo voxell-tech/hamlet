@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::runtime::VERSION;
+use crate::Version;
 
 /// Provider work requested by the server, with no provider state
 /// written by the runtime.
@@ -42,8 +42,7 @@ pub struct ProviderRequest {
     pub model: Option<String>,
     pub models: Vec<BTreeMap<String, Value>>,
     pub provider: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 #[derive(
@@ -84,8 +83,7 @@ pub struct ProviderControl {
     #[schemars(with = "String")]
     pub prompt: Option<String>,
     pub scope: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
@@ -106,8 +104,7 @@ pub struct ProviderEvent {
     pub prompt: Option<String>,
     pub scope: String,
     pub step: BTreeMap<String, Value>,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// The result of provider work, for the server alone; the runtime
@@ -141,8 +138,7 @@ pub struct ProviderResult {
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "String")]
     pub text: Option<String>,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 /// A provider and whether it signs in with a key or a subscription.
@@ -203,8 +199,7 @@ pub struct CredentialRequest {
     #[schemars(with = "String")]
     pub lease: Option<String>,
     pub scope: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }
 
 #[derive(
@@ -246,6 +241,5 @@ pub struct CredentialResult {
     pub lease: Option<String>,
     #[schemars(length(min = 1))]
     pub re: String,
-    #[schemars(extend("const" = VERSION))]
-    pub v: u64,
+    pub v: Version,
 }

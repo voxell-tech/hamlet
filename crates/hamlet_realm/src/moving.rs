@@ -396,6 +396,9 @@ fn tell(
         (_, Err(Unfit::Crowded)) => {
             ("Too close to another place", pal.place_unfit)
         }
+        (_, Err(Unfit::Elsewhere)) => {
+            ("Not on this island", pal.place_unfit)
+        }
     };
     let colour = Color::LinearRgba(LinearRgba::from_vec3(colour));
     for child in children {
@@ -469,16 +472,13 @@ fn keys(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generator::GeneratorSettings;
+    use crate::generator::land::IslandId;
     use crate::generator::society::TownId;
+    use crate::generator::testing;
 
     fn app() -> (App, TownId) {
         let mut app = App::new();
-        let mut land = Land::new(
-            1,
-            GeneratorSettings::default(),
-            Palette::default(),
-        );
+        let mut land = testing::land(1);
         let mut society = Society::default();
         let town = society.found_town(&mut land);
         society.found_town(&mut land);
@@ -546,11 +546,17 @@ mod tests {
     /// Open ground far from every town.
     fn meadow(app: &App) -> Vec2 {
         let land = app.world().resource::<Land>();
+        let centre = land.hamlet_centre();
         (0..600)
             .map(|i| {
-                Vec2::from_angle(i as f32) * (300.0 + i as f32 * 3.0)
+                centre
+                    + Vec2::from_angle(i as f32)
+                        * (150.0 + i as f32 * 0.4)
             })
-            .find(|&p| land.suits(p).is_ok())
+            .find(|&p| {
+                land.suits(p).is_ok()
+                    && land.island_at(p) == IslandId::Hamlet
+            })
             .unwrap()
     }
 
@@ -584,7 +590,10 @@ mod tests {
         pick_up(app.world_mut(), Ground::Town(town));
         let land = app.world().resource::<Land>().clone();
         let river = (0..4000)
-            .map(|i| Vec2::new(i as f32 * 0.5 - 1000.0, 40.0))
+            .map(|i| {
+                land.hamlet_centre()
+                    + Vec2::new(i as f32 * 0.5 - 1000.0, 40.0)
+            })
             .find(|&p| land.river_dist(p) < 1.0)
             .unwrap();
         point(&mut app, river);

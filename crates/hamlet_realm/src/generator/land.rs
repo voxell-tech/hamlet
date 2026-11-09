@@ -30,6 +30,14 @@ pub struct LandSettings {
     /// Rings of sites the land has around the middle one before any
     /// more are asked for.
     pub site_rings: i32,
+    /// The step the two islands' radii are rounded up to. The hamlet
+    /// island moves only when an island's radius crosses a step.
+    pub island_step: f32,
+    /// Open water at least this wide between the two islands' land.
+    pub channel: f32,
+    /// Distance from the Hand's tower at which the Hearth and the
+    /// library first stand.
+    pub city_ring: f32,
     /// Side of one tile of ground at its finest.
     pub chunk: f32,
     /// Width of a cell of the finest grid the ground is drawn in, up
@@ -42,15 +50,15 @@ pub struct LandSettings {
     /// the scale of its noise and its height.
     pub hills: (f32, f32),
     pub grain: (f32, f32),
-    /// The island: how far its land reaches from the middle and from
-    /// every town, the wobble of its coast as the scale of its noise
-    /// and how far it reaches, and the depth under the water of the
-    /// floor off the shore and far out.
+    /// Each island: how far its land reaches from its middle and
+    /// from what stands on it, the wobble of its coast as the scale
+    /// of its noise and how far it reaches, and the depth under the
+    /// water of the floor off the shore and far out.
     pub island: f32,
     pub coast: (f32, f32),
     pub shelf: f32,
     pub sea_floor: f32,
-    /// The least and the most width of the skirt the island's rim
+    /// The least and the most width of the skirt an island's rim
     /// falls to the sea floor in: steep where narrow, gentle where
     /// wide.
     pub rim: (f32, f32),
@@ -90,13 +98,58 @@ pub struct LandSettings {
     pub wilds: f32,
     pub heath: f32,
     /// Side of a cell of the grid trees are scattered on, and where
-    /// the corner of its first cell lies from the middle.
+    /// the corner of its first cell lies from the middle of its
+    /// island.
     pub tree_cell: f32,
     pub tree_origin: f32,
+    /// The share of the trees the hamlet island would have that the
+    /// city island keeps, so its houses stand in the open.
+    pub city_trees: f32,
 }
 
 /// A cell of the grid the land lays its sites and corridors on.
 type Cell = (i32, i32);
+
+/// One of the two islands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum IslandId {
+    /// Where the scholars live, centred on the origin.
+    City,
+    /// Where the hamlets stand, across the channel.
+    Hamlet,
+}
+
+impl IslandId {
+    pub const BOTH: [IslandId; 2] =
+        [IslandId::City, IslandId::Hamlet];
+
+    pub fn other(self) -> IslandId {
+        match self {
+            IslandId::City => IslandId::Hamlet,
+            IslandId::Hamlet => IslandId::City,
+        }
+    }
+}
+
+/// A piece of land with water all round it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Island {
+    /// Where it lies. Its noise and its rivers are measured from
+    /// here, so that it moves as one.
+    pub centre: Vec2,
+    /// The points its land reaches about: its centre, then what
+    /// stands on it.
+    pub shores: Vec<Vec2>,
+}
+
+/// Where a point stands on the land: its island, its place measured
+/// from that island's centre, and how far inside the coast it lies.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Frame {
+    pub isle: IslandId,
+    pub local: Vec2,
+    pub inside: f32,
+}
 
 /// Level ground for a town.
 #[derive(Clone, Debug, PartialEq)]
@@ -127,6 +180,8 @@ pub enum Unfit {
     /// On top of another town, or of something else that holds its
     /// ground.
     Crowded,
+    /// On the island of the other kind of place.
+    Elsewhere,
 }
 
 /// The lie of the land for one seed, shared with the background
@@ -144,8 +199,8 @@ impl Land {
     }
 
     /// Readies one more site and returns its number: the nearest
-    /// cell to the middle that suits a town, has no site lying in
-    /// it and is not `taken`.
+    /// cell to the middle of the hamlet island that suits a town,
+    /// has no site lying in it and is not `taken`.
     pub(crate) fn open_site(
         &mut self,
         taken: impl Fn(Vec2) -> bool,
@@ -159,6 +214,7 @@ impl Land {
                     .sites
                     .iter()
                     .any(|s| s.at.distance(home) < apart)
+                    && self.island_at(home) == IslandId::Hamlet
                     && self.suits(home).is_ok()
                     && !taken(home);
                 open.then_some((cell, home))
@@ -191,6 +247,7 @@ impl Land {
         let land = Arc::make_mut(&mut self.0);
         land.sites[site].at = to;
         land.index();
+        land.reshore();
     }
 
     /// Keeps each round of ground level and clear of trees, and lets
@@ -211,13 +268,32 @@ impl Land {
             .collect();
     }
 
-    /// Grows the island about the sites in `settled`, which have
-    /// towns, and lets go of the land about any others.
+    /// Grows the hamlet island about the sites in `settled`, which
+    /// have towns, and lets go of the land about any others.
     pub fn settle(&mut self, settled: &[usize]) {
         if self.settled == settled {
             return;
         }
-        Arc::make_mut(&mut self.0).settled = settled.to_vec();
+        let land = Arc::make_mut(&mut self.0);
+        land.settled = settled.to_vec();
+        land.reshore();
+    }
+
+    /// The places the city island is grown about, in the order
+    /// [`Land::fill_city`] was given them.
+    pub fn city_spots(&self) -> &[Vec2] {
+        &self.city
+    }
+
+    /// Grows the city island about `spots`, the places of what
+    /// stands in the city, and lets go of the land about any others.
+    pub fn fill_city(&mut self, spots: &[Vec2]) {
+        if self.city == spots {
+            return;
+        }
+        let land = Arc::make_mut(&mut self.0);
+        land.city = spots.to_vec();
+        land.reshore();
     }
 }
 
@@ -234,14 +310,23 @@ pub struct LandData {
     pub seed: u32,
     /// The settings it was built from.
     pub set: GeneratorSettings,
+    /// The sites of the hamlet island.
     pub sites: Vec<Site>,
+    /// The city island, then the hamlet island.
+    islands: [Island; 2],
+    /// The way from the city island to the hamlet island.
+    bearing: Vec2,
     river_dir: Vec2,
     /// The sites that reach into each square of ground.
     near: HashMap<Cell, Vec<u32>>,
     /// Ground held level by something that is not a town.
     holds: Vec<Hold>,
-    /// The sites that have a town, which the island reaches about.
+    /// The sites that have a town, which the hamlet island reaches
+    /// about.
     settled: Vec<usize>,
+    /// The places of what stands in the city, which its island
+    /// reaches about.
+    city: Vec<Vec2>,
     pub pal: Palette,
 }
 
@@ -273,16 +358,25 @@ impl LandData {
         let a = unit(key(&[seed, 11])) * TAU;
         let rings = set.land.site_rings;
         let spacing = set.land.site_spacing;
+        let bearing = Vec2::from_angle(unit(key(&[seed, 16])) * TAU);
         let mut land = Self {
             seed,
             set,
             sites: Vec::new(),
+            islands: [(); 2].map(|()| Island {
+                centre: Vec2::ZERO,
+                shores: vec![Vec2::ZERO],
+            }),
+            bearing,
             river_dir: Vec2::new(a.cos(), a.sin()),
             near: HashMap::default(),
             holds: Vec::new(),
             settled: Vec::new(),
+            city: Vec::new(),
             pal,
         };
+        land.islands[1].centre = land.hamlet_goal();
+        land.islands[1].shores = vec![land.islands[1].centre];
         // Outward from the middle, so the first towns are neighbours.
         for ring in 0..=rings {
             for cell in land.ring(ring) {
@@ -315,8 +409,9 @@ impl LandData {
                 }
             }
         }
+        let centre = self.hamlet_centre();
         cells.sort_by_key(|&(q, r)| {
-            let p = self.hex_at(q, r);
+            let p = self.hex_at(q, r) - centre;
             (p.y.atan2(p.x) * 1000.0) as i32
         });
         cells
@@ -363,8 +458,8 @@ impl LandData {
             .sqrt()
     }
 
-    /// The place of a cell's site: a jittered hex grid, moved back
-    /// from the river.
+    /// The place of a cell's site: a jittered hex grid about the
+    /// hamlet island's middle, moved back from the river.
     fn hex_at(&self, q: i32, r: i32) -> Vec2 {
         let turn = unit(key(&[self.seed, 12])) * TAU;
         let grid = Vec2::new(
@@ -375,14 +470,17 @@ impl LandData {
             signed(key(&[self.seed, 14, q as u32, r as u32])),
             signed(key(&[self.seed, 15, q as u32, r as u32])),
         ) * 6.0;
-        let p = Vec2::from_angle(turn).rotate(grid) + jitter;
+        let p = self.hamlet_centre()
+            + Vec2::from_angle(turn).rotate(grid)
+            + jitter;
         self.clear_of_river(p, self.set.town.radius + 3.0)
     }
 
     /// The cell whose middle `p` is nearest, jitter aside.
     fn cell_of(&self, p: Vec2) -> Cell {
         let turn = unit(key(&[self.seed, 12])) * TAU;
-        let grid = Vec2::from_angle(-turn).rotate(p)
+        let grid = Vec2::from_angle(-turn)
+            .rotate(p - self.hamlet_centre())
             / self.set.land.site_spacing;
         let r = grid.y / 0.866_025_4;
         let q = grid.x - r * 0.5;
@@ -419,12 +517,129 @@ impl LandData {
             .map(|h| Vec4::new(h.at.x, h.at.y, h.radius, h.y))
     }
 
-    /// The points the island reaches about: the middle, and every
-    /// site that has a town.
+    /// The island `id`.
+    pub fn island(&self, id: IslandId) -> &Island {
+        &self.islands[id as usize]
+    }
+
+    /// The way from the city island to the hamlet island, as a unit
+    /// vector.
+    pub fn bearing(&self) -> Vec2 {
+        self.bearing
+    }
+
+    /// The middle of the hamlet island.
+    pub fn hamlet_centre(&self) -> Vec2 {
+        self.islands[IslandId::Hamlet as usize].centre
+    }
+
+    /// The points either island reaches about.
     pub fn shores(&self) -> impl Iterator<Item = Vec2> + '_ {
-        let towns =
-            self.settled.iter().filter_map(|&i| self.sites.get(i));
-        std::iter::once(Vec2::ZERO).chain(towns.map(|site| site.at))
+        self.islands
+            .iter()
+            .flat_map(|isle| isle.shores.iter().copied())
+    }
+
+    /// How far the land of `id` can lie from its middle: from its
+    /// farthest shore, out by the island's reach, the coast's
+    /// wobble and the most the smooth joining of the reaches adds.
+    pub fn extent(&self, id: IslandId) -> f32 {
+        let set = &self.set.land;
+        let isle = self.island(id);
+        let out = isle
+            .shores
+            .iter()
+            .map(|at| at.distance(isle.centre))
+            .fold(0.0, f32::max);
+        out + set.island * 1.3 + set.coast.1 + set.ragged
+    }
+
+    /// The radius the island `id` counts for in keeping the two
+    /// apart: its [`LandData::extent`] rounded up to a step.
+    pub fn radius(&self, id: IslandId) -> f32 {
+        let step = self.set.land.island_step.max(1.0);
+        (self.extent(id) / step).ceil().max(1.0) * step
+    }
+
+    /// The way from the middle of the island `id` to the middle of
+    /// the other, as a unit vector.
+    pub fn toward_other(&self, id: IslandId) -> Vec2 {
+        match id {
+            IslandId::City => self.bearing,
+            IslandId::Hamlet => -self.bearing,
+        }
+    }
+
+    /// The water's edge of the island `id` on the straight way to
+    /// the other island's middle: out from its middle to where the
+    /// land's field says the sea begins, then back in to the last
+    /// dry ground.
+    pub fn coast_toward_other(&self, id: IslandId) -> Vec2 {
+        const STEP: f32 = 0.5;
+        let from = self.island(id).centre;
+        let way = self.toward_other(id);
+        let reach = from.distance(self.island(id.other()).centre);
+        let mut out = 0.0;
+        while out < reach && self.inside(from + way * out) > 0.0 {
+            out += STEP;
+        }
+        while out > 0.0 && self.is_water(from + way * out) {
+            out -= STEP;
+        }
+        from + way * out
+    }
+
+    /// Where the hamlet island's middle belongs: past the city
+    /// island's radius and its own, and the channel, along the
+    /// bearing.
+    fn hamlet_goal(&self) -> Vec2 {
+        let apart = self.radius(IslandId::City)
+            + self.radius(IslandId::Hamlet)
+            + self.set.land.channel;
+        self.islands[IslandId::City as usize].centre
+            + self.bearing * apart
+    }
+
+    /// Gathers each island's shores again, and pushes the hamlet
+    /// island out or back where its radius or the city's has crossed
+    /// a step: every site and the island move by one vector.
+    fn reshore(&mut self) {
+        self.gather();
+        let by = self.hamlet_goal() - self.hamlet_centre();
+        if by == Vec2::ZERO {
+            return;
+        }
+        for site in &mut self.sites {
+            site.at += by;
+            site.home += by;
+        }
+        self.islands[IslandId::Hamlet as usize].centre += by;
+        self.index();
+        self.gather();
+    }
+
+    /// Sets each island's shores to its centre and what stands on
+    /// it.
+    fn gather(&mut self) {
+        let towns = self
+            .settled
+            .iter()
+            .filter_map(|&i| self.sites.get(i))
+            .map(|site| site.at);
+        let hamlet = std::iter::once(self.hamlet_centre())
+            .chain(towns)
+            .collect::<Vec<_>>();
+        let city =
+            std::iter::once(self.island(IslandId::City).centre)
+                .chain(self.city.iter().copied())
+                .collect::<Vec<_>>();
+        self.islands[IslandId::City as usize].shores = city;
+        self.islands[IslandId::Hamlet as usize].shores = hamlet;
+    }
+
+    /// The island whose land `p` lies nearest.
+    pub fn island_at(&self, p: Vec2) -> IslandId {
+        self.frame(p).isle
     }
 
     /// The rounds of ground that are held, each with its radius.

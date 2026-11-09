@@ -13,9 +13,13 @@ import bevy_pbr::{
         forward_io::VertexOutput,
         mesh_functions::get_local_from_world,
         view_transformations::{frag_coord_to_ndc, position_ndc_to_world},
+        mesh_view_bindings::view,
     },
     prepass::utils::prepass_depth,
 };
+
+// How much more counts as the ground for each metre from the camera.
+const GROWS: f32 = 0.006;
 
 struct Mark {
     // The light, in linear RGB, and how strong it is.
@@ -89,8 +93,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
     let off = abs(seen.y - ground(seen.xz));
+    // Far off, the ground is drawn coarser than its heights and its
+    // depth is known less finely, so what counts as the ground grows
+    // with the distance, and the mark never fades as it goes away.
+    let near = mark.near + distance(view.world_position, seen) * GROWS;
     // Fades over the last third, so that the edge of a step is soft.
-    let on_ground = 1.0 - smoothstep(mark.near * 0.67, mark.near, off);
+    let on_ground = 1.0 - smoothstep(near * 0.67, near, off);
     let alpha = drawn * on_ground * mark.light.a;
     if alpha < 0.004 {
         discard;

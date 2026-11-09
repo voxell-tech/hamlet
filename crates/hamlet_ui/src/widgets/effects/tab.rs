@@ -1,6 +1,7 @@
 //! The highlight of a panel on its tab while another is in front:
 //! its glow and its flash rise from the tab's bottom edge, and a
-//! badge with the count of what waits shows on the tab.
+//! badge with the count of what waits shows on the tab. The tab in
+//! front is underlined.
 
 use bevy::camera::visibility::Visibility;
 use bevy::color::{Alpha, Color, Mix};
@@ -12,8 +13,9 @@ use bevy::ecs::system::{Commands, Query, Res};
 use bevy::time::Time;
 use bevy::ui::widget::Text;
 use bevy::ui::{
-    BackgroundColor, BackgroundGradient, Gradient, RadialGradient,
-    RadialGradientShape, UiPosition, percent,
+    BackgroundColor, BackgroundGradient, ColorStop, Gradient,
+    LinearGradient, RadialGradient, RadialGradientShape, UiPosition,
+    percent, px,
 };
 use bevy_fynix::dock::{
     ActiveTab, DockPane, DockTab, TabBadge, TabBadgeCount,
@@ -25,7 +27,7 @@ use crate::theme::Themed;
 
 /// The most glow a tab's attention glow and its flash throw, as an
 /// alpha.
-const GLOW: f32 = 0.2;
+const GLOW: f32 = 0.13;
 const FLASH: f32 = 0.4;
 
 /// The most a badge counts to before it says there are more.
@@ -66,7 +68,7 @@ pub(super) fn highlight_tabs(
         Entity,
         &DockTab,
         Has<ActiveTab>,
-        Has<BackgroundGradient>,
+        Option<&BackgroundGradient>,
     )>,
     mut badges: Query<
         (Entity, &mut Visibility, &mut BackgroundColor),
@@ -110,12 +112,30 @@ pub(super) fn highlight_tabs(
         1.0 + set.flicker * flicker(time.elapsed_secs(), 1.0);
     let hue = colors.attention.mix(&colors.glow_core, 0.35);
 
+    // The line under the tab in front, as under a tab within a panel.
+    let line = theme.palette.gold_4;
+    let underline = BackgroundGradient(vec![Gradient::from(
+        LinearGradient::to_top(vec![
+            ColorStop::new(line, px(0.0)),
+            ColorStop::new(line, px(theme.space.underline)),
+            ColorStop::new(
+                line.with_alpha(0.0),
+                px(theme.space.underline),
+            ),
+        ]),
+    )]);
     for (node, tab, front, has) in &tabs {
+        if front {
+            if has != Some(&underline) {
+                commands.entity(node).try_insert(underline.clone());
+            }
+            continue;
+        }
         let Light {
             attention, flash, ..
         } = light_of(tab, front);
         if attention <= 0.0 && flash <= 0.0 {
-            if has {
+            if has.is_some() {
                 commands
                     .entity(node)
                     .try_remove::<BackgroundGradient>();

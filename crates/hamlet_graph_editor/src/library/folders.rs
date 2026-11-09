@@ -1,8 +1,9 @@
 //! Folders: paths recorded in the library's `folders.ron` that group
 //! its assets, of every kind. A folder holds no files: each asset's
 //! file stays in its kind's shelf, and the record says which folder
-//! the asset is in. A folder's path is its parents' names and its own,
-//! joined by `/`; an asset in a folder is also in the folders above.
+//! the asset is in. A folder's path is its parents' names and its
+//! own, joined by `/`; an asset in a folder is also in the folders
+//! above.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,19 +13,22 @@ use serde::{Deserialize, Serialize};
 use super::Kind;
 
 /// The folders and the folder each asset is in.
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[derive(
+    Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize,
+)]
 pub struct Folders {
     /// Every folder's path, a folder's parents among them.
     #[serde(default)]
     pub paths: BTreeSet<String>,
-    /// The folder each asset is in, by its kind's shelf and its name,
-    /// as `materials/plaster`. An asset not named is in none.
+    /// The folder each asset is in, by its kind's shelf and its
+    /// name, as `materials/plaster`. An asset not named is in none.
     #[serde(default)]
     pub placed: BTreeMap<String, String>,
 }
 
 impl Folders {
-    /// How the asset `name` of `kind` is named in [`Folders::placed`].
+    /// How the asset `name` of `kind` is named in
+    /// [`Folders::placed`].
     pub fn key(kind: Kind, name: &str) -> String {
         format!("{}/{name}", kind.shelf())
     }
@@ -36,7 +40,12 @@ impl Folders {
 
     /// Whether the asset `name` of `kind` is in the folder `folder`
     /// or one inside it.
-    pub fn holds(&self, folder: &str, kind: Kind, name: &str) -> bool {
+    pub fn holds(
+        &self,
+        folder: &str,
+        kind: Kind,
+        name: &str,
+    ) -> bool {
         self.of(kind, name).is_some_and(|at| within(at, folder))
     }
 
@@ -65,7 +74,9 @@ impl Folders {
 
     /// Keeps the asset renamed from `from` to `to` in its folder.
     pub fn renamed(&mut self, kind: Kind, from: &str, to: &str) {
-        if let Some(folder) = self.placed.remove(&Self::key(kind, from)) {
+        if let Some(folder) =
+            self.placed.remove(&Self::key(kind, from))
+        {
             self.placed.insert(Self::key(kind, to), folder);
         }
     }
@@ -75,8 +86,8 @@ impl Folders {
         self.placed.remove(&Self::key(kind, name));
     }
 
-    /// Makes the folder `path`, and the folders above it it needs, and
-    /// gives its path as kept.
+    /// Makes the folder `path`, and the folders above it it needs,
+    /// and gives its path as kept.
     pub fn add(&mut self, path: &str) -> anyhow::Result<String> {
         let path = clean(path).context("a folder needs a name")?;
         if self.paths.contains(&path) {
@@ -102,8 +113,8 @@ impl Folders {
             .unwrap_or_default()
     }
 
-    /// Gives the folder `from` the path `to`, with the folders and the
-    /// assets inside it, and gives the path as kept.
+    /// Gives the folder `from` the path `to`, with the folders and
+    /// the assets inside it, and gives the path as kept.
     pub fn rename(
         &mut self,
         from: &str,
@@ -123,7 +134,8 @@ impl Folders {
             anyhow::bail!("there is already a folder {to}");
         }
         let moved = |path: &str| {
-            within(path, from).then(|| format!("{to}{}", &path[from.len()..]))
+            within(path, from)
+                .then(|| format!("{to}{}", &path[from.len()..]))
         };
         self.paths = std::mem::take(&mut self.paths)
             .into_iter()
@@ -140,8 +152,8 @@ impl Folders {
         Ok(to)
     }
 
-    /// Takes the folder `path` away. The folders and the assets inside
-    /// it go to the folder above it, or to the top.
+    /// Takes the folder `path` away. The folders and the assets
+    /// inside it go to the folder above it, or to the top.
     pub fn remove(&mut self, path: &str) -> anyhow::Result<()> {
         if !self.paths.remove(path) {
             anyhow::bail!("there is no folder {path}");
@@ -208,23 +220,42 @@ mod tests {
     #[test]
     fn a_folder_renamed_or_removed_keeps_what_is_inside_it() {
         let mut folders = Folders::default();
-        assert_eq!(folders.add(" village / roofs ").unwrap(), "village/roofs");
+        assert_eq!(
+            folders.add(" village / roofs ").unwrap(),
+            "village/roofs"
+        );
         assert!(folders.paths.contains("village"));
-        folders.put(Kind::Material, "slate", Some("village/roofs")).unwrap();
+        folders
+            .put(Kind::Material, "slate", Some("village/roofs"))
+            .unwrap();
         folders.put(Kind::Mesh, "barrel", Some("village")).unwrap();
         assert!(folders.holds("village", Kind::Material, "slate"));
-        assert!(!folders.holds("village/roofs", Kind::Mesh, "barrel"));
+        assert!(!folders.holds(
+            "village/roofs",
+            Kind::Mesh,
+            "barrel"
+        ));
 
-        assert_eq!(folders.rename("village", "town").unwrap(), "town");
-        assert_eq!(folders.of(Kind::Material, "slate"), Some("town/roofs"));
+        assert_eq!(
+            folders.rename("village", "town").unwrap(),
+            "town"
+        );
+        assert_eq!(
+            folders.of(Kind::Material, "slate"),
+            Some("town/roofs")
+        );
         assert_eq!(folders.of(Kind::Mesh, "barrel"), Some("town"));
         assert!(folders.rename("town", "town/inner").is_err());
 
-        // The roofs folder goes, and its material moves up to the town.
+        // The roofs folder goes, and its material moves up to the
+        // town.
         folders.remove("town/roofs").unwrap();
         assert_eq!(folders.of(Kind::Material, "slate"), Some("town"));
         assert_eq!(folders.of(Kind::Mesh, "barrel"), Some("town"));
-        assert_eq!(folders.paths, BTreeSet::from(["town".to_owned()]));
+        assert_eq!(
+            folders.paths,
+            BTreeSet::from(["town".to_owned()])
+        );
         // A folder at the top leaves its assets in none.
         folders.remove("town").unwrap();
         assert_eq!(folders.of(Kind::Mesh, "barrel"), None);
@@ -234,7 +265,9 @@ mod tests {
     fn folders_read_back_as_they_were_written() {
         let mut folders = Folders::default();
         folders.add("village").unwrap();
-        folders.put(Kind::Shader, "plaster", Some("village")).unwrap();
+        folders
+            .put(Kind::Shader, "plaster", Some("village"))
+            .unwrap();
         let text = folders.to_ron().unwrap();
         assert_eq!(Folders::from_ron(&text).unwrap(), folders);
     }

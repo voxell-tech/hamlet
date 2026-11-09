@@ -1,0 +1,8 @@
+# Clippy reads only the nearest clippy.toml, so this file repeats the
+# workspace's settings.
+max-fn-params-bools = 1
+check-private-items = true
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "start a command with hamlet_os::process::Tree::spawn" },
+    { path = "tokio::process::Command::new", reason = "start a command with hamlet_os::process::Tree::spawn" },
+]

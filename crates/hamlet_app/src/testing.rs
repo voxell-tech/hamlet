@@ -1,8 +1,9 @@
 //! Helpers the tests of several modules share.
 
 use std::io::Cursor;
+use std::path::PathBuf;
 
-use bevy::app::App;
+use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -11,19 +12,31 @@ use bevy::text::TextSpan;
 use bevy::ui::widget::Text;
 use bevy::ui_widgets::{Activate, Button, MenuItem};
 use bevy_fynix::FynixPlugin;
-use bevy_fynix::dock::DockTree;
-use hamlet_assets::Tuning;
+use bevy_fynix::dock::{DockRegistry, DockTree};
 use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
-use hamlet_client::{ClientPlugin, Connection, receive};
+use hamlet_client::{ClientPlugin, Connection, ViewFolder, receive};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_protocol::client as protocol;
+use hamlet_realm::North;
+use hamlet_realm::pick::Selected;
+use hamlet_realm::sky::{
+    DistanceFogSettings, Quality, VolumetricFogSettings,
+};
+use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::markdown::{Block, Kind, Span, Style};
 use hamlet_ui::theme::{self, HamletTheme, ThemeChanged};
+use hamlet_vfx::wind::WindChoice;
 use image::{ImageFormat, RgbaImage};
 
+use crate::appearance::Appearance;
+use crate::desk::{self, Desks};
+use crate::remember::Remembered;
+use crate::roll::Roll;
 use crate::screens::settings::{self, Pane};
 use crate::welcome::Browser;
+use crate::world_menu::Favorites;
+use crate::world_view::{NorthTarget, TimeOfDay};
 
 /// A window's panels on the received fixture state: the chat's
 /// agent, the roll and the asking, with no page of first-run setup.
@@ -35,7 +48,7 @@ pub(crate) fn panel_app() -> App {
         FynixPlugin::<HamletTheme>::default(),
         crate::panel_sets,
     ));
-    theme::insert_theme(app.world_mut(), HamletTheme::designed());
+    theme::show(app.world_mut(), HamletTheme::designed());
     receive(
         app.world_mut(),
         protocol::ServerMessage::State(hamlet_testing::realm::state()),
@@ -49,6 +62,23 @@ pub(crate) fn panel_app() -> App {
         .init_resource::<crate::select::Selecting>()
         .add_message::<ThemeChanged>();
     app
+}
+
+/// Points the chat at the fixture's mayor `home#0`, who lives in
+/// the first hamlet, and returns it.
+/// Points the chat at the Hand and returns it.
+pub(crate) fn seat_hand(app: &mut App) -> Entity {
+    let hand =
+        hamlet_client::realm::named(app.world_mut(), "hand").unwrap();
+    crate::convo::seat(app.world_mut(), hand);
+    hand
+}
+
+pub(crate) fn seat_ada(app: &mut App) -> Entity {
+    let ada = hamlet_client::realm::named(app.world_mut(), "home#0")
+        .unwrap();
+    crate::convo::seat(app.world_mut(), ada);
+    ada
 }
 
 /// First-run setup with input and the secret prompt, and a browser
@@ -67,7 +97,7 @@ pub(crate) fn welcome_app() -> App {
         crate::secret::plugin,
         crate::panel_sets,
     ));
-    theme::insert_theme(app.world_mut(), HamletTheme::designed());
+    theme::show(app.world_mut(), HamletTheme::designed());
     app.insert_resource(Browser(|_, url| {
         panic!("unexpected browser URL: {url}")
     }));
@@ -97,6 +127,32 @@ pub(crate) fn settings_page(pane: Pane) -> App {
     );
     settle(&mut app);
     app
+}
+
+/// Writes the view into `folder` as the window does, with every
+/// choice it keeps at its default. The app keeps its own `Time`.
+pub(crate) fn keeping(app: &mut App, folder: PathBuf) {
+    app.insert_resource(ViewFolder(folder))
+        .init_resource::<Selected>()
+        .init_resource::<Roll>()
+        .init_resource::<DockTree>()
+        .init_resource::<TimeOfDay>()
+        .init_resource::<SoundSettings>()
+        .init_resource::<Quality>()
+        .init_resource::<VolumetricFogSettings>()
+        .init_resource::<DistanceFogSettings>()
+        .init_resource::<WindChoice>()
+        .init_resource::<North>()
+        .init_resource::<NorthTarget>()
+        .init_resource::<KeepAwake>()
+        .init_resource::<DockRegistry<HamletTheme>>()
+        .init_resource::<Desks>()
+        .init_resource::<Favorites>()
+        .init_resource::<Appearance>()
+        .init_resource::<Remembered>()
+        .init_resource::<desk::Shown>()
+        .add_systems(Update, desk::capture)
+        .add_plugins(crate::remember::plugin);
 }
 
 /// Runs the update a page follows what it received in.

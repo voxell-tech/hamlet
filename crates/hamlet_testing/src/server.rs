@@ -6,7 +6,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use futures::{SinkExt, StreamExt};
-use hamlet_protocol::client::{RequestId, V};
+use hamlet_protocol::client::{RequestId, VERSION};
 use rustix::process::{Pid, Signal, kill_process};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -15,10 +15,6 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use crate::Scratch;
-use crate::script::Script;
-
-/// Selects the command that starts a server.
-const SERVER_VAR: &str = "HAMLET_ACCEPTANCE_SERVER";
 
 /// The longest a server may take to publish its address.
 const START: Duration = Duration::from_secs(30);
@@ -38,104 +34,6 @@ pub enum Models<'a> {
     Faux(&'a Path),
     /// Its real model providers.
     Providers,
-}
-
-/// A home and the folder beside it for scripts, kept across the
-/// servers started on it.
-pub struct Home {
-    home: Scratch,
-    side: Scratch,
-    started: u32,
-}
-
-impl Home {
-    pub fn new() -> Self {
-        Self {
-            home: Scratch::new("home"),
-            side: Scratch::new("side"),
-            started: 0,
-        }
-    }
-
-    /// The home's folder, given to the server as `HAMLET_HOME`.
-    pub fn path(&self) -> &Path {
-        &self.home
-    }
-
-    /// A folder of the test's own, outside the home.
-    pub fn side(&self) -> &Path {
-        &self.side
-    }
-
-    /// The path of `relative` in the home.
-    pub fn file(&self, relative: &str) -> PathBuf {
-        self.path().join(relative)
-    }
-
-    /// Starts a server on this home answering with `script`, with
-    /// `env` added to its environment.
-    pub async fn serve(
-        &mut self,
-        script: &Script,
-        env: &[(&str, &str)],
-    ) -> Server {
-        self.launch(script, env)
-            .await
-            .unwrap_or_else(|failure| panic!("{failure}"))
-    }
-
-    /// Starts a server that is expected to fail, and gives what it
-    /// printed.
-    pub async fn try_serve(
-        &mut self,
-        script: &Script,
-        env: &[(&str, &str)],
-    ) -> String {
-        match self.launch(script, env).await {
-            Ok(_) => panic!("the server started"),
-            Err(failure) => failure.to_string(),
-        }
-    }
-
-    /// Starts a server on this home with its real model providers,
-    /// without `--faux`. `env` points them at a loopback endpoint.
-    pub async fn serve_providers(
-        &mut self,
-        env: &[(&str, &str)],
-    ) -> Server {
-        Server::start(
-            &server_command(),
-            self.path(),
-            Models::Providers,
-            env,
-        )
-        .await
-        .unwrap_or_else(|failure| panic!("{failure}"))
-    }
-
-    async fn launch(
-        &mut self,
-        script: &Script,
-        env: &[(&str, &str)],
-    ) -> Result<Server, Unstarted> {
-        self.started += 1;
-        let file =
-            self.side().join(format!("script-{}.json", self.started));
-        script.write(&file);
-        Server::start(
-            &server_command(),
-            self.path(),
-            Models::Faux(&file),
-            env,
-        )
-        .await
-    }
-}
-
-impl Default for Home {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 /// A server that did not start, with the command that ran it.
@@ -220,6 +118,8 @@ impl Server {
         }
         let started = command
             .env("HAMLET_HOME", home)
+            // Else the chief is named for the account, which differs
+            // between machines.
             .env("HAMLET_USER", "chief")
             .envs(env.iter().copied())
             .stdin(Stdio::null())
@@ -298,7 +198,7 @@ impl Server {
                 .unwrap();
         socket
             .send(Message::Text(
-                json!({"type": "hello", "v": V, "token": self.token})
+                json!({"type": "hello", "v": VERSION.to_string(), "token": self.token})
                     .to_string()
                     .into(),
             ))
@@ -437,39 +337,6 @@ pub async fn until(
     })
     .await
     .expect("the server did not send the expected message")
-}
-
-/// The command that starts a server, before `--port 0` and
-/// `--faux <file>`: [`SERVER_VAR`], else the `hamlet` CLI's
-/// `server`.
-fn server_command() -> Vec<String> {
-    if let Some(command) = std::env::var(SERVER_VAR)
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-    {
-        let mut words = command
-            .split_whitespace()
-            .map(String::from)
-            .collect::<Vec<_>>();
-        let program = Path::new(&words[0]);
-        if program.is_relative() && program.components().count() > 1 {
-            words[0] = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../..")
-                .join(program)
-                .display()
-                .to_string();
-        }
-        return words;
-    }
-    let cli = cli();
-    assert!(
-        cli.is_file(),
-        "{} is missing: build it with `cargo build -p hamlet_cli`, \
-         set HAMLET_CLI to a built CLI, or set {SERVER_VAR} to the \
-         command that starts a server",
-        cli.display()
-    );
-    vec![cli.display().to_string(), "server".into()]
 }
 
 /// The `hamlet` CLI: `HAMLET_CLI`, else the workspace's debug build.

@@ -174,7 +174,9 @@ fn there_is_always_room_for_one_more_town() {
 fn meadow(land: &Land, s: &Society, town: TownId) -> Vec2 {
     (0..900)
         .map(|i| {
-            Vec2::from_angle(i as f32) * (260.0 + i as f32 * 3.0)
+            land.hamlet_centre()
+                + Vec2::from_angle(i as f32)
+                    * (150.0 + i as f32 * 0.4)
         })
         .find(|&p| s.fits(land, Ground::Town(town), p).is_ok())
         .unwrap()
@@ -255,7 +257,10 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
     };
 
     let river = (0..4000)
-        .map(|i| Vec2::new(i as f32 * 0.5 - 1000.0, 40.0))
+        .map(|i| {
+            land.hamlet_centre()
+                + Vec2::new(i as f32 * 0.5 - 1000.0, 40.0)
+        })
         .find(|&p| land.river_dist(p) < 1.0)
         .unwrap();
     refused(&mut s, &mut land, river, Unfit::Water);
@@ -268,7 +273,11 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
         Unfit::Crowded,
     );
     let peak = (0..4000)
-        .map(|i| Vec2::from_angle(i as f32) * (300.0 + i as f32))
+        .map(|i| {
+            land.hamlet_centre()
+                + Vec2::from_angle(i as f32)
+                    * (150.0 + i as f32 * 0.2)
+        })
         .find(|&p| land.mound(p) > 0.5)
         .unwrap();
     refused(&mut s, &mut land, peak, Unfit::Steep);
@@ -282,9 +291,14 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
         radius: 12.0,
     });
     refused(&mut s, &mut land, to, Unfit::Crowded);
+    // A town stays on the hamlet island, and the Hearth in the city.
     assert_eq!(
         s.fits(&land, Ground::Chief, there),
-        Err(Unfit::Crowded)
+        Err(Unfit::Elsewhere)
+    );
+    assert_eq!(
+        s.fits(&land, Ground::Town(town), Vec2::new(20.0, 0.0)),
+        Err(Unfit::Elsewhere)
     );
     assert_eq!(land.sites[site], stood[site]);
     let home = stood
@@ -335,4 +349,22 @@ fn a_town_is_founded_clear_of_one_that_was_moved() {
     let again = s.found_town(&mut land);
     let site = s.town(again).unwrap().site;
     assert_eq!(land.sites[site].at, land.sites[site].home);
+}
+
+#[test]
+fn a_house_keeps_clear_of_the_citys_middle() {
+    use crate::generator::land::IslandId;
+    let land = land();
+    let mut s = Society::default();
+    let city = land.island(IslandId::City).centre;
+    let house = Ground::House(hamlet_protocol::client::ScholarId(1));
+    s.claims.push(Claim {
+        place: house,
+        at: city + Vec2::new(80.0, 0.0),
+        radius: 6.0,
+    });
+    assert_eq!(
+        s.fits(&land, house, city + Vec2::new(30.0, 0.0)),
+        Err(Unfit::Crowded)
+    );
 }

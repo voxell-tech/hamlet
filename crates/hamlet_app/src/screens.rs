@@ -1,7 +1,7 @@
 //! The panels that draw from the client's state.
 
 pub mod chat;
-pub mod inspector;
+pub mod hub;
 pub mod links;
 pub mod overview;
 pub mod petition;
@@ -12,7 +12,7 @@ use bevy::app::App;
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((
-        inspector::plugin,
+        hub::plugin,
         overview::plugin,
         chat::plugin,
         links::plugin,

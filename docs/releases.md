@@ -32,8 +32,8 @@ may ask before opening it. Finder may not see a shell-installed Node, so
 launch `Contents/MacOS/hamlet` from a terminal with `HAMLET_NODE` if needed.
 
 Windows uses a zip laid out as the Linux tarball, with `.exe` binaries.
-Run `hamlet.exe --insecure` in a terminal. Windows has no server sandbox
-yet, so a Windows server starts only in insecure mode, and agents'
+Run `hamlet.exe --insecure` in a terminal. Windows has no server sandbox,
+so a Windows server starts only in insecure mode, and agents'
 commands reach whatever the account running it can. Agents get
 `powershell`, and `bash` where Git for Windows is installed. The binaries
 link the C runtime statically and need no Visual C++ runtime. Neither

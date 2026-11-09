@@ -6,8 +6,9 @@ use bevy::color::Color;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::world::World;
 use bevy::text::{
-    FontSize, FontSource, FontStyle, FontWeight, Strikethrough,
-    TextBackgroundColor, TextColor, TextFont, TextSpan, Underline,
+    FontSize, FontSource, FontStyle, FontWeight, LineHeight,
+    Strikethrough, TextBackgroundColor, TextColor, TextFont,
+    TextSpan, Underline,
 };
 use bevy::ui::{
     AlignItems, Display, JustifyContent, MaxTrackSizingFunction,
@@ -19,7 +20,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row,
 };
 use bevy_fynix::{
-    EntityCursor, Signal, ViewExt, derived, each, keyed, resource,
+    EntityCursor, ScopedExt, Signal, ViewExt, derived, each, keyed,
+    resource,
 };
 
 use super::parse::{parse, plain};
@@ -27,11 +29,9 @@ use super::{
     Align, Anchor, Area, Block, Kind, Marker, PathLinks, PictureView,
     Row, Span, Style, Target,
 };
-use crate::styles::{Fills, bare};
+use crate::styles::{Fills, bare, small_rules};
 use crate::theme::Palette;
-use crate::widgets::platform::{
-    Display as DisplayFace, DisplayText, Mono, MonoText,
-};
+use crate::widgets::platform::{Mono, MonoText};
 use crate::{AnyView, Cx, View};
 
 /// Takes the link off a path that `blocks` end with, which may be
@@ -64,6 +64,23 @@ const DEEPEST: u8 = 6;
 
 /// The width of a list level, which a marker sits in.
 const STEP: f32 = 22.0;
+
+/// How far apart the lines of a page are, in its font's size.
+const PAGE_LEADING: f32 = 1.4;
+
+/// The character set between the letters of inline code on a page,
+/// so that no line breaks inside it. It is drawn as nothing.
+pub const JOINER: char = '\u{2060}';
+
+/// How a document's words are set.
+#[derive(Clone, Copy, PartialEq)]
+enum Setting {
+    /// As they come, a line breaking wherever one may.
+    Running,
+    /// To be read as a page: the lines further apart, and inline code
+    /// kept whole on one line.
+    Page,
+}
 
 /// The face a block's text is set in.
 #[derive(Clone, Copy, PartialEq)]
@@ -116,6 +133,23 @@ fn anchored(
 /// for each. A link is a span the pointer finds by itself, on every
 /// line it runs over.
 pub fn rich(spans: &[Span], ink: Ink) -> AnyView {
+    set_rich(spans, ink, Setting::Running)
+}
+
+/// `text` with a [`JOINER`] between each two of its letters.
+fn kept_whole(text: &str) -> String {
+    let mut joined = String::with_capacity(text.len() * 4);
+    for (at, letter) in text.chars().enumerate() {
+        if at > 0 {
+            joined.push(JOINER);
+        }
+        joined.push(letter);
+    }
+    joined
+}
+
+/// A [`rich`] paragraph set as `setting` says.
+fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
     let spans = spans.to_vec();
     let mut links = resource::<PathLinks, _>(|_| ());
     keyed(
@@ -132,14 +166,17 @@ pub fn rich(spans: &[Span], ink: Ink) -> AnyView {
                 let theme = cx.theme();
                 let size = ink.size.unwrap_or(theme.text.body);
                 let root = cx.build(label("").size(size));
+                let leading = match setting {
+                    Setting::Running => LineHeight::default(),
+                    Setting::Page => {
+                        LineHeight::RelativeToFont(PAGE_LEADING)
+                    }
+                };
+                cx.world.entity_mut(root).insert(leading);
                 let mono = cx
                     .world
                     .get_resource::<Mono>()
                     .map(|m| m.0.clone());
-                let display = cx
-                    .world
-                    .get_resource::<DisplayFace>()
-                    .map(|d| d.0.clone());
                 for (span, anchor) in spans {
                     let Style {
                         bold,
@@ -151,13 +188,10 @@ pub fn rich(spans: &[Span], ink: Ink) -> AnyView {
                         Some(_) => Tone::Accent,
                         None => ink.tone,
                     };
-                    let face = match (code, ink.face) {
-                        (true, _) => mono.clone(),
-                        (false, Face::Heading) => display.clone(),
-                        _ => None,
-                    };
                     let font = TextFont {
-                        font: face
+                        font: mono
+                            .clone()
+                            .filter(|_| code)
                             .map(FontSource::from)
                             .unwrap_or_default(),
                         font_size: FontSize::Px(if code {
@@ -177,8 +211,14 @@ pub fn rich(spans: &[Span], ink: Ink) -> AnyView {
                         },
                         ..TextFont::default()
                     };
+                    let text = if code && setting == Setting::Page {
+                        kept_whole(&span.text)
+                    } else {
+                        span.text
+                    };
                     let mut entity = cx.world.spawn((
-                        TextSpan(span.text),
+                        TextSpan(text),
+                        leading,
                         font,
                         TextColor(theme.tone(tone)),
                         ChildOf(root),
@@ -188,8 +228,6 @@ pub fn rich(spans: &[Span], ink: Ink) -> AnyView {
                             MonoText,
                             TextBackgroundColor(theme.palette.code),
                         ));
-                    } else if ink.face == Face::Heading {
-                        entity.insert(DisplayText);
                     }
                     if let Some(anchor) = anchor {
                         entity.insert((
@@ -231,8 +269,8 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
     if !lang.is_empty() {
         parts.push(
             label(lang.to_string())
-                .size(11.0)
                 .tone(Tone::Dim)
+                .rules(small_rules)
                 .boxed(),
         );
     }
@@ -321,6 +359,7 @@ fn block_view(
     at: usize,
     block: &Block,
     tone: Tone,
+    setting: Setting,
 ) -> AnyView {
     let above = match (at, &block.kind, block.marker) {
         (0, ..) => 0.0,
@@ -335,8 +374,8 @@ fn block_view(
         face: Face::Body,
     };
     let inside = match &block.kind {
-        Kind::Paragraph(spans) => rich(spans, body),
-        Kind::Heading(level, spans) => rich(
+        Kind::Paragraph(spans) => set_rich(spans, body, setting),
+        Kind::Heading(level, spans) => set_rich(
             spans,
             Ink {
                 size: Some(match level {
@@ -347,6 +386,7 @@ fn block_view(
                 face: Face::Heading,
                 ..body
             },
+            setting,
         ),
         Kind::Code { lang, text } => {
             code_view(cx, lang, text).boxed()
@@ -450,7 +490,13 @@ pub fn document(
         move |(at, block)| {
             let (at, block) = (*at, block.clone());
             AnyView::new(move |cx: &mut Cx| {
-                let view = block_view(cx, at, &block, tone);
+                let view = block_view(
+                    cx,
+                    at,
+                    &block,
+                    tone,
+                    Setting::Running,
+                );
                 cx.build(view)
             })
         },
@@ -507,12 +553,47 @@ pub fn typed(text: &str, tail: &str) -> Option<AnyView> {
 /// A Markdown document that is drawn once, one view per block. Its
 /// words are selected as one.
 pub fn fixed(text: &str, tone: Tone) -> impl View {
-    let blocks = parse(text);
+    drawn(parse(text), tone, Setting::Running)
+}
+
+/// A [`fixed`] document of words given to a model, set as a page: its
+/// paths are code, since they name no file here, and its lines stand
+/// further apart.
+pub fn page(text: &str, tone: Tone) -> impl View {
+    let mut blocks = parse(text);
+    for block in &mut blocks {
+        let spans = match &mut block.kind {
+            Kind::Paragraph(spans) | Kind::Heading(_, spans) => {
+                spans.iter_mut().collect::<Vec<_>>()
+            }
+            Kind::Table { rows, .. } => {
+                rows.iter_mut().flatten().flatten().collect()
+            }
+            _ => Vec::new(),
+        };
+        for span in spans {
+            if matches!(span.link, Some(Target::Path(_))) {
+                span.link = None;
+                span.style.code = true;
+            }
+        }
+    }
+    drawn(blocks, tone, Setting::Page)
+}
+
+/// `blocks` drawn once, one view per block, set as `setting` says.
+fn drawn(
+    blocks: Vec<Block>,
+    tone: Tone,
+    setting: Setting,
+) -> impl View {
     AnyView::new(move |cx: &mut Cx| {
         let views = blocks
             .iter()
             .enumerate()
-            .map(|(at, block)| block_view(cx, at, block, tone))
+            .map(|(at, block)| {
+                block_view(cx, at, block, tone, setting)
+            })
             .collect::<Vec<_>>();
         cx.build(column(views).gap(0.0).tagged(Area))
     })

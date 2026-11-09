@@ -279,11 +279,6 @@ pub fn all() -> Vec<Set> {
             ],
         )
     });
-    sets.push(set(
-        "vote",
-        solo(plain(1), 0.2, &[(0.0, Act::Vote)]),
-        &[0.6, 1.0, 1.45, 1.75, 2.3, 3.2],
-    ));
     sets.push(Set {
         night: true,
         ..set(

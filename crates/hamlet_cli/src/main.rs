@@ -22,17 +22,19 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
                      [--insecure] [--hot]
        hamlet window
-       hamlet chat [--to <agent|name@hamlet|mayor@hamlet>]
-       hamlet edit <charter|character|notes|limits|settings> \
-                     [--hamlet <id>]
+       hamlet chat [--to <hand|<hamlet>#<number>|mayor@<hamlet>>]
+       hamlet edit <charter|limits|settings> [--hamlet <id>]
+       hamlet edit character <scholar#id>
+       hamlet edit memory <scholar#id|<hamlet>#<number>> [path]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
 
 Bare hamlet starts or reuses a background server and opens a window.
 Closing a window stops no agent. hamlet stop stops the local server.
 dev builds the checkout's server and window and serves a scratch \
-                     home; Ctrl-C stops both. --hot builds a window \
-                     that reloads saved shaders and tuning files.
+                     realm; Ctrl-C stops both. --hot builds a \
+                     window that reloads saved shaders and tuning \
+                     files.
 server serves in the foreground; Ctrl-C stops it.
 --insecure, on Windows only, runs agents' commands with no sandbox.
 
@@ -102,7 +104,7 @@ fn parse(args: &[String]) -> Result<Command> {
             let mut home = None;
             let mut isolation = Isolation::Sandboxed;
             let mut hot = false;
-            let mut to = hamlet_protocol::MAYOR.to_owned();
+            let mut to = hamlet_protocol::HAND.to_owned();
             let mut flags = rest.iter();
             while let Some(flag) = flags.next() {
                 let flag = flag.as_str();
@@ -120,9 +122,9 @@ fn parse(args: &[String]) -> Result<Command> {
                         "the path of a script"
                     }
                     "--home" if name == "dev" => {
-                        "the path of a scratch home"
+                        "the path of a scratch realm"
                     }
-                    "--to" if name == "chat" => "an agent's name",
+                    "--to" if name == "chat" => "an agent's address",
                     _ => return Err(unknown(flag)),
                 };
                 let value = flags.next().ok_or_else(|| {
@@ -178,7 +180,7 @@ fn parse(args: &[String]) -> Result<Command> {
                         s.as_str(),
                         "charter"
                             | "character"
-                            | "notes"
+                            | "memory"
                             | "limits"
                             | "settings"
                     )
@@ -186,28 +188,62 @@ fn parse(args: &[String]) -> Result<Command> {
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "edit needs one of charter, character, \
-                         notes, limits or settings"
+                         memory, limits or settings"
                     )
                 })?;
-            let hamlet = if rest.len() == 1 {
-                hamlet_protocol::HOME
-            } else {
-                if doc != "limits" || rest[1] != "--hamlet" {
-                    return Err(unknown(&rest[1]));
-                }
-                if rest.len() > 3 {
-                    return Err(unknown(&rest[3]));
-                }
-                rest.get(2)
-                    .filter(|s| !s.is_empty() && !s.starts_with("--"))
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("--hamlet needs a hamlet id")
-                    })?
-            };
-            Ok(Command::Terminal(terminal::Command::Edit {
+            let mut command = terminal::Command::Edit {
                 doc: doc.clone(),
-                hamlet: hamlet.into(),
-            }))
+                hamlet: None,
+                whom: None,
+                path: None,
+            };
+            let terminal::Command::Edit {
+                hamlet, whom, path, ..
+            } = &mut command
+            else {
+                unreachable!()
+            };
+            match doc.as_str() {
+                "limits" => match &rest[1..] {
+                    [] => {}
+                    [flag, id] if flag == "--hamlet" => {
+                        if id.is_empty() || id.starts_with("--") {
+                            bail!("--hamlet needs a hamlet id");
+                        }
+                        *hamlet = Some(id.clone());
+                    }
+                    [flag] if flag == "--hamlet" => {
+                        bail!("--hamlet needs a hamlet id");
+                    }
+                    [other, ..] => return Err(unknown(other)),
+                },
+                "character" | "memory" => {
+                    let limit = if doc == "memory" { 3 } else { 2 };
+                    if let Some(extra) = rest.get(limit) {
+                        return Err(unknown(extra));
+                    }
+                    *whom = Some(
+                        rest.get(1)
+                            .filter(|s| {
+                                !s.is_empty() && !s.starts_with("--")
+                            })
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "edit {doc} needs a scholar or \
+                                     agent address"
+                                )
+                            })?
+                            .clone(),
+                    );
+                    *path = rest.get(2).cloned();
+                }
+                _ => {
+                    if let Some(extra) = rest.get(1) {
+                        return Err(unknown(extra));
+                    }
+                }
+            }
+            Ok(Command::Terminal(command))
         }
         "login" => {
             let provider = rest

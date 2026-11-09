@@ -189,8 +189,6 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
         }
         "all" => {
             prepare(&root)?;
-            // hamlet_harness_driver is left out: it needs the harness
-            // feature, and the harness tests build it.
             status(
                 cargo(&[
                     "build",

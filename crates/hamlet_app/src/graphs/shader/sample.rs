@@ -1,6 +1,6 @@
-//! A material's preview in the ASSETS panel's details: a sphere shaded
-//! by the material's shader with the material's values, under the
-//! hour's lights through the realm's camera, as the shader's own
+//! A material's preview in the ASSETS panel's details: a sphere
+//! shaded by the material's shader with the material's values, under
+//! the hour's lights through the realm's camera, as the shader's own
 //! preview is. It turns by itself, and dragging turns it.
 
 use bevy::app::{App, Startup, Update};
@@ -26,8 +26,8 @@ use bevy::light::DirectionalLight;
 use bevy::math::{EulerRot, Quat, Vec3};
 use bevy::mesh::{Mesh, Mesh3d, Meshable};
 use bevy::pbr::{
-    ExtendedMaterial, MaterialExtension, MaterialPlugin, MeshMaterial3d,
-    StandardMaterial,
+    ExtendedMaterial, MaterialExtension, MaterialPlugin,
+    MeshMaterial3d, StandardMaterial,
 };
 use bevy::picking::events::PointerDrag;
 use bevy::reflect::TypePath;
@@ -72,8 +72,9 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(Update, (open, shade, pose));
 }
 
-/// The shader the details show, its inputs' defaults what the material
-/// makes them, or none while no material with a shader is shown.
+/// The shader the details show, its inputs' defaults what the
+/// material makes them, or none while no material with a shader is
+/// shown.
 #[derive(Resource, Default)]
 pub(crate) struct Sample {
     pub graph: Option<Graph>,
@@ -302,7 +303,8 @@ fn shade(
     let Some(compiled) = got.as_ref() else {
         return;
     };
-    let Some(mut material) = materials.get_mut(&stage.material) else {
+    let Some(mut material) = materials.get_mut(&stage.material)
+    else {
         return;
     };
     material.extension.slots =
@@ -327,7 +329,11 @@ fn pose(
     };
     turn.yaw += time.delta_secs() * 0.4;
     if let Ok(mut transform) = spheres.get_mut(stage.sphere) {
-        transform.rotation =
-            Quat::from_euler(EulerRot::XYZ, turn.pitch, turn.yaw, 0.0);
+        transform.rotation = Quat::from_euler(
+            EulerRot::XYZ,
+            turn.pitch,
+            turn.yaw,
+            0.0,
+        );
     }
 }

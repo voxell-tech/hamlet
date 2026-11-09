@@ -1,43 +1,39 @@
-//! The server from start to stop: the claim (S2), the harness and
-//! the model providers, the published address, then the ordered
-//! close (S3). What happens while it serves is the runtime's.
+//! The server from start to stop: the claim (S2), the harness, the
+//! published address, then the ordered close (S3).
 
-use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use hamlet_sandbox::{Isolation, Sandbox};
 use serde_json::json;
 use tokio::net::TcpListener;
-use tokio::sync::{mpsc, watch};
-use tokio::task::JoinSet;
+use tokio::sync::watch;
 
-use crate::connection::GRACE;
+use crate::clients::connection::GRACE;
+use crate::core::Core;
 use crate::credentials::write_whole;
-use crate::harness::{self, Harnesses, InputStatus, Notice};
-use crate::protocol::Protocol;
-use crate::runtime::{Serving, flush_models};
-use crate::sandbox::Isolation;
-use crate::service::Service;
-use crate::{Home, Overrides, chats};
+use crate::realm::Realm;
+use crate::settings::{self, Overrides};
+use crate::talk::Env;
+use crate::talk::process::Pi;
 
-/// How long a closing home waits for the reflections it owes.
-const REFLECTING: Duration = Duration::from_secs(120);
-/// How long a closing home waits for its runtimes to stop.
+/// How long a closing realm waits for its runtimes to stop.
 const STOPPING: Duration = Duration::from_secs(30);
+/// How long a closing realm waits for a credential rotation begun.
+const ROTATING: Duration = Duration::from_secs(15);
 
-/// The server start contract, including the script passed to its
-/// harness.
+const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
+                     <n>] [--faux <file>] [--insecure]";
+
+/// How the server is started.
 pub struct Options {
     pub home: PathBuf,
     pub port: u16,
     pub faux: Option<PathBuf>,
     pub isolation: Isolation,
 }
-
-const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
-                     <n>] [--faux <file>] [--insecure]";
 
 impl Options {
     pub fn parse(
@@ -95,279 +91,111 @@ fn insecure() -> Result<Isolation> {
     )
 }
 
+/// The published address, removed when the server stops.
 struct Published(PathBuf);
+
 impl Drop for Published {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
     }
 }
 
-/// An error that ends the server: the home's claim, its store or the
-/// client protocol's schema failed.
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-struct Fatal(anyhow::Error);
+/// The chief's name (C7): `HAMLET_USER` when set, else the account
+/// the server runs as, else "chief".
+fn chief_name() -> String {
+    ["HAMLET_USER", "USER", "USERNAME", "LOGNAME"]
+        .iter()
+        .find_map(|name| {
+            std::env::var(name).ok().filter(|v| !v.is_empty())
+        })
+        .unwrap_or_else(|| "chief".into())
+}
 
 /// Serves until SIGTERM or Ctrl-C, closing every client before
-/// releasing the home.
+/// letting the realm go.
 #[expect(
     clippy::print_stderr,
     reason = "the banner is the server's output for whoever started \
-              it, not a diagnostic"
+              it"
 )]
 pub async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
     hamlet_os::process::reap_with_server()?;
-    let overrides = Overrides::from_env(
-        options.faux.is_some(),
-        options.isolation,
+    let sandbox = Sandbox::open(options.isolation)?;
+    sandbox.probe()?;
+    let realm = Realm::open(
+        &options.home,
+        &chief_name(),
+        crate::clock::now(),
     )?;
-    let home = Home::open(&options.home).map_err(Fatal)?;
-    let mut service =
-        Service::new(home, overrides.clone()).map_err(Fatal)?;
-    service.houses.probe()?;
-    tokio::select! {
-        _ = signals.next() => return service.home.close(),
-        initialized = service.initialize_houses() => initialized?,
-    }
-    service.prepare_gifts()?;
-    chats::load(&mut service)?;
-    let layout = service.home.layout().clone();
-    let (mut harnesses, notices) = Harnesses::start(
-        &layout,
-        service.home.store(),
-        harness::Config::from_env(
-            options.faux.clone(),
-            overrides,
-            &service.houses.shells(),
-        )?,
-    )?;
-    for notice in notices {
-        tokio::select! {
-            _ = signals.next() => {
-                harnesses.close().await;
-                return service.home.close();
-            }
-            result = chats::heard(
-                &mut service,
-                &mut harnesses,
-                notice,
-            ) => result?,
-        }
-    }
-    service.start_models()?;
-    flush_models(&mut service, &mut harnesses).await?;
-    let started = async {
-        while service.models.is_starting() {
-            let event = harnesses.next().await;
-            for notice in harnesses
-                .handle(
-                    service.home.store(),
-                    event,
-                    &service.credentials,
-                )
-                .await?
-            {
-                match notice {
-                    Notice::Provider(result) => {
-                        service.provider_result(result)?;
-                    }
-                    notice => {
-                        chats::heard(
-                            &mut service,
-                            &mut harnesses,
-                            notice,
-                        )
-                        .await?;
-                    }
-                }
-            }
-            flush_models(&mut service, &mut harnesses).await?;
-        }
-        Ok::<_, anyhow::Error>(())
+    let overrides = Overrides::from_env(options.faux.is_some());
+    let mut realm = realm;
+    let saved = settings::stored(realm.store().connection())?;
+    let env = Env {
+        settings: overrides.apply(saved),
+        overrides,
     };
-    let started =
-        tokio::time::timeout(Duration::from_secs(15), started);
-    tokio::select! {
-        _ = signals.next() => {
-            harnesses.close().await;
-            return service.home.close();
-        }
-        result = started => {
-            result.context("starting model providers")??;
-        }
-    }
-    tokio::select! {
-        _ = signals.next() => {
-            harnesses.close().await;
-            return service.home.close();
-        }
-        result = chats::start(&mut service, &mut harnesses) => {
-            result?;
-        }
-    }
-    let protocol = Protocol::new().map_err(Fatal)?;
+    let pi = Pi::from_env(options.faux.clone())?;
+    let (shutdown, closing) = watch::channel(false);
+    let (mut core, mut inbox) =
+        Core::start(realm, env, pi, sandbox, closing).await?;
     let listener = TcpListener::bind((
         std::net::Ipv4Addr::LOCALHOST,
         options.port,
     ))
     .await?;
     let url = format!("ws://{}", listener.local_addr()?);
-    let published = service.home.layout().root().join("server.json");
+    inbox.listen(listener);
+    let published = core.realm.layout().server();
     let started = chrono::Utc::now()
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let address = json!({
         "url": url,
         "pid": std::process::id(),
         "started": started,
-        "confinement": service.houses.confinement(),
+        "confinement": core.confinement(),
     });
     write_whole(&published, &serde_json::to_vec(&address)?)?;
     let published = Published(published);
-    #[cfg(windows)]
-    if options.isolation == Isolation::Insecure {
-        eprintln!(
-            "WARNING: --insecure. Agents' commands run without a \
-             sandbox, with this account's full reach, and the \
-             network switch is not enforced."
-        );
-    }
     eprintln!(
         "hamlet_server: holding {}; serving at {url}; Ctrl-C stops",
-        hamlet_os::fs::path::text(service.home.layout().root())
+        hamlet_os::fs::path::text(core.realm.layout().root())
     );
-    let (events, mut incoming) = mpsc::channel(128);
-    let (shutdown, closing) = watch::channel(false);
-    let epoch = crate::clock::now();
-    let state = service.state(epoch, 0)?;
-    let mut serving = Serving {
-        service,
-        harnesses,
-        protocol,
-        clients: HashMap::new(),
-        state,
-        next: 0,
-        events,
-        closing,
-        tasks: JoinSet::new(),
-        reads: JoinSet::new(),
-        reading: HashMap::new(),
-        writes: JoinSet::new(),
-        ready: VecDeque::new(),
+    let served = async {
+        loop {
+            core.step(&mut inbox, Duration::from_secs(60)).await?;
+        }
+        #[expect(
+            unreachable_code,
+            reason = "the loop ends with an error or a signal"
+        )]
+        Ok::<_, anyhow::Error>(())
     };
-    let result =
-        serving.run(&mut signals, &listener, &mut incoming).await;
-    drop(listener);
-    serving.reads.abort_all();
-    serving.writes.abort_all();
-    let result = match result {
-        Ok(()) => serving.close(&mut signals).await,
-        result => result,
+    let result = tokio::select! {
+        result = served => result,
+        () = signals.next() => Ok(()),
     };
-    serving.service.chats.stop_tools();
     shutdown.send_replace(true);
-    let tasks = &mut serving.tasks;
+    let tasks = &mut core.clients.tasks;
     let drained =
         async { while tasks.join_next().await.is_some() {} };
     tokio::select! {
-        _ = signals.next() => std::process::exit(130),
-        _ = tokio::time::timeout(GRACE, drained) => {},
+        () = signals.next() => std::process::exit(130),
+        _ = tokio::time::timeout(GRACE, drained) => {}
     }
-    serving.tasks.abort_all();
-    while serving.tasks.join_next().await.is_some() {}
-    serving.service.houses.end_leftovers();
-    serving.harnesses.close().await;
+    core.clients.tasks.abort_all();
+    let closed = core.close(&mut inbox, ROTATING);
+    tokio::select! {
+        () = signals.next() => std::process::exit(130),
+        closed = closed => closed?,
+    }
+    let stopped = core.stop(STOPPING);
+    tokio::select! {
+        () = signals.next() => std::process::exit(130),
+        stopped = stopped => stopped?,
+    }
     drop(published);
-    serving.service.home.close()?;
     result
-}
-
-impl Serving {
-    /// Closes in order (S3): the reflections owed are asked for and
-    /// waited on, then each runtime stops its work and exits. A
-    /// second signal exits at once.
-    async fn close(&mut self, signals: &mut Signals) -> Result<()> {
-        let waits =
-            chats::close(&mut self.service, &mut self.harnesses)
-                .await?;
-        for client in self.clients.keys() {
-            self.service.models.disconnect(*client);
-        }
-        flush_models(&mut self.service, &mut self.harnesses).await?;
-        self.deliver()?;
-        let settled = |service: &mut Service| -> Result<bool> {
-            for (binding, request) in &waits {
-                let standing = service
-                    .home
-                    .store()
-                    .standing(*binding, request)?;
-                let open = standing.is_none_or(|standing| {
-                    !standing
-                        .status
-                        .is_some_and(InputStatus::is_ended)
-                });
-                if open {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        };
-        let reflected = async {
-            while !settled(&mut self.service)? {
-                self.run_once().await?;
-            }
-            Ok::<_, anyhow::Error>(())
-        };
-        tokio::select! {
-            _ = signals.next() => std::process::exit(130),
-            done = tokio::time::timeout(REFLECTING, reflected) => {
-                if let Ok(done) = done {
-                    done?;
-                }
-            }
-        }
-        self.harnesses.begin_close().await;
-        let stopped = async {
-            while !self.harnesses.is_down() {
-                self.run_once().await?;
-            }
-            Ok::<_, anyhow::Error>(())
-        };
-        tokio::select! {
-            _ = signals.next() => std::process::exit(130),
-            done = tokio::time::timeout(STOPPING, stopped) => {
-                if let Ok(done) = done {
-                    done?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Handles one event of a runtime or one finished tool call.
-    async fn run_once(&mut self) -> Result<()> {
-        crate::society::merging::lane::advance(
-            &mut self.service,
-            &mut self.harnesses,
-        )
-        .await?;
-        tokio::select! {
-            event = self.harnesses.next() => {
-                self.on_harness(event).await?;
-            }
-            finished = self.service.chats.next() => {
-                self.on_finished(finished).await?;
-            }
-            Some(work) = self.service.house_work.next() => {
-                self.on_work(work).await?;
-            }
-            Some(merged) = self.service.merges.tasks.join_next() => {
-                self.on_merged(merged).await?;
-                self.deliver()?;
-            }
-        }
-        Ok(())
-    }
 }
 
 pub(crate) struct Signals {
@@ -401,6 +229,7 @@ impl Signals {
             })
         }
     }
+
     pub(crate) async fn next(&mut self) {
         #[cfg(unix)]
         {
@@ -416,30 +245,5 @@ impl Signals {
                 _ = self.brk.recv() => {}
             }
         }
-    }
-}
-
-#[cfg(all(test, windows))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn insecure_with_a_remote_workspace_is_refused() {
-        let home = hamlet_testing::Scratch::new("insecure-remote");
-        let mut overrides = Overrides::none(true);
-        overrides.workspace =
-            Some(crate::credentials::WorkspaceAddress {
-                url: "https://workspace.example".into(),
-                token: "a-token-of-sixteen".into(),
-            });
-        let Err(refused) =
-            Service::new(Home::open(&home).unwrap(), overrides)
-        else {
-            panic!("the server opened");
-        };
-        assert!(
-            refused.to_string().contains("--insecure"),
-            "{refused}"
-        );
     }
 }

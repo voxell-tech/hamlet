@@ -12,15 +12,44 @@ use crate::client::RequestId;
 pub struct SettingsView {
     #[serde(rename = "allowNet")]
     pub allow_net: bool,
+    /// The character a scholar made blank starts from.
+    pub character: String,
     #[serde(deserialize_with = "Option::deserialize")]
     pub effort: Option<crate::Effort>,
     pub endpoints: Vec<SettingsViewEndpoints>,
     pub link: Link,
     pub model: String,
+    pub newcomers: Newcomers,
     #[serde(rename = "reflectEvery")]
     pub reflect_every: i64,
     pub unset: bool,
     pub workspace: SettingsViewWorkspace,
+}
+
+/// Who lets a scholar an agent made into the city. One a chief makes
+/// is always let in.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+pub enum Newcomers {
+    /// Nobody: it moves in at once.
+    #[serde(rename = "open")]
+    Open,
+    /// A chief: it waits at the harbor until a chief welcomes it.
+    #[default]
+    #[serde(rename = "chief")]
+    Chief,
+    /// The Hand, for the chiefs, who can undo its verdict.
+    #[serde(rename = "hand")]
+    Hand,
 }
 
 #[derive(
@@ -126,14 +155,27 @@ pub struct ProviderView {
 )]
 #[serde(deny_unknown_fields)]
 pub struct Listed {
-    pub allowed: bool,
     #[serde(deserialize_with = "Option::deserialize")]
     pub context: Option<i64>,
+    /// The effort the model thinks at unless asked otherwise; none
+    /// while unknown.
+    #[serde(rename = "defaultEffort")]
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub default_effort: Option<crate::Effort>,
+    /// The efforts the model can be asked for, weakest first; none
+    /// are listed while they are unknown.
+    pub efforts: Vec<crate::Effort>,
+    /// Whether the model's provider has a fast tier it can be asked
+    /// for.
+    pub fast: bool,
     pub name: String,
     pub note: String,
     #[serde(deserialize_with = "Option::deserialize")]
     pub price: Option<Price>,
     pub priced: ListedPriced,
+    /// What its provider calls it, such as `Claude Opus 4.8`; empty
+    /// when the provider gives no name.
+    pub title: String,
 }
 
 #[derive(
@@ -180,7 +222,7 @@ pub enum Check {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct MoveHouses {
+pub struct MoveLodges {
     pub id: RequestId,
 }
 

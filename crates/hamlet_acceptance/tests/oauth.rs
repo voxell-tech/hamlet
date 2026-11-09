@@ -4,7 +4,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use hamlet_testing::{Home, Scratch, Server, Socket, send};
+use hamlet_acceptance::Home;
+use hamlet_testing::{Scratch, Server, Socket, send};
 use serde_json::{Value, json};
 
 const SECRETS: &[&str] = &[
@@ -25,14 +26,28 @@ async fn start(home: &mut Home, fixture: &Scratch) -> Server {
     }).to_string()).unwrap();
     let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../harnesses/pi/test/fixtures/oauth.ts");
-    home.serve_providers(&[
-        ("HAMLET_PI_HARNESS", entry.to_str().unwrap()),
-        ("HAMLET_OAUTH_FIXTURE", fixture.to_str().unwrap()),
-        ("HAMLET_REFLECT_EVERY", "0"),
-        ("HAMLET_MODEL", "chatgpt::offline"),
-        ("OPENAI_API_KEY", "ambient-must-not-be-used"),
-    ])
-    .await
+    let server = home
+        .serve_providers(&[
+            ("HAMLET_PI_HARNESS", entry.to_str().unwrap()),
+            ("HAMLET_OAUTH_FIXTURE", fixture.to_str().unwrap()),
+            ("HAMLET_REFLECT_EVERY", "0"),
+            ("HAMLET_MODEL", "chatgpt::offline"),
+            ("OPENAI_API_KEY", "ambient-must-not-be-used"),
+        ])
+        .await;
+    // The providers are listed once the harness has started, which is
+    // after a connection's first state.
+    for _ in 0..200 {
+        let (_, state) = server.connect().await;
+        if state["providers"]
+            .as_array()
+            .is_some_and(|p| p.iter().any(|p| p["id"] == "chatgpt"))
+        {
+            return server;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the harness never listed its providers");
 }
 
 /// [`hamlet_testing::until`], checking that no message on the way
@@ -260,7 +275,8 @@ async fn shutdown_waits_for_a_model_calls_started_rotation_to_persist()
         "chatgpt"
     );
     std::fs::write(fixture.join("hold-refresh"), "hold").unwrap();
-    send(&mut owner, json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"Hello"})).await;
+    send(&mut owner, json!({"type":"say","to":1,"text":"Hello"}))
+        .await;
     file(&fixture.join("refresh-started")).await;
     server.terminate();
     stopped_listening(&server).await;
@@ -346,8 +362,16 @@ async fn concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_r
             .count(),
         1
     );
-    send(&mut second, json!({"type":"open","id":"open-chat","chat":{"with":{"hamlet":"home","agent":"mayor"}}})).await;
-    let chat = send(&mut second, json!({"type":"say","to":{"hamlet":"home","agent":"mayor"},"text":"Hello"})).await;
+    send(
+        &mut second,
+        json!({"type":"open","id":"open-chat","chat":{"with":1}}),
+    )
+    .await;
+    let chat = send(
+        &mut second,
+        json!({"type":"say","to":1,"text":"Hello"}),
+    )
+    .await;
     until(&mut second, |m| {
         m.to_string().contains(
             "OAuth echoed [REDACTED] [REDACTED] [REDACTED] \

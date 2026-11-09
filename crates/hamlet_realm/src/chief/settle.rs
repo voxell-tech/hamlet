@@ -11,7 +11,8 @@ use super::mascot::Rig;
 use super::{
     Chief, ChiefSettings, Look, Mascot, Place, Settled, Stands, place,
 };
-use crate::generator::land::Land;
+use crate::city::{self, Level};
+use crate::generator::land::{IslandId, Land};
 use crate::generator::society::{Claim, Ground, Society};
 use crate::generator::{flora, glow};
 use crate::lantern::lantern_glass;
@@ -59,6 +60,7 @@ pub(super) fn hold_ground(
     set: Res<ChiefSettings>,
     places: Query<&Place>,
     libraries: Query<&Library>,
+    levels: Query<&Level>,
     mut land: ResMut<Land>,
 ) {
     let mut rounds = places
@@ -69,6 +71,7 @@ pub(super) fn hold_ground(
                 .iter()
                 .map(|library| (library.held, library::GROUNDS)),
         )
+        .chain(city::rounds(&levels))
         .collect::<Vec<_>>();
     rounds.sort_by(|a, b| {
         a.0.x.total_cmp(&b.0.x).then(a.0.y.total_cmp(&b.0.y))
@@ -107,19 +110,17 @@ pub(super) fn settle(
         .chain(society.claims.iter().map(|claim| claim.at))
         .collect::<Vec<_>>();
     for (chief, stands) in &new {
-        let chosen = stands.map(|stands| stands.0);
+        // A place kept from before the islands may lie in the sea.
+        let chosen = stands
+            .map(|stands| stands.0)
+            .filter(|at| land.island_at(*at) == IslandId::City);
         let Some(at) = chosen.or_else(|| place::stand(&land, &taken))
         else {
             continue;
         };
         taken.push(at);
-        // The door looks toward the first town.
-        let home = land
-            .sites
-            .iter()
-            .find(|site| site.buildable)
-            .map_or(Vec2::ZERO, |site| site.at);
-        let toward = (home - at).normalize_or(Vec2::Y);
+        // The door faces the Hand's tower.
+        let toward = (-at).normalize_or(Vec2::Y);
         let yaw = toward.x.atan2(toward.y);
         let frame = Transform::from_translation(land.on_ground(at))
             .with_rotation(Quat::from_rotation_y(yaw));

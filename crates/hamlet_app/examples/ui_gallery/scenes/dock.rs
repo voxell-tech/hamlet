@@ -1,20 +1,17 @@
 //! The dock of the gallery: the panels around a picture of the world.
 
 use bevy::ecs::world::World;
-use bevy::math::Vec2;
 use bevy::ui::widget::{ImageNode, NodeImageMode};
 use bevy::ui::{percent, px};
 use bevy_fynix::AnyView;
 use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockRegistry, DockTree, DockWindowKind,
-    Edge, dock,
+    Edge,
 };
-use bevy_fynix::views::{FrameProps, column, frame, overlay};
+use bevy_fynix::views::{FrameProps, column};
 use hamlet_app::{
-    Convo, chat, highlight_panel, inspector, menu, panel, petition,
-    settings, status_bar, toolbar, welcome,
+    highlight_panel, hub, layout, menu, panel, settings,
 };
-use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::styles::ICON;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Highlight;
@@ -23,7 +20,7 @@ use hamlet_ui::{Cx, View};
 
 use super::{Scene, Stand, Ui};
 
-/// The picture of the world over the command line.
+/// The picture of the world.
 fn world_stand() -> Ui {
     AnyView::new(|cx: &mut Cx| {
         let picture =
@@ -34,18 +31,12 @@ fn world_stand() -> Ui {
                 ..ImageNode::default()
             });
         cx.build(
-            column((
-                column(())
-                    .grow(1.0)
-                    .min_height(px(0.0))
-                    .width(percent(100.0))
-                    .with(picture.unwrap_or_default()),
-                chat::message_bar(),
-            ))
-            .grow(1.0)
-            .min_width(px(0.0))
-            .min_height(px(0.0))
-            .gap(0.0),
+            column(())
+                .grow(1.0)
+                .min_width(px(0.0))
+                .min_height(px(0.0))
+                .width(percent(100.0))
+                .with(picture.unwrap_or_default()),
         )
     })
 }
@@ -59,88 +50,62 @@ pub(super) fn seed_dock(world: &mut World) {
             .icon(Glyph::Globe.image(ICON)),
     );
     registry.register(
-        "needs",
-        DockWindowKind::new("NEEDS YOU", || {
+        "hub",
+        DockWindowKind::new("HUB", || {
             highlight_panel(
-                petition::screen(),
+                hub::screen(),
                 Highlight {
                     attention: true,
-                    flash: false,
-                },
-            )
-        })
-        .icon(Glyph::Bell.image(ICON)),
-    );
-    registry.register(
-        "agent",
-        DockWindowKind::new("INSPECTOR", || {
-            highlight_panel(
-                inspector::screen(),
-                Highlight {
-                    attention: false,
                     flash: true,
                 },
             )
         })
-        .icon(Glyph::Lens.image(ICON)),
+        .icon(Glyph::Tree.image(ICON)),
     );
     registry.register(
         "settings",
         DockWindowKind::new("SETTINGS", || panel(settings::screen()))
             .icon(Glyph::Sliders.image(ICON)),
     );
-    let scene = *world.resource::<Scene>();
     let mut tree = world.resource_mut::<DockTree>();
     let centre = tree.set_root_leaf(
         DockLeaf::new("centre", DockAreaStyle::TabBar)
             .with_windows(vec!["world".into()]),
     );
-    if let Some((queue, _)) =
-        tree.split(centre, Edge::Left, "needs".into())
-        && let Some(parent) = tree.parent_of(queue)
+    if let Some((side, _)) =
+        tree.split(centre, Edge::Right, "hub".into())
+        && let Some(parent) = tree.parent_of(side)
     {
-        tree.set_fraction(parent, 0.24);
-    }
-    if let Some((side, agent)) =
-        tree.split(centre, Edge::Right, "agent".into())
-    {
-        tree.set_active(side, agent);
-        if let Some(parent) = tree.parent_of(side) {
-            tree.set_fraction(parent, 0.62);
-        }
-        if matches!(
-            scene,
-            Scene::Settings
-                | Scene::Charter
-                | Scene::Workspace
-                | Scene::Sight
-        ) {
-            tree.add_tab(side, "settings");
-        }
+        tree.set_fraction(parent, 0.5);
     }
 }
 
-/// The question before a rewind to the last of the chief's
-/// messages, in the scene that shows it.
-fn rewind_question() -> Ui {
-    AnyView::new(|cx: &mut Cx| {
-        let session = cx.world.resource::<Convo>().session;
-        let last = cx
-            .world
-            .get::<Transcript>(session)
-            .into_iter()
-            .flat_map(|said| said.items().iter().rev())
-            .find(|item| matches!(item.entry, Entry::Chief { .. }))
-            .map(|item| item.id.clone())
-            .filter(|_| {
-                *cx.world.resource::<Scene>() == Scene::Rewind
-            });
-        let Some(entry) = last else {
-            return cx.build(frame());
-        };
-        let at = Vec2::new(1060.0, 526.0);
-        cx.build(overlay((chat::rewind_asked(session, entry, at),)))
-    })
+/// Opens the Settings tab beside the Hub in the scenes of Settings.
+/// After the first update, as the desk lays its own dock out over the
+/// seeded one then.
+pub(super) fn open_settings(
+    world: &mut World,
+    mut opened: bevy::ecs::system::Local<bool>,
+) {
+    let scene = *world.resource::<Scene>();
+    if *opened
+        || !matches!(
+            scene,
+            Scene::Settings
+                | Scene::SettingsModels
+                | Scene::Charter
+                | Scene::Workspace
+                | Scene::Sight
+                | Scene::Appearance(_)
+        )
+    {
+        return;
+    }
+    *opened = true;
+    let mut tree = world.resource_mut::<DockTree>();
+    if let Some(side) = tree.find_leaf_with_window("hub") {
+        tree.add_tab(side, "settings");
+    }
 }
 
 pub(super) fn panels() -> Ui {
@@ -153,17 +118,13 @@ pub(super) fn panels() -> Ui {
 /// The window's panels as the app lays them out.
 fn shown(cx: &Cx) -> impl View {
     column((
-        toolbar(cx),
-        column((dock::<HamletTheme>(), welcome::view()))
-            .grow(1.0)
-            .min_height(px(0.0))
-            .gap(0.0),
-        status_bar(),
+        layout(cx),
+        hamlet_app::toasts::stack(),
         menu::open_menu(),
-        rewind_question(),
     ))
     .width(percent(100.0))
     .height(percent(100.0))
+    .min_height(px(0.0))
     .fill(cx.theme().background())
     .gap(0.0)
 }

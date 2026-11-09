@@ -1,24 +1,30 @@
-//! Authenticated workspace v1 requests. Virtual paths never reach the
-//! host.
+//! A remote workspace (C18): another machine whose worker runs the
+//! agents' tools, each agent in its own `/lodge` with its hamlet's
+//! `/project` and the library at `/library`. Requests carry a bearer
+//! token; virtual paths never reach the host.
+
+pub(crate) mod lodges;
+mod serving;
 
 use std::path::PathBuf;
 use std::time::Duration;
 
+use hamlet_store::ids::AgentId;
 use hamlet_workspace_wire::{
     Call, Code, LIBRARY_FILES, Library, LibraryFile, MAX_FILE,
     Message, Operation, Reply, Request, VERSION,
 };
 
 use crate::credentials::WorkspaceAddress;
-use crate::record::AgentRef;
-use crate::sandbox::FileError;
+use crate::knowledge::folder::Folder;
 
+/// The most bytes of a reply.
 const MAX_REPLY: usize = 6 * 1024 * 1024;
 const UNKNOWN: &str = "The workspace result is unknown. Inspect its \
                        files before repeating the operation.";
 
 /// What a request may reach in the workspace.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Policy {
     /// The hamlet's shared `/project`.
     pub project: bool,
@@ -45,22 +51,24 @@ impl Transport {
         })
     }
 
-    pub fn connection(&self) -> &WorkspaceAddress {
-        &self.connection
+    pub fn url(&self) -> &str {
+        &self.connection.url
     }
 
-    /// Requests of `agent` under `policy`.
+    /// The requests of `agent`, which works in `workspace`, under
+    /// `policy`.
     pub fn session(
         &self,
-        agent: AgentRef,
+        agent: AgentId,
+        workspace: &str,
         policy: Policy,
-    ) -> anyhow::Result<WorkspaceSession> {
-        anyhow::ensure!(
-            agent.number <= u32::MAX as u64,
-            "invalid workspace agent"
-        );
-        Ok(WorkspaceSession {
+    ) -> anyhow::Result<Session> {
+        let agent = u32::try_from(agent.0).map_err(|_| {
+            anyhow::anyhow!("an agent id past the workspace's")
+        })?;
+        Ok(Session {
             transport: self.clone(),
+            workspace: workspace.to_owned(),
             agent,
             policy,
             library: None,
@@ -98,8 +106,7 @@ impl Transport {
     }
 }
 
-/// A failed house operation: a workspace request, or a local one
-/// refused with a protocol code.
+/// A failed workspace request.
 #[derive(Debug)]
 pub(crate) struct Failure {
     pub code: Code,
@@ -116,15 +123,6 @@ impl Failure {
             uncertain: true,
         }
     }
-
-    /// A refusal with `code` that changed nothing.
-    pub fn refused(code: Code, message: &str) -> Self {
-        Self {
-            code,
-            message: message.into(),
-            uncertain: false,
-        }
-    }
 }
 
 impl std::fmt::Display for Failure {
@@ -138,7 +136,7 @@ impl std::fmt::Display for Failure {
 
 impl std::error::Error for Failure {}
 
-impl From<Failure> for FileError {
+impl From<Failure> for hamlet_sandbox::FileError {
     fn from(failure: Failure) -> Self {
         Self {
             code: failure.code,
@@ -147,23 +145,8 @@ impl From<Failure> for FileError {
     }
 }
 
-/// Whether `error` leaves its request's effect unknown. Only a
-/// workspace request can.
-pub(crate) fn is_uncertain(error: &anyhow::Error) -> bool {
-    error
-        .downcast_ref::<Failure>()
-        .is_some_and(|failure| failure.uncertain)
-}
-
-/// Whether `error` is a workspace refusal with `code`.
-pub(crate) fn has_code(error: &anyhow::Error, code: Code) -> bool {
-    error
-        .downcast_ref::<Failure>()
-        .is_some_and(|failure| failure.code == code)
-}
-
-/// A request whose future can be dropped while the worker is still
-/// running; dropping it cancels the request.
+/// A request whose future can be dropped while the worker still runs
+/// it; dropping it cancels the request.
 struct Pending<'a> {
     transport: &'a Transport,
     id: String,
@@ -184,15 +167,16 @@ impl Drop for Pending<'_> {
 
 /// Requests of one agent under one policy.
 #[derive(Clone)]
-pub(crate) struct WorkspaceSession {
+pub(crate) struct Session {
     transport: Transport,
-    agent: AgentRef,
+    workspace: String,
+    agent: u32,
     policy: Policy,
     library: Option<Library>,
 }
 
-impl WorkspaceSession {
-    /// The same requests with the shared library at `root` mounted
+impl Session {
+    /// The same requests with the library at `root` mounted
     /// read-only at `/library`, as it is now.
     pub async fn with_library(
         mut self,
@@ -224,7 +208,6 @@ impl WorkspaceSession {
         serde_json::from_value(value).map_err(|_| Failure::unknown())
     }
 
-    /// A new request to run `operation` with `library`.
     fn request(
         &self,
         operation: Operation,
@@ -233,8 +216,8 @@ impl WorkspaceSession {
         Request {
             version: VERSION,
             id: uuid::Uuid::new_v4().to_string(),
-            workspace: self.agent.hamlet.clone(),
-            agent: self.agent.number as u32,
+            workspace: self.workspace.clone(),
+            agent: self.agent,
             project: self.policy.project,
             network: self.policy.network,
             read_only: self.policy.read_only,
@@ -289,104 +272,48 @@ impl WorkspaceSession {
     }
 }
 
-/// The shared library at `root`, read without following links.
+/// The workspace an agent works in: its hamlet's, or the realm's for
+/// the Hand and the workers of no hamlet.
+pub(crate) fn workspace_of(
+    hamlet: Option<&hamlet_store::ids::HamletId>,
+) -> String {
+    hamlet.map_or_else(|| "realm".to_owned(), ToString::to_string)
+}
+
+/// The library at `root`, read without following links.
 async fn snapshot(root: PathBuf) -> Result<Library, Failure> {
-    tokio::task::spawn_blocking(move || {
-        let root = hamlet_os::fs::Directory::open(
-            &root,
-            hamlet_os::fs::LastLink::Refuse,
-        )?;
-        crate::papers::tree::library(
-            &root,
-            MAX_FILE as u64,
-            LIBRARY_FILES,
-        )
-    })
-    .await
-    .map_err(|_| Failure::unknown())?
-    .map(|files| {
-        Library::of(
-            files
-                .into_iter()
-                .map(|(path, entry)| LibraryFile {
-                    path,
-                    data: hamlet_workspace_wire::Bytes(entry.bytes),
-                    mode: entry.mode,
-                })
-                .collect(),
-        )
-    })
-    .map_err(|_| Failure {
+    let too_much = || Failure {
         code: Code::Invalid,
         uncertain: false,
         message: format!(
-            "The shared library could not be read safely within \
-             {LIBRARY_FILES} entries and 4 MiB. Ask the chief to \
-             inspect the shelf; no workspace operation was sent."
+            "The library could not be read safely within \
+             {LIBRARY_FILES} files and 4 MiB; no workspace \
+             operation was sent."
         ),
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::Value;
-
-    use super::*;
-
-    /// The shared protocol fixture, whose requests this client must
-    /// build alike.
-    const FIXTURE: &str = include_str!(
-        "../../hamlet_workspace_wire/fixtures/protocol-v1.json"
-    );
-
-    #[test]
-    fn requests_are_the_shared_fixture_s() {
-        let fixture = serde_json::from_str::<Value>(FIXTURE).unwrap();
-        let transport = Transport::new(WorkspaceAddress {
-            url: "http://127.0.0.1:9".into(),
-            token: "fixture-token".into(),
-        })
-        .unwrap();
-        let mut checked = 0;
-        for case in fixture["cases"].as_array().unwrap() {
-            let Ok(Message::Execute { request: expected }) =
-                serde_json::from_value(case["message"].clone())
-            else {
-                continue;
-            };
-            // Other versions are the worker's to refuse.
-            if expected.version != VERSION {
-                continue;
-            }
-            let session = transport
-                .session(
-                    AgentRef {
-                        hamlet: expected.workspace.clone(),
-                        number: expected.agent.into(),
-                    },
-                    Policy {
-                        project: expected.project,
-                        network: expected.network,
-                        read_only: expected.read_only,
-                    },
-                )
-                .unwrap();
-            let mut built = session.request(
-                expected.operation.clone(),
-                expected.library.clone(),
-            );
-            built.id.clone_from(&expected.id);
-            assert_eq!(
-                serde_json::to_value(Message::Execute {
-                    request: built
-                })
-                .unwrap(),
-                case["message"],
-                "{}",
-                case["name"]
-            );
-            checked += 1;
+    };
+    tokio::task::spawn_blocking(move || {
+        let folder = Folder::open(&root).ok()?;
+        let listing = folder.list(&|_| false).ok()?;
+        if listing.len() > LIBRARY_FILES {
+            return None;
         }
-        assert!(checked > 0);
-    }
+        let mut total = 0;
+        let mut files = Vec::new();
+        for entry in listing {
+            let bytes = folder.read(&entry.path).ok()?;
+            total += bytes.len();
+            if total > MAX_FILE {
+                return None;
+            }
+            files.push(LibraryFile {
+                path: entry.path,
+                data: hamlet_workspace_wire::Bytes(bytes),
+                mode: if entry.executable { 0o755 } else { 0o644 },
+            });
+        }
+        Some(Library::of(files))
+    })
+    .await
+    .map_err(|_| Failure::unknown())?
+    .ok_or_else(too_much)
 }

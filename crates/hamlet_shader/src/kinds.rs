@@ -148,7 +148,8 @@ const INPUTS: &[ShaderKind] = &[
     ),
     kind(
         "position",
-        "Where the surface is, in the world or in the mesh's own space",
+        "Where the surface is, in the world or in the mesh's own \
+         space",
         &[SPACE],
         &[out("position", Vector3, "Where it is")],
         |emit| {
@@ -159,8 +160,8 @@ const INPUTS: &[ShaderKind] = &[
     ),
     kind(
         "normal",
-        "The way the surface faces, in the world or in the mesh's own \
-         space",
+        "The way the surface faces, in the world or in the mesh's \
+         own space",
         &[SPACE],
         &[out("normal", Vector3, "The way it faces")],
         |emit| {

@@ -4,6 +4,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::Version;
+
 pub mod discovery;
 pub mod transcript;
 
@@ -44,7 +46,7 @@ impl ClientMessage {
             | Self::Edit(
                 Edit::Charter { id, .. }
                 | Edit::Character { id, .. }
-                | Edit::Notes { id, .. }
+                | Edit::Memory { id, .. }
                 | Edit::Limits(
                     EditLimits::Set { id, .. }
                     | EditLimits::Whole { id, .. },
@@ -68,7 +70,7 @@ impl ClientMessage {
                 | Read::Papers { id, .. }
                 | Read::Charter { id },
             )
-            | Self::MoveHouses(MoveHouses { id }) => Some(id),
+            | Self::MoveLodges(MoveLodges { id }) => Some(id),
         }
     }
 }
@@ -93,8 +95,8 @@ impl ServerMessage {
     }
 }
 
-/// The value of every `v` field.
-pub const V: u64 = 3;
+/// The client protocol version this server speaks.
+pub const VERSION: Version = Version::new(0, 1, 0);
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -133,14 +135,18 @@ pub enum ClientMessage {
     Check(Check),
     #[serde(rename = "read")]
     Read(Read),
-    #[serde(rename = "move-houses")]
-    MoveHouses(MoveHouses),
+    #[serde(rename = "move-lodges")]
+    MoveLodges(MoveLodges),
 }
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(tag = "type", deny_unknown_fields)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a wire type; a box would show in every pattern"
+)]
 pub enum ServerMessage {
     #[serde(rename = "state")]
     State(State),
@@ -166,8 +172,7 @@ pub enum ServerMessage {
 #[serde(deny_unknown_fields)]
 pub struct Hello {
     pub token: String,
-    #[schemars(extend("const" = V))]
-    pub v: u64,
+    pub v: Version,
 }
 
 #[derive(

@@ -21,6 +21,7 @@ use hamlet_client::ViewFolder;
 
 pub use self::look::{Cloak, Hat, Holds, Light, Look};
 pub use self::wickstep::{Mascot, Phase, Stay};
+use crate::city::Level;
 use crate::generator::land::Land;
 use crate::hand::PlaySettings;
 use crate::library::{Library, Stood};
@@ -44,11 +45,13 @@ pub(super) fn plugin(app: &mut App) {
                                 Or<(
                                     Changed<Place>,
                                     Changed<Library>,
+                                    Changed<Level>,
                                 )>,
                             >,
                         )
                         .or_eager(any_component_removed::<Place>)
-                        .or_eager(any_component_removed::<Library>),
+                        .or_eager(any_component_removed::<Library>)
+                        .or_eager(any_component_removed::<Level>),
                 ),
                 dress::dress,
                 wickstep::step,

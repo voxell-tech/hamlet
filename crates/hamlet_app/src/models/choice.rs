@@ -5,16 +5,13 @@ use bevy::ecs::world::World;
 use bevy::ui::percent;
 use bevy_fynix::views::{FrameProps, column, dropdown};
 use bevy_fynix::{ViewExt, keyed};
-use hamlet_client::realm::{
-    Account, Bylaws, LivesIn, MAYOR, Mayor, Settings, address_of,
-};
+use hamlet_client::realm::{Bylaws, Settings};
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{bare, close, description, group, section};
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{View, built};
 
-use super::{Shelf, edit};
+use super::{Shelf, edit, model_name};
 use crate::roll::{agents_moved, either, hamlets_moved, moved};
 
 pub(super) fn home_default(world: &World) -> String {
@@ -30,11 +27,8 @@ fn offered(
     now: &str,
 ) -> Vec<String> {
     let mut names = vec![default.to_string()];
-    for name in models
-        .iter()
-        .filter(|model| model.allowed)
-        .map(|model| model.name.as_str())
-        .chain([now])
+    for name in
+        models.iter().map(|model| model.name.as_str()).chain([now])
     {
         if !names.iter().any(|known| known == name) {
             names.push(name.to_string());
@@ -44,7 +38,7 @@ fn offered(
     names
 }
 
-pub(super) fn chooser(
+fn chooser(
     read: impl Fn(&World) -> String + Send + Sync + 'static,
     write: impl Fn(&mut World, &str) + Send + Sync + Clone + 'static,
 ) -> impl View {
@@ -70,7 +64,10 @@ pub(super) fn chooser(
         let (names, write, was) =
             (names.clone(), write.clone(), now.clone());
         dropdown(
-            names.clone(),
+            names
+                .iter()
+                .map(|name| model_name(name).to_string())
+                .collect::<Vec<_>>(),
             at,
             Glyph::Chevron.image(hamlet_ui::styles::ICON),
             move |world, chosen| {
@@ -109,47 +106,9 @@ fn whole(
     edit(world, |id| {
         protocol::Edit::Limits(protocol::EditLimits::Whole {
             id,
-            hamlet: place,
+            hamlet: Some(place),
             reason: None,
             whole,
-        })
-    });
-}
-
-/// The hamlet of `agent`, and the name its limits know it by.
-fn limits_name(
-    world: &World,
-    agent: Entity,
-) -> Option<(String, String)> {
-    let address = address_of(world, agent)?;
-    let name = if world.get::<Mayor>(agent).is_some() {
-        MAYOR.into()
-    } else {
-        address.agent
-    };
-    Some((address.hamlet, name))
-}
-
-/// Sets `agent`'s entry in the limits' `section`; `null` removes it.
-fn set_limit(
-    world: &mut World,
-    agent: Entity,
-    section: &str,
-    value: serde_json::Value,
-) {
-    let Some((hamlet, key)) = limits_name(world, agent) else {
-        return;
-    };
-    edit(world, |id| {
-        protocol::Edit::Limits(protocol::EditLimits::Set {
-            id,
-            hamlet,
-            reason: None,
-            set: protocol::LimitsEdit {
-                section: section.into(),
-                key,
-                value,
-            },
         })
     });
 }
@@ -158,7 +117,7 @@ fn set_limit(
 /// none.
 pub(crate) const fn efforts(
     unset: &'static str,
-) -> [(Option<Effort>, &'static str); 6] {
+) -> [(Option<Effort>, &'static str); 8] {
     [
         (None, unset),
         (Some(Effort::Off), "Off"),
@@ -166,69 +125,9 @@ pub(crate) const fn efforts(
         (Some(Effort::Low), "Low"),
         (Some(Effort::Medium), "Medium"),
         (Some(Effort::High), "High"),
+        (Some(Effort::XHigh), "Extra High"),
+        (Some(Effort::Max), "Max"),
     ]
-}
-
-const AGENT_EFFORTS: [(Option<Effort>, &str); 6] =
-    efforts("Settings' effort");
-
-fn effort_chooser(agent: Entity) -> impl View {
-    let own = bevy_fynix::derived(move |world: &World| {
-        let (_, name) = limits_name(world, agent)?;
-        let hamlet = world.get::<LivesIn>(agent)?.0;
-        let limits = &world.get::<Bylaws>(hamlet)?.0;
-        Some(limits.efforts.get(&name).copied())
-    })
-    .when(either(agents_moved(), hamlets_moved()));
-    keyed(own, move |own| {
-        let was = own.flatten();
-        let at = AGENT_EFFORTS
-            .iter()
-            .position(|(effort, _)| *effort == was)
-            .unwrap_or_default();
-        dropdown(
-            AGENT_EFFORTS.map(|(_, name)| name),
-            at,
-            Glyph::Chevron.image(hamlet_ui::styles::ICON),
-            move |world, chosen| {
-                let (effort, _) = AGENT_EFFORTS[chosen];
-                if effort != was {
-                    let value = serde_json::to_value(effort)
-                        .expect("an effort is plain text");
-                    set_limit(world, agent, "efforts", value);
-                }
-            },
-        )
-        .width(percent(100.0))
-        .max_width(percent(100.0))
-        .boxed()
-    })
-    .within(bare())
-}
-
-pub(crate) fn of_agent(agent: Entity) -> impl View {
-    built(move |cx| {
-        if cx.world.get::<LivesIn>(agent).is_none() {
-            return cx.build(column(()));
-        }
-        cx.build(close((
-            section("Model"),
-            super::problem(),
-            chooser(
-                move |world| {
-                    world
-                        .get::<Account>(agent)
-                        .map(|account| account.model.clone())
-                        .unwrap_or_default()
-                },
-                move |world, model| {
-                    set_limit(world, agent, "pinned", model.into());
-                },
-            ),
-            section("Thinking effort"),
-            effort_chooser(agent),
-        )))
-    })
 }
 
 pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
@@ -249,67 +148,11 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
                 whole(world, hamlet, |limits| limits.model = chosen);
             },
         );
-        let choices = bevy_fynix::derived(move |world: &World| {
-            let models = world
-                .resource::<Shelf>()
-                .models
-                .iter()
-                .filter(|model| model.allowed)
-                .cloned()
-                .collect::<Vec<_>>();
-            let chosen = world
-                .get::<Bylaws>(hamlet)
-                .map(|limits| limits.0.models.clone())
-                .unwrap_or_default();
-            (models, chosen)
-        })
-        .when(either(moved::<Shelf>(), hamlets_moved()));
-        let rows = keyed(choices, move |(models, chosen)| {
-            if models.is_empty() {
-                return description(
-                    "The home allows no model besides its default \
-                     yet. Allow some under Models in Settings.",
-                )
-                .boxed();
-            }
-            close(
-                models
-                    .iter()
-                    .map(|model| {
-                        let name = model.name.clone();
-                        labelled_switch(
-                            model.name.clone(),
-                            chosen.contains(&name),
-                            move |world, on| {
-                                whole(world, hamlet, |limits| {
-                                    limits.models.retain(|known| {
-                                        known != &name
-                                    });
-                                    if on {
-                                        limits
-                                            .models
-                                            .push(name.clone());
-                                    }
-                                });
-                            },
-                        )
-                        .boxed()
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .boxed()
-        })
-        .within(bare());
         cx.build(group((
             crate::overview::heading(
                 Glyph::Chip,
-                "MODELS THIS HAMLET MAY RUN",
+                "Model this hamlet runs",
             ),
-            description(
-                "The mayor picks from the switched-on models. The \
-                 default model is always allowed.",
-            ),
-            rows,
             super::problem(),
             close((section("Its default model"), default)),
             description(

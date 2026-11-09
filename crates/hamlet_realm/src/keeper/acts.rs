@@ -12,7 +12,7 @@ use std::f32::consts::{PI, TAU};
 
 use self::chores::{
     celebrate, crank, done, hammer, kite, lift, oops, read, recall,
-    stow, tend, think, vote, write,
+    stow, tend, think, write,
 };
 use self::handled::{dangle, land, startle, sulk, wiggle};
 use self::lives::{appear, leave, merge_host, merge_into};
@@ -61,7 +61,6 @@ pub enum Act {
     /// Taking in the robot in front of it.
     MergeHost,
     Celebrate,
-    Vote,
     /// Walking about its own plot, on its way to a job.
     Amble,
     /// Walking slowly up and down, thinking.
@@ -116,7 +115,7 @@ pub const TALK_GAP: f32 = 0.86;
 pub const MERGE_GAP: f32 = 0.9;
 
 impl Act {
-    pub const ALL: [Self; 42] = [
+    pub const ALL: [Self; 41] = [
         Self::Idle,
         Self::Sleep,
         Self::Reflect,
@@ -138,7 +137,6 @@ impl Act {
         Self::MergeInto,
         Self::MergeHost,
         Self::Celebrate,
-        Self::Vote,
         Self::Amble,
         Self::Pace,
         Self::Read,
@@ -182,7 +180,6 @@ impl Act {
             | Self::Appear
             | Self::Leave
             | Self::Celebrate
-            | Self::Vote
             | Self::Done
             | Self::Startle
             | Self::Sulk
@@ -235,7 +232,6 @@ impl Act {
             Self::MergeInto => Some(1.8),
             Self::MergeHost => Some(2.9),
             Self::Celebrate => Some(2.5),
-            Self::Vote => Some(3.3),
             Self::Stow => Some(3.4),
             Self::Oops => Some(1.9),
             Self::Done => Some(2.0),
@@ -256,7 +252,6 @@ impl Act {
             | Self::Appear
             | Self::MergeHost
             | Self::Celebrate
-            | Self::Vote
             | Self::Done
             | Self::Startle
             | Self::Sulk
@@ -396,7 +391,6 @@ pub(super) fn pose(act: Act, c: &Context) -> Pose {
         Act::MergeInto => merge_into(c),
         Act::MergeHost => merge_host(c),
         Act::Celebrate => celebrate(c),
-        Act::Vote => vote(c),
         Act::Startle => startle(c),
         Act::Sulk => sulk(c),
         Act::Wiggle => wiggle(c),

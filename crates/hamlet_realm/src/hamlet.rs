@@ -2,6 +2,7 @@
 //! agent and road entity takes its place in the society the generator
 //! draws.
 
+mod crossing;
 mod housing;
 mod pointing;
 mod roads;
@@ -11,11 +12,11 @@ mod tests;
 mod view;
 
 use bevy::prelude::*;
-use hamlet_client::realm::{HOME, HamletId, LivesIn};
 
 use crate::chief::Settling;
 use crate::generator::land::Land;
 use crate::generator::society::{AgentId, Pair, Society, TownId};
+use crate::harbor::Harbor;
 use crate::sky::CameraSettings;
 use crate::{RealmSystems, library};
 
@@ -33,7 +34,6 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(housing::close)
         .add_observer(roads::unlay)
         .add_observer(roads::walk)
-        .add_observer(state::vote)
         .add_systems(
             Update,
             (
@@ -44,6 +44,10 @@ pub(crate) fn plugin(app: &mut App) {
                     ),
                 ),
                 housing::house,
+                housing::seat,
+                crossing::board.run_if(resource_exists::<Harbor>),
+                (crossing::leave_home, crossing::cross)
+                    .run_if(any_with_component::<crossing::Voyage>),
                 housing::resite,
                 roads::lay,
                 state::show,
@@ -96,9 +100,3 @@ struct Returning;
 /// The road of the society a road entity is drawn as.
 #[derive(Component, Clone, Copy)]
 struct Laid(Pair);
-
-/// True when `lives` is the first hamlet, the one the window's own
-/// session is with.
-fn is_first(hamlets: &Query<&HamletId>, lives: &LivesIn) -> bool {
-    hamlets.get(lives.0).is_ok_and(|s| s.0 == HOME)
-}

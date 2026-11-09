@@ -38,8 +38,30 @@ drop a word for an icon, and there the icon has a tooltip that names it:
 the status bar, and a tight stack of sliders for one thing's look, such
 as the volumetric fog on the Sight page of Settings.
 
-The states use the same four everywhere: `Moon` at rest, `Bolt` at work,
-`Bell` waiting for the chief, `Gone` removed.
+An agent's state has one glyph, tone and word wherever it is shown, set
+in `hamlet_app/src/standing.rs`: `Bell` waiting for the chief, `Stop`
+stopped, `Bolt` at work, `Moon` at rest, `Gone` gone.
+
+## One meaning each
+
+An icon means one thing across the app, so the eye can trust it. Those
+that name a part of Hamlet:
+
+- `Tree` the Hub, `Globe` the world and the realm, `Hamlet` a hamlet,
+  `Scholar` a scholar and the city, `Anchor` the harbor, `Signpost`
+  roads, `Hearth` the chief's hearth.
+- `Tower` the Hand, `Mayor` a mayor and the leads, `Robot` a hire or a
+  worker, `Face` an agent's character, `Notes` what it is told in
+  writing (its prompt, memory and the charter), `Book` skills, the
+  library and the bylaws.
+- `Chip` a model, `Fast` the fast tier, `Key` a provider's key, `Signal`
+  a connection or a sign-in, `Shield` the sandbox and the workspace.
+- `Lens` a search, `Sliders` settings, `Speaker` sound, `Eye` how
+  something looks or showing it, `Sun` the Sight page.
+- `Power` an agent's tools, `Leave` closing the window.
+
+Before giving an icon a new use, search for `Glyph::<Name>` and keep to
+its meaning; draw a new one when none fits.
 
 ## Adding one
 

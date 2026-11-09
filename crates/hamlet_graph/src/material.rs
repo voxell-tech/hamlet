@@ -14,7 +14,9 @@ use crate::value::{Constant, ValueType};
 
 /// A shader by name and values for some of its graph inputs, by the
 /// inputs' names.
-#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[derive(
+    Clone, PartialEq, Debug, Default, Serialize, Deserialize,
+)]
 pub struct Material {
     pub shader: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -56,7 +58,11 @@ impl Material {
     /// What the input `name` of `shader` is in this material: its own
     /// value, else the shader's default. Nothing for an input the
     /// shader does not have, or one with no default that is not set.
-    pub fn value(&self, shader: &Graph, name: &str) -> Option<Constant> {
+    pub fn value(
+        &self,
+        shader: &Graph,
+        name: &str,
+    ) -> Option<Constant> {
         let input =
             shader.inputs.iter().find(|input| input.name == name)?;
         match self.values.get(name) {
@@ -68,7 +74,8 @@ impl Material {
     }
 
     /// `shader` with each graph input's default what this material
-    /// makes it, so the shader compiled from it shades as the material.
+    /// makes it, so the shader compiled from it shades as the
+    /// material.
     pub fn apply(&self, shader: &Graph) -> Graph {
         let mut applied = shader.clone();
         for input in &mut applied.inputs {
@@ -85,10 +92,14 @@ impl Material {
         self.values
             .iter()
             .filter_map(|(name, value)| {
-                let Some(input) =
-                    shader.inputs.iter().find(|input| input.name == *name)
+                let Some(input) = shader
+                    .inputs
+                    .iter()
+                    .find(|input| input.name == *name)
                 else {
-                    return Some(MaterialError::NoInput(name.clone()));
+                    return Some(MaterialError::NoInput(
+                        name.clone(),
+                    ));
                 };
                 (!fits(value, input.value_type)).then(|| {
                     MaterialError::WrongType {
@@ -112,13 +123,17 @@ impl Material {
     }
 }
 
-/// Whether `value` can be what an input of `value_type` is: one of its
-/// type, or a point for a vector, as a graph's file writes a vector.
+/// Whether `value` can be what an input of `value_type` is: one of
+/// its type, or a point for a vector, as a graph's file writes a
+/// vector.
 pub fn fits(value: &Constant, value_type: ValueType) -> bool {
     value.value_type() == value_type
         || matches!(
             (value, value_type),
-            (Constant::Point(_), ValueType::Vector2 | ValueType::Vector3)
+            (
+                Constant::Point(_),
+                ValueType::Vector2 | ValueType::Vector3
+            )
         )
 }
 
@@ -160,7 +175,9 @@ mod tests {
         material
             .values
             .insert("roughness".to_owned(), Constant::Number(0.9));
-        material.values.insert("gone".to_owned(), Constant::Bool(true));
+        material
+            .values
+            .insert("gone".to_owned(), Constant::Bool(true));
         material
             .values
             .insert("tint".to_owned(), Constant::Number(1.0));

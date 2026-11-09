@@ -4,11 +4,12 @@
 //! `sources.ron` with the file outside the library it was added from
 //! and follows; blueprint and shader graphs are `.ron` files in
 //! `blueprints/` and `shaders/`, one graph to a file; materials are
-//! `.ron` files in `materials/`, each a shader by name with values for
-//! some of its inputs; textures are `.png` files in `textures/`. A graph names the meshes it uses and
-//! the other graphs of its kind it runs. `folders.ron` records the
-//! folders and the folder each asset is in, of every kind, the files
-//! staying in their shelves. A removed asset is moved to `.trash/`.
+//! `.ron` files in `materials/`, each a shader by name with values
+//! for some of its inputs; textures are `.png` files in `textures/`.
+//! A graph names the meshes it uses and the other graphs of its kind
+//! it runs. `folders.ron` records the folders and the folder each
+//! asset is in, of every kind, the files staying in their shelves. A
+//! removed asset is moved to `.trash/`.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -253,8 +254,12 @@ impl Library {
             .and_then(|text| Folders::from_ron(&text).ok())
             .unwrap_or_default();
         let mut items = Vec::new();
-        for kind in
-            [Kind::Blueprint, Kind::Shader, Kind::Material, Kind::Texture] {
+        for kind in [
+            Kind::Blueprint,
+            Kind::Shader,
+            Kind::Material,
+            Kind::Texture,
+        ] {
             let Ok(entries) = fs::read_dir(root.join(kind.shelf()))
             else {
                 continue;
@@ -326,8 +331,8 @@ impl Library {
         write_atomic(&Self::folders_at(root), &text)
     }
 
-    /// Changes the folders as `change` says and writes them, and gives
-    /// what `change` gives. Nothing is written when it fails.
+    /// Changes the folders as `change` says and writes them, and
+    /// gives what `change` gives. Nothing is written when it fails.
     pub fn change_folders<T>(
         &mut self,
         change: impl FnOnce(&mut Folders) -> anyhow::Result<T>,
@@ -493,7 +498,8 @@ impl Library {
                 format!("making {}", parent.display())
             })?;
         }
-        let text = material.to_ron().context("writing the material")?;
+        let text =
+            material.to_ron().context("writing the material")?;
         write_atomic(&path, &text)?;
         self.scan();
         Ok(path)
@@ -960,14 +966,17 @@ mod tests {
         );
         library.save_material(&item.name, &material).unwrap();
 
-        assert!(folder.join("library/materials/plaster.ron").exists());
+        assert!(
+            folder.join("library/materials/plaster.ron").exists()
+        );
         let again = Library::in_folder(folder.join("library"));
         let found = again.find(Kind::Material, "plaster").unwrap();
         assert_eq!(found.material().unwrap(), material);
     }
 
     #[test]
-    fn an_asset_renamed_stays_in_its_folder_and_leaves_it_when_removed() {
+    fn an_asset_renamed_stays_in_its_folder_and_leaves_it_when_removed()
+     {
         let folder = Scratch::new("library-folders");
         let mut library = Library {
             root: Some(folder.join("library")),
@@ -983,7 +992,10 @@ mod tests {
 
         let name = library.rename(&item, "limewash").unwrap();
         let again = Library::in_folder(folder.join("library"));
-        assert_eq!(again.folders.of(Kind::Material, &name), Some("village"));
+        assert_eq!(
+            again.folders.of(Kind::Material, &name),
+            Some("village")
+        );
         assert_eq!(again.folders.of(Kind::Material, "plaster"), None);
 
         let renamed = library.find(Kind::Material, &name).unwrap();

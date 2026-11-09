@@ -90,7 +90,7 @@ that runs every frame is also work that keeps the app from resting.
    like one line. Index by the entity or by the id the generator already
    keeps (`Drawn`).
 7. **Share handles.** One material and colours in the vertices let the
-   renderer batch a town's houses. A material per entity does not batch
+   renderer batch a hamlet's houses. A material per entity does not batch
    and is prepared one by one. The flags of one length wave with one
    material (`flag::Waving`).
 8. **Ask for a frame only for what is seen.** Something that moves on its
@@ -168,7 +168,7 @@ where a signal reads from. The pattern that fits:
 > resource.
 
 `Lines`, `Bar`, `Card`, `Roll`, `petition::Queue` and
-`inspector::Papers` are built this way. A signal on `every_frame()` does
+`hub::Papers` are built this way. A signal on `every_frame()` does
 its whole read each frame, and a dock tab that is not in front still runs
 its signals. A read that has no resource of its own takes its check from
 `rolled`, `moved::<R>()` or `either(..)` in `roll.rs`.

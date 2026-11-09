@@ -51,8 +51,8 @@ use bevy::ui_widgets::popover::{
 };
 use bevy::window::{PrimaryWindow, RequestRedraw, Window};
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, Invoke, Layer, Mods, Scope,
-    ScopeId, ScopeSpec, ShortcutAppExt,
+    Chord, CommandId, CommandSpec, Layer, Mods, Scope, ScopeId,
+    ScopeSpec, ShortcutAppExt,
 };
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
@@ -532,6 +532,7 @@ fn time_dial() -> AnyView {
                             resource::<Daytime, _>(|daytime| {
                                 daytime.0
                             }),
+                            false,
                             |world, hour| {
                                 world.resource_mut::<Daytime>().0 =
                                     hour;
@@ -1156,7 +1157,8 @@ fn aim(
         return;
     };
     let yaw = YAW + seat.shown.yaw;
-    let pitch = (PITCH + seat.shown.pitch).clamp(-FRAC_PI_2, FRAC_PI_2);
+    let pitch =
+        (PITCH + seat.shown.pitch).clamp(-FRAC_PI_2, FRAC_PI_2);
     let toward = backward(yaw, pitch);
     // Up across the view, square to where it looks, so that it holds
     // looking straight down or up too.

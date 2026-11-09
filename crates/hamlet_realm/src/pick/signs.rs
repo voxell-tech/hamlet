@@ -3,8 +3,9 @@
 
 use bevy::prelude::*;
 use bevy::ui::UiSystems;
+use hamlet_client::realm::Shown;
 
-use super::{Footprint, Hovered, PickSettings, Thing};
+use super::{Footprint, Hovered, Names, PickSettings, Thing};
 use crate::label::{self, Lens};
 
 pub(super) fn plugin(app: &mut App) {
@@ -85,7 +86,7 @@ fn spawn(mut commands: Commands) {
 /// Keeps a sign over every `Named` thing.
 fn signs(
     mut commands: Commands,
-    names: Query<&Name>,
+    names: Names,
     lens: Lens,
     pick: Res<PickSettings>,
     new: Query<
@@ -98,26 +99,34 @@ fn signs(
         &mut Node,
         &mut Visibility,
         &ComputedNode,
+        &mut UiTransform,
+        &mut ZIndex,
+        &mut BackgroundColor,
+        &mut BorderColor,
+        &Children,
     )>,
+    mut texts: Query<&mut TextColor, With<SignText>>,
 ) {
     for (thing, what, reads) in &new {
         commands.spawn((
             Sign(thing),
             Node {
                 position_type: PositionType::Absolute,
-                padding: UiRect::axes(px(6), px(1)),
+                padding: UiRect::axes(px(7), px(2)),
                 border: UiRect::all(px(1)),
                 ..default()
             },
-            BackgroundColor(Color::srgba_u8(0x01, 0x0a, 0x13, 0xd8)),
-            BorderColor::all(Color::srgb_u8(0x46, 0x37, 0x14)),
+            BackgroundColor(PLATE),
+            BorderColor::all(EDGE),
+            UiTransform::default(),
+            ZIndex(-1),
             Pickable::IGNORE,
             Visibility::Hidden,
             children![(
                 SignText,
                 Text::new(words(*what, reads, &names)),
-                TextFont::from_font_size(11.0),
-                TextColor(Color::srgb_u8(0xcd, 0xbe, 0x91)),
+                TextFont::from_font_size(12.0),
+                TextColor(INK),
                 Pickable::IGNORE,
             )],
         ));
@@ -127,35 +136,63 @@ fn signs(
     let top = |place: &GlobalTransform, room: &Footprint| {
         place.translation() + Vec3::Y * (room.height - room.lift)
     };
-    for (sign, mut node, mut visibility, computed) in &mut signs {
+    for (
+        sign,
+        mut node,
+        mut visibility,
+        computed,
+        mut transform,
+        mut order,
+        mut plate,
+        mut edge,
+        children,
+    ) in &mut signs
+    {
         // Its place is worked out only for one near enough to be
         // read.
-        let point = named
+        let found = named
             .get(sign.0)
             .ok()
-            .filter(|(room, was)| {
-                eye.distance(top(was, room)) < pick.signs_far
+            .map(|(room, was)| {
+                (room, was, eye.distance(top(was, room)))
             })
-            .and_then(|(room, was)| {
+            .filter(|(.., far)| *far < pick.signs_far)
+            .and_then(|(room, was, far)| {
                 let place = lens.stands(sign.0, was);
                 camera
                     .world_to_viewport(&view, top(&place, room))
                     .ok()
+                    .map(|point| (point, far))
             });
-        let Some(point) = point else {
+        let Some((point, far)) = found else {
             visibility.set_if_neq(Visibility::Hidden);
             continue;
         };
+        let depth = label::depth(far, pick.signs_far);
+        transform.scale = Vec2::splat(depth.scale);
+        order.set_if_neq(depth.order);
+        plate.0 = PLATE.with_alpha(PLATE.alpha() * depth.shown);
+        *edge = BorderColor::all(EDGE.with_alpha(depth.shown));
+        for child in children {
+            if let Ok(mut ink) = texts.get_mut(*child) {
+                ink.0 = INK.with_alpha(depth.shown);
+            }
+        }
         label::put(&mut node, label::above(computed, point, 4.0));
         visibility.set_if_neq(Visibility::Visible);
     }
 }
 
+/// A sign's plate, edge and words, at their nearest.
+const PLATE: Color = Color::srgba(0.004, 0.039, 0.075, 0.85);
+const EDGE: Color = Color::srgb(0.47, 0.353, 0.157);
+const INK: Color = Color::srgb(0.941, 0.902, 0.824);
+
 /// The words of the sign of `thing`.
 fn words(
     thing: Thing,
     reads: Option<&Reads>,
-    names: &Query<&Name>,
+    names: &Names,
 ) -> String {
     match reads {
         Some(reads) => reads.0.clone(),
@@ -165,13 +202,15 @@ fn words(
 
 /// Writes on each sign the name it shows.
 fn write_signs(
-    names: Query<&Name>,
-    renamed: Query<(), Changed<Name>>,
+    names: Names,
+    renamed: Query<(), Or<(Changed<Name>, Changed<Shown>)>>,
+    mut unnicknamed: RemovedComponents<Shown>,
     named: Query<(Ref<Thing>, &Signed, Option<Ref<Reads>>)>,
     signs: Query<&Children, With<Sign>>,
     mut texts: Query<&mut Text, With<SignText>>,
 ) {
-    let every = !renamed.is_empty();
+    let every =
+        !renamed.is_empty() || unnicknamed.read().next().is_some();
     for (thing, signed, reads) in &named {
         let rewritten =
             reads.as_ref().is_some_and(DetectChanges::is_changed);
@@ -195,7 +234,7 @@ fn write_signs(
 fn name_tag(
     quiet: Option<Res<NoNameTag>>,
     hovered: Res<Hovered>,
-    names: Query<&Name>,
+    names: Names,
     lens: Lens,
     things: Query<
         (Entity, &Thing, &Footprint, &GlobalTransform),

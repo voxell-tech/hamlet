@@ -4,10 +4,13 @@
 use std::path::PathBuf;
 
 use bevy::prelude::*;
-use hamlet_client::realm::{self as agents, Deeds, HOME, HamletId};
+use hamlet_client::realm::{
+    self as agents, Deeds, HamletId, Scholar,
+};
 use hamlet_client::{ViewFolder, gifts};
 
 use crate::chief::{Kept, Player, Stands};
+use crate::generator::land::{IslandId, Land};
 use crate::generator::society::Ground;
 use crate::hamlet::{hamlet_of, town_of};
 use crate::hand::{self, Wish};
@@ -18,11 +21,11 @@ pub(super) fn plugin(app: &mut App) {
     app.add_systems(Update, grant);
 }
 
-/// A chief's command for the hamlet `hamlet`, as the chief would
-/// type it.
+/// A chief's command for the hamlet `hamlet`, or for the Hand when
+/// there is none, as the chief would type it.
 #[derive(Event, Clone, Debug, PartialEq)]
 pub struct Decree {
-    pub hamlet: String,
+    pub hamlet: Option<String>,
     pub text: String,
 }
 
@@ -39,10 +42,10 @@ fn name(world: &World, agent: Entity) -> Option<String> {
         .map(|name| name.as_str().to_string())
 }
 
-/// A chief's command sent to the mayor of `agent`'s hamlet.
+/// A chief's command sent to the mayor of `agent`'s hamlet, or to the
+/// Hand when it has none.
 pub fn decree(world: &mut World, agent: Entity, text: String) {
-    let hamlet =
-        agents::hamlet_of(world, agent).unwrap_or(HOME).to_string();
+    let hamlet = agents::hamlet_of(world, agent).map(str::to_owned);
     world.trigger(Decree { hamlet, text });
     world.flush();
 }
@@ -88,6 +91,18 @@ pub fn carry(world: &mut World, hamlet: Entity) {
     }
 }
 
+/// Takes the house of `scholar` in hand, to be set down with a click
+/// on the ground.
+pub fn carry_house(world: &mut World, scholar: Entity) {
+    if !Deeds::is_allowed(world, "move-house") {
+        return;
+    }
+    if let Some(scholar) = world.get::<Scholar>(scholar) {
+        let id = scholar.0.id;
+        moving::pick_up(world, Ground::House(id));
+    }
+}
+
 /// Records the place a chief set something down. The world moves it
 /// when the record says so.
 fn set_down(world: &mut World, set: SetDown) {
@@ -104,10 +119,14 @@ fn set_down(world: &mut World, set: SetDown) {
             else {
                 return;
             };
-            let (x, z) = (set.to.x, set.to.y);
+            // The record keeps a town's place from its island's
+            // middle, which moves.
+            let to =
+                set.to - world.resource::<Land>().hamlet_centre();
+            let (x, z) = (to.x, to.y);
             world.trigger(Decree {
                 text: format!("/move-hamlet {name} {x:.1} {z:.1}"),
-                hamlet: name,
+                hamlet: Some(name),
             });
             world.flush();
         }
@@ -128,6 +147,38 @@ fn set_down(world: &mut World, set: SetDown) {
             }
             world.resource_mut::<Stood>().0 = Some(set.to);
         }
+        Ground::House(id) => {
+            if !Deeds::is_allowed(world, "move-house") {
+                return;
+            }
+            let turn = world
+                .query::<&Scholar>()
+                .iter(world)
+                .find(|scholar| scholar.0.id == id)
+                .and_then(|scholar| {
+                    Some(scholar.0.house.as_ref()?.turn)
+                });
+            let Some(turn) = turn else {
+                return;
+            };
+            let name = hamlet_client::realm::scholar_address(id);
+            let city = world
+                .resource::<Land>()
+                .island(IslandId::City)
+                .centre;
+            let to = set.to - city;
+            let (x, z) = (to.x, to.y);
+            let degrees = turn.to_degrees();
+            world.trigger(Decree {
+                hamlet: None,
+                text: format!(
+                    "/move-house {name} {x:.1} {z:.1} {degrees:.0}"
+                ),
+            });
+            world.flush();
+        }
+        // Nothing carries it, so nothing sets it down.
+        Ground::Tower => {}
     }
 }
 

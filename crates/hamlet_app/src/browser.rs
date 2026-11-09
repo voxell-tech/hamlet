@@ -37,7 +37,8 @@ use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, TooltipExt, button,
-    column, dropdown, frame, label, menu_item, row, scroll, text_field,
+    column, dropdown, frame, label, menu_item, row, scroll,
+    text_field,
 };
 use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
@@ -49,7 +50,8 @@ use hamlet_graph_editor::library::{
     Item, Kind, Library, Source, Tile,
 };
 use hamlet_ui::styles::{
-    self, Fills, ICON, description, labelled, note, section, text_input,
+    self, Fills, ICON, description, labelled, note, section,
+    text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -220,7 +222,7 @@ fn bar() -> AnyView {
             .tooltip(move || note(tip))
             .rules(styles::button)
             .tagged(Variant::Default)
-            .on_activate(move |world| ask(world))
+            .on_activate(ask)
         };
         let new = |word: &'static str,
                    tip: &'static str,
@@ -267,7 +269,11 @@ fn bar() -> AnyView {
                 "Add meshes from .glb files",
                 crate::graphs::assets::import,
             ),
-            import("Texture", "Add a texture from a .png file", import_texture),
+            import(
+                "Texture",
+                "Add a texture from a .png file",
+                import_texture,
+            ),
         ))
         .width(percent(100.0))
         .padding(UiRect::all(px(gap)))
@@ -307,18 +313,24 @@ fn folders() -> AnyView {
                         })
                         .boxed()
                 };
-                let mut row_of = vec![chip("All folders".to_owned(), None)];
+                let mut row_of =
+                    vec![chip("All folders".to_owned(), None)];
                 row_of.extend(paths.iter().map(|path| {
                     chip(path.replace('/', " / "), Some(path.clone()))
                 }));
                 let parent = open.clone();
                 row_of.push(
                     button(
-                        row((glyph(Glyph::Plus, ICON), label("Folder")))
-                            .gap(4.0),
+                        row((
+                            glyph(Glyph::Plus, ICON),
+                            label("Folder"),
+                        ))
+                        .gap(4.0),
                     )
                     .padding(UiRect::axes(px(8.0), px(2.0)))
-                    .tooltip(|| note("New folder in the folder shown"))
+                    .tooltip(|| {
+                        note("New folder in the folder shown")
+                    })
                     .rules(styles::button)
                     .tagged(Variant::Default)
                     .on_activate(move |world| {
@@ -342,8 +354,8 @@ fn folders() -> AnyView {
                             .padding(UiRect::axes(px(8.0), px(2.0)))
                             .tooltip(|| {
                                 note(
-                                    "Take the folder away; what is in \
-                                     it goes to the folder above",
+                                    "Take the folder away; what is \
+                                     in it goes to the folder above",
                                 )
                             })
                             .rules(styles::button)
@@ -371,10 +383,11 @@ fn folders() -> AnyView {
 
 /// Makes a new folder in `parent`, or at the top, and shows it.
 fn new_folder(world: &mut World, parent: Option<&str>) {
-    let made = world.resource_mut::<Library>().change_folders(|folders| {
-        let path = folders.free(parent, "folder");
-        folders.add(&path)
-    });
+    let made =
+        world.resource_mut::<Library>().change_folders(|folders| {
+            let path = folders.free(parent, "folder");
+            folders.add(&path)
+        });
     let note = match made {
         Ok(path) => {
             let note = format!("Made the folder {path}");
@@ -442,22 +455,35 @@ fn folder_picker(item: Item) -> AnyView {
         let at = library
             .folders
             .of(item.kind, &item.name)
-            .and_then(|folder| paths.iter().position(|path| path == folder))
+            .and_then(|folder| {
+                paths.iter().position(|path| path == folder)
+            })
             .map_or(0, |at| at + 1);
         let words = std::iter::once("none".to_owned())
             .chain(paths.iter().map(|path| path.replace('/', " / ")))
             .collect::<Vec<_>>();
-        dropdown(words, at, Glyph::Chevron.image(ICON), move |world, at| {
-            let folder = at.checked_sub(1).and_then(|at| paths.get(at));
-            let put = world.resource_mut::<Library>().change_folders(
-                |folders| {
-                    folders.put(item.kind, &item.name, folder.map(String::as_str))
-                },
-            );
-            if let Err(error) = put {
-                world.resource_mut::<Library>().note = format!("{error:#}");
-            }
-        })
+        dropdown(
+            words,
+            at,
+            Glyph::Chevron.image(ICON),
+            move |world, at| {
+                let folder =
+                    at.checked_sub(1).and_then(|at| paths.get(at));
+                let put = world
+                    .resource_mut::<Library>()
+                    .change_folders(|folders| {
+                        folders.put(
+                            item.kind,
+                            &item.name,
+                            folder.map(String::as_str),
+                        )
+                    });
+                if let Err(error) = put {
+                    world.resource_mut::<Library>().note =
+                        format!("{error:#}");
+                }
+            },
+        )
         .width(percent(100.0))
     })
     .boxed()
@@ -665,8 +691,10 @@ fn details() -> AnyView {
                 let own = item.is_own();
                 // A graph opens in its editor; a mesh or a texture is
                 // dragged onto a canvas instead.
-                let opens =
-                    matches!(item.kind, Kind::Blueprint | Kind::Shader);
+                let opens = matches!(
+                    item.kind,
+                    Kind::Blueprint | Kind::Shader
+                );
                 let (renamed, opened, removed) =
                     (item.clone(), item.clone(), item.clone());
                 let name: AnyView = if own {
@@ -683,23 +711,24 @@ fn details() -> AnyView {
                     note(item.name.replace('_', " ")).boxed()
                 };
                 let body: AnyView = match item.kind {
-                    Kind::Mesh => {
-                        crate::graphs::assets::details(item.name.clone())
-                    }
+                    Kind::Mesh => crate::graphs::assets::details(
+                        item.name.clone(),
+                    ),
                     Kind::Material => {
                         material::details(item.name.clone())
                     }
                     Kind::Blueprint | Kind::Shader => description(
-                        "Open it to change its graph, or drag it onto \
-                         a canvas.",
+                        "Open it to change its graph, or drag it \
+                         onto a canvas.",
                     )
                     .boxed(),
-                    Kind::Texture => {
-                        description("Drag it onto a canvas to use it.")
-                            .boxed()
-                    }
+                    Kind::Texture => description(
+                        "Drag it onto a canvas to use it.",
+                    )
+                    .boxed(),
                 };
-                let preview: AnyView = if item.kind == Kind::Material {
+                let preview: AnyView = if item.kind == Kind::Material
+                {
                     material::preview()
                 } else {
                     column(()).boxed()
@@ -716,7 +745,10 @@ fn details() -> AnyView {
                         body,
                         row((
                             button(label("Open"))
-                                .padding(UiRect::axes(px(8.0), px(2.0)))
+                                .padding(UiRect::axes(
+                                    px(8.0),
+                                    px(2.0),
+                                ))
                                 .display(shown(opens))
                                 .rules(styles::button)
                                 .tagged(Variant::Default)
@@ -724,7 +756,10 @@ fn details() -> AnyView {
                                     open(world, &opened);
                                 }),
                             button(label("Remove"))
-                                .padding(UiRect::axes(px(8.0), px(2.0)))
+                                .padding(UiRect::axes(
+                                    px(8.0),
+                                    px(2.0),
+                                ))
                                 .display(shown(own))
                                 .tooltip(|| {
                                     note(

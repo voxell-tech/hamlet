@@ -5,15 +5,12 @@ use std::io::{IsTerminal, Write};
 
 use anyhow::{Context, Result, bail};
 use hamlet_protocol::client::{transcript, *};
-use hamlet_protocol::{HOME, MAYOR};
+use hamlet_protocol::{HAND, MAYOR};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::client::{self, Client, ServerAddress};
 
-fn address_key(address: &Address) -> String {
-    format!("{}@{}", address.agent, address.hamlet)
-}
-fn chat_ref(with: Address) -> ChatRef {
+fn chat_ref(with: AgentId) -> ChatRef {
     ChatRef {
         with,
         from: None,
@@ -22,58 +19,46 @@ fn chat_ref(with: Address) -> ChatRef {
     }
 }
 
-fn resolve(
-    state: &State,
-    name: &str,
-    hamlet: Option<&str>,
-) -> Result<Address> {
-    if let Some(hamlet) = hamlet {
-        anyhow::ensure!(
-            state.hamlets.iter().any(|h| h.id == hamlet),
-            "no hamlet named `{hamlet}`"
-        );
+/// The living agent `to` addresses: `hand`, `mayor@<hamlet>`,
+/// `<hamlet>#<number>` or `worker#<id>`.
+pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
+    if to == HAND {
+        return Ok(state.hand);
     }
-    let agent = state
+    anyhow::ensure!(
+        to != MAYOR,
+        "mayor needs a hamlet: mayor@<hamlet>"
+    );
+    if let Some(hamlet) = to.strip_prefix("mayor@") {
+        let found = state
+            .hamlets
+            .iter()
+            .find(|h| h.id == hamlet)
+            .with_context(|| format!("no hamlet named `{hamlet}`"))?;
+        return Ok(found.mayor);
+    }
+    state
         .agents
         .iter()
         .find(|a| {
             a.left.is_none()
-                && hamlet.is_none_or(|h| a.agent.hamlet == h)
-                && if name == MAYOR {
-                    a.mayor
-                } else {
-                    a.name == name
-                }
+                && a.kind != AgentKind::Hand
+                && a.name == to
         })
-        .with_context(|| format!("no agent named `{name}`"))?;
-    Ok(Address {
-        hamlet: agent.agent.hamlet.clone(),
-        agent: if agent.mayor {
-            MAYOR.into()
-        } else {
-            agent.name.clone()
-        },
-    })
+        .map(|agent| agent.id)
+        .with_context(|| {
+            format!(
+                "no agent is at `{to}`; use hand, mayor@<hamlet>, \
+                 <hamlet>#<number> or worker#<id>"
+            )
+        })
 }
 
 /// Chats until EOF has received every submitted line's reply;
 /// disconnecting stops no agent.
 pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
     let (client, state) = client::connect(address).await?;
-    let parts = to.split('@').collect::<Vec<_>>();
-    anyhow::ensure!(
-        parts.len() <= 2 && parts.iter().all(|s| !s.is_empty()),
-        "--to names an agent, name@hamlet or mayor@hamlet"
-    );
-    let target = resolve(
-        &state,
-        parts[0],
-        parts.get(1).copied().or(if parts[0] == MAYOR {
-            Some(HOME)
-        } else {
-            None
-        }),
-    )?;
+    let target = resolve(&state, to)?;
     let mut screen = Screen::default();
     screen.show(&ServerMessage::State(state.clone()))?;
     eprintln!(
@@ -108,7 +93,7 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
         numbers: HashMap::new(),
         pinned: HashSet::new(),
     };
-    let chat = chat_ref(session.target.clone());
+    let chat = chat_ref(session.target);
     session.open(RequestId::new(), chat).await?;
     let mut input = BufReader::new(tokio::io::stdin()).lines();
     loop {
@@ -131,7 +116,7 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
 struct Session {
     client: Client,
     state: State,
-    target: Address,
+    target: AgentId,
     screen: Screen,
     interactive: bool,
     /// The opens whose failure ends the chat.
@@ -146,9 +131,9 @@ struct Session {
     /// The lines said and not yet answered.
     pending: HashSet<RequestId>,
     /// The current conversation's number, by agent.
-    numbers: HashMap<String, i64>,
+    numbers: HashMap<AgentId, i64>,
     /// The past conversations opened to finish their turns.
-    pinned: HashSet<(String, i64)>,
+    pinned: HashSet<(AgentId, i64)>,
 }
 
 impl Session {
@@ -172,8 +157,7 @@ impl Session {
     async fn on_line(&mut self, line: Option<String>) -> Result<()> {
         let Some(line) = line else {
             let barrier = RequestId::new();
-            self.open(barrier.clone(), chat_ref(self.target.clone()))
-                .await?;
+            self.open(barrier.clone(), chat_ref(self.target)).await?;
             self.last = Some(barrier);
             return Ok(());
         };
@@ -184,31 +168,34 @@ impl Session {
         let (command, name) = trimmed
             .split_once(char::is_whitespace)
             .unwrap_or((trimmed, ""));
-        if command != "/agent" && command != "/hamlet" {
+        if !matches!(command, "/agent" | "/hamlet" | "/hand") {
             let id = RequestId::new();
             self.pending.insert(id.clone());
-            let to = self.target.clone();
+            let to = self.target;
             return self
                 .client
                 .send(ClientMessage::Say(Say { id, to, text: line }))
                 .await;
         }
         let name = name.trim();
-        match switch(&self.state, &self.target, command, name) {
+        match switch(&self.state, command, name) {
             Ok(next) => {
                 if next != self.target {
                     self.target = next;
                     self.open(
                         RequestId::new(),
-                        chat_ref(self.target.clone()),
+                        chat_ref(self.target),
                     )
                     .await?;
                 }
                 let whom = match command {
-                    "/agent" => "agent",
-                    _ => "mayor of",
+                    "/agent" => "agent ",
+                    "/hamlet" => "mayor of ",
+                    _ => "",
                 };
-                eprintln!("  (talking to the {whom} {name})");
+                let name =
+                    if command == "/hand" { "Hand" } else { name };
+                eprintln!("  (talking to the {whom}{name})");
             }
             Err(error) => eprintln!("error: {error}"),
         }
@@ -236,11 +223,7 @@ impl Session {
         };
         let duplicate = chat.is_some_and(|chat| {
             chat.past.is_some()
-                && chat.past
-                    == self
-                        .numbers
-                        .get(&address_key(&chat.with))
-                        .copied()
+                && chat.past == self.numbers.get(&chat.with).copied()
         });
         if !duplicate {
             self.screen.show(&message)?;
@@ -267,8 +250,7 @@ impl Session {
             && self.final_id.is_none()
         {
             let barrier = RequestId::new();
-            self.open(barrier.clone(), chat_ref(self.target.clone()))
-                .await?;
+            self.open(barrier.clone(), chat_ref(self.target)).await?;
             self.final_id = Some(barrier);
         }
         Ok(matches!(
@@ -292,16 +274,15 @@ impl Session {
                 if let Some(to) = &transcript.to {
                     self.opens.remove(to);
                 }
-                let key = address_key(&transcript.chat.with);
+                let key = transcript.chat.with;
                 if transcript.chat.past.is_none()
                     && let Some(number) = transcript.number
                     && let Some(previous) =
-                        self.numbers.insert(key.clone(), number)
+                        self.numbers.insert(key, number)
                     && previous != number
                     && self.pinned.insert((key, previous))
                 {
-                    let mut chat =
-                        chat_ref(transcript.chat.with.clone());
+                    let mut chat = chat_ref(transcript.chat.with);
                     chat.past = Some(previous);
                     self.open(RequestId::new(), chat).await?;
                 }
@@ -314,28 +295,22 @@ impl Session {
 
 fn switch(
     state: &State,
-    target: &Address,
     command: &str,
     name: &str,
-) -> Result<Address> {
+) -> Result<AgentId> {
+    if command == "/hand" {
+        return Ok(state.hand);
+    }
     anyhow::ensure!(!name.is_empty(), "usage: {command} <name>");
     if command == "/agent" {
-        return resolve(
-            state,
-            name,
-            if name == MAYOR {
-                Some(&target.hamlet)
-            } else {
-                None
-            },
-        );
+        return resolve(state, name);
     }
     let hamlet = state
         .hamlets
         .iter()
         .find(|h| h.id == name || h.name == name)
         .with_context(|| format!("no hamlet named `{name}`"))?;
-    resolve(state, MAYOR, Some(&hamlet.id))
+    Ok(hamlet.mayor)
 }
 
 fn prompt(screen: &mut Screen, interactive: bool) -> Result<()> {
@@ -494,6 +469,12 @@ impl Screen {
             WaitDetail::Fault {} => {
                 ("fault", format!("{by} failed: {subject}"))
             }
+            WaitDetail::Newcomer { .. } => (
+                "newcomer",
+                format!(
+                    "{subject}, whom {by} made, waits at the harbor"
+                ),
+            ),
         };
         let answers = wait
             .answers
@@ -518,11 +499,7 @@ impl Screen {
         id: &str,
     ) -> String {
         if id.starts_with("live:") {
-            format!(
-                "{}:{:?}:{id}",
-                address_key(&chat.with),
-                number.or(chat.past)
-            )
+            format!("{}:{:?}:{id}", chat.with.0, number.or(chat.past))
         } else {
             id.into()
         }

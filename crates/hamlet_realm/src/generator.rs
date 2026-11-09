@@ -1,5 +1,5 @@
 //! A world generated from the society's state
-//! (docs/endless-world.md): land from a seed, a town per mayor, a
+//! (docs/islands.md): land from a seed, a town per mayor, a
 //! house and a robot per agent, a road per pair.
 
 mod building;
@@ -63,7 +63,7 @@ pub use self::traffic::{Trip, Trips};
 pub use self::view::{Ahead, GeneratorView};
 use self::view::{aim, robot_detail, town_detail};
 pub use self::work::{
-    Floor, Objecting, Passage, Rehearsal, Robot, Voting,
+    Away, Floor, Objecting, Passage, Rehearsal, Robot,
 };
 use self::work::{pass, work_robots};
 use self::yard::YardSettings;
@@ -138,7 +138,6 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Ahead>()
     .init_resource::<GeneratorOptions>()
     .init_resource::<Rehearsal>()
-    .init_resource::<Voting>()
     .init_state::<Phase>()
     .init_resource::<Objecting>()
     .init_resource::<Loading>()
@@ -210,8 +209,8 @@ pub struct GeneratorSettings {
     pub road: RoadSettings,
 }
 
-/// Tells the land which sites have towns, so that the island reaches
-/// about them.
+/// Tells the land which sites have towns, so that the hamlet island
+/// reaches about them.
 fn settle(society: Res<Society>, mut land: ResMut<Land>) {
     let settled = society.settled();
     if land.settled() != settled {

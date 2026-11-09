@@ -19,9 +19,10 @@ use bevy::text::EditableText;
 use bevy::time::Time;
 use bevy::ui::{
     BackgroundColor, BackgroundGradient, BorderRadius, BoxShadow,
-    CalculatedClip, ComputedNode, CornerRadius, GlobalZIndex, Node,
-    PositionType, Pressed, RadialGradient, RadialGradientShape,
-    UiGlobalTransform, UiPosition, UiTransform, Val2, percent, px,
+    CalculatedClip, ComputedNode, CornerRadius, GlobalZIndex,
+    InteractionDisabled, Node, OverflowAxis, PositionType, Pressed,
+    RadialGradient, RadialGradientShape, UiGlobalTransform,
+    UiPosition, UiTransform, Val2, percent, px,
 };
 use bevy::ui_widgets::{Activate, Button};
 use bevy_fynix::Focused;
@@ -32,7 +33,6 @@ use super::{
     flicker, pool,
 };
 use crate::theme::Themed;
-use crate::widgets::fade::ScrollFade;
 
 /// A button's animated state, each 0 to 1.
 #[derive(Component, Default)]
@@ -66,10 +66,12 @@ pub(super) fn arm(
     buttons: Query<Entity, (With<Button>, Without<ControlEffect>)>,
     fields: Query<&ChildOf, Added<EditableText>>,
 ) {
+    // A field given a look of its own keeps it.
     for field in &fields {
         commands
             .entity(field.parent())
-            .try_insert((ControlEffect::default(), Variant::Input));
+            .try_insert(ControlEffect::default())
+            .try_insert_if_new(Variant::Input);
     }
     for button in &buttons {
         commands.entity(button).try_insert((
@@ -213,6 +215,7 @@ type Animated<'a> = (
     Option<&'a Hovered>,
     Has<Pressed>,
     Option<&'a Variant>,
+    Has<InteractionDisabled>,
 );
 
 pub(super) fn animate(
@@ -230,9 +233,14 @@ pub(super) fn animate(
         hovered,
         held,
         variant,
+        disabled,
     ) in &mut buttons
     {
-        let variant = variant.copied().unwrap_or_default();
+        // A button that cannot be pressed has no glow to invite it.
+        let variant = match variant.copied().unwrap_or_default() {
+            _ if disabled => Variant::Subtle,
+            variant => variant,
+        };
         let over = if variant == Variant::Input {
             focused
         } else {
@@ -317,6 +325,7 @@ type Glowing<'a> = (
     &'a ControlEffect,
     &'a Variant,
     Option<&'a BackgroundGradient>,
+    Has<InteractionDisabled>,
 );
 
 /// Keeps the glow gradient inside every control that has one: a pool
@@ -327,14 +336,15 @@ pub(super) fn update_gradients(
     controls: Query<Glowing>,
 ) {
     let colors = EffectColors::of(&theme);
-    for (control, effect, variant, now) in &controls {
+    for (control, effect, variant, now, disabled) in &controls {
         // Text has no fill for a glow to show in.
         if matches!(*variant, Variant::Subtle | Variant::Text) {
             continue;
         }
-        // Only the primary action shows its fill while it is out.
+        // Only the primary action shows its fill while it is out,
+        // and only while it can be pressed.
         let filled = *variant == Variant::Primary;
-        if effect.glow <= 0.0 && !filled {
+        if disabled || (effect.glow <= 0.0 && !filled) {
             if now.is_some() {
                 commands
                     .entity(control)
@@ -455,37 +465,48 @@ fn stands(
     })
 }
 
-/// The share of its glow a control keeps while it lies in a scroll
-/// area: all of it once both its edges are `room` logical pixels
-/// inside the area, and none as one reaches the area's edge.
-fn in_view(
-    control: Entity,
-    (node, at, _): Shape,
-    ancestors: &Query<&ChildOf>,
-    scrolls: &Query<
-        (&ComputedNode, &UiGlobalTransform),
-        With<ScrollFade>,
-    >,
-    room: f32,
-) -> f32 {
-    let Some((area, area_at)) = ancestors
-        .iter_ancestors(control)
-        .find_map(|above| scrolls.get(above).ok())
-    else {
-        return 1.0;
-    };
-    let (drawn, _, centre) = at.to_scale_angle_translation();
-    let half = node.size.y * drawn.y / 2.0;
-    let (top, bottom) = (centre.y - half, centre.y + half);
-    // As large as the area is drawn, as the control is.
-    let (area_drawn, _, area_centre) =
-        area_at.to_scale_angle_translation();
-    let tall = area.size.y * area_drawn.y / 2.0;
-    let (from, to) = (area_centre.y - tall, area_centre.y + tall);
-    let inside = (top - from).min(to - bottom);
-    let share =
-        (inside * node.inverse_scale_factor / room).clamp(0.0, 1.0);
-    share * share * (3.0 - 2.0 * share)
+/// Cuts each outer glow on a panel's layer where the scroll area its
+/// control is in ends, along each axis the area scrolls, as the
+/// control is cut there. The layer is not in the area, so nothing
+/// else cuts the glow of a control scrolled out of view.
+pub(super) fn cut_glows(
+    mut glows: Query<(&OuterGlowOf, &mut CalculatedClip)>,
+    ancestors: Query<&ChildOf>,
+    areas: Query<(&Node, &ComputedNode, &UiGlobalTransform)>,
+    panels: Query<(), With<GlowPanel>>,
+) {
+    let scrolls = |axis: OverflowAxis| axis == OverflowAxis::Scroll;
+    for (of, mut clip) in &mut glows {
+        let area = ancestors
+            .iter_ancestors(of.0)
+            .take_while(|above| !panels.contains(*above))
+            .filter_map(|above| areas.get(above).ok())
+            .find(|(node, ..)| {
+                scrolls(node.overflow.x) || scrolls(node.overflow.y)
+            });
+        let Some((node, computed, at)) = area else {
+            continue;
+        };
+        let mut rect = computed.resolve_clip_rect(
+            node.overflow,
+            node.overflow_clip_margin,
+        );
+        // An infinite edge cuts nothing.
+        if !scrolls(node.overflow.x) {
+            (rect.min.x, rect.max.x) =
+                (f32::NEG_INFINITY, f32::INFINITY);
+        }
+        if !scrolls(node.overflow.y) {
+            (rect.min.y, rect.max.y) =
+                (f32::NEG_INFINITY, f32::INFINITY);
+        }
+        // Written only when it moves, so the glow is not marked
+        // changed each frame.
+        let cut = clip.with_rect(rect, at);
+        if *clip != cut {
+            *clip = cut;
+        }
+    }
 }
 
 /// The share of its radius the outer glow about text has.
@@ -506,10 +527,6 @@ pub(super) fn outer_glow(
     shapes: Query<Shape>,
     shadows: Query<&BoxShadow, Without<OuterGlowOf>>,
     ancestors: Query<&ChildOf>,
-    scrolls: Query<
-        (&ComputedNode, &UiGlobalTransform),
-        With<ScrollFade>,
-    >,
     panels: Query<&Children, With<GlowPanel>>,
     layers: Query<
         (&ComputedNode, &UiGlobalTransform),
@@ -546,18 +563,7 @@ pub(super) fn outer_glow(
             }
             _ => set.outer_glow,
         };
-        // The glow is not cut where a scroll area ends, so it dims
-        // with the fade as its control nears the edge.
-        let view = shapes.get(target).ok().map_or(0.0, |shape| {
-            in_view(
-                control,
-                shape,
-                &ancestors,
-                &scrolls,
-                theme.space.scroll_fade + reach / 2.0,
-            )
-        });
-        let strength = effect.glow * thrown * view;
+        let strength = effect.glow * thrown;
         let now = shadows.get(target).ok();
         let shape = shapes
             .get(target)

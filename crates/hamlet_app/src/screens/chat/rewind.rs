@@ -4,6 +4,7 @@
 
 use bevy::app::App;
 use bevy::camera::visibility::Visibility;
+use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
@@ -11,24 +12,28 @@ use bevy::ecs::lifecycle::Insert;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::system::{Query, Res, ResMut};
-use bevy::math::Vec2;
+use bevy::ecs::world::World;
+use bevy::math::Rect;
 use bevy::picking::hover::Hovered;
-use bevy::ui::{JustifyContent, UiRect, px};
-use bevy_fynix::ScopedExt;
+use bevy::ui::{
+    ComputedNode, JustifyContent, UiGlobalTransform, UiRect, px,
+};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column,
 };
+use bevy_fynix::{ScopedExt, Signal, Visual, resource};
 use hamlet_client::chats::{Chat, Status};
 use hamlet_client::messages::Rewound;
 use hamlet_ui::styles::{ICON, back_link, note};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{View, built};
+use hamlet_ui::{Cx, View, built};
 
 use super::Draft;
+use super::bubble::Bubble;
 use super::reply::{Replying, unreplied};
 use crate::convo::Convo;
-use crate::world_menu::{self, Deed};
+use crate::world_menu::{self, Deed, Open};
 
 /// The room of a mark about its picture, and the room it takes
 /// beside its message.
@@ -40,10 +45,15 @@ pub(super) fn plugin(app: &mut App) {
     app.add_observer(reveal).add_observer(retype);
 }
 
+/// How opaque what a rewind forgets is while it is asked about.
+const FORGOTTEN: f32 = 0.4;
+
 /// A rewindable chat row, ordered by its message time.
 #[derive(Component, Clone, PartialEq, Eq, Debug)]
 pub struct Rewinds {
     pub session: Entity,
+    /// The row's message.
+    pub entry: String,
     /// The time of the row's message.
     pub at: u64,
 }
@@ -61,13 +71,7 @@ pub(super) fn mark(session: Entity, entry: String) -> impl View {
             .tooltip(|| note("Rewind to here"))
             .rules(back_link)
             .tagged(Variant::Text)
-            .on_activate(move |world| {
-                let deed = Deed::Rewind {
-                    session,
-                    entry: entry.clone(),
-                };
-                world_menu::ask(world, deed);
-            });
+            .on_activate(move |world| ask(world, session, &entry));
         let node = cx.build(
             column((back,))
                 .justify(JustifyContent::Center)
@@ -80,10 +84,106 @@ pub(super) fn mark(session: Entity, entry: String) -> impl View {
     })
 }
 
-/// The question asked before the conversation `session` is taken
-/// back to its message `entry`, at `at` in the window.
-pub fn asked(session: Entity, entry: String, at: Vec2) -> impl View {
-    world_menu::question(Deed::Rewind { session, entry }, at)
+/// Asks before the conversation `session` is taken back to its
+/// message `entry`, against that message's bubble.
+pub fn ask(world: &mut World, session: Entity, entry: &str) {
+    let mut rows = world.query::<(Entity, &Rewinds)>();
+    let Some((row, at)) = rows
+        .iter(world)
+        .find(|(_, row)| row.session == session && row.entry == entry)
+        .map(|(row, rewinds)| (row, rewinds.at))
+    else {
+        return;
+    };
+    let mut bubbles = world
+        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<Bubble>>();
+    let mut children = world.query::<&Children>();
+    let anchor = children
+        .query(world)
+        .iter_descendants(row)
+        .find_map(|node| bubbles.get(world, node).ok())
+        .map(|(node, place)| {
+            let scale = node.inverse_scale_factor();
+            Rect::from_center_size(
+                place.translation * scale,
+                node.size() * scale,
+            )
+        })
+        .unwrap_or_default();
+    let deed = Deed::Rewind {
+        session,
+        entry: entry.to_string(),
+        at,
+    };
+    world_menu::ask_against(world, deed, anchor);
+}
+
+/// The message of `session` a rewind is asked about, and when it was
+/// said.
+fn asked(open: &Open, session: Entity) -> Option<(&str, u64)> {
+    match open {
+        Open::Question(
+            Deed::Rewind {
+                session: of,
+                entry,
+                at,
+            },
+            _,
+        ) if *of == session => Some((entry.as_str(), *at)),
+        _ => None,
+    }
+}
+
+/// Rules that fade a row of `session` said at `at` while a rewind
+/// that would forget it is asked about. The message asked about is
+/// kept clear, as what the question is against.
+pub(super) fn fading(
+    session: Entity,
+    at: u64,
+) -> impl FnOnce(&mut Cx) {
+    move |cx| {
+        cx.set::<Visual>(move |visual, _| {
+            visual.opacity(resource::<Open, _>(
+                move |open| match asked(open, session) {
+                    Some((_, from)) if at > from => FORGOTTEN,
+                    _ => 1.0,
+                },
+            ))
+        });
+    }
+}
+
+/// Rules that hide the marks of the message `entry` of `session`
+/// while a rewind to it is asked about.
+pub(super) fn hiding(
+    session: Entity,
+    entry: String,
+) -> impl FnOnce(&mut Cx) {
+    move |cx| {
+        cx.set::<Visual>(move |visual, _| {
+            let entry = entry.clone();
+            visual.opacity(resource::<Open, _>(
+                move |open| match asked(open, session) {
+                    Some((of, _)) if of == entry => 0.0,
+                    _ => 1.0,
+                },
+            ))
+        });
+    }
+}
+
+/// `ring` while a rewind to the message `entry` of `session` is asked
+/// about, else `rest`.
+pub(super) fn ringed(
+    session: Entity,
+    entry: String,
+    rest: Color,
+    ring: Color,
+) -> Signal<Color> {
+    resource::<Open, _>(move |open| match asked(open, session) {
+        Some((of, _)) if of == entry => ring,
+        _ => rest,
+    })
 }
 
 /// Shows the mark of a row while the pointer is on the row and no

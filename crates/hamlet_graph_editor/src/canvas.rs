@@ -46,8 +46,7 @@ use bevy::ui::{
     AlignItems, BackgroundColor, BorderColor, BorderRadius,
     ComputedNode, Display, FlexDirection, JustifyContent, Node,
     Outline, Overflow, PositionType, UiGlobalTransform, UiRect,
-    UiTransform,
-    Val, Val2, ZIndex, px,
+    UiTransform, Val, Val2, ZIndex, px,
 };
 use bevy::ui_render::ui_material::MaterialNode;
 use bevy::window::{RequestRedraw, SystemCursorIcon, Window};
@@ -124,8 +123,8 @@ pub(super) fn plugin<K: EditorKey>(app: &mut App) {
         );
 }
 
-/// Outlines the canvas while a carried asset is over it, where letting
-/// it go would put it down.
+/// Outlines the canvas while a carried asset is over it, where
+/// letting it go would put it down.
 fn drop_hint<K: EditorKey>(
     mut commands: Commands,
     carried: Res<Carried>,

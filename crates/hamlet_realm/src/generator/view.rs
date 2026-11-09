@@ -11,7 +11,7 @@ use super::loading::Loading;
 use super::shift::Folded;
 use super::society::Society;
 use super::sync::Drawn;
-use super::work::Robot;
+use super::work::{Away, Robot};
 use crate::pick::backward;
 use crate::sky::{CameraSettings, DistanceFogSettings, Sun};
 use crate::{Clock, Stage, WorldCamera};
@@ -136,19 +136,19 @@ pub(super) fn town_detail(
 }
 
 /// Hides each robot too far from the camera to see, wherever its
-/// house is, and each that has yet to unfold.
+/// house is, and each that has yet to unfold or is away.
 pub(super) fn robot_detail(
     detail: Res<DetailSettings>,
     camera: Single<&Transform, With<WorldCamera>>,
     mut robots: Query<
-        (&Transform, &mut Visibility, Has<Folded>),
+        (&Transform, &mut Visibility, Has<Folded>, Has<Away>),
         (With<Robot>, Without<WorldCamera>),
     >,
 ) {
-    for (at, mut seen, folded) in &mut robots {
+    for (at, mut seen, folded, away) in &mut robots {
         let near = camera.translation.distance(at.translation)
             < detail.robots_far;
-        seen.set_if_neq(if near && !folded {
+        seen.set_if_neq(if near && !folded && !away {
             Visibility::Inherited
         } else {
             Visibility::Hidden

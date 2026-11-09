@@ -27,11 +27,11 @@ const TASKS: [Task; 11] = [
     Task::Run,
     Task::Think,
     Task::Write(Paper::File),
-    Task::Read(Paper::Notes),
+    Task::Read(Paper::Memory),
     Task::Fetch,
     Task::Read(Paper::Skill),
     Task::Write(Paper::Skill),
-    Task::Write(Paper::Notes),
+    Task::Write(Paper::Memory),
     Task::CustomTool,
     Task::Reflect,
 ];

@@ -1,6 +1,6 @@
 # The chief in the world
 
-The human a hamlet belongs to has a presence of their own: a place, a
+The human a realm belongs to has a presence of their own: a place, a
 mascot that is them, and a magic that carries the mascot to whoever they
 talk to. The chief is a wizard, so the house wears a pointed hat, the
 mascot carries a bare flame, and its travel is a spell.
@@ -21,9 +21,12 @@ to, a letterbox, a flower bed, a bench under a tree, a gate and an orb on
 the roof's tip. The roof takes the colour of the chief's cloak, and the
 orb and the waystone's ring the colour of their light.
 
-It belongs to a chief and not to a hamlet. It answers the pointer as
-`Thing::ChiefPlace`, and selecting it shows the chief in the Inspector.
-`chief::place::stand` is the one place that decides where it stands.
+It belongs to a chief and not to a hamlet, and stands on the city island
+with the Hand's tower, the Library and the scholars' houses
+(`docs/islands.md`). The chief can pick it up and set it down elsewhere
+there. It answers the pointer as `Thing::ChiefPlace`, and selecting it
+shows the chief's page in the Hub. `chief::place::stand` is the one place
+that decides where it stands.
 
 ## The mascot
 
@@ -43,8 +46,8 @@ eased into from the pose before it.
 ## Wickstep
 
 The magic is called **Wickstep**. The mascot goes out like a candle where
-it stands and is lit again somewhere else. Agents are bound to roads; the
-chief is not, and this is how that looks.
+it stands and is lighted again somewhere else. Agents are bound to roads;
+the chief is not, and this is how that is shown.
 
 When the chat is pointed at an agent and that agent is selected, the
 mascot goes to it. When nobody is selected any more it goes home. The
@@ -59,8 +62,8 @@ With the scene's clock frozen, the mascot is simply there.
 
 Four choices: the cloak, the light, what is on the head and what is in the
 hand. The first of each is what a chief has until they choose. They are
-changed in the Inspector, and a press changes the mascot and the house in
-that frame.
+changed on the chief's page in the Hub, and a press changes the mascot and
+the house in that frame.
 
 The look is kept in `chiefs/<name>.toml` in the window's folder, one file
 per chief, and names all four:

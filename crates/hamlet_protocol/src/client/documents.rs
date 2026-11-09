@@ -4,7 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::client::{
-    Address, Endpoint, Listed, Past, Price, RequestId, Skill,
+    AgentId, Endpoint, Listed, Past, Price, RequestId, ScholarId,
+    Skill,
 };
 
 #[derive(
@@ -18,16 +19,20 @@ pub enum Edit {
         #[serde(deserialize_with = "Option::deserialize")]
         text: Option<String>,
     },
+    /// A scholar's character, as a commit on its `main`.
     #[serde(rename = "character")]
     Character {
-        agent: Address,
         id: RequestId,
+        scholar: ScholarId,
         text: String,
     },
-    #[serde(rename = "notes")]
-    Notes {
-        agent: Address,
+    /// A memory file of a scholar's `main` or a hire's lodge, by
+    /// its path under `memory/`; empty text removes it.
+    #[serde(rename = "memory")]
+    Memory {
         id: RequestId,
+        of: Keeper,
+        path: String,
         text: String,
     },
     #[serde(rename = "limits")]
@@ -48,7 +53,12 @@ pub enum Edit {
 #[serde(untagged, deny_unknown_fields)]
 pub enum EditLimits {
     Set {
-        hamlet: String,
+        /// The hamlet whose limits these are, or the realm's when
+        /// absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "crate::client::present")]
+        #[schemars(with = "String")]
+        hamlet: Option<String>,
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[serde(deserialize_with = "crate::client::present")]
@@ -57,7 +67,10 @@ pub enum EditLimits {
         set: LimitsEdit,
     },
     Whole {
-        hamlet: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "crate::client::present")]
+        #[schemars(with = "String")]
+        hamlet: Option<String>,
         id: RequestId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[serde(deserialize_with = "crate::client::present")]
@@ -89,6 +102,10 @@ pub struct EditSettingsSet {
     pub allow_net: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "String", length(max = 4000))]
+    pub character: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Option<crate::Effort>")]
     pub effort: Option<Option<crate::Effort>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -99,6 +116,10 @@ pub struct EditSettingsSet {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "crate::client::Newcomers")]
+    pub newcomers: Option<crate::client::Newcomers>,
     #[serde(rename = "reflectEvery")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
@@ -126,10 +147,6 @@ pub struct EditSettingsSetWorkspace {
 pub struct EditCatalogueSet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "bool")]
-    pub allowed: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -144,9 +161,9 @@ pub struct EditCatalogueSet {
 #[serde(tag = "what", deny_unknown_fields)]
 pub enum Read {
     #[serde(rename = "prompt")]
-    Prompt { agent: Address, id: RequestId },
+    Prompt { agent: AgentId, id: RequestId },
     #[serde(rename = "history")]
-    History { agent: Address, id: RequestId },
+    History { agent: AgentId, id: RequestId },
     #[serde(rename = "models")]
     Models {
         id: RequestId,
@@ -157,7 +174,7 @@ pub enum Read {
     },
     #[serde(rename = "papers")]
     Papers {
-        agent: Address,
+        of: Keeper,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "bool")]
@@ -173,11 +190,38 @@ pub enum Read {
 )]
 #[serde(untagged, deny_unknown_fields)]
 pub enum ReadResult {
-    Prompt { prompt: String, to: RequestId },
-    History { history: Vec<Past>, to: RequestId },
-    Models { models: Vec<Listed>, to: RequestId },
-    Papers { papers: Papers, to: RequestId },
-    Charter { charter: Charter, to: RequestId },
+    Prompt {
+        prompt: Vec<PromptSection>,
+        to: RequestId,
+    },
+    History {
+        history: Vec<Past>,
+        to: RequestId,
+    },
+    Models {
+        models: Vec<Listed>,
+        to: RequestId,
+    },
+    Papers {
+        papers: Papers,
+        to: RequestId,
+    },
+    Charter {
+        charter: Charter,
+        to: RequestId,
+    },
+}
+
+/// A part of a composed prompt, in the order the model reads it.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct PromptSection {
+    /// Where it comes from, such as `charter`, `character`, `memory`
+    /// or `skills`.
+    pub name: String,
+    pub text: String,
 }
 
 #[derive(
@@ -189,12 +233,47 @@ pub struct Charter {
     pub text: String,
 }
 
+/// Whose knowledge an edit or a read is of: a scholar's `main`, or an
+/// agent's lodge laid over its scholar.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Keeper {
+    Scholar(ScholarId),
+    Agent(AgentId),
+}
+
+/// A scholar's knowledge, or what an agent sees of it in its lodge.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
 pub struct Papers {
     pub character: String,
-    pub notes: String,
+    /// The paths of the files the agent's lodge changed, added or
+    /// removed against its scholar; empty for a scholar.
+    pub learned: Vec<String>,
+    pub memory: Vec<MemoryFile>,
     pub skills: Vec<Skill>,
+}
+
+/// A file under `memory/`.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryFile {
+    /// Its front matter's `description:` line.
+    pub description: String,
+    /// Its path under `memory/`.
+    pub path: String,
+    pub text: String,
 }

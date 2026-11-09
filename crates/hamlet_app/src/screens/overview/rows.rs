@@ -1,46 +1,43 @@
-//! The hamlets and their agents as rows of the Inspector's lists.
+//! The hamlets and their agents as rows of the Hub's lists.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
 use bevy::ecs::query::Has;
 use bevy::ecs::world::World;
-use bevy::ui::AlignItems;
+use bevy::ui::{AlignItems, px};
+use bevy_fynix::ScopedExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::realm::{
-    Account, Activity, AgentNumber, Busy, HOME, HamletId, Left,
-    LivesIn, Mayor, MergedInto, Purpose, Treasury,
+    Account, AgentNumber, HamletId, Identity, Left, LivesIn, Mayor,
+    MergedInto, OwnModel, Parent, Treasury,
 };
-use hamlet_client::waits::Waiting;
+use hamlet_protocol::client::AgentId;
 use hamlet_realm::pick::Thing;
-use hamlet_ui::styles::{card_button, card_name, note, status_label};
+use hamlet_ui::styles::{ICON, card_button, card_name, status_label};
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::{View, with_cx};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::DisplayText;
+use hamlet_ui::{AnyView, View, with_cx};
 
-use super::{Naming, Search};
+use super::Naming;
 use crate::roll::Roll;
+use crate::standing::{Standing, need_you};
 use crate::world_menu;
 
 /// A check that fires when the agents or the hamlets changed,
-/// something began or ended its wait, or the words typed did.
+/// something began or ended its wait, or a hamlet's naming did.
 pub(crate) fn stale()
 -> impl FnMut(&World) -> bool + Send + Sync + 'static {
-    let mut seen = None::<(Option<Roll>, String, Option<Entity>)>;
+    let mut seen = None::<(Option<Roll>, Option<Entity>)>;
     move |world: &World| {
         let roll = world.get_resource::<Roll>().copied();
         let naming = world.get_resource::<Naming>().and_then(|n| n.0);
-        let search = world.get_resource::<Search>();
-        let typed = search.map_or("", |search| search.0.as_str());
-        let same = seen.as_ref().is_some_and(|(r, s, n)| {
-            (*r, s.as_str(), *n) == (roll, typed, naming)
-        });
-        if !same {
-            seen = Some((roll, typed.to_string(), naming));
-        }
+        let now = (roll, naming);
+        let same = seen == Some(now);
+        seen = Some(now);
         !same
     }
 }
@@ -49,15 +46,13 @@ pub(crate) fn stale()
 #[derive(Clone, PartialEq)]
 pub(super) struct HamletRow {
     pub hamlet: Entity,
-    /// The name it is known by in commands, and the one shown.
+    /// The id commands name it by.
     pub id: String,
     pub title: String,
-    pub mayor: String,
-    pub living: usize,
-    pub working: usize,
-    pub waiting: usize,
-    pub gone: usize,
     pub account: String,
+    /// How much of its budget is spent, from 0 to 1, when it has
+    /// one.
+    pub spent: Option<f32>,
 }
 
 /// The state of a hamlet in a word: the agents `living` in it, and
@@ -71,59 +66,112 @@ pub(crate) fn standing(
         1 => "1 agent".to_string(),
         n => format!("{n} agents"),
     };
-    match (waiting, working) {
-        (0, 0) => {
-            (Glyph::Moon, format!("{count}, all at rest"), Tone::Dim)
+    let (state, words) = match (waiting, working) {
+        (0, 0) => (Standing::Rests, format!("{count}, all at rest")),
+        (0, n) => (Standing::Works, format!("{count}, {n} at work")),
+        (w, _) => {
+            let words = format!("{count}, {w} {}", need_you(w));
+            (Standing::Waits, words)
         }
-        (0, n) => (
-            Glyph::Bolt,
-            format!("{count}, {n} at work"),
-            Tone::Accent,
-        ),
-        (w, _) => (
-            Glyph::Bell,
-            format!("{count}, {w} waiting for you"),
-            Tone::Critical,
-        ),
-    }
+    };
+    (state.glyph(), words, state.tone())
 }
 
-impl HamletRow {
-    pub(super) fn state(&self) -> (Glyph, String, Tone) {
-        standing(self.living, self.working, self.waiting)
-    }
-}
-
-/// An agent of a hamlet, living or gone.
+/// An agent of a hamlet, living or gone: a hire, or a worker, which
+/// has no number.
 #[derive(Clone, PartialEq)]
 pub(super) struct AgentRow {
     pub agent: Entity,
-    pub number: u64,
+    pub number: Option<u64>,
+    /// What it is shown by.
     pub name: String,
     pub mayor: bool,
-    pub purpose: String,
-    /// Its work, or the way it left.
-    pub state: String,
-    pub busy: bool,
-    pub waiting: usize,
+    /// What its row says under its name, or the way it left.
+    pub under: String,
+    pub standing: Standing,
     pub gone: bool,
+    /// Its own model and what it spent, where it has either.
     pub account: String,
+    /// How many leads there are between it and the top of its
+    /// hamlet's tree.
+    pub depth: usize,
 }
 
 type Told<'a> = (
     Entity,
-    &'a AgentNumber,
-    &'a Name,
+    Option<&'a AgentNumber>,
     &'a LivesIn,
-    Option<&'a Purpose>,
-    Option<&'a Activity>,
+    Option<&'a OwnModel>,
     Option<&'a Account>,
     Option<&'a MergedInto>,
-    (Has<Busy>, Has<Mayor>, Has<Left>),
+    (Has<Mayor>, Has<Left>),
+    &'a Identity,
+    Option<&'a Parent>,
 );
 
+/// `rows` in the order of their tree: each lead followed by its
+/// hires, the living before those that are gone.
+fn in_tree(
+    rows: Vec<AgentRow>,
+    parents: &[(AgentId, Option<AgentId>)],
+    ids: &[(Entity, AgentId)],
+) -> Vec<AgentRow> {
+    let id_of = |row: &AgentRow| {
+        ids.iter()
+            .find(|(entity, _)| *entity == row.agent)
+            .map(|(_, id)| *id)
+    };
+    let parent_of = |id: AgentId| {
+        parents
+            .iter()
+            .find(|(of, _)| *of == id)
+            .and_then(|(_, parent)| *parent)
+    };
+    let here =
+        |id: AgentId| rows.iter().any(|row| id_of(row) == Some(id));
+    let mut ordered = Vec::new();
+    let mut pending = rows
+        .iter()
+        .filter(|row| {
+            id_of(row)
+                .and_then(parent_of)
+                .is_none_or(|parent| !here(parent))
+        })
+        .cloned()
+        .map(|row| (row, 0))
+        .collect::<Vec<_>>();
+    pending.reverse();
+    while let Some((mut row, depth)) = pending.pop() {
+        let id = id_of(&row);
+        row.depth = depth;
+        ordered.push(row);
+        let mut below = rows
+            .iter()
+            .filter(|other| {
+                id.is_some()
+                    && id_of(other).and_then(parent_of) == id
+                    && !ordered
+                        .iter()
+                        .any(|done| done.agent == other.agent)
+            })
+            .cloned()
+            .map(|row| (row, depth + 1))
+            .collect::<Vec<_>>();
+        below.reverse();
+        pending.extend(below);
+    }
+    // Whatever no lead reaches goes last.
+    for row in rows {
+        if !ordered.iter().any(|done| done.agent == row.agent) {
+            ordered.push(row);
+        }
+    }
+    ordered
+}
+
 /// Everyone of `hamlet`, or of every hamlet: the mayor, the living
-/// by their numbers, then those that are gone.
+/// by their numbers and the workers after them, then those that are
+/// gone.
 pub(super) fn agent_rows(
     world: &World,
     hamlet: Option<Entity>,
@@ -131,68 +179,69 @@ pub(super) fn agent_rows(
     let Some(mut agents) = world.try_query::<Told>() else {
         return Vec::new();
     };
-    let waits = world
-        .try_query::<&Waiting>()
-        .map(|mut waits| {
-            waits
-                .iter(world)
-                .map(|w| w.by.clone())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
     let named =
-        |agent: Entity| hamlet_client::realm::name_of(world, agent);
+        |agent: Entity| hamlet_client::realm::shown_of(world, agent);
+    let mut ids = Vec::new();
+    let mut parents = Vec::new();
     let mut rows = agents
         .iter(world)
-        .filter(|told| hamlet.is_none_or(|h| told.3.0 == h))
+        .filter(|told| hamlet.is_none_or(|h| told.2.0 == h))
         .map(
             |(
                 agent,
                 number,
-                name,
                 _,
-                purpose,
-                activity,
+                own,
                 account,
                 into,
-                (busy, mayor, gone),
+                (mayor, gone),
+                id,
+                parent,
             )| {
-                let name = name.as_str().to_string();
-                let state = match (gone, into) {
+                ids.push((agent, id.0));
+                parents.push((id.0, parent.map(|parent| parent.0)));
+                let under = match (gone, into) {
                     (true, Some(host)) => {
                         format!("Merged into {}", named(host.0))
                     }
                     (true, None) => "Removed".to_string(),
-                    _ => activity.cloned().unwrap_or_default().words,
+                    _ => crate::hub::under_name(world, agent).0,
                 };
+                // The hamlet's model and nothing spent go unsaid.
+                let account = account
+                    .map(|account| {
+                        let model = own.map(|_| {
+                            crate::models::model_name(&account.model)
+                        });
+                        let spent = (account.spent.micros > 0)
+                            .then_some(account.cost.as_str());
+                        model
+                            .into_iter()
+                            .chain(spent)
+                            .collect::<Vec<_>>()
+                            .join(" · ")
+                    })
+                    .unwrap_or_default();
                 AgentRow {
                     agent,
-                    number: number.0,
-                    waiting: waits
-                        .iter()
-                        .filter(|by| **by == name)
-                        .count(),
-                    name,
+                    number: number.map(|number| number.0),
+                    name: named(agent),
                     mayor,
-                    purpose: purpose
-                        .map(|p| {
-                            crate::hover::short(
-                                &p.0,
-                                crate::hover::PURPOSE_SHOWN,
-                            )
-                        })
-                        .unwrap_or_default(),
-                    state,
-                    busy,
+                    under,
+                    standing: Standing::of(world, agent),
                     gone,
-                    account: account
-                        .map(Account::summary)
-                        .unwrap_or_default(),
+                    account,
+                    depth: 0,
                 }
             },
         )
         .collect::<Vec<_>>();
-    rows.sort_by_key(|row| (row.gone, !row.mayor, row.number));
+    rows.sort_by_key(|row| {
+        (row.gone, !row.mayor, row.number.unwrap_or(u64::MAX))
+    });
+    let (gone, living) = rows.into_iter().partition(|row| row.gone);
+    let mut rows = in_tree(living, &parents, &ids);
+    rows.extend(in_tree(gone, &parents, &ids));
     rows
 }
 
@@ -205,74 +254,65 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
     )>() else {
         return Vec::new();
     };
-    let everyone = agent_rows(world, None);
-    let lives =
-        |agent: Entity| world.get::<LivesIn>(agent).map(|l| l.0);
     let mut rows = hamlets
         .iter(world)
-        .map(|(hamlet, id, name, treasury)| {
-            let here = everyone
-                .iter()
-                .filter(|row| lives(row.agent) == Some(hamlet))
-                .collect::<Vec<_>>();
-            let living = here
-                .iter()
-                .filter(|row| !row.gone)
-                .collect::<Vec<_>>();
-            HamletRow {
-                hamlet,
-                id: id.0.clone(),
-                title: name.as_str().to_string(),
-                mayor: living
-                    .iter()
-                    .find(|row| row.mayor)
-                    .map(|row| row.name.clone())
-                    .unwrap_or_default(),
-                living: living.len(),
-                working: living.iter().filter(|row| row.busy).count(),
-                waiting: living.iter().map(|row| row.waiting).sum(),
-                gone: here.len() - living.len(),
-                account: treasury
-                    .map(|t| t.0.summary.clone())
-                    .unwrap_or_default(),
-            }
+        .map(|(hamlet, id, name, treasury)| HamletRow {
+            hamlet,
+            id: id.0.clone(),
+            title: name.as_str().to_string(),
+            account: treasury
+                .map(|t| t.0.summary.clone())
+                .unwrap_or_default(),
+            spent: treasury.and_then(|t| {
+                t.0.caps.micros.filter(|cap| *cap > 0).map(|cap| {
+                    (t.0.spent.micros as f32 / cap as f32)
+                        .clamp(0.0, 1.0)
+                })
+            }),
         })
         .collect::<Vec<_>>();
-    // The first hamlet first, then by name.
-    rows.sort_by_key(|row| {
-        (row.id != HOME, row.title.to_lowercase())
-    });
+    rows.sort_by_key(|row| row.title.to_lowercase());
     rows
 }
 
+/// A hamlet's name on a card, in the display face the Hub's tree
+/// names it in.
+pub(super) fn hamlet_name(name: String) -> impl View {
+    card_name(name, Tone::Body).tagged(DisplayText)
+}
+
 /// A row that can be pressed: a title with a word of status beside
-/// it, over dim lines. The right button opens the menu of `thing`.
+/// it, over `lines`, and the mark that it opens at its end. The right
+/// button opens the menu of `thing`.
 pub(super) fn pressable(
     thing: Thing,
     title: String,
     beside: (Glyph, String, Tone),
-    lines: Vec<String>,
+    lines: Vec<AnyView>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
-    let lines = lines
-        .into_iter()
-        .filter(|line| !line.is_empty())
-        .map(|line| note(line).boxed())
-        .collect::<Vec<_>>();
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
         button(
-            column((
-                row((
-                    card_name(title, Tone::Body),
-                    status_label(beside.0, beside.1, beside.2),
+            row((
+                column((
+                    row((
+                        hamlet_name(title),
+                        status_label(beside.0, beside.1, beside.2),
+                    ))
+                    .gap(gap)
+                    .align(AlignItems::Center),
+                    column(lines).gap(0.0),
                 ))
-                .gap(gap)
-                .align(AlignItems::Center),
-                column(lines).gap(0.0),
+                .gap(gap / 2.0)
+                .grow(1.0)
+                .min_width(px(0.0))
+                .align(AlignItems::FlexStart),
+                glyph(Glyph::Into, ICON).tone(Tone::Dim),
             ))
-            .gap(gap / 2.0)
-            .align(AlignItems::FlexStart),
+            .gap(gap)
+            .grow(1.0)
+            .align(AlignItems::Center),
         )
         .rules(card_button)
         .tagged(Variant::Default)

@@ -27,17 +27,17 @@ Then read the page for the part you are about to touch.
 
 | Page | What it explains |
 |---|---|
-| [`home.md`](home.md) | The server's home on disk: its storage, credentials, houses and claim |
+| [`realm.md`](realm.md) | The realm on disk: its folder, database, scholars and lodges, credentials and claim |
 | [`cli.md`](cli.md) | The `hamlet` command: serving, stopping, chatting, editing, signing in, and finding the server and the window |
 | [`sandbox.md`](sandbox.md) | What an agent's tools can reach: the sandbox, the network, a folder a hamlet works on, manual and auto |
-| [`prompt.md`](prompt.md) | What an agent is told every turn: the charter, its character, its notes, and how the chief reads and edits them |
-| [`endless-world.md`](endless-world.md) | The land with no edge, the ground everything stands on, founding and moving a town |
+| [`prompt.md`](prompt.md) | What an agent is told every turn: the charter, its character, its memory and skills, and how the chief reads and edits them |
+| [`islands.md`](islands.md) | The city and hamlet islands, the harbor between them, the ground everything stands on, founding and moving a hamlet |
 | [`robots.md`](robots.md) | How the robots move: their motions, blending, rolling on their wheels, and what one costs |
 | [`working-alone.md`](working-alone.md) | What a robot does in its yard while its agent works |
 | [`chief.md`](chief.md) | The chief in the world: the Hearth, the mascot and Wickstep |
 | [`sound.md`](sound.md) | Every sound and the music, all made in code |
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
-| [`society.md`](society.md) | Agents, roads, votes, the shared library, departures and the realm, on the server and in the window |
+| [`society.md`](society.md) | The Hand, the city of scholars, hamlets and hires, roads, dreams, the shared library and what waits |
 | [`harness.md`](harness.md) | The harness: runtimes, bindings, the runtime protocol, its IDs and what a harness must be able to do |
 | [`protocol.md`](protocol.md) | The client protocol: transport, messages, watched conversations and errors |
 | [`chat.md`](chat.md) | Watched conversations, paging, drawing, local links and pictures, and rewinds through the server |

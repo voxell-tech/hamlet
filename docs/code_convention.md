@@ -123,7 +123,7 @@ palette, the accents, anything a setting might one day change. A
 `const` colour in WGSL can't be animated, themed or changed at run
 time, and it hides from anyone reading the theme or the palette.
 
-The values live where the other colours live (`assets/theme.toml` for
+The values live where the other colours live (`assets/themes/` for
 the panels, `assets/palette.toml` for the world) and reach the shader through
 the material. Numbers that are part of the shader's own arithmetic,
 such as a falloff or a threshold, may stay in the shader.

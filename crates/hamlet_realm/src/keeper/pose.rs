@@ -30,7 +30,6 @@ pub enum Prop {
     Letter,
     Mallet,
     Block,
-    Ballot,
     Book,
     Quill,
     Scroll,
@@ -39,12 +38,11 @@ pub enum Prop {
 
 impl Prop {
     /// Every prop that has a mesh.
-    pub const HELD: [Self; 9] = [
+    pub const HELD: [Self; 8] = [
         Self::Warrant,
         Self::Letter,
         Self::Mallet,
         Self::Block,
-        Self::Ballot,
         Self::Book,
         Self::Quill,
         Self::Scroll,

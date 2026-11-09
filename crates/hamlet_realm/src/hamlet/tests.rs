@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    Activity, AgentNumber, Busy, Carried, Doing, HOME, HamletId,
+    Activity, AgentNumber, Busy, Carried, Doing, HamletId, Identity,
     Left, Lived, LivesIn, Mayor, MergedInto, Road, RoadUse, Spot,
-    Traffic, Voted,
+    Traffic,
 };
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
@@ -14,15 +14,27 @@ use crate::generator::society::{
     Agent, Ground, Pair, RoadLevel, Society,
 };
 use crate::generator::{
-    Ahead, GeneratorSettings, GeneratorView, Objecting, Trips, Voting,
+    Ahead, GeneratorView, Objecting, Trips, testing,
 };
 use crate::keeper::KeeperState;
 use crate::keeper::work::Task;
-use crate::palette::Palette;
 use crate::pick::{Centre, Glide, Leash, Orbit, Stance};
 use crate::sky::CameraSettings;
 use crate::testing::{receive_change, receive_state};
 use crate::{Clock, Stage};
+
+/// The first hamlet's id in the client's fixture.
+const HOME: &str = "home";
+
+/// A hire of a test hamlet: its number and the id the server names
+/// it by.
+fn hire(number: u64, hamlet: Entity) -> impl Bundle {
+    (
+        Identity(protocol::AgentId(1000 + number)),
+        AgentNumber(number),
+        LivesIn(hamlet),
+    )
+}
 
 /// The world's side of the hamlets, with no hamlet in it: the real
 /// plugin on the client's entities. The resources it reads are
@@ -36,13 +48,8 @@ fn bare() -> App {
         .init_resource::<Society>()
         .init_resource::<Trips>()
         .init_resource::<Objecting>()
-        .init_resource::<Voting>()
         .init_resource::<Clock>()
-        .insert_resource(Land::new(
-            1,
-            GeneratorSettings::default(),
-            Palette::default(),
-        ))
+        .insert_resource(testing::land(1))
         .init_resource::<CameraSettings>()
         .init_resource::<Glide>()
         .init_resource::<Orbit>()
@@ -65,11 +72,8 @@ fn app() -> (App, Entity) {
 fn a_hamlet_that_is_removed_takes_its_town_with_it() {
     let (mut app, _) = app();
     let mill = settle(&mut app, "mill");
-    let miller = app.world_mut().spawn((
-        AgentNumber(1),
-        LivesIn(mill),
-        Lived::default(),
-    ));
+    let miller =
+        app.world_mut().spawn((hire(1, mill), Lived::default()));
     let miller = miller.id();
     app.update();
     assert_eq!(app.world().resource::<Society>().towns.len(), 2);
@@ -99,16 +103,21 @@ fn settle(app: &mut App, name: &str) -> Entity {
         .world()
         .contains_resource::<hamlet_client::realm::Seen>()
     {
+        // The mayors take the ids after the Hand's and the first
+        // mayor's.
+        let world = app.world_mut();
+        let mayor =
+            world.query::<&HamletId>().iter(world).count() as u64 + 2;
         receive_change(
             app,
             protocol::Update::Hamlet {
-                hamlet: realm::hamlet(name),
+                hamlet: realm::hamlet(name, mayor),
             },
         );
         receive_change(
             app,
             protocol::Update::Agent {
-                agent: realm::agent(name, 0, "founder"),
+                agent: realm::agent(mayor, name, 0),
             },
         );
     } else {
@@ -149,8 +158,7 @@ fn tell(
 ) {
     for number in living.iter().chain(gone.iter().map(|(n, _)| n)) {
         if entity(app, *number).is_none() {
-            app.world_mut()
-                .spawn((AgentNumber(*number), LivesIn(hamlet)));
+            app.world_mut().spawn(hire(*number, hamlet));
         }
     }
     for number in living {
@@ -217,6 +225,25 @@ fn the_world_shows_who_left_and_who_came_back() {
 }
 
 #[test]
+fn a_new_mayor_trades_houses_with_the_one_before() {
+    let (mut app, hamlet) = app();
+    tell(&mut app, hamlet, &[1, 2], &[]);
+    let (hall, home) =
+        (agent(&mut app, 0).plot, agent(&mut app, 2).plot);
+    let (founder, two) =
+        (entity(&mut app, 0).unwrap(), entity(&mut app, 2).unwrap());
+    app.world_mut().entity_mut(founder).remove::<Mayor>();
+    app.world_mut().entity_mut(two).insert(Mayor);
+    app.update();
+    assert_eq!(agent(&mut app, 2).plot, hall);
+    assert_eq!(agent(&mut app, 0).plot, home);
+    let town = app.world().get::<Sited>(hamlet).unwrap().0;
+    let mayor =
+        app.world().resource::<Society>().town(town).unwrap().mayor;
+    assert_eq!(mayor, agent(&mut app, 2).id);
+}
+
+#[test]
 fn a_world_opened_later_puts_everyone_on_the_same_plot() {
     let (mut first, hamlet) = app();
     tell(&mut first, hamlet, &[1, 2, 3], &[]);
@@ -256,11 +283,7 @@ fn a_newcomer_takes_the_plot_of_one_who_left_and_keeps_it() {
         (2, lived(20, Some(30))),
         (3, lived(40, None)),
     ] {
-        later.world_mut().spawn((
-            AgentNumber(number),
-            LivesIn(hamlet),
-            times,
-        ));
+        later.world_mut().spawn((hire(number, hamlet), times));
     }
     tell(&mut later, hamlet, &[1, 3], &[(2, None)]);
     assert_eq!(agent(&mut later, 3).plot, stood);
@@ -298,6 +321,7 @@ fn roads_and_work_follow_the_entities() {
     let (a, b) =
         (entity(&mut app, 1).unwrap(), entity(&mut app, 2).unwrap());
     let traffic = |messages, level| Traffic {
+        kind: protocol::RoadKind::Laid,
         level,
         messages,
         last_from: Some(a),
@@ -344,8 +368,7 @@ fn roads_and_work_follow_the_entities() {
 }
 
 #[test]
-fn several_hamlets_are_towns_with_roads_between_and_ballots_are_seen()
-{
+fn several_hamlets_are_towns_with_roads_between() {
     let (mut app, hamlet) = app();
     let mill = settle(&mut app, "mill");
     tell(&mut app, hamlet, &[1, 2], &[]);
@@ -369,15 +392,6 @@ fn several_hamlets_are_towns_with_roads_between_and_ballots_are_seen()
     let society = app.world().resource::<Society>();
     assert_eq!(society.town(there.town).unwrap().mayor, there.id);
 
-    // The office moves and nobody changes house.
-    let one = entity(&mut app, 1).unwrap();
-    let plot = housed(&app, one).plot;
-    app.world_mut().entity_mut(mayor).remove::<Mayor>();
-    app.world_mut().entity_mut(one).insert(Mayor);
-    app.update();
-    assert_eq!(housed(&app, one).plot, plot);
-    assert_eq!(housed(&app, mayor).id, here.id);
-
     // A road between the mayors crosses the towns.
     let ends = if mayor <= miller {
         (mayor, miller)
@@ -385,6 +399,7 @@ fn several_hamlets_are_towns_with_roads_between_and_ballots_are_seen()
         (miller, mayor)
     };
     let traffic = Traffic {
+        kind: protocol::RoadKind::Mayors,
         level: RoadUse::Dirt,
         messages: 0,
         last_from: None,
@@ -393,11 +408,6 @@ fn several_hamlets_are_towns_with_roads_between_and_ballots_are_seen()
     app.update();
     let pair = Pair::new(here.id, there.id);
     assert!(app.world().resource::<Society>().road(pair).is_some());
-
-    // A ballot is seen where it was cast.
-    app.world_mut().trigger(Voted { agent: one });
-    let voter = housed(&app, one).id;
-    assert!(app.world().resource::<Voting>().0.contains_key(&voter));
 
     // An agent that is gone for good leaves a ruin.
     let two = entity(&mut app, 2).unwrap();
@@ -433,9 +443,12 @@ fn meadow(app: &mut App, hamlet: Entity) -> Vec2 {
     let town = town_of(app.world(), hamlet).unwrap();
     let land = app.world().resource::<Land>();
     let society = app.world().resource::<Society>();
+    let centre = land.hamlet_centre();
     (0..900)
         .map(|i| {
-            Vec2::from_angle(i as f32) * (260.0 + i as f32 * 3.0)
+            centre
+                + Vec2::from_angle(i as f32)
+                    * (150.0 + i as f32 * 0.4)
         })
         .find(|&p| society.fits(land, Ground::Town(town), p).is_ok())
         .unwrap()
@@ -455,11 +468,7 @@ fn towns_never_set_down_stand_on_the_first_free_sites() {
     );
     app.update();
     let land = app.world().resource::<Land>().clone();
-    let fresh = Land::new(
-        1,
-        GeneratorSettings::default(),
-        Palette::default(),
-    );
+    let fresh = testing::land(1);
     assert_eq!(land.sites, fresh.sites);
     let free = fresh
         .sites
@@ -486,10 +495,13 @@ fn a_town_follows_where_the_record_sets_it_down() {
     let people = app.world().resource::<Society>().clone();
     let to = meadow(&mut app, mill);
     let view = *app.world().resource::<GeneratorView>();
+    // The record keeps places from the hamlet island's middle.
+    let centre = app.world().resource::<Land>().hamlet_centre();
+    let said = to - centre;
 
     app.world_mut()
         .entity_mut(mill)
-        .insert(Spot(Some((to.x, to.y))));
+        .insert(Spot(Some((said.x, said.y))));
     app.update();
     let after = towns(&mut app);
     assert_eq!(after[0], before[0]);
@@ -504,7 +516,7 @@ fn a_town_follows_where_the_record_sets_it_down() {
     assert_ne!(app.world().resource::<Centre>().0, view.focus);
 
     // Ground that cannot take it leaves it where it is.
-    let home = before[0].1;
+    let home = before[0].1 - centre;
     app.world_mut()
         .entity_mut(mill)
         .insert(Spot(Some((home.x + 6.0, home.y))));
@@ -519,7 +531,7 @@ fn a_town_follows_where_the_record_sets_it_down() {
     later
         .world_mut()
         .entity_mut(mill)
-        .insert(Spot(Some((to.x, to.y))));
+        .insert(Spot(Some((said.x, said.y))));
     later.update();
     assert_eq!(towns(&mut later), after);
 }
@@ -528,7 +540,7 @@ fn a_town_follows_where_the_record_sets_it_down() {
 fn a_received_realm_houses_the_founder_in_its_hall() {
     let mut app = bare();
     for line in
-        include_str!("../../../hamlet_protocol/frames/hello.jsonl")
+        include_str!("../../../hamlet_protocol/frames/society.jsonl")
             .lines()
     {
         let frame =
@@ -542,10 +554,18 @@ fn a_received_realm_houses_the_founder_in_its_hall() {
         }
     }
     app.update();
-    let founder = agent(&mut app, 0);
-    let society = app.world().resource::<Society>();
+    let world = app.world_mut();
+    let ada = world
+        .query::<(Entity, &AgentNumber)>()
+        .iter(world)
+        .find(|(_, number)| number.0 == 0)
+        .map(|(entity, _)| entity)
+        .unwrap();
+    let housed = world.get::<Housed>(ada).unwrap().0;
+    let society = world.resource::<Society>();
+    let founder = society.agent(housed).unwrap();
     assert_eq!(society.towns.len(), 1);
-    assert_eq!(society.agents.len(), 1);
+    assert_eq!(society.agents.len(), 3);
     assert_eq!(society.towns[0].mayor, founder.id);
     assert_eq!(founder.plot, 0);
     assert_eq!(founder.state, KeeperState::Rest);
@@ -584,4 +604,52 @@ fn a_frame_from_the_server_houses_the_founder_in_the_update_it_arrives()
     let founder = agent(&mut app, 0);
     assert_eq!(app.world().resource::<Society>().towns.len(), 1);
     assert_eq!(founder.plot, 0);
+}
+
+#[test]
+fn a_hire_housed_after_the_first_state_crosses_by_boat() {
+    use bevy::transform::TransformPlugin;
+
+    use super::crossing::Voyage;
+    use crate::harbor::ferry::Ferry;
+    use crate::pick::Following;
+
+    let mut app = App::new();
+    testing::rehearse(&mut app);
+    app.add_plugins((
+        TransformPlugin,
+        ClientPlugin { server: None },
+        crate::harbor::plugin,
+        super::plugin,
+    ))
+    .init_resource::<Society>()
+    .init_resource::<CameraSettings>()
+    .init_resource::<Glide>()
+    .init_resource::<Orbit>()
+    .init_resource::<Leash>()
+    .init_resource::<Centre>()
+    .init_resource::<Stance>()
+    .init_resource::<GeneratorView>()
+    .init_resource::<Ahead>()
+    .init_resource::<Following>()
+    .init_resource::<Objecting>()
+    .init_resource::<crate::sky::Quality>()
+    .init_resource::<crate::pick::PickSettings>();
+    let hamlet = settle(&mut app, HOME);
+    app.update();
+    let voyages = |app: &mut App| {
+        let world = app.world_mut();
+        world.query::<&Voyage>().iter(world).count()
+    };
+    // The founder was housed in the first state.
+    assert_eq!(voyages(&mut app), 0);
+
+    tell(&mut app, hamlet, &[1], &[]);
+    assert_eq!(voyages(&mut app), 1);
+
+    // Past its walk to the pier, it is aboard a ferry.
+    app.world_mut().resource_mut::<Clock>().t = 1000.0;
+    app.update();
+    let world = app.world_mut();
+    assert_eq!(world.query::<&Ferry>().iter(world).count(), 1);
 }

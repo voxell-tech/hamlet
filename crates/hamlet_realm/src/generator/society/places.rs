@@ -2,9 +2,10 @@
 //! founding and moving a town.
 
 use bevy::prelude::*;
+use hamlet_protocol::client::{HouseAt, ScholarId};
 
 use super::{Society, Town, TownId};
-use crate::generator::land::{Land, Unfit};
+use crate::generator::land::{IslandId, Land, Unfit};
 use crate::generator::layout::{HALL_PLOT, plot};
 
 /// Something that stands on a round of ground of its own, and can
@@ -16,6 +17,22 @@ pub enum Ground {
     Chief,
     /// The library, which is nobody's and everyone's.
     Library,
+    /// The house of a scholar of the city.
+    House(ScholarId),
+    /// The Hand's tower, at the middle of the city. It stays where
+    /// it stands.
+    Tower,
+}
+
+impl Ground {
+    /// The island the place stands on: towns on the hamlet island,
+    /// everything else in the city.
+    pub fn island(self) -> IslandId {
+        match self {
+            Ground::Town(_) => IslandId::Hamlet,
+            _ => IslandId::City,
+        }
+    }
 }
 
 /// The ground held by a place that is not a town.
@@ -98,6 +115,9 @@ impl Society {
         let Some((_, radius)) = self.stands(land, place) else {
             return Err(Unfit::Crowded);
         };
+        if land.island_at(to) != place.island() {
+            return Err(Unfit::Elsewhere);
+        }
         // The ground a town was founded on takes it back as it is.
         let home = match place {
             Ground::Town(id) => self
@@ -110,6 +130,18 @@ impl Society {
         }
         if self.is_crowded(land, place, to, radius, home) {
             return Err(Unfit::Crowded);
+        }
+        // A house keeps clear of the city's middle, as the server
+        // holds it to.
+        if let Ground::House(_) = place {
+            let from = to - land.island(IslandId::City).centre;
+            if !HouseAt::is_clear(
+                [],
+                f64::from(from.x),
+                f64::from(from.y),
+            ) {
+                return Err(Unfit::Crowded);
+            }
         }
         let Ground::Town(id) = place else {
             return Ok(());
@@ -237,7 +269,7 @@ impl Society {
         settled
     }
 
-    /// Founds a town on `site` and grows the island about it.
+    /// Founds a town on `site` and grows the hamlet island about it.
     fn found_on(&mut self, land: &mut Land, site: usize) -> TownId {
         let id = TownId(self.next_town);
         self.next_town += 1;

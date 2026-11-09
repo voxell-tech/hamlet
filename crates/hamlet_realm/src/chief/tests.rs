@@ -6,6 +6,7 @@ use super::wickstep::Rune;
 use super::*;
 use crate::Clock;
 use crate::generator::Passage;
+use crate::generator::land::IslandId;
 use crate::generator::society::{AgentId, Society};
 use crate::generator::testing::{rehearse, stand_in};
 use crate::hamlet::Housed;
@@ -268,14 +269,13 @@ fn a_place_set_down_elsewhere_stands_there_and_is_remembered() {
 }
 
 #[test]
-fn a_chief_keeps_a_site_of_its_own_beside_the_first_town() {
+fn a_chief_keeps_a_spot_of_its_own_beside_the_tower() {
     let mut cast = Cast::new();
     let land = cast.app.world().resource::<Land>().clone();
     let spacing = land.set.land.site_spacing;
-    let first = land.sites.iter().find(|s| s.buildable).unwrap().at;
     let place = cast.at(cast.settled().place).xz();
-    assert!(place.distance(first) > spacing * 0.5);
-    assert!(place.distance(first) < spacing * 1.5);
+    assert_eq!(land.island_at(place), IslandId::City);
+    assert!((place.length() - land.set.land.city_ring).abs() < 1e-3);
     assert_eq!(place::stand(&land, &[]), Some(place));
 
     // A second chief stands somewhere else.
@@ -285,20 +285,5 @@ fn a_chief_keeps_a_site_of_its_own_beside_the_first_town() {
     let settled = *cast.app.world().get::<Settled>(other).unwrap();
     let second = cast.at(settled.place).xz();
     assert!(second.distance(place) > spacing * 0.5);
-
-    // No town is ever founded on either, and the first town still
-    // takes the first site.
-    let mut land = land;
-    let mut society = cast.app.world_mut().resource_mut::<Society>();
-    let mut towns = vec![];
-    for _ in 0..12 {
-        let town = society.found_town(&mut land);
-        let site = society.town(town).unwrap().site;
-        towns.push(land.sites[site].at);
-    }
-    assert_eq!(towns[0], first);
-    for town in towns {
-        assert!(town.distance(place) > 1.0);
-        assert!(town.distance(second) > 1.0);
-    }
+    assert_eq!(land.island_at(second), IslandId::City);
 }

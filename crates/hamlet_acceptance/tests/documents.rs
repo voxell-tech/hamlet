@@ -1,341 +1,319 @@
 //! The chief's documents: reads and edits of the charter, characters,
-//! notes, limits, settings and the catalogue, and the hamlet's
-//! folder.
+//! memory, limits, settings and the catalogue, and what an agent's
+//! prompt makes of them.
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
-use hamlet_testing::{Script, words};
 use serde_json::json;
 
-fn kind_text(reply: &Reply) -> (&ReplyKind, &str) {
-    (&reply.kind, reply.text.as_str())
+/// A reply to the edit `make` builds.
+async fn edit(
+    client: &mut Client,
+    make: impl Fn(RequestId) -> Edit,
+) -> Reply {
+    client.request(|id| ClientMessage::Edit(make(id))).await
 }
 
-async fn edit(
-    c: &mut Client,
-    make: impl FnOnce(RequestId) -> Edit,
-) -> Reply {
-    c.request(|id| ClientMessage::Edit(make(id))).await
+fn memory(description: &str, body: &str) -> String {
+    format!("---\ndescription: {description}\n---\n{body}\n")
+}
+
+fn settings() -> EditSettingsSet {
+    EditSettingsSet {
+        allow_net: None,
+        character: None,
+        effort: None,
+        endpoints: None,
+        model: None,
+        newcomers: None,
+        reflect_every: None,
+        workspace: None,
+    }
 }
 
 #[tokio::test]
-async fn edits_and_reads_the_charter_character_and_notes() {
-    let mut s =
-        Session::start(Script::new().responses([words("Done.")]))
-            .await;
+async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
+ {
+    let mut s = Session::start(Faux::new()).await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
+    let scholar = s.chief.scholar("ada").unwrap().id;
     let reply = edit(&mut s.chief, |id| Edit::Charter {
         id,
         text: Some("Be brief.".into()),
     })
     .await;
-    assert_eq!(kind_text(&reply), (&ReplyKind::Notice, "Saved."));
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     let reply = edit(&mut s.chief, |id| Edit::Character {
         id,
-        agent: mayor(),
+        scholar,
         text: "Calm.".into(),
     })
     .await;
-    assert_eq!(kind_text(&reply), (&ReplyKind::Notice, "Saved."));
-    let reply = edit(&mut s.chief, |id| Edit::Notes {
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
+    let tea = memory("Tea", "Earl grey.");
+    let reply = edit(&mut s.chief, |id| Edit::Memory {
         id,
-        agent: mayor(),
-        text: "# Notes\nTea.".into(),
+        of: Keeper::Scholar(scholar),
+        path: "tea.md".into(),
+        text: tea.clone(),
     })
     .await;
-    assert_eq!(kind_text(&reply), (&ReplyKind::Notice, "Saved."));
-    let papers = s.chief.papers(mayor()).await;
-    assert_eq!(
-        papers,
-        Papers {
-            character: "Calm.".into(),
-            notes: "# Notes\nTea.".into(),
-            skills: vec![]
-        }
-    );
-    assert_eq!(
-        std::fs::read_to_string(
-            s.home.file("houses/home/0/NOTES.md")
-        )
-        .unwrap(),
-        "# Notes\nTea."
-    );
-    let charter = s.chief.read(|id| Read::Charter { id }).await;
-    assert!(
-        matches!(&charter, ServerMessage::Read(ReadResult::Charter { charter, .. })
-            if charter == &Charter { own: true, text: "Be brief.".into() }),
-        "{charter:?}"
-    );
-    let prompt = s.chief.prompt(mayor()).await;
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
+    // A hire's own memory is its lodge's, which it alone has learned.
+    let own = memory("Own", "A hire's note.");
+    edit(&mut s.chief, |id| Edit::Memory {
+        id,
+        of: Keeper::Agent(ada),
+        path: "own.md".into(),
+        text: own.clone(),
+    })
+    .await;
+
+    let papers = s.chief.papers(Keeper::Scholar(scholar)).await;
+    assert_eq!(papers.character, "Calm.");
+    assert_eq!(papers.memory.len(), 1);
+    assert_eq!(papers.memory[0].path, "tea.md");
+    assert_eq!(papers.memory[0].description, "Tea");
+    assert!(papers.learned.is_empty());
+    let papers = s.chief.papers(Keeper::Agent(ada)).await;
+    assert_eq!(papers.character, "Calm.");
+    let learned = papers
+        .learned
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    assert!(learned.contains(&"memory/own.md"), "{learned:?}");
+    assert!(papers.memory.iter().any(|m| m.path == "own.md"));
+
+    let prompt = s.chief.prompt(ada).await;
     assert!(prompt.starts_with("Be brief."), "{prompt}");
     assert!(prompt.contains("# Your character\nCalm."), "{prompt}");
-    assert!(prompt.contains("# NOTES.md\n# Notes\nTea."), "{prompt}");
+    assert!(prompt.contains("You are `docs#0 (ada)`"), "{prompt}");
+
+    let ServerMessage::Read(ReadResult::Charter { charter, .. }) =
+        s.chief.read(|id| Read::Charter { id }).await
+    else {
+        panic!("a charter");
+    };
+    assert_eq!(
+        (charter.own, charter.text.as_str()),
+        (true, "Be brief.")
+    );
     // The built-in charter comes back when the chief's is taken away.
     edit(&mut s.chief, |id| Edit::Charter { id, text: None }).await;
     let ServerMessage::Read(ReadResult::Charter { charter, .. }) =
         s.chief.read(|id| Read::Charter { id }).await
     else {
-        panic!("a charter")
+        panic!("a charter");
     };
     assert!(!charter.own);
     assert!(charter.text.contains("`bash`"), "{}", charter.text);
+
+    // An empty text removes a memory file; a path outside memory/ is
+    // refused.
+    edit(&mut s.chief, |id| Edit::Memory {
+        id,
+        of: Keeper::Scholar(scholar),
+        path: "tea.md".into(),
+        text: String::new(),
+    })
+    .await;
+    assert!(
+        s.chief
+            .papers(Keeper::Scholar(scholar))
+            .await
+            .memory
+            .is_empty()
+    );
+    let reply = edit(&mut s.chief, |id| Edit::Memory {
+        id,
+        of: Keeper::Scholar(scholar),
+        path: "../CHARACTER.md".into(),
+        text: "x".into(),
+    })
+    .await;
+    assert_eq!(reply.kind, ReplyKind::Error);
 }
 
 #[tokio::test]
-async fn edits_limits_one_key_or_whole_and_refuses_bad_values() {
-    let mut s = Session::start(Script::new()).await;
-    let reply =
-        s.chief.limit("home", "budget", "cost", json!(2)).await;
-    assert_eq!(kind_text(&reply), (&ReplyKind::Notice, "Saved."));
+async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
+    let mut s = Session::start(Faux::new()).await;
+    s.found("docs", "ada", "keep the docs").await;
+    let reply = s
+        .chief
+        .limit(Some("docs"), "budget", "cost", json!(2))
+        .await;
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     s.chief
         .until("the new cost", |c| {
-            let home = &c.realm().hamlets[0];
-            home.limits.budget.cost == Some(2.0)
-                && home.budget.summary
+            let docs = c.hamlet("docs").unwrap();
+            docs.limits.budget.cost == Some(2.0)
+                && docs.budget.summary
                     == "Hamlet today: $0.00 of $2.00"
-                && home.budget.caps.micros == Some(2_000_000)
+                && docs.budget.caps.micros == Some(2_000_000)
         })
         .await;
+
+    let mut whole =
+        serde_json::to_value(s.chief.hamlet("docs").unwrap().limits)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+    whole.insert("depth".into(), json!(2));
+    whole.insert(
+        "budget".into(),
+        json!({"cost": 3, "minutes": 10, "period": "day"}),
+    );
     let reply = edit(&mut s.chief, |id| {
         Edit::Limits(EditLimits::Whole {
-            hamlet: "home".into(),
+            hamlet: Some("docs".into()),
             id,
-            reason: None,
-            whole: [
-                ("mostAgents".to_string(), json!(4)),
-                (
-                    "budget".to_string(),
-                    json!({"cost": 3, "minutes": 10}),
-                ),
-            ]
-            .into(),
+            reason: Some("a longer day".into()),
+            whole: whole.clone().into_iter().collect(),
         })
     })
     .await;
-    assert_eq!(reply.kind, ReplyKind::Notice);
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     s.chief
         .until("the whole limits", |c| {
-            let home = &c.realm().hamlets[0];
-            home.limits.most_agents == 4
-                && home.limits.budget.cost == Some(3.0)
-                && home.limits.budget.minutes == Some(10)
-                && home.limits.task.cost == Some(1.0)
-                && home.budget.caps.ms == Some(600_000)
+            let docs = c.hamlet("docs").unwrap();
+            docs.limits.depth == 2
+                && docs.limits.budget.cost == Some(3.0)
+                && docs.limits.budget.minutes == Some(10)
+                && docs.limits.task.cost == Some(1.0)
+                && docs.budget.caps.ms == Some(600_000)
         })
         .await;
+
     let before = s.chief.messages().len();
-    let reply =
-        s.chief.limit("home", "budget", "cost", json!(-1)).await;
-    assert_eq!(
-        kind_text(&reply),
-        (
-            &ReplyKind::Error,
-            "budget.cost: a cost is a number of zero or more"
-        )
-    );
+    let reply = s
+        .chief
+        .limit(Some("docs"), "budget", "mystery", json!(1))
+        .await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+    let reply = s
+        .chief
+        .limit(Some("docs"), "road", "most", json!("many"))
+        .await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+    let reply = s
+        .chief
+        .limit(Some("nowhere"), "budget", "cost", json!(2))
+        .await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     assert!(
         !s.chief.messages()[before..]
             .iter()
             .any(|m| matches!(m, ServerMessage::Change(_))),
         "a refused edit changes nothing"
     );
-    let reply =
-        s.chief.limit("home", "budget", "mystery", json!(1)).await;
-    assert_eq!(
-        kind_text(&reply),
-        (&ReplyKind::Error, "unknown field `mystery` under budget")
-    );
-    let reply = edit(&mut s.chief, |id| {
-        Edit::Limits(EditLimits::Whole {
-            hamlet: "home".into(),
-            id,
-            reason: None,
-            whole: [(
-                "permissions".to_string(),
-                json!({"network": false}),
-            )]
-            .into(),
-        })
-    })
-    .await;
-    assert_eq!(
-        kind_text(&reply),
-        (
-            &ReplyKind::Error,
-            "permissions.network: expected a list of names"
-        )
-    );
-    let reply =
-        s.chief.limit("home", "votes", "passYes", json!(9)).await;
-    assert_eq!(
-        kind_text(&reply),
-        (
-            &ReplyKind::Error,
-            "votes.passYes: cannot exceed votes.passOf"
-        )
-    );
+
+    let before = s.chief.messages().len();
     let reply = s
         .chief
-        .limit("home", "budget", "minutes", json!(null))
+        .limit(Some("docs"), "budget", "cost", json!(-1))
         .await;
-    assert_eq!(reply.kind, ReplyKind::Notice);
-    s.chief.limit("home", "mayor", "toldDays", json!(2)).await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+    assert_eq!(reply.text, "a budget cannot be less than zero");
+    let reply =
+        s.chief.limit(Some("docs"), "road", "most", json!(-1)).await;
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+    assert!(
+        !s.chief.messages()[before..]
+            .iter()
+            .any(|m| matches!(m, ServerMessage::Change(_))),
+        "a refused limit changes nothing"
+    );
+
+    // The realm has limits of its own.
+    let reply = s.chief.limit(None, "budget", "cost", json!(9)).await;
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     s.chief
-        .limit("home", "mayor", "toldDays", json!(null))
+        .until("the realm's budget", |c| {
+            c.realm().limits.budget.cost == Some(9.0)
+        })
+        .await;
+    // A null puts a limit back to its default.
+    s.chief
+        .limit(Some("docs"), "budget", "minutes", json!(null))
         .await;
     s.chief
-        .until("the defaults back", |c| {
-            let limits = &c.realm().hamlets[0].limits;
-            limits.budget.minutes.is_none()
-                && limits.mayor.told_days == 7
+        .until("the default back", |c| {
+            c.hamlet("docs").unwrap().limits.budget.minutes.is_none()
         })
         .await;
 }
 
 #[tokio::test]
 async fn edits_settings_and_refuses_bad_ones() {
-    let mut s = Session::start(Script::new()).await;
+    let mut s = Session::start(Faux::new()).await;
     let reply = edit(&mut s.chief, |id| Edit::Settings {
         id,
         set: EditSettingsSet {
-            effort: None,
             reflect_every: Some(0),
             allow_net: Some(true),
-            ..set()
+            ..settings()
         },
     })
     .await;
-    assert_eq!(reply.kind, ReplyKind::Notice);
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     s.chief
         .until("net allowed", |c| c.realm().settings.allow_net)
         .await;
     let reply = edit(&mut s.chief, |id| Edit::Settings {
         id,
         set: EditSettingsSet {
-            effort: None,
             reflect_every: Some(-1),
-            ..set()
+            ..settings()
         },
     })
     .await;
-    assert_eq!(
-        kind_text(&reply),
-        (&ReplyKind::Error, "reflectEvery must be a whole number")
-    );
-    let reply = edit(&mut s.chief, |id| Edit::Settings {
-        id,
-        set: EditSettingsSet {
-            endpoints: Some(vec![Endpoint {
-                name: "private".into(),
-                base_url: "http://u:p@host/v1".into(),
-            }]),
-            ..set()
-        },
-    })
-    .await;
-    assert_eq!(
-        kind_text(&reply),
+    assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+    assert_eq!(reply.text, "Reflect after zero or more turns.");
+    for (address, words) in [
         (
-            &ReplyKind::Error,
-            "Keep credentials out of an endpoint's address."
-        )
-    );
+            "http://u:p@host/v1",
+            "An address may not hold a name or a key; sign in to \
+             the endpoint with its key instead.",
+        ),
+        (
+            "ftp://host",
+            "`ftp://host` is not an http or https address.",
+        ),
+        ("nowhere", "`nowhere` is not an address."),
+    ] {
+        let reply = edit(&mut s.chief, |id| Edit::Settings {
+            id,
+            set: EditSettingsSet {
+                endpoints: Some(vec![Endpoint {
+                    name: "private".into(),
+                    base_url: address.into(),
+                }]),
+                ..settings()
+            },
+        })
+        .await;
+        assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
+        assert_eq!(reply.text, words);
+    }
     // A new connection gets the whole state as it is now.
     let late = s.join().await;
     assert!(late.realm().settings.allow_net);
 }
 
-fn set() -> EditSettingsSet {
-    EditSettingsSet {
-        model: None,
-        effort: None,
-        reflect_every: None,
-        allow_net: None,
-        endpoints: None,
-        workspace: None,
-    }
-}
-
 #[tokio::test]
-async fn chooses_a_remote_workspace_in_settings() {
-    let mut s = Session::start(Script::new()).await;
-    let workspace = s.chief.realm().settings.workspace;
-    assert_eq!((workspace.url, workspace.running), (None, None));
-    let reply = s
-        .chief
-        .request(|id| ClientMessage::MoveHouses(MoveHouses { id }))
-        .await;
-    assert_eq!(
-        kind_text(&reply),
-        (
-            &ReplyKind::Error,
-            "Hamlet already works in the workspace chosen in \
-             Settings, so there are no houses to move."
-        )
-    );
-    let choose = |url: &str, token: &str| EditSettingsSet {
-        workspace: Some(Some(EditSettingsSetWorkspace {
-            url: url.into(),
-            token: token.into(),
-        })),
-        ..set()
-    };
-    let wrong =
-        choose("http://workspace.example", "a-long-enough-token");
-    let reply =
-        edit(&mut s.chief, |id| Edit::Settings { id, set: wrong })
-            .await;
-    assert_eq!(reply.kind, ReplyKind::Error);
-    assert!(
-        reply.text.contains(
-            "The workspace address must start with https://"
-        ),
-        "{reply:?}"
-    );
-    let short = choose("https://workspace.example", "short");
-    let reply =
-        edit(&mut s.chief, |id| Edit::Settings { id, set: short })
-            .await;
-    assert_eq!(
-        kind_text(&reply),
-        (
-            &ReplyKind::Error,
-            "The workspace token needs at least 16 characters."
-        )
-    );
-    let good =
-        choose("https://workspace.example", "a-long-enough-token");
-    let reply =
-        edit(&mut s.chief, |id| Edit::Settings { id, set: good })
-            .await;
-    assert_eq!(reply.kind, ReplyKind::Notice, "{reply:?}");
+async fn prices_and_notes_a_model_in_the_catalogue() {
+    let mut s = Session::start(Faux::new()).await;
     s.chief
-        .until("the chosen workspace", |c| {
-            let workspace = c.realm().settings.workspace;
-            workspace.url.as_deref()
-                == Some("https://workspace.example")
-                && workspace.running.is_none()
+        .until("the faux provider", |c| {
+            !c.realm().providers.is_empty()
         })
         .await;
-    let text = serde_json::to_string(s.chief.messages()).unwrap();
-    assert!(!text.contains("a-long-enough-token"));
-    let local = EditSettingsSet {
-        workspace: Some(None),
-        ..set()
-    };
-    let reply =
-        edit(&mut s.chief, |id| Edit::Settings { id, set: local })
-            .await;
-    assert_eq!(reply.kind, ReplyKind::Notice);
-}
-
-#[tokio::test]
-async fn prices_allows_and_notes_a_model_in_the_catalogue() {
-    let mut s = Session::start(Script::new()).await;
     let reply = edit(&mut s.chief, |id| Edit::Catalogue {
         id,
         model: "faux::faux-1".into(),
         set: EditCatalogueSet {
-            allowed: Some(true),
             price: Some(Some(Price {
                 input: 0.12,
                 output: 0.34,
@@ -344,238 +322,54 @@ async fn prices_allows_and_notes_a_model_in_the_catalogue() {
         },
     })
     .await;
-    assert_eq!(reply.kind, ReplyKind::Notice);
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     let ServerMessage::Read(ReadResult::Models { models, .. }) =
         s.chief.read(|id| Read::Models { id, refresh: None }).await
     else {
-        panic!("a model list")
+        panic!("a model list");
     };
     let faux =
         models.iter().find(|m| m.name == "faux::faux-1").unwrap();
     assert_eq!(
-        (&faux.price, &faux.priced, faux.allowed, faux.note.as_str()),
-        (
-            &Some(Price {
-                input: 0.12,
-                output: 0.34
-            }),
-            &ListedPriced::Yours,
-            true,
-            "Preferred."
-        )
+        faux.price,
+        Some(Price {
+            input: 0.12,
+            output: 0.34
+        })
     );
-    let reply = edit(&mut s.chief, |id| Edit::Catalogue {
-        id,
-        model: "faux::faux-1".into(),
-        set: EditCatalogueSet {
-            allowed: None,
-            price: Some(Some(Price {
-                input: -1.0,
-                output: 3.0,
-            })),
-            note: None,
-        },
-    })
-    .await;
-    assert_eq!(
-        kind_text(&reply),
-        (&ReplyKind::Error, "a cost is a number of zero or more")
-    );
+    assert_eq!(faux.priced, ListedPriced::Yours);
+    assert_eq!(faux.note, "Preferred.");
     let reply = edit(&mut s.chief, |id| Edit::Catalogue {
         id,
         model: "missing::model".into(),
         set: EditCatalogueSet {
-            allowed: Some(true),
             price: None,
             note: None,
         },
     })
     .await;
-    assert_eq!(
-        kind_text(&reply),
-        (&ReplyKind::Error, "no model named `missing::model`")
-    );
+    assert_eq!(reply.kind, ReplyKind::Error);
+    assert_eq!(reply.text, "no model is named `missing::model`");
 }
 
 #[tokio::test]
-async fn points_the_hamlet_at_a_folder_and_switches_its_mode() {
-    let mut s = Session::start(Script::new()).await;
-    let a = s.home.side().join("a");
-    let b = s.home.side().join("b");
-    std::fs::create_dir_all(&a).unwrap();
-    std::fs::create_dir_all(&b).unwrap();
-    let (a, b) = (a.display().to_string(), b.display().to_string());
-    let reply = s.chief.say(mayor(), "/folder").await;
-    assert_eq!(
-        reply.text,
-        "This hamlet works on no folder. `/folder <folder>` points \
-         it at one."
-    );
-    let reply = s.chief.say(mayor(), &format!("/folder {a}")).await;
-    assert_eq!(
-        kind_text(&reply),
-        (
-            &ReplyKind::Notice,
-            format!(
-                "This hamlet works on `{a}` now. Agents ask you \
-                 before each edit and command."
-            )
-            .as_str()
-        )
-    );
-    let reply = s.chief.say(mayor(), "/mode auto").await;
-    assert_eq!(
-        reply.text,
-        "Agents edit and run commands in the folder without asking."
-    );
-    s.chief.say(mayor(), &format!("/folder {b}")).await;
-    s.chief
-        .until("the second folder", |c| {
-            let home = &c.realm().hamlets[0];
-            home.folder.as_deref() == Some(b.as_str())
-                && home.mode == HamletMode::Auto
-                && home.before == [a.clone()]
-        })
-        .await;
-    let reply = s.chief.say(mayor(), "/folder none").await;
-    assert_eq!(
-        reply.text,
-        "This hamlet works on no folder now. Its agents are back in \
-         their own workspaces."
-    );
-    s.chief
-        .until("no folder", |c| {
-            let home = &c.realm().hamlets[0];
-            home.folder.is_none()
-                && home.before == [b.clone(), a.clone()]
-        })
-        .await;
-    let reply = s.chief.say(mayor(), "/folder relative").await;
-    assert_eq!(
-        kind_text(&reply),
-        (
-            &ReplyKind::Error,
-            "give the folder's full path, such as \
-             /Users/you/code/project"
-        )
-    );
-    let missing = s.home.side().join("missing").display().to_string();
-    let reply =
-        s.chief.say(mayor(), &format!("/folder {missing}")).await;
-    assert_eq!(
-        kind_text(&reply),
-        (
-            &ReplyKind::Error,
-            format!("`{missing}` is not a folder").as_str()
-        )
-    );
-    let home = s.home.path().display().to_string();
-    let reply =
-        s.chief.say(mayor(), &format!("/folder {home}")).await;
-    assert_eq!(
-        kind_text(&reply),
-        (
-            &ReplyKind::Error,
-            format!(
-                "a hamlet cannot work on Hamlet's own folder \
-                 ({home}), or on one that holds it"
-            )
-            .as_str()
-        )
-    );
-    // The project shows in the prompt once a folder is set.
-    s.chief.say(mayor(), &format!("/folder {a}")).await;
-    let prompt = s.chief.prompt(mayor()).await;
-    assert!(
-        prompt.contains(&format!(
-            "# The project\nYour hamlet works on the folder {a}."
-        )),
-        "{prompt}"
-    );
-}
-
-#[tokio::test]
-async fn composes_project_instructions_skills_and_unicode_cuts() {
-    let mut s = Session::start_with(
-        Script::new(),
-        &[("HAMLET_REFLECT_EVERY", "0"), ("HAMLET_NET", "1")],
-    )
-    .await;
+async fn a_hamlets_folder_and_mode_reach_the_prompt() {
+    let mut s = Session::start(Faux::new()).await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
     let work = s.home.side().join("work");
-    std::fs::create_dir_all(work.join(".git")).unwrap();
-    std::fs::write(work.join("CLAUDE.md"), "Use tabs.").unwrap();
-    let house = s.home.file("houses/home/0");
-    std::fs::create_dir_all(house.join("skills/forecast")).unwrap();
-    std::fs::write(
-        house.join("skills/forecast/SKILL.md"),
-        "---\nname: forecast\ndescription: Get the forecast\nusage: \
-         sh forecast.sh\n---\n",
-    )
-    .unwrap();
-    s.chief
-        .say(mayor(), &format!("/folder {}", work.display()))
-        .await;
-    let prompt = s.chief.prompt(mayor()).await;
-    for text in [
-        if cfg!(target_os = "macos") {
-            "System: macOS, whose shell tools are the BSD ones."
-        } else {
-            "System: Linux."
-        },
-        "Network for tools: on.",
-        "git worktree",
-        "The chief approves each edit",
-        "# The project's CLAUDE.md\nUse tabs.",
-        "forecast: Get the forecast",
-    ] {
-        assert!(prompt.contains(text), "{text}: {prompt}");
-    }
-    assert!(prompt.contains(&format!(
-        "cd '{}' && sh forecast.sh",
-        house.display()
-    )));
-    std::fs::write(work.join("AGENTS.md"), "🌻".repeat(8001))
-        .unwrap();
-    edit(&mut s.chief, |id| Edit::Character {
-        id,
-        agent: mayor(),
-        text: "🌻".repeat(4001),
-    })
-    .await;
-    std::fs::write(house.join("NOTES.md"), "🌻".repeat(8001))
-        .unwrap();
-    let prompt = s.chief.prompt(mayor()).await;
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(work.join("AGENTS.md"), "Use tabs.").unwrap();
+    let folder = work.display().to_string();
+    s.chief.command(ada, &format!("/folder {folder}")).await;
+    let prompt = s.chief.prompt(ada).await;
+    assert!(prompt.contains("Use tabs."), "{prompt}");
+    assert!(prompt.contains(&folder), "{prompt}");
+    s.chief.command(ada, "/folder none").await;
+    let prompt = s.chief.prompt(ada).await;
     assert!(!prompt.contains("Use tabs."));
-    for (heading, count, ending) in [
-        (
-            "# The project's AGENTS.md",
-            8000,
-            "[AGENTS.md is longer than 8000 characters and is cut \
-             here.]",
-        ),
-        (
-            "# Your character",
-            4000,
-            "[The character is longer than 4000 characters and is \
-             cut here.]",
-        ),
-        (
-            "# NOTES.md",
-            8000,
-            "[NOTES.md is longer than 8000 characters and is cut \
-             here. Shorten it so that all of it is shown.]",
-        ),
-    ] {
-        assert!(
-            prompt.contains(&format!(
-                "{heading}\n{}\n{ending}",
-                "🌻".repeat(count)
-            )),
-            "missing {heading}"
-        );
-    }
-    std::fs::write(house.join("NOTES.md"), [255, 254, 65]).unwrap();
-    let prompt = s.chief.prompt(mayor()).await;
-    assert!(prompt.contains("# NOTES.md\n\n# "));
-    assert!(!prompt.contains("[NOTES.md is longer"));
+    s.chief
+        .until("folders remembered", |c| {
+            c.hamlet("docs").unwrap().before == [folder.clone()]
+        })
+        .await;
 }

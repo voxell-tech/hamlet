@@ -114,8 +114,8 @@ pub struct Keeper {
     seen: f32,
     shown: Prop,
     lit_as: Vec3,
-    props: [Handle<Mesh>; 9],
-    glints: [Option<Handle<Mesh>>; 9],
+    props: [Handle<Mesh>; 8],
+    glints: [Option<Handle<Mesh>>; 8],
     /// The walk someone else moves it along.
     strode: Option<Stride>,
     /// Turn and lift of its head toward something it watches, on top

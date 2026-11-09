@@ -1,0 +1,19 @@
+[package]
+name = "hamlet_git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Scholars' repositories through gix: commits, reads, diffs, merges, reverts, versions, purges and lodges"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+gix.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+hamlet_testing.workspace = true
