@@ -351,12 +351,15 @@ fn path(agent: Entity, under: Vec<Under>) -> impl View {
     built(move |cx| {
         let world = &*cx.world;
         let mut parts = above(world, agent);
-        let name = called(world, agent);
-        parts.push(if under.is_empty() {
-            crumb_here(name).boxed()
-        } else {
-            crumb(name, |world| show(world, Showing::Thread)).boxed()
-        });
+        // The thread's own name heads its page, so the path ends
+        // above it until a page under the thread is open.
+        if !under.is_empty() {
+            let name = called(world, agent);
+            parts.push(
+                crumb(name, |world| show(world, Showing::Thread))
+                    .boxed(),
+            );
+        }
         for (at, page) in under.iter().enumerate() {
             // A past session's title is too long for the path, so it
             // only heads its page.

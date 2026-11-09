@@ -7,8 +7,8 @@ use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, action, bad_action, breadcrumb, buttons, good_action,
-    page_head, scroll_area, status_label_large, title,
+    Fills, action, bad_action, buttons, good_action, page_head, path,
+    scroll_area, status_label_large, title,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
@@ -42,14 +42,13 @@ pub(super) fn ruin(agent: Entity) -> impl View {
         if let Some(hamlet) = hamlet {
             trail.push(named(hamlet));
         }
-        let crumb =
-            breadcrumb(trail, name.clone(), move |world, at| {
-                let place = hamlet.filter(|_| at == 1);
-                select(world, place.map(Thing::Common));
-                if place.is_none() {
-                    show(world, Showing::Realm);
-                }
-            });
+        let crumb = path(trail, move |world, at| {
+            let place = hamlet.filter(|_| at == 1);
+            select(world, place.map(Thing::Common));
+            if place.is_none() {
+                show(world, Showing::Realm);
+            }
+        });
         let section = cx.theme().space.section;
         let head = page_head(
             crumb,
@@ -98,14 +97,10 @@ pub(super) fn library() -> impl View {
     with_cx(|cx| {
         column((
             page_head(
-                breadcrumb(
-                    vec!["Realm".into()],
-                    "The library",
-                    |world, _| {
-                        select(world, None);
-                        show(world, Showing::Realm);
-                    },
-                ),
+                path(vec!["Realm".into()], |world, _| {
+                    select(world, None);
+                    show(world, Showing::Realm);
+                }),
                 title("The library"),
             ),
             // On a line of their own, and on to another when the

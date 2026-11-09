@@ -22,8 +22,8 @@ use hamlet_client::realm::Deeds;
 use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    self, Fills, ICON, action, bare, breadcrumb, buttons, group,
-    lettered, more_button, note, note_rules, primary_button, raised,
+    self, Fills, ICON, action, bare, buttons, group, lettered,
+    more_button, note, note_rules, path, primary_button, raised,
     scroll_area, status_label, text_input, title, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
@@ -553,17 +553,10 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 .boxed()
         };
         let mut top = vec![
-            breadcrumb(
-                vec!["Realm".into()],
-                facts.title.clone(),
-                |world, _| {
-                    select(world, None);
-                    crate::hub::show(
-                        world,
-                        crate::hub::Showing::Realm,
-                    );
-                },
-            )
+            path(vec!["Realm".into()], |world, _| {
+                select(world, None);
+                crate::hub::show(world, crate::hub::Showing::Realm);
+            })
             .boxed(),
             name,
             budget(facts.account.clone(), facts.spent),

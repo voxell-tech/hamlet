@@ -38,7 +38,7 @@ use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    Fills, breadcrumb, choice, filling, group, scroll_area, section,
+    Fills, choice, filling, group, path, scroll_area, section,
     segmented_words, status_label, title,
 };
 use hamlet_ui::theme::HamletTheme;
@@ -458,11 +458,9 @@ pub fn panel(chief: Entity) -> AnyView {
             return column(()).boxed();
         };
         let views = (
-            breadcrumb(
-                vec!["Realm".into()],
-                facts.name.clone(),
-                |world, _| select(world, None),
-            ),
+            path(vec!["Realm".into()], |world, _| {
+                select(world, None);
+            }),
             scroll_area((
                 portrait(chief, facts),
                 wardrobe(chief, facts),
