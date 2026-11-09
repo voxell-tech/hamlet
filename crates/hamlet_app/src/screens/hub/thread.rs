@@ -10,11 +10,11 @@ use bevy::ecs::query::Has;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Display, UiRect, percent, px};
+use bevy::ui::{AlignItems, Display, Overflow, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, label, row,
+    frame, label, row, scroll,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
@@ -915,7 +915,8 @@ fn prompt_sections(
         .collect::<Vec<_>>();
     // One read-only page, a line between each part and the next,
     // clear of the scroll bar, which is drawn over the right edge of
-    // the area and dims the letters under it.
+    // the area and dims the letters under it. A line too long for the
+    // card scrolls sideways inside its border, which stays.
     with_cx(move |cx| {
         let line = cx.theme().palette.gold_6;
         let gap = cx.theme().space.panel;
@@ -926,8 +927,12 @@ fn prompt_sections(
             }
             parts.push(section);
         }
-        column((framed((column(parts).gap(gap),)),))
+        let page = scroll((column(parts).gap(gap),))
+            .overflow(Overflow::scroll_x())
+            .width(percent(100.0));
+        column((framed((page,)),))
             .padding(UiRect::right(px(12.0)))
+            .min_width(px(0.0))
     })
     .boxed()
 }
