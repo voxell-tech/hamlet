@@ -6,6 +6,7 @@ use anyhow::{Result, bail};
 use bevy::DefaultPlugins;
 use bevy::app::PluginGroup;
 use bevy_app::{App, AppExit};
+use hamlet_app::appearance::ComputerMotion;
 use hamlet_app::{Remembered, UiPlugin, window_plugin};
 use hamlet_client::connection::LocalServer;
 use hamlet_client::{ClientPlugin, Connection, Tokio, ViewFolder};
@@ -82,6 +83,9 @@ fn main() -> Result<()> {
     let mut app = App::new();
     app.insert_resource(Tokio(rt.handle().clone()))
         .insert_resource(scheme)
+        .insert_resource(ComputerMotion {
+            reduced: hamlet_desktop::motion::reduced(),
+        })
         .insert_resource(ViewFolder(view))
         .insert_resource(remembered)
         .insert_resource(kept)

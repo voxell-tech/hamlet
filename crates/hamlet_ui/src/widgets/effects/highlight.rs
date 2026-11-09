@@ -16,7 +16,7 @@ use bevy::ui::{
 };
 use bevy_fynix::views::{BehaviorExt, frame};
 
-use super::{EffectColors, EffectSettings, ease, flicker, pool};
+use super::{EffectColors, Tuned, ease, flicker, pool};
 use crate::View;
 use crate::theme::Themed;
 
@@ -98,7 +98,7 @@ fn glow_pool(deep: f32, paint: impl Fn(f32) -> Color) -> Gradient {
 pub(super) fn update_highlights(
     mut commands: Commands,
     time: Res<Time>,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     theme: Themed,
     mut updated: MessageReader<Updated>,
     waiting: Res<Attention>,
@@ -110,6 +110,7 @@ pub(super) fn update_highlights(
     )>,
     mut counted: Local<usize>,
 ) {
+    let set = tuned.get();
     let dt = time.delta_secs();
     let changed = updated.read().count() > 0;
     let count = waiting.0;

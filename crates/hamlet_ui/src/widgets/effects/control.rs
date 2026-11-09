@@ -29,7 +29,7 @@ use bevy_fynix::Focused;
 
 use super::glow::{GlowLayer, GlowPanel, layer_of};
 use super::{
-    ControlSound, EffectColors, EffectSettings, Variant, ease,
+    ControlSound, EffectColors, EffectSettings, Tuned, Variant, ease,
     flicker, pool,
 };
 use crate::theme::Themed;
@@ -189,11 +189,12 @@ type Answering<'a> = (
 pub(super) fn answer(
     activated: On<Activate>,
     mut commands: Commands,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     mut buttons: Query<Answering>,
     mut sounds: MessageWriter<ControlSound>,
     mut turn: Local<u32>,
 ) {
+    let set = tuned.get();
     *turn = turn.wrapping_add(1);
     let Ok((mut effect, variant, node, at)) =
         buttons.get_mut(activated.entity)
@@ -242,9 +243,10 @@ type Animated<'a> = (
 
 pub(super) fn animate(
     time: Res<Time>,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     mut buttons: Query<Animated>,
 ) {
+    let set = tuned.get();
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
     for (

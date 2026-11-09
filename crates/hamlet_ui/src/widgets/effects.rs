@@ -11,6 +11,8 @@ mod tab;
 mod underglow;
 mod wash;
 
+use std::borrow::Cow;
+
 use bevy::app::{App, PostUpdate, Update};
 use bevy::asset::Asset;
 use bevy::color::Color;
@@ -18,9 +20,11 @@ use bevy::ecs::component::Component;
 use bevy::ecs::message::Message;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::{Res, SystemParam};
 use bevy::ecs::world::World;
 use bevy::reflect::TypePath;
 use bevy::ui::{ColorStop, UiSystems, percent};
+use bevy_fynix::ReducedMotion;
 use hamlet_assets::{File, Tuning, TuningPlugin, follow};
 
 pub use self::glow::{GlowPanel, glow_layer};
@@ -233,6 +237,45 @@ impl EffectSettings {
             self.light_lift
         } else {
             1.0
+        }
+    }
+}
+
+impl EffectSettings {
+    /// These, with nothing that moves: no flicker, no give under a
+    /// press, no swell, no shake, no particles and nothing that grows
+    /// in. Glows still fade.
+    fn still(&self) -> Self {
+        Self {
+            press_scale: 0.0,
+            pulse_scale: 0.0,
+            press_offset: 0.0,
+            shake_distance: 0.0,
+            flicker: 0.0,
+            outer_glow_pulse_radius: 0.0,
+            particle_count: 0,
+            enter_scale: 1.0,
+            drop_hint_pulse_rate: 0.0,
+            hover_from: 1.0,
+            ..self.clone()
+        }
+    }
+}
+
+/// The tuning of the effects as they are shown: [`EffectSettings`],
+/// still while the chief or the computer asks for less motion.
+#[derive(SystemParam)]
+pub struct Tuned<'w> {
+    set: Res<'w, EffectSettings>,
+    reduced: Option<Res<'w, ReducedMotion>>,
+}
+
+impl Tuned<'_> {
+    pub fn get(&self) -> Cow<'_, EffectSettings> {
+        if self.reduced.as_ref().is_some_and(|reduced| reduced.0) {
+            Cow::Owned(self.set.still())
+        } else {
+            Cow::Borrowed(&self.set)
         }
     }
 }

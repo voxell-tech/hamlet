@@ -99,9 +99,9 @@ const LIGHT: Steps = Steps {
 /// What is in progress is a mustard: the yellow with its lightness
 /// and chroma scaled by these and its hue turned this many degrees
 /// toward green, so it cannot be taken for the accent gold.
-const OCHRE_LIGHTNESS: f32 = 0.82;
+const OCHRE_LIGHTNESS: f32 = 0.78;
 const OCHRE_CHROMA: f32 = 1.0;
-const OCHRE_HUE: f32 = 4.0;
+const OCHRE_HUE: f32 = 12.0;
 /// The hue of a true blue in OKLCH, and how far of the way a
 /// theme's blue is turned toward it for the info status.
 const INFO_HUE: f32 = 250.0;

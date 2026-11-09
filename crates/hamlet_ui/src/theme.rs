@@ -745,19 +745,19 @@ impl SurfaceTokens for HamletTheme {
             .unwrap_or(mark)
     }
 
-    /// A slider's groove, a step deeper than a button toward the
-    /// border, so that an unfilled track is found.
+    /// A slider's groove, from a button toward the edge of a field
+    /// until an unfilled track stands out from the panel as a
+    /// control's edge does.
     fn groove(&self) -> Color {
-        let (fill, border) =
-            (self.palette.button_hover, self.palette.border);
+        let (fill, edge) = (self.palette.button_hover, self.edge());
         (0..=20)
             .map(|step| GROOVE + (1.0 - GROOVE) * step as f32 / 20.0)
-            .map(|share| fill.mix(&border, share))
+            .map(|share| fill.mix(&edge, share))
             .find(|groove| {
                 contrast::contrast(*groove, self.palette.surface)
-                    >= GROOVE_NEED
+                    >= EDGE_NEED
             })
-            .unwrap_or(border)
+            .unwrap_or(edge)
     }
 
     /// A menu row under the pointer: the card a popup is drawn on,
@@ -811,11 +811,8 @@ const EDGE_NEED: f32 = 3.0;
 /// The contrast a menu row under the pointer has against the menu.
 const MENU_HOVER_NEED: f32 = 1.3;
 /// How far the groove of a slider is from the button's fill toward
-/// the border.
+/// the edge of a field, before more is added for its contrast.
 const GROOVE: f32 = 0.6;
-/// The contrast a groove has against the panel at least, in every
-/// theme.
-const GROOVE_NEED: f32 = 1.3;
 
 impl HamletTheme {
     /// How opaque the words of an empty field are: as faint as dim

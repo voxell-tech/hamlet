@@ -10,6 +10,7 @@ use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
 use bevy::ui::UiScale;
 use bevy::window::WindowTheme;
+use bevy_fynix::ReducedMotion;
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, GLOBAL, Mods, ShortcutAppExt,
 };
@@ -63,6 +64,8 @@ pub(crate) fn plugin(app: &mut App) {
     };
     app.init_resource::<Appearance>()
         .init_resource::<Zoom>()
+        .init_resource::<LessMotion>()
+        .init_resource::<ComputerMotion>()
         .add_command(
             command("view.zoom_in", "Zoom In", |world, _| {
                 let mut zoom = world.resource_mut::<Zoom>();
@@ -93,6 +96,10 @@ pub(crate) fn plugin(app: &mut App) {
                         .or_eager(resource_changed::<ColorScheme>),
                 ),
                 scale.run_if(resource_changed::<Zoom>),
+                still
+                    .run_if(resource_changed::<LessMotion>.or_eager(
+                        resource_changed::<ComputerMotion>,
+                    )),
             ),
         );
 }
@@ -134,6 +141,34 @@ impl Zoom {
 /// Draws the panels at the zoom.
 fn scale(zoom: Res<Zoom>, mut commands: Commands) {
     commands.insert_resource(UiScale(zoom.0));
+}
+
+/// Whether the computer asked for less motion as the window opened.
+#[derive(Resource, Clone, Copy, PartialEq, Debug, Default)]
+pub struct ComputerMotion {
+    pub reduced: bool,
+}
+
+/// Whether the chief asked for less motion; none until the chief
+/// says, while the computer's answer holds.
+#[derive(Resource, Clone, Copy, PartialEq, Debug, Default)]
+pub struct LessMotion(pub Option<bool>);
+
+impl LessMotion {
+    /// Whether motion is reduced: as the chief said, else as the
+    /// computer says.
+    pub fn reduced(self, computer: ComputerMotion) -> bool {
+        self.0.unwrap_or(computer.reduced)
+    }
+}
+
+/// Stills every transition and effect while motion is reduced.
+fn still(
+    less: Res<LessMotion>,
+    computer: Res<ComputerMotion>,
+    mut commands: Commands,
+) {
+    commands.insert_resource(ReducedMotion(less.reduced(*computer)));
 }
 
 /// The chief's choice, none until the chief picks. Kept in view.toml

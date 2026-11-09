@@ -23,7 +23,7 @@ use bevy_fynix::dock::{
 
 use super::highlight::HighlightState;
 use super::wash::{Edge, wash};
-use super::{EffectColors, EffectSettings, flicker, pool};
+use super::{EffectColors, Tuned, flicker, pool};
 use crate::theme::Themed;
 
 /// The most glow a tab's attention glow and its flash throw, as an
@@ -59,7 +59,7 @@ fn counted(count: usize) -> String {
 pub(super) fn highlight_tabs(
     mut commands: Commands,
     time: Res<Time>,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     theme: Themed,
     states: Query<(Entity, &HighlightState)>,
     panes: Query<&DockPane>,
@@ -77,6 +77,7 @@ pub(super) fn highlight_tabs(
     >,
     mut counts: Query<&mut Text, With<TabBadgeCount>>,
 ) {
+    let set = tuned.get();
     // The highlight of each pane, from the state in it.
     let lit: Vec<(DockPane, Light)> = states
         .iter()

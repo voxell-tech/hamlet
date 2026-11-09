@@ -36,7 +36,7 @@ use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
 use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Themed;
-use hamlet_ui::widgets::effects::EffectSettings;
+use hamlet_ui::widgets::effects::{EffectSettings, Tuned};
 use hamlet_ui::widgets::platform::show;
 use hamlet_ui::{View, built};
 
@@ -494,7 +494,7 @@ pub fn place(
     theme: Themed,
     card: Res<Card>,
     time: Res<Time>,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     window: Query<&Window, With<PrimaryWindow>>,
     scale: Res<UiScale>,
     mut boxes: Query<
@@ -513,6 +513,7 @@ pub fn place(
     mut inks: Query<&mut TextColor>,
     mut shown: Local<f32>,
 ) {
+    let set = tuned.get();
     let Some(window) = window.iter().next() else {
         return;
     };

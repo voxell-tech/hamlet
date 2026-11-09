@@ -29,7 +29,7 @@ use hamlet_vfx::wind::WindChoice;
 use serde::{Deserialize, Serialize};
 
 use crate::PanelSystems;
-use crate::appearance::{Appearance, Pick, Zoom};
+use crate::appearance::{Appearance, LessMotion, Pick, Zoom};
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
@@ -141,6 +141,10 @@ pub struct View {
     /// How large the panels are drawn.
     #[serde(default)]
     zoom: Zoom,
+    /// Whether the chief asked for less motion; none while the
+    /// computer's answer holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    less_motion: Option<bool>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -343,15 +347,17 @@ pub fn restore(world: &mut World) {
     world.insert_resource(view.model_side);
 }
 
-/// Puts back the kept appearance and zoom.
+/// Puts back the kept appearance, zoom and motion.
 pub(crate) fn restore_appearance(
     remembered: Res<Remembered>,
     mut appearance: ResMut<Appearance>,
     mut zoom: ResMut<Zoom>,
+    mut motion: ResMut<LessMotion>,
 ) {
     if let Some(view) = &remembered.0 {
         appearance.0.clone_from(&view.appearance);
         *zoom = view.zoom;
+        motion.0 = view.less_motion;
     }
 }
 
@@ -390,12 +396,13 @@ pub fn keep(
         Res<Favorites>,
         Res<LastSide>,
     ),
-    (fog, far, wind, appearance, zoom): (
+    (fog, far, wind, appearance, zoom, motion): (
         Res<VolumetricFogSettings>,
         Res<DistanceFogSettings>,
         Res<WindChoice>,
         Res<Appearance>,
         Res<Zoom>,
+        Res<LessMotion>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -415,6 +422,7 @@ pub fn keep(
         || side.is_changed()
         || appearance.is_changed()
         || zoom.is_changed()
+        || motion.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -444,6 +452,7 @@ pub fn keep(
         model_side: side.clone(),
         appearance: appearance.0.clone(),
         zoom: *zoom,
+        less_motion: motion.0,
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -502,6 +511,7 @@ mod tests {
             model_side: LastSide("faux".into()),
             appearance: None,
             zoom: Zoom::default(),
+            less_motion: None,
         }
     }
 

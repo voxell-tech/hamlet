@@ -41,15 +41,15 @@ pub fn pad() -> UiRect {
     UiRect::axes(px(14.0), px(0.0))
 }
 
-/// A standard button: a fill with a faint edge, and gold text. It
-/// steps up under the pointer and down while pressed, and is only an
-/// outline while it cannot be pressed.
+/// A standard button: a fill with the edge of a field, and gold
+/// text. It steps up under the pointer and down while pressed, and
+/// is only an outline while it cannot be pressed.
 pub fn button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.button)
                 .border(t.space.border)
-                .border_color(t.palette.border)
+                .border_color(t.edge())
                 .radius(t.space.round)
         })
         .label(|l, t| {
