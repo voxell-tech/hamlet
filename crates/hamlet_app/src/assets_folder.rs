@@ -1,7 +1,9 @@
 //! The folder the chief keeps assets in, which the library reads, and
 //! whether the realm builds its houses from them: Hamlet's own
 //! assets until the chief chooses theirs, with an asset of theirs
-//! standing in for Hamlet's own of the same name.
+//! standing in for Hamlet's own of the same name. The views that show
+//! and change these are here too, for the Settings' Assets page and
+//! the ASSETS panel.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -10,19 +12,32 @@ use std::time::{Duration, SystemTime};
 use bevy::app::{App, Startup, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::world::World;
 use bevy::log::warn;
 use bevy::time::Time;
-use hamlet_desktop::folder::FolderChosen;
+use bevy::ui::{AlignItems, Display};
+use bevy_fynix::views::{FrameProps, TooltipExt, column};
+use bevy_fynix::{ViewExt, derived, resource};
+use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
+use hamlet_desktop::open;
 use hamlet_graph::{Ruleset, Shape};
 use hamlet_graph_editor::library::{
     Kind, Library, LibraryFolder, Source, lone, parse_book,
 };
 use hamlet_realm::generator::house::{self, HouseRules};
 use hamlet_realm::objects::{Model, Models, read};
+use hamlet_ui::styles::{action, buttons, description, note};
+use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::switch::switch;
+use hamlet_ui::{AnyView, View, with_cx};
 use serde::{Deserialize, Serialize};
+
+use crate::roll::moved;
 
 /// How often the folder's files are looked at for changes the realm
 /// builds again from.
@@ -95,7 +110,7 @@ fn asker(mut commands: Commands) {
 /// Keeps the folder the dialog gave.
 fn chosen(
     chosen: On<FolderChosen>,
-    askers: Query<(), bevy::ecs::query::With<Asker>>,
+    askers: Query<(), With<Asker>>,
     mut choice: ResMut<AssetChoice>,
 ) {
     if askers.contains(chosen.asker) {
@@ -224,4 +239,109 @@ fn theirs(library: &Library) -> (Ruleset, BTreeMap<String, Model>) {
 
 fn model(root: &Path, file: &str) -> anyhow::Result<Model> {
     read(&std::fs::read(root.join(file))?)
+}
+
+/// The folder the library reads now, in `world`.
+fn now(world: &World) -> Option<PathBuf> {
+    folder(
+        world.resource::<AssetChoice>(),
+        world.get_resource::<DefaultAssets>(),
+    )
+}
+
+/// `control` over `words`, as a setting is shown.
+fn told(control: impl View, words: impl View) -> impl View {
+    with_cx(move |cx| {
+        column((control, words))
+            .gap(cx.theme().space.gap / 2.0)
+            .align(AlignItems::FlexStart)
+    })
+}
+
+/// Where the library is kept, with the buttons that show it in the
+/// system's file browser, choose another, and go back to the default.
+pub(crate) fn kept_at() -> AnyView {
+    told(
+        buttons(vec![show(), choose(), default()]),
+        description(
+            derived(|world: &World| {
+                now(world).map_or_else(
+                    || "None yet.".to_owned(),
+                    |folder| folder.display().to_string(),
+                )
+            })
+            .when(moved::<AssetChoice>()),
+        ),
+    )
+    .boxed()
+}
+
+/// The switch that has the realm build with the folder's assets, and
+/// what it does.
+pub(crate) fn in_realm() -> AnyView {
+    told(
+        switch(
+            resource::<AssetChoice, _>(|choice| choice.in_realm),
+            |world, on| {
+                world.resource_mut::<AssetChoice>().in_realm = on;
+            },
+        ),
+        description(
+            "Houses are built with your blueprints and meshes, each \
+             standing in for the built-in one of the same name.",
+        ),
+    )
+    .boxed()
+}
+
+/// Opens the folder in the system's file browser, made first if it
+/// is not there yet.
+fn show() -> AnyView {
+    action(Glyph::Eye, "Show folder", |world| {
+        if let Some(folder) = now(world)
+            && std::fs::create_dir_all(&folder).is_ok()
+        {
+            open::show_file(&folder);
+        }
+    })
+    .boxed()
+}
+
+fn choose() -> AnyView {
+    action(Glyph::Folder, "Choose another", |world| {
+        let asker = world
+            .query_filtered::<Entity, With<Asker>>()
+            .iter(world)
+            .next();
+        if let Some(asker) = asker {
+            world.trigger(ChooseFolder {
+                asker,
+                title: "Choose the folder to keep your assets in"
+                    .into(),
+            });
+        }
+    })
+    .boxed()
+}
+
+/// Goes back to the folder kept until one is chosen, shown only while
+/// another is.
+fn default() -> AnyView {
+    column((action(Glyph::Undo, "Use the default", |world| {
+        world.resource_mut::<AssetChoice>().folder = None;
+    })
+    .tooltip(|| {
+        note(
+            "Hamlet in your documents folder, unless HAMLET_ASSETS \
+             names another",
+        )
+    }),))
+    .display(resource::<AssetChoice, _>(|choice| {
+        if choice.folder.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        }
+    }))
+    .boxed()
 }
