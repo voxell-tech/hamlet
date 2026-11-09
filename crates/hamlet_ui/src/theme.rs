@@ -13,12 +13,13 @@ use std::time::Duration;
 
 use bevy::app::{App, PostUpdate};
 use bevy::asset::Asset;
-use bevy::color::{Color, Luminance, Mix, Srgba};
+use bevy::color::{Alpha, Color, Luminance, Mix, Srgba};
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::message::{Message, Messages};
 use bevy::ecs::query::{Changed, Or};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{If, Query, Res, SystemParam};
+use bevy::ecs::system::{If, Query, Res, ResMut, SystemParam};
 use bevy::ecs::world::World;
 use bevy::prelude::ClearColor;
 use bevy::reflect::TypePath;
@@ -27,6 +28,7 @@ use bevy::state::state::{NextState, State, States};
 use bevy::text::{FontSource, FontWeight, TextColor, TextFont};
 use bevy::ui::{BoxShadow, UiSystems, px};
 use bevy::window::WindowTheme;
+use bevy_fynix::scroll::ScrollbarStyle;
 use bevy_fynix::tokens::{
     Curve, Motion, MotionTokens, SpacingTokens, SurfaceTokens,
     TextTokens, Tone,
@@ -46,7 +48,31 @@ pub fn plugin(app: &mut App) {
         .insert_resource(Themes::shipped())
         .add_message::<ThemeChanged>()
         .init_state::<ThemeState>()
-        .add_plugins((themes::plugin, weight_plugin));
+        .add_plugins((themes::plugin, weight_plugin))
+        .add_systems(PostUpdate, paint_scrollbars);
+}
+
+/// How opaque a scroll bar is in the ink of the words, at rest and
+/// under the pointer.
+const BAR_REST: f32 = 0.28;
+const BAR_HOT: f32 = 0.55;
+
+/// Paints the scroll bars in the ink of the words, so that they show
+/// on a light panel as on a dark one.
+fn paint_scrollbars(
+    theme: Themed,
+    style: Option<ResMut<ScrollbarStyle>>,
+) {
+    let Some(mut style) = style else {
+        return;
+    };
+    let ink = theme.palette.gold_1;
+    let painted = ScrollbarStyle {
+        rest: ink.with_alpha(BAR_REST),
+        hot: ink.with_alpha(BAR_HOT),
+        ..*style
+    };
+    style.set_if_neq(painted);
 }
 
 /// Sets the weight of regular words by their ink; also for a window
