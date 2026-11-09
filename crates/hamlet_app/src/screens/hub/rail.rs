@@ -1784,10 +1784,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         app.update();
-        assert_eq!(
-            names(&app, |g| *g == Group::Needs),
-            ["ada · home"]
-        );
+        assert_eq!(names(&app, |g| *g == Group::Needs), ["ada"]);
         // One row for who asks, counted as every wait, as the
         // realm's page and the status bar count them.
         let needs = sections(app.world())

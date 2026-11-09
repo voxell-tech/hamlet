@@ -19,6 +19,7 @@ use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::{With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_exists;
 use bevy::ecs::system::{
     Commands, Local, Query, Res, ResMut, Single,
 };
@@ -53,7 +54,10 @@ const RISE: f32 = 0.18;
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, set_up).add_systems(
         PostUpdate,
-        (pose, aim).chain().before(TransformSystems::Propagate),
+        (pose, aim)
+            .chain()
+            .run_if(resource_exists::<Portrait>)
+            .before(TransformSystems::Propagate),
     );
 }
 
@@ -73,8 +77,16 @@ struct PortraitCamera;
 #[derive(Component)]
 struct PortraitLight;
 
-/// The picture, and the camera and light that draw it, idle.
-fn set_up(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+/// The picture, and the camera and light that draw it, idle. Without
+/// rendering, as in a headless test, there is no picture to draw into
+/// and the chief page shows none.
+fn set_up(
+    mut commands: Commands,
+    images: Option<ResMut<Assets<Image>>>,
+) {
+    let Some(mut images) = images else {
+        return;
+    };
     let picture = images.add(Image::new_target_texture(
         SIDE,
         SIDE,

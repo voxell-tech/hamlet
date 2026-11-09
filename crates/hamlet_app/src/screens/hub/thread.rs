@@ -550,12 +550,14 @@ fn model_chip(agent: Entity) -> impl View {
 
 /// Lights the chip of the model whose popup is open.
 fn light_chips(
-    open: Res<world_menu::Open>,
+    open: Option<Res<world_menu::Open>>,
     chips: Query<(Entity, &ModelChip, Has<ChipOpen>)>,
     mut commands: Commands,
 ) {
     for (chip, of, lit) in &chips {
-        let wanted = *open == world_menu::Open::Model(of.0);
+        let wanted = open.as_deref().is_some_and(|open| {
+            *open == world_menu::Open::Model(of.0)
+        });
         if wanted && !lit {
             commands.entity(chip).try_insert(ChipOpen);
         } else if !wanted && lit {

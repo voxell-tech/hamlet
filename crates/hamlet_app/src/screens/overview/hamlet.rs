@@ -13,6 +13,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_exists;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
@@ -78,7 +79,15 @@ pub struct Naming(pub(super) Option<Entity>);
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Naming>()
         .add_observer(rename_twice_clicked)
-        .add_systems(Update, (focus_name, end_naming).chain());
+        .add_systems(
+            Update,
+            (focus_name, end_naming)
+                .chain()
+                // Only with a keyboard and its focus, which a
+                // headless window has neither of.
+                .run_if(resource_exists::<ButtonInput<KeyCode>>)
+                .run_if(resource_exists::<InputFocus>),
+        );
 }
 
 /// Renames the hamlet whose name is clicked twice at the end of its
@@ -121,8 +130,8 @@ fn focus_name(
 /// commits one: a press elsewhere takes it out first.
 fn in_name_field(world: &World) -> bool {
     world
-        .resource::<InputFocus>()
-        .get()
+        .get_resource::<InputFocus>()
+        .and_then(InputFocus::get)
         .and_then(|input| world.get::<ChildOf>(input))
         .is_some_and(|parent| {
             world.get::<NameField>(parent.parent()).is_some()
