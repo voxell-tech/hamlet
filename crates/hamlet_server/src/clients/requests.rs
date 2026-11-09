@@ -456,6 +456,14 @@ impl Core {
             ClientMessage::MoveLodges(asked) => {
                 self.move_lodges(client, &asked.id).await
             }
+            ClientMessage::WebWindow(_) => {
+                self.clients.web.fronted(client);
+                Ok(())
+            }
+            ClientMessage::Web(answer) => {
+                self.clients.web.answered(client, answer);
+                Ok(())
+            }
             // The providers answered these above.
             ClientMessage::Login(_) | ClientMessage::Check(_) => {
                 Ok(())

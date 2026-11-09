@@ -95,7 +95,7 @@ impl Sight {
 }
 
 impl Outcome {
-    fn text(text: impl Into<String>) -> Self {
+    pub(crate) fn text(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             error: false,
@@ -105,7 +105,7 @@ impl Outcome {
         }
     }
 
-    fn failed(text: impl Into<String>) -> Self {
+    pub(crate) fn failed(text: impl Into<String>) -> Self {
         Self {
             error: true,
             ..Self::text(text)
@@ -144,6 +144,7 @@ pub(crate) fn diagnostic(
 pub(crate) fn reserved_names() -> impl Iterator<Item = String> {
     specs(&Shells::local())
         .into_iter()
+        .chain(crate::web::specs())
         .map(|tool| tool.name)
         .chain(Dialect::ALL.map(|dialect| dialect.tool().to_owned()))
 }

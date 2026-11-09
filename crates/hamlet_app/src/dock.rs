@@ -230,10 +230,6 @@ fn register(world: &mut World, id: &str) {
 
 /// Opens another of the numbered panel `first` where `target` says,
 /// and gives its id: one neither the dock nor a desk holds.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no panel opens more than once yet")
-)]
 pub(crate) fn open_numbered(
     world: &mut World,
     first: &str,

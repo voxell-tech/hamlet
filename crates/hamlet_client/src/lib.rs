@@ -53,6 +53,11 @@ impl Plugin for ClientPlugin {
     }
 }
 
+/// The server asks this window to act on an agent's page. The window
+/// answers with a `web` message in the [`outbox::Outbox`].
+#[derive(Event, Clone, Debug)]
+pub struct WebAsked(pub protocol::WebAsk);
+
 /// The async runtime shared with the window's connection.
 #[derive(Resource, Clone)]
 pub struct Tokio(pub Handle);
@@ -70,6 +75,9 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
         }
         protocol::ServerMessage::Change(changes) => {
             realm::changes(world, changes);
+        }
+        protocol::ServerMessage::Web(ask) => {
+            world.trigger(WebAsked(ask));
         }
         message @ (protocol::ServerMessage::Transcript(_)
         | protocol::ServerMessage::Turn(_)) => {

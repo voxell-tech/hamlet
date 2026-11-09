@@ -30,5 +30,6 @@ mod talk;
 #[cfg(test)]
 mod testing;
 mod text;
+mod web;
 mod work;
 mod workspace;

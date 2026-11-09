@@ -19,6 +19,7 @@ mod request_id;
 mod settings;
 mod state;
 mod waits;
+mod web;
 
 pub use chat::*;
 pub use documents::*;
@@ -29,12 +30,16 @@ pub use request_id::*;
 pub use settings::*;
 pub use state::*;
 pub use waits::*;
+pub use web::*;
 
 impl ClientMessage {
     /// The id of this request, if it has one.
     pub fn id(&self) -> Option<&RequestId> {
         match self {
-            Self::Hello(_) | Self::Close(_) => None,
+            Self::Hello(_)
+            | Self::Close(_)
+            | Self::WebWindow(_)
+            | Self::Web(_) => None,
             Self::Say(Say { id, .. })
             | Self::PutImage(PutImage { id, .. })
             | Self::PutImagePart(PutImagePart { id, .. })
@@ -95,7 +100,10 @@ impl ServerMessage {
                 | ReadResult::Papers { to, .. }
                 | ReadResult::Charter { to, .. },
             ) => Some(to),
-            Self::State(_) | Self::Change(_) | Self::Turn(_) => None,
+            Self::State(_)
+            | Self::Change(_)
+            | Self::Turn(_)
+            | Self::Web(_) => None,
         }
     }
 }
@@ -146,6 +154,10 @@ pub enum ClientMessage {
     Read(Read),
     #[serde(rename = "move-lodges")]
     MoveLodges(MoveLodges),
+    #[serde(rename = "web-window")]
+    WebWindow(WebWindow),
+    #[serde(rename = "web")]
+    Web(WebAnswer),
 }
 
 #[derive(
@@ -173,6 +185,8 @@ pub enum ServerMessage {
     Read(ReadResult),
     #[serde(rename = "fault")]
     Fault(Fault),
+    #[serde(rename = "web")]
+    Web(WebAsk),
 }
 
 #[derive(

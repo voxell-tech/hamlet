@@ -19,6 +19,7 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use hamlet_protocol::client::web_address;
 use hamlet_ui::styles::{
     Fills, ICON, action, description, link_row, note, text_input,
 };
@@ -27,7 +28,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::fetch::{self, Fetch, State};
-use super::{Addresses, PANEL, address_of, page};
+use super::{Addresses, PANEL, page};
 use crate::dock::{PanelAppExt, flush_panel};
 
 /// The name of a Web panel's tab, before its page has a title.
@@ -68,18 +69,22 @@ pub(super) struct Surface(pub PanelId);
 pub(super) struct AddressField;
 
 /// The name of the tab of a panel whose page has `title`, cut to
-/// [`TITLE_LETTERS`].
-pub(super) fn tab_name(title: &str) -> String {
+/// [`TITLE_LETTERS`], and that is `agent`'s when it is an agent's.
+pub(super) fn tab_name(title: &str, agent: Option<&str>) -> String {
+    let named = match agent {
+        Some(agent) => format!("{TITLE} ({agent})"),
+        None => TITLE.to_owned(),
+    };
     let title = title.trim();
     if title.is_empty() {
-        return TITLE.to_owned();
+        return named;
     }
     let mut cut =
         title.chars().take(TITLE_LETTERS).collect::<String>();
     if title.chars().count() > TITLE_LETTERS {
         cut.push_str("...");
     }
-    format!("{TITLE}: {cut}")
+    format!("{named}: {cut}")
 }
 
 /// Whether the dock window `id` is a Web panel.
@@ -181,7 +186,7 @@ fn press(
 
 /// Loads the address typed into `panel`'s bar.
 pub(super) fn go(world: &mut World, panel: &PanelId, typed: &str) {
-    let Some(address) = address_of(typed) else {
+    let Some(address) = web_address(typed) else {
         return;
     };
     world

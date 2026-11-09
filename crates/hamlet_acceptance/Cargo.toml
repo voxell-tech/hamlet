@@ -108,3 +108,7 @@ required-features = ["acceptance"]
 name = "frames"
 path = "tests/frames/main.rs"
 required-features = ["acceptance"]
+
+[[test]]
+name = "web"
+required-features = ["acceptance"]
