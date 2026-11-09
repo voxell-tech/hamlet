@@ -101,6 +101,7 @@ impl Catalogue {
     ) -> Vec<ToolSpec> {
         let mut catalogue = crate::tools::builtin::specs(shells);
         catalogue.extend(crate::calls::specs::specs());
+        catalogue.extend(crate::web::specs());
         catalogue.extend(
             added.iter().map(|manifest| manifest.spec.clone()),
         );

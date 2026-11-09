@@ -121,3 +121,7 @@ required-features = ["acceptance"]
 [[bin]]
 name = "mcp_echo"
 required-features = ["acceptance"]
+
+[[test]]
+name = "web"
+required-features = ["acceptance"]

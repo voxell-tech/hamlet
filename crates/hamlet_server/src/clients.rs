@@ -369,6 +369,8 @@ pub(crate) struct Clients {
     pub last_sent_state: Option<protocol::State>,
     pub state_epoch: i64,
     pub state_revision: i64,
+    /// The windows that draw Web panels, for the agents' web tools.
+    pub web: crate::web::Windows,
 }
 
 impl Clients {
@@ -382,6 +384,7 @@ impl Clients {
             last_sent_state: None,
             state_epoch: epoch,
             state_revision: 0,
+            web: crate::web::Windows::default(),
         })
     }
 
