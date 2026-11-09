@@ -40,7 +40,7 @@ danger_hover = "#5e1f16ff"
 danger_glow = "#e8452bff"
 green = "#acd48cff"
 green_deep = "#233a1bff"
-shadow = "#0a06038c"
+shadow = "#000000b8"
 
 # Lamplight by day: the logo's cream for cards, its brown for words,
 # and its amber deepened until it reads on cream.

@@ -27,7 +27,7 @@ pub fn plugin(app: &mut App) {
         switch::plugin,
         cut::CutPlugin,
         edges::plugin,
-        floats::plugin,
+        floats::FloatsPlugin,
         pixels::plugin,
         ellipsis::plugin,
         hint::plugin,

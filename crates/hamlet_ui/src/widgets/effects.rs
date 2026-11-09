@@ -12,7 +12,7 @@ mod underglow;
 
 use bevy::app::{App, PostUpdate, Update};
 use bevy::asset::Asset;
-use bevy::color::Color;
+use bevy::color::{Color, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::message::Message;
 use bevy::ecs::resource::Resource;
@@ -189,16 +189,19 @@ pub struct EffectSettings {
     /// How many times as strong a glow is laid over a light panel,
     /// where the same glow shows far less than over a dark one.
     pub light_gain: f32,
+    /// Seconds a popup, a menu or a tooltip takes to fade in.
+    pub popup_in: f32,
 }
 
 impl EffectSettings {
     /// How strongly a glow is laid over `theme`'s panels:
     /// [`Self::light_gain`] times over a light one.
     pub fn gain(&self, theme: &HamletTheme) -> f32 {
-        let surface = theme.palette.surface;
-        let light = contrast(surface, Color::BLACK)
-            > contrast(surface, Color::WHITE);
-        if light { self.light_gain } else { 1.0 }
+        if lit_panels(theme) {
+            self.light_gain
+        } else {
+            1.0
+        }
     }
 }
 
@@ -245,24 +248,43 @@ pub struct EffectColors {
 }
 
 impl EffectColors {
-    /// The colours of the effects in `theme`.
+    /// The colours of the effects in `theme`. Over a light panel the
+    /// glows are deepened toward the accent: a pale glow on a pale
+    /// panel is all but unseen.
     pub fn of(theme: &HamletTheme) -> Self {
         let p = &theme.palette;
+        let lamp = |glow: Color| {
+            if lit_panels(theme) {
+                glow.mix(&p.accent, LIGHT_DEEPEN)
+            } else {
+                glow
+            }
+        };
         Self {
-            glow: p.glow,
-            glow_core: p.glow_core,
+            glow: lamp(p.glow),
+            glow_core: lamp(p.glow_core),
             glow_danger: p.danger_glow,
             primary_low: p.primary_low,
             primary_high: p.primary_high,
             particle: p.particle,
             drag_border: p.gold_5,
-            attention: p.glow,
+            attention: lamp(p.glow),
             flash: p.agent,
-            underglow: p.glow,
-            drop_hint: p.glow,
+            underglow: lamp(p.glow),
+            drop_hint: lamp(p.glow),
             drag_ghost: p.surface,
         }
     }
+}
+
+/// How far a glow over a light panel is taken toward the accent.
+const LIGHT_DEEPEN: f32 = 0.45;
+
+/// Whether `theme`'s panels are light: dark words read better on
+/// them than light ones.
+fn lit_panels(theme: &HamletTheme) -> bool {
+    let surface = theme.palette.surface;
+    contrast(surface, Color::BLACK) > contrast(surface, Color::WHITE)
 }
 
 /// The stops of a radial gradient whose glow falls off as a bell,

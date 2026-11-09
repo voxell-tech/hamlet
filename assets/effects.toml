@@ -39,3 +39,4 @@ hover_from = 0.95
 highlight_rate = 3.0
 highlight_boost = 0.4
 light_gain = 3.0
+popup_in = 0.2
