@@ -38,6 +38,8 @@ const LAMP_SHARP: f32 = 2.6;
 const LAMP_LEVEL: f32 = 0.9;
 const LAMP_SWING: f32 = 0.1;
 const LAMP_PERIOD: f32 = 4.0;
+/// How much of its pool a held title or tab keeps under the wash.
+const HELD_POOL: f32 = 0.5;
 
 /// A title or a tab that glows from below under the pointer, at a
 /// press, and for as long as it is `held`, when it is also washed
@@ -129,7 +131,10 @@ pub(super) fn update_underglow(
         }
         glow.level = level;
         glow.filled = fills;
-        let strength = (set.underglow * level
+        // Held, the wash is most of its light, and the pool under its
+        // middle only half as strong, so it is no bright spot.
+        let pool = if fills { HELD_POOL } else { 1.0 };
+        let strength = (set.underglow * level * pool
             + set.underglow_press * flare)
             * set.gain(&theme);
         // Held, the light rises from its underline as it lies across

@@ -18,8 +18,13 @@ use super::{EffectSettings, ease, lit_panels};
 use crate::theme::{HamletTheme, Themed};
 
 /// How strong the glow is at its edge, over dark panels and over
-/// light ones, where the same glow shows far less.
+/// light ones, where the same glow shows far less: across a row, and
+/// up a tab, which is short, so the light there is softer.
 const PEAK: [f32; 2] = [0.16, 0.6];
+const TAB_PEAK: [f32; 2] = [0.12, 0.38];
+/// The stops of a tab's light, which falls away quickly from its
+/// underline and then slowly, with no line where it ends.
+const TAB_STOPS: u8 = 6;
 /// How much of that the pointer brings, over dark panels and light.
 const HOVER: [f32; 2] = [0.7, 0.55];
 
@@ -55,16 +60,31 @@ impl Wash {
 /// The wash of `theme`'s glow from `from` at `level`, 1 for what is
 /// picked.
 pub fn wash(theme: &HamletTheme, from: Edge, level: f32) -> Gradient {
-    let peak = PEAK[usize::from(lit_panels(theme))] * level;
+    let lit = usize::from(lit_panels(theme));
     let glow = theme.palette.glow;
-    let stops = vec![
-        ColorStop::new(glow.with_alpha(peak), percent(0.0)),
-        ColorStop::new(glow.with_alpha(0.0), percent(100.0)),
-    ];
-    Gradient::from(match from {
-        Edge::Left => LinearGradient::to_right(stops),
-        Edge::Bottom => LinearGradient::to_top(stops),
-    })
+    match from {
+        Edge::Left => {
+            let peak = PEAK[lit] * level;
+            Gradient::from(LinearGradient::to_right(vec![
+                ColorStop::new(glow.with_alpha(peak), percent(0.0)),
+                ColorStop::new(glow.with_alpha(0.0), percent(100.0)),
+            ]))
+        }
+        Edge::Bottom => {
+            let peak = TAB_PEAK[lit] * level;
+            let stops = (0..=TAB_STOPS)
+                .map(|step| {
+                    let t = f32::from(step) / f32::from(TAB_STOPS);
+                    let left = (1.0 - t) * (1.0 - t);
+                    ColorStop::new(
+                        glow.with_alpha(peak * left),
+                        percent(t * 100.0),
+                    )
+                })
+                .collect();
+            Gradient::from(LinearGradient::to_top(stops))
+        }
+    }
 }
 
 /// Eases each wash toward its hold or the pointer, and paints it.
