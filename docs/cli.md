@@ -46,7 +46,7 @@ starts only the window.
 | `hamlet status` | Reports whether the realm's server runs, with its address, process ID, start time and log path |
 | `hamlet server [--port <n>] [--faux <script.json>] [--insecure]` | Starts a server on a realm; a faux script answers offline for tests and demos |
 | `hamlet chat [--to <hand\|hire#<id>\|mayor@<hamlet>>] [--attach <path>]...` | Chats with the Hand or the named agent and answers what waits, in the terminal; each `--attach` (an image, a file or a folder) goes with the first line |
-| `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot]` | Serves a scratch realm on a free port unless given one, and opens its window; `--hot` builds a window that reloads saved shaders and tuning files |
+| `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot] [--web]` | Serves a scratch realm on a free port unless given one, and opens its window; `--hot` builds a window that reloads saved shaders and tuning files; `--web` builds one with Web panels, on macOS |
 | `hamlet window` | Opens a window connected to a running server |
 | `hamlet edit <charter\|limits\|settings> [--hamlet <id>]` | Opens the chief's document in `$EDITOR` and saves through the server; limits and settings are JSON, and `--hamlet` selects a hamlet's limits in place of the realm's |
 | `hamlet edit character <scholar#id>` | Opens a scholar's character; a hire's address works too, for its scholar's |
