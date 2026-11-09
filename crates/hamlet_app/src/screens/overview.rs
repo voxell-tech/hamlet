@@ -164,8 +164,8 @@ pub fn overview() -> impl View {
     })
 }
 
-/// Stops every agent, as a plain button that cannot be pressed while
-/// none works or waits.
+/// Stops every agent, as a danger button that cannot be pressed
+/// while none works or waits.
 fn stop_all() -> AnyView {
     keyed(
         derived(|world: &World| {
@@ -174,7 +174,7 @@ fn stop_all() -> AnyView {
         })
         .when(bevy_fynix::every_frame()),
         |&any| {
-            let stop = action(Glyph::Stop, "Stop all", |world| {
+            let stop = bad_action(Glyph::Stop, "Stop all", |world| {
                 world.trigger(Veto { agent: None });
                 world.flush();
             });
