@@ -186,7 +186,7 @@ fn show(
     let folder = browse
         .folder
         .clone()
-        .filter(|folder| library.folders.paths.contains(folder));
+        .filter(|folder| library.collections.paths.contains(folder));
     let named = |own: bool| {
         library
             .items
@@ -221,7 +221,7 @@ fn show(
                 .filter(|item| {
                     folder.as_ref().is_none_or(|folder| {
                         library
-                            .folders
+                            .collections
                             .holds(folder, item.kind, &item.name)
                     })
                 })
@@ -258,7 +258,7 @@ fn show(
     let next = Shown {
         groups,
         selected,
-        folders: library.folders.paths.iter().cloned().collect(),
+        folders: library.collections.paths.iter().cloned().collect(),
         folder,
         search: browse.search.clone(),
         counts,
@@ -458,11 +458,12 @@ fn new_menu() -> AnyView {
 
 /// Makes a new folder in `parent`, or at the top, and shows it.
 fn new_folder(world: &mut World, parent: Option<&str>) {
-    let made =
-        world.resource_mut::<Library>().change_folders(|folders| {
+    let made = world.resource_mut::<Library>().change_collections(
+        |folders| {
             let path = folders.free(parent, "folder");
             folders.add(&path)
-        });
+        },
+    );
     let note = match made {
         Ok(path) => {
             let note = format!("Made the folder {path}");
@@ -481,7 +482,7 @@ fn rename_folder(world: &mut World, from: &str, to: &str) {
     }
     let renamed = world
         .resource_mut::<Library>()
-        .change_folders(|folders| folders.rename(from, to));
+        .change_collections(|folders| folders.rename(from, to));
     let note = match renamed {
         Ok(path) => {
             let note = format!("Renamed the folder to {path}");
@@ -497,7 +498,7 @@ fn rename_folder(world: &mut World, from: &str, to: &str) {
 fn remove_folder(world: &mut World, path: &str) {
     let removed = world
         .resource_mut::<Library>()
-        .change_folders(|folders| folders.remove(path));
+        .change_collections(|folders| folders.remove(path));
     let note = match removed {
         Ok(()) => {
             world.resource_mut::<Browse>().folder = path
@@ -526,9 +527,9 @@ fn folder_picker(item: Item) -> AnyView {
     with_cx(move |cx| {
         let library = cx.world.resource::<Library>();
         let paths: Vec<String> =
-            library.folders.paths.iter().cloned().collect();
+            library.collections.paths.iter().cloned().collect();
         let at = library
-            .folders
+            .collections
             .of(item.kind, &item.name)
             .and_then(|folder| {
                 paths.iter().position(|path| path == folder)
@@ -546,7 +547,7 @@ fn folder_picker(item: Item) -> AnyView {
                     at.checked_sub(1).and_then(|at| paths.get(at));
                 let put = world
                     .resource_mut::<Library>()
-                    .change_folders(|folders| {
+                    .change_collections(|folders| {
                         folders.put(
                             item.kind,
                             &item.name,
