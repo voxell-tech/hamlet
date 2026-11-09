@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use bevy::DefaultPlugins;
 use bevy::app::PluginGroup;
+use bevy::log::LogPlugin;
 use bevy_app::{App, AppExit};
 use hamlet_app::{Remembered, UiPlugin, window_plugin};
 use hamlet_client::connection::LocalServer;
@@ -85,7 +86,7 @@ fn main() -> Result<()> {
         .insert_resource(ViewFolder(view))
         .insert_resource(remembered)
         .insert_resource(kept)
-        .add_plugins(DefaultPlugins.set(window));
+        .add_plugins(DefaultPlugins.set(window).set(log_plugin()));
     client(&mut app, |key| std::env::var(key).ok());
     let exit = app
         .add_plugins((
@@ -99,6 +100,19 @@ fn main() -> Result<()> {
         bail!("the window exited with code {code}");
     }
     Ok(())
+}
+
+/// Bevy's log, without the messages of the pages in Web panels, which
+/// their developer tools show. `RUST_LOG` still chooses for itself.
+fn log_plugin() -> LogPlugin {
+    let plugin = LogPlugin::default();
+    LogPlugin {
+        filter: format!(
+            "{},bevy_cef_core::browser_process::display_handler=off",
+            plugin.filter
+        ),
+        ..plugin
+    }
 }
 
 fn client(app: &mut App, vars: impl Fn(&str) -> Option<String>) {
