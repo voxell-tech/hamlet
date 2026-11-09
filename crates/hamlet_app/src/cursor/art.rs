@@ -325,31 +325,59 @@ pub fn face(mode: Mode, frame: usize, inks: &Inks) -> Image {
     match mode {
         Mode::Point => art.taper(hot, 11.5, 4.6, 31.0, inks),
         Mode::Press => {
-            // The glove of Grab with one finger out, its tip on
-            // the pointer.
+            // A glove pointing up: the back of a broad palm, three
+            // fingers folded over its top, the thumb tucked up beside
+            // them, and the first finger out, its tip on the pointer.
             art.add(
-                line(Vec2::new(13.5, 14.0), hot + Vec2::Y * 2.0, 2.3),
+                line(
+                    Vec2::new(15.0, 20.4),
+                    Vec2::new(20.6, 20.6),
+                    5.1,
+                ),
                 inks.wax,
             );
-            for (x, y) in [(17.4, 14.6), (21.0, 15.6), (23.6, 17.2)] {
-                art.add(disc(Vec2::new(x, y), 2.4), inks.wax);
-            }
-            art.add(
-                line(Vec2::new(9.8, 21.5), Vec2::new(6.4, 17.8), 2.2),
-                inks.wax,
-            );
-            art.add(disc(Vec2::new(16.0, 19.5), 6.8), inks.wax);
-            for x in [19.2, 22.6] {
+            for (x, top, r) in [
+                (17.4, 14.2, 2.2),
+                (21.0, 15.0, 2.1),
+                (24.2, 16.4, 1.9),
+            ] {
                 art.add(
                     line(
-                        Vec2::new(x, 13.6),
-                        Vec2::new(x, 15.4),
-                        0.45,
+                        Vec2::new(x, top),
+                        Vec2::new(x, top + 3.0),
+                        r,
+                    ),
+                    inks.wax,
+                );
+            }
+            art.add(
+                Shape::Cone {
+                    a: Vec2::new(12.0, 21.2),
+                    b: Vec2::new(8.6, 16.6),
+                    ra: 2.4,
+                    rb: 2.0,
+                },
+                inks.wax,
+            );
+            art.add(
+                line(hot + Vec2::Y * 2.0, Vec2::new(13.5, 16.0), 2.3),
+                inks.wax,
+            );
+            // The seams between the folded fingers, and between them
+            // and the one out.
+            for (x, top) in
+                [(15.75, 13.4), (19.2, 14.6), (22.6, 15.7)]
+            {
+                art.add(
+                    line(
+                        Vec2::new(x, top),
+                        Vec2::new(x, top + 2.6),
+                        0.42,
                     ),
                     inks.edge,
                 );
             }
-            art.cuff(Vec2::new(16.0, 26.5), inks);
+            art.cuff(Vec2::new(17.8, 27.4), inks);
         }
         Mode::Grab => {
             let fingers = [
