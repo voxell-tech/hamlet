@@ -75,6 +75,10 @@ pub enum WebAct {
         #[schemars(range(min = 1, max = WEB_WAIT_MOST))]
         seconds: u32,
     },
+    /// Clicks `target`: the number a read gave an element, or a CSS
+    /// selector.
+    #[serde(rename = "click")]
+    Click { target: String },
 }
 
 impl WebAct {
