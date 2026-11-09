@@ -5,6 +5,7 @@
 //! agent works and rests; only its mark changes.
 
 use bevy::app::{App, Update};
+use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -44,7 +45,7 @@ use hamlet_ui::styles::{
     ICON, description_rules, note, note_rules, quoted, scroll_area,
     text_input, transparent,
 };
-use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::theme::{HamletTheme, Palette};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::hint::search;
@@ -90,6 +91,10 @@ const STEP_IN: f32 = 16.0;
 
 /// The room inside a row's ends.
 const ROW_INSET: f32 = 6.0;
+
+/// How far the current row's fill goes from a button's toward the
+/// accent.
+const CURRENT_TINT: f32 = 0.12;
 
 /// The space over each part of the rail: what waits, the tabs and
 /// each hamlet, so that the parts stand apart and evenly.
@@ -1289,6 +1294,8 @@ fn row_rules(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(transparent(t.palette.button))
+                .border(t.space.border)
+                .border_color(transparent(t.palette.accent))
                 .radius(4.0)
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::Stretch)
@@ -1300,18 +1307,27 @@ fn row_rules(cx: &mut Cx) {
         .apply(cx);
 }
 
+/// The row of what the panel shows: tinted with the accent and
+/// outlined in it, so it stands out from a row under the pointer.
 fn current_rules(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(t.palette.button)
+            f.fill(current_fill(&t.palette))
+                .border(t.space.border)
+                .border_color(t.palette.accent.with_alpha(0.55))
                 .radius(4.0)
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::Stretch)
                 .padding(UiRect::axes(px(ROW_INSET), px(4.0)))
         })
-        .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
         .transition(Motion::Interact)
         .apply(cx);
+}
+
+/// The fill of the current row: a button's, a little of the way to
+/// the accent.
+fn current_fill(palette: &Palette) -> Color {
+    palette.button.mix(&palette.accent, CURRENT_TINT)
 }
 
 /// The mark at the end of a row or a header, in its place whether or
