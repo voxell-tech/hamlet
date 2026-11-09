@@ -26,7 +26,7 @@ const TAB_PEAK: [f32; 2] = [0.12, 0.38];
 /// underline and then slowly, with no line where it ends.
 const TAB_STOPS: u8 = 6;
 /// How much of that the pointer brings, over dark panels and light.
-const HOVER: [f32; 2] = [0.7, 0.55];
+const HOVER: [f32; 2] = [0.7, 0.85];
 
 /// The edge a wash falls from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
