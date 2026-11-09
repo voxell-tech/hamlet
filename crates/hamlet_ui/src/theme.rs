@@ -537,6 +537,9 @@ pub struct Spacing {
     /// models, whose columns need more.
     pub page_width: f32,
     pub table_width: f32,
+    /// The widest a chat's transcript and its composer are drawn,
+    /// so that its lines stay a length that reads.
+    pub thread_width: f32,
     /// The widest a card over the panels is drawn, and the space
     /// inside it.
     pub overlay_width: f32,

@@ -56,7 +56,10 @@ pub fn tab_look(cx: &mut Cx) {
             // passing through black.
             f.fill(transparent(t.palette.button))
                 .radius(0.0)
-                .padding(UiRect::axes(px(t.space.gap / 2.0), px(0.0)))
+                .padding(UiRect::axes(
+                    px(t.space.tab_padding),
+                    px(0.0),
+                ))
                 .min_height(px(t.space.tab_height))
         })
         .label(|l, t| l.size(t.text.small).bold(true))
@@ -83,13 +86,27 @@ pub fn tab_name(which: Glyph, name: &'static str) -> impl View {
     headed(which, label(name).wrap(false))
 }
 
-/// A strip of `tabs`, each pressed to `choose` its value. The tabs
-/// are built once and marked as the value changes, so that a press
-/// moves nothing.
+/// How the tabs of a strip take its width.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Spread {
+    /// Shared between them.
+    Shared,
+    /// Each as wide as its name, from the left.
+    Packed,
+}
+
+/// A strip of `tabs`, each pressed to `choose` its value and laid
+/// out as `spread` says. The tabs are built once and marked as the
+/// value changes, so that a press moves nothing.
 pub fn strip<R: Resource + Copy>(
     tabs: &[(R, Glyph, &'static str)],
+    spread: Spread,
     choose: fn(&mut World, R),
 ) -> impl View {
+    let grow = match spread {
+        Spread::Shared => 1.0,
+        Spread::Packed => 0.0,
+    };
     let values = tabs.iter().map(|tab| tab.0).collect::<Vec<_>>();
     let list = row((menu_button(
         "",
@@ -109,7 +126,7 @@ pub fn strip<R: Resource + Copy>(
                 .tagged(TabOf(of))
                 .tagged(Underglow::new(false))
                 .on_activate(move |world| choose(world, of)),))
-            .grow(1.0)
+            .grow(grow)
             .gap(0.0)
             .boxed()
         })

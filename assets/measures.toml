@@ -36,6 +36,7 @@ status_icon = 12.0
 status_icon_gap = 5.0
 page_width = 560.0
 table_width = 640.0
+thread_width = 720.0
 overlay_width = 600.0
 overlay_padding = 24.0
 tab_height = 32.0

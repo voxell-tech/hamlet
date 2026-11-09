@@ -48,7 +48,7 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
-use hamlet_ui::widgets::tabs;
+use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::heading;
@@ -743,7 +743,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         group(top).boxed()
     })
     .within(bare());
-    let pages = tabs::strip(&PAGES, |world, page| {
+    let pages = tabs::strip(&PAGES, Spread::Shared, |world, page| {
         *world.resource_mut::<Page>() = page;
     });
     let page =

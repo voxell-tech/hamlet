@@ -50,7 +50,7 @@ use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::labelled_switch;
-use hamlet_ui::widgets::tabs;
+use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::{Showing, show};
@@ -1235,7 +1235,7 @@ fn filter_list() -> impl View {
 fn tabs_and_search() -> impl View {
     with_cx(|cx| {
         column((
-            tabs::strip(&TABS, |world, tab| {
+            tabs::strip(&TABS, Spread::Shared, |world, tab| {
                 *world.resource_mut::<Tab>() = tab;
             }),
             search_row(),

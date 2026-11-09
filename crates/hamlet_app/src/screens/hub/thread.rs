@@ -10,7 +10,9 @@ use bevy::ecs::query::Has;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Display, Overflow, UiRect, percent, px};
+use bevy::ui::{
+    AlignItems, Display, Overflow, UiRect, Val, percent, px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
@@ -37,7 +39,7 @@ use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::tabs;
+use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{Showing, conversations, details, show};
@@ -502,9 +504,13 @@ fn header(agent: Entity) -> impl View {
                 .align(AlignItems::Center)
                 .min_width(px(0.0)),
                 row((
-                    column((tabs::strip(&SHEETS, |world, sheet| {
-                        *world.resource_mut::<Sheet>() = sheet;
-                    }),))
+                    column((tabs::strip(
+                        &SHEETS,
+                        Spread::Packed,
+                        |world, sheet| {
+                            *world.resource_mut::<Sheet>() = sheet;
+                        },
+                    ),))
                     .grow(1.0)
                     .min_width(px(0.0)),
                     sessions,
@@ -735,26 +741,23 @@ fn chips(agent: Entity) -> impl View {
 fn talk(agent: Entity) -> AnyView {
     keyed(resource::<Convo, _>(|m| m.session), move |_| {
         with_cx(move |cx| {
-            let gap = cx.theme().space.gap;
+            let space = &cx.theme().space;
+            let (gap, widest) = (space.gap, px(space.thread_width));
             // Another's chat is only watched, and leads back to the
             // chief's by the path over it.
-            if conversations::is_read_only(cx.world) {
-                column((
-                    chat::transcript(),
-                    close((note("Read only"),)),
-                ))
-                .fills_height()
-                .gap(gap)
-                .boxed()
+            let under = if conversations::is_read_only(cx.world) {
+                close((note("Read only"),)).boxed()
             } else {
-                column((
-                    chat::transcript(),
-                    chat::message_bar(chips(agent)),
-                ))
+                chat::message_bar(chips(agent)).boxed()
+            };
+            // In a column of its own in the middle of a wide panel.
+            column((chat::transcript(), under))
                 .fills_height()
                 .gap(gap)
+                .width(percent(100.0))
+                .max_width(widest)
+                .margin(UiRect::horizontal(Val::Auto))
                 .boxed()
-            }
         })
         .boxed()
     })
