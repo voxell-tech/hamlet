@@ -46,8 +46,9 @@ When a change is easier seen than read, its pull request shows it:
 - **Screenshots** of the window when its appearance changes, before and
   after where it helps.
 
-Attach each file with `gh` 2.99 or newer. It uploads the file to the
-pull request itself, so nothing is committed or pushed for it:
+With write access to the base repository, attach each file with `gh`
+2.99 or newer. It uploads the file to the pull request itself, so nothing
+is committed or pushed for it:
 
 ```sh
 gh pr create --attach './diagram.svg#What the diagram shows' ...
@@ -55,7 +56,11 @@ gh pr edit 123 --attach './before.png#Before' --attach './after.png#After'
 gh pr comment 123 --attach './diagram.svg#What the diagram shows'
 ```
 
-The text after `#` is the alt text. A file the description already
+Without write access, attach files through GitHub's web interface or ask
+a maintainer to attach them.
+
+For images, the text after `#` is the alt text; omit the `#` suffix for
+video attachments. A file the description already
 references, as `![Before](./before.png)`, takes that place; any other
 is added at the end. PNG, JPEG, GIF, WebP, SVG, MP4, MOV and WebM are
 accepted, up to 10 MB each. Never host an image on a branch, a gist, a
