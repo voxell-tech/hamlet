@@ -13,7 +13,7 @@ use crate::layout::Layout;
 use crate::oversight::gate::Caller;
 use crate::society::agents::{self, AgentKind};
 use crate::society::hamlets::{self, Mode};
-use crate::society::{hires, limits, tree, workers};
+use crate::society::{hires, workers};
 use crate::talk::conversations::Kind;
 use crate::work::tools::Place;
 
@@ -211,10 +211,8 @@ pub(crate) fn tools(
                 .collect::<Vec<_>>();
             only.extend(EVERYONE.map(String::from));
             only.push("request_road".into());
-            let most = limits::of(db, &hire.hamlet)?.depth;
-            if tree::depth(db, agent)? < most {
-                only.extend(LEADS.map(String::from));
-            }
+            // Any hire can come to lead: the tree has no floor.
+            only.extend(LEADS.map(String::from));
             if hires::is_mayor(db, agent)?
                 && hamlets::all(db)?
                     .iter()

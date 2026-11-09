@@ -94,10 +94,6 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
             });
         }
         done!(require_living(cx.db, parent));
-        let most = limits::of(cx.db, &spec.hamlet)?.depth;
-        if tree::depth(cx.db, parent)? + 1 > most {
-            refuse!(Refusal::TooDeep { most });
-        }
     }
     let (scholar, pin, new) = match spec.hiring {
         Hiring::New { name, character } => {
@@ -350,13 +346,11 @@ pub(crate) fn come_back(
             most: place.tier,
         });
     }
-    let most = limits::of(cx.db, &hire.hamlet)?.depth;
     let mayor = tree::mayor(cx.db, &hire.hamlet)?;
     let parent = match hire.parent {
         Some(parent)
             if parent != id
-                && agents::get(cx.db, parent)?.is_living()
-                && tree::depth(cx.db, parent)? < most =>
+                && agents::get(cx.db, parent)?.is_living() =>
         {
             parent
         }

@@ -160,7 +160,7 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
             .as_object()
             .unwrap()
             .clone();
-    whole.insert("depth".into(), json!(2));
+    whole.insert("toldDays".into(), json!(2));
     whole.insert(
         "budget".into(),
         json!({"cost": 3, "minutes": 10, "period": "day"}),
@@ -178,7 +178,7 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
     s.chief
         .until("the whole limits", |c| {
             let docs = c.hamlet("docs").unwrap();
-            docs.limits.depth == 2
+            docs.limits.told_days == 2
                 && docs.limits.budget.cost == Some(3.0)
                 && docs.limits.budget.minutes == Some(10)
                 && docs.limits.task.cost == Some(1.0)

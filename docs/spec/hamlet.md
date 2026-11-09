@@ -217,14 +217,14 @@ branch of its scholar's repository and a lodge of its own (C8).
 - **Erasing** an ended hire deletes its lodge and branch; the record keeps its
   number.
 
-**H41.** The hires of a hamlet form a tree under its mayor, no deeper than a
-limit [3] below it. A hire with hires under it is a lead.
+**H41.** The hires of a hamlet form a tree under its mayor, as deep as its
+leads make it. A hire with hires under it is a lead.
 
 - A lead has the mayor's powers over the hires under it, and only those: to
   hire under itself or under a hire of its tree, make scholars, end hires,
   merge them, choose their models, turn their tools off, give them
-  allowances, and lay and take up roads among them. A hire below the depth
-  limit has these tools (H35), so any hire can come to lead.
+  allowances, and lay and take up roads among them. Every hire has these
+  tools (H35), so any hire can come to lead.
 - The Hand is above every mayor, and a chief overrules anything (H23).
 - A hire has a road to its parent and to each of its hires while they live
   (H3).
