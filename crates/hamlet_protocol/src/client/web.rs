@@ -10,6 +10,9 @@ use crate::client::{AgentId, RequestId};
 /// The longest address a page is asked to load.
 pub const WEB_ADDRESS_MOST: usize = 8192;
 
+/// The most seconds a page is waited on.
+pub const WEB_WAIT_MOST: u32 = 30;
+
 /// Tells the server this window draws Web panels and is the one the
 /// chief used last, so it is the one asked to act on agents' pages.
 /// A window sends it on connecting and each time it comes to the
@@ -60,6 +63,29 @@ pub enum WebAct {
     /// asked.
     #[serde(rename = "console")]
     Console {},
+    /// Waits up to `seconds` for `text` to show on the page, or for
+    /// an element `selector` matches to be on it, or, given
+    /// neither, for the page to finish loading.
+    #[serde(rename = "wait")]
+    Wait {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+        #[schemars(range(min = 1, max = WEB_WAIT_MOST))]
+        seconds: u32,
+    },
+}
+
+impl WebAct {
+    /// How long the act may wait on the page, past the window's own
+    /// time to answer.
+    pub fn waits(&self) -> u32 {
+        match self {
+            Self::Wait { seconds, .. } => *seconds,
+            _ => 0,
+        }
+    }
 }
 
 /// A window's answer to the [`WebAsk`] `to`: words for the agent,
