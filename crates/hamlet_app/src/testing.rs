@@ -154,6 +154,7 @@ pub(crate) fn keeping(app: &mut App, folder: PathBuf) {
         .init_resource::<crate::screens::terminal::Shown>()
         .init_resource::<crate::screens::terminal::Folds>()
         .init_resource::<crate::screens::terminal::Pins>()
+        .init_resource::<crate::screens::web::Addresses>()
         .add_systems(Update, desk::capture)
         .add_plugins(crate::remember::plugin);
 }

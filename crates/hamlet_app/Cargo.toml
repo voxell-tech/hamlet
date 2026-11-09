@@ -14,6 +14,12 @@ path = "src/lib.rs"
 name = "hamlet_app"
 path = "src/main.rs"
 
+# The process the web engine starts for the Web panels' pages.
+[[bin]]
+name = "hamlet_web_helper"
+path = "src/web_helper.rs"
+required-features = ["web"]
+
 [lints]
 workspace = true
 
@@ -46,6 +52,14 @@ toml.workspace = true
 unicode-segmentation.workspace = true
 vt100.workspace = true
 
+# The Web panels' Chromium (ADR 0014). `debug` reads CEF from where
+# the window says rather than from inside an app bundle.
+[target.'cfg(target_os = "macos")'.dependencies]
+bevy_cef = { workspace = true, optional = true, features = ["debug"] }
+bevy_cef_core = { workspace = true, optional = true, features = ["debug"] }
+cef = { workspace = true, optional = true }
+download-cef = { workspace = true, optional = true }
+
 [dev-dependencies]
 hamlet_testing.workspace = true
 
@@ -53,6 +67,10 @@ hamlet_testing.workspace = true
 # A saved change to a file under assets/ reaches the running app:
 # `cargo run -p hamlet_app --features hot-reload`.
 hot-reload = ["hamlet_assets/hot-reload"]
+# The Web panels, on macOS (ADR 0014). Building it needs CEF at
+# `CEF_PATH`, and cmake and ninja on the path; running it, CEF at
+# `CEF_PATH` or fetched by the window.
+web = ["dep:bevy_cef", "dep:bevy_cef_core", "dep:cef", "dep:download-cef"]
 
 [[example]]
 name = "style_test"

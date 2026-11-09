@@ -34,7 +34,7 @@ use crate::appearance::{Appearance, Pick, Zoom};
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
-use crate::screens::terminal;
+use crate::screens::{terminal, web};
 use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
 
@@ -153,6 +153,9 @@ pub struct View {
     /// The agents whose bash logs the Terminal panels list.
     #[serde(default)]
     terminal_pins: BTreeSet<String>,
+    /// The address each Web panel showed, by panel id.
+    #[serde(default)]
+    web_addresses: BTreeMap<String, String>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -356,6 +359,7 @@ pub fn restore(world: &mut World) {
     world.insert_resource(terminal::Restoring(view.terminals));
     world.insert_resource(terminal::Folds(view.terminal_folds));
     world.insert_resource(terminal::Pins(view.terminal_pins));
+    world.insert_resource(web::Addresses(view.web_addresses));
 }
 
 /// Puts back the kept appearance and zoom.
@@ -398,7 +402,17 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north, favorites, side, terminals, folds, pins): (
+    (
+        pending,
+        kept,
+        north,
+        favorites,
+        side,
+        terminals,
+        folds,
+        pins,
+        addresses,
+    ): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
@@ -407,6 +421,7 @@ pub fn keep(
         Res<terminal::Shown>,
         Res<terminal::Folds>,
         Res<terminal::Pins>,
+        Res<web::Addresses>,
     ),
     (fog, far, wind, appearance, zoom): (
         Res<VolumetricFogSettings>,
@@ -436,6 +451,7 @@ pub fn keep(
         || terminals.is_changed()
         || folds.is_changed()
         || pins.is_changed()
+        || addresses.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -468,6 +484,7 @@ pub fn keep(
         terminals: terminals.0.clone(),
         terminal_folds: folds.0.clone(),
         terminal_pins: pins.0.clone(),
+        web_addresses: addresses.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -535,6 +552,10 @@ mod tests {
                 BTreeSet::from(["home".into(), "agent#3".into()]),
             )]),
             terminal_pins: BTreeSet::from(["agent#2".into()]),
+            web_addresses: BTreeMap::from([(
+                "web-2".into(),
+                "http://localhost:5173/".into(),
+            )]),
         }
     }
 
