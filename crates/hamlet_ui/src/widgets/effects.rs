@@ -186,21 +186,28 @@ pub struct EffectSettings {
     /// raised as something new comes to wait.
     pub highlight_rate: f32,
     pub highlight_boost: f32,
+    /// How much of its glow a panel's highlight keeps while nothing
+    /// waits: the lamplight over the top of a panel, from 0 to 1.
+    pub highlight_rest: f32,
     /// How many times as strong a glow is laid over a light panel,
-    /// where the same glow shows far less than over a dark one.
+    /// where the same glow shows far less than over a dark one, and
+    /// over a dark one, where it shows far less than over a lit
+    /// control.
     pub light_gain: f32,
+    pub dark_gain: f32,
     /// Seconds a popup, a menu or a tooltip takes to fade in.
     pub popup_in: f32,
 }
 
 impl EffectSettings {
     /// How strongly a glow is laid over `theme`'s panels:
-    /// [`Self::light_gain`] times over a light one.
+    /// [`Self::light_gain`] times over a light one and
+    /// [`Self::dark_gain`] over a dark one.
     pub fn gain(&self, theme: &HamletTheme) -> f32 {
         if lit_panels(theme) {
             self.light_gain
         } else {
-            1.0
+            self.dark_gain
         }
     }
 }

@@ -144,7 +144,13 @@ pub(super) fn update_highlights(
         if state.count != waits {
             state.count = waits;
         }
-        if raised <= 0.0 && flash <= 0.0 {
+        // The lamplight over the panel's top never quite goes out.
+        let lit = if highlight.attention {
+            raised.max(set.highlight_rest)
+        } else {
+            0.0
+        };
+        if lit <= 0.0 && flash <= 0.0 {
             if gradient.is_some() {
                 commands
                     .entity(panel)
@@ -153,8 +159,8 @@ pub(super) fn update_highlights(
             continue;
         }
         let mut glows = Vec::new();
-        if raised > 0.0 {
-            let call = raised * brightness;
+        if lit > 0.0 {
+            let call = lit * brightness;
             // Brightest close under the source, and thin over the
             // rest.
             glows.push(glow_pool(GLOW_DEEP, |near| {

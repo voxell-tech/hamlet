@@ -102,11 +102,17 @@ pub(super) fn update_underglow(
         }
         glow.level = level;
         glow.filled = fills;
-        let boost = if glow.lamp { LAMP_STRENGTH } else { 1.0 };
+        // A lamp is small and its colour already deep, so a light
+        // panel's gain would only turn it to a tan smudge.
+        let (boost, gain) = if glow.lamp {
+            (LAMP_STRENGTH, 1.0)
+        } else {
+            (1.0, set.gain(&theme))
+        };
         let strength = (set.underglow * level
             + set.underglow_press * flare)
             * boost
-            * set.gain(&theme);
+            * gain;
         let mut layers = Vec::new();
         if fills {
             let fill = theme.palette.selected;
