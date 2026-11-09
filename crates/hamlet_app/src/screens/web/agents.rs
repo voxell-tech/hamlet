@@ -302,6 +302,20 @@ fn act(world: &mut World) {
                     Duration::ZERO,
                 );
             }
+            WebAct::Type {
+                target,
+                text,
+                submit,
+            } => {
+                on_page(
+                    world,
+                    &panel,
+                    ask.id,
+                    "type",
+                    json!({"target": target, "text": text, "submit": submit}),
+                    Duration::ZERO,
+                );
+            }
             WebAct::Console {} => {
                 let lines = world
                     .resource_mut::<Consoles>()

@@ -266,3 +266,47 @@ async fn web_click_asks_for_the_element_by_its_number() {
         [("web_click".to_owned(), None)]
     );
 }
+
+#[tokio::test]
+async fn web_type_asks_for_the_field_text_and_submit() {
+    let faux = Faux::new().agent(
+        2,
+        [
+            call(
+                "web_type",
+                json!({"target": "#email", "text": "ada@example.com", "submit": true}),
+            ),
+            words("Done."),
+        ],
+    );
+    let mut s = Session::start(faux).await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
+    let now = chat(ada);
+    s.chief.open(&now).await;
+    s.chief.send(ClientMessage::WebWindow(WebWindow {})).await;
+    s.chief.tell(ada, "Sign up.").await;
+    s.chief
+        .until("the server to ask to type", |c| !asks(c).is_empty())
+        .await;
+    let ask = asks(&s.chief).remove(0);
+    assert_eq!(
+        ask.act,
+        WebAct::Type {
+            target: "#email".into(),
+            text: "ada@example.com".into(),
+            submit: true,
+        }
+    );
+    s.chief
+        .send(ClientMessage::Web(WebAnswer {
+            to: ask.id,
+            text: "Typed into the field email.".into(),
+            failed: false,
+        }))
+        .await;
+    s.chief.shows(&now, "Done.").await;
+    assert_eq!(
+        tools(&s.chief, &now),
+        [("web_type".to_owned(), None)]
+    );
+}

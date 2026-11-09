@@ -79,6 +79,14 @@ pub enum WebAct {
     /// selector.
     #[serde(rename = "click")]
     Click { target: String },
+    /// Puts `text` in the field `target` names, as `click`'s does, in
+    /// place of what it held, then presses Enter when `submit`.
+    #[serde(rename = "type")]
+    Type {
+        target: String,
+        text: String,
+        submit: bool,
+    },
 }
 
 impl WebAct {

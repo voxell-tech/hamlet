@@ -80,7 +80,65 @@
 
   const named = (found) => `${kind(found)} "${label(found)}"`;
 
+  // A field's value set as the browser would set it, so the page's
+  // own code, React's included, sees the change.
+  const fill = (found, text) => {
+    if (found.isContentEditable) {
+      found.textContent = text;
+    } else {
+      const prototype = Object.getPrototypeOf(found);
+      const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+      if (setter) {
+        setter.call(found, text);
+      } else {
+        found.value = text;
+      }
+    }
+    found.dispatchEvent(new Event("input", { bubbles: true }));
+    found.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  const enter = (found) => {
+    for (const type of ["keydown", "keypress", "keyup"]) {
+      found.dispatchEvent(
+        new KeyboardEvent(type, {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }
+    const form = found.form || found.closest("form");
+    if (form) {
+      form.requestSubmit();
+    }
+  };
+
   const acts = {
+    type({ target, text, submit }) {
+      const found = element(target);
+      const typable =
+        found.isContentEditable ||
+        found.tagName === "TEXTAREA" ||
+        (found.tagName === "INPUT" &&
+          !["button", "submit", "checkbox", "radio", "file"].includes(found.type));
+      if (!typable) {
+        throw new Error(`The ${named(found)} takes no text.`);
+      }
+      if (found.disabled || found.readOnly) {
+        throw new Error(`The ${named(found)} cannot be changed.`);
+      }
+      found.focus({ preventScroll: true });
+      fill(found, text);
+      if (submit) {
+        enter(found);
+        return `Typed into the ${named(found)} and pressed Enter.`;
+      }
+      return `Typed into the ${named(found)}.`;
+    },
     click({ target }) {
       const found = element(target);
       if (found.disabled) {
