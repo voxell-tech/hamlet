@@ -9,7 +9,7 @@ mod find;
 mod parcel;
 mod search;
 mod shell;
-mod truncate;
+pub(crate) mod truncate;
 mod walk;
 
 #[cfg(test)]

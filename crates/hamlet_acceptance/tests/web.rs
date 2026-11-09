@@ -126,3 +126,36 @@ async fn a_page_on_another_machine_waits_for_the_chief_without_the_network()
         .await;
     assert!(asks(&s.chief).is_empty());
 }
+
+#[tokio::test]
+async fn web_read_asks_for_the_page_and_gives_what_the_window_read() {
+    let faux = Faux::new().agent(
+        2,
+        [call("web_read", json!({"html": true})), words("Done.")],
+    );
+    let mut s = Session::start(faux).await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
+    let now = chat(ada);
+    s.chief.open(&now).await;
+    s.chief.send(ClientMessage::WebWindow(WebWindow {})).await;
+    s.chief.tell(ada, "Read the page.").await;
+    s.chief
+        .until("the server to ask for a read", |c| {
+            !asks(c).is_empty()
+        })
+        .await;
+    let ask = asks(&s.chief).remove(0);
+    assert_eq!(ask.act, WebAct::Read { html: true });
+    s.chief
+        .send(ClientMessage::Web(WebAnswer {
+            to: ask.id,
+            text: "Title: Docs".into(),
+            failed: false,
+        }))
+        .await;
+    s.chief.shows(&now, "Done.").await;
+    assert_eq!(
+        tools(&s.chief, &now),
+        [("web_read".to_owned(), None)]
+    );
+}
