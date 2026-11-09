@@ -1549,9 +1549,14 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
         .filter(|(_, on)| **on)
         .map(|(level, _)| over(guide(level), 0.0, 1.0, None))
         .collect::<Vec<_>>();
-    // The elbow from its lead, stopping short of its own chevron.
-    let (x, end) =
-        (guide(lead), f32::from(line.depth) * STEP_IN - GAP);
+    // The elbow from its lead, stopping short of its own chevron, or
+    // of its icon where it has no chevron.
+    let start = f32::from(line.depth) * STEP_IN;
+    let end = match line.fold {
+        Some(_) => start - GAP,
+        None => start + CHEVRON + ROW_INSET - GAP,
+    };
+    let x = guide(lead);
     lines.push(over(x, 0.0, 1.0, Some(elbow + 1.0)));
     lines.push(over(x, elbow, end - x, Some(1.0)));
     if !line.last {
