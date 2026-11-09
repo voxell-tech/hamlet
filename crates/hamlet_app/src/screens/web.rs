@@ -5,6 +5,8 @@
 #[cfg(all(feature = "web", target_os = "macos"))]
 mod agents;
 #[cfg(all(feature = "web", target_os = "macos"))]
+mod bridge;
+#[cfg(all(feature = "web", target_os = "macos"))]
 pub mod engine;
 #[cfg(all(feature = "web", target_os = "macos"))]
 mod fetch;
@@ -37,6 +39,7 @@ pub fn plugin(app: &mut App) {
                 page::plugin,
                 keys::plugin,
                 agents::plugin,
+                bridge::plugin,
             ));
         }
     }
