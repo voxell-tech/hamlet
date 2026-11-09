@@ -71,7 +71,12 @@ or treatment that exists in one mode only caps the score at 6.
    and `cargo clippy --all-targets` for each crate it touched, and
    commits. It renders nothing and runs no tests.
 4. A new reviewer scores the next round, into `round<N>/`.
-5. Repeat until the target score. Stop early after two rounds with no
+5. Once the lead has posted a round's screenshots and the next round's
+   renders exist, the lead deletes the older round's renders, logs and
+   per-scene folders, keeping only its `findings.md`. A full round of
+   renders is about 60 MB. When the climb ends, delete the last round's
+   renders too after the owner has seen them.
+6. Repeat until the target score. Stop early after two rounds with no
    gain, or after eight rounds, and take the scores and the open
    questions to the owner.
 
