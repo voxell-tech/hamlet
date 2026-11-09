@@ -55,7 +55,8 @@ or treatment that exists in one mode only caps the score at 6.
 
 - `shoot.sh <out> <light|dark> <scene>...` renders `ui_gallery` scenes
   offscreen, with no window, so nothing on the owner's screen is
-  captured. The gallery's scenes are listed in
+  captured. `THEME=<name>` renders a shipped theme other than Hamlet.
+  The gallery's scenes are listed in
   `crates/hamlet_app/examples/ui_gallery/`. A state the rubric needs but
   no scene shows is added to the gallery, not to the app.
 - `sample.swift` reads pixels from a PNG and prints their colours and the

@@ -5,7 +5,9 @@
 #
 # Writes <out folder>/<scene>.png. Scene names are the gallery's own (see
 # SHOTS in crates/hamlet_app/examples/ui_gallery/main.rs). Set WORLD to a
-# PNG to show it behind the panels. Nothing is opened on screen.
+# PNG to show it behind the panels. Set THEME to a shipped theme's name,
+# Hamlet by default, to render that theme in the given mode. Nothing is
+# opened on screen.
 set -euo pipefail
 
 if [ "$#" -lt 3 ]; then
@@ -36,6 +38,6 @@ fi
 for scene in "$@"; do
     args=(--scene "$scene" --out "$out")
     [ -n "${WORLD:-}" ] && args+=(--world "$WORLD")
-    GALLERY_THEME="Hamlet:$mode" "$root/target/debug/examples/ui_gallery" "${args[@]}" >"$out/$scene.log" 2>&1
+    GALLERY_THEME="${THEME:-Hamlet}:$mode" "$root/target/debug/examples/ui_gallery" "${args[@]}" >"$out/$scene.log" 2>&1
     echo "$out/$scene.png"
 done
