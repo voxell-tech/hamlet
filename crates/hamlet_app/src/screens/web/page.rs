@@ -22,8 +22,9 @@ use bevy::ui::{Node, PositionType, percent};
 use bevy::ui_render::prelude::MaterialNode;
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_cef::prelude::{
-    AddressChanged, BeginFrameInterval, CefPlugin, RequestNavigate,
-    WebviewHidden, WebviewSource, WebviewTitle, WebviewUiMaterial,
+    AddressChanged, BeginFrameInterval, CefPlugin, CommandLineConfig,
+    RequestNavigate, WebviewHidden, WebviewSource, WebviewTitle,
+    WebviewUiMaterial,
 };
 use bevy_fynix::dock::{DockTab, DockTree};
 use hamlet_client::ViewFolder;
@@ -55,6 +56,10 @@ pub(super) fn plugin(app: &mut App) {
             view.0.join("web").to_string_lossy().into_owned()
         });
     app.add_plugins(CefPlugin {
+        // Chromium's own log, which no one reading the window's
+        // needs.
+        command_line_config: CommandLineConfig::default()
+            .with_switch_value("log-severity", "disable"),
         root_cache_path: cache,
         cef_path: engine::located(),
         subprocess_path: Some(helper()),
