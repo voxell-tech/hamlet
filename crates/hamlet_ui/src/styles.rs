@@ -835,30 +835,37 @@ pub fn reference(text: impl Into<Prop<String>>) -> impl View {
     })
 }
 
-/// The rules of a button solid in the hue of `kind`.
-fn solid_button(cx: &mut Cx, kind: StatusKind) {
+/// The rules of a button tinted in the hue of `kind`, as a
+/// [`danger_button`] is in red: a plate of its fill, an edge of its
+/// mark and words of its ink, glowing under the pointer.
+fn tinted_button(cx: &mut Cx, kind: StatusKind) {
+    let ink = match kind {
+        StatusKind::Success => Tone::SuccessText,
+        StatusKind::Merged => Tone::MergedText,
+        StatusKind::Warning => Tone::WarningText,
+        StatusKind::Danger => Tone::Critical,
+        _ => Tone::Reference,
+    };
     style::<HamletTheme>()
         .frame(move |f, t| {
-            let solid = t.palette.status.get(kind).solid;
-            f.fill(solid)
+            let status = t.palette.status.get(kind);
+            f.fill(status.fill)
                 .border(t.space.border)
-                .border_color(solid)
+                .border_color(status.mark)
                 .radius(t.space.round)
         })
-        .label(|l, t| {
-            l.tone(Tone::OnSolid).size(t.text.small).bold(true)
-        })
-        .icon(|i, _| i.tone(Tone::OnSolid))
+        .label(move |l, t| l.tone(ink).size(t.text.small).bold(true))
+        .icon(move |i, _| i.tone(ink))
         .hovered(move |s| {
             s.frame(move |f, t| {
                 let status = t.palette.status.get(kind);
-                f.fill(status.solid.mix(&status.on_solid, 0.12))
+                f.fill(status.fill_hover).border_color(status.ink)
             })
         })
         .pressed(move |s| {
             s.frame(move |f, t| {
                 let status = t.palette.status.get(kind);
-                f.fill(status.solid.mix(&Color::BLACK, 0.15))
+                f.fill(status.fill).border_color(status.ink)
             })
         })
         .when::<InteractionDisabled>(|s| {
@@ -874,17 +881,17 @@ fn solid_button(cx: &mut Cx, kind: StatusKind) {
 
 /// The button that completes something done: restored, approved.
 pub fn success_button(cx: &mut Cx) {
-    solid_button(cx, StatusKind::Success);
+    tinted_button(cx, StatusKind::Success);
 }
 
 /// The button that completes a merge.
 pub fn merge_button(cx: &mut Cx) {
-    solid_button(cx, StatusKind::Merged);
+    tinted_button(cx, StatusKind::Merged);
 }
 
 /// The button that carries on with what went wrong: try again.
 pub fn warning_button(cx: &mut Cx) {
-    solid_button(cx, StatusKind::Warning);
+    tinted_button(cx, StatusKind::Warning);
 }
 
 /// A [`success_button`] with an icon before its text, that runs
@@ -894,7 +901,7 @@ pub fn success_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (success_button, Variant::Subtle), act)
+    acting(which, text, (success_button, Variant::Default), act)
         .boxed()
 }
 
@@ -905,7 +912,7 @@ pub fn warning_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (warning_button, Variant::Subtle), act)
+    acting(which, text, (warning_button, Variant::Default), act)
         .boxed()
 }
 
@@ -915,7 +922,7 @@ pub fn merge_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (merge_button, Variant::Subtle), act).boxed()
+    acting(which, text, (merge_button, Variant::Default), act).boxed()
 }
 
 /// Buttons in a row that wraps: in a narrow panel they go on to a

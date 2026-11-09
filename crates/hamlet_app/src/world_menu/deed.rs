@@ -311,7 +311,7 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
         let done = deed.clone();
         // A merge that completes is purple; the rest end something.
         let (confirm, variant): (fn(&mut Cx), Variant) = match &deed {
-            Deed::Merge { .. } => (merge_button, Variant::Subtle),
+            Deed::Merge { .. } => (merge_button, Variant::Default),
             _ => (danger_button, Variant::Danger),
         };
         let (gap, section, padding, heading) = {

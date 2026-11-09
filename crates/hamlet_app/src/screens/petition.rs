@@ -230,9 +230,12 @@ fn button(need: &Need, at: usize) -> AnyView {
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
     let (which, text, rules, variant): (_, _, fn(&mut Cx), _) =
         match choice {
-            Choice::Allow => {
-                (Check, "Allow once", success_button, Variant::Subtle)
-            }
+            Choice::Allow => (
+                Check,
+                "Allow once",
+                success_button,
+                Variant::Default,
+            ),
             Choice::Always => {
                 (CheckAll, always, styles::button, Variant::Default)
             }
@@ -240,7 +243,7 @@ fn button(need: &Need, at: usize) -> AnyView {
                 (Cross, "Deny", danger_button, Variant::Danger)
             }
             Choice::Go => {
-                (Check, "Go ahead", success_button, Variant::Subtle)
+                (Check, "Go ahead", success_button, Variant::Default)
             }
             Choice::Withdraw => {
                 (Restore, "Withdraw", danger_button, Variant::Danger)
@@ -270,7 +273,7 @@ fn button(need: &Need, at: usize) -> AnyView {
                 Check,
                 "Welcome into the city",
                 success_button,
-                Variant::Subtle,
+                Variant::Default,
             ),
         };
     let scope = matches!(choice, Choice::Always)

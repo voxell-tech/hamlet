@@ -681,6 +681,9 @@ impl TextTokens for HamletTheme {
             Tone::Rest => palette.status.rest.mark,
             Tone::Reference => palette.status.info.ink,
             Tone::OnSolid => palette.status.success.on_solid,
+            Tone::SuccessText => palette.status.success.ink,
+            Tone::MergedText => palette.status.merged.ink,
+            Tone::WarningText => palette.status.warning.ink,
         }
     }
 
