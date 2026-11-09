@@ -35,6 +35,7 @@ mod status;
 #[cfg(test)]
 mod testing;
 pub mod toasts;
+mod trail;
 mod tuning;
 pub mod welcome;
 mod window;

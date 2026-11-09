@@ -3,6 +3,7 @@
 
 mod appearance;
 mod sight;
+mod visits;
 pub(crate) mod workspace;
 
 use bevy::app::{App, Update};
@@ -14,6 +15,7 @@ use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, Overflow, OverflowAxis, percent, px};
 use bevy_fynix::dock::DockWindowKind;
+use bevy_fynix::shortcut::Scope;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
@@ -34,14 +36,15 @@ use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, beside, breadcrumb,
-    buttons, close, description, list, nav_list, note, page_head,
-    parts, pill, section, small_rules, text_input, title, valued_row,
+    buttons, close, description, filling, list, nav_list, note,
+    page_head, parts, pill, section, small_rules, text_input, title,
+    valued_row,
 };
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch;
-use hamlet_ui::{AnyView, Cx, View, built, with_cx};
+use hamlet_ui::{AnyView, View, built, with_cx};
 
 use crate::appearance::Appearance;
 use crate::dock::{PanelAppExt, panel};
@@ -55,7 +58,7 @@ pub fn plugin(app: &mut App) {
         DockWindowKind::new("SETTINGS", || panel(screen()))
             .icon(Glyph::Sliders.image(ICON)),
     )
-    .add_plugins((sight::plugin, workspace::plugin))
+    .add_plugins((sight::plugin, workspace::plugin, visits::plugin))
     .init_resource::<Pane>()
     .init_resource::<Charter>()
     .init_resource::<CharterRequests>()
@@ -839,81 +842,83 @@ fn again() -> AnyView {
     )
 }
 
-/// The Settings panel's contents.
+/// The Settings panel's contents: the page's head at the top, and
+/// the rest of it scrolling under the head.
 pub fn screen() -> AnyView {
-    let page = keyed(resource::<Pane, _>(|pane| *pane), |pane| {
-        if *pane == Pane::Front {
-            let mut pages: Vec<AnyView> =
-                Pane::PAGES.map(nav_item).into();
-            pages.push(again());
-            return with_cx(move |cx| {
-                column((
-                    title(Pane::Front.title()),
-                    nav_list(cx, pages),
-                ))
-                .gap(cx.theme().space.section)
-            })
-            .boxed();
-        }
-        let body = match pane {
-            Pane::Endpoints => crate::models::endpoints().boxed(),
-            Pane::Models => crate::models::shelf().boxed(),
-            Pane::Agents => agents().boxed(),
-            Pane::Workspace => workspace::page().boxed(),
-            Pane::Charter => charter_page().boxed(),
-            Pane::Realm => crate::limits::realm().boxed(),
-            Pane::Sight => sight::page().boxed(),
-            Pane::Appearance => appearance::page().boxed(),
-            Pane::Front | Pane::Sound => sound().boxed(),
-        };
-        let head = page_head(
-            breadcrumb(
-                vec!["Settings".into()],
-                pane.title(),
-                |world, _| {
-                    *world.resource_mut::<Pane>() = Pane::Front;
-                },
-            ),
-            match pane {
-                Pane::Charter => beside((
-                    title(pane.title()),
-                    pill(resource::<Charter, _>(|charter| {
-                        charter_state(charter).to_string()
-                    })),
-                ))
-                .boxed(),
-                _ => title(pane.title()).boxed(),
-            },
-        );
+    keyed(resource::<Pane, _>(|pane| *pane), |&pane| {
+        let (head, body) = parts_of(pane);
         with_cx(move |cx| {
-            column((head, body)).gap(cx.theme().space.section)
+            let space = &cx.theme().space;
+            // The table of models is wider than a page of settings.
+            let width = px(if pane == Pane::Models {
+                space.table_width
+            } else {
+                space.page_width
+            });
+            // It scrolls down only: a page is laid out to the
+            // panel's width. Each page keeps where it was scrolled
+            // to.
+            let scrolled =
+                scroll((column((body,)).gap(0.0).max_width(width),))
+                    .fills_height()
+                    .overflow(Overflow {
+                        x: OverflowAxis::Clip,
+                        y: OverflowAxis::Scroll,
+                    })
+                    .tagged(Lasting(format!("settings.{pane:?}")));
+            column((
+                column((head,)).max_width(width),
+                faded(scrolled),
+            ))
+            .gap(space.section)
+            .fills_height()
         })
         .boxed()
-    });
-    AnyView::new(move |cx: &mut Cx| {
-        let space = &cx.theme().space;
-        let (page_width, table_width) =
-            (space.page_width, space.table_width);
-        let width = resource::<Pane, _>(move |pane| {
-            px(if *pane == Pane::Models {
-                table_width
-            } else {
-                page_width
-            })
-        });
-        let page = page.within(column(()).gap(0.0).max_width(width));
-        // It scrolls down only: a page is laid out to the panel's
-        // width.
-        cx.build(faded(
-            scroll((page,))
-                .fills_height()
-                .overflow(Overflow {
-                    x: OverflowAxis::Clip,
-                    y: OverflowAxis::Scroll,
-                })
-                .tagged(Lasting("settings".into())),
-        ))
     })
+    .within(filling().tagged(Scope(visits::KEYS)))
+    .boxed()
+}
+
+/// The head of the page of `pane`, and what is under it.
+fn parts_of(pane: Pane) -> (AnyView, AnyView) {
+    if pane == Pane::Front {
+        let mut pages: Vec<AnyView> =
+            Pane::PAGES.map(nav_item).into();
+        pages.push(again());
+        let list = with_cx(move |cx| nav_list(cx, pages)).boxed();
+        return (title(Pane::Front.title()).boxed(), list);
+    }
+    let body = match pane {
+        Pane::Endpoints => crate::models::endpoints().boxed(),
+        Pane::Models => crate::models::shelf().boxed(),
+        Pane::Agents => agents().boxed(),
+        Pane::Workspace => workspace::page().boxed(),
+        Pane::Charter => charter_page().boxed(),
+        Pane::Realm => crate::limits::realm().boxed(),
+        Pane::Sight => sight::page().boxed(),
+        Pane::Appearance => appearance::page().boxed(),
+        Pane::Front | Pane::Sound => sound().boxed(),
+    };
+    let head = page_head(
+        breadcrumb(
+            vec!["Settings".into()],
+            pane.title(),
+            |world, _| {
+                *world.resource_mut::<Pane>() = Pane::Front;
+            },
+        ),
+        match pane {
+            Pane::Charter => beside((
+                title(pane.title()),
+                pill(resource::<Charter, _>(|charter| {
+                    charter_state(charter).to_string()
+                })),
+            ))
+            .boxed(),
+            _ => title(pane.title()).boxed(),
+        },
+    );
+    (head.boxed(), body)
 }
 
 #[cfg(test)]
