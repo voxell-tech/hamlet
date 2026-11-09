@@ -39,7 +39,7 @@ use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, ICON, action, bare, buttons, crumb, crumb_here,
     crumb_slash, crumbs, group, more_button, note, note_rules,
-    raised, reference, scroll_area, status_pill, text_input,
+    raised, reference, scroll_area, status_icon, text_input,
     transparent,
 };
 use hamlet_ui::theme::HamletTheme;
@@ -478,7 +478,7 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
             row((
                 raised(glyph(kind, ICON).tone(Tone::Dim)),
                 label(name.clone()).bold(true).wrap(false),
-                status_pill(
+                status_icon(
                     standing.glyph(),
                     standing.word(),
                     standing.kind(),
@@ -548,6 +548,8 @@ const METER: f32 = 14.0;
 
 /// The share of its budget from which a hamlet's circle turns yellow.
 const NEAR_CAP: f32 = 0.8;
+/// The least of its circle that spending shows.
+const MIN_SHOWN: f32 = 0.06;
 
 /// What the hamlet spent of its budget: when it has a cap, a circle
 /// filled clockwise from the top as far as `spent` says, in the
@@ -565,7 +567,13 @@ pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
             } else {
                 palette.accent
             };
-            let turn = spent.clamp(0.0, 1.0) * TAU;
+            // Whatever is spent shows, if only as a sliver.
+            let shown = if spent > 0.0 {
+                spent.clamp(MIN_SHOWN, 1.0)
+            } else {
+                0.0
+            };
+            let turn = shown * TAU;
             let pie = ConicGradient::new(
                 UiPosition::CENTER,
                 vec![

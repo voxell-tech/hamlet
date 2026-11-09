@@ -235,7 +235,7 @@ fn waiting() -> impl View {
             mark(Standing::Waits.glyph(), Standing::Waits.tone()),
             alarm(
                 format!("{n} {}", need_you(*n)),
-                Standing::Waits.tone(),
+                Standing::Waits.words(),
             ),
         )
         .boxed(),
@@ -372,7 +372,13 @@ pub fn status_bar() -> impl View {
                         }),
                         told(
                             resource::<Bar, _>(|s| s.running.clone()),
-                            resource::<Bar, _>(|s| s.running_tone),
+                            resource::<Bar, _>(|s| {
+                                if s.busy {
+                                    Tone::Body
+                                } else {
+                                    Tone::Dim
+                                }
+                            }),
                         ),
                     ),
                 ))

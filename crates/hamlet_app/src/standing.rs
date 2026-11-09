@@ -18,6 +18,10 @@ pub(crate) enum Standing {
     Works,
     Rests,
     Gone,
+    /// Gone into another agent.
+    Merged,
+    /// A scholar the Hand turned away.
+    Turned,
 }
 
 impl Standing {
@@ -41,7 +45,12 @@ impl Standing {
         all: impl IntoIterator<Item = Self>,
     ) -> Self {
         all.into_iter()
-            .filter(|one| *one != Self::Gone)
+            .filter(|one| {
+                !matches!(
+                    one,
+                    Self::Gone | Self::Merged | Self::Turned
+                )
+            })
             .min_by_key(|one| *one as u8)
             .unwrap_or(Self::Rests)
     }
@@ -52,24 +61,32 @@ impl Standing {
             Self::Stopped => Glyph::Stop,
             Self::Works => Glyph::Progress,
             Self::Rests => Glyph::Moon,
-            Self::Gone => Glyph::Gone,
+            Self::Gone | Self::Turned => Glyph::Gone,
+            Self::Merged => Glyph::Merge,
         }
     }
 
     /// Its status: orange for what waits on the chief, red for a
-    /// fault, yellow for work under way, and neutral for the rest.
+    /// fault or a refusal, ochre for work under way, purple for a
+    /// merge, and neutral for the rest.
     pub(crate) fn kind(self) -> StatusKind {
         match self {
             Self::Waits => StatusKind::Attention,
-            Self::Stopped => StatusKind::Danger,
+            Self::Stopped | Self::Turned => StatusKind::Danger,
+            Self::Merged => StatusKind::Merged,
             Self::Works => StatusKind::Warning,
             Self::Rests | Self::Gone => StatusKind::Rest,
         }
     }
 
-    /// Its colour, by the tone of its status.
+    /// The colour of its mark, by the tone of its status.
     pub(crate) fn tone(self) -> Tone {
         self.kind().tone()
+    }
+
+    /// The colour of the words that say it.
+    pub(crate) fn words(self) -> Tone {
+        self.kind().words()
     }
 
     pub(crate) fn word(self) -> &'static str {
@@ -79,6 +96,8 @@ impl Standing {
             Self::Works => "At work",
             Self::Rests => "At rest",
             Self::Gone => "Gone",
+            Self::Merged => "Merged",
+            Self::Turned => "Turned away",
         }
     }
 }

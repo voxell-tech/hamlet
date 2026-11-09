@@ -367,10 +367,10 @@ fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
             ("In the city", Tone::Dim)
         }
         (None, protocol::Arrival::Waiting) => {
-            ("Waits at the harbor", Standing::Waits.tone())
+            ("Waits at the harbor", Standing::Waits.words())
         }
         (None, protocol::Arrival::Turned) => {
-            ("Turned away at the harbor", Tone::Dim)
+            ("Turned away at the harbor", Tone::Critical)
         }
     }
 }

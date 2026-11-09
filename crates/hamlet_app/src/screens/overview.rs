@@ -31,7 +31,8 @@ use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, close, framed,
-    group, note, raised, scroll_area, small_rules, title,
+    group, note, raised, scroll_area, small_rules, stacked_bar,
+    title,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::lit_panels;
@@ -260,22 +261,29 @@ fn figure(
     tone: Tone,
     tip: &'static str,
 ) -> AnyView {
-    let tone = if count == 0 { Tone::Dim } else { tone };
+    let (mark, words_tone) = if count == 0 {
+        (Tone::Dim, Tone::Dim)
+    } else {
+        (tone, Tone::Body)
+    };
     with_cx(move |cx| {
         let theme = cx.theme();
         let space = &theme.space;
         column((
             row((
-                glyph(which, ICON).tone(tone),
+                glyph(which, ICON).tone(mark),
                 label(count.to_string())
                     .size(FIGURE)
                     .bold(true)
-                    .tone(tone)
+                    .tone(words_tone)
                     .wrap(false),
             ))
             .gap(6.0)
             .align(AlignItems::Center),
-            label(words).tone(tone).wrap(false).rules(small_rules),
+            label(words)
+                .tone(words_tone)
+                .wrap(false)
+                .rules(small_rules),
         ))
         .gap(space.gap / 2.0)
         // Less room at its sides than a card has, so that five fit a
@@ -379,6 +387,8 @@ struct HamletCard {
     hamlet: Entity,
     title: String,
     standing: (Glyph, String, StatusKind),
+    /// Its agents by what they do: waiting, working, at rest.
+    mix: [usize; 3],
     mayor: Option<String>,
     account: String,
     spent: Option<f32>,
@@ -411,6 +421,13 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
                     how_many(Standing::Works),
                     how_many(Standing::Waits),
                 ),
+                mix: [
+                    how_many(Standing::Waits),
+                    how_many(Standing::Works),
+                    living.len()
+                        - how_many(Standing::Waits)
+                        - how_many(Standing::Works),
+                ],
                 mayor,
                 // A card shows its budget only once something is
                 // spent.
@@ -441,6 +458,19 @@ fn hamlets() -> AnyView {
             let mut lines = Vec::from_iter(
                 card.mayor.map(|mayor| note(mayor).boxed()),
             );
+            // Its agents as one bar, from two agents up.
+            if card.mix.iter().sum::<usize>() > 1 {
+                let [waits, works, rests] = card.mix;
+                lines.push(
+                    column((stacked_bar(vec![
+                        (waits as f32, StatusKind::Attention),
+                        (works as f32, StatusKind::Warning),
+                        (rests as f32, StatusKind::Rest),
+                    ]),))
+                    .max_width(px(160.0))
+                    .boxed(),
+                );
+            }
             if !card.account.is_empty() {
                 lines.push(budget(card.account, card.spent));
             }

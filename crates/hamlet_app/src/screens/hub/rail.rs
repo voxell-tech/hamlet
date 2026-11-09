@@ -833,7 +833,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
                     },
                 ),
                 (None, protocol::Arrival::Turned) => {
-                    ("Turned away".into(), Some(Standing::Gone))
+                    ("Turned away".into(), Some(Standing::Turned))
                 }
                 (None, protocol::Arrival::Housed)
                     if hamlets.is_empty() =>
@@ -909,7 +909,11 @@ fn society(world: &World, sections: &mut Vec<Section>) {
                     }
                     None => "Ended".into(),
                 },
-                Some(Standing::Gone),
+                Some(if into.is_some() {
+                    Standing::Merged
+                } else {
+                    Standing::Gone
+                }),
             );
             line.address = address;
             gone.push(line);

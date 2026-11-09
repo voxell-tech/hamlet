@@ -20,9 +20,11 @@ use hamlet_client::realm::{
     self as agents, AgentNumber, Busy, Deeds, HamletId, Left, LivesIn,
 };
 use hamlet_realm::orders;
-use hamlet_ui::styles::{button, danger_button, lettered};
+use hamlet_ui::styles::{
+    button, danger_button, lettered, merge_button,
+};
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::{View, built};
+use hamlet_ui::{Cx, View, built};
 
 use super::close;
 use crate::chat;
@@ -307,6 +309,11 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
             .boxed(),
         };
         let done = deed.clone();
+        // A merge that completes is purple; the rest end something.
+        let (confirm, variant): (fn(&mut Cx), Variant) = match &deed {
+            Deed::Merge { .. } => (merge_button, Variant::Subtle),
+            _ => (danger_button, Variant::Danger),
+        };
         let (gap, section, padding, heading) = {
             let theme = cx.theme();
             (
@@ -322,8 +329,8 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
             warning,
             row((
                 lettered(deed.verb())
-                    .rules(danger_button)
-                    .tagged(Variant::Danger)
+                    .rules(confirm)
+                    .tagged(variant)
                     .on_activate(move |world| {
                         close(world);
                         done.run(world);

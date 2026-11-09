@@ -16,7 +16,7 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::client::AgentId;
 use hamlet_realm::pick::Thing;
-use hamlet_ui::styles::{ICON, card_button, card_name, status_pill};
+use hamlet_ui::styles::{ICON, card_button, card_name, status_icon};
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -299,7 +299,7 @@ pub(super) fn pressable(
                 column((
                     row((
                         hamlet_name(title),
-                        status_pill(beside.0, beside.1, beside.2),
+                        status_icon(beside.0, beside.1, beside.2),
                     ))
                     .gap(gap)
                     .align(AlignItems::Center),

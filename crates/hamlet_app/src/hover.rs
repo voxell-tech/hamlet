@@ -200,7 +200,7 @@ impl Told<'_, '_> {
             .count();
         let (_, state, kind) =
             standing(people.len(), at_work, waiting);
-        let tone = kind.tone();
+        let tone = kind.words();
         let mayor = people
             .iter()
             .find(|(_, _, _, mayor)| *mayor)
@@ -353,11 +353,11 @@ impl Told<'_, '_> {
                 Tone::Dim,
             ),
             _ if gone || ruin => {
-                ("Removed".to_string(), Standing::Gone.tone())
+                ("Removed".to_string(), Standing::Gone.words())
             }
             _ if waiting > 0 => (
                 format!("Waits for you ({waiting})"),
-                Standing::Waits.tone(),
+                Standing::Waits.words(),
             ),
             _ => {
                 let standing = if busy {
@@ -367,7 +367,7 @@ impl Told<'_, '_> {
                 };
                 (
                     activity.cloned().unwrap_or_default().words,
-                    standing.tone(),
+                    standing.words(),
                 )
             }
         };

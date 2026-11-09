@@ -67,7 +67,7 @@ pub(super) fn status(session: Entity, id: String) -> impl View {
         |ran| {
             let (which, tone, time) = match ran {
                 Ran::Running => (Glyph::Clock, Tone::Warning, None),
-                Ran::Done(ms) => (Glyph::Check, Tone::Dim, *ms),
+                Ran::Done(ms) => (Glyph::Check, Tone::Success, *ms),
                 Ran::Failed(_, ms) => {
                     (Glyph::Cross, Tone::Critical, *ms)
                 }

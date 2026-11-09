@@ -14,7 +14,7 @@ use bevy::ui::{AlignItems, Display, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, icon, label, row,
+    frame, label, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
@@ -30,7 +30,7 @@ use hamlet_ui::styles::{
     Fills, ICON, action, bare, card_name, choice, close, crumb,
     crumb_here, crumb_slash, crumbs, danger_button, filling, framed,
     hairline, more_button, note, page_head, primary_button,
-    scroll_area, sentence_title, title,
+    scroll_area, sentence_title, status_icon, title,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -431,16 +431,16 @@ fn waits(agent: Entity) -> impl View {
 /// Its state, by its name, and what it works on while it works.
 fn state(agent: Entity) -> impl View {
     let standing = move |world: &World| Standing::of(world, agent);
-    let mark = icon(rolled(move |world| {
-        standing(world).glyph().image(ICON)
-    }))
-    .size(ICON)
-    .tone(rolled(move |world| standing(world).tone()));
-    let word = label(rolled(move |world| {
-        standing(world).word().to_string()
-    }))
-    .tone(rolled(move |world| standing(world).tone()))
-    .wrap(false);
+    // Its state is its icon alone, with the word under the pointer.
+    let mark = keyed(rolled(standing), |standing| {
+        status_icon(
+            standing.glyph(),
+            standing.word(),
+            standing.kind(),
+        )
+        .boxed()
+    })
+    .within(row(()).gap(0.0));
     let doing = label(rolled(move |world| {
         if standing(world) != Standing::Works {
             return String::new();
@@ -451,7 +451,7 @@ fn state(agent: Entity) -> impl View {
             .unwrap_or_default()
     }))
     .tone(Tone::Dim);
-    row((mark, word, column((one_line(doing),)).min_width(px(0.0))))
+    row((mark, column((one_line(doing),)).min_width(px(0.0))))
         .gap(5.0)
         .align(AlignItems::Center)
         .min_width(px(0.0))
