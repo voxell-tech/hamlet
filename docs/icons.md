@@ -63,6 +63,15 @@ that name a part of Hamlet:
 Before giving an icon a new use, search for `Glyph::<Name>` and keep to
 its meaning; draw a new one when none fits.
 
+## File icons
+
+The icon beside each entry of the Files panel's tree is not one of these.
+It is a file icon from Catppuccin's VS Code icons, in its own colours, kept
+with their licence in `hamlet_ui/src/widgets/file_icons/` and drawn by
+`file_icons.rs` the first time it is shown. A file takes the icon of its
+whole name, else of its longest ending, as VS Code finds it. They are for
+that tree alone. `file_icons/import.mjs` brings in a newer release.
+
 ## Adding one
 
 1. Add its name to `Glyph` and to `Glyph::ALL`, in the same order.

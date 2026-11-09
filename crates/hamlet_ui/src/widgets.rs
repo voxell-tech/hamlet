@@ -5,6 +5,7 @@ pub mod dial;
 pub mod disclosure;
 pub mod effects;
 pub mod ellipsis;
+pub mod file_icons;
 pub mod hint;
 pub mod icons;
 pub mod platform;
