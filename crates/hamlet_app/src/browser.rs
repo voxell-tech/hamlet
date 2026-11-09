@@ -23,19 +23,16 @@ use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
-use bevy::ecs::hierarchy::Children;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::{Has, With};
+use bevy::ecs::query::Has;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::picking::Pickable;
 use bevy::picking::events::PointerPress;
 use bevy::picking::pointer::PointerButton;
-use bevy::text::{EditableText, Justify, TextEditChange, TextLayout};
 use bevy::ui::{
-    AlignContent, AlignItems, Display, FlexWrap, JustifyContent,
-    Node, Overflow, PositionType, UiRect, Val, percent, px,
+    AlignItems, Display, JustifyContent, Overflow, PositionType,
+    UiRect, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::dock::DockWindowKind;
@@ -51,13 +48,16 @@ use bevy_fynix::{
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
 use hamlet_graph::Catalogue;
 use hamlet_graph_editor::files::{self, Files};
-use hamlet_graph_editor::library::picker::picture;
+use hamlet_graph_editor::library::picker::{
+    centred, picture, wrapped,
+};
+use hamlet_graph_editor::library::search::search;
 use hamlet_graph_editor::library::{
     Item, Kind, Library, Source, Tile,
 };
 use hamlet_ui::styles::{
-    self, Fills, ICON, description, labelled, note, note_rules,
-    section, segmented_words, text_input,
+    self, Fills, ICON, description, labelled, note, section,
+    segmented_words, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -120,7 +120,7 @@ pub(crate) fn plugin(app: &mut App) {
     .init_resource::<Importer>()
     .add_observer(chosen)
     .add_observer(pressed)
-    .add_systems(Update, (show, listen, pick));
+    .add_systems(Update, (show, pick));
 }
 
 /// How the library is browsed: the kind shown, none for every kind,
@@ -167,10 +167,6 @@ enum Stand {
     /// Built in, with the person's in its place.
     Replaced,
 }
-
-/// The search field.
-#[derive(Component)]
-struct SearchField;
 
 /// What the dialog for adding a texture answers to. Meshes are added
 /// by `graphs::assets::import`, several at a time.
@@ -304,7 +300,7 @@ fn bar() -> AnyView {
             kinds(),
             folders(),
             frame().grow(1.0),
-            search(),
+            search_assets(),
             new_menu(),
         ))
         .width(percent(100.0))
@@ -411,44 +407,14 @@ fn folders() -> AnyView {
     .boxed()
 }
 
-/// The search field, with what it searches written in it while it is
-/// empty.
-fn search() -> AnyView {
-    with_cx(|cx| {
-        let gap = cx.theme().space.gap;
-        let hint =
-            row((note("Search assets").tagged(Pickable::IGNORE),))
-                .position(PositionType::Absolute)
-                .inset(UiRect::new(
-                    px(10.0),
-                    Val::Auto,
-                    px(0.0),
-                    px(0.0),
-                ))
-                .align(AlignItems::Center)
-                .display(resource::<Browse, _>(|browse| {
-                    if browse.search.is_empty() {
-                        Display::Flex
-                    } else {
-                        Display::None
-                    }
-                }))
-                .tagged(Pickable::IGNORE);
-        row((
-            glyph(Glyph::Lens, ICON).tone(Tone::Dim),
-            column((
-                text_field(String::new(), |_, _| {})
-                    .width(px(SEARCH))
-                    .tagged(SearchField)
-                    .rules(text_input),
-                hint,
-            ))
-            .gap(0.0),
-        ))
-        .gap(gap / 2.0)
-        .align(AlignItems::Center)
+/// The search over every asset's name.
+fn search_assets() -> AnyView {
+    search("Search assets", SEARCH, |world, text| {
+        let mut browse = world.resource_mut::<Browse>();
+        if browse.search != text {
+            browse.search = text;
+        }
     })
-    .boxed()
 }
 
 /// The menu that makes a new blueprint, shader or material, or adds a
@@ -598,37 +564,6 @@ fn folder_picker(item: Item) -> AnyView {
     .boxed()
 }
 
-/// Observes the search field's input once the field is built.
-fn listen(
-    mut commands: Commands,
-    fields: Query<&Children, With<SearchField>>,
-    mut heard: Local<Option<Entity>>,
-) {
-    let Some(input) =
-        fields.iter().next().and_then(|kids| kids.first().copied())
-    else {
-        return;
-    };
-    if *heard != Some(input) {
-        commands.entity(input).observe(searched);
-        *heard = Some(input);
-    }
-}
-
-fn searched(
-    change: On<TextEditChange>,
-    texts: Query<&EditableText>,
-    mut browse: ResMut<Browse>,
-) {
-    let Ok(text) = texts.get(change.event_target()) else {
-        return;
-    };
-    let typed = text.value().to_string();
-    if browse.search != typed {
-        browse.search = typed;
-    }
-}
-
 /// The tiles shown under their headings, each group wrapped in rows.
 fn grid() -> AnyView {
     // Built again for what is shown, never for what is selected.
@@ -681,26 +616,7 @@ fn grid() -> AnyView {
                             ))
                             .boxed(),
                     );
-                    // Built where it goes, under its heading. Tiles
-                    // fill a row and go on in the next, packed to the
-                    // top, each as tall as itself.
-                    parts.push(AnyView::new(move |cx: &mut Cx| {
-                        let wrap = cx.build(
-                            row(tiles)
-                                .gap(gap / 2.0)
-                                .width(percent(100.0))
-                                .align(AlignItems::FlexStart),
-                        );
-                        if let Some(mut node) =
-                            cx.world.get_mut::<Node>(wrap)
-                        {
-                            node.flex_wrap = FlexWrap::Wrap;
-                            node.row_gap = px(gap / 2.0);
-                            node.align_content =
-                                AlignContent::FlexStart;
-                        }
-                        wrap
-                    }));
+                    parts.push(wrapped(tiles, gap));
                 }
                 cx.build(
                     column(parts)
@@ -728,20 +644,6 @@ fn origin(item: &Item) -> String {
             format!("Built-in {}", item.kind.word().to_lowercase())
         }
     }
-}
-
-/// `name` as a note, its lines centred, wrapping where it is wider
-/// than its tile.
-fn centred(name: String) -> AnyView {
-    AnyView::new(move |cx: &mut Cx| {
-        let built = cx.build(label(name.clone()).rules(note_rules));
-        if let Some(mut layout) =
-            cx.world.get_mut::<TextLayout>(built)
-        {
-            layout.justify = Justify::Center;
-        }
-        built
-    })
 }
 
 /// What a tile's mark says of `stand`, none where there is nothing
@@ -808,7 +710,7 @@ fn tile(item: Item, stand: Stand) -> AnyView {
         let gap = theme.space.gap;
         let palette = &theme.palette;
         let drawn = match item.kind {
-            Kind::Mesh | Kind::Blueprint => {
+            Kind::Mesh | Kind::Blueprint | Kind::Shader => {
                 picture(item.kind, &item.name, PICTURE)
             }
             kind => {

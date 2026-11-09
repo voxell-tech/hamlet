@@ -33,6 +33,7 @@ use self::folders::Folders;
 pub mod carry;
 pub mod folders;
 pub mod picker;
+pub mod search;
 pub mod thumbnails;
 
 /// How often the folder is read again, for files changed outside the
@@ -45,7 +46,7 @@ const RESCAN: Duration = Duration::from_secs(3);
 pub fn plugin(app: &mut App) {
     app.init_resource::<Library>()
         .init_resource::<thumbnails::Thumbnails>()
-        .add_plugins((picker::plugin, carry::plugin))
+        .add_plugins((picker::plugin, search::plugin, carry::plugin))
         .add_systems(Update, (follow, rescan));
 }
 
