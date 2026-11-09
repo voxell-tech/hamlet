@@ -59,7 +59,7 @@ impl Standing {
         match self {
             Self::Waits => Glyph::Bell,
             Self::Stopped => Glyph::Stop,
-            Self::Works => Glyph::Progress,
+            Self::Works => Glyph::Bolt,
             Self::Rests => Glyph::Moon,
             Self::Gone | Self::Turned => Glyph::Gone,
             Self::Merged => Glyph::Merge,
