@@ -35,15 +35,17 @@ const NO_WINDOW: &str = "No window with Web panels is open, so \
 pub(crate) enum Tool {
     Open,
     Read,
+    Console,
 }
 
 impl Tool {
-    const ALL: [Self; 2] = [Self::Open, Self::Read];
+    const ALL: [Self; 3] = [Self::Open, Self::Read, Self::Console];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Open => "web_open",
             Self::Read => "web_read",
+            Self::Console => "web_console",
         }
     }
 
@@ -96,6 +98,15 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
             }),
             ToolSpecReplay::Safe,
         ),
+        spec(
+            Tool::Console.name(),
+            "Show what the page in your Web tab wrote to its console, \
+             the errors that went uncaught in it and the loads that \
+             failed, since you last looked: the first place to see \
+             whether a site you built works.",
+            json!({"type": "object", "properties": {}}),
+            ToolSpecReplay::Safe,
+        ),
     ]
 }
 
@@ -108,7 +119,7 @@ pub(crate) fn reaches_network(tool: Tool, arguments: &Value) -> bool {
             .and_then(Value::as_str)
             .and_then(web_address)
             .is_some_and(|address| !is_on_this_machine(&address)),
-        Tool::Read => false,
+        Tool::Read | Tool::Console => false,
     }
 }
 
@@ -201,6 +212,7 @@ fn act_of(
                 })?;
             Ok(WebAct::Open { address })
         }
+        Tool::Console => Ok(WebAct::Console {}),
         Tool::Read => Ok(WebAct::Read {
             html: arguments
                 .get("html")
