@@ -3,7 +3,7 @@
 //! Hub.
 
 use bevy::app::{App, PreUpdate, Startup, Update};
-use bevy::color::{Alpha, Color, Mix};
+use bevy::color::{Alpha, Color};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
@@ -14,13 +14,14 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
+use bevy::ui::widget::ImageNode;
 use bevy::ui::{
-    AlignItems, BoxShadow, Overflow, PositionType, ShadowStyle,
-    UiRect, Val, px,
+    AlignItems, BackgroundGradient, ColorStop, RadialGradient,
+    RadialGradientShape, UiPosition, UiRect, percent, px,
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, Frame, FrameProps, button, column, frame, label, row,
+    BehaviorExt, FrameProps, button, column, frame, label, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, component, derived, keyed, style,
@@ -35,24 +36,26 @@ use hamlet_realm::generator::society::Ground;
 use hamlet_realm::library::{Library, Stood};
 use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
-use hamlet_realm::pick::{
-    Selected, Thing, bring_into_view, focus_on, select,
-};
+use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    Fills, action, breadcrumb, choice, filling, group, scroll_area,
-    section, segmented_words, status_label, title,
+    Fills, breadcrumb, choice, filling, group, scroll_area, section,
+    segmented_words, status_label, title,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
+use self::portrait::{Portrait, Sitter};
 use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::roll::{agents_moved, either, moved};
 
+mod portrait;
+
 pub(crate) fn plugin(app: &mut App) {
-    app.add_observer(spoke)
+    app.add_plugins(portrait::plugin)
+        .add_observer(spoke)
         .add_systems(Startup, enter)
         // The chief enters under the name just followed, and is there
         // before the mascot is sent, which moves only when the chat
@@ -193,31 +196,6 @@ struct Facts {
     with: Option<String>,
     cloaks: [Color; 8],
     lights: [Color; 5],
-    tints: Tints,
-}
-
-/// The colours of the figure's face, hair, hats and things held, as
-/// the mascot wears them.
-#[derive(Clone, Copy, PartialEq)]
-struct Tints {
-    face: Color,
-    blush: Color,
-    hair: Color,
-    mantle: Color,
-    brass: Color,
-    leaves: Color,
-    quill: Color,
-    ink: Color,
-    china: Color,
-    leather: Color,
-    page: Color,
-}
-
-impl Tints {
-    /// The trim of a cloak of `cloak` and of its hat.
-    fn trim(&self, cloak: Color) -> Color {
-        self.mantle.mix(&cloak, 0.25)
-    }
 }
 
 fn facts(world: &World, chief: Entity) -> Option<Facts> {
@@ -242,19 +220,6 @@ fn facts(world: &World, chief: Entity) -> Option<Facts> {
         with,
         cloaks: Cloak::ALL.map(|cloak| shown(cloak.colour(pal))),
         lights: Light::ALL.map(|light| shown(light.colour(pal))),
-        tints: Tints {
-            face: shown(pal.face),
-            blush: shown(pal.blush),
-            hair: shown(pal.hair),
-            mantle: shown(pal.mantle),
-            brass: shown(pal.brass),
-            leaves: shown(pal.foliage_shade),
-            quill: shown(pal.autumn),
-            ink: shown(pal.ink),
-            china: shown(pal.whitewash),
-            leather: shown(pal.leather),
-            page: shown(pal.page),
-        },
     })
 }
 
@@ -280,14 +245,8 @@ const SWATCH_WIDTH: f32 = 50.0;
 /// inside it.
 const RING: f32 = 2.0;
 
-/// The side of the chief's portrait, which is drawn in hundredths
-/// of it.
+/// The side of the chief's portrait.
 const FIGURE: f32 = 150.0;
-
-/// `units` hundredths of the portrait, in pixels.
-fn u(units: f32) -> f32 {
-    units * FIGURE / 100.0
-}
 
 /// A disc of `colour` with `name` under it, to press, a choice like
 /// those of words. The one chosen has a ring about its disc and its
@@ -351,172 +310,45 @@ fn part(name: &'static str, choices: impl View) -> AnyView {
     group((section(name), choices)).boxed()
 }
 
-/// A rounded block of the portrait, `dx` right of its middle and
-/// `top` down from its top, `width` by `height`, of `colour`.
-fn block(
-    dx: f32,
-    top: f32,
-    width: f32,
-    height: f32,
-    colour: Color,
-) -> Frame {
-    frame()
-        .width(px(u(width)))
-        .height(px(u(height)))
-        .radius(u(width.min(height) / 2.0))
-        .fill(colour)
-        .position(PositionType::Absolute)
-        .inset(UiRect {
-            left: px(u(50.0 + dx - width / 2.0)),
-            top: px(u(top)),
-            right: Val::Auto,
-            bottom: Val::Auto,
-        })
-}
-
-/// A ring of the portrait, as [`block`] places one, its line
-/// `colour`.
-fn hoop(
-    dx: f32,
-    top: f32,
-    width: f32,
-    height: f32,
-    colour: Color,
-) -> Frame {
-    block(dx, top, width, height, Color::NONE)
-        .border(u(2.5))
-        .border_color(colour)
-}
-
-/// What sits on the head, drawn over the face but for a hood, which
-/// is behind it.
-fn hat(hat: Hat, cloak: Color, tints: &Tints) -> Vec<Frame> {
-    let felt = cloak.mix(&Color::BLACK, 0.2);
-    let trim = tints.trim(cloak);
-    match hat {
-        Hat::Pointed => vec![
-            block(9.0, 2.0, 7.0, 8.0, felt),
-            block(6.0, 6.0, 11.0, 9.0, felt).radius(u(3.0)),
-            block(3.0, 11.0, 19.0, 10.0, felt).radius(u(3.0)),
-            block(1.0, 17.0, 28.0, 11.0, felt).radius(u(3.0)),
-            block(0.0, 24.0, 34.0, 5.0, trim).radius(u(2.0)),
-            block(0.0, 29.0, 58.0, 7.0, felt),
-            block(12.0, 0.0, 7.0, 7.0, tints.brass),
-        ],
-        Hat::Crown => vec![
-            block(-10.0, 23.0, 6.0, 10.0, tints.brass).radius(u(1.5)),
-            block(0.0, 21.0, 6.0, 12.0, tints.brass).radius(u(1.5)),
-            block(10.0, 23.0, 6.0, 10.0, tints.brass).radius(u(1.5)),
-            block(0.0, 29.0, 34.0, 7.0, tints.brass).radius(u(1.5)),
-        ],
-        Hat::Wreath => {
-            vec![hoop(0.0, 29.0, 42.0, 12.0, tints.leaves)]
-        }
-        Hat::Hood | Hat::Bare => Vec::new(),
-    }
-}
-
-/// What is held, and the hand that holds it, by the shoulder.
-fn held(holds: Holds, tints: &Tints) -> Vec<Frame> {
-    let hand = block(31.0, 79.0, 12.0, 12.0, tints.face);
-    match holds {
-        Holds::Quill => vec![
-            block(34.0, 50.0, 8.0, 28.0, tints.quill),
-            block(34.0, 76.0, 2.5, 10.0, tints.ink),
-            hand,
-        ],
-        Holds::Teacup => vec![
-            hoop(40.0, 71.0, 9.0, 9.0, tints.china),
-            block(31.0, 69.0, 17.0, 13.0, tints.china).radius(u(3.0)),
-            hand,
-        ],
-        Holds::Book => vec![
-            block(32.0, 61.0, 18.0, 22.0, tints.leather)
-                .radius(u(2.0)),
-            block(35.0, 63.0, 5.0, 18.0, tints.page).radius(u(1.0)),
-            hand,
-        ],
-        Holds::Nothing => Vec::new(),
-    }
-}
-
-/// The chief as a portrait of its mascot: the wick and its glow over
-/// its head, its hat, its face and the cloak on its shoulders, and
-/// what it holds.
-fn figure(facts: &Facts) -> impl View {
+/// The chief as its mascot, live, under a glow of its flame's colour.
+fn figure(chief: Entity, facts: &Facts) -> impl View {
     let light = facts.lights[facts.look.light as usize];
-    let cloak = facts.cloaks[facts.look.cloak as usize];
-    let (tints, look) = (facts.tints, facts.look);
     with_cx(move |cx| {
-        // Over a pointed hat the wick floats by its tip.
-        let (wick, high) = match look.hat {
-            Hat::Pointed => (26.0, 10.0),
-            _ => (0.0, 13.0),
-        };
-        let glow = BoxShadow(vec![ShadowStyle {
-            color: light.with_alpha(0.9),
-            x_offset: px(0.0),
-            y_offset: px(0.0),
-            spread_radius: px(u(8.0)),
-            blur_radius: px(u(30.0)),
-        }]);
-        let flame = block(wick, high - 7.0, 11.0, 15.0, light)
-            .tagged(glow)
-            .boxed();
-        let mut parts = vec![
-            block(
-                wick,
-                high - 1.0,
-                5.0,
-                7.0,
-                light.mix(&Color::WHITE, 0.6),
+        let theme = cx.theme();
+        let palette = &theme.palette;
+        let glow = BackgroundGradient::from(RadialGradient::new(
+            UiPosition::TOP,
+            RadialGradientShape::Ellipse(
+                percent(85.0),
+                percent(75.0),
             ),
-            block(0.0, 68.0, 86.0, 70.0, cloak),
-        ];
-        match look.hat {
-            Hat::Hood => {
-                parts.push(block(0.0, 25.0, 54.0, 54.0, cloak));
-            }
-            Hat::Bare => {
-                parts.push(block(0.0, 28.0, 42.0, 22.0, tints.hair));
-            }
-            _ => {}
-        }
-        parts.extend([
-            block(0.0, 67.0, 36.0, 9.0, tints.trim(cloak)),
-            block(0.0, 72.0, 7.0, 7.0, tints.brass),
-            block(0.0, 31.0, 40.0, 38.0, tints.face),
-        ]);
-        for side in [-1.0, 1.0] {
-            parts.push(block(side * 8.0, 45.0, 5.0, 8.0, tints.ink));
-            parts.push(block(
-                side * 13.0,
-                55.0,
-                7.0,
-                4.0,
-                tints.blush.with_alpha(0.8),
-            ));
-        }
-        parts.extend(hat(look.hat, cloak, &tints));
-        parts.extend(held(look.holds, &tints));
-        let palette = &cx.theme().palette;
-        let views = std::iter::once(flame)
-            .chain(parts.into_iter().map(ViewExt::boxed))
-            .collect::<Vec<_>>();
-        column(views)
+            vec![
+                ColorStop::new(light.with_alpha(0.3), percent(0.0)),
+                ColorStop::new(light.with_alpha(0.0), percent(100.0)),
+            ],
+        ));
+        let shown = frame()
             .width(px(FIGURE))
             .height(px(FIGURE))
             .shrink(0.0)
-            .overflow(Overflow::clip())
-            .radius(cx.theme().space.round * 3.0)
+            .radius(theme.space.round * 3.0)
             .fill(palette.input)
-            .border(cx.theme().space.border)
+            .border(theme.space.border)
             .border_color(palette.gold_6)
+            .tagged(glow)
+            .tagged(Sitter(chief));
+        // Without the picture, as where the portrait is not set up.
+        match cx.world.get_resource::<Portrait>() {
+            Some(portrait) => shown
+                .tagged(ImageNode::new(portrait.picture.clone()))
+                .boxed(),
+            None => shown.boxed(),
+        }
     })
 }
 
-/// The chief's figure beside its name, where it is, and the way to
-/// it in the world.
+/// The chief's figure beside its name and where it is. F in the
+/// world finds it, as it finds anything selected.
 fn portrait(chief: Entity, facts: &Facts) -> impl View {
     let (place, mark, tone) = match &facts.with {
         Some(agent) => {
@@ -527,19 +359,11 @@ fn portrait(chief: Entity, facts: &Facts) -> impl View {
     let words = column((
         title(facts.name.clone()),
         status_label(mark, place, tone),
-        // In a row of its own, so it is as wide as its words.
-        row((action(
-            Glyph::Aim,
-            "Find me in the world",
-            move |world| {
-                focus_on(world, Thing::Chief(chief), false);
-            },
-        ),)),
     ))
     .gap(6.0)
     .grow(1.0)
     .min_width(px(0.0));
-    let figure = figure(facts);
+    let figure = figure(chief, facts);
     with_cx(move |cx| {
         row((figure, words))
             .gap(cx.theme().space.section)
