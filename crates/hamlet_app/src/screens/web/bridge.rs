@@ -12,7 +12,9 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
-use bevy_cef::prelude::{HostEmitEvent, JsEmitEventPlugin, Receive};
+use bevy_cef::prelude::{
+    HostEmitEvent, JsEmitEventPlugin, LoadFinished, Receive,
+};
 use hamlet_protocol::client::RequestId;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -30,6 +32,7 @@ pub(super) fn plugin(app: &mut App) {
     app.add_plugins(JsEmitEventPlugin::<Reply>::default())
         .init_resource::<Bridged>()
         .add_observer(replied)
+        .add_observer(ask_again)
         .add_systems(Update, give_up);
 }
 
@@ -49,6 +52,9 @@ struct Act {
     id: RequestId,
     page: Entity,
     until: Duration,
+    /// What the page was asked, when it may be asked again: a read
+    /// or a wait, which a page that went on to another loses.
+    again: Option<Value>,
 }
 
 /// Asks `page` to carry out `act` with `arguments`, for the ask `id`,
@@ -71,10 +77,34 @@ pub(super) fn ask(
     world.trigger(HostEmitEvent::new(page, "hamlet", &asked));
     let until =
         world.resource::<Time<Real>>().elapsed() + ACT_WITHIN + waits;
-    world
-        .resource_mut::<Bridged>()
-        .0
-        .insert(nonce, Act { id, page, until });
+    let again = matches!(act, "read" | "wait").then_some(asked);
+    world.resource_mut::<Bridged>().0.insert(
+        nonce,
+        Act {
+            id,
+            page,
+            until,
+            again,
+        },
+    );
+}
+
+/// Asks a page that loaded again what its last page was asked and
+/// lost: the new page has a bridge of its own.
+fn ask_again(loaded: On<LoadFinished>, mut commands: Commands) {
+    let page = loaded.webview;
+    commands.queue(move |world: &mut World| {
+        let again = world
+            .resource::<Bridged>()
+            .0
+            .values()
+            .filter(|act| act.page == page)
+            .filter_map(|act| act.again.clone())
+            .collect::<Vec<_>>();
+        for asked in again {
+            world.trigger(HostEmitEvent::new(page, "hamlet", &asked));
+        }
+    });
 }
 
 /// Answers the act a page replied to.
