@@ -8,7 +8,7 @@ use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, action, bad_action, breadcrumb, buttons, good_action,
-    page_head, scroll_area, status_label_large, title,
+    scroll_area, status_label_large,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
@@ -51,16 +51,14 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 }
             });
         let section = cx.theme().space.section;
-        let head = page_head(
+        // The path names it; its fate stands beside the path.
+        let head = row((
             crumb,
-            row((
-                title(name),
-                status_label_large(Glyph::Gone, fate, Tone::Critical),
-            ))
-            .gap(section)
-            .align(AlignItems::Center)
-            .tagged(Wraps),
-        );
+            status_label_large(Glyph::Gone, fate, Tone::Critical),
+        ))
+        .gap(section)
+        .align(AlignItems::Center)
+        .tagged(Wraps);
         cx.build(
             column((
                 head,
@@ -97,16 +95,13 @@ pub(super) fn ruin(agent: Entity) -> impl View {
 pub(super) fn library() -> impl View {
     with_cx(|cx| {
         column((
-            page_head(
-                breadcrumb(
-                    vec!["Realm".into()],
-                    "The library",
-                    |world, _| {
-                        select(world, None);
-                        show(world, Showing::Realm);
-                    },
-                ),
-                title("The library"),
+            breadcrumb(
+                vec!["Realm".into()],
+                "The library",
+                |world, _| {
+                    select(world, None);
+                    show(world, Showing::Realm);
+                },
             ),
             // On a line of their own, and on to another when the
             // panel is narrow.

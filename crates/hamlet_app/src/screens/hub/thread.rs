@@ -484,23 +484,22 @@ fn header(agent: Entity) -> impl View {
             )
         });
         let address = name_of(cx.world, agent);
-        let name = title(called(cx.world, agent))
-            .tooltip(move || note(address.clone()));
         let space = &cx.theme().space;
         let (gap, section) = (space.gap, space.section);
         cx.build(
-            // The path, then the name with its state; under them the
-            // tabs between the chat and the details, the one shown
-            // underlined, with what the chat tab shows and the rest
-            // at their end.
+            // The path, ending in the agent's name, with its state;
+            // under them the tabs between the chat and the details,
+            // the one shown underlined, with what the chat tab shows
+            // and the rest at their end.
             column((
-                page_head(
-                    path(agent, Vec::new()),
-                    row((name, state(agent)))
-                        .gap(section)
-                        .align(AlignItems::Center)
-                        .min_width(px(0.0)),
-                ),
+                row((
+                    path(agent, Vec::new())
+                        .tooltip(move || note(address.clone())),
+                    state(agent),
+                ))
+                .gap(section)
+                .align(AlignItems::Center)
+                .min_width(px(0.0)),
                 row((
                     column((tabs::strip(&SHEETS, |world, sheet| {
                         *world.resource_mut::<Sheet>() = sheet;

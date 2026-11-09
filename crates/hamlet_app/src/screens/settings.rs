@@ -37,8 +37,7 @@ use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, beside, breadcrumb,
     buttons, close, description, filling, list, nav_list, note,
-    page_head, parts, pill, section, small_rules, text_input, title,
-    valued_row,
+    parts, pill, section, small_rules, text_input, title, valued_row,
 };
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::ellipsis::cut;
@@ -899,26 +898,25 @@ fn parts_of(pane: Pane) -> (AnyView, AnyView) {
         Pane::Appearance => appearance::page().boxed(),
         Pane::Front | Pane::Sound => sound().boxed(),
     };
-    let head = page_head(
-        breadcrumb(
-            vec!["Settings".into()],
-            pane.title(),
-            |world, _| {
-                *world.resource_mut::<Pane>() = Pane::Front;
-            },
-        ),
-        match pane {
-            Pane::Charter => beside((
-                title(pane.title()),
-                pill(resource::<Charter, _>(|charter| {
-                    charter_state(charter).to_string()
-                })),
-            ))
-            .boxed(),
-            _ => title(pane.title()).boxed(),
+    // The path names the page; the charter's state stands beside it.
+    let path = breadcrumb(
+        vec!["Settings".into()],
+        pane.title(),
+        |world, _| {
+            *world.resource_mut::<Pane>() = Pane::Front;
         },
     );
-    (head.boxed(), body)
+    let head = match pane {
+        Pane::Charter => beside((
+            path,
+            pill(resource::<Charter, _>(|charter| {
+                charter_state(charter).to_string()
+            })),
+        ))
+        .boxed(),
+        _ => path.boxed(),
+    };
+    (head, body)
 }
 
 #[cfg(test)]

@@ -20,8 +20,8 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bad_action, bare, beside,
-    breadcrumb, buttons, filling, good_action, note, page_head,
-    scroll_area, text_input, title,
+    breadcrumb, buttons, filling, good_action, note, scroll_area,
+    text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -782,8 +782,7 @@ fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
     let (stands, tone) = standing(&shown.scholar);
-    let heading =
-        beside((title(name.clone()), label(stands).tone(tone)));
+    let standing = label(stands).tone(tone);
     let parts = (
         arrival(shown),
         hires(shown),
@@ -802,7 +801,8 @@ fn body(shown: &Shown) -> AnyView {
         let section = cx.theme().space.section;
         // The head stays at the top while the rest scrolls under it.
         column((
-            page_head(
+            // The path names it; where it stands is beside the path.
+            beside((
                 breadcrumb(
                     vec!["Realm".into(), "City".into()],
                     name.clone(),
@@ -817,8 +817,8 @@ fn body(shown: &Shown) -> AnyView {
                         }
                     },
                 ),
-                heading,
-            ),
+                standing,
+            )),
             scroll_area((column((
                 head,
                 form_view(address, name.clone(), is_of_header),

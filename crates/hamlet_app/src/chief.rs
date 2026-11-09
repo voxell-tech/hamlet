@@ -39,7 +39,7 @@ use hamlet_realm::palette::Palette;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
     Fills, breadcrumb, choice, filling, group, scroll_area, section,
-    segmented_words, status_label, title,
+    segmented_words, status_label,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;
@@ -356,13 +356,11 @@ fn portrait(chief: Entity, facts: &Facts) -> impl View {
         }
         None => ("At home".to_string(), Glyph::Hearth, Tone::Dim),
     };
-    let words = column((
-        title(facts.name.clone()),
-        status_label(mark, place, tone),
-    ))
-    .gap(6.0)
-    .grow(1.0)
-    .min_width(px(0.0));
+    // Its name is the end of the page's path.
+    let words = column((status_label(mark, place, tone),))
+        .gap(6.0)
+        .grow(1.0)
+        .min_width(px(0.0));
     let figure = figure(chief, facts);
     with_cx(move |cx| {
         row((figure, words))

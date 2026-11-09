@@ -24,7 +24,7 @@ use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     self, Fills, ICON, action, bare, breadcrumb, buttons, group,
     lettered, more_button, note, note_rules, primary_button, raised,
-    scroll_area, status_label, text_input, title, transparent,
+    scroll_area, status_label, text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -541,33 +541,27 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 },
             ));
         }
-        // What commands call it, when its name says otherwise.
-        let name = if facts.title == facts.id {
-            title(facts.title.clone()).boxed()
+        // The path names it, and says what commands call it when its
+        // name says otherwise.
+        let path = breadcrumb(
+            vec!["Realm".into()],
+            facts.title.clone(),
+            |world, _| {
+                select(world, None);
+                crate::hub::show(world, crate::hub::Showing::Realm);
+            },
+        );
+        let path = if facts.title == facts.id {
+            path.boxed()
         } else {
             let id = facts.id.clone();
-            title(facts.title.clone())
-                .tooltip(move || {
-                    note(format!("Commands call it {id}"))
-                })
-                .boxed()
+            path.tooltip(move || {
+                note(format!("Commands call it {id}"))
+            })
+            .boxed()
         };
-        let mut top = vec![
-            breadcrumb(
-                vec!["Realm".into()],
-                facts.title.clone(),
-                |world, _| {
-                    select(world, None);
-                    crate::hub::show(
-                        world,
-                        crate::hub::Showing::Realm,
-                    );
-                },
-            )
-            .boxed(),
-            name,
-            budget(facts.account.clone(), facts.spent),
-        ];
+        let mut top =
+            vec![path, budget(facts.account.clone(), facts.spent)];
         // The forms open only from these buttons, so without them
         // nothing stands under the account.
         if !actions.is_empty() {
