@@ -74,8 +74,9 @@ pub mod fonts {
 
     /// Inter (SIL Open Font License), the interface typeface.
     pub const INTER: File = file!("fonts/InterVariable.ttf");
-    /// Cinzel (SIL Open Font License), for headers and buttons.
-    pub const CINZEL: File = file!("fonts/CinzelVariable.ttf");
+    /// Fraunces (SIL Open Font License), a soft serif for titles and
+    /// names.
+    pub const FRAUNCES: File = file!("fonts/FrauncesVariable.ttf");
     /// Twemoji (CC-BY 4.0), for emoji.
     pub const TWEMOJI: File = file!("fonts/TwemojiMozilla.ttf");
 }

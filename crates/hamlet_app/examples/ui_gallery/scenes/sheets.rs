@@ -129,7 +129,7 @@ fn titles() -> Ui {
     row((
         cell(
             "At rest",
-            title("HAMLET").tagged(Underglow::new(false)).boxed(),
+            title("Hamlet").tagged(Underglow::new(false)).boxed(),
         ),
         cell(
             "Under the pointer",

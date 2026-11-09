@@ -224,7 +224,7 @@ fn title(name: &'static str, menu: Menu) -> impl View {
 /// The menu titles, for the top bar.
 pub fn titles() -> impl View {
     with_cx(|cx| {
-        row((title("HAMLET", Menu::App),))
+        row((title("Hamlet", Menu::App),))
             .gap(0.0)
             .height(px(cx.theme().space.bar))
             .align(AlignItems::Center)

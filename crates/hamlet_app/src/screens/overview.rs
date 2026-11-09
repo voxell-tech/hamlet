@@ -104,7 +104,7 @@ pub(crate) fn heading_line(
 pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
     with_cx(move |cx| {
         label(text.clone())
-            .size(cx.theme().text.small)
+            .size(cx.theme().text.heading)
             .bold(true)
             .tone(tone)
             .wrap(false)

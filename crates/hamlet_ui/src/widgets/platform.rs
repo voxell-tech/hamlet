@@ -25,8 +25,10 @@ use bevy::picking::events::{
 use bevy::picking::pointer::PointerButton;
 use bevy::text::{
     DEFAULT_FONT_DATA, EditableText, Font, FontCx, FontSize,
-    FontSource, LetterSpacing, TextFont,
+    FontSource, FontVariationTag, FontVariations, FontWeight,
+    LetterSpacing, TextFont,
 };
+use bevy::ui::widget::Text;
 use bevy::ui::{
     BackgroundGradient, ColorStop, FlexWrap, InteractionDisabled,
     LinearGradient, Node, Outline, OverflowClipMargin, percent, px,
@@ -37,7 +39,7 @@ use bevy::ui_widgets::{
 };
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
-use hamlet_assets::fonts::{CINZEL, INTER, TWEMOJI};
+use hamlet_assets::fonts::{FRAUNCES, INTER, TWEMOJI};
 
 use crate::theme::Themed;
 
@@ -102,7 +104,8 @@ pub fn install_fonts(world: &mut World) {
     );
     let mono =
         fonts.add(Font::from_bytes(DEFAULT_FONT_DATA.to_vec()));
-    let display = fonts.add(Font::from_bytes(CINZEL.bytes.to_vec()));
+    let display =
+        fonts.add(Font::from_bytes(FRAUNCES.bytes.to_vec()));
     world.insert_resource(Mono(mono));
     world.insert_resource(Display(display));
     install_emoji(&mut world.resource_mut::<FontCx>());
@@ -123,8 +126,15 @@ fn install_emoji(cx: &mut FontCx) {
     }
 }
 
-/// Sets the display face, tracked, on tagged labels and on the dock's
-/// tab names, when a label is new or was styled again.
+/// How soft the display face's serifs are, 0 to 100: the rounder,
+/// the cosier.
+const SOFT: f32 = 100.0;
+
+/// Sets the display face on tagged labels and on the dock's tab
+/// names, when a label is new or was styled again: soft, drawn for
+/// the size it is set at, and no bolder than semibold. Words in
+/// capitals, as a tab's name, are tracked apart; words in lower case
+/// are set close.
 pub fn apply_display(
     mut commands: Commands,
     display: Res<Display>,
@@ -135,15 +145,15 @@ pub fn apply_display(
         (
             Entity,
             &mut TextFont,
+            Option<&Text>,
             Option<&LetterSpacing>,
             Has<DisplayText>,
         ),
         Or<(Changed<TextFont>, Added<DisplayText>)>,
     >,
 ) {
-    let tracking = LetterSpacing::Px(theme.text.tracking);
     let tab_size = FontSize::Px(theme.text.small);
-    for (node, mut font, spacing, tagged) in &mut fonts {
+    for (node, mut font, text, spacing, tagged) in &mut fonts {
         let tab = parents
             .iter_ancestors(node)
             .any(|above| tabs.contains(above));
@@ -157,11 +167,36 @@ pub fn apply_display(
         if tab && font.font_size != tab_size {
             font.font_size = tab_size;
         }
+        if font.weight.0 > SEMIBOLD.0 {
+            font.weight = SEMIBOLD;
+        }
+        let size = match font.font_size {
+            FontSize::Px(size) => size,
+            _ => theme.text.body,
+        };
+        let shape = FontVariations::builder()
+            .set(FontVariationTag::new(b"SOFT"), SOFT)
+            .set(FontVariationTag::new(b"opsz"), size)
+            .build();
+        if font.font_variations != shape {
+            font.font_variations = shape;
+        }
+        let capitals = text.is_some_and(|text| {
+            !text.0.chars().any(char::is_lowercase)
+        });
+        let tracking = LetterSpacing::Px(if capitals {
+            theme.text.tracking
+        } else {
+            0.0
+        });
         if spacing != Some(&tracking) {
             commands.entity(node).try_insert(tracking);
         }
     }
 }
+
+/// The weight of the display face at its boldest.
+const SEMIBOLD: FontWeight = FontWeight(600);
 
 /// A clipping node that cuts its contents at its padding.
 #[derive(Component)]
