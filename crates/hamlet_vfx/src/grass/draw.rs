@@ -9,6 +9,7 @@
 //! The grass takes the mesh pipeline's view bindings for its
 //! lighting, has no material and is not in the depth prepass.
 
+use bevy::camera::visibility::RenderLayers;
 use bevy::core_pipeline::core_3d::{
     Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey,
 };
@@ -544,9 +545,10 @@ fn place(
     compute.dispatch_workgroups(1, 1, 1);
 }
 
-/// Puts the grass in each camera's opaque pass each frame, with the
-/// pipeline the view calls for, and takes it out when it is not
-/// drawn.
+/// Puts the grass in the opaque pass of each camera that sees the
+/// world's layer each frame, with the pipeline the view calls for,
+/// and takes it out when it is not drawn. A camera of a layer of its
+/// own, as a preview's, has none.
 fn queue(
     grass: Option<Res<Grass>>,
     lists: Option<Res<Lists>>,
@@ -556,21 +558,26 @@ fn queue(
     cache: Res<PipelineCache>,
     draws: Res<DrawFunctions<Opaque3d>>,
     mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
-    views: Query<&ExtractedView>,
+    views: Query<(&ExtractedView, Option<&RenderLayers>)>,
     keys: Res<ViewKeyCache>,
 ) {
     let draw = draws.read().id::<DrawGrass>();
     let main = MainEntity::from(item.0);
     let drawn = grass.is_some_and(|grass| grass.shown);
-    for view in &views {
+    let world = RenderLayers::default();
+    for (view, layers) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity)
         else {
             continue;
         };
         phase.remove(main);
-        let (Some(lists), Some(&key), true) =
-            (&lists, keys.get(&view.retained_view_entity), drawn)
-        else {
+        let sees =
+            layers.is_none_or(|layers| layers.intersects(&world));
+        let (Some(lists), Some(&key), true) = (
+            &lists,
+            keys.get(&view.retained_view_entity),
+            drawn && sees,
+        ) else {
             continue;
         };
         let key = key
