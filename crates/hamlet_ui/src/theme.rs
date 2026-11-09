@@ -580,7 +580,12 @@ impl TextTokens for HamletTheme {
                 palette.gold_1,
                 palette.gold_4,
             ),
-            Tone::Critical => palette.red,
+            Tone::Critical => palette.status.danger.ink,
+            Tone::Success => palette.status.success.ink,
+            Tone::Merged => palette.status.merged.ink,
+            Tone::Warning => palette.status.warning.ink,
+            Tone::Info => palette.status.info.ink,
+            Tone::Attention => palette.status.attention.ink,
         }
     }
 
