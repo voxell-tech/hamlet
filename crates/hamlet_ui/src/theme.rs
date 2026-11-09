@@ -551,7 +551,7 @@ impl TextTokens for HamletTheme {
 
 impl SurfaceTokens for HamletTheme {
     fn fill(&self) -> Color {
-        self.palette.button
+        self.palette.selected
     }
 
     fn hover(&self) -> Color {

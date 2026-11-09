@@ -1,5 +1,5 @@
 //! Tabs within a panel: lettering that shares the width over a
-//! hairline, the one shown lit and underlined. Where the panel is
+//! hairline, the one shown filled. Where the panel is
 //! too narrow for them, only the one shown stays, beside a button
 //! that lists them all.
 
@@ -12,14 +12,10 @@ use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
-use bevy::ui::{
-    AlignItems, BackgroundColor, ComputedNode, Display, Node, UiRect,
-    px,
-};
+use bevy::ui::{AlignItems, ComputedNode, Display, Node, UiRect, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, frame, label,
-    menu_button, row,
+    BehaviorExt, FrameProps, button, column, label, menu_button, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, style};
 
@@ -27,7 +23,7 @@ use super::effects::Underglow;
 use super::icons::Glyph;
 use super::platform::show;
 use crate::styles::{ICON, hairline, headed};
-use crate::theme::{HamletTheme, Themed};
+use crate::theme::HamletTheme;
 use crate::{Cx, View, with_cx};
 
 pub fn plugin(app: &mut App) {
@@ -37,10 +33,6 @@ pub fn plugin(app: &mut App) {
 /// The tab of a strip that chooses among the values of `R`.
 #[derive(Component, Clone, Copy)]
 pub struct TabOf<R>(R);
-
-/// The line under the tab of `R`.
-#[derive(Component, Clone, Copy)]
-pub struct Underline<R>(R);
 
 /// On the tab that is shown.
 #[derive(Component)]
@@ -64,10 +56,7 @@ pub fn tab_look(cx: &mut Cx) {
             f.fill(Color::NONE)
                 .radius(0.0)
                 .padding(UiRect::axes(px(t.space.gap / 2.0), px(0.0)))
-                // The line under the tab is part of its height.
-                .min_height(
-                    px(t.space.tab_height - t.space.underline),
-                )
+                .min_height(px(t.space.tab_height))
         })
         .label(|l, t| l.size(t.text.small).bold(true))
         .tone(Tone::Dim)
@@ -107,21 +96,13 @@ pub fn strip<R: Resource + Copy>(
     let tabs = tabs
         .iter()
         .map(|&(of, which, name)| {
-            with_cx(move |cx| {
-                column((
-                    button(tab_name(which, name))
-                        .rules(tab_look)
-                        .tagged(TabOf(of))
-                        .tagged(Underglow::new(false))
-                        .on_activate(move |world| choose(world, of)),
-                    frame()
-                        .height(px(cx.theme().space.underline))
-                        .fill(Color::NONE)
-                        .tagged(Underline(of)),
-                ))
-                .grow(1.0)
-                .gap(0.0)
-            })
+            column((button(tab_name(which, name))
+                .rules(tab_look)
+                .tagged(TabOf(of))
+                .tagged(Underglow::new(false))
+                .on_activate(move |world| choose(world, of)),))
+            .grow(1.0)
+            .gap(0.0)
             .boxed()
         })
         .chain([list])
@@ -183,30 +164,18 @@ pub fn fit(
     }
 }
 
-/// Marks the tab of the value of `R` and draws its underline.
+/// Marks the tab of the value of `R`.
 pub fn mark<R: Resource + Copy + PartialEq>(
     mut commands: Commands,
-    theme: Themed,
     shown: Res<R>,
-    mut tabs: Query<(Entity, &TabOf<R>, Has<Shown>)>,
-    mut lines: Query<(&Underline<R>, &mut BackgroundColor)>,
+    tabs: Query<(Entity, &TabOf<R>, Has<Shown>)>,
 ) {
-    for (tab, of, marked) in &mut tabs {
+    for (tab, of, marked) in &tabs {
         let on = of.0 == *shown;
         if on && !marked {
             commands.entity(tab).try_insert(Shown);
         } else if !on && marked {
             commands.entity(tab).try_remove::<Shown>();
-        }
-    }
-    for (of, mut fill) in &mut lines {
-        let want = if of.0 == *shown {
-            theme.palette.gold_3
-        } else {
-            Color::NONE
-        };
-        if fill.0 != want {
-            fill.0 = want;
         }
     }
 }

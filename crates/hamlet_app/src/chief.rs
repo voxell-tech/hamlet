@@ -278,6 +278,8 @@ fn swatch(
                     .width(px(SWATCH))
                     .height(px(SWATCH))
                     .fill(colour)
+                    .border(1.0)
+                    .border_color(cx.theme().palette.gold_5)
                     .radius(SWATCH / 2.0),))
                 .padding(UiRect::all(px(RING)))
                 .border(RING)

@@ -79,8 +79,8 @@ fn switch_of(
         );
         let knob = height - 2.0 * (border + inset);
         let travel = width - height;
-        let tracks = (palette.gold_4, palette.button);
-        let frames = (palette.gold_3, palette.gold_5);
+        let tracks = (palette.gold_5, palette.button);
+        let frames = (palette.gold_5, palette.gold_5);
         let knobs = (palette.glow_core, palette.grey_1);
         cx.scope(|cx| {
             style::<HamletTheme>()

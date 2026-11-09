@@ -1,7 +1,6 @@
 //! The highlight of a panel on its tab while another is in front:
 //! its glow and its flash rise from the tab's bottom edge, and a
-//! badge with the count of what waits shows on the tab. The tab in
-//! front is underlined.
+//! badge with the count of what waits shows on the tab.
 
 use bevy::camera::visibility::Visibility;
 use bevy::color::{Alpha, Color, Mix};
@@ -13,9 +12,8 @@ use bevy::ecs::system::{Commands, Query, Res};
 use bevy::time::Time;
 use bevy::ui::widget::Text;
 use bevy::ui::{
-    BackgroundColor, BackgroundGradient, ColorStop, Gradient,
-    LinearGradient, RadialGradient, RadialGradientShape, UiPosition,
-    percent, px,
+    BackgroundColor, BackgroundGradient, Gradient, RadialGradient,
+    RadialGradientShape, UiPosition, percent,
 };
 use bevy_fynix::dock::{
     ActiveTab, DockPane, DockTab, TabBadge, TabBadgeCount,
@@ -112,22 +110,13 @@ pub(super) fn highlight_tabs(
         1.0 + set.flicker * flicker(time.elapsed_secs(), 1.0);
     let hue = colors.attention.mix(&colors.glow_core, 0.35);
 
-    // The line under the tab in front, as under a tab within a panel.
-    let line = theme.palette.gold_4;
-    let underline = BackgroundGradient(vec![Gradient::from(
-        LinearGradient::to_top(vec![
-            ColorStop::new(line, px(0.0)),
-            ColorStop::new(line, px(theme.space.underline)),
-            ColorStop::new(
-                line.with_alpha(0.0),
-                px(theme.space.underline),
-            ),
-        ]),
-    )]);
     for (node, tab, front, has) in &tabs {
+        // The tab in front has its fill and no light.
         if front {
-            if has != Some(&underline) {
-                commands.entity(node).try_insert(underline.clone());
+            if has.is_some() {
+                commands
+                    .entity(node)
+                    .try_remove::<BackgroundGradient>();
             }
             continue;
         }

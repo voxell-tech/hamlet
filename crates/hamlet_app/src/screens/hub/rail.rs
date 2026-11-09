@@ -94,7 +94,7 @@ const ROW_INSET: f32 = 6.0;
 
 /// How far the fill under the hamlet whose page is shown is taken
 /// from the panel toward the fill of a selected row: a quieter step.
-const GROUP_STEP: f32 = 0.5;
+const GROUP_STEP: f32 = 0.7;
 
 /// The room over a section's header inside its block.
 const BLOCK_PAD: f32 = 4.0;

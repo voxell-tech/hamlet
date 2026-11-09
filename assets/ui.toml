@@ -9,8 +9,6 @@ double = 0.35
 button = 28.0
 
 [desk]
-underline_glow = 0.75
-underline_glow_blur = 4.8
 drag_start = 4.0
 
 [chat]

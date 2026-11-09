@@ -273,9 +273,21 @@ pub fn rail_item(
             })
             .icon(move |i, _| i.opacity(shown))
             .tone(tone)
-            .frame(|f, t| f.radius(t.space.round))
-            .hovered(|s| {
-                s.fill(|t| t.palette.button_hover).tone(Tone::Body)
+            .frame(move |f, t| {
+                let f = f.radius(t.space.round);
+                if chosen {
+                    f.fill(t.palette.selected)
+                } else {
+                    f
+                }
+            })
+            .hovered(move |s| {
+                if chosen {
+                    s.tone(Tone::Accent)
+                } else {
+                    s.fill(|t| t.palette.button_hover)
+                        .tone(Tone::Body)
+                }
             })
             .when::<Focused>(|s| {
                 s.fill(|t| t.palette.button_hover).tone(Tone::Body)
@@ -1114,8 +1126,10 @@ pub fn card_choice(
     move |cx| {
         style::<HamletTheme>()
             .frame(move |f, t| {
+                // The ring is twice the border, from the padding, so
+                // that a card keeps its size as it is picked.
                 f.fill(card_fill(t, picked))
-                    .border(t.space.border)
+                    .border(t.space.border * 2.0)
                     .border_color(if picked {
                         t.palette.accent
                     } else {
@@ -1125,8 +1139,8 @@ pub fn card_choice(
                     .justify(JustifyContent::FlexStart)
                     .align(AlignItems::FlexStart)
                     .padding(UiRect::axes(
-                        px(t.space.card_padding_x),
-                        px(t.space.card_padding_y),
+                        px(t.space.card_padding_x - t.space.border),
+                        px(t.space.card_padding_y - t.space.border),
                     ))
             })
             .hovered(|s| {
