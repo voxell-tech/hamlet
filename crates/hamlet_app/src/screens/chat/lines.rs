@@ -14,7 +14,7 @@ use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::text::{LineBreak, TextLayout};
+use bevy::text::{Justify, LineBreak, TextLayout};
 use bevy::ui::{
     AlignItems, ComputedNode, JustifyContent, Overflow, OverflowAxis,
     ScrollPosition, UiGlobalTransform, UiRect, percent, px,
@@ -1000,10 +1000,13 @@ fn quiet() -> impl View {
                     column(starters)
                         .gap(theme.space.gap)
                         .align(AlignItems::Center),
+                    // Centred line by line, as it wraps under the
+                    // rest.
                     note(
                         "Agents can make mistakes, so check \
                          anything important.",
-                    ),
+                    )
+                    .tagged(TextLayout::justify(Justify::Center)),
                 ))
                 .gap(theme.space.section)
                 .align(AlignItems::Center)
