@@ -16,7 +16,6 @@ use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use bevy::ui::{AlignItems, px};
-use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
@@ -29,9 +28,10 @@ use hamlet_protocol::client::{
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::styles::{
-    self, buttons, caption, command_block, danger_button, framed,
-    marked, note, primary_button,
+    self, buttons, command_block, danger_button, framed, marked,
+    note, primary_button, status_mark, success_button,
 };
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::MonoText;
@@ -42,6 +42,7 @@ use crate::convo::talk_at;
 use crate::dock::{HUB, show_tab};
 use crate::hub::Showing;
 use crate::roll::{either, moved};
+use crate::standing::Standing;
 use crate::{PanelSystems, asking, chat};
 
 /// Seconds between two refreshes of the time each has waited.
@@ -229,12 +230,9 @@ fn button(need: &Need, at: usize) -> AnyView {
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
     let (which, text, rules, variant): (_, _, fn(&mut Cx), _) =
         match choice {
-            Choice::Allow => (
-                Check,
-                "Allow once",
-                primary_button,
-                Variant::Primary,
-            ),
+            Choice::Allow => {
+                (Check, "Allow once", success_button, Variant::Subtle)
+            }
             Choice::Always => {
                 (CheckAll, always, styles::button, Variant::Default)
             }
@@ -242,7 +240,7 @@ fn button(need: &Need, at: usize) -> AnyView {
                 (Cross, "Deny", danger_button, Variant::Danger)
             }
             Choice::Go => {
-                (Check, "Go ahead", primary_button, Variant::Primary)
+                (Check, "Go ahead", success_button, Variant::Subtle)
             }
             Choice::Withdraw => {
                 (Restore, "Withdraw", danger_button, Variant::Danger)
@@ -271,8 +269,8 @@ fn button(need: &Need, at: usize) -> AnyView {
             Choice::Welcome => (
                 Check,
                 "Welcome into the city",
-                primary_button,
-                Variant::Primary,
+                success_button,
+                Variant::Subtle,
             ),
         };
     let scope = matches!(choice, Choice::Always)
@@ -399,14 +397,19 @@ fn head(need: &Need, scholar: &str) -> impl View + use<> {
         1 => need.waited.clone(),
         n => format!("{} · asked {n} times", need.waited),
     };
-    let tone = match need.detail {
-        WaitDetail::Fault {} => Tone::Critical,
-        _ => Tone::Accent,
+    let kind = match need.detail {
+        WaitDetail::Fault {} => StatusKind::Danger,
+        _ => Standing::Waits.kind(),
     };
     with_cx(move |cx| {
-        row((caption(what, tone), frame().grow(1.0), note(when)))
-            .gap(cx.theme().space.gap)
-            .align(AlignItems::Center)
+        row((
+            status_mark(Standing::Waits.glyph(), kind, 22.0),
+            label(what).size(cx.theme().text.small).bold(true),
+            frame().grow(1.0),
+            note(when),
+        ))
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::Center)
     })
 }
 

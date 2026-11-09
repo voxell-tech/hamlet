@@ -655,14 +655,41 @@ pub fn status_pill(
     })
 }
 
-/// The side of the circle of a [`status_summary`], and the width of
-/// the halo around it.
+/// The side of the circle of a [`status_summary`].
 const SUMMARY_CIRCLE: f32 = 30.0;
-const SUMMARY_HALO: f32 = 6.0;
 
-/// The head of an outcome: `which` in a solid circle of the hue of
-/// `kind`, with a soft halo of the same hue around it, beside a bold
-/// `title` and a dim `line` under it.
+/// `which` in a solid circle `size` wide, in the hue of `kind`, with
+/// a soft halo of the same hue around it, a fifth of `size` wide.
+pub fn status_mark(
+    which: Glyph,
+    kind: StatusKind,
+    size: f32,
+) -> impl View {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let status = theme.palette.status.get(kind);
+        let circle =
+            row((glyph(which, size * 0.55).tone(Tone::OnSolid),))
+                .width(px(size))
+                .height(px(size))
+                .radius(size / 2.0)
+                .fill(status.solid)
+                .justify(JustifyContent::Center)
+                .align(AlignItems::Center);
+        let outer = size * 1.4;
+        row((circle,))
+            .width(px(outer))
+            .height(px(outer))
+            .radius(outer / 2.0)
+            .fill(status.fill)
+            .shrink(0.0)
+            .justify(JustifyContent::Center)
+            .align(AlignItems::Center)
+    })
+}
+
+/// The head of an outcome: [`status_mark`] of `which` and `kind`,
+/// beside a bold `title` and a dim `line` under it.
 pub fn status_summary(
     which: Glyph,
     kind: StatusKind,
@@ -672,24 +699,7 @@ pub fn status_summary(
     let (title, line) = (title.into(), line.into());
     with_cx(move |cx| {
         let theme = cx.theme();
-        let status = theme.palette.status.get(kind);
-        let circle = row((glyph(which, theme.text.body)
-            .tone(Tone::OnSolid),))
-        .width(px(SUMMARY_CIRCLE))
-        .height(px(SUMMARY_CIRCLE))
-        .radius(SUMMARY_CIRCLE / 2.0)
-        .fill(status.solid)
-        .justify(JustifyContent::Center)
-        .align(AlignItems::Center);
-        let outer = SUMMARY_CIRCLE + 2.0 * SUMMARY_HALO;
-        let halo = row((circle,))
-            .width(px(outer))
-            .height(px(outer))
-            .radius(outer / 2.0)
-            .fill(status.fill)
-            .shrink(0.0)
-            .justify(JustifyContent::Center)
-            .align(AlignItems::Center);
+        let halo = status_mark(which, kind, SUMMARY_CIRCLE);
         let words = column((
             label(title).bold(true),
             label(line).tone(Tone::Dim).size(theme.text.small),
@@ -794,7 +804,8 @@ pub fn success_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (success_button, Variant::Subtle), act).boxed()
+    acting(which, text, (success_button, Variant::Subtle), act)
+        .boxed()
 }
 
 /// A [`merge_button`] with an icon before its text, that runs `act`.

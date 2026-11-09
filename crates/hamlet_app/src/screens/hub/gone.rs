@@ -55,13 +55,10 @@ pub(super) fn ruin(agent: Entity) -> impl View {
             });
         let section = cx.theme().space.section;
         // The path names it; its fate stands beside the path.
-        let head = row((
-            crumb,
-            status_pill(Glyph::Gone, fate, kind),
-        ))
-        .gap(section)
-        .align(AlignItems::Center)
-        .tagged(Wraps);
+        let head = row((crumb, status_pill(Glyph::Gone, fate, kind)))
+            .gap(section)
+            .align(AlignItems::Center)
+            .tagged(Wraps);
         cx.build(
             column((
                 head,
