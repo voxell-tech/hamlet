@@ -155,7 +155,7 @@ fn card(item: &Item) -> AnyView {
         let (gap, round) = (theme.space.gap, theme.space.round);
         let palette = theme.palette.clone();
         let thumb = match item.kind {
-            Kind::Mesh | Kind::Blueprint => {
+            Kind::Mesh | Kind::Blueprint | Kind::Shader => {
                 picture(item.kind, &item.name, PICTURE)
             }
             kind => glyph(kind.glyph(), 20.0).boxed(),

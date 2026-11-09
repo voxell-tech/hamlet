@@ -4,6 +4,7 @@
 //! and lights, and each card shows its node's output on a small
 //! sphere.
 
+mod pictures;
 mod preview;
 pub(crate) mod sample;
 mod swatch;
@@ -69,6 +70,7 @@ pub(super) fn plugin(app: &mut App) {
     .add_systems(Update, run)
     .add_plugins((
         hamlet_graph_editor::plugin::<ShaderGraph>(SETUP),
+        pictures::plugin,
         preview::plugin,
         sample::plugin,
         swatch::plugin,
