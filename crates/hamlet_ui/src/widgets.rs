@@ -6,8 +6,10 @@ pub mod disclosure;
 pub mod edges;
 pub mod effects;
 pub mod ellipsis;
+pub mod floats;
 pub mod hint;
 pub mod icons;
+pub mod pixels;
 pub mod platform;
 pub mod providers;
 pub mod range;
@@ -25,6 +27,8 @@ pub fn plugin(app: &mut App) {
         switch::plugin,
         cut::CutPlugin,
         edges::plugin,
+        floats::plugin,
+        pixels::plugin,
         ellipsis::plugin,
         hint::plugin,
         providers::plugin,
