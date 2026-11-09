@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use bevy::app::{App, Update};
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
@@ -16,7 +17,7 @@ use bevy::time::{Real, Time};
 use bevy::window::{PrimaryWindow, Window};
 use bevy_cef::prelude::{
     ConsoleLevel, ConsoleMessage, LoadError, LoadFinished,
-    WebviewTitle,
+    LoadingStateChanged, WebviewTitle,
 };
 use bevy_fynix::dock::{DockTree, DropTarget, Edge};
 use hamlet_client::connection::Contact;
@@ -50,6 +51,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<AgentNames>()
         .init_resource::<Consoles>()
         .add_observer(wrote)
+        .add_observer(loading)
         .add_observer(asked)
         .add_observer(loaded)
         .add_observer(failed)
@@ -84,6 +86,20 @@ struct Wait {
     id: RequestId,
     net: bool,
     until: Duration,
+}
+
+/// Whether a page is loading, as the engine last said.
+#[derive(Component)]
+pub(super) struct Loading(pub bool);
+
+/// Keeps whether each page is loading.
+fn loading(
+    changed: On<LoadingStateChanged>,
+    mut commands: bevy::ecs::system::Commands,
+) {
+    commands
+        .entity(changed.webview)
+        .try_insert(Loading(changed.is_loading));
 }
 
 /// What each agent's page wrote to its console since its agent last
@@ -182,6 +198,7 @@ fn act(world: &mut World) {
             );
             continue;
         };
+        page::wake(world, &panel);
         match ask.act {
             WebAct::Open { address } => {
                 world
@@ -211,6 +228,60 @@ fn act(world: &mut World) {
                     );
                 }
             }
+            WebAct::Wait {
+                text: None,
+                selector: None,
+                seconds,
+            } => {
+                let page = page::of(world, &panel);
+                let loading = page
+                    .and_then(|page| world.get::<Loading>(page))
+                    .is_some_and(|loading| loading.0);
+                if page.is_none() {
+                    on_page(
+                        world,
+                        &panel,
+                        ask.id,
+                        "wait",
+                        json!({}),
+                        Duration::ZERO,
+                    );
+                } else if loading {
+                    let until =
+                        world.resource::<Time<Real>>().elapsed()
+                            + Duration::from_secs(u64::from(seconds));
+                    let wait = Wait {
+                        id: ask.id,
+                        net: ask.net,
+                        until,
+                    };
+                    world
+                        .resource_mut::<Waits>()
+                        .0
+                        .insert(panel.0, wait);
+                } else {
+                    answer(
+                        world,
+                        ask.id,
+                        "The page has finished loading.".into(),
+                        false,
+                    );
+                }
+            }
+            WebAct::Wait {
+                text,
+                selector,
+                seconds,
+            } => {
+                on_page(
+                    world,
+                    &panel,
+                    ask.id,
+                    "wait",
+                    json!({"text": text, "selector": selector, "seconds": seconds}),
+                    Duration::from_secs(u64::from(seconds)),
+                );
+            }
             WebAct::Console {} => {
                 let lines = world
                     .resource_mut::<Consoles>()
@@ -233,6 +304,7 @@ fn act(world: &mut World) {
                     ask.id,
                     "read",
                     json!({"html": html}),
+                    Duration::ZERO,
                 );
             }
         }
@@ -247,9 +319,12 @@ fn on_page(
     id: RequestId,
     act: &str,
     arguments: serde_json::Value,
+    waits: Duration,
 ) {
     match page::of(world, panel) {
-        Some(page) => bridge::ask(world, page, id, act, arguments),
+        Some(page) => {
+            bridge::ask(world, page, id, act, arguments, waits);
+        }
         None => answer(
             world,
             id,

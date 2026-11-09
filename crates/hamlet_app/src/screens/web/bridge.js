@@ -61,7 +61,24 @@
     return said;
   };
 
+  const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+
   const acts = {
+    async wait({ text, selector, seconds }) {
+      const until = Date.now() + seconds * 1000;
+      const found = () =>
+        selector
+          ? document.querySelector(selector) !== null
+          : ((document.body && document.body.innerText) || "").includes(text);
+      while (!found()) {
+        if (Date.now() > until) {
+          const what = selector ? `an element ${selector} matches` : `"${text}"`;
+          throw new Error(`The page did not show ${what} within ${seconds} s.`);
+        }
+        await pause(100);
+      }
+      return selector ? `The page has an element ${selector} matches.` : `The page shows "${text}".`;
+    },
     read({ html }) {
       document
         .querySelectorAll("[data-hamlet]")
