@@ -51,6 +51,12 @@ pub(crate) enum Call {
         args: Value,
         net: bool,
     },
+    /// A web tool, with whether it reaches beyond this machine.
+    Web {
+        name: String,
+        args: Value,
+        net: bool,
+    },
     Other {
         name: String,
         args: Value,
@@ -82,6 +88,13 @@ pub(crate) fn call_of(
             dialect,
             command: text("command"),
             net: args.get("network") == Some(&Value::Bool(true)),
+        };
+    }
+    if let Some(web) = crate::web::Tool::named(tool) {
+        return Call::Web {
+            name: tool.into(),
+            args: args.clone(),
+            net: crate::web::reaches_network(web, args),
         };
     }
     match tool {
@@ -154,6 +167,7 @@ pub(crate) fn call_text(call: &Call) -> String {
         }
         Call::Society { name, args }
         | Call::Added { name, args, .. }
+        | Call::Web { name, args, .. }
         | Call::Other { name, args } => format!("{name} {args}"),
         Call::Parcel {
             name,
@@ -301,6 +315,13 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
                 Verdict::Ask(Danger::Edit)
             } else {
                 Verdict::Run { net: false }
+            }
+        }
+        Call::Web { net, .. } => {
+            if *net && !standing.net {
+                Verdict::Ask(Danger::Network)
+            } else {
+                Verdict::Run { net: standing.net }
             }
         }
         Call::Shell { net, .. } | Call::Added { net, .. } => {

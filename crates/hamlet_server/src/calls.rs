@@ -607,6 +607,10 @@ impl Core {
                                 return Ok(());
                             }
                         }
+                    } else if let Some(web) =
+                        crate::web::Tool::named(tool)
+                    {
+                        self.run_web(&call, reply.clone(), web, net)?
                     } else {
                         self.run_tool(
                             &call,
@@ -724,6 +728,42 @@ impl Core {
                 }
                 outcome
             },
+        );
+        Ok(None)
+    }
+
+    /// Runs the web tool `tool` of `call`, its page let onto other
+    /// machines with `net`, after marking it begun when it may not
+    /// run again.
+    fn run_web(
+        &mut self,
+        call: &Call<'_>,
+        reply: Reply,
+        tool: crate::web::Tool,
+        net: bool,
+    ) -> Result<Option<Outcome>> {
+        if self.runs_once(call.tool) {
+            marker::begin(
+                self.realm.store().connection(),
+                call.call.identity(),
+                &call.request,
+                crate::clock::now(),
+            )?;
+        }
+        let work = crate::web::call(
+            self,
+            call.conversation.agent,
+            tool,
+            call.arguments,
+            net,
+        )?;
+        self.calls.run(
+            call.call.clone(),
+            call.conversation.id,
+            reply,
+            call.request.clone(),
+            None,
+            work,
         );
         Ok(None)
     }

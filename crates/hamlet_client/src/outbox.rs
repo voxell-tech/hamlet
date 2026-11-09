@@ -19,6 +19,12 @@ impl Outbox {
         id
     }
 
+    /// Queues `message`, which needs no id of its own: a notice, or
+    /// an answer to the server.
+    pub fn push(&mut self, message: protocol::ClientMessage) {
+        self.0.push(message);
+    }
+
     /// True when no request is queued.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()

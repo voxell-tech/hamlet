@@ -156,6 +156,10 @@ pub struct View {
     /// The address each Web panel showed, by panel id.
     #[serde(default)]
     web_addresses: BTreeMap<String, String>,
+    /// The Web panels that were agents' tabs, with their agents'
+    /// ids.
+    #[serde(default)]
+    web_agents: BTreeMap<String, u64>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -360,6 +364,7 @@ pub fn restore(world: &mut World) {
     world.insert_resource(terminal::Folds(view.terminal_folds));
     world.insert_resource(terminal::Pins(view.terminal_pins));
     world.insert_resource(web::Addresses(view.web_addresses));
+    world.insert_resource(web::AgentTabs(view.web_agents));
 }
 
 /// Puts back the kept appearance and zoom.
@@ -412,6 +417,7 @@ pub fn keep(
         folds,
         pins,
         addresses,
+        agents,
     ): (
         Res<Pending>,
         Res<Kept>,
@@ -422,6 +428,7 @@ pub fn keep(
         Res<terminal::Folds>,
         Res<terminal::Pins>,
         Res<web::Addresses>,
+        Res<web::AgentTabs>,
     ),
     (fog, far, wind, appearance, zoom): (
         Res<VolumetricFogSettings>,
@@ -452,6 +459,7 @@ pub fn keep(
         || folds.is_changed()
         || pins.is_changed()
         || addresses.is_changed()
+        || agents.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -485,6 +493,7 @@ pub fn keep(
         terminal_folds: folds.0.clone(),
         terminal_pins: pins.0.clone(),
         web_addresses: addresses.0.clone(),
+        web_agents: agents.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -556,6 +565,7 @@ mod tests {
                 "web-2".into(),
                 "http://localhost:5173/".into(),
             )]),
+            web_agents: BTreeMap::from([("web-3".into(), 7)]),
         }
     }
 

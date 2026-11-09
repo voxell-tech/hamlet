@@ -20,6 +20,7 @@ mod settings;
 mod state;
 mod terminals;
 mod waits;
+mod web;
 
 pub use chat::*;
 pub use documents::*;
@@ -31,6 +32,7 @@ pub use settings::*;
 pub use state::*;
 pub use terminals::*;
 pub use waits::*;
+pub use web::*;
 
 impl ClientMessage {
     /// The id of this request, if it has one.
@@ -38,6 +40,8 @@ impl ClientMessage {
         match self {
             Self::Hello(_)
             | Self::Close(_)
+            | Self::WebWindow(_)
+            | Self::Web(_)
             | Self::Terminal(
                 Terminal::Input { .. }
                 | Terminal::Resize { .. }
@@ -110,7 +114,10 @@ impl ServerMessage {
                 | ReadResult::Papers { to, .. }
                 | ReadResult::Charter { to, .. },
             ) => Some(to),
-            Self::State(_) | Self::Change(_) | Self::Turn(_) => None,
+            Self::State(_)
+            | Self::Change(_)
+            | Self::Turn(_)
+            | Self::Web(_) => None,
         }
     }
 }
@@ -163,6 +170,10 @@ pub enum ClientMessage {
     MoveLodges(MoveLodges),
     #[serde(rename = "terminal")]
     Terminal(Terminal),
+    #[serde(rename = "web-window")]
+    WebWindow(WebWindow),
+    #[serde(rename = "web")]
+    Web(WebAnswer),
 }
 
 #[derive(
@@ -192,6 +203,8 @@ pub enum ServerMessage {
     Fault(Fault),
     #[serde(rename = "terminal")]
     Terminal(TerminalOutput),
+    #[serde(rename = "web")]
+    Web(WebAsk),
 }
 
 #[derive(

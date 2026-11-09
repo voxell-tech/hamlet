@@ -13,7 +13,7 @@ use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
@@ -29,8 +29,9 @@ use bevy_cef::prelude::{
 use bevy_fynix::dock::{DockTab, DockTree};
 use hamlet_client::ViewFolder;
 
+use super::agents::{AgentNames, Waits};
 use super::panel::{PanelId, Surface, is_panel, tab_name};
-use super::{Addresses, engine};
+use super::{Addresses, AgentTabs, engine};
 use crate::dock::on_a_desk;
 
 /// The name of the chief's browsing session, which every Web panel of
@@ -75,7 +76,10 @@ pub(super) fn plugin(app: &mut App) {
     .add_systems(
         Update,
         (
-            (open, place, sleep).chain().after(crate::desk::capture),
+            (open, place, sleep)
+                .chain()
+                .in_set(Opening)
+                .after(crate::desk::capture),
             pace.after(crate::world_view::pace),
             name_tabs,
         ),
@@ -93,6 +97,11 @@ pub(super) fn helper() -> PathBuf {
         })
         .unwrap_or_else(|| PathBuf::from(HELPER))
 }
+
+/// Where the pages of the Web panels are opened, put in place and put
+/// to sleep.
+#[derive(SystemSet, Clone, PartialEq, Eq, Hash, Debug)]
+pub(super) struct Opening;
 
 /// The webview of a Web panel.
 #[derive(Component)]
@@ -182,11 +191,9 @@ fn open(world: &mut World) {
         .filter(|panel| !kept(world, panel))
         .cloned()
         .collect::<Vec<_>>();
-    if !gone.is_empty() {
-        let mut addresses = world.resource_mut::<Addresses>();
-        for panel in gone {
-            addresses.0.remove(&panel);
-        }
+    for panel in gone {
+        world.resource_mut::<Addresses>().0.remove(&panel);
+        world.resource_mut::<AgentTabs>().0.remove(&panel);
     }
     let wanted = world
         .resource::<Addresses>()
@@ -200,6 +207,8 @@ fn open(world: &mut World) {
         if of(world, &panel).is_some() {
             continue;
         }
+        let agent =
+            world.resource::<AgentTabs>().0.contains_key(&panel.0);
         let material = world
             .resource_mut::<Assets<WebviewUiMaterial>>()
             .add(WebviewUiMaterial::default());
@@ -213,9 +222,9 @@ fn open(world: &mut World) {
             },
             MaterialNode(material),
         ));
-        // A page with no profile has a session of its own, kept in
-        // memory.
-        if let Ok(profile) = WebviewProfile::new(CHIEF) {
+        // A page with no profile, as an agent's is, has a session of
+        // its own, kept in memory.
+        if !agent && let Ok(profile) = WebviewProfile::new(CHIEF) {
             page.insert(profile);
         }
     }
@@ -289,15 +298,22 @@ fn place(
 /// wakes each that is back.
 fn sleep(
     time: Res<Time<Real>>,
-    pages: Query<
-        (Entity, Option<&OutOfSight>, Option<&WebviewHidden>),
-        With<Page>,
-    >,
+    pages: Query<(
+        Entity,
+        &Page,
+        Option<&OutOfSight>,
+        Option<&WebviewHidden>,
+    )>,
+    waits: Option<Res<Waits>>,
     mut commands: Commands,
 ) {
-    for (page, out, hidden) in &pages {
-        let asleep = out
-            .is_some_and(|out| time.elapsed() - out.0 >= SLEEP_AFTER);
+    for (page, Page(panel), out, hidden) in &pages {
+        // An agent's page it waits on stays awake.
+        let waited = waits.as_ref().is_some_and(|w| w.has(&panel.0));
+        let asleep = !waited
+            && out.is_some_and(|out| {
+                time.elapsed() - out.0 >= SLEEP_AFTER
+            });
         if hidden.is_some_and(|hidden| hidden.0) != asleep {
             commands.entity(page).try_insert(WebviewHidden(asleep));
         }
@@ -322,6 +338,7 @@ fn follow_address(
 fn name_tabs(
     tabs: Query<(Entity, &DockTab)>,
     tree: Res<DockTree>,
+    agents: Option<Res<AgentNames>>,
     pages: Query<(&Page, &WebviewTitle)>,
     children: Query<&Children>,
     mut texts: Query<&mut Text>,
@@ -342,7 +359,11 @@ fn name_tabs(
             .find(|(Page(panel), _)| panel.0 == window)
             .map(|(_, title)| title.0.as_str())
             .unwrap_or_default();
-        let name = tab_name(title);
+        let agent = agents
+            .as_ref()
+            .and_then(|names| names.0.get(window))
+            .map(String::as_str);
+        let name = tab_name(title, agent);
         let label = children
             .iter_descendants_depth_first(node)
             .find(|kid| texts.contains(*kid));

@@ -137,6 +137,8 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `move-lodges` (`MoveLodges`) | none | Copy every hire's lodge from the workspace the server works in to the one chosen in Settings, replacing the lodges there; `reply` once done. Progress also changes through `change`. |
 
 | `terminal` (`Terminal`) | `op` and fields below | Open, type into, resize, watch, rename or close a terminal. |
+| `web-window` (`WebWindow`) | none; no `id` | This connection is a window that draws Web panels, and the one the chief used last: the server asks the last to send it for the agents' web tools. A window sends it on connecting and each time it comes to the front. No answer. |
+| `web` (`WebAnswer`) | `to: RequestId`, `text: string`, `failed: boolean`; no `id` | The window's answer to a server `web` ask: words for the agent, and whether the act failed. No answer. |
 
 `Terminal` is discriminated by `op`:
 
@@ -237,6 +239,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 | `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `history`, `models`, `image`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
 | `login` (`LoginProgress`) | `login: string`, `to?: RequestId`, `step: LoginStep` | Sign-in session progress. | Only the connection that started the session. |
 | `fault` (`Fault`) | `text: string`, `to?: RequestId` | Protocol, watch or connection failure. | Only the affected connection. |
+| `web` (`WebAsk`) | `id: RequestId`, `agent: AgentId`, `net: boolean`, `act: WebAct` | Asks the window to act on the agent's page in its own Web tab, as one of its web tools; the window answers with a client `web` message to `id`. With `net` false, a page that leaves this machine is blanked and the act fails. `WebAct` is discriminated by `act`: `open` loads `address` (1–8192) and waits for it. | Only the connection that sent `web-window` last. |
 | `terminal` (`TerminalOutput`) | `terminal: string`, `data: string`, `reset: boolean`, `to?: RequestId` | Bytes a terminal printed, in base64. With `reset`, they redraw it from a blank screen of its size: the answer to a watch, or a catch-up for a connection whose queue filled and that skipped output. A redraw starts with the size its first byte was printed at and marks each resize after, as `ESC ] hamlet;size;<cols>;<rows> BEL`, so each part is drawn at the size it was printed at (`hamlet_protocol::client::replayed` splits them). The server keeps the last 512 KB of what a terminal printed, so a redraw ends with what its trim may have cut away: on the alternate screen, that screen as it shows, then the input modes its program set, such as reading the mouse and bracketed paste. Both ends resize a screen with `hamlet_protocol::screen::resize`, which wraps what was printed again at the new width, as a terminal window does. | Only connections watching it. |
 
 `Update` replaces the named view or removes it. Its `type` is `hamlet`

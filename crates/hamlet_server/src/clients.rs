@@ -50,6 +50,8 @@ pub(crate) struct Clients {
     pub tasks: JoinSet<()>,
     pub watches: Vec<Watch>,
     pub owed: Vec<Owed>,
+    /// The windows that draw Web panels, for the agents' web tools.
+    pub web: crate::web::Windows,
     /// The state the clients were sent last.
     pub sent: Option<protocol::State>,
     pub epoch: i64,
@@ -71,6 +73,7 @@ impl Clients {
             tasks: JoinSet::new(),
             watches: Vec::new(),
             owed: Vec::new(),
+            web: crate::web::Windows::default(),
             sent: None,
             epoch,
             revision: 0,
@@ -119,6 +122,7 @@ impl Clients {
         self.list.remove(&client);
         self.watches.retain(|w| w.client != client);
         self.owed.retain(|o| o.client != client);
+        self.web.gone(client);
     }
 
     /// The clients watching `conversation`, with what each watches.
