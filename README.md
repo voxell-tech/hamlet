@@ -97,7 +97,7 @@ Each includes everything Hamlet needs, Node too.
 | macOS (Apple Silicon) | `Hamlet-<version>.dmg` | Open it and drag Hamlet onto Applications. |
 | Ubuntu, Debian, Mint | `hamlet_<version>_amd64.deb` | Open it with Software Install (App Center). |
 | Fedora | `hamlet-<version>-1.x86_64.rpm` | Open it with Software. |
-| Windows (x64) | `Hamlet-<version>-Setup.exe` | Run it. Until Windows has a sandbox, the app cannot start the server; see [Tools and platforms](#tools-and-platforms). |
+| Windows (x64) | `Hamlet-<version>-Setup.exe` | Not usable yet: until Windows has a sandbox, the app cannot start its server; see [Tools and platforms](#tools-and-platforms). |
 
 Then open Hamlet from your applications. It starts its server and opens
 the window, which walks you through choosing a model. If Hamlet cannot
