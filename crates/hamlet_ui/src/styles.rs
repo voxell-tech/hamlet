@@ -1,7 +1,7 @@
 //! The styles of the buttons and fields, and the view shapes the
 //! panels share.
 
-use bevy::color::{Alpha, Color};
+use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::world::World;
 use bevy::ui::{
@@ -19,7 +19,7 @@ use bevy_fynix::{
 
 use crate::theme::{HamletTheme, TextSizes};
 use crate::widgets::edges::faded;
-use crate::widgets::effects::Variant;
+use crate::widgets::effects::{Variant, lit_panels};
 use crate::widgets::ellipsis::one_line;
 use crate::widgets::icons::{Glyph, glyph};
 use crate::widgets::platform::{DisplayText, MonoText, Wraps};
@@ -195,6 +195,14 @@ pub fn danger_button(cx: &mut Cx) {
             s.frame(|f, t| {
                 f.fill(t.palette.danger_hover)
                     .border_color(t.palette.red)
+            })
+            .tone(Tone::Critical)
+        })
+        // As at rest: the pointer over it changes nothing.
+        .when::<InteractionDisabled>(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.danger)
+                    .border_color(t.palette.danger_border)
             })
             .tone(Tone::Critical)
         })
@@ -1106,7 +1114,7 @@ pub fn card_choice(
     move |cx| {
         style::<HamletTheme>()
             .frame(move |f, t| {
-                f.fill(t.palette.card)
+                f.fill(card_fill(t, picked))
                     .border(t.space.border)
                     .border_color(if picked {
                         t.palette.accent
@@ -1123,22 +1131,43 @@ pub fn card_choice(
             })
             .hovered(|s| {
                 s.frame(move |f, t| {
-                    f.fill(t.palette.card).border_color(if picked {
-                        t.palette.accent
-                    } else {
-                        t.palette.gold_4
-                    })
+                    f.fill(card_fill(t, picked)).border_color(
+                        if picked {
+                            t.palette.accent
+                        } else {
+                            t.palette.gold_4
+                        },
+                    )
                 })
             })
             .pressed(|s| {
-                s.frame(|f, t| {
-                    f.fill(t.palette.card)
+                s.frame(move |f, t| {
+                    f.fill(card_fill(t, picked))
                         .border_color(t.palette.gold_5)
                 })
             })
             .transition(Motion::Interact)
             .apply(cx);
     }
+}
+
+/// How far a picked card's fill is taken toward the glow, over dark
+/// panels and over light ones, where the pale gold needs more.
+const PICKED_WASH: (f32, f32) = (0.1, 0.32);
+
+/// The fill of a [`card_choice`]: the card's, washed with the glow
+/// while it is `picked`.
+fn card_fill(theme: &HamletTheme, picked: bool) -> Color {
+    let palette = &theme.palette;
+    if !picked {
+        return palette.card;
+    }
+    let wash = if lit_panels(theme) {
+        PICKED_WASH.1
+    } else {
+        PICKED_WASH.0
+    };
+    palette.card.mix(&palette.glow, wash)
 }
 
 /// A ring, filled while it is the one chosen, as a radio button's.

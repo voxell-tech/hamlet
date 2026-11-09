@@ -338,8 +338,8 @@ fn indicator() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let (space, palette) = (&theme.space, &theme.palette);
-        let underglow =
-            cx.world.resource::<EffectSettings>().underglow;
+        let effects = cx.world.resource::<EffectSettings>();
+        let underglow = effects.underglow * effects.gain(theme);
         let glow = underline_glow(
             cx.world.resource::<DeskSettings>(),
             palette.glow,

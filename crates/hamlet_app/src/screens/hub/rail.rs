@@ -46,8 +46,8 @@ use hamlet_ui::styles::{
     ICON, description_rules, note, note_rules, quoted, scroll_area,
     text_input, transparent,
 };
-use hamlet_ui::theme::{HamletTheme, Palette};
-use hamlet_ui::widgets::effects::{Underglow, Variant};
+use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::effects::{Underglow, Variant, lit_panels};
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -93,8 +93,10 @@ const STEP_IN: f32 = 16.0;
 /// The room inside a row's ends.
 const ROW_INSET: f32 = 6.0;
 
-/// How strong the accent is at the left of what the panel shows.
-const LIT: f32 = 0.16;
+/// How strong the glow is where the light over what the panel shows
+/// starts, over dark panels and over light ones. The glow is pale
+/// gold, so light panels need more of it to stand out.
+const LIT: (f32, f32) = (0.2, 0.55);
 
 /// The room over a section's header inside its block.
 const BLOCK_PAD: f32 = 4.0;
@@ -1428,9 +1430,15 @@ fn expanded(line: &Line, tree: Tree) -> AnyView {
         .rules(rules)
         .tagged(Variant::Default)
         .on_activate(move |world| go(world, target));
+    // The light goes on a frame around the row: the row's own
+    // gradient is its glow under the pointer, which takes it back.
     let shown = if line.current {
         with_cx(move |cx| {
-            shown.tagged(lit(&cx.theme().palette, Fall::Across))
+            row((shown,))
+                .grow(1.0)
+                .min_width(px(0.0))
+                .radius(4.0)
+                .tagged(lit(cx.theme(), Fall::Across))
         })
         .boxed()
     } else {
@@ -1628,7 +1636,7 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
             && matches!(section.group, Group::Hamlet(_));
         parts.push(if lit_block {
             with_cx(move |cx| {
-                block.tagged(lit(&cx.theme().palette, Fall::Down))
+                block.tagged(lit(cx.theme(), Fall::Down))
             })
             .boxed()
         } else {
@@ -1647,15 +1655,14 @@ enum Fall {
     Down,
 }
 
-/// The light over what the panel shows: the accent, fading to nothing
+/// The light over what the panel shows: the glow, fading to nothing
 /// the way `fall` says.
-fn lit(palette: &Palette, fall: Fall) -> BackgroundGradient {
+fn lit(theme: &HamletTheme, fall: Fall) -> BackgroundGradient {
+    let strength = if lit_panels(theme) { LIT.1 } else { LIT.0 };
+    let glow = theme.palette.glow;
     let stops = vec![
-        ColorStop::new(palette.accent.with_alpha(LIT), percent(0.0)),
-        ColorStop::new(
-            palette.accent.with_alpha(0.0),
-            percent(100.0),
-        ),
+        ColorStop::new(glow.with_alpha(strength), percent(0.0)),
+        ColorStop::new(glow.with_alpha(0.0), percent(100.0)),
     ];
     BackgroundGradient::from(match fall {
         Fall::Across => LinearGradient::to_right(stops),

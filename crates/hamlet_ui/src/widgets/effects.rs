@@ -282,7 +282,7 @@ const LIGHT_DEEPEN: f32 = 0.45;
 
 /// Whether `theme`'s panels are light: dark words read better on
 /// them than light ones.
-fn lit_panels(theme: &HamletTheme) -> bool {
+pub fn lit_panels(theme: &HamletTheme) -> bool {
     let surface = theme.palette.surface;
     contrast(surface, Color::BLACK) > contrast(surface, Color::WHITE)
 }

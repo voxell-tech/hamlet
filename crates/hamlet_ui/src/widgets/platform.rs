@@ -37,6 +37,8 @@ use bevy::ui_widgets::{
     Activate, ActivateOnPress, Button as ButtonBehavior,
     Checkbox as CheckboxBehavior, MenuButton,
 };
+use bevy::window::SystemCursorIcon;
+use bevy_fynix::EntityCursor;
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
 use hamlet_assets::fonts::{FRAUNCES, INTER, TWEMOJI};
@@ -70,6 +72,7 @@ pub fn plugin(app: &mut App) {
                 apply_glow,
                 apply_clip,
                 apply_wrap,
+                refuse_disabled,
                 (make_focusable, focus_ring.run_if(focus_moved))
                     .chain(),
             )
@@ -352,6 +355,28 @@ fn note_press(
         commands
             .entity(button)
             .try_insert(PressedOn(press.original_event_target()));
+    }
+}
+
+/// Has a button that cannot be pressed ask for the refusing cursor
+/// instead of the pressing one, and back once it can be.
+fn refuse_disabled(
+    mut buttons: Query<
+        (&mut EntityCursor, Has<InteractionDisabled>),
+        With<ButtonBehavior>,
+    >,
+) {
+    for (mut cursor, disabled) in &mut buttons {
+        let want = match (cursor.0, disabled) {
+            (SystemCursorIcon::Pointer, true) => {
+                SystemCursorIcon::NotAllowed
+            }
+            (SystemCursorIcon::NotAllowed, false) => {
+                SystemCursorIcon::Pointer
+            }
+            _ => continue,
+        };
+        cursor.0 = want;
     }
 }
 
