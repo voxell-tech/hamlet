@@ -49,6 +49,12 @@ pub enum WebAct {
         #[schemars(length(min = 1, max = WEB_ADDRESS_MOST))]
         address: String,
     },
+    /// Reads the page as the browser built it: its title, address,
+    /// text and its links, buttons and fields, numbered for the acts
+    /// that take one; with `html`, the page's HTML instead of its
+    /// text and elements.
+    #[serde(rename = "read")]
+    Read { html: bool },
 }
 
 /// A window's answer to the [`WebAsk`] `to`: words for the agent,

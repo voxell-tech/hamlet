@@ -19,6 +19,9 @@ use tokio::sync::oneshot;
 use crate::calls::spec;
 use crate::core::Core;
 use crate::work::tools::Outcome;
+use crate::work::tools::truncate::{
+    MAX_BYTES, character_end, format_size,
+};
 
 /// How long a window may take to answer, past the act's own wait.
 const ANSWER_WITHIN: Duration = Duration::from_secs(30);
@@ -31,14 +34,16 @@ const NO_WINDOW: &str = "No window with Web panels is open, so \
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Tool {
     Open,
+    Read,
 }
 
 impl Tool {
-    const ALL: [Self; 1] = [Self::Open];
+    const ALL: [Self; 2] = [Self::Open, Self::Read];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Open => "web_open",
+            Self::Read => "web_read",
         }
     }
 
@@ -48,7 +53,8 @@ impl Tool {
 }
 
 pub(crate) fn specs() -> Vec<ToolSpec> {
-    vec![spec(
+    vec![
+        spec(
         Tool::Open.name(),
         "Load a page in your own Web tab, which the chief can watch, \
          and wait for it to load. Use it to see a site you serve, \
@@ -69,7 +75,28 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
             },
         }),
         ToolSpecReplay::Safe,
-    )]
+        ),
+        spec(
+            Tool::Read.name(),
+            "Read the page in your Web tab as the browser built it, \
+             after its scripts ran: its title, address and text, then \
+             its links, buttons and fields, each with a number that \
+             web_click and web_type take. The numbers last until the \
+             next read. With html, its HTML instead.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "html": {
+                        "type": "boolean",
+                        "description":
+                            "Give the page's HTML rather than its text \
+                             and elements. Defaults to false.",
+                    },
+                },
+            }),
+            ToolSpecReplay::Safe,
+        ),
+    ]
 }
 
 /// Whether a call of `tool` with `arguments` reaches beyond this
@@ -81,6 +108,7 @@ pub(crate) fn reaches_network(tool: Tool, arguments: &Value) -> bool {
             .and_then(Value::as_str)
             .and_then(web_address)
             .is_some_and(|address| !is_on_this_machine(&address)),
+        Tool::Read => false,
     }
 }
 
@@ -138,6 +166,20 @@ impl Windows {
     }
 }
 
+/// `text` cut to the most a tool shows, at a character.
+fn cut(text: &str) -> String {
+    if text.len() <= MAX_BYTES {
+        return text.to_owned();
+    }
+    let end = character_end(text.as_bytes(), MAX_BYTES);
+    format!(
+        "{}\n\n[cut at {} of {}]",
+        &text[..end],
+        format_size(end),
+        format_size(text.len())
+    )
+}
+
 /// The act a call of `tool` with `arguments` asks for, or the words
 /// of one that cannot be asked.
 fn act_of(
@@ -159,6 +201,12 @@ fn act_of(
                 })?;
             Ok(WebAct::Open { address })
         }
+        Tool::Read => Ok(WebAct::Read {
+            html: arguments
+                .get("html")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
     }
 }
 
@@ -209,7 +257,9 @@ pub(crate) fn call(
                     Ok(Ok(answer)) if answer.failed => {
                         Outcome::failed(answer.text)
                     }
-                    Ok(Ok(answer)) => Outcome::text(answer.text),
+                    Ok(Ok(answer)) => {
+                        Outcome::text(cut(&answer.text))
+                    }
                     Ok(Err(_)) => Outcome::failed(
                         "The window closed before it answered.",
                     ),

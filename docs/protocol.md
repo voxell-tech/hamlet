@@ -223,7 +223,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 | `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `history`, `models`, `image`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
 | `login` (`LoginProgress`) | `login: string`, `to?: RequestId`, `step: LoginStep` | Sign-in session progress. | Only the connection that started the session. |
 | `fault` (`Fault`) | `text: string`, `to?: RequestId` | Protocol, watch or connection failure. | Only the affected connection. |
-| `web` (`WebAsk`) | `id: RequestId`, `agent: AgentId`, `net: boolean`, `act: WebAct` | Asks the window to act on the agent's page in its own Web tab, as one of its web tools; the window answers with a client `web` message to `id`. With `net` false, a page that leaves this machine is blanked and the act fails. `WebAct` is discriminated by `act`: `open` loads `address` (1–8192) and waits for it. | Only the connection that sent `web-window` last. |
+| `web` (`WebAsk`) | `id: RequestId`, `agent: AgentId`, `net: boolean`, `act: WebAct` | Asks the window to act on the agent's page in its own Web tab, as one of its web tools; the window answers with a client `web` message to `id`. With `net` false, a page that leaves this machine is blanked and the act fails. `WebAct` is discriminated by `act`: `open` loads `address` (1–8192) and waits for it; `read` with `html: boolean` reads the page's title, address, text and numbered links, buttons and fields, or its HTML. | Only the connection that sent `web-window` last. |
 
 `Update` replaces the named view or removes it. Its `type` is `hamlet`
 (`hamlet`), `agent` (`agent`), `agent-gone` (`id`), `scholar` (`scholar`), `scholar-gone` (`id`), `wait` (`wait`),
