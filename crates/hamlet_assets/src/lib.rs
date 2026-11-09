@@ -63,6 +63,7 @@ pub const MEASURES: File = file!("measures.toml");
 pub const THEMES: &[File] = &[
     file!("themes/catppuccin.toml"),
     file!("themes/hamlet.toml"),
+    file!("themes/hamlet_ash.toml"),
     file!("themes/monokai_vox.toml"),
     file!("themes/tokyonight.toml"),
 ];
