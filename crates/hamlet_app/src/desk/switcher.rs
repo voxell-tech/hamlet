@@ -31,9 +31,9 @@ use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, BackgroundGradient, BoxShadow, ColorStop, Display,
-    FlexDirection, LinearGradient, Overflow, OverflowAxis,
-    PositionType, ShadowStyle, UiRect, UiTransform, Val, percent, px,
+    AlignItems, BackgroundGradient, BoxShadow, Display,
+    FlexDirection, Overflow, OverflowAxis, PositionType, ShadowStyle,
+    UiRect, UiTransform, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::scroll::{
@@ -58,7 +58,7 @@ use hamlet_ui::styles::{
     section, text_input,
 };
 use hamlet_ui::theme::{HamletTheme, Themed};
-use hamlet_ui::widgets::effects::{EffectColors, EffectSettings};
+use hamlet_ui::widgets::effects::{Edge, EffectSettings, wash};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
@@ -332,19 +332,13 @@ fn tabs_view(tabs: &Tabs) -> impl View {
     })
 }
 
-/// How far up the shown segment its inner light is three tenths as
-/// strong, and how far up it is gone, in percent of the height.
-const LIGHT_FOOT: f32 = 14.0;
-const LIGHT_TOP: f32 = 40.0;
-
-/// The raised segment under the shown tab, lit inside from below
-/// and underlined with a glowing line.
+/// The segment under the shown tab, washed with light rising from
+/// its underline, a glowing line, as a shown tab is.
 fn indicator() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let (space, palette) = (&theme.space, &theme.palette);
         let effects = cx.world.resource::<EffectSettings>();
-        let underglow = effects.underglow * effects.gain(theme);
         let glow = underline_glow(
             cx.world.resource::<DeskSettings>(),
             palette.glow,
@@ -352,22 +346,8 @@ fn indicator() -> impl View {
         );
         let radius =
             (space.track_radius - space.track_padding).max(0.0);
-        let light =
-            EffectColors::of(theme).underglow.with_alpha(underglow);
-        // The light stays under the label's feet, so the label keeps
-        // 4.5:1 along its height.
         let inner =
-            BackgroundGradient::from(LinearGradient::to_top(vec![
-                ColorStop::new(light, percent(0.0)),
-                ColorStop::new(
-                    light.with_alpha(underglow * 0.3),
-                    percent(LIGHT_FOOT),
-                ),
-                ColorStop::new(
-                    light.with_alpha(0.0),
-                    percent(LIGHT_TOP),
-                ),
-            ]));
+            BackgroundGradient(vec![wash(theme, Edge::Bottom, 1.0)]);
         let line = frame()
             .position(PositionType::Absolute)
             .inset(UiRect {
@@ -389,7 +369,6 @@ fn indicator() -> impl View {
                 bottom: px(0.0),
             })
             .display(Display::None)
-            .fill(palette.selected)
             .radius(radius)
             .tagged(inner)
             .tagged(Indicator)

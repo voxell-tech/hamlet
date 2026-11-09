@@ -10,11 +10,12 @@ use bevy::ecs::system::{Commands, Query, Res};
 use bevy::picking::hover::Hovered;
 use bevy::time::Time;
 use bevy::ui::{
-    BackgroundGradient, ColorStop, Gradient, LinearGradient,
-    RadialGradient, RadialGradientShape, UiPosition, percent,
+    BackgroundGradient, ColorStop, Gradient, RadialGradient,
+    RadialGradientShape, UiPosition, percent,
 };
 
 use super::control::ControlEffect;
+use super::wash::{Edge, wash};
 use super::{EffectColors, EffectSettings, ease, lit_panels};
 use crate::theme::Themed;
 
@@ -39,8 +40,8 @@ const LAMP_SWING: f32 = 0.1;
 const LAMP_PERIOD: f32 = 4.0;
 
 /// A title or a tab that glows from below under the pointer, at a
-/// press, and for as long as it is `held`, when it also takes the
-/// selected fill under the glow.
+/// press, and for as long as it is `held`, when it is also washed
+/// with light from its bottom edge under the glow.
 #[derive(Component, Default)]
 pub struct Underglow {
     pub held: bool,
@@ -131,15 +132,11 @@ pub(super) fn update_underglow(
         let strength = (set.underglow * level
             + set.underglow_press * flare)
             * set.gain(&theme);
+        // Held, the light rises from its underline as it lies across
+        // a picked row.
         let mut layers = Vec::new();
         if fills {
-            let fill = theme.palette.selected;
-            layers.push(Gradient::from(LinearGradient::to_right(
-                vec![
-                    ColorStop::new(fill, percent(0.0)),
-                    ColorStop::new(fill, percent(100.0)),
-                ],
-            )));
+            layers.push(wash(&theme, Edge::Bottom, 1.0));
         }
         if strength <= 0.0 && layers.is_empty() {
             commands.entity(node).try_remove::<BackgroundGradient>();

@@ -68,10 +68,8 @@ pub fn tab_look(cx: &mut Cx) {
             s.fill(|t: &HamletTheme| t.palette.button_hover)
                 .tone(Tone::Faint)
         })
-        .when::<Shown>(|s| {
-            s.fill(|t: &HamletTheme| t.palette.selected)
-                .tone(Tone::Body)
-        })
+        // The light its underglow lays on it is its fill.
+        .when::<Shown>(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
         .transition(Motion::Interact)
         .apply(cx);
 }

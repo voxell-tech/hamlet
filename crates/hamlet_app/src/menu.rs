@@ -197,7 +197,7 @@ pub fn nav(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// Holds a title lit, with the selected fill, while its menu is open.
+/// Holds a title lit, washed with light, while its menu is open.
 pub(crate) fn light_titles(
     open: Res<OpenMenu>,
     mut titles: Query<(&Menu, &mut Underglow)>,

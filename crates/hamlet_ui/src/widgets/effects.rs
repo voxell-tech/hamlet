@@ -9,6 +9,7 @@ mod glow;
 mod highlight;
 mod tab;
 mod underglow;
+mod wash;
 
 use bevy::app::{App, PostUpdate, Update};
 use bevy::asset::Asset;
@@ -27,6 +28,7 @@ pub use self::highlight::{
     Attention, Highlight, Updated, highlight_layer,
 };
 pub use self::underglow::Underglow;
+pub use self::wash::{Edge, Wash, wash};
 use crate::theme::contrast::contrast;
 use crate::theme::{HamletTheme, deepen};
 
@@ -51,6 +53,7 @@ pub fn plugin(app: &mut App) {
                     control::outer_glow,
                     control::particles,
                     underglow::update_underglow,
+                    wash::update_washes,
                 )
                     .chain(),
                 drag::dress_drag,

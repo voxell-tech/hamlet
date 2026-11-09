@@ -5,7 +5,6 @@
 //! agent works and rests; only its mark changes.
 
 use bevy::app::{App, Update};
-use bevy::color::Alpha;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -19,9 +18,8 @@ use bevy::picking::events::{
 };
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, BackgroundGradient, ColorStop, ComputedNode, Display,
-    JustifyContent, LinearGradient, Overflow, PositionType,
-    UiGlobalTransform, UiRect, Val, percent, px,
+    AlignItems, ComputedNode, Display, JustifyContent, Overflow,
+    PositionType, UiGlobalTransform, UiRect, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
@@ -47,7 +45,7 @@ use hamlet_ui::styles::{
     scroll_area, status_icon_at, text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::widgets::effects::{Variant, lit_panels};
+use hamlet_ui::widgets::effects::{Edge, Variant, Wash};
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -1299,28 +1297,20 @@ fn row_rules(cx: &mut Cx) {
                 .align(AlignItems::Stretch)
                 .padding(UiRect::axes(px(ROW_INSET), px(4.0)))
         })
-        .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
         .pressed(|s| s.frame(|f, t| f.fill(t.pressed())))
         .transition(Motion::Interact)
         .apply(cx);
 }
 
-/// The row of what the panel shows: bare, for the [`lit`] gradient
-/// laid on it, and filled under the pointer as any row is.
-fn current_rules(cx: &mut Cx) {
-    style::<HamletTheme>()
-        .frame(|f, t| {
-            f.fill(transparent(t.palette.button))
-                .border(t.space.border)
-                .border_color(transparent(t.palette.accent))
-                .radius(4.0)
-                .justify(JustifyContent::FlexStart)
-                .align(AlignItems::Stretch)
-                .padding(UiRect::axes(px(ROW_INSET), px(4.0)))
-        })
-        .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
-        .transition(Motion::Interact)
-        .apply(cx);
+/// `row` on a frame that is washed with light while `held`, and less
+/// under the pointer: the row's own gradient is its glow, which would
+/// take the wash back.
+fn washed(shown: impl View + 'static, held: bool) -> impl View {
+    row((shown,))
+        .grow(1.0)
+        .min_width(px(0.0))
+        .radius(4.0)
+        .tagged(Wash::new(held, Edge::Left))
 }
 
 /// The mark at the end of a row or a header, in its place whether or
@@ -1420,32 +1410,17 @@ fn expanded(line: &Line, tree: Tree) -> AnyView {
     })
     .min_height(px(ROW - 8.0))
     .width(percent(100.0));
-    let rules: fn(&mut Cx) = if line.current {
-        current_rules
-    } else {
-        row_rules
-    };
     let address = line.address.clone();
-    let shown = button(content)
-        .grow(1.0)
-        .min_width(px(0.0))
-        .rules(rules)
-        .tagged(Variant::Default)
-        .on_activate(move |world| go(world, target));
-    // The light goes on a frame around the row: the row's own
-    // gradient is its glow under the pointer, which takes it back.
-    let shown = if line.current {
-        with_cx(move |cx| {
-            row((shown,))
-                .grow(1.0)
-                .min_width(px(0.0))
-                .radius(4.0)
-                .tagged(lit(cx.theme()))
-        })
-        .boxed()
-    } else {
-        shown.boxed()
-    };
+    let shown = washed(
+        button(content)
+            .grow(1.0)
+            .min_width(px(0.0))
+            .rules(row_rules)
+            .tagged(Variant::Default)
+            .on_activate(move |world| go(world, target)),
+        line.current,
+    )
+    .boxed();
     let shown = if address.is_empty() || address == line.name {
         shown.boxed()
     } else {
@@ -1568,12 +1543,16 @@ fn header(section: &Section, above: f32) -> AnyView {
         // the column of the rows' marks.
         Some(target) => row((
             fold,
-            button(words.grow(1.0))
-                .grow(1.0)
-                .min_width(px(0.0))
-                .rules(row_rules)
-                .tagged(Variant::Default)
-                .on_activate(move |world| go(world, target)),
+            washed(
+                button(words.grow(1.0))
+                    .grow(1.0)
+                    .min_width(px(0.0))
+                    .rules(row_rules)
+                    .tagged(Variant::Default)
+                    .on_activate(move |world| go(world, target)),
+                section.current
+                    && matches!(section.group, Group::Hamlet(_)),
+            ),
         ))
         .gap(0.0)
         .align(AlignItems::Center)
@@ -1609,24 +1588,9 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
             } else {
                 PART_GAP
             };
-            let head = header(section, BLOCK_PAD);
-            // The title of the hamlet whose page is shown is lit, on
-            // a frame around it, as a selected row is.
-            block.push(
-                if section.current
-                    && matches!(section.group, Group::Hamlet(_))
-                {
-                    with_cx(move |cx| {
-                        column((head,))
-                            .gap(0.0)
-                            .radius(4.0)
-                            .tagged(lit(cx.theme()))
-                    })
-                    .boxed()
-                } else {
-                    head
-                },
-            );
+            // The title of the hamlet whose page is shown is washed
+            // as a selected row is.
+            block.push(header(section, BLOCK_PAD));
             above = (above - BLOCK_PAD).max(0.0);
         }
         let lines = if section.folded {
@@ -1664,21 +1628,6 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
         );
     }
     column(parts).gap(0.0).boxed()
-}
-
-/// How strong the glow is where the light over what the panel shows
-/// starts, over dark panels and over light ones.
-const LIT: [f32; 2] = [0.12, 0.65];
-
-/// The light over what the panel shows: the glow, strong at the left
-/// and fading to nothing toward the right.
-fn lit(theme: &HamletTheme) -> BackgroundGradient {
-    let glow = theme.palette.glow;
-    let on_cream = usize::from(lit_panels(theme));
-    BackgroundGradient::from(LinearGradient::to_right(vec![
-        ColorStop::new(glow.with_alpha(LIT[on_cream]), percent(0.0)),
-        ColorStop::new(glow.with_alpha(0.0), percent(100.0)),
-    ]))
 }
 
 /// Whether `section` is of the realm's own, over the tabs: the realm,

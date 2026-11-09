@@ -706,8 +706,10 @@ impl SurfaceTokens for HamletTheme {
         self.palette.button_hover.mix(&self.palette.selected, 0.5)
     }
 
+    /// The tab in front has no fill of its own: the light rising from
+    /// its underline is what marks it.
     fn current(&self) -> Color {
-        self.palette.selected
+        Color::NONE
     }
 
     fn panel(&self) -> Color {
