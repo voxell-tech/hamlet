@@ -59,7 +59,7 @@ view layer; the workspace excludes it, and it is not edited here.
 | `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `Version`, the semver version each protocol carries; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
 | `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch realm folders, through the typed `Client`, the `hamlet` command and `hamlet_testing`'s server |
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and gifts read in parts off the frame |
-| `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
+| `hamlet_desktop` | File/link openers, editor files, a folder's listing and its watch, dialogs, wake locks and window icon |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
 | `hamlet_realm` | The two islands, the city, the harbor, hamlets, houses, roads, robots, the Hand, the library, chief, sound and camera |
 | `hamlet_ui` | The widget kit: theme, styles, controls and their effects, with no client state |
@@ -238,6 +238,7 @@ built-in ones.
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs`, `index.rs` |
 | Gifts of skills and files, their upload in parts | `hamlet_client/src/gifts.rs`; dropped files reach it through `hamlet_realm/src/orders.rs` |
 | A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
+| The Files panel: a hamlet's folder as a tree and the file opened from it, kept up with the window's disk | `hamlet_app/src/explorer/`; listing and watching in `hamlet_desktop/src/files/` |
 | The Hub: its rail, a thread, its details sheet, scholar and hamlet pages | `hamlet_app/src/screens/hub.rs`, `hub/` (`rail.rs`, `thread.rs`, `details.rs`, `scholar.rs`) |
 | Toasts that answer petitions in place | `hamlet_app/src/toasts.rs` |
 | The starting desk | `hamlet_app/src/dock.rs` |

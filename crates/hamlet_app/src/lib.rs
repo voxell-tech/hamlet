@@ -11,6 +11,7 @@ mod convo;
 pub mod cursor;
 pub mod desk;
 mod dock;
+pub mod explorer;
 mod folder;
 mod forms;
 pub mod history;
@@ -123,6 +124,7 @@ impl Plugin for UiPlugin {
                 screens::plugin,
                 chief::plugin,
                 folder::plugin,
+                explorer::plugin,
                 limits::plugin,
                 models::plugin,
                 asking::plugin,

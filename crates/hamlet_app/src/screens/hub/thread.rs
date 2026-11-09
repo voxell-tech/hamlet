@@ -481,6 +481,20 @@ fn header(agent: Entity) -> impl View {
                  questions with other agents, or a worker it started",
             )
         });
+        // The files of the folder its hamlet works on, in the
+        // Explorer.
+        let files = cx.world.get::<LivesIn>(agent).map(|lives| {
+            let hamlet = lives.0;
+            button(glyph(Glyph::Folder, ICON))
+                .padding(UiRect::axes(px(8.0), px(4.0)))
+                .min_height(px(hamlet_ui::styles::CONTROL))
+                .rules(hamlet_ui::styles::button)
+                .tagged(Variant::Default)
+                .tooltip(|| note("Its hamlet's files"))
+                .on_activate(move |world| {
+                    crate::explorer::browse(world, hamlet);
+                })
+        });
         let address = name_of(cx.world, agent);
         let name = title(called(cx.world, agent))
             .tooltip(move || note(address.clone()));
@@ -506,6 +520,7 @@ fn header(agent: Entity) -> impl View {
                     .grow(1.0)
                     .min_width(px(0.0)),
                     sessions,
+                    row(files.into_iter().collect::<Vec<_>>()),
                     more,
                 ))
                 .gap(gap)

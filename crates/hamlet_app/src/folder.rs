@@ -64,6 +64,15 @@ fn chosen(chosen: On<FolderChosen>, mut commands: Commands) {
     });
 }
 
+/// Asks the chief for the folder `hamlet` works on, in the system's
+/// dialog.
+pub(crate) fn choose(world: &mut World, hamlet: Entity) {
+    world.trigger(ChooseFolder {
+        asker: hamlet,
+        title: "Choose the folder this hamlet works on".into(),
+    });
+}
+
 fn work_on(world: &mut World, hamlet: Entity, folder: &Path) {
     tell(world, hamlet, format!("/folder {}", folder.display()));
 }
@@ -103,13 +112,7 @@ fn works_on(hamlet: Entity, work: &Works) -> AnyView {
             Some(_) => "Choose another",
             None => "Choose a folder",
         },
-        move |world| {
-            world.trigger(ChooseFolder {
-                asker: hamlet,
-                title: "Choose the folder this hamlet works on"
-                    .into(),
-            });
-        },
+        move |world| choose(world, hamlet),
     )
     .tooltip(|| note("A path on the server's machine"))
     .boxed();
