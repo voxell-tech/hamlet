@@ -145,7 +145,7 @@ pub(super) fn update_highlights(
         if state.count != waits {
             state.count = waits;
         }
-        // The lamplight over the panel's top never quite goes out.
+        // While nothing waits, only what `highlight_rest` keeps.
         let lit = if highlight.attention {
             raised.max(set.highlight_rest)
         } else {
