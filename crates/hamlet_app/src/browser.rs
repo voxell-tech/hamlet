@@ -1,71 +1,112 @@
-//! The ASSETS panel: the library as a grid of tiles, filtered by kind
-//! and by folder and searched by name, with the selected asset's
-//! details beside it. Folders are made, renamed and taken away above
-//! the grid, and the details put the asset in one.
+//! The ASSETS panel: the library as a grid of tiles under a heading
+//! for each kind, the person's own before the built-in ones, filtered
+//! by kind and by folder and searched by name, with the selected
+//! asset's details beside it, or the library's folder while none is.
+//! A tile of the person's that stands in for a built-in one of the
+//! same name says so, and so does the built-in one.
 //! A click selects a tile and a double click opens it; a tile dragged
 //! onto a canvas adds what it is there. The details rename, open or
 //! remove the selected asset, give a mesh's material slots their
 //! colours, and give a material its shader and the values of that
 //! shader's inputs. Blueprints, shaders and materials are made new
-//! here, meshes are added from `.glb` files and textures from `.png`
-//! files.
+//! from the New menu, meshes are added from `.glb` files and textures
+//! from `.png` files.
 
 mod material;
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use bevy::app::{App, Update};
+use bevy::color::Color;
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::With;
+use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
+use bevy::picking::Pickable;
 use bevy::picking::events::PointerPress;
 use bevy::picking::pointer::PointerButton;
-use bevy::text::{EditableText, TextEditChange};
+use bevy::text::{EditableText, Justify, TextEditChange, TextLayout};
 use bevy::ui::{
-    AlignItems, Display, FlexWrap, JustifyContent, Node, Overflow,
-    UiRect, percent, px,
+    AlignContent, AlignItems, Display, FlexWrap, JustifyContent,
+    Node, Overflow, PositionType, UiRect, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, TooltipExt, button,
-    column, dropdown, frame, label, menu_item, row, scroll,
-    text_field,
+    column, dropdown, frame, label, menu_button, menu_item, row,
+    scroll, text_field,
 };
-use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{
+    EntityCursor, ScopedExt, ViewExt, keyed, resource, style,
+};
 use hamlet_desktop::file::{ChooseFile, FileChosen, FileMode};
+use hamlet_graph::Catalogue;
 use hamlet_graph_editor::files::{self, Files};
-use hamlet_graph_editor::library::picker::{
-    Section, picture, sections,
-};
+use hamlet_graph_editor::library::picker::picture;
 use hamlet_graph_editor::library::{
     Item, Kind, Library, Source, Tile,
 };
 use hamlet_ui::styles::{
-    self, Fills, ICON, description, labelled, note, section,
-    text_input,
+    self, Fills, ICON, description, labelled, note, note_rules,
+    section, segmented_words, text_input,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
+use crate::assets_folder::{in_realm, kept_at};
 use crate::dock::{PanelAppExt, flush_panel};
 use crate::graphs::{Blueprint, ShaderGraph};
 
-/// A tile's width; its picture is as tall.
-const TILE: f32 = 96.0;
+/// A tile's width.
+const TILE: f32 = 100.0;
 /// The picture's side within a tile.
-const PICTURE: f32 = 64.0;
+const PICTURE: f32 = 80.0;
 /// The width of the selected asset's details beside the grid.
 const DETAILS: f32 = 300.0;
+/// The width of the search field.
+const SEARCH: f32 = 180.0;
+/// The height of a tile's name: two lines of a note.
+const NAME: f32 = 32.0;
+
+/// The kinds, in the order the grid shows them, each with its name in
+/// the plural.
+const KINDS: [(Kind, &str); 5] = [
+    (Kind::Blueprint, "blueprints"),
+    (Kind::Shader, "shaders"),
+    (Kind::Material, "materials"),
+    (Kind::Mesh, "meshes"),
+    (Kind::Texture, "textures"),
+];
+
+/// The words of the kind filter: every kind, then each of [`KINDS`].
+const FILTERS: [&str; 6] = [
+    "All",
+    "Blueprints",
+    "Shaders",
+    "Materials",
+    "Meshes",
+    "Textures",
+];
+
+/// What the New menu makes, in order.
+const NEW: [&str; 5] = [
+    "Blueprint",
+    "Shader",
+    "Material",
+    "Mesh from a .glb file…",
+    "Texture from a .png file…",
+];
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
@@ -79,7 +120,7 @@ pub(crate) fn plugin(app: &mut App) {
     .init_resource::<Importer>()
     .add_observer(chosen)
     .add_observer(pressed)
-    .add_systems(Update, (show, listen));
+    .add_systems(Update, (show, listen, pick));
 }
 
 /// How the library is browsed: the kind shown, none for every kind,
@@ -93,15 +134,38 @@ struct Browse {
     selected: Option<Item>,
 }
 
-/// The tiles shown, worked out from the library and how it is
-/// browsed, so the grid is built again only when they change, and the
-/// folders with the one shown.
+/// The tiles shown under their headings, worked out from the library
+/// and how it is browsed, so the grid is built again only when they
+/// change, and the folders with the one shown.
 #[derive(Resource, Default, Clone, PartialEq)]
 struct Shown {
-    items: Vec<Item>,
+    groups: Vec<Group>,
     selected: Option<Item>,
     folders: Vec<String>,
     folder: Option<String>,
+    search: String,
+    /// How many of the person's own assets there are of each kind,
+    /// in the order of [`KINDS`].
+    counts: Vec<usize>,
+}
+
+/// Tiles under a heading: the person's own assets of a kind, or the
+/// built-in ones.
+#[derive(Clone, PartialEq)]
+struct Group {
+    title: String,
+    tiles: Vec<(Item, Stand)>,
+}
+
+/// Whether an asset stands in for another of the same kind and name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stand {
+    /// It does not, and none stands in for it.
+    Alone,
+    /// The person's, in place of a built-in one.
+    Replaces,
+    /// Built in, with the person's in its place.
+    Replaced,
 }
 
 /// The search field.
@@ -116,13 +180,9 @@ struct Importer(Option<Entity>);
 fn show(
     library: Res<Library>,
     browse: Res<Browse>,
-    section: Res<Section>,
     mut shown: ResMut<Shown>,
 ) {
-    if !library.is_changed()
-        && !browse.is_changed()
-        && !section.is_changed()
-    {
+    if !library.is_changed() && !browse.is_changed() {
         return;
     }
     let search = browse.search.to_lowercase();
@@ -131,34 +191,81 @@ fn show(
         .folder
         .clone()
         .filter(|folder| library.folders.paths.contains(folder));
-    let items = library
-        .items
-        .iter()
-        .filter(|item| section.holds(item))
-        .filter(|item| {
-            browse.kind.is_none_or(|kind| item.kind == kind)
-        })
-        .filter(|item| {
-            folder.as_ref().is_none_or(|folder| {
-                library.folders.holds(folder, item.kind, &item.name)
+    let named = |own: bool| {
+        library
+            .items
+            .iter()
+            .filter(|item| item.is_own() == own)
+            .map(|item| (item.kind, item.name.clone()))
+            .collect::<BTreeSet<_>>()
+    };
+    let own = named(true);
+    // A built-in mesh the person's replaces is not listed at all.
+    let mut built_in = named(false);
+    built_in.extend(
+        Catalogue::default()
+            .names()
+            .into_iter()
+            .map(|name| (Kind::Mesh, name)),
+    );
+    let mut groups = Vec::new();
+    let mut counts = Vec::new();
+    for (kind, plural) in KINDS {
+        let of = |mine: bool| {
+            library.items.iter().filter(move |item| {
+                item.kind == kind && item.is_own() == mine
             })
-        })
-        .filter(|item| {
-            search.is_empty()
-                || item.name.to_lowercase().contains(&search)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
+        };
+        counts.push(of(true).count());
+        if browse.kind.is_some_and(|wanted| wanted != kind) {
+            continue;
+        }
+        for (mine, whose) in [(true, "Your"), (false, "Built-in")] {
+            let tiles = of(mine)
+                .filter(|item| {
+                    folder.as_ref().is_none_or(|folder| {
+                        library
+                            .folders
+                            .holds(folder, item.kind, &item.name)
+                    })
+                })
+                .filter(|item| {
+                    search.is_empty()
+                        || item.name.to_lowercase().contains(&search)
+                })
+                .map(|item| {
+                    let key = (item.kind, item.name.clone());
+                    let stand = if mine && built_in.contains(&key) {
+                        Stand::Replaces
+                    } else if !mine && own.contains(&key) {
+                        Stand::Replaced
+                    } else {
+                        Stand::Alone
+                    };
+                    (item.clone(), stand)
+                })
+                .collect::<Vec<_>>();
+            if tiles.is_empty() {
+                continue;
+            }
+            groups.push(Group {
+                title: format!("{whose} {plural} · {}", tiles.len()),
+                tiles,
+            });
+        }
+    }
     // A selection the library no longer has is dropped.
     let selected = browse
         .selected
         .clone()
         .filter(|selected| library.items.contains(selected));
     let next = Shown {
-        items,
+        groups,
         selected,
         folders: library.folders.paths.iter().cloned().collect(),
         folder,
+        search: browse.search.clone(),
+        counts,
     };
     if *shown != next {
         *shown = next;
@@ -168,11 +275,18 @@ fn show(
 fn view() -> impl View {
     column((
         bar(),
-        folders(),
-        sections(),
+        with_cx(|cx| {
+            frame()
+                .width(percent(100.0))
+                .height(px(1.0))
+                .fill(cx.theme().palette.border)
+        }),
+        // As tall as what is left, not as its tiles, so the grid
+        // and the details scroll.
         row((grid(), details()))
             .width(percent(100.0))
             .grow(1.0)
+            .min_height(px(0.0))
             .gap(0.0),
     ))
     .fills_width()
@@ -180,100 +294,18 @@ fn view() -> impl View {
     .gap(0.0)
 }
 
-/// The kinds to show, the search and the import buttons.
+/// The one row over the grid: the kinds to show, the folder to show
+/// and what is done with folders, the search, and the New menu.
 fn bar() -> AnyView {
     with_cx(|cx| {
         let theme = cx.theme();
         let gap = theme.space.gap;
-        let chip = |word: &'static str, kind: Option<Kind>| {
-            button(label(resource::<Browse, _>(move |browse| {
-                if browse.kind == kind {
-                    format!("• {word}")
-                } else {
-                    word.to_owned()
-                }
-            })))
-            .padding(UiRect::axes(px(8.0), px(2.0)))
-            .rules(styles::button)
-            .tagged(Variant::Default)
-            .on_activate(move |world| {
-                world.resource_mut::<Browse>().kind = kind;
-            })
-            .boxed()
-        };
-        let mut chips = vec![chip("All", None)];
-        chips.extend(
-            [
-                ("Blueprints", Kind::Blueprint),
-                ("Shaders", Kind::Shader),
-                ("Materials", Kind::Material),
-                ("Meshes", Kind::Mesh),
-                ("Textures", Kind::Texture),
-            ]
-            .map(|(word, kind)| chip(word, Some(kind))),
-        );
-        let import = |word: &'static str,
-                      tip: &'static str,
-                      ask: fn(&mut World)| {
-            button(
-                row((glyph(Glyph::Plus, ICON), label(word))).gap(4.0),
-            )
-            .padding(UiRect::axes(px(8.0), px(2.0)))
-            .tooltip(move || note(tip))
-            .rules(styles::button)
-            .tagged(Variant::Default)
-            .on_activate(ask)
-        };
-        let new = |word: &'static str,
-                   tip: &'static str,
-                   make: fn(&mut World) -> String| {
-            button(
-                row((glyph(Glyph::Plus, ICON), label(word))).gap(4.0),
-            )
-            .padding(UiRect::axes(px(8.0), px(2.0)))
-            .tooltip(move || note(tip))
-            .rules(styles::button)
-            .tagged(Variant::Default)
-            .on_activate(move |world| {
-                let made = make(world);
-                world.resource_mut::<Library>().note = made;
-            })
-        };
         row((
-            row(chips).gap(2.0).align(AlignItems::Center),
+            kinds(),
+            folders(),
             frame().grow(1.0),
-            row((
-                glyph(Glyph::Lens, ICON).tone(Tone::Dim),
-                text_field(String::new(), |_, _| {})
-                    .width(px(160.0))
-                    .tagged(SearchField)
-                    .rules(text_input),
-            ))
-            .gap(gap / 2.0)
-            .align(AlignItems::Center),
-            new("Blueprint", "New blueprint", |world| {
-                files::create::<Blueprint>(world);
-                world.resource::<Files<Blueprint>>().note.clone()
-            }),
-            new("Shader", "New shader", |world| {
-                files::create::<ShaderGraph>(world);
-                world.resource::<Files<ShaderGraph>>().note.clone()
-            }),
-            new(
-                "Material",
-                "New material, to give a shader's inputs values",
-                new_material,
-            ),
-            import(
-                "Mesh",
-                "Add meshes from .glb files",
-                crate::graphs::assets::import,
-            ),
-            import(
-                "Texture",
-                "Add a texture from a .png file",
-                import_texture,
-            ),
+            search(),
+            new_menu(),
         ))
         .width(percent(100.0))
         .padding(UiRect::all(px(gap)))
@@ -284,9 +316,30 @@ fn bar() -> AnyView {
     .boxed()
 }
 
-/// The folders to show, each a chip, the button that makes a new one
-/// in the folder shown, and while one is shown, a field to rename it
-/// and a button that takes it away.
+/// The kind filter, with the kind shown picked.
+fn kinds() -> AnyView {
+    keyed(
+        resource::<Browse, _>(|browse| browse.kind),
+        |kind: &Option<Kind>| {
+            let picked = kind.map_or(0, |kind| {
+                KINDS
+                    .iter()
+                    .position(|(of, _)| *of == kind)
+                    .map_or(0, |at| at + 1)
+            });
+            segmented_words(FILTERS, picked, |world, at| {
+                world.resource_mut::<Browse>().kind =
+                    at.checked_sub(1).map(|at| KINDS[at].0);
+            })
+            .boxed()
+        },
+    )
+    .within(row(()).gap(0.0))
+    .boxed()
+}
+
+/// The folder shown, every folder or one, and a menu that makes a
+/// new one in it or takes it away.
 fn folders() -> AnyView {
     keyed(
         resource::<Shown, _>(|shown| {
@@ -294,90 +347,146 @@ fn folders() -> AnyView {
         }),
         |(paths, open): &(Vec<String>, Option<String>)| {
             let (paths, open) = (paths.clone(), open.clone());
-            AnyView::new(move |cx: &mut Cx| {
-                let gap = cx.theme().space.gap;
-                let fill = cx.theme().palette.card;
-                let chip = |word: String, folder: Option<String>| {
-                    let word = if folder == open {
-                        format!("• {word}")
-                    } else {
-                        word
-                    };
-                    button(label(word))
-                        .padding(UiRect::axes(px(8.0), px(2.0)))
-                        .rules(styles::button)
-                        .tagged(Variant::Default)
-                        .on_activate(move |world| {
-                            world.resource_mut::<Browse>().folder =
-                                folder.clone();
-                        })
-                        .boxed()
-                };
-                let mut row_of =
-                    vec![chip("All folders".to_owned(), None)];
-                row_of.extend(paths.iter().map(|path| {
-                    chip(path.replace('/', " / "), Some(path.clone()))
-                }));
-                let parent = open.clone();
-                row_of.push(
-                    button(
-                        row((
-                            glyph(Glyph::Plus, ICON),
-                            label("Folder"),
-                        ))
-                        .gap(4.0),
+            with_cx(move |cx| {
+                let theme = cx.theme();
+                let at = open
+                    .as_ref()
+                    .and_then(|open| {
+                        paths.iter().position(|path| path == open)
+                    })
+                    .map_or(0, |at| at + 1);
+                let words = std::iter::once("All folders".to_owned())
+                    .chain(
+                        paths
+                            .iter()
+                            .map(|path| path.replace('/', " / ")),
                     )
-                    .padding(UiRect::axes(px(8.0), px(2.0)))
-                    .tooltip(|| {
-                        note("New folder in the folder shown")
-                    })
-                    .rules(styles::button)
-                    .tagged(Variant::Default)
-                    .on_activate(move |world| {
-                        new_folder(world, parent.as_deref());
-                    })
-                    .boxed(),
-                );
-                if let Some(path) = open.clone() {
-                    let removed = path.clone();
-                    row_of.push(frame().grow(1.0).boxed());
-                    row_of.push(
-                        text_field(path.clone(), move |world, to| {
-                            rename_folder(world, &path, &to);
-                        })
-                        .width(px(180.0))
-                        .rules(text_input)
-                        .boxed(),
-                    );
-                    row_of.push(
-                        button(label("Remove folder"))
-                            .padding(UiRect::axes(px(8.0), px(2.0)))
-                            .tooltip(|| {
-                                note(
-                                    "Take the folder away; what is \
-                                     in it goes to the folder above",
-                                )
-                            })
-                            .rules(styles::button)
-                            .tagged(Variant::Default)
-                            .on_activate(move |world| {
-                                remove_folder(world, &removed);
-                            })
-                            .boxed(),
-                    );
-                }
-                cx.build(
-                    row(row_of)
-                        .width(percent(100.0))
-                        .padding(UiRect::axes(px(gap), px(0.0)))
-                        .gap(2.0)
-                        .align(AlignItems::Center)
-                        .fill(fill),
+                    .collect::<Vec<_>>();
+                let chosen = paths.clone();
+                let pick = dropdown(
+                    words,
+                    at,
+                    Glyph::Chevron.image(ICON),
+                    move |world, at| {
+                        world.resource_mut::<Browse>().folder = at
+                            .checked_sub(1)
+                            .and_then(|at| chosen.get(at))
+                            .cloned();
+                    },
                 )
+                .width(px(150.0));
+                let mut deeds = vec!["New folder".to_owned()];
+                if open.is_some() {
+                    deeds.push("Remove this folder".to_owned());
+                }
+                let parent = open.clone();
+                let menu =
+                    menu_button("", deeds, move |world, at| {
+                        match (at, parent.as_deref()) {
+                            (0, parent) => new_folder(world, parent),
+                            (_, Some(path)) => {
+                                remove_folder(world, path);
+                            }
+                            _ => {}
+                        }
+                    })
+                    .icon(Glyph::More.image(ICON))
+                    .padding(UiRect::axes(px(8.0), px(4.0)))
+                    .fill(theme.palette.button)
+                    .border(theme.space.border)
+                    .border_color(theme.palette.gold_5)
+                    .radius(theme.space.round)
+                    .tooltip(|| {
+                        note(
+                            "Make a folder in the one shown, or \
+                             take the one shown away",
+                        )
+                    });
+                row((pick, menu)).gap(2.0).align(AlignItems::Center)
             })
+            .boxed()
         },
     )
-    .within(column(()).gap(0.0))
+    .within(row(()).gap(0.0))
+    .boxed()
+}
+
+/// The search field, with what it searches written in it while it is
+/// empty.
+fn search() -> AnyView {
+    with_cx(|cx| {
+        let gap = cx.theme().space.gap;
+        let hint =
+            row((note("Search assets").tagged(Pickable::IGNORE),))
+                .position(PositionType::Absolute)
+                .inset(UiRect::new(
+                    px(10.0),
+                    Val::Auto,
+                    px(0.0),
+                    px(0.0),
+                ))
+                .align(AlignItems::Center)
+                .display(resource::<Browse, _>(|browse| {
+                    if browse.search.is_empty() {
+                        Display::Flex
+                    } else {
+                        Display::None
+                    }
+                }))
+                .tagged(Pickable::IGNORE);
+        row((
+            glyph(Glyph::Lens, ICON).tone(Tone::Dim),
+            column((
+                text_field(String::new(), |_, _| {})
+                    .width(px(SEARCH))
+                    .tagged(SearchField)
+                    .rules(text_input),
+                hint,
+            ))
+            .gap(0.0),
+        ))
+        .gap(gap / 2.0)
+        .align(AlignItems::Center)
+    })
+    .boxed()
+}
+
+/// The menu that makes a new blueprint, shader or material, or adds a
+/// mesh or a texture from a file.
+fn new_menu() -> AnyView {
+    with_cx(|cx| {
+        let theme = cx.theme();
+        menu_button("+ New", NEW, |world, at| {
+            let made = match at {
+                0 => {
+                    files::create::<Blueprint>(world);
+                    world.resource::<Files<Blueprint>>().note.clone()
+                }
+                1 => {
+                    files::create::<ShaderGraph>(world);
+                    world
+                        .resource::<Files<ShaderGraph>>()
+                        .note
+                        .clone()
+                }
+                2 => new_material(world),
+                3 => {
+                    crate::graphs::assets::import(world);
+                    return;
+                }
+                _ => {
+                    import_texture(world);
+                    return;
+                }
+            };
+            world.resource_mut::<Library>().note = made;
+        })
+        .padding(UiRect::axes(px(10.0), px(4.0)))
+        .fill(theme.palette.button)
+        .border(theme.space.border)
+        .border_color(theme.palette.gold_5)
+        .radius(theme.space.round)
+    })
     .boxed()
 }
 
@@ -520,46 +629,85 @@ fn searched(
     }
 }
 
-/// The tiles shown, wrapped in rows.
+/// The tiles shown under their headings, each group wrapped in rows.
 fn grid() -> AnyView {
+    // Built again for what is shown, never for what is selected.
     scroll((keyed(
-        resource::<Shown, _>(Clone::clone),
-        |shown: &Shown| {
-            let tiles = shown
-                .items
+        resource::<Shown, _>(|shown| {
+            (shown.groups.clone(), shown.search.clone())
+        }),
+        |(groups, searched): &(Vec<Group>, String)| {
+            let groups = groups
                 .iter()
-                .map(|item| {
-                    tile(
-                        item.clone(),
-                        shown.selected.as_ref() == Some(item),
-                    )
+                .map(|group| {
+                    let tiles = group
+                        .tiles
+                        .iter()
+                        .map(|(item, stand)| {
+                            tile(item.clone(), *stand)
+                        })
+                        .collect::<Vec<_>>();
+                    (group.title.clone(), tiles)
                 })
                 .collect::<Vec<_>>();
-            let empty = tiles.is_empty();
+            let searched = searched.clone();
             AnyView::new(move |cx: &mut Cx| {
                 let gap = cx.theme().space.gap;
-                if empty {
+                if groups.is_empty() {
+                    let words = if searched.is_empty() {
+                        "Nothing here yet. Make a blueprint, shader \
+                         or material from New, or add a mesh or a \
+                         texture from a file."
+                            .to_owned()
+                    } else {
+                        format!(
+                            "No asset is named like “{searched}”."
+                        )
+                    };
                     return cx.build(
-                        column((description(
-                            "Nothing here yet. Add a mesh or a \
-                             texture, or save a blueprint or shader.",
-                        ),))
-                        .padding(UiRect::all(px(gap * 2.0))),
+                        column((description(words),))
+                            .padding(UiRect::all(px(gap * 2.0))),
                     );
                 }
-                let grid = cx.build(
-                    row(tiles)
-                        .gap(gap)
+                let mut parts = Vec::new();
+                for (title, tiles) in groups {
+                    parts.push(
+                        column((section(title.to_uppercase()),))
+                            .padding(UiRect::new(
+                                px(0.0),
+                                px(0.0),
+                                px(gap),
+                                px(0.0),
+                            ))
+                            .boxed(),
+                    );
+                    // Built where it goes, under its heading. Tiles
+                    // fill a row and go on in the next, packed to the
+                    // top, each as tall as itself.
+                    parts.push(AnyView::new(move |cx: &mut Cx| {
+                        let wrap = cx.build(
+                            row(tiles)
+                                .gap(gap / 2.0)
+                                .width(percent(100.0))
+                                .align(AlignItems::FlexStart),
+                        );
+                        if let Some(mut node) =
+                            cx.world.get_mut::<Node>(wrap)
+                        {
+                            node.flex_wrap = FlexWrap::Wrap;
+                            node.row_gap = px(gap / 2.0);
+                            node.align_content =
+                                AlignContent::FlexStart;
+                        }
+                        wrap
+                    }));
+                }
+                cx.build(
+                    column(parts)
+                        .gap(gap / 2.0)
                         .padding(UiRect::all(px(gap)))
                         .width(percent(100.0)),
-                );
-                // Tiles fill a row and go on in the next.
-                if let Some(mut node) = cx.world.get_mut::<Node>(grid)
-                {
-                    node.flex_wrap = FlexWrap::Wrap;
-                    node.row_gap = px(gap);
-                }
-                grid
+                )
             })
         },
     ),))
@@ -573,65 +721,147 @@ fn grid() -> AnyView {
 /// in.
 fn origin(item: &Item) -> String {
     match &item.source {
-        Source::File(_) => item.kind.word().to_owned(),
+        Source::File(_) => {
+            format!("Your {}", item.kind.word().to_lowercase())
+        }
         Source::BuiltIn | Source::Example(_) => {
             format!("Built-in {}", item.kind.word().to_lowercase())
         }
     }
 }
 
-/// One asset: its kind's picture, its name, and where it comes from.
-fn tile(item: Item, selected: bool) -> AnyView {
+/// `name` as a note, its lines centred, wrapping where it is wider
+/// than its tile.
+fn centred(name: String) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let built = cx.build(label(name.clone()).rules(note_rules));
+        if let Some(mut layout) =
+            cx.world.get_mut::<TextLayout>(built)
+        {
+            layout.justify = Justify::Center;
+        }
+        built
+    })
+}
+
+/// What a tile's mark says of `stand`, none where there is nothing
+/// to say.
+fn stand_words(stand: Stand) -> Option<&'static str> {
+    match stand {
+        Stand::Alone => None,
+        Stand::Replaces => Some("Replaces built-in"),
+        Stand::Replaced => Some("Replaced"),
+    }
+}
+
+/// The rules of a tile: no border at rest, a gold one under the
+/// pointer, and lit while it is [`Picked`].
+fn tile_rules(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(Color::NONE)
+                .border(1.0)
+                .border_color(Color::NONE)
+                .radius(t.space.round)
+        })
+        .hovered(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.card).border_color(t.palette.gold_5)
+            })
+        })
+        .when::<Picked>(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.text_selection)
+                    .border_color(t.palette.glow)
+            })
+        })
+        .apply(cx);
+}
+
+/// Marks the tile of the selected asset. Selecting another moves the
+/// mark, so the grid is not built again, nor its names cut again.
+#[derive(Component)]
+struct Picked;
+
+/// Moves [`Picked`] to the tile of the asset selected.
+fn pick(
+    mut commands: Commands,
+    browse: Res<Browse>,
+    tiles: Query<(Entity, &Tile, Has<Picked>)>,
+) {
+    for (entity, Tile(item), picked) in &tiles {
+        let wanted = browse.selected.as_ref() == Some(item);
+        if wanted && !picked {
+            commands.entity(entity).insert(Picked);
+        } else if picked && !wanted {
+            commands.entity(entity).remove::<Picked>();
+        }
+    }
+}
+
+/// One asset: its picture, or its kind's glyph, its name on one line,
+/// and a mark where it replaces a built-in one or is replaced.
+fn tile(item: Item, stand: Stand) -> AnyView {
     let for_menu = item.clone();
     with_cx(move |cx| {
         let theme = cx.theme();
         let gap = theme.space.gap;
         let palette = &theme.palette;
-        let tint = match item.kind {
-            Kind::Blueprint => palette.gold_3,
-            Kind::Shader => palette.red,
-            Kind::Material => palette.glow,
-            Kind::Mesh => palette.agent,
-            Kind::Texture => palette.green,
-        };
-        let from = origin(&item);
         let drawn = match item.kind {
-            Kind::Mesh => picture(Kind::Mesh, &item.name, PICTURE),
-            _ => column((
-                glyph(item.kind.glyph(), 28.0).tint(Some(tint)),
+            Kind::Mesh | Kind::Blueprint => {
+                picture(item.kind, &item.name, PICTURE)
+            }
+            kind => {
+                column((glyph(kind.glyph(), 32.0).tone(Tone::Faint),))
+                    .width(px(PICTURE))
+                    .height(px(PICTURE))
+                    .align(AlignItems::Center)
+                    .justify(JustifyContent::Center)
+                    .fill(palette.input)
+                    .radius(theme.space.round)
+                    .boxed()
+            }
+        };
+        let mark: AnyView = match stand_words(stand) {
+            Some(words) => row((label(words)
+                .size(theme.text.small)
+                .bold(true)
+                .tone(Tone::Accent)
+                .wrap(false),))
+            .position(PositionType::Absolute)
+            .inset(UiRect::new(
+                px(2.0),
+                Val::Auto,
+                px(2.0),
+                Val::Auto,
             ))
-            .width(px(PICTURE))
-            .height(px(PICTURE))
-            .align(AlignItems::Center)
-            .justify(JustifyContent::Center)
-            .fill(palette.input)
+            .padding(UiRect::axes(px(4.0), px(1.0)))
+            .fill(palette.primary_low)
             .radius(theme.space.round)
             .boxed(),
+            None => column(()).boxed(),
+        };
+        let name = item.name.replace('_', " ");
+        let tip = match stand_words(stand) {
+            Some(words) => {
+                format!("{name}\n{} · {words}", origin(&item))
+            }
+            None => format!("{name}\n{}", origin(&item)),
         };
         column((
-            drawn,
-            column((note(item.name.replace('_', " ")),))
+            column((drawn, mark)).gap(0.0),
+            column((centred(name),))
                 .width(percent(100.0))
+                .height(px(NAME))
                 .overflow(Overflow::clip())
                 .align(AlignItems::Center),
-            description(from),
         ))
         .width(px(TILE))
         .padding(UiRect::all(px(gap / 2.0)))
-        .gap(2.0)
+        .gap(4.0)
         .align(AlignItems::Center)
-        .fill(if selected {
-            palette.text_selection
-        } else {
-            palette.card
-        })
-        .border(1.0)
-        .border_color(if selected {
-            palette.glow
-        } else {
-            palette.border
-        })
-        .radius(theme.space.round)
+        .rules(tile_rules)
+        .tooltip(move || note(tip.clone()))
         .tagged(Tile(item.clone()))
         .tagged(EntityCursor(SystemCursorIcon::Grab))
         .context_menu(move || {
@@ -671,10 +901,68 @@ fn pressed(
     });
 }
 
+/// The library while no asset is selected: where it is kept, whether
+/// the realm builds with it, how many assets of each kind it has, and
+/// the folder shown to rename.
+fn library() -> AnyView {
+    keyed(
+        resource::<Shown, _>(|shown| {
+            (shown.counts.clone(), shown.folder.clone())
+        }),
+        |(counts, folder): &(Vec<usize>, Option<String>)| {
+            let counts = counts.clone();
+            let folder = folder.clone();
+            with_cx(move |cx| {
+                let gap = cx.theme().space.gap;
+                let yours = KINDS
+                    .iter()
+                    .zip(&counts)
+                    .filter(|(_, count)| **count > 0)
+                    .map(|((_, plural), count)| {
+                        format!("{count} {plural}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut parts: Vec<AnyView> = vec![
+                    section("YOUR ASSETS").boxed(),
+                    kept_at(),
+                    description(if yours.is_empty() {
+                        "None yet. Make one from New, or save a \
+                         built-in one under the same name to change \
+                         it."
+                        .to_owned()
+                    } else {
+                        yours
+                    })
+                    .boxed(),
+                    section("IN THE REALM").boxed(),
+                    in_realm(),
+                ];
+                if let Some(path) = folder.clone() {
+                    let from = path.clone();
+                    parts.push(section("FOLDER SHOWN").boxed());
+                    parts.push(
+                        text_field(path, move |world, to| {
+                            rename_folder(world, &from, &to);
+                        })
+                        .width(percent(100.0))
+                        .rules(text_input)
+                        .boxed(),
+                    );
+                }
+                column(parts).gap(gap)
+            })
+            .boxed()
+        },
+    )
+    .within(column(()).gap(0.0))
+    .boxed()
+}
+
 /// The selected asset beside the grid: its kind, its name to change,
 /// where it comes from, what its kind shows and changes, and the
-/// buttons that open or remove it. Under them, the last thing done or
-/// its Error.
+/// buttons that open or remove it; the library while none is. Under
+/// them, the last thing done or its Error.
 fn details() -> AnyView {
     let pane = keyed(
         resource::<Shown, _>(|shown| shown.selected.clone()),
@@ -683,9 +971,7 @@ fn details() -> AnyView {
             AnyView::new(move |cx: &mut Cx| {
                 let gap = cx.theme().space.gap;
                 let Some(item) = selected.clone() else {
-                    return cx.build(column((description(
-                        "Select an asset to see and change it here.",
-                    ),)));
+                    return cx.build(library());
                 };
                 let own = item.is_own();
                 // A graph opens in its editor; a mesh or a texture is
@@ -737,7 +1023,24 @@ fn details() -> AnyView {
                 };
                 cx.build(
                     column((
-                        section(item.kind.word().to_uppercase()),
+                        row((
+                            section(item.kind.word().to_uppercase()),
+                            frame().grow(1.0),
+                            button(glyph(Glyph::Cross, ICON))
+                                .padding(UiRect::all(px(4.0)))
+                                .tooltip(|| {
+                                    note("Back to the library")
+                                })
+                                .rules(styles::button)
+                                .tagged(Variant::Default)
+                                .on_activate(|world| {
+                                    world
+                                        .resource_mut::<Browse>()
+                                        .selected = None;
+                                }),
+                        ))
+                        .width(percent(100.0))
+                        .align(AlignItems::Center),
                         name,
                         description(origin(&item)),
                         labelled("folder", folder_of(&item)),
@@ -793,6 +1096,8 @@ fn details() -> AnyView {
         .gap(gap)
         .padding(UiRect::all(px(gap))),))
         .width(px(DETAILS))
+        .min_width(px(DETAILS))
+        .max_width(px(DETAILS))
         .shrink(0.0)
         .fills_height()
         .fill(theme.palette.card)
