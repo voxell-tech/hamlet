@@ -233,3 +233,36 @@ async fn web_wait_asks_for_text_and_holds_to_thirty_seconds() {
         [("web_wait".to_owned(), None)]
     );
 }
+
+#[tokio::test]
+async fn web_click_asks_for_the_element_by_its_number() {
+    let faux = Faux::new().agent(
+        2,
+        [call("web_click", json!({"target": 7})), words("Done.")],
+    );
+    let mut s = Session::start(faux).await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
+    let now = chat(ada);
+    s.chief.open(&now).await;
+    s.chief.send(ClientMessage::WebWindow(WebWindow {})).await;
+    s.chief.tell(ada, "Click it.").await;
+    s.chief
+        .until("the server to ask for a click", |c| {
+            !asks(c).is_empty()
+        })
+        .await;
+    let ask = asks(&s.chief).remove(0);
+    assert_eq!(ask.act, WebAct::Click { target: "7".into() });
+    s.chief
+        .send(ClientMessage::Web(WebAnswer {
+            to: ask.id,
+            text: "Clicked the link \"Second page\".".into(),
+            failed: false,
+        }))
+        .await;
+    s.chief.shows(&now, "Done.").await;
+    assert_eq!(
+        tools(&s.chief, &now),
+        [("web_click".to_owned(), None)]
+    );
+}

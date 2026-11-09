@@ -63,7 +63,42 @@
 
   const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 
+  const element = (target) => {
+    const found = /^\d+$/.test(String(target))
+      ? document.querySelector(`[data-hamlet="${target}"]`)
+      : document.querySelector(target);
+    if (!found) {
+      throw new Error(
+        /^\d+$/.test(String(target))
+          ? `No element is numbered ${target}; read the page again.`
+          : `No element matches ${target}.`,
+      );
+    }
+    found.scrollIntoView({ block: "center", inline: "center" });
+    return found;
+  };
+
+  const named = (found) => `${kind(found)} "${label(found)}"`;
+
   const acts = {
+    click({ target }) {
+      const found = element(target);
+      if (found.disabled) {
+        throw new Error(`The ${named(found)} is disabled.`);
+      }
+      found.focus({ preventScroll: true });
+      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) {
+        found.dispatchEvent(
+          new (type.startsWith("pointer") ? PointerEvent : MouseEvent)(type, {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          }),
+        );
+      }
+      found.click();
+      return `Clicked the ${named(found)}.`;
+    },
     async wait({ text, selector, seconds }) {
       const until = Date.now() + seconds * 1000;
       const found = () =>
