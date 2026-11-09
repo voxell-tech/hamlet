@@ -14,6 +14,30 @@ hash_id! {
     "an image id is 64 lowercase hexadecimal digits"
 }
 
+/// An image a line carries, sent before it, and where in the line's
+/// text it sits.
+#[derive(
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct AttachedImage {
+    /// The byte offset into the line's text, on a character
+    /// boundary and at most the text's length, where the image sits.
+    /// Without one it goes after the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "u64", range(max = 9_007_199_254_740_991_u64))]
+    pub at: Option<u64>,
+    pub id: ImageId,
+}
+
+impl AttachedImage {
+    /// An image that goes after the line's text.
+    pub fn last(id: ImageId) -> Self {
+        Self { at: None, id }
+    }
+}
+
 /// Begins sending one image of `size` bytes; the reply names the
 /// upload its parts are sent under.
 #[derive(

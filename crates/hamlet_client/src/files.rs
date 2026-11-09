@@ -627,6 +627,7 @@ fn kept(
         going.kept.push((
             file.index,
             AttachedFile {
+                at: None,
                 id,
                 name: file.name,
                 size: file.size,

@@ -32,13 +32,17 @@ async fn an_uploaded_image_goes_with_a_line_and_is_read_back_by_id() {
 
     let said = s
         .chief
-        .say_with(hand, "Look at this.", vec![image.clone()])
+        .say_with(
+            hand,
+            "Look at this.",
+            vec![AttachedImage::last(image.clone())],
+        )
         .await;
     assert_eq!(said.kind, ReplyKind::Notice);
     s.chief.shows(&now, "I see it.").await;
     let items = s.chief.items(&now);
     assert_eq!(items[0].text, "Look at this.");
-    assert_eq!(items[0].images, std::slice::from_ref(&image));
+    assert_eq!(items[0].images, [AttachedImage::last(image.clone())]);
 
     let ServerMessage::Read(ReadResult::Image {
         image: bytes, ..

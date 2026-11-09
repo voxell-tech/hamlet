@@ -5,11 +5,12 @@ use std::fs;
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
-use hamlet_testing::words;
+use hamlet_testing::{openai, words};
 use serde_json::json;
 
 fn attached(kept: &Reply, name: &str, size: usize) -> AttachedFile {
     AttachedFile {
+        at: None,
         id: kept.file.clone().expect("the last part names it"),
         name: name.into(),
         size: size as u64,
@@ -71,6 +72,7 @@ async fn files_on_a_line_are_saved_in_the_inbox_and_named_in_its_item()
     );
 
     let unsent = AttachedFile {
+        at: None,
         id: format!("{:0>64}", "a").parse().unwrap(),
         name: "ghost.txt".into(),
         size: 1,
@@ -219,4 +221,41 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
         "{refusals:?}"
     );
     assert!(!s.home.file(&format!("{inbox}-2")).exists());
+}
+
+#[tokio::test]
+async fn a_file_mid_line_has_its_caption_in_place_for_the_model() {
+    let mut endpoint = openai::Endpoint::start().await;
+    let mut s = Session::with_endpoint(&endpoint).await;
+    let hand = s.hand();
+    let now = chat(hand);
+    s.chief.open(&now).await;
+    let kept = s.chief.put_file(b"abc", 10).await;
+    let mut file = attached(&kept, "a.txt", 3);
+    file.at = Some(5);
+
+    let said =
+        s.chief.say_files(hand, "look at it", vec![file]).await;
+    assert_eq!(said.kind, ReplyKind::Notice, "{}", said.text);
+    s.chief.shows(&now, "Hello.").await;
+    let items = s.chief.items(&now);
+    assert_eq!(items[0].text, "look at it");
+    assert_eq!(items[0].files[0].at, Some(5));
+    let asked = endpoint.completions(1).await[0]
+        .body
+        .as_ref()
+        .unwrap()
+        .to_string();
+    assert!(
+        asked.contains(
+            "look [File 1 of this message, 3 bytes, saved at "
+        ) && asked.contains("] at it"),
+        "{asked}"
+    );
+
+    // A place inside a character is refused.
+    let mut inside = attached(&kept, "b.txt", 3);
+    inside.at = Some(1);
+    let refused = s.chief.say_files(hand, "é", vec![inside]).await;
+    assert_eq!(refused.kind, ReplyKind::Error);
 }

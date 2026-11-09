@@ -21,6 +21,13 @@ hash_id! {
 )]
 #[serde(deny_unknown_fields)]
 pub struct AttachedFile {
+    /// The byte offset into the line's text, on a character
+    /// boundary and at most the text's length, where the file sits.
+    /// Without one it goes after the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "u64", range(max = 9_007_199_254_740_991_u64))]
+    pub at: Option<u64>,
     pub id: FileId,
     /// Its path in the folder it was attached in, or its name alone,
     /// with `/` between the parts: no empty part, no `.` or `..`.

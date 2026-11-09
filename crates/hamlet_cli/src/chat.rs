@@ -10,6 +10,7 @@ use hamlet_protocol::{HAND, MAYOR};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::client::{self, Client, ServerAddress};
+use crate::mentions;
 
 fn chat_ref(with: AgentId) -> ChatRef {
     ChatRef {
@@ -91,6 +92,7 @@ pub async fn run(
         attached: Vec::new(),
         files: Vec::new(),
         held: VecDeque::new(),
+        unsent: None,
         client,
         state,
         target,
@@ -108,7 +110,7 @@ pub async fn run(
     let chat = chat_ref(session.target);
     session.open(RequestId::new(), chat).await?;
     for path in attach {
-        session.attach(path).await?;
+        session.attach(path, None).await?;
     }
     let mut input = BufReader::new(tokio::io::stdin()).lines();
     loop {
@@ -131,12 +133,15 @@ pub async fn run(
 struct Session {
     address: ServerAddress,
     /// The images the next line carries.
-    attached: Vec<ImageId>,
+    attached: Vec<AttachedImage>,
     /// The files the next line carries.
     files: Vec<AttachedFile>,
-    /// What waits for a yes before it is sent, being over what one
-    /// message takes, first one first.
-    held: VecDeque<(String, client::Plan)>,
+    /// The sends over what one message takes, which wait for a yes,
+    /// first one first, with each place in the line.
+    held: VecDeque<(String, client::Plan, Option<u64>)>,
+    /// The words of a line that is said once what is held is
+    /// answered.
+    unsent: Option<String>,
     client: Client,
     state: State,
     target: AgentId,
@@ -181,21 +186,25 @@ impl Session {
         let Some(line) = line else {
             // The end of input answers what is held with no.
             self.held.clear();
-            if !self.attached.is_empty() || !self.files.is_empty() {
-                self.say(String::new()).await?;
+            let unsent = self.unsent.take();
+            if unsent.is_some()
+                || !self.attached.is_empty()
+                || !self.files.is_empty()
+            {
+                self.say(unsent.unwrap_or_default()).await?;
             }
             let barrier = RequestId::new();
             self.open(barrier.clone(), chat_ref(self.target)).await?;
             self.last = Some(barrier);
             return Ok(());
         };
-        if let Some((shown, plan)) = self.held.pop_front() {
+        if let Some((shown, plan, at)) = self.held.pop_front() {
             if matches!(
                 line.trim().to_lowercase().as_str(),
                 "y" | "yes"
             ) {
                 if let Err(error) =
-                    self.send_plan(&shown, &plan).await
+                    self.send_plan(&shown, &plan, at).await
                 {
                     eprintln!("error: {error:#}");
                 }
@@ -203,6 +212,11 @@ impl Session {
                 eprintln!("  (left out {shown})");
             }
             self.ask_held();
+            if self.held.is_empty()
+                && let Some(text) = self.unsent.take()
+            {
+                return self.say(text).await;
+            }
             return prompt(&mut self.screen, self.interactive);
         }
         let trimmed = line.trim();
@@ -214,14 +228,14 @@ impl Session {
             .unwrap_or((trimmed, ""));
         if command == "/attach" {
             if let Err(error) =
-                self.attach(Path::new(name.trim())).await
+                self.attach(Path::new(name.trim()), None).await
             {
                 eprintln!("error: {error:#}");
             }
             return prompt(&mut self.screen, self.interactive);
         }
         if !matches!(command, "/agent" | "/hamlet" | "/hand") {
-            return self.say(line).await;
+            return self.say_line(line).await;
         }
         let name = name.trim();
         match switch(&self.state, command, name) {
@@ -248,15 +262,50 @@ impl Session {
         prompt(&mut self.screen, self.interactive)
     }
 
-    /// Attaches `path` to the next line: an image, or any other file
-    /// or a folder. What is over what one message takes waits for a
-    /// yes, which only a terminal can give.
-    async fn attach(&mut self, path: &Path) -> Result<()> {
+    /// Says `line`, with what its `@path` tokens name attached where
+    /// the tokens stood. The line is not said if one cannot be
+    /// attached.
+    async fn say_line(&mut self, line: String) -> Result<()> {
+        if line.trim_start().starts_with('/') {
+            return self.say(line).await;
+        }
+        let taken = mentions::take(&line, Path::exists);
+        if taken.paths.is_empty() {
+            return self.say(line).await;
+        }
+        let (images, files) = (self.attached.len(), self.files.len());
+        for (at, path) in &taken.paths {
+            if let Err(error) = self.attach(path, Some(*at)).await {
+                eprintln!(
+                    "error: {error:#}\n  (the line was not sent)"
+                );
+                self.attached.truncate(images);
+                self.files.truncate(files);
+                self.held.clear();
+                return prompt(&mut self.screen, self.interactive);
+            }
+        }
+        if self.held.is_empty() {
+            return self.say(taken.text).await;
+        }
+        self.unsent = Some(taken.text);
+        Ok(())
+    }
+
+    /// Attaches `path` to the next line, at `at` bytes into its words
+    /// if given: an image, or any other file or a folder. What is
+    /// over what one message takes waits for a yes, which only a
+    /// terminal can give.
+    async fn attach(
+        &mut self,
+        path: &Path,
+        at: Option<u64>,
+    ) -> Result<()> {
         let shown = path.display().to_string();
         if ImageInput::is_image_file(path) && !path.is_dir() {
-            let image =
+            let id =
                 client::upload_image(&self.address, path).await?;
-            self.attached.push(image);
+            self.attached.push(AttachedImage { at, id });
             self.attached_note(&shown);
             return Ok(());
         }
@@ -277,23 +326,28 @@ impl Session {
                     AttachedFile::CAP_FILES
                 );
             }
-            self.held.push_back((shown, plan));
+            self.held.push_back((shown, plan, at));
             if self.held.len() == 1 {
                 self.ask_held();
             }
             return Ok(());
         }
-        self.send_plan(&shown, &plan).await
+        self.send_plan(&shown, &plan, at).await
     }
 
     /// Sends the files of `plan`, which `shown` names, with the next
-    /// line.
+    /// line, at `at` bytes into its words if given.
     async fn send_plan(
         &mut self,
         shown: &str,
         plan: &client::Plan,
+        at: Option<u64>,
     ) -> Result<()> {
-        let files = client::upload_files(&self.address, plan).await?;
+        let mut files =
+            client::upload_files(&self.address, plan).await?;
+        for file in &mut files {
+            file.at = at;
+        }
         self.files.extend(files);
         self.attached_note(shown);
         Ok(())
@@ -308,7 +362,7 @@ impl Session {
 
     /// Asks whether what is held first may be sent.
     fn ask_held(&self) {
-        if let Some((shown, plan)) = self.held.front() {
+        if let Some((shown, plan, _)) = self.held.front() {
             eprintln!(
                 "  ({shown} is {} files, {}: over what one message \
                  takes, {} MiB or {} files. Send it anyway? y/N)",

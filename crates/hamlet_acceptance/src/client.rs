@@ -282,7 +282,7 @@ impl Client {
         &mut self,
         to: AgentId,
         text: &str,
-        images: Vec<ImageId>,
+        images: Vec<AttachedImage>,
     ) -> Reply {
         let text = text.to_owned();
         self.request(|id| {

@@ -269,6 +269,7 @@ pub async fn upload_files(
         }
         let id = put_file(&mut client, &bytes).await?;
         kept.push(AttachedFile {
+            at: None,
             id,
             name: file.name.clone(),
             size: file.size,

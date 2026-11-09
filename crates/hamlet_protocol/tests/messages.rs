@@ -87,15 +87,22 @@ fn chief_requests_carry_addresses_ids_and_choices() {
         ClientMessage::Say(Say {
             files: Vec::new(),
             id: id(),
-            images: vec![IMAGE.parse().unwrap()],
+            images: vec![
+                AttachedImage::last(IMAGE.parse().unwrap()),
+                AttachedImage {
+                    at: Some(2),
+                    id: IMAGE.parse().unwrap(),
+                },
+            ],
             to: agent(),
             text: "Look".into(),
         }),
-        json!({"type": "say", "id": ID, "images": [IMAGE], "to": 2, "text": "Look"}),
+        json!({"type": "say", "id": ID, "images": [{"id": IMAGE}, {"at": 2, "id": IMAGE}], "to": 2, "text": "Look"}),
     );
     client(
         ClientMessage::Say(Say {
             files: vec![AttachedFile {
+                at: Some(4),
                 id: IMAGE.parse().unwrap(),
                 name: "notes/a.md".into(),
                 size: 3,
@@ -105,7 +112,7 @@ fn chief_requests_carry_addresses_ids_and_choices() {
             to: agent(),
             text: "Read".into(),
         }),
-        json!({"type": "say", "id": ID, "files": [{"id": IMAGE, "name": "notes/a.md", "size": 3}], "to": 2, "text": "Read"}),
+        json!({"type": "say", "id": ID, "files": [{"at": 4, "id": IMAGE, "name": "notes/a.md", "size": 3}], "to": 2, "text": "Read"}),
     );
     client(
         ClientMessage::PutFile(PutFile { id: id(), size: 3 }),

@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::client::{
-    AgentId, AttachedFile, ImageId, RequestId, UsageView,
+    AgentId, AttachedFile, AttachedImage, RequestId, UsageView,
 };
 
 #[derive(
@@ -22,7 +22,7 @@ pub struct Say {
     /// The images the line carries, each sent before it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(length(max = 20))]
-    pub images: Vec<ImageId>,
+    pub images: Vec<AttachedImage>,
     pub text: String,
     pub to: AgentId,
 }
@@ -232,7 +232,7 @@ pub struct Item {
     pub id: String,
     /// The images a chief's line carried.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub images: Vec<ImageId>,
+    pub images: Vec<AttachedImage>,
     pub kind: ItemKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]

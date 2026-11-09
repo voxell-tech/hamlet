@@ -10,6 +10,7 @@ use hamlet_protocol::client::AttachedFile;
 use hamlet_store::ids::AgentId;
 use hamlet_workspace_wire::{Bytes, MAX_FILE, Write};
 
+use crate::attached::Caption;
 use crate::core::Core;
 use crate::knowledge::folder::Folder;
 use crate::society::refusal::Refusal;
@@ -23,6 +24,9 @@ pub(crate) const INBOX: &str = "inbox";
 struct Saved {
     /// The name it was saved under, in the folder it is in.
     name: String,
+    /// The place in a line's words it sits at, by the first file
+    /// saved.
+    at: Option<u64>,
     files: usize,
     bytes: u64,
     folder: bool,
@@ -113,6 +117,16 @@ impl Inbox {
         name: &str,
         bytes: &[u8],
     ) -> Result<std::result::Result<(), Refusal>> {
+        self.put_at(name, bytes, None).await
+    }
+
+    /// [`Self::put`] for a file that sits at `at` in a line's words.
+    pub(crate) async fn put_at(
+        &mut self,
+        name: &str,
+        bytes: &[u8],
+        at: Option<u64>,
+    ) -> Result<std::result::Result<(), Refusal>> {
         if TreePath::parse(name).is_err() {
             return Ok(Err(usage(format!(
                 "`{name}` is not a name of a file."
@@ -141,6 +155,7 @@ impl Inbox {
                 self.chosen.insert(top.to_owned(), candidate.clone());
                 self.saved.push(Saved {
                     name: candidate.clone(),
+                    at,
                     files: 0,
                     bytes: 0,
                     folder: false,
@@ -197,6 +212,16 @@ impl Inbox {
     /// The lines that name where each file or folder saved is, as it
     /// is `of`: "of this message".
     pub(crate) fn captions(&self, of: &str) -> String {
+        self.placed_captions(of)
+            .into_iter()
+            .map(|caption| caption.words)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// [`Self::captions`], one for each file or folder saved, with
+    /// the place it sits at.
+    pub(crate) fn placed_captions(&self, of: &str) -> Vec<Caption> {
         self.saved
             .iter()
             .enumerate()
@@ -214,7 +239,7 @@ impl Inbox {
                 };
                 let size = AttachedFile::size_words(saved.bytes);
                 let n = index + 1;
-                match saved.folder {
+                let words = match saved.folder {
                     true => format!(
                         "[Folder {n} {of}, {} files, {size}, saved \
                          at {at}]",
@@ -223,9 +248,12 @@ impl Inbox {
                     false => format!(
                         "[File {n} {of}, {size}, saved at {at}]"
                     ),
+                };
+                Caption {
+                    at: saved.at,
+                    words,
                 }
             })
-            .collect::<Vec<_>>()
-            .join("\n")
+            .collect()
     }
 }

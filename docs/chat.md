@@ -255,6 +255,13 @@ says so, and it is uploaded only after the chief presses "Send anyway", or taken
 off.
 A rewind puts the files back over the field with the line's words.
 
+**Where an attachment sits.** A line's images and files may each carry a place
+in its words, a byte offset on a character boundary (`at` in
+[the protocol](protocol.md)). The server puts each one's caption in the words at
+its place, for the model, and the transcript keeps the words alone with each
+place beside them. The window attaches with no place, so its captions follow the
+words; the terminal chat places the ones its `@path` tokens name.
+
 A model that takes no images has the button greyed out, and a drag over
 the window says it cannot be dropped; a paste or drop is refused the same way.
 The catalogue entry of the agent's model tells which: a model the catalogue

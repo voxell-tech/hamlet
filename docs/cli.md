@@ -80,16 +80,27 @@ The server advertises its supported deeds in the state it sends, and
 `commands.rs` carries them out: hamlets and hires, the tree and its roads,
 versions of a scholar, the library, the record, the budget and what waits.
 The server parses commands; the terminal handles only `/hand`, `/hamlet` and
-`/agent` as address changes, and `/attach <path>`, which uploads an image, a
-file or a folder over a connection of its own and attaches it to the next line
-(C33). A folder goes with everything under it, links left out. What is attached
-and over 32 MiB or 1000 files, images aside, asks `y/N` before it is sent; the
-end of input answers no.
-Attachments still held when input ends go in a line of their own. `/hand` talks to the Hand, `/hamlet <hamlet>` to
-that hamlet's mayor, and `/agent` finds an agent anywhere in the realm by its
-address (`hand`, `hire#<id>`, `mayor@<hamlet>`, `worker#<id>`). The
-CLI replaces its realm view on whole states as well as applying changes. See [`society.md`](society.md) for the society and realm's
+`/agent` as address changes, and `/attach`. `/hand` talks to the Hand,
+`/hamlet <hamlet>` to that hamlet's mayor, and `/agent` finds an agent
+anywhere in the realm by its address (`hand`, `hire#<id>`, `mayor@<hamlet>`,
+`worker#<id>`). The CLI replaces its realm view on whole states as well as
+applying changes. See [`society.md`](society.md) for the society and realm's
 surface, and the command table in [`spec/hamlet.md`](spec/hamlet.md#chiefs).
+
+`/attach <path>` uploads an image, a file or a folder over a connection of its
+own and attaches it to the next line (C33). A folder goes with everything under
+it, links left out. What is attached and over 32 MiB or 1000 files, images
+aside, asks `y/N` before it is sent; the end of input answers no. Attachments
+still held when input ends go in a line of their own. In a line of words, in
+the terminal or piped in, `@path` or `@"path with spaces"` at the start of the
+line or after whitespace attaches what the path names where the token stood,
+and the token leaves the words, with the space after it when it stood alone. A
+path that does not exist leaves the token in the words, so `@someone` and
+`a@b.com` stay as they are; a token that ends a word with `.`, `,`, `;`, `:`,
+`!`, `?` or `)` names the path before the mark. Paths are read from the folder
+`hamlet chat` runs in. A path that cannot be attached stops the line from
+being said. A line that begins with `/` is no line of words, and its tokens
+stay. `--attach` and `/attach` attach at the end.
 
 ## The window
 

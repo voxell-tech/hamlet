@@ -65,7 +65,13 @@ are in
 | `RequestId` | A UUID in its 36-character hyphenated form, in either case, such as `0f8fad5b-d9cb-469f-a165-70867728950e`. The braced, URN and 32-digit forms are refused. |
 | `ImageId` | The SHA-256 of an image's bytes as 64 lowercase hexadecimal digits. The same bytes have the same id however often they are sent. |
 | `FileId` | The SHA-256 of a file's bytes as 64 lowercase hexadecimal digits. |
-| `AttachedFile` | `{id: FileId, name: string, size: integer}`: a file a line carries and the name the agent finds it under, its path in an attached folder with `/` between the parts (no empty part, no `.` or `..`), at most 1024 characters. |
+| `AttachedImage` | `{id: ImageId, at?: integer}`: an image a line carries and where it sits in the line's text. |
+| `AttachedFile` | `{id: FileId, name: string, size: integer, at?: integer}`: a file a line carries and the name the agent finds it under, its path in an attached folder with `/` between the parts (no empty part, no `.` or `..`), at most 1024 characters, and where it sits in the line's text. |
+
+`at` is a byte offset into the line's `text`, on a character boundary and at
+most the text's length in bytes; a line with any other `at` is refused. An
+attachment without `at` goes after the text. The files of one folder share
+the folder's `at`.
 | `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`, `welcome`. Use the choices advertised by the wait. |
 | `Endpoint` | `{name: string, baseUrl: string}`. |
 | `Price` | `{input: number, output: number}`: dollars per million tokens. |
@@ -109,7 +115,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
 | `hello` (`Hello`) | `v: Version`, `token: string`; no `id` | Authenticate; full `state`. |
-| `say` (`Say`) | `to: AgentId`, `text: string`, `images?: ImageId[]`, `files?: AttachedFile[]` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. `images` are images sent before with `put-image`, at most 20 and at most what the agent's model takes; a line with images is refused when that model takes none. `files` are files sent before with `put-file`, of any kind, each named for where the agent finds it; the server copies them into the agent's lodge under `inbox/` and the line's caption says where each was saved. They are not given to the model as content. At most 10,000 files, 256 MiB each and 1 GiB together; the client asks its chief before sending more than 32 MiB or 1000 files. A command takes neither. |
+| `say` (`Say`) | `to: AgentId`, `text: string`, `images?: AttachedImage[]`, `files?: AttachedFile[]` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. `images` are images sent before with `put-image`, at most 20 and at most what the agent's model takes; a line with images is refused when that model takes none. `files` are files sent before with `put-file`, of any kind, each named for where the agent finds it; the server copies them into the agent's lodge under `inbox/` and the line's caption says where each was saved. They are not given to the model as content. Each caption is put in the text at its attachment's `at`, those at one `at` in the order sent, images first, and the model is given the images in the order of their captions; the captions of attachments without `at` follow the text. `text` in the transcript is the words alone, and the transcript item carries each `at`. At most 10,000 files, 256 MiB each and 1 GiB together; the client asks its chief before sending more than 32 MiB or 1000 files. A command takes neither. |
 | `put-image` (`PutImage`) | `size: integer` | Begin sending one image of that many bytes, at most 20 MiB, a PNG, JPEG, WebP or GIF; `reply.upload` identifies the upload for its parts. |
 | `put-image-part` (`PutImagePart`) | `upload: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset. `reply` acknowledges the part; the one that completes the image is answered with `reply.image`, the image's id. |
 | `put-file` (`PutFile`) | `size: integer` | Begin sending one file of that many bytes, at most 256 MiB; `reply.upload` identifies the upload for its parts, or an empty file is answered at once with `reply.file`. |
@@ -210,7 +216,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
 | `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
 | `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: TranscriptOperation[]` | Live transcript operations, in order. | Only clients watching that chat. |
-| `reply` (`Reply`) | `to: RequestId`, `kind: "notice" \| "error" \| "rewound"`, `text: string`, `upload?: string`, `image?: ImageId`, `images?: ImageId[]`, `file?: FileId`, `files?: AttachedFile[]` | Request receipt, refusal or words recovered by rewind, with the images and files of the line taken back (`images`, `files`). | Only the connection that asked. |
+| `reply` (`Reply`) | `to: RequestId`, `kind: "notice" \| "error" \| "rewound"`, `text: string`, `upload?: string`, `image?: ImageId`, `images?: AttachedImage[]`, `file?: FileId`, `files?: AttachedFile[]` | Request receipt, refusal or words recovered by rewind, with the images and files of the line taken back (`images`, `files`), each with its `at` in the words returned. | Only the connection that asked. |
 | `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `history`, `models`, `image`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
 | `login` (`LoginProgress`) | `login: string`, `to?: RequestId`, `step: LoginStep` | Sign-in session progress. | Only the connection that started the session. |
 | `fault` (`Fault`) | `text: string`, `to?: RequestId` | Protocol, watch or connection failure. | Only the affected connection. |
@@ -239,8 +245,8 @@ workspace since the server started: `state` (`moving`, `moved` or `failed`),
 lodges `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
-`chief`, `author`, `rewindable`, `tool`, `images` (the `ImageId`s a chief's
-line carried) and `files` (its `AttachedFile`s); the transcript holds ids and never bytes. Its kind is `user`, `assistant`,
+`chief`, `author`, `rewindable`, `tool`, `images` (the `AttachedImage`s a chief's
+line carried) and `files` (its `AttachedFile`s), each with its `at` in `text`; the transcript holds ids and never bytes. Its kind is `user`, `assistant`,
 `reasoning`, `tool`, `notice`, `error` or `answered`, the chief's answers
 to questions. Peer inputs use `author`, not `chief`. Item IDs identify an
 entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool details are `name`, `summary`, nullable

@@ -2,7 +2,7 @@
 //! transcript shows it. The runtime protocol carries it untyped.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::client::{AttachedFile, ImageId};
+use hamlet_protocol::client::{AttachedFile, AttachedImage};
 use hamlet_protocol::runtime;
 use hamlet_store::ids::AgentId;
 use serde::{Deserialize, Serialize};
@@ -17,10 +17,10 @@ pub(crate) enum Mark {
         chief: String,
         text: String,
         at: i64,
-        /// The images the line carried, by their ids.
+        /// The images the line carried, at their places in `text`.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        images: Vec<String>,
-        /// The files the line carried.
+        images: Vec<AttachedImage>,
+        /// The files the line carried, at their places in `text`.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<AttachedFile>,
     },
@@ -83,13 +83,14 @@ impl Mark {
     }
 
     /// The images a chief's line or an agent's message carried.
-    pub fn images(&self) -> Vec<ImageId> {
+    pub fn images(&self) -> Vec<AttachedImage> {
         match self {
-            Self::Chief { images, .. }
-            | Self::Letter(From { images, .. })
+            Self::Chief { images, .. } => images.clone(),
+            Self::Letter(From { images, .. })
             | Self::Question(From { images, .. }) => images
                 .iter()
                 .filter_map(|image| image.parse().ok())
+                .map(AttachedImage::last)
                 .collect(),
             _ => Vec::new(),
         }

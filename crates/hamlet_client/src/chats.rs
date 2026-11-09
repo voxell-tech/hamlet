@@ -408,9 +408,11 @@ pub enum Entry {
     Chief {
         name: String,
         text: String,
-        /// The images the line carries, in order (C33).
-        images: Vec<protocol::ImageId>,
-        /// The files the line carries, in order (C33).
+        /// The images the line carries, at their places in `text`
+        /// (C33).
+        images: Vec<protocol::AttachedImage>,
+        /// The files the line carries, at their places in `text`
+        /// (C33).
         files: Vec<protocol::AttachedFile>,
     },
     Assistant(String),

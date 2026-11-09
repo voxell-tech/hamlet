@@ -305,10 +305,7 @@ pub(crate) fn items_of(
                 Item {
                     chief: Some(chief),
                     files,
-                    images: images
-                        .iter()
-                        .filter_map(|image| image.parse().ok())
-                        .collect(),
+                    images,
                     rewindable: Some(true),
                     ..item(ItemKind::User, text, at)
                 },

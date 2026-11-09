@@ -1,6 +1,7 @@
 //! The Hamlet server: the realm, its society, and its agents'
 //! conversations and work.
 
+mod attached;
 mod calls;
 mod change;
 mod claim;

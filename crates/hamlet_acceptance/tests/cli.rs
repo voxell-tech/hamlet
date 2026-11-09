@@ -70,14 +70,16 @@ async fn chats_with_answers_on_stdout_and_the_rest_on_stderr() {
 
 #[tokio::test]
 async fn attaches_a_file_and_a_folder_to_the_first_line() {
-    let s =
+    let mut s =
         Session::start(Faux::new().responses([words("Got them.")]))
             .await;
     let side = s.home.side().join("send");
     std::fs::create_dir_all(side.join("notes")).unwrap();
     std::fs::write(side.join("notes/a.txt"), "alpha").unwrap();
     std::fs::write(side.join("b.txt"), "beta").unwrap();
+    std::fs::write(side.join("c.txt"), "gamma").unwrap();
     let (notes, b) = (side.join("notes"), side.join("b.txt"));
+    let c = side.join("c.txt");
     let chat = Cli::run(
         s.home.path(),
         &[
@@ -87,12 +89,28 @@ async fn attaches_a_file_and_a_folder_to_the_first_line() {
             "--attach",
             b.to_str().unwrap(),
         ],
-        "Read these.\n/attach /nowhere\n",
+        &format!(
+            "Read @\"{}\" these, @nobody.\n/attach /nowhere\n",
+            c.display()
+        ),
         &[],
     )
     .await;
     assert_eq!(chat.code(), Some(0), "{chat:?}");
     assert!(chat.out.starts_with("Got them."), "{chat:?}");
+    // A token that names a path is attached where it stood.
+    let now = hamlet_acceptance::chat(s.hand());
+    let items = s.chief.open(&now).await.items;
+    assert_eq!(items[0].text, "Read these, @nobody.");
+    let placed = items[0]
+        .files
+        .iter()
+        .map(|file| (file.name.as_str(), file.at))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        placed,
+        [("c.txt", Some(5)), ("notes/a.txt", None), ("b.txt", None)]
+    );
     let inbox = s.home.file("hand/inbox");
     assert_eq!(
         std::fs::read_to_string(inbox.join("notes/a.txt")).unwrap(),

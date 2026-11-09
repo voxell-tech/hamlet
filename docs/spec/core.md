@@ -211,16 +211,23 @@ the message again.
 **C33.** A chief can attach files and folders of any kind to a line to an
 agent, by dropping them on the window, pasting them (files copied in a file
 manager, or a picture such as a screenshot) or choosing them in a dialog; the
-terminal chat takes `--attach <path>` and `/attach <path>`. A folder is
-attached with everything under it, links left out. An image (PNG, JPEG, WebP
+terminal chat takes `--attach <path>` and `/attach <path>`, which attach at the
+end of the line, and `@path` or `@"path with spaces"` in the words, which
+attaches what the path names, if it exists, where the token stood and takes the
+token out. An attachment may sit anywhere in the line's words, at a byte offset
+on a character boundary, and one that does not is refused; one without a place
+goes after the words. A folder is attached with everything under it, links left
+out. An image (PNG, JPEG, WebP
 or GIF, animated or not) is also given to the agent's model beside the line, as
 many as the model takes in a message [20 at most]; a line with images is
 refused, and nothing is kept, when the model takes no images, and only images
 are held back for such a model. Every file, an image too, is saved in the
 `inbox/` of the agent's lodge, in its remote workspace when it works there,
 and the line names where each file or folder is saved, a path the agent can
-open. A file is not given to the model as content, so any model takes any file,
-and the agent reads what it is able to. An agent can open only what was given to
+open, in the words where the attachment sits, and after them for one with no
+place. The model is given the images in the order the line names them. A
+file is not given to the model as content, so any model takes any file, and
+the agent reads what it is able to. An agent can open only what was given to
 it in its own conversations. One send holds at most [32 MiB and 1000 files] of
 files other than images; a chief is asked to confirm a larger one before it is
 sent, and none holds more than [256 MiB] in one file, [1 GiB] or [10000 files]

@@ -57,7 +57,7 @@ use hamlet_desktop::choose::{Choose, Chosen, What};
 use hamlet_desktop::clipboard::{Paste, Pasted};
 use hamlet_desktop::open;
 use hamlet_protocol::client::{
-    AttachedFile, ImageId, ImageInput, ImageSize,
+    AttachedFile, AttachedImage, ImageId, ImageInput, ImageSize,
 };
 use hamlet_realm::hand::FileDropped;
 use hamlet_ui::styles::{ICON, back_link, bare, close_button, note};
@@ -228,12 +228,14 @@ impl Attached {
     /// `None` while one still goes up, waits for a word, or failed.
     pub(super) fn ready(
         &self,
-    ) -> Option<(Vec<ImageId>, Vec<AttachedFile>)> {
+    ) -> Option<(Vec<AttachedImage>, Vec<AttachedFile>)> {
         let images = self
             .list
             .iter()
             .map(|attachment| match &attachment.progress {
-                Progress::Kept(image) => Some(image.clone()),
+                Progress::Kept(image) => {
+                    Some(AttachedImage::last(image.clone()))
+                }
                 _ => None,
             })
             .collect::<Option<Vec<_>>>()?;
@@ -294,10 +296,10 @@ impl Attached {
 
     /// Puts `images` and `files`, which the server keeps, in place
     /// of what is attached, as when a conversation is rewound to a
-    /// line.
+    /// line. They go after the words again, wherever they sat.
     pub(super) fn give_back(
         &mut self,
-        images: &[ImageId],
+        images: &[AttachedImage],
         files: &[AttachedFile],
     ) {
         self.clear();
@@ -306,12 +308,19 @@ impl Attached {
             self.next += 1;
             self.list.push(Attachment {
                 key,
-                shown: Some(Source::Image(image.clone())),
-                progress: Progress::Kept(image.clone()),
+                shown: Some(Source::Image(image.id.clone())),
+                progress: Progress::Kept(image.id.clone()),
             });
         }
+        let files = files
+            .iter()
+            .map(|file| AttachedFile {
+                at: None,
+                ..file.clone()
+            })
+            .collect::<Vec<_>>();
         // One parcel for each name the files were attached under.
-        for (name, kept) in by_top(files) {
+        for (name, kept) in by_top(&files) {
             let key = self.next;
             self.next += 1;
             self.parcels.push(Parcel {
@@ -825,11 +834,11 @@ fn thumbnail(source: Source, side: f32) -> impl View {
 }
 
 /// The images a sent line carries, each fetched once by its id.
-pub(super) fn sent(images: &[ImageId]) -> impl View {
+pub(super) fn sent(images: &[AttachedImage]) -> impl View {
     row(images
         .iter()
         .map(|image| {
-            thumbnail(Source::Image(image.clone()), SENT).boxed()
+            thumbnail(Source::Image(image.id.clone()), SENT).boxed()
         })
         .collect::<Vec<_>>())
     .gap(4.0)
@@ -1198,8 +1207,15 @@ mod tests {
     fn a_rewound_line_gives_its_images_back() {
         let mut attached = Attached::default();
         let image = ImageId::try_from("a".repeat(64)).unwrap();
-        attached.give_back(std::slice::from_ref(&image), &[]);
-        assert_eq!(attached.ready(), Some((vec![image], Vec::new())));
+        let placed = AttachedImage {
+            at: Some(3),
+            id: image,
+        };
+        attached.give_back(std::slice::from_ref(&placed), &[]);
+        assert_eq!(
+            attached.ready(),
+            Some((vec![AttachedImage::last(placed.id)], Vec::new()))
+        );
         attached.give_back(&[], &[]);
         assert_eq!(attached.ready(), Some((Vec::new(), Vec::new())));
     }

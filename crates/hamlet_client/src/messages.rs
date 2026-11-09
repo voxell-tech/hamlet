@@ -101,7 +101,7 @@ pub struct ChiefMessage {
     pub to: protocol::AgentId,
     pub text: String,
     /// The images the line carries, already uploaded (C33).
-    pub images: Vec<protocol::ImageId>,
+    pub images: Vec<protocol::AttachedImage>,
     /// The files the line carries, already uploaded (C33).
     pub files: Vec<protocol::AttachedFile>,
 }
@@ -169,7 +169,7 @@ pub struct Rewound {
     #[event_target]
     pub chat: Entity,
     pub text: String,
-    pub images: Vec<protocol::ImageId>,
+    pub images: Vec<protocol::AttachedImage>,
     pub files: Vec<protocol::AttachedFile>,
 }
 

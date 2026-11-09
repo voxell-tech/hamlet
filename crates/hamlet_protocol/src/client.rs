@@ -205,7 +205,7 @@ pub struct Reply {
     pub image: Option<ImageId>,
     /// The images of the line a rewind took back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub images: Vec<ImageId>,
+    pub images: Vec<AttachedImage>,
     pub kind: ReplyKind,
     pub text: String,
     pub to: RequestId,

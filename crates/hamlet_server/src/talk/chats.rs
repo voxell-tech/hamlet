@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
-use hamlet_protocol::client::{AttachedFile, ImageId};
+use hamlet_protocol::client::{AttachedFile, AttachedImage};
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId, TaskId};
 use hamlet_store::schema::{chat, chat_session};
 
@@ -12,8 +12,8 @@ use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
 use super::tasks::{self, Origin};
 use super::{Env, models, runtimes};
+use crate::attached::Line;
 use crate::change::Change;
-use crate::images::Attached;
 use crate::society::{agents, chiefs};
 
 /// A chief's line, kept.
@@ -100,38 +100,22 @@ pub(crate) fn say(
     request: &str,
     text: &str,
 ) -> Result<Said> {
-    say_with(
-        cx,
-        env,
-        agent,
-        chief,
-        request,
-        text,
-        &Attached::default(),
-    )
+    say_with(cx, env, agent, chief, request, &Line::words(text))
 }
 
-/// [`say`] for a line that carries `attached` images (C33): the
-/// model is given the captions after the words, and the transcript
-/// the images' ids.
+/// [`say`] for a line that carries images and files (C33): the model
+/// is given the line's content, with a caption where each sits, and
+/// the transcript the images and files at their places.
 pub(crate) fn say_with(
     cx: &mut Change<'_>,
     env: &Env,
     agent: AgentId,
     chief: ChiefId,
     request: &str,
-    text: &str,
-    attached: &Attached,
+    line: &Line,
 ) -> Result<Said> {
     let conversation = current(cx, env, agent, chief)?;
-    let content =
-        match (text.is_empty(), attached.captions.is_empty()) {
-            (_, true) => text.to_owned(),
-            (true, false) => attached.captions.clone(),
-            (false, false) => {
-                format!("{text}\n\n{}", attached.captions)
-            }
-        };
+    let text = line.text.as_str();
     let name = chiefs::find(cx.db, chief)?
         .context("the chief is not in the realm")?
         .name;
@@ -150,17 +134,13 @@ pub(crate) fn say_with(
             request: request.clone(),
             kind: InputKind::Chief,
             task: Some(task),
-            content,
+            content: line.content.clone(),
             mark: Mark::Chief {
                 chief: name,
                 text: text.to_owned(),
                 at: cx.at,
-                images: attached
-                    .ids
-                    .iter()
-                    .map(|id| id.as_str().to_owned())
-                    .collect(),
-                files: attached.files.clone(),
+                images: line.images.clone(),
+                files: line.files.clone(),
             },
             steer: false,
             boundary: false,
@@ -328,7 +308,11 @@ pub(crate) fn rewind(
     agent: AgentId,
     chief: ChiefId,
     item: &str,
-) -> crate::change::Done<(String, Vec<ImageId>, Vec<AttachedFile>)> {
+) -> crate::change::Done<(
+    String,
+    Vec<AttachedImage>,
+    Vec<AttachedFile>,
+)> {
     use crate::society::refusal::Refusal;
     let not_a_line = || Refusal::Usage {
         words: "That is not one of your lines in this conversation."

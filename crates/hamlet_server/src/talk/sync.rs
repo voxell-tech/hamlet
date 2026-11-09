@@ -138,7 +138,12 @@ async fn pictures(
     model: &ModelRef,
     input: &Input,
 ) -> Result<Vec<Picture>> {
-    let mut ids = input.mark()?.images();
+    let mut ids = input
+        .mark()?
+        .images()
+        .into_iter()
+        .map(|image| image.id)
+        .collect::<Vec<_>>();
     if ids.is_empty() {
         return Ok(Vec::new());
     }

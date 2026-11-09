@@ -14,7 +14,7 @@ use hamlet_client::images::{Download, ImageArrived};
 use hamlet_client::messages::Rewound;
 use hamlet_client::realm::Account;
 use hamlet_protocol::client as protocol;
-use protocol::ImageId;
+use protocol::{AttachedImage, ImageId};
 
 use crate::scenes::Scene;
 
@@ -33,7 +33,10 @@ pub(super) fn conversation() -> Transcript {
             entry: Entry::Chief {
                 name: "chief".into(),
                 text: "Which of these is the pear tree?".into(),
-                images: vec![id(1), id(2)],
+                images: vec![
+                    AttachedImage::last(id(1)),
+                    AttachedImage::last(id(2)),
+                ],
                 files: Vec::new(),
             },
         },
@@ -104,7 +107,10 @@ pub(super) fn setup(world: &mut World, scene: Scene, chat: Entity) {
         world.trigger(Rewound {
             chat,
             text: String::new(),
-            images: vec![id(3), id(4)],
+            images: vec![
+                AttachedImage::last(id(3)),
+                AttachedImage::last(id(4)),
+            ],
             files: Vec::new(),
         });
     }

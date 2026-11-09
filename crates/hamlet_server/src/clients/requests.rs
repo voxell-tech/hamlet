@@ -226,7 +226,7 @@ impl Core {
                     );
                 }
                 let attached = match self
-                    .attach(agent, &say.images, &say.files)
+                    .attach(agent, &say.text, &say.images, &say.files)
                     .await?
                 {
                     Ok(attached) => attached,
@@ -238,12 +238,13 @@ impl Core {
                     }
                 };
                 let request = say.id.as_str().to_owned();
-                let line = self.credentials.scrub_text(&say.text);
+                let line = attached.place(&say.text, |words| {
+                    self.credentials.scrub_text(words)
+                });
                 let said = self
                     .change(Actor::Chief(chief), |cx, env| {
                         chats::say_with(
                             cx, env, agent, chief, &request, &line,
-                            &attached,
                         )
                     })
                     .await?;
