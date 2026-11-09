@@ -37,7 +37,9 @@ process, so the dock shows the app that was opened; on Windows the
 window is opened apart and the launcher, which asks for no console,
 ends. When the server does not start, a dialog says why, from the
 `Error:` the server wrote last in `server.log`, and where that log is.
-Linux shows it with zenity, which the packages recommend.
+Linux shows it with zenity, which the packages recommend. Given
+`--update <file>`, it first puts that update in place (see
+[Updates](#updates)).
 
 ## What each installs
 
@@ -118,6 +120,59 @@ Windows signs through Azure Trusted Signing, as certificates are now
 kept in hardware and cannot be exported to a file: the four programs
 before they are packed, and the installer after.
 
+## Updates
+
+An installed release looks for a newer one while its window is open:
+15 seconds after the window opens, then every hour. `hamlet_update`
+holds the looking, the download and the putting in place; the window
+and `hamlet_launch` use it.
+
+Each release publishes `latest.json` beside its files: its version,
+notes and page, and for each kind of install (`macos`, `windows`,
+`deb`, `rpm`) its file's address, SHA-256 and length.
+`latest.json.sig` is its Ed25519 signature, in base64. The window
+reads both from the latest release, takes the manifest only when the
+signature holds under the public key built into it and the version is
+newer than its own, then downloads its install's file into the cache
+folder (`~/Library/Caches/Hamlet/updates`, `%LOCALAPPDATA%\Hamlet\updates`
+or `~/.cache/hamlet/updates`) and keeps it only if its sum and length
+match. A toast offers it until the chief restarts or closes it; a
+closed offer comes back when the window next opens.
+
+Restart notes the version being installed and hands the file to
+`hamlet_launch --update <file>`, then the window closes. The launcher
+stops the home's server and puts the update in place:
+
+- macOS: the zip is unpacked beside the app, and the new app takes the
+  old one's place once `codesign` finds it whole and, when the old app
+  was signed by a developer, signed by the same team.
+- Windows: the installer runs silently, closes what holds Hamlet's
+  files, and opens Hamlet when it is done.
+- Linux: `pkexec` runs `apt-get install` on the `.deb` or `dnf install`
+  on the `.rpm`, and the desktop asks for the password.
+
+The launcher then opens Hamlet as it always does, and the agents carry
+on. When the update fails, it says why in a dialog and opens the copy
+that is there; the next window then says the update did not install.
+An archive or a build from source cannot replace itself: its toast
+links to the release's page instead.
+
+Only a release looks: the workflow gives a tag's build the public key,
+from the repository variable `HAMLET_UPDATE_KEY`, and a build without
+it never looks. `HAMLET_NO_UPDATE` set to anything stops a release
+from looking. `HAMLET_UPDATE_FEED` names another manifest, for trying
+an update before it is published. The key pair is made once with
+OpenSSL; the private key goes in the secret `HAMLET_UPDATE_SIGNING_KEY`
+and the public one in the variable:
+
+```sh
+openssl genpkey -algorithm ed25519 -out hamlet-update.pem
+openssl pkey -in hamlet-update.pem -pubout -outform DER | tail -c 32 | base64
+```
+
+Keep the private key out of the repository: whoever holds it can
+offer every installed Hamlet a program to run.
+
 ## Publishing
 
 The release workflow runs only for pushed `v*` tags or an explicit manual
@@ -125,8 +180,11 @@ run. A manual run uploads one workflow artifact per platform and publishes
 no release.
 A tag run first checks that the tag, less its leading `v`, is the version
 in `Cargo.toml`'s `[workspace.package]`, then creates the GitHub release or
-replaces matching assets on an existing release. Pushing a tag is
-therefore a publishing action, not a local packaging check.
+replaces matching assets on an existing release. With
+`HAMLET_UPDATE_SIGNING_KEY` set, `.github/scripts/manifest.sh` then
+writes and signs `latest.json`, uploaded last, so installed copies
+find the update only once every file it names is there. Pushing a tag
+is therefore a publishing action, not a local packaging check.
 
 Validate an extracted archive from outside the checkout on a fresh
 `HAMLET_HOME`: start the server, complete a faux chat, stop it and check

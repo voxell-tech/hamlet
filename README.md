@@ -101,7 +101,9 @@ Each includes everything Hamlet needs, Node too.
 
 Then open Hamlet from your applications. It starts its server and opens
 the window, which walks you through choosing a model. If Hamlet cannot
-start, it says why in a dialog.
+start, it says why in a dialog. When a new release is out, the
+window offers to restart into it; on Linux the desktop asks for your
+password to install it.
 
 > [!NOTE]
 > Until a release is signed, macOS refuses the app the first time. Open
@@ -194,6 +196,7 @@ saved there before the harness continues.
 | `HAMLET_SERVER` | A remote WebSocket URL, never an executable. |
 | `HAMLET_PI_HARNESS` | Pi's `src/main.ts`. |
 | `HAMLET_NODE` | A Node executable. |
+| `HAMLET_NO_UPDATE` | Set to anything, an installed release stops looking for updates. |
 
 Installed commands look for the server and window beside the CLI, then on
 `PATH`. Without `HAMLET_PI_HARNESS`, the server prefers a sibling
@@ -202,7 +205,9 @@ then the build checkout's harness. Without `HAMLET_NODE`, it prefers the
 Node a release ships beside it, then Node on `PATH`.
 
 An installed app opens `hamlet_launch`, which starts or reuses the server
-and opens its sibling window, and shows a failure in a dialog.
+and opens its sibling window, and shows a failure in a dialog. An
+installed release looks for updates while its window is open; see
+[releases](docs/releases.md#updates).
 
 ## Using the window
 
